@@ -106,9 +106,9 @@ def validate_name(name, field_name="Name"):
     # Sanitize the name by stripping whitespace and normalizing
     sanitized_name = name.strip()
 
-    # Check length
-    if len(sanitized_name) < 2:
-        return {"valid": False, "message": _("{0} must be at least 2 characters").format(field_name)}
+    # Check length - allow single character for initials (common in Dutch culture)
+    if len(sanitized_name) < 1:
+        return {"valid": False, "message": _("{0} cannot be empty").format(field_name)}
 
     if len(sanitized_name) > 50:
         return {"valid": False, "message": _("{0} must be less than 50 characters").format(field_name)}

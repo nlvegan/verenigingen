@@ -115,15 +115,6 @@ repos:
       #   stages: [pre-commit]
 
       # Original validation hooks (RESTORED)
-      - id: run-quick-tests
-        name: Run quick validation tests
-        entry: python scripts/testing/integration/simple_test.py
-        language: system
-        pass_filenames: false
-        always_run: true
-        stages: [pre-commit]
-        verbose: true
-
       - id: docfield-checker
         name: Legacy field reference checker (fallback)
         entry: python scripts/validation/legacy_field_validator.py

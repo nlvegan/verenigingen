@@ -236,6 +236,7 @@ class MijnroodCSVImport(Document):
         except frappe.ValidationError as ve:
             # Enhanced error message with row number and field values for debugging
             row_num = row.get("row_number", "?")
+            member_id = row.get("member_id", "N/A")
             first_name = row.get("first_name", "N/A")
             last_name = row.get("last_name", "N/A")
             email = row.get("email", "N/A")
@@ -247,22 +248,26 @@ class MijnroodCSVImport(Document):
             detailed_error = (
                 f"Row {row_num} validation failed:\n"
                 f"  Error: {str(ve)}\n"
+                f"  Lidnummer: '{member_id}'\n"
                 f"  First Name: '{first_name}'\n"
                 f"  Last Name: '{last_name}'\n"
                 f"  Email: '{email}'"
             )
             frappe.log_error(detailed_error, "CSV Import Row Validation")
-            return "skipped", None
+            # Return skip info with lidnummer
+            return "skipped", f"Lidnr {member_id}: {first_name} {last_name} - {str(ve)[:100]}"
         except frappe.DuplicateEntryError as de:
+            member_id = row.get("member_id", "N/A")
             skip_msg = f"Row {row.get('row_number', '?')}: Duplicate entry - {str(de)}"
             error_log.append(skip_msg)
             frappe.log_error(f"Import duplicate error: {str(de)}", "CSV Import Duplicate")
-            return "skipped", None
+            return "skipped", f"Lidnr {member_id}: Duplicate - {str(de)[:100]}"
         except Exception as e:
+            member_id = row.get("member_id", "N/A")
             skip_msg = f"Row {row.get('row_number', '?')}: Unexpected error - {str(e)}"
             error_log.append(skip_msg)
             frappe.log_error(f"Import unexpected error: {str(e)}", "CSV Import Unexpected Error")
-            return "skipped", None
+            return "skipped", f"Lidnr {member_id}: {str(e)[:100]}"
 
     def _finalize_import_results(
         self,
@@ -733,7 +738,9 @@ class MijnroodCSVImport(Document):
         # Financial information
         if row_data.get("iban"):
             member_doc.iban = row_data["iban"]
-            member_doc.payment_method = "SEPA Direct Debit"
+            # Set to Bank Transfer (not SEPA) since CSV doesn't include account holder name
+            # SEPA Direct Debit requires mandate creation with account holder name
+            member_doc.payment_method = "Bank Transfer"
 
         # Handle dues rate - distinguish between missing (None) and zero (free membership)
         dues_rate = None
@@ -998,6 +1005,19 @@ class MijnroodCSVImport(Document):
                 customer_name = member_doc.create_customer()
                 member_doc.customer = customer_name
 
+                # CRITICAL FIX: Persist customer link to database
+                # create_customer() creates the Customer record and updates member_doc.customer
+                # in memory, but this change must be saved to persist the FK relationship.
+                # Without this save, member.customer remains NULL in DB even though Customer exists.
+                try:
+                    member_doc.save()
+                except frappe.exceptions.TimestampMismatchError:
+                    # Concurrent modification - reload and retry once
+                    member_doc.reload()
+                    member_doc.customer = customer_name
+                    member_doc._system_update = True
+                    member_doc.save()
+
             # Update the Customer with Mollie data
             if member_doc.customer:
                 customer = frappe.get_doc("Customer", member_doc.customer)
@@ -1064,6 +1084,8 @@ class MijnroodCSVImport(Document):
                 self._create_or_update_address(member_doc, member_doc._pending_address_data)
                 # Update primary_address field on member if address was created
                 if member_doc.primary_address:
+                    # Reload to avoid timestamp mismatch from concurrent operations
+                    member_doc.reload()
                     # Mark as system update to skip fee override validation during CSV import
                     member_doc._system_update = True
                     member_doc.save()

@@ -186,8 +186,23 @@ class AccountCreationManager:
             frappe.logger().info(f"User account created successfully: {user_doc.name}")
 
         except Exception as e:
-            frappe.logger().error(f"Failed to create user account: {str(e)}")
-            raise frappe.ValidationError(f"User account creation failed: {str(e)}")
+            error_msg = str(e)
+            error_type = type(e).__name__
+
+            # Enhanced logging for rate limit and throttling errors
+            if "throttle" in error_msg.lower() or "rate limit" in error_msg.lower():
+                frappe.logger().error(
+                    f"Rate limit encountered creating user {self.request.email}: "
+                    f"{error_type}: {error_msg}. "
+                    f"This typically occurs when creating many users simultaneously. "
+                    f"The request will be retried automatically."
+                )
+                raise frappe.ValidationError(
+                    f"User account creation rate limited (will retry automatically): {error_msg}"
+                )
+            else:
+                frappe.logger().error(f"Failed to create user account: {error_type}: {error_msg}")
+                raise frappe.ValidationError(f"User account creation failed ({error_type}): {error_msg}")
 
     def assign_roles_and_profile(self):
         """Assign roles and role profile with proper permission validation"""
@@ -967,6 +982,12 @@ def process_bulk_account_creation_batch(request_names, batch_id, batch_number, t
 
     def process_single_request_safe(request_name, site_name):
         """Process a single request with error handling, transaction safety, and new database connection."""
+        import time
+
+        # Add small delay to avoid overwhelming Frappe's rate limiters
+        # This is especially important for user creation operations
+        time.sleep(0.5)  # 500ms delay between requests
+
         try:
             # Each thread needs its own database connection with site context
             frappe.connect(site=site_name)
@@ -1040,7 +1061,9 @@ def process_bulk_account_creation_batch(request_names, batch_id, batch_number, t
     current_site = frappe.local.site
 
     # Process requests in parallel with controlled concurrency
-    max_workers = min(5, len(request_names))  # Up to 5 parallel workers, but not more than requests
+    # CRITICAL: Use only 2 workers to avoid hitting Frappe's user creation rate limits
+    # User creation has strict rate limiting in Frappe core - parallel processing must be conservative
+    max_workers = min(2, len(request_names))  # Up to 2 parallel workers to avoid rate limits
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all requests to the thread pool with site context

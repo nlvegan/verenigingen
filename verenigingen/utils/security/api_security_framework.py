@@ -534,9 +534,9 @@ class APISecurityFramework:
 
                 # Try to get the underlying Redis client
                 # In Frappe v15, this is accessed through the internal attribute
-                if hasattr(cache, 'redis_cache'):
+                if hasattr(cache, "redis_cache"):
                     redis_client = cache.redis_cache
-                elif hasattr(cache, 'get_redis_connection'):
+                elif hasattr(cache, "get_redis_connection"):
                     redis_client = cache.get_redis_connection()
                 else:
                     # Fallback: manually clear known cache keys (less efficient but safe)
@@ -825,10 +825,11 @@ class APISecurityFramework:
                         f"Using batch rate limits for {operation_name} in {context.value} context: {max_calls}/{period_seconds}s"
                     )
                 else:
-                    # Batch context but no batch limits configured - use interactive limits
+                    # Batch context but no batch limits configured - SKIP rate limiting for background jobs
                     frappe.logger("verenigingen.rate_limit").debug(
-                        f"No batch limits configured for {operation_name}, using interactive limits in {context.value} context"
+                        f"No batch limits configured for {operation_name}, skipping rate limits for {context.value} context"
                     )
+                    return True  # Allow without rate limiting
 
             # Build cache key based on scope - include limit_type to separate batch/interactive counters
             if scope == "global":

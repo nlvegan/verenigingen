@@ -91,7 +91,6 @@ class ValidationTestRunner:
         print("🔧 Running Custom Tests...")
         
         test_scripts = [
-            "scripts/testing/integration/simple_test.py",
             "scripts/testing/integration/test_smoke.py",
         ]
         

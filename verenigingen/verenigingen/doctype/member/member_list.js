@@ -368,6 +368,9 @@ frappe.listview_settings['Member'] = {
 
 		// Add application status filter buttons
 		add_status_filter_buttons(listview);
+
+		// Add merge members action
+		add_merge_members_action(listview);
 	},
 
 	// ==================== BUTTON CONFIGURATIONS ====================
@@ -542,5 +545,306 @@ function add_new_member_filter_buttons(listview) {
 
 	listview.page.add_menu_item(__('📊 Members Without Chapter Report'), () => {
 		frappe.set_route('query-report', 'Members Without Chapter');
+	});
+}
+
+function add_merge_members_action(listview) {
+	// Add bulk action for merging members
+	listview.page.add_action_item(__('Merge Members'), () => {
+		const selected = listview.get_checked_items();
+
+		if (selected.length < 2) {
+			frappe.msgprint({
+				title: __('Selection Required'),
+				message: __('Please select at least 2 members to merge.'),
+				indicator: 'orange'
+			});
+			return;
+		}
+
+		if (selected.length > 2) {
+			// Let user pick which 2
+			show_member_selection_dialog(selected, (source, target) => {
+				show_merge_dialog(source, target, listview);
+			});
+		} else {
+			// Exactly 2 selected - ask which is source/target
+			const [first, second] = selected;
+			show_source_target_picker(first.name, second.name, listview);
+		}
+	});
+}
+
+function show_source_target_picker(first_name, second_name, listview) {
+	const dialog = new frappe.ui.Dialog({
+		title: __('Select Source and Target'),
+		fields: [
+			{
+				fieldtype: 'HTML',
+				options: `
+					<p class="text-muted">
+						<strong>Target:</strong> The member record to KEEP (will receive merged data)<br>
+						<strong>Source:</strong> The member record to DELETE (after extracting data)
+					</p>
+				`
+			},
+			{
+				fieldname: 'target',
+				label: __('Target (Keep This Record)'),
+				fieldtype: 'Link',
+				options: 'Member',
+				reqd: 1,
+				default: first_name,
+				get_query: () => ({
+					filters: { name: ['in', [first_name, second_name]] }
+				})
+			},
+			{
+				fieldname: 'source',
+				label: __('Source (Delete After Merge)'),
+				fieldtype: 'Link',
+				options: 'Member',
+				reqd: 1,
+				default: second_name,
+				get_query: () => ({
+					filters: { name: ['in', [first_name, second_name]] }
+				})
+			}
+		],
+		primary_action_label: __('Continue'),
+		primary_action(values) {
+			if (values.source === values.target) {
+				frappe.msgprint(__('Source and target must be different members'));
+				return;
+			}
+			dialog.hide();
+			show_merge_dialog(values.source, values.target, listview);
+		}
+	});
+
+	dialog.show();
+}
+
+function show_member_selection_dialog(members, callback) {
+	const member_options = members.map(m => m.name).join('\n');
+
+	const dialog = new frappe.ui.Dialog({
+		title: __('Select Members to Merge'),
+		fields: [
+			{
+				fieldname: 'source',
+				label: __('Source (Delete After Merge)'),
+				fieldtype: 'Select',
+				options: member_options,
+				reqd: 1
+			},
+			{
+				fieldname: 'target',
+				label: __('Target (Keep This Record)'),
+				fieldtype: 'Select',
+				options: member_options,
+				reqd: 1
+			}
+		],
+		primary_action_label: __('Continue'),
+		primary_action(values) {
+			if (values.source === values.target) {
+				frappe.msgprint(__('Source and target must be different members'));
+				return;
+			}
+			dialog.hide();
+			callback(values.source, values.target);
+		}
+	});
+
+	dialog.show();
+}
+
+function show_merge_dialog(source_name, target_name, listview) {
+	// Show loading indicator
+	frappe.show_alert(__('Loading merge preview...'), 2);
+
+	// Get merge preview from backend
+	frappe.call({
+		method: 'verenigingen.services.member_merge_service.get_merge_preview',
+		args: {
+			source_name: source_name,
+			target_name: target_name
+		},
+		callback(r) {
+			if (r.message) {
+				render_merge_dialog(r.message, listview);
+			}
+		},
+		error(err) {
+			frappe.msgprint({
+				title: __('Error'),
+				message: __('Failed to load merge preview: {0}', [err.message || 'Unknown error']),
+				indicator: 'red'
+			});
+		}
+	});
+}
+
+function render_merge_dialog(preview, listview) {
+	const { source, target, fields, warnings } = preview;
+
+	// Build warnings HTML
+	let warnings_html = '';
+	if (warnings && warnings.length > 0) {
+		warnings_html = `
+			<div class="alert alert-warning" style="margin-bottom: 15px;">
+				<strong>⚠️ Important Warnings:</strong>
+				<ul style="margin-bottom: 0; margin-top: 8px;">
+					${warnings.map(w => `<li>${w}</li>`).join('')}
+				</ul>
+			</div>
+		`;
+	}
+
+	// Build field selection HTML
+	const fields_html = fields.map(field => {
+		// Format display values with context
+		const format_value = (value, fieldname) => {
+			if (!value) return '<em>(empty)</em>';
+
+			// Add age display for birth_date
+			if (fieldname === 'birth_date' && value) {
+				const age = frappe.datetime.get_age(value);
+				return `${frappe.datetime.str_to_user(value)} <span style="color: #6c757d; font-size: 0.9em;">(age ${age})</span>`;
+			}
+
+			return value;
+		};
+
+		const source_display = format_value(field.source_value, field.fieldname);
+		const target_display = format_value(field.target_value, field.fieldname);
+		const has_conflict = field.has_conflict;
+		const suggested = field.suggested || 'target';
+
+		return `
+			<div class="merge-field-row" style="margin-bottom: 12px; padding: 10px; background: ${has_conflict ? '#fff3cd' : '#f8f9fa'}; border-radius: 4px; border-left: 3px solid ${has_conflict ? '#ffc107' : '#e9ecef'};">
+				<div style="margin-bottom: 6px;">
+					<strong>${field.label}</strong>
+					${has_conflict ? '<span class="badge badge-warning" style="margin-left: 8px;">Conflict</span>' : ''}
+				</div>
+				<div style="display: flex; gap: 15px; align-items: center;">
+					<label style="flex: 1; margin: 0; cursor: pointer; padding: 8px; background: white; border: 1px solid #dee2e6; border-radius: 4px;">
+						<input type="radio" name="field_${field.fieldname}" value="source" ${suggested === 'source' ? 'checked' : ''} style="margin-right: 8px;">
+						<span style="color: #6c757d;">Source:</span> ${source_display}
+					</label>
+					<label style="flex: 1; margin: 0; cursor: pointer; padding: 8px; background: white; border: 1px solid #dee2e6; border-radius: 4px;">
+						<input type="radio" name="field_${field.fieldname}" value="target" ${suggested === 'target' ? 'checked' : ''} style="margin-right: 8px;">
+						<span style="color: #6c757d;">Target:</span> ${target_display}
+					</label>
+				</div>
+			</div>
+		`;
+	}).join('');
+
+	const dialog = new frappe.ui.Dialog({
+		title: __('Merge Members'),
+		size: 'large',
+		fields: [
+			{
+				fieldtype: 'HTML',
+				options: `
+					<div style="margin-bottom: 20px;">
+						<h5>Merging Records</h5>
+						<div style="display: flex; gap: 20px; margin-top: 10px;">
+							<div style="flex: 1; padding: 12px; background: #fff3cd; border-radius: 6px;">
+								<strong>🗑️ Source (Will be Deleted)</strong><br>
+								<code>${source.name}</code><br>
+								${source.full_name}<br>
+								<small>${source.email || ''}</small>
+							</div>
+							<div style="flex: 1; padding: 12px; background: #d4edda; border-radius: 6px;">
+								<strong>✅ Target (Will be Kept)</strong><br>
+								<code>${target.name}</code><br>
+								${target.full_name}<br>
+								<small>${target.email || ''}</small>
+							</div>
+						</div>
+					</div>
+
+					${warnings_html}
+
+					<div style="margin-bottom: 15px;">
+						<h6>Select Which Data to Keep for Each Field</h6>
+						<p class="text-muted" style="font-size: 0.9em;">
+							Fields with conflicts are highlighted. Smart defaults are pre-selected.
+						</p>
+					</div>
+
+					<div id="merge-fields-container" style="max-height: 400px; overflow-y: auto;">
+						${fields_html}
+					</div>
+
+					<div class="alert alert-info" style="margin-top: 15px; margin-bottom: 0;">
+						<strong>Note:</strong> Financial data, volunteer records, and ERPNext links will NOT be merged.
+						They will remain on their original records.
+					</div>
+				`
+			}
+		],
+		primary_action_label: __('Merge Members'),
+		primary_action() {
+			// Collect field selections
+			const field_selections = {};
+			fields.forEach(field => {
+				const selected_radio = dialog.$wrapper.find(`input[name="field_${field.fieldname}"]:checked`);
+				if (selected_radio.length) {
+					field_selections[field.fieldname] = selected_radio.val();
+				}
+			});
+
+			// Confirm before proceeding
+			frappe.confirm(
+				__('Are you sure you want to merge these members? This action cannot be undone. The source member ({0}) will be DELETED.', [source.name]),
+				() => {
+					dialog.hide();
+					execute_merge(source.name, target.name, field_selections, listview);
+				}
+			);
+		},
+		secondary_action_label: __('Cancel')
+	});
+
+	dialog.show();
+}
+
+function execute_merge(source_name, target_name, field_selections, listview) {
+	frappe.show_alert(__('Merging members...'), 3);
+
+	frappe.call({
+		method: 'verenigingen.services.member_merge_service.execute_merge',
+		args: {
+			source_name: source_name,
+			target_name: target_name,
+			field_selections: JSON.stringify(field_selections)
+		},
+		freeze: true,
+		freeze_message: __('Merging members, please wait...'),
+		callback(r) {
+			if (r.message && r.message.success) {
+				frappe.show_alert({
+					message: __('Members merged successfully! {0} changes applied.', [r.message.changes_applied]),
+					indicator: 'green'
+				}, 5);
+
+				// Refresh list view
+				listview.refresh();
+
+				// Open the merged member
+				frappe.set_route('Form', 'Member', r.message.merged_member);
+			}
+		},
+		error(err) {
+			frappe.msgprint({
+				title: __('Merge Failed'),
+				message: __('Failed to merge members: {0}', [err.message || 'Unknown error']),
+				indicator: 'red'
+			});
+		}
 	});
 }
