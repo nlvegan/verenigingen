@@ -138,11 +138,6 @@
                             <button class="inline-flex items-center justify-center px-3 py-1.5 text-sm rounded-lg font-medium bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm" onclick="viewAllMembers()">
                                 <i class="fa fa-list mr-1"></i> View All
                             </button>
-                            {% if user_board_role and user_board_role.permissions.can_approve_members %}
-                                <button class="inline-flex items-center justify-center px-3 py-1.5 text-sm rounded-lg font-medium bg-green-600 text-white hover:bg-green-700 shadow-sm" onclick="addNewMember()">
-                                    <i class="fa fa-plus mr-1"></i> Add Member
-                                </button>
-                            {% endif %}
                         </div>
                     </div>
                     <div class="p-6">

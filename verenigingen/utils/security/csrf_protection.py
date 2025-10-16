@@ -192,3 +192,32 @@ def validate_csrf_token(token: str):
     except Exception as e:
         frappe.log_error(f"CSRF validation error: {str(e)}", "CSRF Token Validation")
         return {"success": False, "error": _("CSRF validation system error"), "message": str(e)}
+
+
+def require_csrf_token(func):
+    """
+    Compatibility decorator for CSRF token validation (no-op since Frappe handles this natively)
+
+    NOTE: This decorator now does nothing. Frappe Framework automatically validates
+    CSRF tokens for all POST/PUT/DELETE/PATCH requests in auth.py:83-98.
+
+    This stub exists for backwards compatibility with code that imports this decorator.
+
+    Usage:
+        @frappe.whitelist()
+        @require_csrf_token  # This is now redundant but won't break anything
+        def my_api_function():
+            # Function implementation
+    """
+    # Simply return the original function unchanged
+    # Frappe's native CSRF protection handles validation automatically
+    return func
+
+
+def setup_csrf_protection():
+    """
+    Setup CSRF protection (no-op since using Frappe's native implementation)
+
+    This function exists for backwards compatibility with initialization code.
+    """
+    pass

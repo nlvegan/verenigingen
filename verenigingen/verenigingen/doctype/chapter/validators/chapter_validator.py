@@ -36,10 +36,11 @@ class ChapterValidator(BaseValidator):
         info_result = self.info_validator.validate_chapter_info(chapter_data)
         result.merge(info_result)
 
-        # Validate board members
+        # Validate board-level constraints only
+        # Individual board member validation happens in ChapterBoardMember.validate()
         if hasattr(self.chapter_doc, "board_members") and self.chapter_doc.board_members:
             board_data = self._board_members_to_list(self.chapter_doc.board_members)
-            board_result = self.board_validator.validate_all_board_members(board_data)
+            board_result = self.board_validator.validate_board_constraints(board_data)
             result.merge(board_result)
 
         # Validate postal codes

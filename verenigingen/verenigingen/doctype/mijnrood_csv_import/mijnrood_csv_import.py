@@ -234,9 +234,24 @@ class MijnroodCSVImport(Document):
             result, member_name = self._create_or_update_member(row)
             return result, member_name
         except frappe.ValidationError as ve:
-            skip_msg = f"Row {row.get('row_number', '?')}: Validation error - {str(ve)}"
+            # Enhanced error message with row number and field values for debugging
+            row_num = row.get("row_number", "?")
+            first_name = row.get("first_name", "N/A")
+            last_name = row.get("last_name", "N/A")
+            email = row.get("email", "N/A")
+
+            skip_msg = f"Row {row_num}: Validation error - {str(ve)}"
             error_log.append(skip_msg)
-            frappe.log_error(f"Import validation error: {str(ve)}", "CSV Import Row Validation")
+
+            # Log detailed error with field values for troubleshooting
+            detailed_error = (
+                f"Row {row_num} validation failed:\n"
+                f"  Error: {str(ve)}\n"
+                f"  First Name: '{first_name}'\n"
+                f"  Last Name: '{last_name}'\n"
+                f"  Email: '{email}'"
+            )
+            frappe.log_error(detailed_error, "CSV Import Row Validation")
             return "skipped", None
         except frappe.DuplicateEntryError as de:
             skip_msg = f"Row {row.get('row_number', '?')}: Duplicate entry - {str(de)}"
@@ -271,12 +286,12 @@ class MijnroodCSVImport(Document):
         # Verify it's still set for the finalization phase
         if not getattr(frappe.flags, "bulk_member_operations", False):
             frappe.logger().warning(
-                f"[CSV IMPORT DEBUG] bulk_member_operations flag was NOT set during finalization - setting it now"
+                "[CSV IMPORT DEBUG] bulk_member_operations flag was NOT set during finalization - setting it now"
             )
             frappe.flags.bulk_member_operations = True
         else:
             frappe.logger().info(
-                f"[CSV IMPORT DEBUG] Confirmed bulk_member_operations flag still set during finalization"
+                "[CSV IMPORT DEBUG] Confirmed bulk_member_operations flag still set during finalization"
             )
 
         try:
@@ -292,7 +307,7 @@ class MijnroodCSVImport(Document):
             # Always clear the bulk operations flag
             frappe.flags.bulk_member_operations = False
             frappe.logger().info(
-                f"[CSV IMPORT DEBUG] Cleared bulk_member_operations flag at end of finalization"
+                "[CSV IMPORT DEBUG] Cleared bulk_member_operations flag at end of finalization"
             )
 
         # Validate Mollie subscription data preservation
@@ -318,7 +333,7 @@ class MijnroodCSVImport(Document):
 
         # Generate itemized member list in notes field
         self.notes = self._generate_itemized_member_list(created_members, updated_members, skipped_members)
-        frappe.logger().info(f"Notes field set with itemized member lists")
+        frappe.logger().info("Notes field set with itemized member lists")
 
         if error_log:
             self.error_log = "\\n".join(error_log[:50])  # Limit error log size
@@ -1397,13 +1412,12 @@ class MijnroodCSVImport(Document):
 
             # Create new chapter
             chapter = frappe.new_doc("Chapter")
-            chapter.update(
-                {
-                    "name": chapter_name,
-                    "status": "Active",
-                    "region": nl_region,
-                    "introduction": f"Auto-created chapter '{chapter_name}' during CSV import. Please update with proper details.",
-                }
+            # Set fields directly, not via update() which can bypass validation
+            chapter.chapter_name = chapter_name  # Set the chapter name field
+            chapter.status = "Active"
+            chapter.region = nl_region  # CRITICAL: Set region field
+            chapter.introduction = (
+                f"Auto-created chapter '{chapter_name}' during CSV import. Please update with proper details."
             )
 
             # Set CSV import flags
@@ -1413,7 +1427,7 @@ class MijnroodCSVImport(Document):
             chapter.insert()
 
             frappe.logger().info(
-                f"Auto-created chapter '{chapter_name}' with Netherlands region during CSV import"
+                f"Auto-created chapter '{chapter_name}' with Netherlands region '{nl_region}' during CSV import"
             )
             return chapter.name
 

@@ -3,7 +3,7 @@
 
   "app": "verenigingen",
   "allow_rename": 1,
-  "autoname": "format:Assoc-Vol-{yyyy}-{mm}-{###}",
+  "autoname": "format:Assoc-Vol-{YYYY}-{MM}-{###}",
   "creation": "2017-09-19 16:16:45.676019",
   "doctype": "DocType",
   "editable_grid": 1,
