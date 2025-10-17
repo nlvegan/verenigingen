@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 
 import frappe
 from frappe import _
+from frappe.model.document import Document
 from frappe.utils import flt, now_datetime
 
 from ..core.mollie_client import MollieClient
@@ -252,7 +253,7 @@ class WebhookService:
             )
             raise MollieWebhookError(f"Failed to process payment {payment_id}: {e}")
 
-    def _find_donation_for_payment(self, payment_id: str, payment) -> Optional[frappe.Document]:
+    def _find_donation_for_payment(self, payment_id: str, payment) -> Optional[Document]:
         """
         Find donation record for the given payment.
         Complete port from original implementation.
@@ -284,7 +285,7 @@ class WebhookService:
 
     def _find_donation_for_payment_by_id(
         self, payment_id: str, with_lock: bool = False
-    ) -> Optional[frappe.Document]:
+    ) -> Optional[Document]:
         """Find donation record by payment_id (primary matching only)"""
         try:
             filters = {"payment_id": payment_id}
@@ -300,7 +301,7 @@ class WebhookService:
 
     def _find_donation_for_subscription_payment(
         self, payment_id: str, payment, with_lock: bool = False
-    ) -> Optional[frappe.Document]:
+    ) -> Optional[Document]:
         """
         Find donation record for subscription payments by looking at payment metadata.
         Complete port from original implementation (lines 249-290).
@@ -343,7 +344,7 @@ class WebhookService:
         # This is normal for first payments that haven't been processed yet
         return None
 
-    def _find_donation_by_customer_timeframe(self, payment) -> Optional[frappe.Document]:
+    def _find_donation_by_customer_timeframe(self, payment) -> Optional[Document]:
         """
         Fallback: Find donation by customer and time window.
         Complete port from original implementation (lines 357-407).
@@ -385,7 +386,7 @@ class WebhookService:
 
         return None
 
-    def _check_payment_processing_status(self, donation: frappe.Document, payment_id: str) -> dict:
+    def _check_payment_processing_status(self, donation: Document, payment_id: str) -> dict:
         """
         Check the processing status of each component with isolated idempotency checks.
         Complete port from original implementation (lines 310-354).
@@ -426,7 +427,7 @@ class WebhookService:
         }
 
     def _process_successful_payment_with_idempotency(
-        self, donation: frappe.Document, payment, idempotency_status: dict
+        self, donation: Document, payment, idempotency_status: dict
     ) -> dict:
         """
         Process successful payment with proper ordering and isolated idempotency checks.
