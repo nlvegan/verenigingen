@@ -104,7 +104,7 @@ class UnifiedWebhookWrapperService:
                             "payment_entry": refund_pe.name,
                             "amount": -float(refund_amount),  # Negative for refunds
                             "payment_date": parsed_date,
-                            "mollie_payment_id": payment_id,
+                            "mollie_payment_id": refund_id,  # Store refund ID for idempotency
                             "payment_status": "Refunded",
                             "payment_method": "Mollie",
                         }
@@ -140,12 +140,35 @@ class UnifiedWebhookWrapperService:
         if payment_history_entries:
             try:
                 donation.reload()  # Single reload before batch update
+
+                # Filter out entries that already exist (idempotency check)
+                entries_to_add = []
                 for entry in payment_history_entries:
-                    donation.append("payments", entry)
-                donation.save()  # Single save after all appends
-                self.logger.info(
-                    f"✅ Updated payment history with {len(payment_history_entries)} refund entries"
-                )
+                    already_exists = any(
+                        p.payment_entry == entry["payment_entry"]
+                        for p in (donation.payments or [])
+                    )
+
+                    if already_exists:
+                        self.logger.info(f"⏭️ Payment history entry already exists for PE {entry['payment_entry']}, skipping")
+                        continue
+
+                    entries_to_add.append(entry)
+
+                # Only save if we have new entries to add
+                if entries_to_add:
+                    # Allow modifying submitted document
+                    donation.flags.ignore_validate_update_after_submit = True
+
+                    for entry in entries_to_add:
+                        donation.append("payments", entry)
+
+                    donation.save()  # Single save after all appends
+                    self.logger.info(
+                        f"✅ Updated payment history with {len(entries_to_add)} refund entries"
+                    )
+                else:
+                    self.logger.info("⏭️ All refund payment history entries already exist, nothing to add")
             except Exception as hist_err:
                 self.logger.error(f"❌ Failed to batch update payment history: {hist_err}")
                 frappe.log_error(
@@ -174,25 +197,47 @@ class UnifiedWebhookWrapperService:
 
         try:
             donation.reload()
+
+            # Check which entries actually need to be added (idempotency check)
+            entries_to_add = []
             for entry in missing_entries:
+                # Check if this Payment Entry already exists in payment history
+                already_exists = any(
+                    p.payment_entry == entry["payment_entry"]
+                    for p in (donation.payments or [])
+                )
+
+                if already_exists:
+                    self.logger.info(f"⏭️ Payment history entry already exists for PE {entry['payment_entry']}, skipping")
+                    continue
+
                 # Parse date if needed (PEs have dates, fetch from PE if available)
                 pe_doc = frappe.get_doc("Payment Entry", entry["payment_entry"])
                 payment_date = pe_doc.posting_date if pe_doc else frappe.utils.getdate()
 
-                donation.append(
-                    "payments",
-                    {
-                        "payment_entry": entry["payment_entry"],
-                        "amount": -float(entry["amount"]),
-                        "payment_date": payment_date,
-                        "mollie_payment_id": entry["refund_id"],  # Store refund ID in this field
-                        "payment_status": "Refunded",
-                        "payment_method": "Mollie",
-                    },
-                )
-            donation.save()
-            self.logger.info(f"✅ Updated {len(missing_entries)} payment history entries")
-            return len(missing_entries)
+                entries_to_add.append({
+                    "payment_entry": entry["payment_entry"],
+                    "amount": -float(entry["amount"]),
+                    "payment_date": payment_date,
+                    "mollie_payment_id": entry["refund_id"],  # Store refund ID in this field
+                    "payment_status": "Refunded",
+                    "payment_method": "Mollie",
+                })
+
+            # Only save if we actually have entries to add
+            if entries_to_add:
+                # Allow modifying submitted document
+                donation.flags.ignore_validate_update_after_submit = True
+
+                for entry_data in entries_to_add:
+                    donation.append("payments", entry_data)
+
+                donation.save()
+                self.logger.info(f"✅ Updated {len(entries_to_add)} payment history entries")
+                return len(entries_to_add)
+            else:
+                self.logger.info("⏭️ All payment history entries already exist, nothing to add")
+                return 0
         except Exception as e:
             self.logger.error(f"❌ Failed to update missing payment history: {e}")
             frappe.log_error(
@@ -702,6 +747,10 @@ class UnifiedWebhookWrapperService:
 
                     # Append payment history entry for reversal
                     donation_doc.reload()
+
+                    # Allow modifying submitted document
+                    donation_doc.flags.ignore_validate_update_after_submit = True
+
                     donation_doc.append(
                         "payments",
                         {

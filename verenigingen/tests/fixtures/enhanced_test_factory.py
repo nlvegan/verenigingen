@@ -3363,7 +3363,7 @@ class EnhancedTestCase(FrappeTestCase):
                 payment_entry_data["paid_to"] = mode_of_payment_doc.accounts[0].default_account
             else:
                 bank_account = frappe.db.get_value("Account",
-                    {"company": company, "account_type": "Bank"}, "name")
+                    {"company": company, "account_type": "Bank", "is_group": 0}, "name")
                 if not bank_account:
                     raise ValueError(
                         f"No Bank account found for company {company}.\n"
@@ -3401,7 +3401,7 @@ class EnhancedTestCase(FrappeTestCase):
         else:
             # For "Pay" type - reverse the logic
             bank_account = frappe.db.get_value("Account",
-                {"company": company, "account_type": "Bank"}, "name")
+                {"company": company, "account_type": "Bank", "is_group": 0}, "name")
             if not bank_account:
                 raise ValueError(
                     f"No Bank account found for company {company}.\n"
@@ -3410,7 +3410,7 @@ class EnhancedTestCase(FrappeTestCase):
             payment_entry_data["paid_from"] = bank_account
 
             creditors_account = frappe.db.get_value("Account",
-                {"company": company, "account_type": "Payable"}, "name")
+                {"company": company, "account_type": "Payable", "is_group": 0}, "name")
             if not creditors_account:
                 raise ValueError(
                     f"No Payable account found for company {company}.\n"
