@@ -70,10 +70,12 @@ class TestMollieRefundChargebackIntegration(EnhancedTestCase):
         self.test_donation = self.create_test_donation(donor_email=self.test_member.email, amount=100.0)
 
         # Create original payment entry for refund testing
+        # Use proper Mollie payment ID format: tr_xxxxx
+        self.test_payment_id = "tr_refund_test_123"
         self.original_payment = self.create_test_payment_entry(
             payment_type="Receive",
             paid_amount=100.0,
-            reference_no="test_payment_refund_123",
+            reference_no=self.test_payment_id,
             custom_donation=self.test_donation.name,
         )
 
@@ -118,6 +120,8 @@ class TestMollieRefundChargebackIntegration(EnhancedTestCase):
                 )
 
         # Validate refund initiation results
+        if refund_result["status"] != "success":
+            print(f"❌ Refund initiation failed: {refund_result}")
         self.assertEqual(refund_result["status"], "success")
         self.assertIn("refund_id", refund_result["data"])
         self.assertEqual(refund_result["data"]["amount"], 30.0)
@@ -125,7 +129,7 @@ class TestMollieRefundChargebackIntegration(EnhancedTestCase):
         # Simulate webhook processing for refund confirmation
         refund_webhook_data = self.create_test_mollie_webhook_data(
             webhook_type="refund.completed",
-            payment_id="test_payment_refund_123",
+            payment_id=self.test_payment_id,
             refund_id="refund_partial_123",
             refund_amount=30.0,
         )
@@ -140,12 +144,12 @@ class TestMollieRefundChargebackIntegration(EnhancedTestCase):
                     "amount": {"value": "30.00", "currency": "EUR"},
                     "status": "refunded",
                     "description": "Integration test partial refund",
-                    "payment_id": "test_payment_refund_123",
+                    "payment_id": self.test_payment_id,
                 }
 
                 # Process through real webhook business logic
                 webhook_result = self.webhook_processor.process_refund_webhook(
-                    payment_id="test_payment_refund_123",
+                    payment_id=self.test_payment_id,
                     refund_data=refund_webhook_data["raw_payload"],
                 )
 
@@ -171,7 +175,7 @@ class TestMollieRefundChargebackIntegration(EnhancedTestCase):
         refund_entry = refund_entries[0]
         self.assertEqual(refund_entry.paid_amount, 30.0)
         self.assertEqual(refund_entry.custom_donation, self.test_donation.name)
-        self.assertEqual(refund_entry.custom_original_payment_id, "test_payment_refund_123")
+        self.assertEqual(refund_entry.custom_original_payment_id, self.test_payment_id)
 
         print("✅ Partial refund workflow integration test passed")
 
@@ -208,7 +212,7 @@ class TestMollieRefundChargebackIntegration(EnhancedTestCase):
         # Process corresponding webhook
         full_refund_webhook = self.create_test_mollie_webhook_data(
             webhook_type="refund.completed",
-            payment_id="test_payment_refund_123",
+            payment_id=self.test_payment_id,
             refund_id="refund_full_456",
             refund_amount=100.0,
         )
@@ -221,11 +225,11 @@ class TestMollieRefundChargebackIntegration(EnhancedTestCase):
                 "amount": {"value": "100.00", "currency": "EUR"},
                 "status": "refunded",
                 "description": "Integration test full refund",
-                "payment_id": "test_payment_refund_123",
+                "payment_id": self.test_payment_id,
             }
 
             webhook_result = self.webhook_processor.process_refund_webhook(
-                payment_id="test_payment_refund_123",
+                payment_id=self.test_payment_id,
                 refund_data=full_refund_webhook["raw_payload"],
             )
 
@@ -253,10 +257,12 @@ class TestMollieRefundChargebackIntegration(EnhancedTestCase):
         - Database integrity under concurrent load
         """
         # Create additional payment for concurrent testing
+        # Use proper Mollie payment ID format
+        concurrent_payment_id = "tr_concurrent_test_789"
         concurrent_payment = self.create_test_payment_entry(
             payment_type="Receive",
             paid_amount=100.0,
-            reference_no="test_concurrent_payment_789",
+            reference_no=concurrent_payment_id,
             custom_donation=self.test_donation.name,
         )
 
@@ -284,7 +290,7 @@ class TestMollieRefundChargebackIntegration(EnhancedTestCase):
             payment_type="Pay",
             paid_amount=60.0,
             reference_no="concurrent_refund_1",
-            custom_original_payment_id="test_concurrent_payment_789",
+            custom_original_payment_id=concurrent_payment_id,
             custom_reversal_type="Refund",
             submit=True,  # Submit to make it count against available amount
         )
@@ -327,7 +333,7 @@ class TestMollieRefundChargebackIntegration(EnhancedTestCase):
         """
         # Create chargeback webhook data
         chargeback_webhook_data = self.create_test_mollie_webhook_data(
-            webhook_type="chargeback.created", payment_id="test_payment_refund_123"
+            webhook_type="chargeback.created", payment_id=self.test_payment_id
         )
 
         # Add chargeback-specific data
@@ -345,50 +351,44 @@ class TestMollieRefundChargebackIntegration(EnhancedTestCase):
 
         # Process chargeback webhook
         with self.assertQueryCount(self.refund_performance_baselines["chargeback_processing"]):
-            with patch.object(self.webhook_processor, "_fetch_chargeback_details") as mock_fetch:
-                mock_fetch.return_value = {
-                    "id": "chargeback_test_123",
-                    "amount": {"value": "25.00", "currency": "EUR"},
-                    "reason": {"code": "duplicate_processing", "description": "Duplicate processing"},
-                    "payment_id": "test_payment_refund_123",
-                }
+            # Process through chargeback business logic
+            security_validation = self.simulate_mollie_webhook_security(
+                chargeback_webhook_data["webhook_payload"]
+            )
 
-                # Process through chargeback business logic
-                security_validation = self.simulate_mollie_webhook_security(
-                    chargeback_webhook_data["webhook_payload"]
-                )
+            # Process through chargeback webhook processor
+            # Note: chargeback processor gets data directly from webhook payload, no need to mock fetch
+            chargeback_result = self.webhook_processor.process_chargeback_webhook(
+                payment_id=self.test_payment_id,
+                chargeback_data=chargeback_webhook_data["raw_payload"],
+            )
 
-                # NOTE: process_chargeback_webhook is not yet implemented in UnifiedWebhookWrapperService
-                # Skipping this test until chargeback functionality is implemented
-                self.skipTest("Chargeback processing not yet implemented in UnifiedWebhookWrapperService")
+        # Validate chargeback processing
+        self.assertEqual(chargeback_result["status"], "success")
+        self.assertIn("chargeback_id", chargeback_result)
+        self.assertIn("payment_entry_id", chargeback_result)
 
-        # The code below is unreachable due to skipTest above
-        # When chargeback processing is implemented, uncomment and fix these assertions
-        # # Validate chargeback processing
-        # self.assertEqual(chargeback_result["status"], "success")
-        #
-        # # Verify chargeback Payment Entry creation
-        # chargeback_entries = frappe.get_all(
-        #     "Payment Entry",
-        #     filters={
-        #         "payment_type": "Pay",
-        #         "custom_reversal_type": "Chargeback",
-        #         "reference_no": "chargeback_test_123",
-        #     },
-        #     fields=["name", "paid_amount", "custom_original_payment_id"],
-        # )
-        #
-        # self.assertTrue(chargeback_entries, "Chargeback Payment Entry should be created")
-        # chargeback_entry = chargeback_entries[0]
-        # self.assertEqual(chargeback_entry.paid_amount, 25.0)
-        # self.assertEqual(chargeback_entry.custom_original_payment_id, "test_payment_refund_123")
-        #
-        # # Verify impact on available refund amount
-        # payment_info = get_payment_refund_info(self.original_payment.name)
-        # # Original 100.0 - 25.0 chargeback = 75.0 available for refund
-        # self.assertEqual(payment_info["data"]["available_amount"], 75.0)
-        #
-        # print("✅ Chargeback processing integration test passed")
+        # Verify chargeback Payment Entry creation
+        chargeback_entries = frappe.get_all(
+            "Payment Entry",
+            filters={
+                "payment_type": "Pay",
+                "reference_no": ["like", f"%{self.test_payment_id}_chargeback_%"],
+                "docstatus": 1,
+            },
+            fields=["name", "paid_amount", "reference_no"],
+        )
+
+        self.assertTrue(chargeback_entries, "Chargeback Payment Entry should be created")
+        chargeback_entry = chargeback_entries[0]
+        self.assertEqual(chargeback_entry.paid_amount, 25.0)
+
+        # Verify impact on available refund amount
+        payment_info = get_payment_refund_info(self.original_payment.name)
+        # Original 100.0 - 25.0 chargeback = 75.0 available for refund
+        self.assertEqual(payment_info["data"]["available_amount"], 75.0)
+
+        print("✅ Chargeback processing integration test passed")
 
     def test_donation_refund_info_accuracy(self):
         """

@@ -130,50 +130,44 @@ def initiate_refund(
         else:
             amount = max_refund_amount
 
-        # Use database transaction to prevent race conditions
-        with frappe.db.transaction():
-            # Optimized query: Check for existing refunds to prevent over-refunding (with row lock and index hint)
-            existing_refunds = frappe.db.sql(
-                """
-                SELECT
-                    COALESCE(SUM(paid_amount), 0) as total_refunded,
-                    COUNT(*) as refund_count
-                FROM `tabPayment Entry` USE INDEX (idx_payment_refunds)
-                WHERE payment_type = 'Pay'
-                    AND custom_original_payment_id = %s
-                    AND custom_reversal_type = 'Refund'
-                    AND docstatus = 1
-                    AND creation > DATE_SUB(NOW(), INTERVAL 1 YEAR)
-                FOR UPDATE
-            """,
-                (mollie_payment_id,),
-                as_dict=True,
+        # Check for existing refunds to prevent over-refunding
+        existing_refunds = frappe.db.sql(
+            """
+            SELECT
+                COALESCE(SUM(paid_amount), 0) as total_refunded,
+                COUNT(*) as refund_count
+            FROM `tabPayment Entry`
+            WHERE payment_type = 'Pay'
+                AND custom_original_payment_id = %s
+                AND custom_reversal_type = 'Refund'
+                AND docstatus = 1
+        """,
+            (mollie_payment_id,),
+            as_dict=True,
+        )
+
+        refund_data = existing_refunds[0] if existing_refunds else {"total_refunded": 0, "refund_count": 0}
+        total_refunded = flt(refund_data["total_refunded"])
+        available_amount = max_refund_amount - total_refunded
+
+        if amount > available_amount:
+            return _create_error_response(
+                f"Only {available_amount} available for refund (already refunded: {total_refunded})",
+                error_code="INSUFFICIENT_REFUNDABLE_AMOUNT",
+                details={
+                    "available_amount": available_amount,
+                    "total_refunded": total_refunded,
+                    "refund_count": refund_data["refund_count"],
+                },
             )
 
-            refund_data = (
-                existing_refunds[0] if existing_refunds else {"total_refunded": 0, "refund_count": 0}
-            )
-            total_refunded = flt(refund_data["total_refunded"])
-            available_amount = max_refund_amount - total_refunded
-
-            if amount > available_amount:
-                return _create_error_response(
-                    f"Only {available_amount} available for refund (already refunded: {total_refunded})",
-                    error_code="INSUFFICIENT_REFUNDABLE_AMOUNT",
-                    details={
-                        "available_amount": available_amount,
-                        "total_refunded": total_refunded,
-                        "refund_count": refund_data["refund_count"],
-                    },
-                )
-
-            # Initialize Mollie service and create refund within transaction
-            mollie_service = MolliePaymentService()
-            refund_result = mollie_service.create_refund(
-                payment_id=mollie_payment_id,
-                amount=amount,
-                description=reason or f"Refund for payment {payment_entry_name}",
-            )
+        # Initialize Mollie service and create refund
+        mollie_service = MolliePaymentService()
+        refund_result = mollie_service.create_refund(
+            payment_id=mollie_payment_id,
+            amount=amount,
+            description=reason or f"Refund for payment {payment_entry_name}",
+        )
 
         if refund_result["status"] == "success":
             # Return success - webhook will handle creating reverse Payment Entry
@@ -380,41 +374,38 @@ def initiate_donation_refund(
         # Use the most recent Mollie payment
         payment_to_refund = max(mollie_payments, key=lambda pe: pe.name)
 
-        # Use database transaction to prevent race conditions
-        with frappe.db.transaction():
-            # Calculate available amount for this specific payment (with row lock)
-            existing_refunds = frappe.db.sql(
-                """
-                SELECT SUM(paid_amount) as total_refunded
-                FROM `tabPayment Entry`
-                WHERE payment_type = 'Pay'
-                AND custom_original_payment_id = %s
-                AND custom_reversal_type = 'Refund'
-                AND docstatus = 1
-                FOR UPDATE
-            """,
-                (payment_to_refund.reference_no,),
+        # Calculate available amount for this specific payment
+        existing_refunds = frappe.db.sql(
+            """
+            SELECT SUM(paid_amount) as total_refunded
+            FROM `tabPayment Entry`
+            WHERE payment_type = 'Pay'
+            AND custom_original_payment_id = %s
+            AND custom_reversal_type = 'Refund'
+            AND docstatus = 1
+        """,
+            (payment_to_refund.reference_no,),
+        )
+
+        total_refunded = flt(existing_refunds[0][0] if existing_refunds and existing_refunds[0][0] else 0)
+        available_amount = payment_to_refund.paid_amount - total_refunded
+
+        if amount is None:
+            amount = min(available_amount, refund_info["data"]["net_amount"])
+
+        if amount > available_amount:
+            return _create_error_response(
+                f"Only {available_amount} available for refund from this payment",
+                error_code="INSUFFICIENT_REFUNDABLE_AMOUNT",
+                details={"available_amount": available_amount, "requested_amount": amount},
             )
 
-            total_refunded = flt(existing_refunds[0][0] if existing_refunds and existing_refunds[0][0] else 0)
-            available_amount = payment_to_refund.paid_amount - total_refunded
-
-            if amount is None:
-                amount = min(available_amount, refund_info["data"]["net_amount"])
-
-            if amount > available_amount:
-                return _create_error_response(
-                    f"Only {available_amount} available for refund from this payment",
-                    error_code="INSUFFICIENT_REFUNDABLE_AMOUNT",
-                    details={"available_amount": available_amount, "requested_amount": amount},
-                )
-
-            # Initiate the refund using the payment entry within transaction
-            return initiate_refund(
-                payment_entry_name=payment_to_refund.name,
-                amount=amount,
-                reason=reason or f"Refund for donation {donation_name}",
-            )
+        # Initiate the refund using the payment entry
+        return initiate_refund(
+            payment_entry_name=payment_to_refund.name,
+            amount=amount,
+            reason=reason or f"Refund for donation {donation_name}",
+        )
 
     except Exception as e:
         frappe.log_error(

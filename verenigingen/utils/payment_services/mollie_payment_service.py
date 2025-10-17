@@ -44,6 +44,52 @@ class MolliePaymentService:
         """Process webhook using new service layer."""
         return self._complete_service.process_payment_webhook(webhook_data)
 
+    def create_refund(self, payment_id: str, amount: float, description: str = "") -> Dict[str, Any]:
+        """
+        Create a refund for a payment.
+
+        Args:
+            payment_id: Mollie payment ID
+            amount: Refund amount
+            description: Refund description
+
+        Returns:
+            Dict with refund status and details
+        """
+        try:
+            # This method is designed to be mockable in tests
+            # When mocked, the test should return the expected structure directly
+            # When not mocked, it calls the real Mollie client
+
+            # Build refund data according to Mollie API format
+            refund_data = {"amount": {"currency": "EUR", "value": f"{amount:.2f}"}}
+
+            if description:
+                refund_data["description"] = description
+
+            # Use the client from the new service layer
+            refund = self._new_service.client.create_refund(payment_id, refund_data)
+
+            # Handle different response types (object vs dict)
+            if hasattr(refund, "id"):
+                refund_id = refund.id
+            elif isinstance(refund, dict):
+                refund_id = refund.get("id")
+            else:
+                # Fallback for unexpected types
+                refund_id = str(refund)
+
+            # Return standardized response
+            return {
+                "status": "success",
+                "refund_id": refund_id,
+                "amount": amount,
+                "payment_id": payment_id,
+            }
+        except Exception as e:
+            frappe.log_error(f"Failed to create refund for {payment_id}: {e}", "Mollie Refund")
+            return {"status": "error", "message": str(e), "payment_id": payment_id}
+
 
 def get_mollie_gateway_settings():
     """

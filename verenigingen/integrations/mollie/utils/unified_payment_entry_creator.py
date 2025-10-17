@@ -117,6 +117,19 @@ def create_unified_payment_entry(
         # Use refund date or today for both posting and reference dates
         transaction_date = getdate(refund_date) if refund_date else getdate()
 
+        # Determine reversal type and original payment ID for custom fields
+        reversal_type_value = None
+        original_payment_id = None
+
+        if payment_type == "Pay" and reference_suffix:
+            # This is a reversal - extract type from suffix
+            if "_refund_" in reference_suffix:
+                reversal_type_value = "Refund"
+                original_payment_id = mollie_payment_id
+            elif "_chargeback_" in reference_suffix:
+                reversal_type_value = "Chargeback"
+                original_payment_id = mollie_payment_id
+
         # Create Payment Entry using unified pattern
         pe = frappe.get_doc(
             {
@@ -136,6 +149,9 @@ def create_unified_payment_entry(
                 "cost_center": cost_center,
                 "title": base_title,
                 "remarks": base_remarks,
+                # Custom fields for reversal tracking
+                "custom_reversal_type": reversal_type_value,
+                "custom_original_payment_id": original_payment_id,
             }
         )
 

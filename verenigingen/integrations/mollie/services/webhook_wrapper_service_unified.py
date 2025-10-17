@@ -569,15 +569,59 @@ class UnifiedWebhookWrapperService:
                 "duration_seconds": duration,
             }
 
-    def process_refund_webhook(self, payment_id: str, refund_data: Dict[str, Any]) -> Dict[str, Any]:
+    def process_reversal_webhook(
+        self,
+        payment_id: str,
+        reversal_id: str,
+        amount: float,
+        reversal_type: str,
+        reversal_date: Optional[str] = None,
+        reason: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
         """
-        Process refund webhook with unified idempotency management.
+        Generic reversal processor - handles refunds, chargebacks, and other payment reversals.
+
+        Args:
+            payment_id: Mollie payment ID
+            reversal_id: ID of the reversal (refund_id or chargeback_id)
+            amount: Reversal amount
+            reversal_type: Type of reversal ("refund" or "chargeback")
+            reversal_date: Date of the reversal (optional)
+            reason: Reason dict for chargebacks (optional, contains code and description)
+
+        Returns:
+            Dict with processing results
         """
         start_time = time.time()
 
         try:
-            refund_id = refund_data.get("id") or refund_data.get("refund", {}).get("id")
-            self.logger.info(f"🔄 Processing refund webhook for {refund_id} (payment: {payment_id})")
+            # Input validation
+            ALLOWED_REVERSAL_TYPES = {"refund", "chargeback"}
+            if reversal_type not in ALLOWED_REVERSAL_TYPES:
+                error_msg = f"Invalid reversal_type: {reversal_type}. Must be one of {ALLOWED_REVERSAL_TYPES}"
+                self.logger.error(error_msg)
+                return {
+                    "status": "error",
+                    "message": error_msg,
+                    "payment_id": payment_id,
+                    "reversal_id": reversal_id,
+                }
+
+            # Validate amount is positive
+            if amount <= 0:
+                error_msg = f"Invalid amount: {amount}. Amount must be greater than 0"
+                self.logger.error(error_msg)
+                return {
+                    "status": "error",
+                    "message": error_msg,
+                    "payment_id": payment_id,
+                    "reversal_id": reversal_id,
+                    f"{reversal_type}_id": reversal_id,
+                }
+
+            self.logger.info(
+                f"🔄 Processing {reversal_type} webhook for {reversal_id} (payment: {payment_id})"
+            )
 
             # Check unified state first
             processing_state = self.idempotency_manager.check_payment_processing_state(payment_id)
@@ -585,31 +629,36 @@ class UnifiedWebhookWrapperService:
             if not processing_state.payment_entry_exists:
                 return {
                     "status": "error",
-                    "message": f"Cannot process refund - original payment {payment_id} not found",
+                    "message": f"Cannot process {reversal_type} - original payment {payment_id} not found",
                     "payment_id": payment_id,
-                    "refund_id": refund_id,
+                    f"{reversal_type}_id": reversal_id,
                 }
 
-            # Check if this specific refund is already processed
-            existing_refund = self.idempotency_manager.check_refund_idempotency(refund_id)
-            if existing_refund:
+            # Check if this specific reversal is already processed (type-specific check)
+            # Build reference_no pattern that includes reversal type for proper collision prevention
+            reference_pattern = f"{payment_id}_{reversal_type}_{reversal_id}"
+            existing_reversal = frappe.db.get_value(
+                "Payment Entry",
+                {"payment_type": "Pay", "reference_no": reference_pattern, "docstatus": 1},
+                "name",
+            )
+
+            if existing_reversal:
+                self.logger.info(
+                    f"✅ {reversal_type.capitalize()} {reversal_id} already processed: {existing_reversal}"
+                )
                 return {
                     "status": "success",
-                    "message": f"Refund {refund_id} already processed",
+                    "message": f"{reversal_type.capitalize()} {reversal_id} already processed",
                     "payment_id": payment_id,
-                    "refund_id": refund_id,
-                    "existing_reference": existing_refund,
+                    f"{reversal_type}_id": reversal_id,
+                    "existing_reference": existing_reversal,
                     "idempotent": True,
                 }
 
-            # Process the refund using unified approach
-            from ..utils.unified_payment_entry_creator import create_refund_payment_entry
-            from ..utils.webhook_utilities import (
-                get_donation_by_payment_id,
-                safe_extract_amount,
-                safe_extract_date,
-                standardized_webhook_response,
-            )
+            # Process the reversal using unified approach
+            from ..utils.unified_payment_entry_creator import create_unified_payment_entry
+            from ..utils.webhook_utilities import get_donation_by_payment_id, standardized_webhook_response
 
             # Find donation using utility
             donation_doc = get_donation_by_payment_id(payment_id)
@@ -618,41 +667,88 @@ class UnifiedWebhookWrapperService:
                     "ignored", f"Original donation not found for payment {payment_id}", payment_id=payment_id
                 )
 
-            # Extract refund details using utilities
-            refund_amount = safe_extract_amount(refund_data)
-            refund_date = safe_extract_date(refund_data)
+            # Build description based on reversal type
+            if reversal_type == "chargeback" and reason:
+                reason_text = f"{reason.get('code', 'unknown')}: {reason.get('description', '')}"
+                description = f"Chargeback {reversal_id} - Reason: {reason_text}"
+            else:
+                description = f"{reversal_type.capitalize()} {reversal_id} of €{amount:.2f}"
 
-            # Create refund Payment Entry
-            refund_pe = create_refund_payment_entry(
+            # Create reversal Payment Entry using unified creator
+            reversal_pe = create_unified_payment_entry(
                 donation_doc=donation_doc,
                 mollie_payment_id=payment_id,
-                refund_id=refund_id,
-                refund_amount=refund_amount,
-                refund_date=refund_date,
+                amount=amount,
+                payment_type="Pay",  # Reversals are outgoing
+                reference_suffix=f"_{reversal_type}_{reversal_id}",
+                refund_date=reversal_date,
+                description=description,
             )
 
+            # Update donation payment history for reversals
+            if reversal_pe:
+                try:
+                    # Parse reversal date to proper format
+                    parsed_date = reversal_date
+                    if isinstance(reversal_date, str):
+                        try:
+                            from dateutil import parser
+
+                            parsed_date = parser.parse(reversal_date).date()
+                        except (ValueError, TypeError, ImportError):
+                            parsed_date = frappe.utils.getdate()
+                    elif not parsed_date:
+                        parsed_date = frappe.utils.getdate()
+
+                    # Append payment history entry for reversal
+                    donation_doc.reload()
+                    donation_doc.append(
+                        "payments",
+                        {
+                            "payment_entry": reversal_pe.name,
+                            "amount": -float(amount),  # Negative for reversals
+                            "payment_date": parsed_date,
+                            "mollie_payment_id": reversal_id,  # Store reversal ID
+                            "payment_status": "Refunded" if reversal_type == "refund" else "Chargeback",
+                            "payment_method": "Mollie",
+                        },
+                    )
+                    donation_doc.save()
+                    self.logger.info(f"✅ Updated payment history with {reversal_type} entry")
+                except Exception as hist_err:
+                    self.logger.error(f"❌ Failed to update payment history for {reversal_type}: {hist_err}")
+                    frappe.log_error(
+                        f"Payment history update failed for {donation_doc.name} {reversal_type}: {hist_err}",
+                        "Reversal Payment History Update Error",
+                    )
+
             # Create standardized result
-            if refund_pe:
+            if reversal_pe:
                 result = standardized_webhook_response(
                     "success",
-                    f"Refund Payment Entry created: {refund_pe.name}",
-                    payment_entry_id=refund_pe.name,
-                    refund_id=refund_id,
+                    f"{reversal_type.capitalize()} Payment Entry created: {reversal_pe.name}",
+                    payment_entry_id=reversal_pe.name,
                     payment_id=payment_id,
                 )
+                result[f"{reversal_type}_id"] = reversal_id
             else:
                 result = standardized_webhook_response(
                     "error",
-                    "Failed to create refund Payment Entry",
-                    refund_id=refund_id,
+                    f"Failed to create {reversal_type} Payment Entry",
                     payment_id=payment_id,
                 )
+                result[f"{reversal_type}_id"] = reversal_id
 
             # Mark as processed if successful
             if result.get("status") == "success":
-                self.idempotency_manager.mark_refund_processed(
-                    payment_id, refund_id, result.get("payment_entry_id")
-                )
+                if reversal_type == "refund":
+                    self.idempotency_manager.mark_refund_processed(
+                        payment_id, reversal_id, result.get("payment_entry_id")
+                    )
+                elif reversal_type == "chargeback":
+                    self.idempotency_manager.mark_chargeback_processed(
+                        payment_id, reversal_id, result.get("payment_entry_id")
+                    )
 
             duration = time.time() - start_time
             result["duration_seconds"] = duration
@@ -660,15 +756,67 @@ class UnifiedWebhookWrapperService:
             return result
 
         except Exception as e:
-            self.logger.error(f"❌ Refund webhook processing failed: {e}")
+            self.logger.error(f"❌ {reversal_type.capitalize()} webhook processing failed: {e}")
             duration = time.time() - start_time
             return {
                 "status": "error",
-                "message": f"Refund processing failed: {str(e)}",
+                "message": f"{reversal_type.capitalize()} processing failed: {str(e)}",
                 "payment_id": payment_id,
-                "refund_id": refund_data.get("id", "unknown"),
+                f"{reversal_type}_id": reversal_id,
                 "duration_seconds": duration,
             }
+
+    def process_refund_webhook(self, payment_id: str, refund_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process refund webhook - delegates to generic reversal processor.
+
+        Args:
+            payment_id: Mollie payment ID
+            refund_data: Refund data from webhook
+
+        Returns:
+            Dict with processing results
+        """
+        from ..utils.webhook_utilities import safe_extract_amount, safe_extract_date
+
+        refund_id = refund_data.get("id") or refund_data.get("refund", {}).get("id")
+        refund_amount = safe_extract_amount(refund_data)
+        refund_date = safe_extract_date(refund_data)
+
+        return self.process_reversal_webhook(
+            payment_id=payment_id,
+            reversal_id=refund_id,
+            amount=refund_amount,
+            reversal_type="refund",
+            reversal_date=refund_date,
+        )
+
+    def process_chargeback_webhook(self, payment_id: str, chargeback_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process chargeback webhook - delegates to generic reversal processor.
+
+        Args:
+            payment_id: Mollie payment ID
+            chargeback_data: Chargeback data from webhook
+
+        Returns:
+            Dict with processing results
+        """
+        from ..utils.webhook_utilities import safe_extract_amount, safe_extract_date
+
+        chargeback_id = chargeback_data.get("id") or chargeback_data.get("chargeback", {}).get("id")
+        chargeback_amount = safe_extract_amount(chargeback_data)
+        chargeback_date = safe_extract_date(chargeback_data)
+        reason = chargeback_data.get("reason") or chargeback_data.get("chargeback", {}).get("reason")
+
+        return self.process_reversal_webhook(
+            payment_id=payment_id,
+            reversal_id=chargeback_id,
+            amount=chargeback_amount,
+            reversal_type="chargeback",
+            reversal_date=chargeback_date,
+            reason=reason,
+        )
 
     def _fetch_payment_from_mollie(self, payment_id: str) -> Dict[str, Any]:
         """Fetch payment data from Mollie API."""
