@@ -517,7 +517,7 @@ function generateMissingInvoices() {
         return;
     }
 
-    if (!confirm('Generate missing invoices for all eligible members?')) {
+    if (!confirm('Generate missing invoices for all eligible members?\n\nThis will run as a background job to handle large volumes.')) {
         return;
     }
 
@@ -530,64 +530,41 @@ function generateMissingInvoices() {
             hideSpinner('generation-spinner');
 
             if (r.message && r.message.success) {
-                const results = r.message.bulk_results || {};
+                const jobId = r.message.job_id;
+                const checkUrl = r.message.check_status_at;
+
                 let content = `
                     <div class="space-y-3">
                         <p class="font-medium">${r.message.message}</p>
-                        <div class="grid grid-cols-2 gap-4 text-sm">
-                            <div>
-                                <span class="text-gray-600">Generated:</span>
-                                <span class="font-semibold text-green-600">${results.generated || 0}</span>
-                            </div>
-                            <div>
-                                <span class="text-gray-600">Processed:</span>
-                                <span class="font-semibold">${results.processed || 0}</span>
-                            </div>
-                            <div>
-                                <span class="text-gray-600">Skipped:</span>
-                                <span class="font-semibold">${results.skipped || 0}</span>
-                            </div>
-                            <div>
-                                <span class="text-gray-600">Errors:</span>
-                                <span class="font-semibold text-red-600">${results.errors?.length || 0}</span>
-                            </div>
+                        <div class="bg-blue-50 border border-blue-200 rounded p-3 text-sm">
+                            <p class="text-blue-800 mb-2">${r.message.note}</p>
+                            <p class="text-gray-700">Job ID: <code class="bg-white px-2 py-1 rounded text-xs">${jobId}</code></p>
                         </div>
+                        <div class="flex gap-2">
+                            <a href="/app/rq-job" target="_blank" class="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700">
+                                <i class="fa fa-external-link-alt mr-2"></i>
+                                View RQ Job List
+                            </a>
+                            <button onclick="checkMemberStatus()" class="inline-flex items-center px-4 py-2 bg-gray-600 text-white text-sm font-medium rounded hover:bg-gray-700">
+                                <i class="fa fa-sync mr-2"></i>
+                                Refresh Status
+                            </button>
+                        </div>
+                    </div>
                 `;
 
-                if (results.errors && results.errors.length > 0) {
-                    content += `
-                        <details class="mt-3">
-                            <summary class="cursor-pointer text-sm font-medium text-gray-700 hover:text-gray-900">
-                                Show errors (${results.errors.length})
-                            </summary>
-                            <ul class="mt-2 space-y-1 text-sm text-gray-600">
-                                ${results.errors.slice(0, 10).map(e => `<li class="border-l-2 border-red-300 pl-2">${e}</li>`).join('')}
-                                ${results.errors.length > 10 ? `<li class="text-gray-500 italic">...and ${results.errors.length - 10} more</li>` : ''}
-                            </ul>
-                        </details>
-                    `;
-                }
-
-                content += '</div>';
-
-                showResults('Generation Complete', content, 'success');
-                // Update cards without hiding the results
-                updateDashboardCards({
-                    total_active_members: results.total_active_members || 0,
-                    members_missing_invoices: Math.max(0, (results.members_missing_invoices || 0) - (results.generated || 0)),
-                    sepa_eligible: results.sepa_eligible || 0
-                });
+                showResults('Job Queued', content, 'success');
             } else {
                 const errors = r.message?.errors || [];
                 const errorList = errors.length > 0
                     ? `<ul class="list-disc list-inside mt-2">${errors.slice(0, 5).map(e => `<li class="text-sm">${e}</li>`).join('')}</ul>`
                     : '';
-                showResults('Generation Failed', r.message?.message || 'Failed to generate invoices.' + errorList, 'error');
+                showResults('Generation Failed', r.message?.message || 'Failed to queue invoice generation.' + errorList, 'error');
             }
         },
         error: function(r) {
             hideSpinner('generation-spinner');
-            showResults('Error', r.message || 'Failed to generate invoices.', 'error');
+            showResults('Error', r.message || 'Failed to queue invoice generation.', 'error');
         }
     });
 }

@@ -70,7 +70,7 @@ class AlertManager:
         """Send alert via email and log"""
         try:
             # Use System Alert DocType for better tracking
-            from verenigingen.doctype.system_alert.system_alert import SystemAlert
+            from verenigingen.verenigingen.doctype.system_alert.system_alert import SystemAlert
 
             alert_doc = SystemAlert.create_alert(
                 alert_type=alert_type, severity=severity, message=message, details=details or {}

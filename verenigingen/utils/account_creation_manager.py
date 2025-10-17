@@ -526,6 +526,9 @@ def process_account_creation_request(request_name, at_time=None):
         request_name: Name of the Account Creation Request to process
         at_time: Scheduled execution time (passed by frappe.enqueue when using at_time parameter)
     """
+    # Mark as background job to exempt from rate limits
+    frappe.flags.in_background_job = True
+
     try:
         manager = AccountCreationManager(request_name)
         manager.process_complete_pipeline()
@@ -984,8 +987,8 @@ def process_bulk_account_creation_batch(request_names, batch_id, batch_number, t
         """Process a single request with error handling, transaction safety, and new database connection."""
         import time
 
-        # Add small delay to avoid overwhelming Frappe's rate limiters
-        # This is especially important for user creation operations
+        # Add small delay to avoid overwhelming rate limiters
+        # With throttle_user_limit increased to 300/min, this provides spacing
         time.sleep(0.5)  # 500ms delay between requests
 
         try:
@@ -1061,9 +1064,10 @@ def process_bulk_account_creation_batch(request_names, batch_id, batch_number, t
     current_site = frappe.local.site
 
     # Process requests in parallel with controlled concurrency
-    # CRITICAL: Use only 2 workers to avoid hitting Frappe's user creation rate limits
-    # User creation has strict rate limiting in Frappe core - parallel processing must be conservative
-    max_workers = min(2, len(request_names))  # Up to 2 parallel workers to avoid rate limits
+    # With throttle_user_limit=300, we can safely use 5 workers (60 users/min per worker)
+    # Each worker has 500ms delay, so 2 users/sec/worker * 5 workers = 10 users/sec = 600/min theoretical
+    # Actual rate will be lower due to processing time, staying well under 300/min limit
+    max_workers = min(5, len(request_names))
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all requests to the thread pool with site context

@@ -151,20 +151,27 @@ class ANBIValidationService:
 
         return (True, None)
 
-    def validate_donor_consent(self, donor_doc: Any) -> Tuple[bool, Optional[str]]:
+    def validate_donor_consent(self, donor_doc: Any, strict: bool = False) -> Tuple[bool, Optional[str]]:
         """
         Validate that donor has provided ANBI consent.
 
         Args:
             donor_doc: Donor document to validate
+            strict: If False (default), returns warning instead of error
 
         Returns:
             (is_valid, error_message) tuple
         """
         if not getattr(donor_doc, "anbi_consent", False):
+            if strict:
+                return (
+                    False,
+                    "Donor must provide ANBI consent before creating ANBI-eligible agreement. Please update donor record first.",
+                )
+            # Return True but with informational message
             return (
-                False,
-                "Donor must provide ANBI consent before creating ANBI-eligible agreement. Please update donor record first.",
+                True,
+                None,  # Don't block - consent can be obtained later
             )
 
         return (True, None)

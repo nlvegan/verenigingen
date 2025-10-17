@@ -86,10 +86,9 @@ class PeriodicDonationAgreement(Document):
         # Handle lifetime agreements (duration = -1)
         if duration_years == -1:
             # Lifetime agreements automatically qualify for ANBI if organization has ANBI status
-            org_anbi_status = frappe.db.get_single_value(
-                "Verenigingen Settings", "organization_has_anbi_status"
-            )
-            if org_anbi_status:
+            # If enable_anbi_functionality is enabled, assume organization has ANBI status
+            anbi_enabled = frappe.db.get_single_value("Verenigingen Settings", "enable_anbi_functionality")
+            if anbi_enabled:
                 self.anbi_eligible = 1
             # Lifetime agreements don't need further date validation
             return
@@ -222,7 +221,9 @@ class PeriodicDonationAgreement(Document):
                 template_name="periodic_agreement_confirmation",
                 recipients=[donor.donor_email],
                 context=context,
-                subject=_("Periodic Donation Agreement Confirmation - {0}").format(self.agreement_number),
+                subject_override=_("Periodic Donation Agreement Confirmation - {0}").format(
+                    self.agreement_number
+                ),
                 reference_doctype=self.doctype,
                 reference_name=self.name,
             )
@@ -257,7 +258,9 @@ class PeriodicDonationAgreement(Document):
                 template_name="periodic_agreement_expiry",
                 recipients=[donor.donor_email],
                 context=context,
-                subject=_("Periodic Donation Agreement Expiring Soon - {0}").format(self.agreement_number),
+                subject_override=_("Periodic Donation Agreement Expiring Soon - {0}").format(
+                    self.agreement_number
+                ),
                 reference_doctype=self.doctype,
                 reference_name=self.name,
             )
@@ -344,8 +347,13 @@ class PeriodicDonationAgreement(Document):
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.FINANCIAL)
-    def cancel_agreement(self, reason=None):
-        """Cancel the agreement"""
+    def cancel_agreement(self, reason=None, send_email=False):
+        """Cancel the agreement
+
+        Args:
+            reason: Reason for cancellation
+            send_email: Whether to send cancellation confirmation email (default: False)
+        """
         if self.status == "Cancelled":
             frappe.throw(_("Agreement is already cancelled"))
 
@@ -356,8 +364,9 @@ class PeriodicDonationAgreement(Document):
 
         self.save()
 
-        # Send cancellation confirmation
-        self.send_cancellation_confirmation()
+        # Optionally send cancellation confirmation
+        if send_email:
+            self.send_cancellation_confirmation()
 
         return True
 
@@ -386,7 +395,9 @@ class PeriodicDonationAgreement(Document):
                 template_name="periodic_agreement_cancellation",
                 recipients=[donor.donor_email],
                 context=context,
-                subject=_("Periodic Donation Agreement Cancelled - {0}").format(self.agreement_number),
+                subject_override=_("Periodic Donation Agreement Cancelled - {0}").format(
+                    self.agreement_number
+                ),
                 reference_doctype=self.doctype,
                 reference_name=self.name,
             )
@@ -556,9 +567,8 @@ class PeriodicDonationAgreement(Document):
         duration = self.get_agreement_duration()
 
         # Check if organization has ANBI status
-        has_anbi_status = frappe.db.get_single_value("Verenigingen Settings", "organization_has_anbi_status")
-        if has_anbi_status is None:
-            has_anbi_status = True  # Default to True if not set
+        # If enable_anbi_functionality is enabled, assume organization has ANBI status
+        has_anbi_status = anbi_enabled  # Use the value already fetched above
 
         # Only eligible if 5+ years OR lifetime (-1) AND organization has ANBI status
         if (duration >= 5 or duration == -1) and has_anbi_status:
@@ -613,16 +623,11 @@ class PeriodicDonationAgreement(Document):
         """
         # Check why the system determined ANBI is not eligible
         anbi_enabled = frappe.db.get_single_value("Verenigingen Settings", "enable_anbi_functionality")
-        org_anbi_status = frappe.db.get_single_value("Verenigingen Settings", "organization_has_anbi_status")
         duration = self.get_agreement_duration()
 
         if not anbi_enabled:
             frappe.throw(
                 _("Cannot claim ANBI tax benefits: ANBI functionality is disabled in system settings")
-            )
-        elif not org_anbi_status:
-            frappe.throw(
-                _("Cannot claim ANBI tax benefits: Organization does not have valid ANBI registration")
             )
         elif duration != -1 and duration < 5:
             frappe.throw(

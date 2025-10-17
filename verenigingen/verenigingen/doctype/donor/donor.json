@@ -3,7 +3,7 @@
  "allow_rename": 1,
  "app": "verenigingen",
  "autoname": "naming_series:",
- "creation": "2017-09-19 16:20:27.510196",
+ "creation": "2025-10-17 10:15:34.258831",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
@@ -14,24 +14,21 @@
   "column_break_5",
   "donor_type",
   "image",
-  "section_break_edwsh",
+  "address_contacts",
   "contact_person",
-  "column_break_ag86z",
-  "phone",
-  "section_break_7uw0i",
   "donor_email",
-  "column_break_gnl5u",
+  "address_html",
+  "column_break_9",
+  "phone",
   "address",
+  "contact_html",
   "connections_section",
   "member",
   "column_break_connections",
   "customer",
-  "customer_info_section",
   "customer_sync_status",
-  "column_break_customer_info",
   "last_customer_sync",
   "created_from_payment",
-  "creation_trigger_amount",
   "donor_segmentation_section",
   "donor_category",
   "mollie_customer_id",
@@ -39,21 +36,13 @@
   "mollie_subscription_id",
   "column_break_3lr0r",
   "communication_preference",
-  "donation_history_tab",
-  "donor_history",
-  "section_break_sscxg",
-  "pledge_history",
-  "notes_and_communications_section",
-  "notes",
-  "communication_history",
+  "creation_trigger_amount",
   "donor_preferences_section",
   "receive_newsletters",
   "column_break_0tvem",
   "event_invitations",
   "column_break_crlqn",
   "updates",
-  "section_break_xqosx",
-  "donor_relationships",
   "additional_information_section",
   "occupation",
   "column_break_cxobe",
@@ -69,10 +58,16 @@
   "identification_verification_method",
   "anbi_consent",
   "anbi_consent_date",
-  "address_contacts",
-  "address_html",
-  "column_break_9",
-  "contact_html"
+  "communication_tab",
+  "notes_and_communications_section",
+  "notes",
+  "communication_history",
+  "donation_history_tab",
+  "donor_history",
+  "section_break_sscxg",
+  "pledge_history",
+  "section_break_xqosx",
+  "donor_relationships"
  ],
  "fields": [
   {
@@ -141,30 +136,14 @@
    "label": "Contact Person"
   },
   {
-   "fieldname": "section_break_edwsh",
-   "fieldtype": "Section Break"
-  },
-  {
    "fieldname": "donor_information_section",
    "fieldtype": "Section Break",
    "label": "DONOR INFORMATION"
   },
   {
-   "fieldname": "section_break_7uw0i",
-   "fieldtype": "Section Break"
-  },
-  {
-   "fieldname": "column_break_ag86z",
-   "fieldtype": "Column Break"
-  },
-  {
    "fieldname": "phone",
    "fieldtype": "Phone",
    "label": "Phone"
-  },
-  {
-   "fieldname": "column_break_gnl5u",
-   "fieldtype": "Column Break"
   },
   {
    "fieldname": "address",
@@ -319,34 +298,29 @@
    "label": "Other Attributes"
   },
   {
-   "depends_on": "eval:frappe.user_roles.includes('Verenigingen Administrator') || frappe.user_roles.includes('System Manager')",
    "fieldname": "tax_compliance_section",
    "fieldtype": "Section Break",
-   "label": "Tax Compliance (ANBI)",
-   "permlevel": 1
+   "label": "Tax Compliance (ANBI)"
   },
   {
    "description": "Dutch Burger Service Nummer for individuals (encrypted)",
    "fieldname": "bsn_citizen_service_number",
    "fieldtype": "Data",
    "label": "BSN (Citizen Service Number)",
-   "no_copy": 1,
-   "permlevel": 1
+   "no_copy": 1
   },
   {
    "description": "RSIN tax number for organizations (encrypted)",
    "fieldname": "rsin_organization_tax_number",
    "fieldtype": "Data",
    "label": "RSIN (Organization Tax Number)",
-   "no_copy": 1,
-   "permlevel": 1
+   "no_copy": 1
   },
   {
    "default": "0",
    "fieldname": "identification_verified",
    "fieldtype": "Check",
-   "label": "Identification Verified",
-   "permlevel": 1
+   "label": "Identification Verified"
   },
   {
    "fieldname": "column_break_tax_compliance",
@@ -356,31 +330,27 @@
    "depends_on": "eval:doc.identification_verified",
    "fieldname": "identification_verification_date",
    "fieldtype": "Date",
-   "label": "Verification Date",
-   "permlevel": 1
+   "label": "Verification Date"
   },
   {
    "depends_on": "eval:doc.identification_verified",
    "fieldname": "identification_verification_method",
    "fieldtype": "Select",
    "label": "Verification Method",
-   "options": "\nDigiD\nManual\nBank Verification\nOther",
-   "permlevel": 1
+   "options": "\nDigiD\nManual\nBank Verification\nOther"
   },
   {
    "default": "0",
    "description": "Consent to use data for ANBI tax reporting",
    "fieldname": "anbi_consent",
    "fieldtype": "Check",
-   "label": "ANBI Reporting Consent",
-   "permlevel": 1
+   "label": "ANBI Reporting Consent"
   },
   {
    "depends_on": "eval:doc.anbi_consent",
    "fieldname": "anbi_consent_date",
    "fieldtype": "Datetime",
-   "label": "Consent Date",
-   "permlevel": 1
+   "label": "Consent Date"
   },
   {
    "fieldname": "naming_series",
@@ -420,22 +390,12 @@
    "options": "Customer"
   },
   {
-   "collapsible": 1,
-   "fieldname": "customer_info_section",
-   "fieldtype": "Section Break",
-   "label": "Customer Integration"
-  },
-  {
    "description": "Status of synchronization with Customer record",
    "fieldname": "customer_sync_status",
    "fieldtype": "Select",
    "label": "Sync Status",
    "options": "\nSynced\nPending\nError\nAuto-Created",
    "read_only": 1
-  },
-  {
-   "fieldname": "column_break_customer_info",
-   "fieldtype": "Column Break"
   },
   {
    "description": "Last time customer data was synchronized",
@@ -457,6 +417,11 @@
    "fieldtype": "Currency",
    "label": "Creation Trigger Amount",
    "read_only": 1
+  },
+  {
+   "fieldname": "communication_tab",
+   "fieldtype": "Tab Break",
+   "label": "Communication"
   }
  ],
  "image_field": "image",
@@ -470,7 +435,7 @@
    "link_fieldname": "member_id"
   }
  ],
- "modified": "2025-09-30 17:45:41.939577",
+ "modified": "2025-10-17 10:22:16.196655",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Donor",

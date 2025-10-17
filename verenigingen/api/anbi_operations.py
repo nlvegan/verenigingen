@@ -39,7 +39,7 @@ def has_donor_permlevel_access(permission_type="read"):
         - Logged for audit compliance
     """
     # Use Frappe's standard permission checking - no custom security bypass
-    return frappe.has_permission("Donor", ptype=permission_type, verbose=False)
+    return frappe.has_permission("Donor", ptype=permission_type)
 
 
 @frappe.whitelist()

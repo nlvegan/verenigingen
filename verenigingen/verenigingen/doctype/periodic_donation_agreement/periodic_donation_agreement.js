@@ -293,6 +293,13 @@ function cancel_agreement_dialog(frm) {
 				fieldname: 'reason',
 				fieldtype: 'Small Text',
 				reqd: 1
+			},
+			{
+				label: __('Send Cancellation Email to Donor'),
+				fieldname: 'send_email',
+				fieldtype: 'Check',
+				default: 0,
+				description: __('Send email notification to donor about the cancellation')
 			}
 		],
 		primary_action_label: __('Cancel Agreement'),
@@ -306,7 +313,8 @@ function cancel_agreement_dialog(frm) {
 						method: 'cancel_agreement',
 						doc: frm.doc,
 						args: {
-							reason: values.reason
+							reason: values.reason,
+							send_email: values.send_email ? true : false
 						},
 						callback(r) {
 							if (r.message) {

@@ -244,16 +244,19 @@ class MijnroodCSVImport(Document):
             skip_msg = f"Row {row_num}: Validation error - {str(ve)}"
             error_log.append(skip_msg)
 
-            # Log detailed error with field values for troubleshooting
-            detailed_error = (
-                f"Row {row_num} validation failed:\n"
-                f"  Error: {str(ve)}\n"
-                f"  Lidnummer: '{member_id}'\n"
-                f"  First Name: '{first_name}'\n"
-                f"  Last Name: '{last_name}'\n"
-                f"  Email: '{email}'"
-            )
-            frappe.log_error(detailed_error, "CSV Import Row Validation")
+            # Only log detailed error for non-financial validation errors
+            # Financial errors (dues rate) are aggregated in import summary
+            error_str = str(ve).lower()
+            if "dues rate" not in error_str and "minimum amount" not in error_str:
+                detailed_error = (
+                    f"Row {row_num} validation failed:\n"
+                    f"  Error: {str(ve)}\n"
+                    f"  Lidnummer: '{member_id}'\n"
+                    f"  First Name: '{first_name}'\n"
+                    f"  Last Name: '{last_name}'\n"
+                    f"  Email: '{email}'"
+                )
+                frappe.log_error(detailed_error, "CSV Import Row Validation")
             # Return skip info with lidnummer
             return "skipped", f"Lidnr {member_id}: {first_name} {last_name} - {str(ve)[:100]}"
         except frappe.DuplicateEntryError as de:
@@ -326,6 +329,19 @@ class MijnroodCSVImport(Document):
             else:
                 mollie_validation_summary = ". Mollie data: preserved correctly"
 
+        # Aggregate and report validation warnings
+        validation_warnings_summary = ""
+        if processed_members:
+            validation_warnings = self._aggregate_validation_warnings(processed_members)
+            if validation_warnings:
+                validation_warnings_summary = f". {len(validation_warnings)} validation warnings (see notes)"
+                # Append to error log
+                if self.error_log:
+                    self.error_log += "\n\n=== Validation Warnings ===\n"
+                else:
+                    self.error_log = "=== Validation Warnings ===\n"
+                self.error_log += "\n".join(validation_warnings[:50])  # Limit to 50
+
         self.import_status = "Completed"
         base_summary = f"Import completed successfully. Created: {created_count}, Updated: {updated_count}, Skipped: {skipped_count}"
 
@@ -334,7 +350,7 @@ class MijnroodCSVImport(Document):
         if self.use_safe_optimization and created_count > 0:
             performance_report = f"\n\n{self._generate_performance_report()}"
 
-        self.import_summary = f"{base_summary}{user_account_summary}{volunteer_summary}{mollie_validation_summary}{performance_report}"
+        self.import_summary = f"{base_summary}{user_account_summary}{volunteer_summary}{mollie_validation_summary}{validation_warnings_summary}{performance_report}"
 
         # Generate itemized member list in notes field
         self.notes = self._generate_itemized_member_list(created_members, updated_members, skipped_members)
@@ -478,6 +494,60 @@ class MijnroodCSVImport(Document):
             frappe.log_error(frappe.get_traceback(), "Mijnrood Volunteer Count Error")
             frappe.logger().error(error_msg)
             return f". Volunteer count failed: {str(e)}"
+
+    def _aggregate_validation_warnings(self, processed_members: List[str]) -> List[str]:
+        """Aggregate validation warnings from Error Log into member-specific summaries"""
+        warnings = []
+
+        try:
+            # Query recent error logs related to financial validation
+            recent_errors = frappe.get_all(
+                "Error Log",
+                filters={
+                    "error": ["like", "%Dues rate%cannot be less than minimum amount%"],
+                    "creation": [">", frappe.utils.add_to_date(frappe.utils.now(), hours=-1)],
+                },
+                fields=["error"],
+                limit=500,
+            )
+
+            # Parse errors and match to members
+            dues_rate_warnings = {}
+            for error_log in recent_errors:
+                error_text = error_log.get("error", "")
+                # Extract member and amounts from error message
+                # Format: "Dues rate (€7.50) cannot be less than minimum amount (€9.00)"
+                match = re.search(
+                    r"Dues rate \(€([\d.]+)\) cannot be less than minimum amount \(€([\d.]+)\)", error_text
+                )
+                if match:
+                    dues_rate = match.group(1)
+                    minimum = match.group(2)
+
+                    # Try to find member name in error context
+                    member_match = re.search(
+                        r"member[:\s]+([A-Z]+-\d{4}-\d{2}-\d{2}-[a-f0-9]+)", error_text, re.IGNORECASE
+                    )
+                    if member_match:
+                        member_name = member_match.group(1)
+                        if member_name in processed_members:
+                            key = f"€{dues_rate} < €{minimum}"
+                            if key not in dues_rate_warnings:
+                                dues_rate_warnings[key] = []
+                            dues_rate_warnings[key].append(member_name)
+
+            # Format aggregated warnings
+            for rate_issue, member_list in dues_rate_warnings.items():
+                warnings.append(
+                    f"Dues rate below minimum ({rate_issue}): {len(member_list)} members - {', '.join(member_list[:5])}"
+                )
+                if len(member_list) > 5:
+                    warnings.append(f"  ... and {len(member_list) - 5} more")
+
+        except Exception as e:
+            frappe.logger().error(f"Error aggregating validation warnings: {str(e)}")
+
+        return warnings
 
     def _validate_mollie_data_preservation(self, processed_members: List[str]) -> List[str]:
         """Validate that Mollie subscription data was properly preserved during import"""
@@ -1005,19 +1075,6 @@ class MijnroodCSVImport(Document):
                 customer_name = member_doc.create_customer()
                 member_doc.customer = customer_name
 
-                # CRITICAL FIX: Persist customer link to database
-                # create_customer() creates the Customer record and updates member_doc.customer
-                # in memory, but this change must be saved to persist the FK relationship.
-                # Without this save, member.customer remains NULL in DB even though Customer exists.
-                try:
-                    member_doc.save()
-                except frappe.exceptions.TimestampMismatchError:
-                    # Concurrent modification - reload and retry once
-                    member_doc.reload()
-                    member_doc.customer = customer_name
-                    member_doc._system_update = True
-                    member_doc.save()
-
             # Update the Customer with Mollie data
             if member_doc.customer:
                 customer = frappe.get_doc("Customer", member_doc.customer)
@@ -1216,6 +1273,13 @@ class MijnroodCSVImport(Document):
             volunteer.flags.ignore_workflow = True
             volunteer.insert()
 
+            # Update member's volunteer_record reference
+            frappe.db.set_value(
+                "Member", member_doc.name, "volunteer_record", volunteer.name, update_modified=False
+            )
+            frappe.db.commit()
+            member_doc.volunteer_record = volunteer.name  # Update in-memory too
+
             frappe.logger().info(f"Created volunteer {volunteer.name} for {member_doc.name}")
 
         except Exception as e:
@@ -1231,6 +1295,9 @@ class MijnroodCSVImport(Document):
                     f"Cannot assign member to chapter '{chapter_name}' - member not yet saved (no name)"
                 )
                 return
+
+            # Set bulk chapter operations flag to suppress event emissions during import
+            frappe.flags.bulk_chapter_operations = True
 
             # Check if the chapter exists
             if not frappe.db.exists("Chapter", chapter_name):
@@ -1535,7 +1602,7 @@ class MijnroodCSVImport(Document):
         updated_members: List[str] = None,
         skipped_members: List[str] = None,
     ) -> str:
-        """Generate itemized list of created/updated/skipped members."""
+        """Generate itemized list of created/updated/skipped members with categorized skip reasons."""
         output = []
         output.append("## Itemized Import Results\n")
 
@@ -1554,13 +1621,64 @@ class MijnroodCSVImport(Document):
                 output.append(f"... and {len(updated_members) - 100} more")
 
         if skipped_members:
-            output.append(f"\n### Skipped Members ({len(skipped_members)}):")
-            for name in skipped_members[:50]:  # Limit skipped to 50
-                output.append(f"- {name}")
-            if len(skipped_members) > 50:
-                output.append(f"... and {len(skipped_members) - 50} more")
+            output.append(f"\n### Skipped Members ({len(skipped_members)}) - Categorized by Reason:\n")
+            # Categorize skipped members by error type
+            skip_categories = self._categorize_skipped_members(skipped_members)
+
+            for category, members in skip_categories.items():
+                output.append(f"\n**{category}** ({len(members)} members):")
+                for member_info in members[:20]:  # Show first 20 per category
+                    output.append(f"  - {member_info}")
+                if len(members) > 20:
+                    output.append(f"  ... and {len(members) - 20} more")
 
         return "\n".join(output) if output else ""
+
+    def _categorize_skipped_members(self, skipped_members: List[str]) -> Dict[str, List[str]]:
+        """Categorize skipped members by error type for better clarity."""
+        categories = {
+            "Dues Rate Below Minimum": [],
+            "Age Validation Failed": [],
+            "Duplicate Entry": [],
+            "Email Validation Failed": [],
+            "IBAN Validation Failed": [],
+            "Required Field Missing": [],
+            "Other Validation Errors": [],
+        }
+
+        for skip_info in skipped_members:
+            # Parse the skip_info string: "Lidnr {member_id}: {first_name} {last_name} - {error}"
+            # Extract member ID and error message
+            match = re.match(r"Lidnr\s+([^:]+):\s+(.+?)\s+-\s+(.+)$", skip_info)
+            if not match:
+                categories["Other Validation Errors"].append(skip_info)
+                continue
+
+            member_id = match.group(1).strip()
+            member_name = match.group(2).strip()
+            error_msg = match.group(3).strip().lower()
+
+            display_info = f"{member_id} ({member_name})"
+
+            # Categorize by error type
+            if "dues rate" in error_msg and "minimum amount" in error_msg:
+                categories["Dues Rate Below Minimum"].append(display_info)
+            elif "age" in error_msg or "16" in error_msg or "too young" in error_msg:
+                categories["Age Validation Failed"].append(display_info)
+            elif "duplicate" in error_msg:
+                categories["Duplicate Entry"].append(display_info)
+            elif "email" in error_msg and ("invalid" in error_msg or "format" in error_msg):
+                categories["Email Validation Failed"].append(display_info)
+            elif "iban" in error_msg:
+                categories["IBAN Validation Failed"].append(display_info)
+            elif "required" in error_msg or "mandatory" in error_msg or "missing" in error_msg:
+                categories["Required Field Missing"].append(display_info)
+            else:
+                # Include truncated error message for unknown categories
+                categories["Other Validation Errors"].append(f"{display_info}: {error_msg[:80]}")
+
+        # Remove empty categories
+        return {k: v for k, v in categories.items() if v}
 
 
 @frappe.whitelist()

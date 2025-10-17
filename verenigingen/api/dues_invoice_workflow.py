@@ -204,37 +204,32 @@ def generate_missing_invoices(member_list: List[str] = None, force: bool = False
     if isinstance(member_list, str):
         member_list = frappe.parse_json(member_list)
 
-    # Use the existing bulk invoice generation system instead of one-by-one approach
-    from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import (
-        generate_dues_invoices,
-    )
-
-    # Operation logged via secure operations framework
-    # Note: The bulk system processes all eligible schedules, not just specific members
-    # This is more efficient and handles thousands of invoices properly
+    # Enqueue bulk invoice generation as background job for large-scale operations
+    # This prevents browser timeouts and allows processing of thousands of invoices
     if member_list:
         frappe.log_error(
             f"Member-specific generation requested for {len(member_list)} members, but using bulk system instead",
             "Invoice Generation Notice",
         )
 
-    # Call the existing bulk invoice generation system
-    # This is the same function used by the scheduled task
-    bulk_results = generate_dues_invoices(test_mode=False)
+    # Enqueue as background job to handle large volumes
+    job = frappe.enqueue(
+        method="verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.generate_dues_invoices",
+        queue="long",
+        timeout=3600,
+        test_mode=False,
+        job_name="bulk_invoice_generation",
+        now=False,
+    )
 
-    # Transform results to match expected API response format
+    # Return immediate response with job information
     result = {
-        "success": len(bulk_results.get("errors", [])) == 0,
-        "message": _("Bulk generation processed {0} schedules, generated {1} invoices").format(
-            bulk_results.get("processed", 0), bulk_results.get("generated", 0)
-        ),
-        "bulk_results": bulk_results,
-        "generated_invoices": bulk_results.get("invoices", []),
-        "errors": bulk_results.get("errors", []),
-        "note": _("Used bulk processing system for optimal performance with large datasets"),
+        "success": True,
+        "message": _("Invoice generation started in background. Check RQ Job List for progress."),
+        "job_id": job.name if hasattr(job, "name") else str(job),
+        "note": _("Large-scale generation queued for async processing. You will see results in RQ Job List."),
+        "check_status_at": f"/app/rq-job/{job.name}" if hasattr(job, "name") else "/app/rq-job",
     }
-
-    # Completion logged via secure operations framework
 
     return result
 

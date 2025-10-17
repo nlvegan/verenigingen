@@ -336,13 +336,20 @@ class DuesScheduleCreationService:
 
         delay_seconds = self.RETRY_DELAYS[min(retry_count - 1, len(self.RETRY_DELAYS) - 1)]
 
+        # Schedule job for future execution using at_time parameter
+        # This avoids timeout issues from time.sleep() in the job
+        import frappe.utils
+
+        scheduled_time = frappe.utils.add_to_date(None, seconds=delay_seconds)
+
         job = frappe.enqueue(
             "verenigingen.services.billing.dues_schedule_creation_service.retry_create_dues_schedule_job",
             queue="long",
-            timeout=300,
+            timeout=600,  # Increased timeout for actual processing
             now=False,
             enqueue_after_commit=True,
             at_front=False,
+            at_time=scheduled_time,  # Schedule for later execution
             job_name=f"retry_dues_schedule_{member_name}_{retry_count}",
             # Job arguments
             member_name=member_name,
@@ -352,7 +359,6 @@ class DuesScheduleCreationService:
             custom_amount_reason=custom_amount_reason,
             custom_amount_approved=custom_amount_approved,
             retry_count=retry_count,
-            delay_seconds=delay_seconds,  # Pass delay to job
         )
 
         # Get actual RQ job ID from returned Job object
@@ -577,28 +583,17 @@ def retry_create_dues_schedule_job(
     custom_amount_reason: Optional[str] = None,
     custom_amount_approved: int = 0,
     retry_count: int = 0,
-    delay_seconds: int = 0,
 ):
     """
     Background job entry point for retry operations.
 
     Called by frappe.enqueue() to retry failed dues schedule creation.
-    Implements exponential backoff delay before attempting retry.
+    Job is scheduled with at_time parameter for exponential backoff.
 
     Args:
         All parameters from DuesScheduleCreationService.create_schedule_with_retry
-        delay_seconds: Number of seconds to wait before attempting retry
     """
-    import time
-
     frappe.logger().info(f"[DUES SCHEDULE] Background job starting for {member_name} (retry {retry_count})")
-
-    # Implement exponential backoff delay
-    if delay_seconds > 0:
-        frappe.logger().info(
-            f"[DUES SCHEDULE] Waiting {delay_seconds}s before retry {retry_count} for {member_name}"
-        )
-        time.sleep(delay_seconds)
 
     service = DuesScheduleCreationService()
     result = service.create_schedule_with_retry(

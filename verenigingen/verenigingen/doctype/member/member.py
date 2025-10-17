@@ -961,6 +961,10 @@ class Member(
         if not self.customer and self.email:
             customer_name = create_customer_for_member(self, suppress_messages=False)
             self.customer = customer_name
+            # CRITICAL: Must save to persist customer link to database
+            # Otherwise reload() will wipe out this in-memory value
+            frappe.db.set_value("Member", self.name, "customer", customer_name, update_modified=False)
+            frappe.db.commit()
 
     def on_trash(self):
         """
