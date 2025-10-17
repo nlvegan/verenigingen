@@ -64,7 +64,6 @@ def get_data(filters):
             COUNT(d.name) as donation_count,
             MIN(d.donation_date) as first_donation,
             MAX(d.donation_date) as last_donation,
-            MAX(d.belastingdienst_reportable) as reportable,
             GROUP_CONCAT(DISTINCT d.periodic_donation_agreement) as agreements,
             GROUP_CONCAT(DISTINCT d.anbi_agreement_number) as agreement_numbers
         FROM `tabDonation` d
@@ -127,8 +126,8 @@ def get_data(filters):
             agreement_type = "ANBI Agreement"
             agreement_number = row.get("agreement_numbers", "").split(",")[0]
 
-        # Determine if reportable
-        reportable = row.get("reportable") or (row.get("total_donations", 0) >= min_reportable)
+        # Determine if reportable (based on minimum threshold)
+        reportable = row.get("total_donations", 0) >= min_reportable
 
         data.append(
             {
@@ -169,7 +168,7 @@ def get_conditions(filters):
         min_reportable = (
             frappe.db.get_single_value("Verenigingen Settings", "anbi_minimum_reportable_amount") or 500
         )
-        conditions.append(f"(d.belastingdienst_reportable = 1 OR d.amount >= {min_reportable})")
+        conditions.append(f"d.amount >= {min_reportable}")
 
     if filters.get("only_periodic"):
         conditions.append("d.periodic_donation_agreement IS NOT NULL")

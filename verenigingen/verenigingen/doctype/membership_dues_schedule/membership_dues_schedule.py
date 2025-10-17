@@ -504,9 +504,19 @@ class MembershipDuesSchedule(Document):
                         )
 
         except Exception as e:
-            frappe.log_error(
-                f"Error validating financial constraints: {str(e)}", "Financial Validation Error"
+            # Don't log individual errors for dues rate validation - too noisy
+            # These are either aggregated in CSV import summary or shown inline in UI
+            error_str = str(e).lower()
+            is_dues_rate_error = "dues rate" in error_str and (
+                "minimum amount" in error_str or "cannot be less" in error_str
             )
+
+            if not is_dues_rate_error:
+                frappe.log_error(
+                    f"Error validating financial constraints: {str(e)}", "Financial Validation Error"
+                )
+            # Always re-raise so validation still fails
+            raise
 
     def validate_template_fields(self):
         """Additional validation for template-specific fields"""

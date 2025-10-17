@@ -583,6 +583,7 @@ def retry_create_dues_schedule_job(
     custom_amount_reason: Optional[str] = None,
     custom_amount_approved: int = 0,
     retry_count: int = 0,
+    **kwargs,  # Catch scheduling metadata (at_time, etc.) from frappe.enqueue()
 ):
     """
     Background job entry point for retry operations.
@@ -592,6 +593,7 @@ def retry_create_dues_schedule_job(
 
     Args:
         All parameters from DuesScheduleCreationService.create_schedule_with_retry
+        **kwargs: Ignored scheduling metadata passed by frappe.enqueue()
     """
     frappe.logger().info(f"[DUES SCHEDULE] Background job starting for {member_name} (retry {retry_count})")
 

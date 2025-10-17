@@ -244,10 +244,19 @@ class MijnroodCSVImport(Document):
             skip_msg = f"Row {row_num}: Validation error - {str(ve)}"
             error_log.append(skip_msg)
 
-            # Only log detailed error for non-financial validation errors
-            # Financial errors (dues rate) are aggregated in import summary
+            # Only log detailed error for validation errors that aren't categorized and aggregated
+            # Skip logging for: dues rate errors (aggregated), phone format errors (noisy)
             error_str = str(ve).lower()
-            if "dues rate" not in error_str and "minimum amount" not in error_str:
+            should_skip_log = any(
+                [
+                    "dues rate" in error_str
+                    and "minimum amount" in error_str,  # Financial validation (aggregated)
+                    "not a valid phone number"
+                    in error_str,  # Phone format (too noisy, will be in skip summary)
+                ]
+            )
+
+            if not should_skip_log:
                 detailed_error = (
                     f"Row {row_num} validation failed:\n"
                     f"  Error: {str(ve)}\n"
@@ -352,15 +361,16 @@ class MijnroodCSVImport(Document):
 
         self.import_summary = f"{base_summary}{user_account_summary}{volunteer_summary}{mollie_validation_summary}{validation_warnings_summary}{performance_report}"
 
-        # Generate itemized member list in notes field
-        self.notes = self._generate_itemized_member_list(created_members, updated_members, skipped_members)
-        frappe.logger().info("Notes field set with itemized member lists")
-
         if error_log:
             self.error_log = "\\n".join(error_log[:50])  # Limit error log size
 
         # Reload to avoid timestamp mismatch from concurrent progress updates
         self.reload()
+
+        # Set notes AFTER reload so it doesn't get wiped out
+        self.notes = self._generate_itemized_member_list(created_members, updated_members, skipped_members)
+        frappe.logger().info("Notes field set with itemized member lists")
+
         self.save()
 
     def _process_user_account_creation(self, processed_members: List[str]) -> str:

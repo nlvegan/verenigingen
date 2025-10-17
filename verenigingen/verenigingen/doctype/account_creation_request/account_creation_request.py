@@ -354,19 +354,49 @@ def get_pending_requests():
 @critical_api(operation_type=OperationType.ADMIN)
 def bulk_queue_requests(request_names):
     """Queue multiple account creation requests for processing"""
+    import html
+    import json
+
     if not frappe.has_permission("Account Creation Request", "write"):
         frappe.throw(_("Insufficient permissions"))
 
-    results = []
+    # Handle HTML entity encoding from frontend
+    if isinstance(request_names, str):
+        unescaped = html.unescape(request_names)
+        try:
+            request_names = json.loads(unescaped)
+        except json.JSONDecodeError:
+            # Try stripping outer quotes if double-encoded
+            cleaned = unescaped.strip('"').strip("'")
+            try:
+                request_names = json.loads(cleaned)
+            except json.JSONDecodeError:
+                frappe.throw(_("Invalid request_names format"))
+
+    queued_count = 0
+    errors = []
+
     for name in request_names:
         try:
             doc = frappe.get_doc("Account Creation Request", name)
-            result = doc.queue_processing()
-            results.append({"name": name, "success": True, "message": result["message"]})
-        except Exception as e:
-            results.append({"name": name, "success": False, "error": str(e)})
 
-    return results
+            # Validate status
+            if doc.status != "Requested":
+                errors.append(f"{name}: Cannot queue (status: {doc.status})")
+                continue
+
+            doc.queue_processing()
+            queued_count += 1
+        except Exception as e:
+            errors.append(f"{name}: {str(e)}")
+
+    return {
+        "success": len(errors) == 0,
+        "queued_count": queued_count,
+        "total_requested": len(request_names),
+        "error_count": len(errors),
+        "errors": errors[:20] if errors else [],
+    }
 
 
 @frappe.whitelist()
