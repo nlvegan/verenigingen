@@ -64,6 +64,11 @@
   "book_year_end_month",
   "book_year_end_day",
   "enable_sequential_coverage",
+  "chapter_dues_split_section",
+  "default_chapter_split_percentage",
+  "column_break_split",
+  "chapter_dues_income_account",
+  "national_dues_income_account",
   "csv_import_section",
   "csv_monthly_membership_type",
   "csv_quarterly_membership_type",
@@ -869,6 +874,36 @@
    "fieldname": "memberships_tab",
    "fieldtype": "Tab Break",
    "label": "Memberships"
+  },
+  {
+   "fieldname": "chapter_dues_split_section",
+   "fieldtype": "Section Break",
+   "label": "Chapter Dues Income Split"
+  },
+  {
+   "default": "60",
+   "description": "Default percentage of membership dues income allocated to chapters (0-100). Chapters can override this with custom percentages.",
+   "fieldname": "default_chapter_split_percentage",
+   "fieldtype": "Percent",
+   "label": "Default Chapter Split %"
+  },
+  {
+   "fieldname": "column_break_split",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Income account for chapter portion of dues (if different from main dues income account)",
+   "fieldname": "chapter_dues_income_account",
+   "fieldtype": "Link",
+   "label": "Chapter Dues Income Account",
+   "options": "Account"
+  },
+  {
+   "description": "Income account for national portion of dues (if different from main dues income account)",
+   "fieldname": "national_dues_income_account",
+   "fieldtype": "Link",
+   "label": "National Dues Income Account",
+   "options": "Account"
   }
  ],
  "index_web_pages_for_search": 1,

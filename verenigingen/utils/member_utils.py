@@ -646,3 +646,473 @@ def get_volunteer_name_for_user(user_email: str) -> Optional[str]:
     except Exception as e:
         frappe.logger().error(f"Error looking up volunteer for user {user_email}: {str(e)}")
         return None
+
+
+# ============================================================================
+# DUES SCHEDULE UTILITIES
+# ============================================================================
+# Extracted from dues_schedule_health_manager.py and other scattered queries
+# to provide centralized, reusable dues schedule lookup functions
+
+
+def _validate_dues_schedule_fields(fields: List[str]) -> List[str]:
+    """
+    Validate that fields exist in the Membership Dues Schedule DocType.
+
+    Args:
+        fields: List of field names to validate
+
+    Returns:
+        List of validated field names that actually exist
+
+    Note:
+        Internal helper function for dues schedule field validation.
+        Logs warnings for non-existent fields but continues with valid ones.
+    """
+    try:
+        # Get Membership Dues Schedule DocType meta
+        schedule_meta = frappe.get_meta("Membership Dues Schedule")
+        valid_fields = []
+
+        # Standard fields that always exist on every DocType
+        standard_fields = ["name", "owner", "creation", "modified", "modified_by", "docstatus", "idx"]
+
+        for field in fields:
+            if field in standard_fields or schedule_meta.has_field(field):
+                valid_fields.append(field)
+            else:
+                frappe.logger().warning(
+                    f"Field '{field}' is not present in Membership Dues Schedule DocType - skipping"
+                )
+
+        return valid_fields
+    except Exception as e:
+        frappe.logger().error(f"Error validating Membership Dues Schedule fields: {str(e)}")
+        # Return the original fields as fallback, let Frappe handle the error
+        return fields
+
+
+def get_member_dues_schedule(
+    member_name: str,
+    status_filter: Optional[str] = "Active",
+    fields: Optional[List[str]] = None,
+    include_template: bool = False,
+) -> Optional[Dict[str, Any]]:
+    """
+    Get dues schedule information for a member with comprehensive field validation.
+
+    This is the primary function for retrieving dues schedule data. Extracted from
+    scattered queries in dues_schedule_health_manager.py (line 74-86),
+    contribution_amendment_request.py (line 206-211), and membership.py (line 83-84).
+
+    Args:
+        member_name: Member document name/ID
+        status_filter: Schedule status to filter by (default: "Active")
+                      Common values: "Active", "Paused", "Cancelled"
+                      Use None to skip status filtering
+        fields: List of fields to retrieve. Defaults to common fields:
+               ["name", "dues_rate", "billing_frequency", "next_invoice_date",
+                "status", "membership", "membership_type"]
+        include_template: Whether to include template schedules (default: False)
+                         Templates are excluded by default (is_template=0)
+
+    Returns:
+        Dictionary with schedule info if found, None otherwise
+
+    Error Handling:
+        - Returns None if member_name is empty (logs warning)
+        - Returns None if no schedule found (no error logged - this is normal)
+        - Returns None on database errors (logs error with context)
+        - Validates fields against DocType schema before query
+
+    Examples:
+        >>> # Get basic active schedule info
+        >>> schedule = get_member_dues_schedule("MEM-001")
+        >>> if schedule:
+        ...     print(f"Dues rate: {schedule.dues_rate}")
+
+        >>> # Get schedule with custom fields
+        >>> schedule = get_member_dues_schedule(
+        ...     "MEM-001",
+        ...     fields=["name", "custom_amount_reason", "custom_amount_approved_by"]
+        ... )
+
+        >>> # Get paused schedules
+        >>> schedule = get_member_dues_schedule("MEM-001", status_filter="Paused")
+
+        >>> # Get any schedule regardless of status
+        >>> schedule = get_member_dues_schedule("MEM-001", status_filter=None)
+    """
+    if not member_name:
+        frappe.logger().warning("get_member_dues_schedule called with empty member_name")
+        return None
+
+    # Default fields to retrieve (commonly used across codebase)
+    if fields is None:
+        fields = [
+            "name",
+            "dues_rate",
+            "billing_frequency",
+            "next_invoice_date",
+            "status",
+            "membership",
+            "membership_type",
+        ]
+
+    # Validate fields exist in Membership Dues Schedule DocType
+    valid_fields = _validate_dues_schedule_fields(fields)
+
+    if not valid_fields:
+        frappe.logger().warning("No valid fields specified for dues schedule lookup")
+        return None
+
+    try:
+        # Build filters based on parameters
+        filters = {"member": member_name}
+
+        # Add is_template filter (exclude templates by default)
+        if not include_template:
+            filters["is_template"] = 0
+
+        # Add status filter if specified
+        if status_filter is not None:
+            filters["status"] = status_filter
+
+        # Execute query with validated fields
+        schedule_info = frappe.db.get_value(
+            "Membership Dues Schedule",
+            filters,
+            valid_fields,
+            as_dict=True,
+        )
+
+        return schedule_info
+
+    except Exception as e:
+        # Log error with context for debugging
+        frappe.logger().error(
+            f"Error looking up dues schedule for member {member_name} "
+            f"(status_filter={status_filter}, include_template={include_template}): {str(e)}"
+        )
+        return None
+
+
+def get_member_dues_schedule_name(
+    member_name: str,
+    status_filter: Optional[str] = "Active",
+    include_template: bool = False,
+) -> Optional[str]:
+    """
+    Get dues schedule name/ID for a member (simplified version).
+
+    Convenience function when you only need the schedule name, not full details.
+    This is more efficient than fetching full schedule data.
+
+    Args:
+        member_name: Member document name/ID
+        status_filter: Schedule status to filter by (default: "Active")
+                      Use None to skip status filtering
+        include_template: Whether to include template schedules (default: False)
+
+    Returns:
+        Schedule name/ID if found, None otherwise
+
+    Error Handling:
+        Returns None if no schedule found or on error.
+        Logs appropriate warning/error messages.
+
+    Examples:
+        >>> # Get active schedule name
+        >>> schedule_name = get_member_dues_schedule_name("MEM-001")
+        >>> if schedule_name:
+        ...     print(f"Found schedule: {schedule_name}")
+
+        >>> # Check if member has any schedule (regardless of status)
+        >>> schedule_name = get_member_dues_schedule_name("MEM-001", status_filter=None)
+    """
+    if not member_name:
+        frappe.logger().warning("get_member_dues_schedule_name called with empty member_name")
+        return None
+
+    try:
+        # Build filters
+        filters = {"member": member_name}
+
+        if not include_template:
+            filters["is_template"] = 0
+
+        if status_filter is not None:
+            filters["status"] = status_filter
+
+        # Query only for name field (more efficient)
+        schedule_name = frappe.db.get_value("Membership Dues Schedule", filters, "name")
+
+        return schedule_name
+
+    except Exception as e:
+        frappe.logger().error(
+            f"Error looking up dues schedule name for member {member_name} "
+            f"(status_filter={status_filter}): {str(e)}"
+        )
+        return None
+
+
+def get_member_active_or_paused_schedule(
+    member_name: str,
+    fields: Optional[List[str]] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Get active OR paused dues schedule for a member.
+
+    Extracted from contribution_amendment_request.py (line 638-642) and other files
+    where schedules need to be found regardless of whether they're Active or Paused.
+    This is useful for amendment operations where both states are valid.
+
+    Args:
+        member_name: Member document name/ID
+        fields: List of fields to retrieve (optional)
+
+    Returns:
+        Dictionary with schedule info if found (either Active or Paused), None otherwise
+
+    Error Handling:
+        Returns None if no active or paused schedule found.
+        Logs errors for database issues.
+
+    Examples:
+        >>> # Find active or paused schedule (useful for amendments)
+        >>> schedule = get_member_active_or_paused_schedule("MEM-001")
+        >>> if schedule:
+        ...     print(f"Found {schedule.status} schedule: {schedule.name}")
+
+    Note:
+        This function uses Frappe's "in" operator for status filtering,
+        which is more efficient than running two separate queries.
+    """
+    if not member_name:
+        frappe.logger().warning("get_member_active_or_paused_schedule called with empty member_name")
+        return None
+
+    # Default fields if not specified
+    if fields is None:
+        fields = ["name", "dues_rate", "billing_frequency", "status", "next_invoice_date"]
+
+    # Validate fields
+    valid_fields = _validate_dues_schedule_fields(fields)
+
+    if not valid_fields:
+        frappe.logger().warning("No valid fields specified for active/paused schedule lookup")
+        return None
+
+    try:
+        # Query for Active or Paused status
+        schedule_info = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"member": member_name, "status": ["in", ["Active", "Paused"]], "is_template": 0},
+            valid_fields,
+            as_dict=True,
+        )
+
+        return schedule_info
+
+    except Exception as e:
+        frappe.logger().error(
+            f"Error looking up active/paused dues schedule for member {member_name}: {str(e)}"
+        )
+        return None
+
+
+def get_member_active_or_paused_schedule_name(member_name: str) -> Optional[str]:
+    """
+    Get name of active OR paused dues schedule for a member (simplified version).
+
+    Convenience function when you only need the schedule name.
+    Commonly used in amendment and cancellation workflows.
+
+    Args:
+        member_name: Member document name/ID
+
+    Returns:
+        Schedule name/ID if found (either Active or Paused), None otherwise
+
+    Examples:
+        >>> schedule_name = get_member_active_or_paused_schedule_name("MEM-001")
+        >>> if schedule_name:
+        ...     # Can now cancel or amend this schedule
+        ...     pass
+    """
+    if not member_name:
+        frappe.logger().warning("get_member_active_or_paused_schedule_name called with empty member_name")
+        return None
+
+    try:
+        schedule_name = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"member": member_name, "status": ["in", ["Active", "Paused"]], "is_template": 0},
+            "name",
+        )
+
+        return schedule_name
+
+    except Exception as e:
+        frappe.logger().error(
+            f"Error looking up active/paused dues schedule name for member {member_name}: {str(e)}"
+        )
+        return None
+
+
+def has_active_dues_schedule(member_name: str) -> bool:
+    """
+    Check if a member has an active dues schedule.
+
+    Convenience function for boolean checks. More readable than checking
+    if get_member_dues_schedule_name() returns a value.
+
+    Args:
+        member_name: Member document name/ID
+
+    Returns:
+        True if member has active dues schedule, False otherwise
+
+    Examples:
+        >>> if has_active_dues_schedule("MEM-001"):
+        ...     print("Member has active billing")
+        >>> else:
+        ...     print("No active billing schedule")
+    """
+    if not member_name:
+        return False
+
+    try:
+        return frappe.db.exists(
+            "Membership Dues Schedule", {"member": member_name, "status": "Active", "is_template": 0}
+        )
+    except Exception as e:
+        frappe.logger().error(
+            f"Error checking active dues schedule existence for member {member_name}: {str(e)}"
+        )
+        return False
+
+
+def has_any_dues_schedule(member_name: str) -> bool:
+    """
+    Check if a member has ANY dues schedule (regardless of status).
+
+    Useful for checking if a member has ever had billing set up.
+
+    Args:
+        member_name: Member document name/ID
+
+    Returns:
+        True if member has any dues schedule, False otherwise
+
+    Examples:
+        >>> if has_any_dues_schedule("MEM-001"):
+        ...     print("Member has billing history")
+    """
+    if not member_name:
+        return False
+
+    try:
+        return frappe.db.exists("Membership Dues Schedule", {"member": member_name, "is_template": 0})
+    except Exception as e:
+        frappe.logger().error(f"Error checking dues schedule existence for member {member_name}: {str(e)}")
+        return False
+
+
+def get_dues_schedule_for_membership(
+    membership_name: str,
+    fields: Optional[List[str]] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Get dues schedule for a specific membership record.
+
+    Extracted from membership/dues_schedule_manager.py (line 350).
+    This is useful when working with membership records and needing their
+    associated dues schedule.
+
+    Args:
+        membership_name: Membership document name/ID
+        fields: List of fields to retrieve (optional)
+
+    Returns:
+        Dictionary with schedule info if found, None otherwise
+
+    Error Handling:
+        Returns None if no schedule found or on error.
+        Logs appropriate messages for debugging.
+
+    Examples:
+        >>> # Get dues schedule for a specific membership
+        >>> membership = frappe.get_doc("Membership", "MEMB-2025-00123")
+        >>> schedule = get_dues_schedule_for_membership(membership.name)
+        >>> if schedule:
+        ...     print(f"Billing: {schedule.dues_rate} per {schedule.billing_frequency}")
+
+    Note:
+        Memberships may not always have dues schedules, especially:
+        - Draft/unsubmitted memberships
+        - Cancelled memberships
+        - Legacy records before dues schedule system
+    """
+    if not membership_name:
+        frappe.logger().warning("get_dues_schedule_for_membership called with empty membership_name")
+        return None
+
+    # Default fields
+    if fields is None:
+        fields = ["name", "dues_rate", "billing_frequency", "status", "member"]
+
+    # Validate fields
+    valid_fields = _validate_dues_schedule_fields(fields)
+
+    if not valid_fields:
+        frappe.logger().warning("No valid fields specified for membership dues schedule lookup")
+        return None
+
+    try:
+        schedule_info = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"membership": membership_name},
+            valid_fields,
+            as_dict=True,
+        )
+
+        return schedule_info
+
+    except Exception as e:
+        frappe.logger().error(f"Error looking up dues schedule for membership {membership_name}: {str(e)}")
+        return None
+
+
+def get_dues_schedule_for_membership_name(membership_name: str) -> Optional[str]:
+    """
+    Get dues schedule name for a specific membership (simplified version).
+
+    Args:
+        membership_name: Membership document name/ID
+
+    Returns:
+        Schedule name/ID if found, None otherwise
+
+    Examples:
+        >>> schedule_name = get_dues_schedule_for_membership_name("MEMB-2025-00123")
+    """
+    if not membership_name:
+        frappe.logger().warning("get_dues_schedule_for_membership_name called with empty membership_name")
+        return None
+
+    try:
+        schedule_name = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"membership": membership_name},
+            "name",
+        )
+
+        return schedule_name
+
+    except Exception as e:
+        frappe.logger().error(
+            f"Error looking up dues schedule name for membership {membership_name}: {str(e)}"
+        )
+        return None

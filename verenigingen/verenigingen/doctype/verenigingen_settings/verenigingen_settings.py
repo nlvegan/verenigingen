@@ -19,6 +19,7 @@ class VerenigingenSettings(Document):
     def validate(self):
         self.validate_donation_accounts()
         self.validate_grace_period_settings()  # Moved from hooks.py
+        self.validate_chapter_dues_accounts()
 
     def validate_donation_accounts(self):
         """Validate donation account configuration"""
@@ -55,6 +56,73 @@ class VerenigingenSettings(Document):
         if self.grace_period_notification_days:
             if self.grace_period_notification_days < 1 or self.grace_period_notification_days > 30:
                 frappe.throw(_("Grace period notification days must be between 1 and 30 days"))
+
+    def validate_chapter_dues_accounts(self):
+        """Validate chapter dues allocation account configuration"""
+        # Check if any allocation accounts are configured
+        has_chapter_account = getattr(self, "chapter_dues_income_account", None)
+        has_national_account = getattr(self, "national_dues_income_account", None)
+        has_source_account = getattr(self, "dues_income_account", None)
+
+        # If any account is configured, all three must be configured
+        accounts_configured = [has_chapter_account, has_national_account, has_source_account]
+
+        if any(accounts_configured) and not all(accounts_configured):
+            missing = []
+            if not has_source_account:
+                missing.append("Dues Income Account (source)")
+            if not has_chapter_account:
+                missing.append("Chapter Dues Income Account")
+            if not has_national_account:
+                missing.append("National Dues Income Account")
+
+            frappe.throw(
+                _(
+                    "Incomplete chapter dues allocation configuration. Missing: {0}. "
+                    "All three accounts must be configured to use the Chapter Dues Allocation feature."
+                ).format(", ".join(missing))
+            )
+
+        # Validate accounts are different if all configured
+        if all(accounts_configured):
+            # Check that all three accounts are different
+            accounts = {
+                "Dues Income Account": has_source_account,
+                "Chapter Dues Income Account": has_chapter_account,
+                "National Dues Income Account": has_national_account,
+            }
+
+            # Check for duplicates
+            account_values = list(accounts.values())
+            if len(account_values) != len(set(account_values)):
+                duplicates = []
+                for name1, acc1 in accounts.items():
+                    for name2, acc2 in accounts.items():
+                        if name1 < name2 and acc1 == acc2:
+                            duplicates.append(f"{name1} and {name2} (both use {acc1})")
+
+                frappe.throw(
+                    _(
+                        "Chapter dues allocation accounts must be different from each other. "
+                        "Duplicate accounts found: {0}"
+                    ).format("; ".join(duplicates))
+                )
+
+            # Validate all accounts are income accounts
+            for account_name, account_value in accounts.items():
+                account_type = frappe.db.get_value("Account", account_value, "account_type")
+                if account_type != "Income Account":
+                    frappe.throw(
+                        _("{0} must be an Income Account. Current account type: {1}").format(
+                            account_name, account_type or "Not set"
+                        )
+                    )
+
+        # Validate default split percentage if configured
+        if getattr(self, "default_chapter_split_percentage", None):
+            default_pct = float(self.default_chapter_split_percentage)
+            if default_pct < 0 or default_pct > 100:
+                frappe.throw(_("Default Chapter Split Percentage must be between 0 and 100"))
 
     @frappe.whitelist()
     @critical_api(operation_type=OperationType.ADMIN)

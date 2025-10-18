@@ -369,6 +369,7 @@ doc_events = {
         "before_validate": [
             "verenigingen.utils.apply_tax_exemption_from_source",
             "verenigingen.utils.sales_invoice_hooks.set_member_from_customer",
+            "verenigingen.utils.sales_invoice_hooks.populate_member_chapter",
         ],
         "validate": [
             "verenigingen.overrides.sales_invoice.custom_validate",

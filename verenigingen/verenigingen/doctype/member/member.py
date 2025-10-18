@@ -2140,10 +2140,26 @@ class Member(
             self.volunteer_expenses.pop(idx)
             removed_count += 1
 
-        # Process each current claim
+        # Try batched version first (93% query reduction)
+        try:
+            expected_rows_list = self._build_expense_entries_batched(current_claims)
+            expected_rows = {row["expense_claim"]: row for row in expected_rows_list}
+        except Exception as e:
+            frappe.log_error(
+                f"Batched expense entry build failed for {self.name}, using fallback: {str(e)}",
+                "Expense Entry Batch Fallback",
+            )
+            # Fallback to individual processing
+            expected_rows = {}
+            for claim in current_claims:
+                expected_row = self._build_lightweight_expense_entry(claim)
+                expected_rows[expected_row["expense_claim"]] = expected_row
+
+        # Process each current claim using pre-built rows
         for claim in current_claims:
-            # Build what the row should look like using available data
-            expected_row = self._build_lightweight_expense_entry(claim)
+            expected_row = expected_rows.get(claim.name)
+            if not expected_row:
+                continue  # Skip if batch build failed for this claim
 
             if claim.name in existing_expenses:
                 # Check if existing row needs updating
@@ -2238,10 +2254,217 @@ class Member(
                 "message": f"Error updating history tables: {str(e)}",
             }
 
+    def _batch_fetch_with_chunking(self, doctype, name_list, fields, filters=None, chunk_size=500):
+        """
+        Fetch records in batches to avoid SQL IN() clause limits.
+
+        Args:
+            doctype: DocType to query
+            name_list: List of names to fetch
+            fields: Fields to retrieve
+            filters: Additional filters (will be merged with name IN clause)
+            chunk_size: Maximum items per batch (default: 500)
+
+        Returns:
+            List of fetched records
+        """
+        if not name_list:
+            return []
+
+        results = []
+        base_filters = filters or {}
+
+        for i in range(0, len(name_list), chunk_size):
+            chunk = name_list[i : i + chunk_size]
+            chunk_filters = {**base_filters, "name": ["in", chunk]}
+
+            chunk_results = frappe.get_all(doctype, filters=chunk_filters, fields=fields)
+            results.extend(chunk_results)
+
+        return results
+
+    def _build_expense_entries_batched(self, claims):
+        """
+        OPTIMIZED: Build all expense entries using batch queries.
+
+        Query Reduction: 41 queries → 3 queries (93% reduction)
+
+        Original pattern (N+1):
+        - 1 query for expense claims
+        - N queries for payment refs (one per claim)
+        - N queries for payment entries (one per claim)
+
+        Optimized pattern (batch):
+        - Claims already fetched (passed in)
+        - 1 batch query for ALL payment refs
+        - 1 batch query for ALL payment entries
+        - 1 batch query for ALL volunteers
+
+        Total: 3 queries for all claims
+        """
+        if not claims:
+            return []
+
+        # QUERY 1: Batch fetch ALL payment references for ALL claims
+        claim_names = [claim.name for claim in claims]
+
+        all_payment_refs = frappe.get_all(
+            "Payment Entry Reference",
+            filters={"reference_doctype": "Expense Claim", "reference_name": ["in", claim_names]},
+            fields=["parent", "allocated_amount", "reference_name"],
+        )
+
+        # Build lookup: claim_name → [payment_refs]
+        payment_refs_by_claim = {}
+        all_payment_entry_names = set()
+        for ref in all_payment_refs:
+            payment_refs_by_claim.setdefault(ref.reference_name, []).append(ref)
+            all_payment_entry_names.add(ref.parent)
+
+        # QUERY 2: Batch fetch ALL payment entries with chunking
+        all_payment_entries = []
+        if all_payment_entry_names:
+            all_payment_entries = self._batch_fetch_with_chunking(
+                doctype="Payment Entry",
+                name_list=list(all_payment_entry_names),
+                fields=["name", "posting_date", "paid_amount", "mode_of_payment"],
+                filters={"docstatus": 1},
+                chunk_size=500,
+            )
+
+        # Build lookup: payment_name → payment_data
+        payments_by_name = {pe.name: pe for pe in all_payment_entries}
+
+        # QUERY 3: Batch fetch ALL volunteers for ALL employees
+        employee_ids = [
+            getattr(claim, "employee", claim.get("employee"))
+            for claim in claims
+            if hasattr(claim, "employee") or "employee" in claim
+        ]
+        employee_ids = [e for e in employee_ids if e]  # Filter out None values
+
+        # Batch fetch volunteers (defensive empty list check)
+        all_volunteers = []
+        if employee_ids:
+            all_volunteers = frappe.get_all(
+                "Volunteer",
+                filters={"employee_id": ["in", employee_ids]},
+                fields=["name", "employee_id", "member"],
+            )
+
+        # Build lookup: employee_id → volunteer_name (prioritize member match)
+        volunteers_by_employee = {}
+        for vol in all_volunteers:
+            # Prefer volunteers linked to this member
+            if vol.member == self.name:
+                volunteers_by_employee[vol.employee_id] = vol.name
+            # Otherwise use any volunteer with this employee_id (if not already set)
+            elif vol.employee_id not in volunteers_by_employee:
+                volunteers_by_employee[vol.employee_id] = vol.name
+
+        # NOW BUILD ALL ENTRIES WITHOUT QUERIES
+        entries = []
+        success_count = 0
+        error_count = 0
+
+        for claim_data in claims:
+            try:
+                # Get volunteer from lookup (no query!)
+                volunteer_name = None
+                employee = getattr(claim_data, "employee", claim_data.get("employee"))
+                if employee:
+                    volunteer_name = volunteers_by_employee.get(employee)
+
+                # Get basic expense information
+                expense_name = getattr(claim_data, "name", claim_data.get("name"))
+                expense_status = getattr(claim_data, "status", claim_data.get("status", "Draft"))
+                docstatus = getattr(claim_data, "docstatus", claim_data.get("docstatus", 0))
+                approval_status = getattr(claim_data, "approval_status", claim_data.get("approval_status"))
+
+                # Apply status logic
+                if docstatus == 0:
+                    expense_status = "Draft"
+                elif docstatus == 1:
+                    if approval_status == "Rejected":
+                        expense_status = "Rejected"
+
+                # Get payment data from lookups (no queries!)
+                payment_refs = payment_refs_by_claim.get(expense_name, [])
+
+                payment_entry = None
+                payment_date = None
+                paid_amount = 0
+                payment_method = None
+                payment_status = "Pending"
+
+                if payment_refs:
+                    # Get payment entry names from refs
+                    payment_entry_names = [ref.parent for ref in payment_refs]
+                    relevant_payments = [
+                        payments_by_name[name] for name in payment_entry_names if name in payments_by_name
+                    ]
+
+                    if relevant_payments:
+                        # Get most recent payment
+                        most_recent = max(relevant_payments, key=lambda p: p.posting_date)
+                        payment_entry = most_recent.name
+                        payment_date = most_recent.posting_date
+                        paid_amount = most_recent.paid_amount
+                        payment_method = most_recent.mode_of_payment
+                        payment_status = "Paid"
+
+                entries.append(
+                    {
+                        "expense_claim": expense_name,
+                        "volunteer": volunteer_name,
+                        "posting_date": getattr(claim_data, "posting_date", claim_data.get("posting_date")),
+                        "total_claimed_amount": getattr(
+                            claim_data, "total_claimed_amount", claim_data.get("total_claimed_amount", 0)
+                        ),
+                        "total_sanctioned_amount": getattr(
+                            claim_data,
+                            "total_sanctioned_amount",
+                            claim_data.get("total_sanctioned_amount", 0),
+                        ),
+                        "status": expense_status,
+                        "payment_entry": payment_entry,
+                        "payment_date": payment_date,
+                        "paid_amount": paid_amount,
+                        "payment_method": payment_method,
+                        "payment_status": payment_status,
+                    }
+                )
+                success_count += 1
+
+            except Exception as e:
+                error_count += 1
+                frappe.log_error(
+                    f"Error building batched expense entry for {getattr(claim_data, 'name', 'unknown')}: {str(e)}",
+                    "Batched Expense Entry Build Error",
+                )
+                # Continue with other claims
+                continue
+
+        # Log processing summary if there were any errors
+        if error_count > 0:
+            frappe.logger().warning(
+                f"Batched expense entry build for {self.name}: "
+                f"{success_count} succeeded, {error_count} failed"
+            )
+
+        return entries
+
     def _build_lightweight_expense_entry(self, claim_data):
         """
         Build expense history entry from claim data without loading full document.
         Uses data already available from frappe.get_all() call.
+
+        DEPRECATED: Use _build_expense_entries_batched() for better performance.
+        Kept for fallback compatibility.
+
+        WARNING: This fallback method uses N+1 query pattern for volunteer lookups
+        (2 queries per expense claim). Only use when batched version fails.
+        For 20 claims: ~40 volunteer lookup queries vs 1 batch query.
         """
         try:
             # Get volunteer information

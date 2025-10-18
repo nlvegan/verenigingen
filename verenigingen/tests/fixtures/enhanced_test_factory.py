@@ -212,14 +212,17 @@ class EnhancedTestDataFactory:
     def __init__(self, seed: int = 12345, use_faker: bool = True):
         """
         Initialize enhanced test data factory
-        
+
         Args:
             seed: Random seed for deterministic data generation
             use_faker: Whether to use Faker for realistic test data
         """
+        # Store seed for access by bridge methods
+        self.seed = seed
+
         # Set deterministic seed
         random.seed(seed)
-        
+
         # Initialize Faker with deterministic seed
         # Create a new instance for each factory to ensure independence
         Faker.seed(seed)
@@ -3922,7 +3925,12 @@ class EnhancedTestCase(FrappeTestCase):
         """Bridge method for dues schedule creation"""
         try:
             from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
-            sepa_factory = SEPATestDataFactory(seed=self.factory._seed, use_faker=self.factory.use_faker)
+            sepa_factory = SEPATestDataFactory(seed=self.factory.seed, use_faker=self.factory.use_faker)
+
+            # Add membership_type to kwargs if provided
+            if membership_type:
+                kwargs['membership_type'] = membership_type
+
             return sepa_factory.create_test_membership_dues_schedule(
                 member=member,
                 dues_rate=amount,

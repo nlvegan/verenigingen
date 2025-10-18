@@ -16,6 +16,7 @@
     "column_break_3",
     "region",
     "cost_center",
+    "chapter_split_percentage",
     "postal_codes",
     "contact_email",
     "published",
@@ -67,6 +68,12 @@
       "label": "Cost Center",
       "options": "Cost Center",
       "description": "Associated cost center for financial tracking"
+    },
+    {
+      "fieldname": "chapter_split_percentage",
+      "fieldtype": "Percent",
+      "label": "Chapter Split %",
+      "description": "Custom percentage of dues income for this chapter (overrides default). Leave blank to use system default."
     },
     {
       "description": "List of postal code patterns separated by commas (e.g. 1000-1099, 2500, 3*)",

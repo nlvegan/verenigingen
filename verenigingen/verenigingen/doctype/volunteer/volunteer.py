@@ -961,12 +961,25 @@ class Volunteer(Document):
                 "Team Member", filters={"volunteer": self.name, "status": "Active"}, fields=["parent"]
             )
 
-            for team_membership in team_memberships:
-                team_doc = frappe.get_doc("Team", team_membership.parent)
-                if team_doc.chapter:
-                    team_chapter_approver = self.get_board_financial_approver(team_doc.chapter)
-                    if team_chapter_approver:
-                        return team_chapter_approver
+            # OPTIMIZED: Batch fetch all team data at once (N+1 → 2 queries)
+            if team_memberships:
+                team_names = [tm.parent for tm in team_memberships]
+                all_teams = frappe.get_all(
+                    "Team",
+                    filters={"name": ["in", team_names]},
+                    fields=["name", "chapter"],
+                )
+
+                # Build lookup: team_name → team_data
+                teams_by_name = {t.name: t for t in all_teams}
+
+                # Iterate using lookups (no queries!)
+                for team_membership in team_memberships:
+                    team_data = teams_by_name.get(team_membership.parent)
+                    if team_data and team_data.chapter:
+                        team_chapter_approver = self.get_board_financial_approver(team_data.chapter)
+                        if team_chapter_approver:
+                            return team_chapter_approver
 
             # Priority 4: Fallback to any system manager with expense approver role
             fallback_approver = frappe.db.get_value(

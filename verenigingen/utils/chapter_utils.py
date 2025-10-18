@@ -30,6 +30,7 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.member_utils import get_member_name_for_user, get_volunteer_for_member
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 
 def get_user_accessible_chapters(
@@ -373,3 +374,113 @@ def invalidate_chapter_access_cache(user_email: Optional[str] = None):
 
     except Exception as e:
         frappe.logger().error(f"Error clearing chapter access cache for {user_email}: {str(e)}")
+
+
+def get_member_primary_chapter(member_name: str) -> Optional[str]:
+    """
+    Get the primary (first active) chapter for a member.
+
+    Args:
+        member_name: Name of the Member document
+
+    Returns:
+        Chapter name or None if member has no active chapter membership
+
+    Note:
+        For members with multiple chapters, returns the first active one.
+        Most members will only belong to one chapter.
+    """
+    if not member_name:
+        return None
+
+    # Query Chapter Member child table to find active chapter memberships
+    chapters = frappe.db.sql(
+        """
+        SELECT cm.chapter
+        FROM `tabChapter` c
+        INNER JOIN `tabChapter Member` cm ON cm.parent = c.name
+        WHERE cm.member = %(member)s
+            AND cm.enabled = 1
+            AND cm.status = 'Active'
+            AND c.status = 'Active'
+        ORDER BY cm.chapter_join_date DESC
+        LIMIT 1
+        """,
+        {"member": member_name},
+        as_dict=True,
+    )
+
+    return chapters[0].chapter if chapters else None
+
+
+def get_chapter_split_percentage(chapter_name: str) -> float:
+    """
+    Get the chapter split percentage for a given chapter.
+
+    DEPRECATED: Use verenigingen.verenigingen.domain.chapter_dues.SplitPercentage.from_chapter() instead.
+    This wrapper is maintained for backward compatibility.
+
+    Args:
+        chapter_name: Name of the Chapter document
+
+    Returns:
+        Chapter split percentage (0-100)
+
+    Logic:
+        1. If chapter has custom chapter_split_percentage, use that
+        2. Otherwise, use default from Verenigingen Settings
+        3. Default to 60% if no configuration exists
+    """
+    # Use domain model for consistent logic
+    from verenigingen.verenigingen.domain.chapter_dues import SplitPercentage
+
+    split = SplitPercentage.from_chapter(chapter_name)
+    return float(split.chapter_percentage)
+
+
+def calculate_dues_split(total_amount: float, chapter_name: str) -> Dict[str, float]:
+    """
+    Calculate the split of dues income between chapter and national.
+
+    DEPRECATED: Use verenigingen.verenigingen.domain.chapter_dues.DuesAllocationService instead.
+    This wrapper is maintained for backward compatibility.
+
+    Args:
+        total_amount: Total dues amount to split
+        chapter_name: Name of the Chapter
+
+    Returns:
+        Dictionary with:
+            - chapter_amount: Amount allocated to chapter
+            - national_amount: Amount allocated to national
+            - chapter_percentage: Percentage used for chapter
+            - national_percentage: Percentage used for national
+    """
+    # Use domain service for consistent calculation logic
+    from verenigingen.verenigingen.domain.chapter_dues import DuesAllocationService
+
+    service = DuesAllocationService()
+    allocation = service.calculate_allocation(total_amount, chapter_name)
+    return allocation.to_dict()
+
+
+@frappe.whitelist()
+@high_security_api(operation_type=OperationType.UTILITY)
+def get_chapter_split_info(chapter_name: str) -> Dict:
+    """
+    Get chapter split configuration info (whitelisted for client calls).
+
+    Args:
+        chapter_name: Name of the Chapter
+
+    Returns:
+        Dictionary with chapter split configuration
+    """
+    chapter_pct = get_chapter_split_percentage(chapter_name)
+
+    return {
+        "chapter_name": chapter_name,
+        "chapter_percentage": chapter_pct,
+        "national_percentage": 100.0 - chapter_pct,
+        "uses_default": not bool(frappe.db.get_value("Chapter", chapter_name, "chapter_split_percentage")),
+    }

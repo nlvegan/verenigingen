@@ -30,34 +30,44 @@ from verenigingen.utils.member_utils import (
     get_current_user_member_doc,
     get_current_user_member_name_required,
     get_current_user_member_info,
-    
+
     # Member-customer relationships
     get_member_customer,
     get_member_for_customer,
-    
+
     # Volunteer functions
     get_volunteer_for_member,
     get_volunteer_for_current_user,
     get_volunteer_name_for_user,
     is_member_volunteer,
     is_current_user_volunteer,
-    
-    # Membership functions  
+
+    # Membership functions
     get_active_membership_for_member,
     get_active_membership_for_current_user,
-    
+
     # Chapter functions
     get_member_chapters,
     get_current_user_chapters,
-    
+
     # SEPA functions
     get_member_sepa_mandate,
     has_active_sepa_mandate,
-    
+
     # Validation functions
     validate_member_ownership,
     require_member_record,
     has_mollie_subscription,
+
+    # Dues Schedule utilities (NEW - Phase 2 Priority 4)
+    get_member_dues_schedule,
+    get_member_dues_schedule_name,
+    get_member_active_or_paused_schedule,
+    get_member_active_or_paused_schedule_name,
+    has_active_dues_schedule,
+    has_any_dues_schedule,
+    get_dues_schedule_for_membership,
+    get_dues_schedule_for_membership_name,
 )
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -532,6 +542,381 @@ class TestMemberUtils(EnhancedTestCase):
         """Clean up after all tests"""
         # Enhanced test factory handles automatic cleanup
         super().tearDownClass()
+
+
+class TestDuesScheduleUtilities(EnhancedTestCase):
+    """
+    Comprehensive test suite for dues schedule utility functions
+
+    Tests the new utilities added in Phase 2 Priority 4 for centralized
+    dues schedule queries. Uses EnhancedTestCase for proper field validation
+    and business rule compliance.
+    """
+
+    def setUp(self):
+        """Set up test data for each test"""
+        super().setUp()
+
+        # Create test member
+        self.member = self.create_test_member(
+            first_name="Dues",
+            last_name="Tester",
+            email="dues.tester@verenigingen.test",
+            birth_date="1985-05-15"
+        )
+
+        # Create membership type for dues schedules
+        if not frappe.db.exists("Membership Type", "Standard"):
+            membership_type = frappe.get_doc({
+                "doctype": "Membership Type",
+                "membership_type_name": "Standard",
+                "amount": 50.0,
+                "billing_period": "Annual"
+            })
+            membership_type.insert()
+
+        # Create membership for linking to dues schedule
+        # Note: We create the membership but DON'T submit it, because submitting
+        # triggers automatic dues schedule creation. Tests will submit when needed.
+        self.membership = self.create_test_membership(
+            member_name=self.member.name,
+            membership_type_name="Standard"
+        )
+        self.membership.status = "Active"
+        # DON'T submit here - tests that need schedules will create them explicitly
+
+        # Track created schedules for cleanup
+        self.created_schedules = []
+
+    def _create_dues_schedule(self, status="Active", dues_rate=50.0, is_template=0):
+        """Helper to create a test dues schedule
+
+        Automatically cleans up any existing schedules to avoid
+        'member already has active schedule' validation errors
+        """
+        import time
+
+        # Clean up any existing schedules for this member to avoid validation errors
+        existing_schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": self.member.name},
+            pluck="name"
+        )
+        for schedule_name in existing_schedules:
+            try:
+                frappe.delete_doc("Membership Dues Schedule", schedule_name, force=True)
+            except Exception:
+                pass  # Ignore errors during cleanup
+
+        schedule_name = f"Test Schedule {int(time.time() * 1000)}"  # Unique schedule name
+
+        schedule = self.create_test_dues_schedule(
+            member=self.member.name,
+            membership_type="Standard",
+            amount=dues_rate,
+            frequency="monthly",
+            status=status,
+            membership=self.membership.name,
+            payment_terms_template=None,  # Don't set payment terms for test simplicity
+            schedule_name=schedule_name  # Required for autoname
+        )
+
+        # Set is_template flag if needed
+        if is_template:
+            frappe.db.set_value("Membership Dues Schedule", schedule.name, "is_template", 1)
+
+        # Track for cleanup
+        self.created_schedules.append(schedule.name)
+
+        return schedule
+
+    # ========================================================================
+    # Core Query Function Tests
+    # ========================================================================
+
+    def test_get_member_dues_schedule_success(self):
+        """Test retrieval of active dues schedule with default fields"""
+        schedule = self._create_dues_schedule(status="Active", dues_rate=50.0)
+
+        result = get_member_dues_schedule(self.member.name)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result['name'], schedule.name)
+        self.assertEqual(result['status'], "Active")
+        self.assertEqual(result['dues_rate'], 50.0)
+
+    def test_get_member_dues_schedule_not_found(self):
+        """Test dues schedule lookup when no schedule exists"""
+        result = get_member_dues_schedule(self.member.name)
+        self.assertIsNone(result)
+
+    def test_get_member_dues_schedule_empty_input(self):
+        """Test dues schedule lookup with empty/None input"""
+        self.assertIsNone(get_member_dues_schedule(""))
+        self.assertIsNone(get_member_dues_schedule(None))
+
+    def test_get_member_dues_schedule_custom_fields(self):
+        """Test dues schedule lookup with custom field list"""
+        schedule = self._create_dues_schedule(status="Active")
+
+        result = get_member_dues_schedule(
+            self.member.name,
+            fields=["name", "dues_rate", "status"]
+        )
+
+        self.assertIsNotNone(result)
+        self.assertIn('name', result)
+        self.assertIn('dues_rate', result)
+        self.assertIn('status', result)
+
+    def test_get_member_dues_schedule_status_filtering(self):
+        """Test status filtering (Active, Paused, None)"""
+        schedule = self._create_dues_schedule(status="Paused")
+
+        # Should not find with Active filter
+        self.assertIsNone(get_member_dues_schedule(self.member.name, status_filter="Active"))
+
+        # Should find with Paused filter
+        result = get_member_dues_schedule(self.member.name, status_filter="Paused")
+        self.assertEqual(result['status'], "Paused")
+
+        # Should find with None filter (any status)
+        result = get_member_dues_schedule(self.member.name, status_filter=None)
+        self.assertIsNotNone(result)
+
+    def test_get_member_dues_schedule_template_exclusion(self):
+        """Test that templates are excluded by default"""
+        template = self._create_dues_schedule(status="Active", is_template=1)
+
+        # Should not find template by default
+        self.assertIsNone(get_member_dues_schedule(self.member.name))
+
+        # Should find with include_template=True
+        result = get_member_dues_schedule(self.member.name, include_template=True)
+        self.assertIsNotNone(result)
+
+    # ========================================================================
+    # Active or Paused Schedule Tests
+    # ========================================================================
+
+    def test_get_member_active_or_paused_schedule(self):
+        """Test active or paused query finds both Active and Paused schedules"""
+        # Test with Active schedule
+        schedule = self._create_dues_schedule(status="Active")
+        result = get_member_active_or_paused_schedule(self.member.name)
+        self.assertEqual(result['status'], "Active")
+
+        # Update to Paused - should still be found
+        frappe.db.set_value("Membership Dues Schedule", schedule.name, "status", "Paused")
+        result = get_member_active_or_paused_schedule(self.member.name)
+        self.assertEqual(result['status'], "Paused")
+
+    def test_get_member_active_or_paused_schedule_excludes_cancelled(self):
+        """Test active or paused query excludes cancelled schedules"""
+        schedule = self._create_dues_schedule(status="Cancelled")
+        self.assertIsNone(get_member_active_or_paused_schedule(self.member.name))
+
+    # ========================================================================
+    # Boolean Helper Tests (Performance Optimized)
+    # ========================================================================
+
+    def test_has_active_dues_schedule_true(self):
+        """Test boolean check returns True for active schedule"""
+        schedule = self._create_dues_schedule(status="Active")
+
+        result = has_active_dues_schedule(self.member.name)
+
+        self.assertTrue(result)
+
+    def test_has_active_dues_schedule_false(self):
+        """Test boolean check returns False when no active schedule"""
+        result = has_active_dues_schedule(self.member.name)
+        self.assertFalse(result)
+
+    def test_has_active_dues_schedule_paused_returns_false(self):
+        """Test boolean check returns False for paused schedule"""
+        schedule = self._create_dues_schedule(status="Paused")
+
+        result = has_active_dues_schedule(self.member.name)
+        self.assertFalse(result)
+
+    def test_has_active_dues_schedule_empty_input(self):
+        """Test boolean check with empty input"""
+        result = has_active_dues_schedule("")
+        self.assertFalse(result)
+
+        result = has_active_dues_schedule(None)
+        self.assertFalse(result)
+
+    def test_has_any_dues_schedule_true_active(self):
+        """Test any schedule check returns True for active schedule"""
+        schedule = self._create_dues_schedule(status="Active")
+
+        result = has_any_dues_schedule(self.member.name)
+        self.assertTrue(result)
+
+    def test_has_any_dues_schedule_true_cancelled(self):
+        """Test any schedule check returns True even for cancelled"""
+        schedule = self._create_dues_schedule(status="Cancelled")
+
+        result = has_any_dues_schedule(self.member.name)
+        self.assertTrue(result)
+
+    def test_has_any_dues_schedule_false(self):
+        """Test any schedule check returns False when no schedules"""
+        result = has_any_dues_schedule(self.member.name)
+        self.assertFalse(result)
+
+    def test_has_any_dues_schedule_empty_input(self):
+        """Test any schedule check with empty input"""
+        result = has_any_dues_schedule("")
+        self.assertFalse(result)
+
+    # ========================================================================
+    # Membership-Based Query Tests
+    # ========================================================================
+
+    def test_get_dues_schedule_for_membership_success(self):
+        """Test dues schedule lookup by membership"""
+        schedule = self._create_dues_schedule(status="Active")
+
+        result = get_dues_schedule_for_membership(self.membership.name)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result['name'], schedule.name)
+        self.assertEqual(result['member'], self.member.name)
+
+    def test_get_dues_schedule_for_membership_not_found(self):
+        """Test membership query when no schedule exists"""
+        result = get_dues_schedule_for_membership(self.membership.name)
+        self.assertIsNone(result)
+
+    def test_get_dues_schedule_for_membership_empty_input(self):
+        """Test membership query with empty input"""
+        result = get_dues_schedule_for_membership("")
+        self.assertIsNone(result)
+
+    def test_get_dues_schedule_for_membership_name_success(self):
+        """Test simplified membership name query"""
+        schedule = self._create_dues_schedule(status="Active")
+
+        result = get_dues_schedule_for_membership_name(self.membership.name)
+
+        self.assertEqual(result, schedule.name)
+
+    def test_get_dues_schedule_for_membership_name_not_found(self):
+        """Test membership name query when no schedule exists"""
+        result = get_dues_schedule_for_membership_name(self.membership.name)
+        self.assertIsNone(result)
+
+    # ========================================================================
+    # Field Validation Tests
+    # ========================================================================
+
+    def test_field_validation_invalid_fields_filtered(self):
+        """Test that invalid fields are filtered out gracefully"""
+        schedule = self._create_dues_schedule(status="Active")
+
+        # Request mix of valid and invalid fields
+        result = get_member_dues_schedule(
+            self.member.name,
+            fields=["name", "dues_rate", "nonexistent_field", "status"]
+        )
+
+        # Should still return result with valid fields only
+        self.assertIsNotNone(result)
+        self.assertIn('name', result)
+        self.assertIn('dues_rate', result)
+        self.assertIn('status', result)
+
+    def test_field_validation_all_invalid_fields(self):
+        """Test behavior when all requested fields are invalid"""
+        schedule = self._create_dues_schedule(status="Active")
+
+        # Request only invalid fields
+        result = get_member_dues_schedule(
+            self.member.name,
+            fields=["invalid_field_1", "invalid_field_2"]
+        )
+
+        # Should return None when no valid fields
+        self.assertIsNone(result)
+
+    # ========================================================================
+    # Status Transition Tests
+    # ========================================================================
+
+    def test_status_transition_active_to_paused(self):
+        """Test schedule can be found through status transitions"""
+        schedule = self._create_dues_schedule(status="Active")
+
+        # Initially found as Active
+        result = get_member_dues_schedule(self.member.name, status_filter="Active")
+        self.assertIsNotNone(result)
+
+        # Update to Paused
+        frappe.db.set_value("Membership Dues Schedule", schedule.name, "status", "Paused")
+
+        # No longer found as Active
+        result = get_member_dues_schedule(self.member.name, status_filter="Active")
+        self.assertIsNone(result)
+
+        # Now found as Paused
+        result = get_member_dues_schedule(self.member.name, status_filter="Paused")
+        self.assertIsNotNone(result)
+
+    def test_status_transition_active_or_paused_still_found(self):
+        """Test active_or_paused query works across transitions"""
+        schedule = self._create_dues_schedule(status="Active")
+
+        # Found as Active
+        result = get_member_active_or_paused_schedule(self.member.name)
+        self.assertIsNotNone(result)
+
+        # Update to Paused
+        frappe.db.set_value("Membership Dues Schedule", schedule.name, "status", "Paused")
+
+        # Still found by active_or_paused query
+        result = get_member_active_or_paused_schedule(self.member.name)
+        self.assertIsNotNone(result)
+        self.assertEqual(result['status'], "Paused")
+
+    # ========================================================================
+    # Edge Cases and Error Handling
+    # ========================================================================
+
+    def test_only_active_schedule_returned_when_cancelled_exists(self):
+        """Test that active schedule is returned even when cancelled schedule exists"""
+        # Business rule: Members can only have ONE active schedule at a time
+        # But they can have historical cancelled schedules
+
+        # Create and then cancel a schedule
+        old_schedule = self._create_dues_schedule(status="Active", dues_rate=50.0)
+        frappe.db.set_value("Membership Dues Schedule", old_schedule.name, "status", "Cancelled")
+
+        # Create a new active schedule (this replaces the old one)
+        new_schedule = self._create_dues_schedule(status="Active", dues_rate=75.0)
+
+        # Should only return the active schedule, not the cancelled one
+        result = get_member_dues_schedule(self.member.name, status_filter="Active")
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result['name'], new_schedule.name)
+        self.assertEqual(result['dues_rate'], 75.0)
+
+    def test_nonexistent_member_returns_none(self):
+        """Test lookup with non-existent member"""
+        result = get_member_dues_schedule("NONEXISTENT-MEMBER-123")
+        self.assertIsNone(result)
+
+    def test_special_characters_in_member_name(self):
+        """Test handling of special characters in member name"""
+        # Test with various edge case inputs
+        result = get_member_dues_schedule("Member's-Name-With-Apostrophe")
+        self.assertIsNone(result)
+
+        result = get_member_dues_schedule("Member@Domain.com")
+        self.assertIsNone(result)
 
 
 if __name__ == '__main__':

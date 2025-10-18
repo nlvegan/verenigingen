@@ -224,14 +224,14 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
                 )
                 customer_ids = [c.name for c in customers]
 
-            # Find all membership-related sales invoices via Customer link
+            # Find ALL sales invoices for these customers (not just membership invoices)
+            # This prevents orphaned invoices when Customer records are deleted
             if customer_ids:
                 placeholders = ", ".join(["%s"] * len(customer_ids))
                 sales_invoices_by_customer = frappe.db.sql(
                     f"""
                     SELECT name, docstatus FROM `tabSales Invoice`
                     WHERE customer IN ({placeholders})
-                    AND (is_membership_invoice = 1 OR membership IS NOT NULL)
                 """,
                     customer_ids,
                     as_dict=True,
@@ -634,12 +634,12 @@ def preview_member_cleanup():
 @critical_api(operation_type=OperationType.ADMIN)
 def force_cleanup_orphaned_schedules_and_invoices(dry_run=True):
     """
-    Force cleanup of orphaned dues schedules and membership invoices
+    Force cleanup of orphaned dues schedules and ALL sales invoices
     after members have already been deleted.
 
     This is more aggressive than the standard cleanup - it doesn't validate
     membership/member existence, just force deletes schedules and invoices
-    that reference non-existent members.
+    that reference non-existent customers.
 
     Args:
         dry_run (bool): If True, only shows what would be deleted
@@ -680,21 +680,19 @@ def force_cleanup_orphaned_schedules_and_invoices(dry_run=True):
 
         results["orphaned_schedules"]["count"] = len(orphaned_schedules)
 
-        # Find membership invoices for non-existent customers/members
+        # Find ALL sales invoices with non-existent customers (not just membership invoices)
+        # This prevents orphaned invoices from accumulating over time
         all_invoices = frappe.db.sql(
             """
             SELECT si.name, si.customer, si.docstatus
             FROM `tabSales Invoice` si
-            WHERE si.is_membership_invoice = 1 OR si.membership IS NOT NULL
+            LEFT JOIN `tabCustomer` c ON si.customer = c.name
+            WHERE c.name IS NULL
         """,
             as_dict=True,
         )
 
-        orphaned_invoices = []
-        for invoice in all_invoices:
-            if invoice.customer and not frappe.db.exists("Customer", invoice.customer):
-                orphaned_invoices.append(invoice)
-
+        orphaned_invoices = all_invoices
         results["orphaned_invoices"]["count"] = len(orphaned_invoices)
 
         if dry_run:

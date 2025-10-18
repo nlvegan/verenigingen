@@ -106,35 +106,46 @@ class SEPATestDataFactory(EnhancedTestDataFactory):
         sepa_mandate.insert()
         return sepa_mandate
     
-    def create_test_membership_dues_schedule(self, member: str = None, 
-                                           payment_terms_template: str = None,
+    def create_test_membership_dues_schedule(self, member: str = None,
+                                           payment_terms_template: str = "default",
                                            billing_frequency: str = "Monthly",
                                            dues_rate: float = 25.0,
                                            **kwargs) -> Document:
-        """Create test membership dues schedule for SEPA testing"""
+        """Create test membership dues schedule for SEPA testing
+
+        Args:
+            payment_terms_template: Payment terms template name. Use "default" for SEPA Direct Debit,
+                                  None to omit the field, or a specific template name.
+        """
         if not member:
             test_member = self.create_test_member()
             member = test_member.name
-            
-        if not payment_terms_template:
+
+        # Only set SEPA default if explicitly requested with "default"
+        if payment_terms_template == "default":
             payment_terms_template = "SEPA Direct Debit"
-        
+
         # Validate required fields
         self.validate_field_exists("Membership Dues Schedule", "member")
         self.validate_field_exists("Membership Dues Schedule", "payment_terms_template")
-        
+
         schedule = frappe.new_doc("Membership Dues Schedule")
-        schedule.update({
+        schedule_data = {
             "member": member,
-            "payment_terms_template": payment_terms_template,
             "billing_frequency": billing_frequency,
             "dues_rate": dues_rate,
             "status": kwargs.get("status", "Active"),
             "auto_generate": kwargs.get("auto_generate", 1),
             "next_invoice_date": kwargs.get("next_invoice_date", today()),
-            "contribution_mode": kwargs.get("contribution_mode", "Fixed"),
+            "contribution_mode": kwargs.get("contribution_mode", "Tier"),  # Valid options: Tier, Calculator, Custom
             **kwargs
-        })
+        }
+
+        # Only set payment_terms_template if not None
+        if payment_terms_template is not None:
+            schedule_data["payment_terms_template"] = payment_terms_template
+
+        schedule.update(schedule_data)
         
         schedule.insert()
         return schedule

@@ -107,16 +107,39 @@ def log_security_event(user, event_type, details, severity="medium"):
         severity: Event severity (low, medium, high, critical)
     """
     try:
-        # Create security log entry
-        security_log = frappe.get_doc(
-            {
-                "doctype": "Error Log",
-                "method": f"Security Event: {event_type}",
-                "error": f"User: {user}\nSeverity: {severity}\nDetails: {details}",
-                "creation": now_datetime(),
-            }
-        )
-        security_log.insert(ignore_permissions=True)
+        # Only log to Error Log for medium/high/critical severity events
+        # Low severity events (like routine approvals) only go to Activity Log
+        if severity in ["medium", "high", "critical"]:
+            # Create security log entry in Error Log for non-routine events
+            security_log = frappe.get_doc(
+                {
+                    "doctype": "Error Log",
+                    "method": f"Security Event: {event_type}",
+                    "error": f"User: {user}\nSeverity: {severity}\nDetails: {details}",
+                    "creation": now_datetime(),
+                }
+            )
+            security_log.insert(ignore_permissions=True)
+
+        # For ALL events (including low severity), create Activity Log entry
+        # This provides audit trail without cluttering error logs
+        try:
+            activity_log = frappe.get_doc(
+                {
+                    "doctype": "Activity Log",
+                    "subject": f"{event_type} by {user}",
+                    "status": "Success",
+                    "user": user,
+                    "full_name": frappe.db.get_value("User", user, "full_name") or user,
+                    "operation": event_type,
+                    "content": details,
+                    "creation": now_datetime(),
+                }
+            )
+            activity_log.insert(ignore_permissions=True)
+        except Exception:
+            # Fallback to simple logger if Activity Log creation fails
+            frappe.logger().info(f"Security Event [{severity}]: {event_type} - User: {user} - {details}")
 
         # For high/critical events, also create system alert
         if severity in ["high", "critical"]:

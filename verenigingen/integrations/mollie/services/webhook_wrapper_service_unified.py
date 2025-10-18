@@ -145,12 +145,13 @@ class UnifiedWebhookWrapperService:
                 entries_to_add = []
                 for entry in payment_history_entries:
                     already_exists = any(
-                        p.payment_entry == entry["payment_entry"]
-                        for p in (donation.payments or [])
+                        p.payment_entry == entry["payment_entry"] for p in (donation.payments or [])
                     )
 
                     if already_exists:
-                        self.logger.info(f"⏭️ Payment history entry already exists for PE {entry['payment_entry']}, skipping")
+                        self.logger.info(
+                            f"⏭️ Payment history entry already exists for PE {entry['payment_entry']}, skipping"
+                        )
                         continue
 
                     entries_to_add.append(entry)
@@ -164,9 +165,7 @@ class UnifiedWebhookWrapperService:
                         donation.append("payments", entry)
 
                     donation.save()  # Single save after all appends
-                    self.logger.info(
-                        f"✅ Updated payment history with {len(entries_to_add)} refund entries"
-                    )
+                    self.logger.info(f"✅ Updated payment history with {len(entries_to_add)} refund entries")
                 else:
                     self.logger.info("⏭️ All refund payment history entries already exist, nothing to add")
             except Exception as hist_err:
@@ -203,29 +202,35 @@ class UnifiedWebhookWrapperService:
             for entry in missing_entries:
                 # Check if this Payment Entry already exists in payment history
                 already_exists = any(
-                    p.payment_entry == entry["payment_entry"]
-                    for p in (donation.payments or [])
+                    p.payment_entry == entry["payment_entry"] for p in (donation.payments or [])
                 )
 
                 if already_exists:
-                    self.logger.info(f"⏭️ Payment history entry already exists for PE {entry['payment_entry']}, skipping")
+                    self.logger.info(
+                        f"⏭️ Payment history entry already exists for PE {entry['payment_entry']}, skipping"
+                    )
                     continue
 
                 # Parse date if needed (PEs have dates, fetch from PE if available)
                 pe_doc = frappe.get_doc("Payment Entry", entry["payment_entry"])
                 payment_date = pe_doc.posting_date if pe_doc else frappe.utils.getdate()
 
-                entries_to_add.append({
-                    "payment_entry": entry["payment_entry"],
-                    "amount": -float(entry["amount"]),
-                    "payment_date": payment_date,
-                    "mollie_payment_id": entry["refund_id"],  # Store refund ID in this field
-                    "payment_status": "Refunded",
-                    "payment_method": "Mollie",
-                })
+                entries_to_add.append(
+                    {
+                        "payment_entry": entry["payment_entry"],
+                        "amount": -float(entry["amount"]),
+                        "payment_date": payment_date,
+                        "mollie_payment_id": entry["refund_id"],  # Store refund ID in this field
+                        "payment_status": "Refunded",
+                        "payment_method": "Mollie",
+                    }
+                )
 
             # Only save if we actually have entries to add
             if entries_to_add:
+                # Sort entries by payment_date chronologically before adding
+                entries_to_add.sort(key=lambda x: x["payment_date"])
+
                 # Allow modifying submitted document
                 donation.flags.ignore_validate_update_after_submit = True
 
@@ -233,7 +238,9 @@ class UnifiedWebhookWrapperService:
                     donation.append("payments", entry_data)
 
                 donation.save()
-                self.logger.info(f"✅ Updated {len(entries_to_add)} payment history entries")
+                self.logger.info(
+                    f"✅ Updated {len(entries_to_add)} payment history entries (sorted chronologically)"
+                )
                 return len(entries_to_add)
             else:
                 self.logger.info("⏭️ All payment history entries already exist, nothing to add")
@@ -581,6 +588,15 @@ class UnifiedWebhookWrapperService:
                     results.append("Payment history updated")
                 else:
                     results.append("Payment history update failed")
+
+            # CRITICAL FIX: Also handle refund payment history backfill during partial processing
+            # This ensures that when main payment history is missing, we also check for missing refund history
+            if donation and processing_state.payment_history_missing:
+                refund_history_count = self._update_missing_payment_history(
+                    donation, payment_id, processing_state.payment_history_missing
+                )
+                if refund_history_count > 0:
+                    results.append(f"Backfilled {refund_history_count} refund payment history entries")
 
             result = {
                 "status": "success" if results else "error",

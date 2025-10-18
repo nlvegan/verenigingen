@@ -424,6 +424,9 @@ class DutchTaxExemptionHandler:
             else:
                 exemption_type = "EXEMPT_MEMBERSHIP"  # General default
 
+        # Set the "Exempt from tax" checkbox (core ERPNext field)
+        invoice.exempt_from_tax = 1
+
         # Set BTW exemption fields
         invoice.btw_exemption_type = exemption_type
         invoice.btw_reporting_category = BTW_REPORTING_CATEGORIES.get(exemption_type, "None")

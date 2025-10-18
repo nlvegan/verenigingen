@@ -40300,5 +40300,53 @@
     "audit_level": "detailed",
     "alert_on_execution": 1,
     "notification_recipients": "beheerder@veganisme.org"
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "update_publication_status",
+    "operation_name": "update_publication_status",
+    "operation_type": "utility",
+    "description": "Update chapter publication status to control public website visibility",
+    "enabled": 1,
+    "security_level": "medium",
+    "business_context": "Chapter administrators can publish/unpublish their chapter on the public website",
+    "required_roles": "Vereiningen Administrator, Verenigingen Chapter Board Member",
+    "rate_limit_calls": 20,
+    "rate_limit_period_seconds": 60,
+    "rate_limit_scope": "per_user",
+    "audit_level": "standard",
+    "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "chapter_validation_update_publication_status",
+    "operation_name": "chapter_validation_update_publication_status",
+    "operation_type": "utility",
+    "description": "Update chapter publication status via chapter_validation API",
+    "enabled": 1,
+    "security_level": "medium",
+    "business_context": "Chapter publication status updates through validation module",
+    "required_roles": "Verenigingen Administrator, Verenigingen Chapter Board Member",
+    "rate_limit_calls": 20,
+    "rate_limit_period_seconds": 60,
+    "rate_limit_scope": "per_user",
+    "audit_level": "standard",
+    "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "api_update_publication_status",
+    "operation_name": "api_update_publication_status",
+    "operation_type": "utility",
+    "description": "Generic API endpoint for updating chapter publication status",
+    "enabled": 1,
+    "security_level": "medium",
+    "business_context": "API wrapper for chapter publication status management",
+    "required_roles": "Verenigingen Administrator, Verenigingen Chapter Board Member",
+    "rate_limit_calls": 20,
+    "rate_limit_period_seconds": 60,
+    "rate_limit_scope": "per_user",
+    "audit_level": "standard",
+    "alert_on_execution": 0
   }
 ]
