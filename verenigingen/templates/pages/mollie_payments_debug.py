@@ -415,10 +415,13 @@ def batch_process_dues_payments(payment_ids, customer_id=None):
 
         # Parse payment_ids if it's a JSON string - use Frappe's secure parser
         if isinstance(payment_ids, str):
+            import html
             import re
 
             try:
-                payment_ids = frappe.parse_json(payment_ids)
+                # Decode HTML entities first (form data may be HTML-escaped)
+                payment_ids_decoded = html.unescape(payment_ids)
+                payment_ids = frappe.parse_json(payment_ids_decoded)
             except (ValueError, TypeError) as e:
                 frappe.throw(_("Invalid JSON format for payment_ids: {0}").format(str(e)))
 
