@@ -984,8 +984,10 @@ def has_active_dues_schedule(member_name: str) -> bool:
         return False
 
     try:
-        return frappe.db.exists(
-            "Membership Dues Schedule", {"member": member_name, "status": "Active", "is_template": 0}
+        return bool(
+            frappe.db.exists(
+                "Membership Dues Schedule", {"member": member_name, "status": "Active", "is_template": 0}
+            )
         )
     except Exception as e:
         frappe.logger().error(
@@ -1014,7 +1016,7 @@ def has_any_dues_schedule(member_name: str) -> bool:
         return False
 
     try:
-        return frappe.db.exists("Membership Dues Schedule", {"member": member_name, "is_template": 0})
+        return bool(frappe.db.exists("Membership Dues Schedule", {"member": member_name, "is_template": 0}))
     except Exception as e:
         frappe.logger().error(f"Error checking dues schedule existence for member {member_name}: {str(e)}")
         return False

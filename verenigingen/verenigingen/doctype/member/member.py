@@ -991,6 +991,18 @@ class Member(
             except Exception as e:
                 frappe.logger().error(f"Error deleting Membership {membership_name}: {str(e)}")
 
+        # Delete Membership Dues Schedules linked to this member
+        dues_schedules = frappe.get_all(
+            "Membership Dues Schedule", filters={"member": self.name}, pluck="name"
+        )
+
+        for schedule_name in dues_schedules:
+            try:
+                frappe.delete_doc("Membership Dues Schedule", schedule_name, force=True)
+                frappe.logger().info(f"Deleted orphaned Membership Dues Schedule {schedule_name}")
+            except Exception as e:
+                frappe.logger().error(f"Error deleting Membership Dues Schedule {schedule_name}: {str(e)}")
+
         # Delete Chapter Member assignments
         chapter_members = frappe.get_all("Chapter Member", filters={"member": self.name}, pluck="name")
 

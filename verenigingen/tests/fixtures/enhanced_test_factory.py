@@ -254,14 +254,18 @@ class EnhancedTestDataFactory:
         # Use deterministic "timestamp" based on sequence and test run ID for reproducibility
         deterministic_id = hash(f"{self.test_run_id}_{purpose}_{seq}") % 1000000
 
+        # Add actual timestamp component to guarantee uniqueness across test runs
+        import time
+        timestamp_component = int(time.time() * 1000) % 1000000
+
         if self.use_faker:
             # Use Faker but clearly mark as test
             base_email = self.fake.email()
             username, domain = base_email.split('@')
-            # Add sequence number, deterministic ID, and test run ID to ensure uniqueness while being deterministic
-            return f"TEST_{purpose}_{seq:04d}_{deterministic_id}_{username}_{self.test_run_id}@test.invalid"
+            # Add timestamp to ensure absolute uniqueness
+            return f"TEST_{purpose}_{seq:04d}_{deterministic_id}_{username}_{self.test_run_id}_{timestamp_component}@test.invalid"
         else:
-            return f"TEST_{purpose}_{seq:04d}_{deterministic_id}_{self.test_run_id}@test.invalid"
+            return f"TEST_{purpose}_{seq:04d}_{deterministic_id}_{self.test_run_id}_{timestamp_component}@test.invalid"
             
     def generate_test_name(self, type_name: str = "Person") -> str:
         """Generate clearly marked test name"""
@@ -1998,6 +2002,7 @@ class EnhancedTestCase(FrappeTestCase):
                     {"email": ["like", "%@test.invalid"]},
                     {"email": ["like", "%@example.com"]},
                     {"email": ["like", "%@university.nl"]},  # Student test records
+                    {"email": ["like", "%@verenigingen.test"]},  # Test utilities members
                     {"first_name": ["like", "Test%"]},
                     {"first_name": ["like", "%TestMember%"]},
                     # REMOVED: {"name": ["like", "Assoc-Member-%"]} - TOO BROAD, matches production!
@@ -2009,6 +2014,7 @@ class EnhancedTestCase(FrappeTestCase):
                     WHERE email LIKE '%@test.invalid'
                        OR email LIKE '%@example.com'
                        OR email LIKE '%@university.nl'
+                       OR email LIKE '%@verenigingen.test'
                        OR first_name LIKE 'Test%'
                        OR first_name LIKE '%TestMember%'
                 """)[0][0]
@@ -2030,6 +2036,57 @@ class EnhancedTestCase(FrappeTestCase):
 
                 # Log cleanup operation
                 frappe.logger().info(f"Test cleanup removed {members_deleted} member patterns")
+
+                # Clean up orphaned Membership Dues Schedules
+                # These are schedules where the linked member or membership no longer exists
+                schedules = frappe.get_all('Membership Dues Schedule',
+                                          fields=['name', 'member', 'membership'],
+                                          limit_page_length=500)
+
+                orphaned_schedules = []
+                for schedule in schedules:
+                    # Check if member exists
+                    if schedule.get('member'):
+                        if not frappe.db.exists('Member', schedule['member']):
+                            orphaned_schedules.append(schedule['name'])
+                            continue
+
+                    # Check if membership exists
+                    if schedule.get('membership'):
+                        if not frappe.db.exists('Membership', schedule['membership']):
+                            orphaned_schedules.append(schedule['name'])
+
+                # Delete orphaned schedules
+                schedules_deleted = 0
+                for schedule_name in orphaned_schedules:
+                    try:
+                        frappe.delete_doc("Membership Dues Schedule", schedule_name, force=True)
+                        schedules_deleted += 1
+                    except Exception:
+                        continue
+
+                if schedules_deleted > 0:
+                    frappe.logger().info(f"Test cleanup removed {schedules_deleted} orphaned dues schedules")
+
+                # Clean up test volunteers (to prevent email duplicate key violations)
+                test_volunteers = frappe.get_all("Volunteer",
+                    filters=[
+                        ["email", "like", "%@test.invalid"],
+                    ],
+                    pluck="name",
+                    limit=100
+                )
+
+                volunteers_deleted = 0
+                for volunteer_name in test_volunteers:
+                    try:
+                        frappe.delete_doc("Volunteer", volunteer_name, force=True)
+                        volunteers_deleted += 1
+                    except Exception:
+                        continue
+
+                if volunteers_deleted > 0:
+                    frappe.logger().info(f"Test cleanup removed {volunteers_deleted} test volunteers")
 
                 # Clean up test chapters
                 test_chapters = frappe.get_all("Chapter",

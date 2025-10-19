@@ -55,6 +55,19 @@ class Membership(Document):
         """Handle dues schedule when membership is cancelled"""
         self.pause_dues_schedule()
 
+    def on_trash(self):
+        """Clean up Membership Dues Schedules linked to this membership"""
+        dues_schedules = frappe.get_all(
+            "Membership Dues Schedule", filters={"membership": self.name}, pluck="name"
+        )
+
+        for schedule_name in dues_schedules:
+            try:
+                frappe.delete_doc("Membership Dues Schedule", schedule_name, force=True)
+                frappe.logger().info(f"Deleted orphaned Membership Dues Schedule {schedule_name}")
+            except Exception as e:
+                frappe.logger().error(f"Error deleting Membership Dues Schedule {schedule_name}: {str(e)}")
+
     def create_or_update_dues_schedule(self):
         """Create or update the member's dues schedule with improved error handling"""
         frappe.logger().info(
