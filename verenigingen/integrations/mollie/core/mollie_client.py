@@ -83,11 +83,17 @@ class MollieClient:
             if not api_key:
                 raise MollieConfigurationError("Mollie API key not configured")
 
+            # Determine if we're in test mode based on API key
+            test_mode = api_key.startswith("test_")
+
+            # Use appropriate webhook URL based on mode
+            webhook_url = doc.testing_webhook_url if test_mode else doc.live_webhook_url
+
             return {
                 "api_key": api_key,
-                "test_mode": api_key.startswith("test_"),
+                "test_mode": test_mode,
                 "profile_id": doc.profile_id,
-                "webhook_url": doc.webhook_url,
+                "webhook_url": webhook_url,
                 "webhook_secret": doc.get_password(fieldname="webhook_secret", raise_exception=False),
             }
         except frappe.DoesNotExistError:

@@ -40348,5 +40348,37 @@
     "rate_limit_scope": "per_user",
     "audit_level": "standard",
     "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "retrieve_customer_payments_for_processing",
+    "operation_name": "retrieve_customer_payments_for_processing",
+    "operation_type": "financial",
+    "description": "Retrieve customer payment transactions for dues payment processing",
+    "enabled": 1,
+    "security_level": "medium",
+    "business_context": "Debug page operations to retrieve and classify Mollie payments for batch processing",
+    "required_roles": "System Manager\nVerenigingen Administrator\nVerenigingen Staff",
+    "rate_limit_calls": 50,
+    "rate_limit_period_seconds": 3600,
+    "rate_limit_scope": "per_user",
+    "audit_level": "standard",
+    "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "batch_process_dues_payments",
+    "operation_name": "batch_process_dues_payments",
+    "operation_type": "financial",
+    "description": "Batch process selected dues payments to create Payment Entries",
+    "enabled": 1,
+    "security_level": "high",
+    "business_context": "Debug page operations to batch create Payment Entries from Mollie dues payments",
+    "required_roles": "System Manager\nVerenigingen Administrator",
+    "rate_limit_calls": 20,
+    "rate_limit_period_seconds": 3600,
+    "rate_limit_scope": "per_user",
+    "audit_level": "comprehensive",
+    "alert_on_execution": 0
   }
 ]

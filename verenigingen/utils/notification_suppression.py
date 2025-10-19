@@ -55,6 +55,9 @@ def suppress_chapter_notifications() -> Iterator[None]:
         # This ensures ChapterMembershipManager sees notifications as disabled
         settings.send_chapter_assignment_notifications = 0
 
+        # Prevent accidental persistence of temporary setting change
+        settings.flags.ignore_save = True
+
         frappe.logger().info("[BULK OPERATION] Chapter notifications suppressed (context manager active)")
 
         yield
@@ -63,6 +66,7 @@ def suppress_chapter_notifications() -> Iterator[None]:
         # Always restore original values
         frappe.flags.suppress_chapter_notifications = original_flag
         settings.send_chapter_assignment_notifications = original_value
+        settings.flags.ignore_save = False
 
         frappe.logger().info("[BULK OPERATION] Chapter notifications restored to original setting")
 
@@ -99,6 +103,9 @@ def suppress_all_notifications() -> Iterator[None]:
         # Disable settings (in-memory only)
         settings.send_chapter_assignment_notifications = 0
 
+        # Prevent accidental persistence of temporary setting change
+        settings.flags.ignore_save = True
+
         frappe.logger().info("[BULK OPERATION] All notifications suppressed (aggressive mode active)")
 
         yield
@@ -109,6 +116,7 @@ def suppress_all_notifications() -> Iterator[None]:
             setattr(frappe.flags, flag_name, original_value)
 
         settings.send_chapter_assignment_notifications = original_chapter
+        settings.flags.ignore_save = False
 
         frappe.logger().info("[BULK OPERATION] All notifications restored to original settings")
 

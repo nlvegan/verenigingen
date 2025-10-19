@@ -1085,7 +1085,22 @@ class MijnroodCSVImport(Document):
                 customer_name = member_doc.create_customer()
                 member_doc.customer = customer_name
 
-            # Update the Customer with Mollie data
+            # Update BOTH the Member and Customer records with Mollie data
+            # Member fields are used by PaymentClassifier for payment matching
+            # Customer custom fields are used by relationship management
+
+            # Update Member record with Mollie data
+            if mollie_data.get("custom_mollie_customer_id"):
+                member_doc.mollie_customer_id = mollie_data["custom_mollie_customer_id"]
+            if mollie_data.get("custom_mollie_subscription_id"):
+                member_doc.mollie_subscription_id = mollie_data["custom_mollie_subscription_id"]
+                # Set subscription status if we have subscription ID
+                member_doc.subscription_status = "active"
+
+            # Save Member record
+            member_doc.save()
+
+            # Update the Customer with Mollie data (for backwards compatibility)
             if member_doc.customer:
                 customer = frappe.get_doc("Customer", member_doc.customer)
 
@@ -1101,7 +1116,7 @@ class MijnroodCSVImport(Document):
                 customer.save()
 
                 frappe.logger().info(
-                    f"Updated Customer {customer.name} with Mollie data for Member {member_doc.name}"
+                    f"Updated Member {member_doc.name} and Customer {customer.name} with Mollie data"
                 )
 
         except Exception as e:
