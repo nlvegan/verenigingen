@@ -3898,12 +3898,13 @@ class EnhancedTestCase(FrappeTestCase):
             "wait_time": timeout_seconds
         }
 
-    def test_background_approval_system(self):
+    def validate_background_approval_system(self):
         """
-        Test the background approval system end-to-end.
+        Validate the background approval system end-to-end.
 
         This helper method validates that the background processing
-        system works correctly in test scenarios.
+        system works correctly in test scenarios. NOT a test itself -
+        call this from actual test methods when needed.
 
         Returns:
             Dict with test results and performance metrics
