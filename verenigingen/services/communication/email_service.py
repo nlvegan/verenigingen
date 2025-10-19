@@ -318,17 +318,35 @@ class EmailService:
         create_communication: bool = True,
         **options,
     ) -> Dict[str, Any]:
-        """Internal email sending with Communication record creation."""
+        """
+        Internal email sending with Communication record creation.
+
+        Uses Frappe's Email Queue system instead of direct sendmail() to prevent
+        broken pipe errors from SMTP subprocess failures. Emails are queued and
+        sent asynchronously via background workers.
+        """
         try:
-            # Send via Frappe's email system
-            frappe.sendmail(
-                recipients=recipients,
-                subject=subject,
-                message=content,
-                reference_doctype=reference_doctype,
-                reference_name=reference_name,
-                **options,
-            )
+            # Use Email Queue instead of direct sendmail() to prevent broken pipe errors
+            # This queues the email for background processing by RQ workers
+            from frappe.email.queue import queue as add_to_email_queue
+
+            # Prepare email arguments for queue
+            email_args = {
+                "recipients": recipients,
+                "subject": subject,
+                "message": content,
+                "reference_doctype": reference_doctype,
+                "reference_name": reference_name,
+                "send_priority": 1,  # Normal priority
+                "queue": "default",  # Use default queue
+            }
+
+            # Add any additional options
+            email_args.update(options)
+
+            # Queue the email - this returns immediately without blocking
+            # The actual sending happens in background via RQ worker
+            queue_result = add_to_email_queue(**email_args)
 
             communication_id = None
             if create_communication:
@@ -336,11 +354,49 @@ class EmailService:
                     recipients, subject, content, reference_doctype, reference_name
                 )
 
-            return {"success": True, "communication_id": communication_id}
+            return {
+                "success": True,
+                "communication_id": communication_id,
+                "queued": True,
+                "queue_result": queue_result if queue_result else "queued",
+            }
 
         except Exception as e:
-            frappe.logger("email_service").error(f"Email sending failed: {str(e)}")
-            return {"success": False, "errors": [str(e)]}
+            frappe.logger("email_service").error(f"Email queueing failed: {str(e)}")
+
+            # Fallback: Try direct sendmail as last resort with error handling
+            try:
+                frappe.logger("email_service").warning(
+                    "Email Queue failed, attempting direct sendmail fallback"
+                )
+                frappe.sendmail(
+                    recipients=recipients,
+                    subject=subject,
+                    message=content,
+                    reference_doctype=reference_doctype,
+                    reference_name=reference_name,
+                    now=True,  # Send immediately in fallback mode
+                    **options,
+                )
+
+                communication_id = None
+                if create_communication:
+                    communication_id = self._create_communication_record(
+                        recipients, subject, content, reference_doctype, reference_name
+                    )
+
+                return {
+                    "success": True,
+                    "communication_id": communication_id,
+                    "queued": False,
+                    "fallback": True,
+                }
+
+            except Exception as fallback_error:
+                frappe.logger("email_service").error(
+                    f"Both Email Queue and sendmail fallback failed: {str(fallback_error)}"
+                )
+                return {"success": False, "errors": [str(e), str(fallback_error)]}
 
     def _create_communication_record(
         self,

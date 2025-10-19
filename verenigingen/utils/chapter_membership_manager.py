@@ -65,6 +65,7 @@ class ChapterMembershipManager:
             chapter_doc = frappe.get_doc("Chapter", chapter_name)
 
             # Use the chapter's member manager to request membership (pending approval)
+            # Note: member_manager is a property on Chapter, not a database field
             result = chapter_doc.member_manager.request_to_join(
                 member_id=member_id, introduction=introduction, website_url=website_url, notify=True
             )
