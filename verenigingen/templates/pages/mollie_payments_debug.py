@@ -362,3 +362,80 @@ def list_subscriptions(customer_id, limit=50, active_only=True):
     except Exception as e:
         frappe.log_error(f"Mollie list subscriptions error: {str(e)}")
         return {"error": str(e), "customer_id": customer_id}
+
+
+@frappe.whitelist(allow_guest=False)
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def retrieve_customer_payments_for_processing(customer_id, limit=250):
+    """
+    Retrieve all payment transactions for a customer ID with processing status.
+
+    This is Phase 1 of the two-stage dues payment processing:
+    - Retrieves all payments for the customer
+    - Checks which payments are already processed (have Payment Entry)
+    - Identifies payment type (dues vs donation)
+    - Finds associated member for dues payments
+    - Returns list with processable flag for UI selection
+    """
+    try:
+        if not has_mollie_debug_access():
+            frappe.throw(_("Access denied"))
+
+        service = MollieDebugService()
+        return service.retrieve_customer_payments_for_processing(customer_id, int(limit))
+
+    except Exception as e:
+        frappe.log_error(f"Mollie retrieve customer payments error: {str(e)}")
+        return {"error": str(e), "customer_id": customer_id}
+
+
+@frappe.whitelist(allow_guest=False)
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def batch_process_dues_payments(payment_ids, customer_id=None):
+    """
+    Process selected membership dues payments in batch.
+
+    This is Phase 2 of the two-stage dues payment processing:
+    - Takes list of payment IDs selected by user
+    - Creates Payment Entry for each dues payment
+    - Uses proper idempotency checks
+    - Returns detailed results for each payment
+
+    Args:
+        payment_ids: JSON string or list of Mollie payment IDs
+        customer_id: Optional customer ID for context
+    """
+    try:
+        if not has_mollie_debug_access():
+            frappe.throw(_("Access denied"))
+
+        # Parse payment_ids if it's a JSON string
+        if isinstance(payment_ids, str):
+            import json
+
+            payment_ids = json.loads(payment_ids)
+
+        if not payment_ids or not isinstance(payment_ids, list):
+            frappe.throw(_("Invalid payment_ids - must be a list"))
+
+        # Enforce maximum batch size
+        MAX_BATCH_SIZE = 50
+        if len(payment_ids) > MAX_BATCH_SIZE:
+            frappe.throw(
+                _(
+                    f"Cannot process more than {MAX_BATCH_SIZE} payments at once. Please process in smaller batches."
+                )
+            )
+
+        # Rate limiting: 1 minute cooldown between batch operations
+        cache_key = f"dues_batch_limit:{frappe.session.user}"
+        if frappe.cache().get(cache_key):
+            frappe.throw(_("Please wait 60 seconds between batch operations"))
+        frappe.cache().set(cache_key, "1", expires_in_sec=60)
+
+        service = MollieDebugService()
+        return service.batch_process_dues_payments(payment_ids, customer_id)
+
+    except Exception as e:
+        frappe.log_error(f"Mollie batch process dues payments error: {str(e)}")
+        return {"error": str(e), "payment_ids": payment_ids}

@@ -1308,3 +1308,162 @@ class MollieDebugService:
             frappe.log_error(f"Mollie list subscriptions error for customer {customer_id}: {str(e)}")
 
         return result
+
+    def retrieve_customer_payments_for_processing(self, customer_id: str, limit: int = 250):
+        """
+        Retrieve all payment transactions for a customer with processing status.
+
+        This method fetches all payments and checks which ones have already been
+        processed (have Payment Entry records) to support two-stage processing.
+
+        Args:
+            customer_id: Mollie customer ID
+            limit: Maximum number of payments to retrieve (1-250)
+
+        Returns:
+            Dict containing:
+                - customer_id: Customer ID queried
+                - payments: List of payment details with processing status
+                - total_found: Total payments retrieved
+                - unprocessed_count: Number of payments not yet processed
+                - processed_count: Number already processed
+        """
+        if not customer_id:
+            raise ValueError(_("Customer ID is required"))
+
+        # Validate limit
+        try:
+            limit = int(limit)
+            if not 1 <= limit <= 250:
+                limit = 250
+        except (ValueError, TypeError):
+            limit = 250
+
+        result = {
+            "test_mode": self.mollie_client.is_test_mode(),
+            "timestamp": frappe.utils.now(),
+            "customer_id": customer_id,
+            "limit": limit,
+            "payments": [],
+            "total_found": 0,
+            "unprocessed_count": 0,
+            "processed_count": 0,
+            "error": None,
+        }
+
+        try:
+            # Import dues processor
+            from verenigingen.integrations.mollie.services.dues_payment_processor import DuesPaymentProcessor
+
+            dues_processor = DuesPaymentProcessor()
+
+            # Get all payments for customer
+            client = self.mollie_client._get_mollie_client()
+            customer_obj = client.customers.get(customer_id)
+            payments = customer_obj.payments.list(limit=limit)
+
+            result["total_found"] = len(payments)
+
+            for payment in payments:
+                # Check if already processed
+                idempotency_check = dues_processor.check_payment_already_processed(payment.id)
+
+                # Identify payment type
+                payment_type = dues_processor.identify_payment_type(payment)
+
+                # Find associated member if it's a dues payment
+                member_name = None
+                if payment_type == "dues":
+                    member_name = dues_processor.find_member_for_payment(payment)
+
+                payment_info = {
+                    "id": payment.id,
+                    "status": payment.status,
+                    "amount": f"{payment.amount['value']} {payment.amount['currency']}"
+                    if payment.amount
+                    else "Unknown",
+                    "description": getattr(payment, "description", ""),
+                    "created_at": str(payment.created_at),
+                    "paid_at": str(getattr(payment, "paid_at", None))
+                    if getattr(payment, "paid_at", None)
+                    else None,
+                    "subscription_id": getattr(payment, "subscription_id", None),
+                    "payment_type": payment_type,
+                    "member": member_name,
+                    "already_processed": idempotency_check["already_processed"],
+                    "payment_entry": idempotency_check.get("payment_entry"),
+                    "processable": payment.status == "paid"
+                    and payment_type == "dues"
+                    and not idempotency_check["already_processed"],
+                }
+
+                result["payments"].append(payment_info)
+
+                if idempotency_check["already_processed"]:
+                    result["processed_count"] += 1
+                else:
+                    result["unprocessed_count"] += 1
+
+        except Exception as e:
+            sanitized_error = self._sanitize_error_message(str(e))
+            result["error"] = sanitized_error
+            frappe.log_error(f"Error retrieving customer payments for {customer_id}: {str(e)}")
+
+        return result
+
+    def batch_process_dues_payments(self, payment_ids: list, customer_id: str = None):
+        """
+        Process multiple membership dues payments in batch.
+
+        Args:
+            payment_ids: List of Mollie payment IDs to process
+            customer_id: Optional customer ID for context
+
+        Returns:
+            Dict with batch processing results
+        """
+        if not payment_ids:
+            raise ValueError(_("No payment IDs provided"))
+
+        result = {
+            "customer_id": customer_id,
+            "total_requested": len(payment_ids),
+            "processed": 0,
+            "skipped": 0,
+            "errors": 0,
+            "results": [],
+            "timestamp": frappe.utils.now(),
+        }
+
+        try:
+            from verenigingen.integrations.mollie.services.dues_payment_processor import DuesPaymentProcessor
+
+            dues_processor = DuesPaymentProcessor()
+
+            for payment_id in payment_ids:
+                try:
+                    payment_result = dues_processor.process_dues_payment(payment_id)
+                    result["results"].append(payment_result)
+
+                    if payment_result["status"] == "success":
+                        result["processed"] += 1
+                    elif payment_result["status"] in ["skipped", "already_processed"]:
+                        result["skipped"] += 1
+                    elif payment_result["status"] == "error":
+                        result["errors"] += 1
+
+                except Exception as e:
+                    result["errors"] += 1
+                    result["results"].append({"payment_id": payment_id, "status": "error", "error": str(e)})
+                    frappe.log_error(f"Error processing payment {payment_id}: {e}")
+
+            frappe.logger().info(
+                f"✅ Batch processing complete: {result['processed']} processed, "
+                f"{result['skipped']} skipped, {result['errors']} errors"
+            )
+
+        except Exception as e:
+            result["error"] = str(e)
+            frappe.log_error(f"Batch processing error: {e}")
+
+        return result

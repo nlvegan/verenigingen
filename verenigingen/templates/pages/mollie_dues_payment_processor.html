@@ -1,0 +1,376 @@
+<!-- Membership Dues Payment Processor Section -->
+<!-- Two-stage processing: Retrieve → Select → Process -->
+<div class="debug-card mb-6">
+    <div class="p-4 border border-gray-300 rounded-lg bg-purple-50">
+        <h3 class="text-lg font-semibold text-purple-800 mb-2">
+            <i class="fa fa-credit-card mr-2"></i>{{ _("Membership Dues Payment Processor") }}
+        </h3>
+        <p class="text-purple-700 mb-4">
+            {{ _("Two-stage processing: Retrieve all payment transactions for a customer, then select which ones to process as membership dues payments") }}
+        </p>
+
+        <!-- Stage 1: Retrieve Payments -->
+        <div class="bg-white p-4 rounded-lg border border-purple-200 mb-4">
+            <h4 class="font-semibold text-purple-700 mb-3">{{ _("Stage 1: Retrieve Customer Payments") }}</h4>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Mollie Customer ID") }}</label>
+                    <input type="text" id="dues-customer-id" class="debug-input"
+                           placeholder="cst_xxxxxxxxxx">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Limit (max 250)") }}</label>
+                    <input type="number" id="dues-payment-limit" class="debug-input"
+                           value="250" min="1" max="250">
+                </div>
+            </div>
+
+            <button onclick="retrieveCustomerPayments()" class="success-button">
+                <i class="fa fa-download mr-1"></i>{{ _("Retrieve All Payments") }}
+            </button>
+        </div>
+
+        <!-- Stage 2: Select & Process -->
+        <div id="dues-payments-list" class="bg-white p-4 rounded-lg border border-purple-200" style="display: none;">
+            <h4 class="font-semibold text-purple-700 mb-3">{{ _("Stage 2: Select Payments to Process") }}</h4>
+
+            <div class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <div class="text-sm text-blue-700">
+                    <p class="mb-2"><strong>{{ _("Summary:") }}</strong></p>
+                    <p class="mb-1">Total Retrieved: <span id="dues-total-count" class="font-semibold">0</span></p>
+                    <p class="mb-1">Already Processed: <span id="dues-processed-count" class="font-semibold">0</span></p>
+                    <p class="mb-1">Available to Process: <span id="dues-unprocessed-count" class="font-semibold">0</span></p>
+                </div>
+            </div>
+
+            <!-- Quick Selection Buttons -->
+            <div class="mb-4 flex gap-2">
+                <button onclick="selectAllProcessable()" class="btn btn-sm btn-default">
+                    <i class="fa fa-check-square mr-1"></i>{{ _("Select All Processable") }}
+                </button>
+                <button onclick="deselectAll()" class="btn btn-sm btn-default">
+                    <i class="fa fa-square-o mr-1"></i>{{ _("Deselect All") }}
+                </button>
+            </div>
+
+            <!-- Payments Table -->
+            <div class="overflow-x-auto mb-4">
+                <table class="w-full text-sm">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-2 py-2 text-left">
+                                <input type="checkbox" id="select-all-checkbox" onchange="toggleSelectAll()">
+                            </th>
+                            <th class="px-2 py-2 text-left">{{ _("Payment ID") }}</th>
+                            <th class="px-2 py-2 text-left">{{ _("Status") }}</th>
+                            <th class="px-2 py-2 text-left">{{ _("Amount") }}</th>
+                            <th class="px-2 py-2 text-left">{{ _("Type") }}</th>
+                            <th class="px-2 py-2 text-left">{{ _("Member") }}</th>
+                            <th class="px-2 py-2 text-left">{{ _("Processed?") }}</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dues-payments-table-body">
+                        <!-- Populated by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+
+            <button onclick="processSelectedPayments()" class="warning-button">
+                <i class="fa fa-cogs mr-1"></i>{{ _("Process Selected Payments") }}
+            </button>
+        </div>
+
+        <!-- Processing Results -->
+        <div id="dues-processing-results" class="result-area" style="display: none;"></div>
+
+        <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <div class="text-sm text-blue-700">
+                <p class="mb-2"><strong>{{ _("How it works:") }}</strong></p>
+                <p class="mb-1">{{ _("1. Enter customer ID and retrieve all payments") }}</p>
+                <p class="mb-1">{{ _("2. System identifies which payments are membership dues (vs donations)") }}</p>
+                <p class="mb-1">{{ _("3. Shows which payments already have Payment Entry records") }}</p>
+                <p class="mb-1">{{ _("4. Select unprocessed dues payments and create Payment Entries in batch") }}</p>
+                <p>{{ _("5. Member payment history automatically updates via existing hooks") }}</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Global variable to store retrieved payments
+let retrievedPayments = [];
+
+// Stage 1: Retrieve all payments for customer
+async function retrieveCustomerPayments() {
+    const customerId = document.getElementById('dues-customer-id').value.trim();
+    const limit = document.getElementById('dues-payment-limit').value;
+
+    if (!customerId) {
+        frappe.msgprint(__('Please enter a Mollie Customer ID'));
+        return;
+    }
+
+    // Show loading
+    frappe.show_progress(__('Retrieving payments...'), 30, 100);
+
+    try {
+        const response = await frappe.call({
+            method: 'verenigingen.templates.pages.mollie_payments_debug.retrieve_customer_payments_for_processing',
+            args: {
+                customer_id: customerId,
+                limit: parseInt(limit)
+            }
+        });
+
+        frappe.hide_progress();
+
+        if (response.message.error) {
+            frappe.msgprint({
+                title: __('Error'),
+                message: response.message.error,
+                indicator: 'red'
+            });
+            return;
+        }
+
+        const data = response.message;
+        retrievedPayments = data.payments || [];
+
+        // Update summary
+        document.getElementById('dues-total-count').textContent = data.total_found;
+        document.getElementById('dues-processed-count').textContent = data.processed_count;
+        document.getElementById('dues-unprocessed-count').textContent = data.unprocessed_count;
+
+        // Render payments table
+        renderPaymentsTable(retrievedPayments);
+
+        // Show the selection stage
+        document.getElementById('dues-payments-list').style.display = 'block';
+
+        frappe.show_alert({
+            message: __('Retrieved {0} payments', [data.total_found]),
+            indicator: 'green'
+        });
+
+    } catch (error) {
+        frappe.hide_progress();
+        frappe.msgprint({
+            title: __('Error'),
+            message: __('Failed to retrieve payments: {0}', [error.message]),
+            indicator: 'red'
+        });
+    }
+}
+
+// Render payments table
+function renderPaymentsTable(payments) {
+    const tbody = document.getElementById('dues-payments-table-body');
+    tbody.innerHTML = '';
+
+    payments.forEach((payment, index) => {
+        const row = document.createElement('tr');
+        row.className = payment.processable ? 'bg-white hover:bg-gray-50' : 'bg-gray-100';
+
+        // Checkbox
+        const checkboxCell = document.createElement('td');
+        checkboxCell.className = 'px-2 py-2';
+        if (payment.processable) {
+            checkboxCell.innerHTML = `<input type="checkbox" class="payment-checkbox" data-payment-id="${payment.id}" data-index="${index}">`;
+        }
+        row.appendChild(checkboxCell);
+
+        // Payment ID
+        const idCell = document.createElement('td');
+        idCell.className = 'px-2 py-2 font-mono text-xs';
+        idCell.textContent = payment.id;
+        row.appendChild(idCell);
+
+        // Status
+        const statusCell = document.createElement('td');
+        statusCell.className = 'px-2 py-2';
+        const statusBadge = document.createElement('span');
+        statusBadge.className = `px-2 py-1 rounded text-xs font-semibold ${
+            payment.status === 'paid' ? 'bg-green-100 text-green-800' :
+            payment.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+            'bg-gray-100 text-gray-800'
+        }`;
+        statusBadge.textContent = payment.status;
+        statusCell.appendChild(statusBadge);
+        row.appendChild(statusCell);
+
+        // Amount
+        const amountCell = document.createElement('td');
+        amountCell.className = 'px-2 py-2 font-semibold';
+        amountCell.textContent = payment.amount;
+        row.appendChild(amountCell);
+
+        // Type
+        const typeCell = document.createElement('td');
+        typeCell.className = 'px-2 py-2';
+        const typeBadge = document.createElement('span');
+        typeBadge.className = `px-2 py-1 rounded text-xs font-semibold ${
+            payment.payment_type === 'dues' ? 'bg-purple-100 text-purple-800' :
+            payment.payment_type === 'donation' ? 'bg-blue-100 text-blue-800' :
+            'bg-gray-100 text-gray-800'
+        }`;
+        typeBadge.textContent = payment.payment_type;
+        typeCell.appendChild(typeBadge);
+        row.appendChild(typeCell);
+
+        // Member
+        const memberCell = document.createElement('td');
+        memberCell.className = 'px-2 py-2 text-xs';
+        memberCell.textContent = payment.member || '-';
+        row.appendChild(memberCell);
+
+        // Already Processed
+        const processedCell = document.createElement('td');
+        processedCell.className = 'px-2 py-2';
+        if (payment.already_processed) {
+            processedCell.innerHTML = `<span class="text-green-600">✓ ${payment.payment_entry || 'Yes'}</span>`;
+        } else {
+            processedCell.innerHTML = '<span class="text-gray-400">-</span>';
+        }
+        row.appendChild(processedCell);
+
+        tbody.appendChild(row);
+    });
+}
+
+// Toggle select all
+function toggleSelectAll() {
+    const selectAllCheckbox = document.getElementById('select-all-checkbox');
+    const checkboxes = document.querySelectorAll('.payment-checkbox');
+    checkboxes.forEach(cb => cb.checked = selectAllCheckbox.checked);
+}
+
+// Select all processable payments
+function selectAllProcessable() {
+    const checkboxes = document.querySelectorAll('.payment-checkbox');
+    checkboxes.forEach(cb => cb.checked = true);
+}
+
+// Deselect all
+function deselectAll() {
+    const checkboxes = document.querySelectorAll('.payment-checkbox');
+    checkboxes.forEach(cb => cb.checked = false);
+    document.getElementById('select-all-checkbox').checked = false;
+}
+
+// Stage 2: Process selected payments
+async function processSelectedPayments() {
+    const selectedCheckboxes = document.querySelectorAll('.payment-checkbox:checked');
+
+    if (selectedCheckboxes.length === 0) {
+        frappe.msgprint(__('Please select at least one payment to process'));
+        return;
+    }
+
+    const selectedPaymentIds = Array.from(selectedCheckboxes).map(cb => cb.dataset.paymentId);
+
+    // Confirm before processing
+    const confirmed = await new Promise(resolve => {
+        frappe.confirm(
+            __('Process {0} selected payment(s)?', [selectedPaymentIds.length]),
+            () => resolve(true),
+            () => resolve(false)
+        );
+    });
+
+    if (!confirmed) return;
+
+    // Show loading
+    frappe.show_progress(__('Processing payments...'), 50, 100);
+
+    try {
+        const response = await frappe.call({
+            method: 'verenigingen.templates.pages.mollie_payments_debug.batch_process_dues_payments',
+            args: {
+                payment_ids: selectedPaymentIds,
+                customer_id: document.getElementById('dues-customer-id').value.trim()
+            }
+        });
+
+        frappe.hide_progress();
+
+        if (response.message.error) {
+            frappe.msgprint({
+                title: __('Error'),
+                message: response.message.error,
+                indicator: 'red'
+            });
+            return;
+        }
+
+        const result = response.message;
+
+        // Display results
+        displayProcessingResults(result);
+
+        // Refresh the payments list
+        setTimeout(() => retrieveCustomerPayments(), 2000);
+
+        frappe.show_alert({
+            message: __('Processed {0} payments successfully', [result.processed]),
+            indicator: 'green'
+        });
+
+    } catch (error) {
+        frappe.hide_progress();
+        frappe.msgprint({
+            title: __('Error'),
+            message: __('Failed to process payments: {0}', [error.message]),
+            indicator: 'red'
+        });
+    }
+}
+
+// Display processing results
+function displayProcessingResults(result) {
+    const resultsDiv = document.getElementById('dues-processing-results');
+    resultsDiv.style.display = 'block';
+
+    let html = '<div class="p-4 bg-white border border-gray-300 rounded-lg">';
+    html += '<h4 class="font-semibold mb-3">Processing Results</h4>';
+    html += `<div class="mb-3">`;
+    html += `<p><strong>Total Requested:</strong> ${result.total_requested}</p>`;
+    html += `<p class="text-green-600"><strong>Successfully Processed:</strong> ${result.processed}</p>`;
+    html += `<p class="text-yellow-600"><strong>Skipped:</strong> ${result.skipped}</p>`;
+    html += `<p class="text-red-600"><strong>Errors:</strong> ${result.errors}</p>`;
+    html += `</div>`;
+
+    if (result.results && result.results.length > 0) {
+        html += '<div class="mt-4"><h5 class="font-semibold mb-2">Details:</h5>';
+        html += '<div class="max-h-96 overflow-y-auto">';
+        html += '<table class="w-full text-sm">';
+        html += '<thead class="bg-gray-50"><tr>';
+        html += '<th class="px-2 py-1 text-left">Payment ID</th>';
+        html += '<th class="px-2 py-1 text-left">Status</th>';
+        html += '<th class="px-2 py-1 text-left">Member</th>';
+        html += '<th class="px-2 py-1 text-left">Payment Entry</th>';
+        html += '<th class="px-2 py-1 text-left">Details</th>';
+        html += '</tr></thead><tbody>';
+
+        result.results.forEach(item => {
+            const statusClass =
+                item.status === 'success' ? 'text-green-600' :
+                item.status === 'skipped' || item.status === 'already_processed' ? 'text-yellow-600' :
+                'text-red-600';
+
+            html += `<tr class="border-b">`;
+            html += `<td class="px-2 py-1 font-mono text-xs">${item.payment_id}</td>`;
+            html += `<td class="px-2 py-1 ${statusClass} font-semibold">${item.status}</td>`;
+            html += `<td class="px-2 py-1 text-xs">${item.member || '-'}</td>`;
+            html += `<td class="px-2 py-1 text-xs">${item.payment_entry || '-'}</td>`;
+            html += `<td class="px-2 py-1 text-xs">${item.error || item.skipped_reason || '-'}</td>`;
+            html += `</tr>`;
+        });
+
+        html += '</tbody></table></div></div>';
+    }
+
+    html += '</div>';
+    resultsDiv.innerHTML = html;
+}
+</script>
