@@ -33,12 +33,14 @@ def execute():
             )
 
             # Use raw SQL for idempotency and reliability
-            frappe.db.sql("""
+            frappe.db.sql(
+                """
                 UPDATE `tabVerenigingen Settings`
                 SET send_chapter_assignment_notifications = 1
                 WHERE name = 'Verenigingen Settings'
                 AND IFNULL(send_chapter_assignment_notifications, 0) = 0
-            """)
+            """
+            )
             frappe.db.commit()
 
             frappe.logger().info("✅ Chapter assignment notifications enabled for existing installation")

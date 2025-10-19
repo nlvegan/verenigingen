@@ -898,6 +898,18 @@ class Member(
         self.handle_fee_override_changes()
         sync_member_status_fields(self)
 
+        # Clear application_status once member leaves application workflow
+        # Application workflow states are: Pending, Under Review, Approved, Rejected, Payment Pending
+        # Once member becomes Active, Terminated, Suspended, etc., application_status is no longer relevant
+        if self.status not in ["Pending"] and self.application_status in [
+            "Pending",
+            "Under Review",
+            "Approved",
+            "Rejected",
+            "Payment Pending",
+        ]:
+            self.application_status = None
+
     def on_update(self):
         """Emit events for status changes to trigger background operations"""
         try:
@@ -4323,31 +4335,33 @@ def test_fee_history_functionality(member_name="Assoc-Member-2025-07-0030"):
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def fix_existing_member_workflow_status():
-    """Fix application_status for existing active members who shouldn't be in workflow states"""
+    """Clear application_status for members who have left the application workflow"""
     try:
-        # Find all members with status='Active' but application_status != 'Active'
+        # Find all members not in "Pending" status but still have application_status set
+        # Application workflow only applies to Pending members; once Active, Terminated, etc.,
+        # the application_status is no longer relevant and should be cleared
         members_to_fix = frappe.db.sql(
             """
             SELECT name, application_status, status
             FROM `tabMember`
-            WHERE status = 'Active'
-            AND application_status != 'Active'
+            WHERE status != 'Pending'
             AND application_status IS NOT NULL
+            AND application_status IN ('Pending', 'Under Review', 'Approved', 'Rejected', 'Payment Pending')
         """,
             as_dict=True,
         )
 
         fixed_count = 0
         for member in members_to_fix:
-            # Update application_status to match status
-            frappe.db.set_value("Member", member.name, "application_status", "Active")
+            # Clear application_status since member is no longer in application workflow
+            frappe.db.set_value("Member", member.name, "application_status", None)
             fixed_count += 1
 
         frappe.db.commit()
 
         return {
             "success": True,
-            "message": f"Fixed application_status for {fixed_count} members",
+            "message": f"Cleared application_status for {fixed_count} members who have left the application workflow",
             "fixed_members": [m.name for m in members_to_fix],
         }
 

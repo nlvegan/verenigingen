@@ -178,13 +178,22 @@ class ChapterMembershipManager:
             # Get chapter document and use its member manager
             chapter_doc = frappe.get_doc("Chapter", chapter_name)
 
-            # Determine notification behavior: explicit override > global setting > default (False)
-            if notify is None:
+            # Determine notification behavior with four-tier priority:
+            # 1. Bulk operation context (suppress_chapter_notifications flag)
+            # 2. Explicit notify parameter override
+            # 3. Global setting from Verenigingen Settings
+            # 4. Conservative default (False)
+
+            # Check if we're in a bulk operation context first
+            if getattr(frappe.flags, "suppress_chapter_notifications", False):
+                send_notifications = False
+            elif notify is not None:
+                # Explicit parameter override
+                send_notifications = notify
+            else:
                 # Check global setting
                 settings = frappe.get_single("Verenigingen Settings")
                 send_notifications = getattr(settings, "send_chapter_assignment_notifications", False)
-            else:
-                send_notifications = notify
 
             # Use the chapter's member manager which handles history tracking
             result = chapter_doc.member_manager.add_member(

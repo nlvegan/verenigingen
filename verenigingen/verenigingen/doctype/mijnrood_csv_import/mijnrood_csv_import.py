@@ -1328,6 +1328,8 @@ class MijnroodCSVImport(Document):
 
             # Use the centralized ChapterMembershipManager for proper assignment
             # Suppress notifications during bulk CSV imports to avoid email flood
+            # NOTE: Explicit notify=False is preferred here for clarity
+            # Alternatively, could wrap entire import in suppress_chapter_notifications() context
             result = ChapterMembershipManager.assign_member_to_chapter(
                 member_id=member_doc.name,
                 chapter_name=chapter_name,
