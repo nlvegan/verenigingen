@@ -326,6 +326,23 @@ class EmailService:
         sent asynchronously via background workers.
         """
         try:
+            # Input validation
+            if not recipients:
+                return create_service_result(
+                    success=False,
+                    error="No recipients provided",
+                    service_name="EmailService",
+                    operation="_send_email_internal",
+                )
+
+            if not subject or not content:
+                return create_service_result(
+                    success=False,
+                    error="Subject and content are required",
+                    service_name="EmailService",
+                    operation="_send_email_internal",
+                )
+
             # Use Email Queue instead of direct sendmail() to prevent broken pipe errors
             # This queues the email for background processing by RQ workers
             from frappe.email.queue import queue as add_to_email_queue
@@ -346,57 +363,38 @@ class EmailService:
 
             # Queue the email - this returns immediately without blocking
             # The actual sending happens in background via RQ worker
-            queue_result = add_to_email_queue(**email_args)
+            # Note: frappe.email.queue.queue() returns None on success
+            add_to_email_queue(**email_args)
 
             communication_id = None
             if create_communication:
                 communication_id = self._create_communication_record(
-                    recipients, subject, content, reference_doctype, reference_name
+                    recipients, subject, content, reference_doctype, reference_name, status="Queued"
                 )
 
-            return {
-                "success": True,
-                "communication_id": communication_id,
-                "queued": True,
-                "queue_result": queue_result if queue_result else "queued",
-            }
+            return create_service_result(
+                success=True,
+                data={
+                    "communication_id": communication_id,
+                    "queued": True,
+                    "message": f"Email queued for {len(recipients)} recipient(s)",
+                },
+                service_name="EmailService",
+                operation="_send_email_internal",
+            )
 
         except Exception as e:
-            frappe.logger("email_service").error(f"Email queueing failed: {str(e)}")
-
-            # Fallback: Try direct sendmail as last resort with error handling
-            try:
-                frappe.logger("email_service").warning(
-                    "Email Queue failed, attempting direct sendmail fallback"
-                )
-                frappe.sendmail(
-                    recipients=recipients,
-                    subject=subject,
-                    message=content,
-                    reference_doctype=reference_doctype,
-                    reference_name=reference_name,
-                    now=True,  # Send immediately in fallback mode
-                    **options,
-                )
-
-                communication_id = None
-                if create_communication:
-                    communication_id = self._create_communication_record(
-                        recipients, subject, content, reference_doctype, reference_name
-                    )
-
-                return {
-                    "success": True,
-                    "communication_id": communication_id,
-                    "queued": False,
-                    "fallback": True,
-                }
-
-            except Exception as fallback_error:
-                frappe.logger("email_service").error(
-                    f"Both Email Queue and sendmail fallback failed: {str(fallback_error)}"
-                )
-                return {"success": False, "errors": [str(e), str(fallback_error)]}
+            frappe.logger("email_service").error(
+                f"Email queueing failed: {str(e)}\n"
+                f"Recipients: {recipients}\n"
+                f"Subject: {subject[:50] if subject else 'None'}..."
+            )
+            return create_service_result(
+                success=False,
+                error=f"Failed to queue email: {str(e)}",
+                service_name="EmailService",
+                operation="_send_email_internal",
+            )
 
     def _create_communication_record(
         self,
@@ -405,8 +403,23 @@ class EmailService:
         content: str,
         reference_doctype: str = None,
         reference_name: str = None,
+        status: str = "Queued",
     ) -> Optional[str]:
-        """Create Communication record for audit trail."""
+        """
+        Create Communication record for audit trail.
+
+        Args:
+            recipients: List of email addresses
+            subject: Email subject
+            content: Email content
+            reference_doctype: Linked DocType
+            reference_name: Linked document name
+            status: Communication status ("Queued", "Sent", "Failed")
+                    Default is "Queued" since emails are sent asynchronously
+
+        Returns:
+            Communication document name if created, None otherwise
+        """
         try:
             communication_data = {
                 "doctype": "Communication",
@@ -414,7 +427,7 @@ class EmailService:
                 "communication_medium": "Email",
                 "subject": subject,
                 "content": content,
-                "status": "Sent",
+                "status": status,  # Use provided status (default "Queued")
                 "recipients": "\n".join(recipients),
                 "sent_or_received": "Sent",
                 "creation": now(),
