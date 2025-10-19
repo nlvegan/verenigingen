@@ -1306,9 +1306,6 @@ class MijnroodCSVImport(Document):
                 )
                 return
 
-            # Set bulk chapter operations flag to suppress event emissions during import
-            frappe.flags.bulk_chapter_operations = True
-
             # Check if the chapter exists
             if not frappe.db.exists("Chapter", chapter_name):
                 if self.auto_create_chapters:

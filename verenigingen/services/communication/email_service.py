@@ -169,8 +169,8 @@ class EmailService:
                 data={
                     "template": template_name,
                     "recipients_count": len(recipients),
-                    "communication_id": result.get("communication_id"),
-                    "message": "Email sent successfully" if result["success"] else "Email sending failed",
+                    "queued": result.get("queued", False),
+                    "message": "Email queued successfully" if result["success"] else "Email queueing failed",
                 }
                 if result["success"]
                 else None,
@@ -315,15 +315,18 @@ class EmailService:
         content: str,
         reference_doctype: str = None,
         reference_name: str = None,
-        create_communication: bool = True,
+        create_communication: bool = True,  # Deprecated - kept for backward compatibility
         **options,
     ) -> Dict[str, Any]:
         """
-        Internal email sending with Communication record creation.
+        Internal email sending using Frappe's Email Queue system.
 
         Uses Frappe's Email Queue system instead of direct sendmail() to prevent
         broken pipe errors from SMTP subprocess failures. Emails are queued and
         sent asynchronously via background workers.
+
+        Note: Tracking is handled by Email Queue records, not Communication records.
+        Use Email Queue reports for delivery status and audit trails.
         """
         try:
             # Input validation
@@ -366,18 +369,18 @@ class EmailService:
             # Note: frappe.email.queue.queue() returns None on success
             add_to_email_queue(**email_args)
 
-            communication_id = None
-            if create_communication:
-                communication_id = self._create_communication_record(
-                    recipients, subject, content, reference_doctype, reference_name, status="Queued"
-                )
+            # NOTE: We don't create Communication records for queued emails because:
+            # 1. Frappe's Email Queue system creates its own "Email Queue" records with proper status tracking
+            # 2. Communication records would stay "Queued" forever (no automatic status updates)
+            # 3. Email Queue records provide better observability (retries, failures, etc.)
+            # For audit trails, use Email Queue reports instead of Communication records.
 
             return create_service_result(
                 success=True,
                 data={
-                    "communication_id": communication_id,
                     "queued": True,
                     "message": f"Email queued for {len(recipients)} recipient(s)",
+                    "tracking": "Check Email Queue for delivery status",
                 },
                 service_name="EmailService",
                 operation="_send_email_internal",
