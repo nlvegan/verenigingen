@@ -448,7 +448,7 @@ def batch_process_dues_payments(payment_ids, customer_id=None):
 
         # Rate limiting: 1 minute cooldown between batch operations (atomic operation)
         cache_key = f"dues_batch_limit:{frappe.session.user}"
-        lock_acquired = frappe.cache().setex(cache_key, 60, "1", nx=True)
+        lock_acquired = frappe.cache().set(cache_key, "1", ex=60, nx=True)
         if not lock_acquired:
             remaining_ttl = frappe.cache().ttl(cache_key)
             frappe.throw(_("Please wait {0} seconds before next batch operation").format(remaining_ttl or 60))
