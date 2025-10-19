@@ -394,9 +394,10 @@ def get_member_primary_chapter(member_name: str) -> Optional[str]:
         return None
 
     # Query Chapter Member child table to find active chapter memberships
+    # Note: Chapter Member is a child table, so `parent` field contains the Chapter name
     chapters = frappe.db.sql(
         """
-        SELECT cm.chapter
+        SELECT cm.parent as chapter
         FROM `tabChapter` c
         INNER JOIN `tabChapter Member` cm ON cm.parent = c.name
         WHERE cm.member = %(member)s
