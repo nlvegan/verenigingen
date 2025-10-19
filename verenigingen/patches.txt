@@ -27,3 +27,4 @@ verenigingen.patches.v15_0.add_chapter_performance_indexes
 verenigingen.patches.v15_0.add_member_performance_indexes
 verenigingen.patches.v15_0.add_volunteer_performance_indexes
 verenigingen.patches.v15_0.add_team_performance_indexes
+verenigingen.patches.v1_0.enable_chapter_notifications_for_existing_installations
