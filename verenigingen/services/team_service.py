@@ -199,10 +199,10 @@ class TeamService:
         if not unique_roles_to_check:
             return True
 
-        # Check for concurrent assignments across all teams
-        TeamService._validate_unique_roles_globally(team_doc, unique_roles_to_check, role_assignments)
+        # REMOVED: Global validation across teams - unique roles should only be unique WITHIN a team
+        # TeamService._validate_unique_roles_globally(team_doc, unique_roles_to_check, role_assignments)
 
-        # Check for violations within this team
+        # Check for violations within this team (this is the correct behavior)
         for role_name, assignments in role_assignments.items():
             if len(assignments) > 1:
                 member_names = [a["volunteer_name"] for a in assignments]

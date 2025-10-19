@@ -7,6 +7,43 @@ import frappe
 from verenigingen.utils.chapter_utils import get_member_primary_chapter
 
 
+def on_trash(doc, method=None):
+    """
+    Clear link references before deleting Sales Invoice.
+
+    This prevents link validation errors when administrators need to delete
+    cancelled invoices that are referenced by Membership Dues Schedules
+    and Member Payment History records.
+
+    Args:
+        doc: Sales Invoice document being deleted
+        method: Event method name (not used)
+    """
+    # Clear references in Membership Dues Schedule
+    frappe.db.sql(
+        """
+        UPDATE `tabMembership Dues Schedule`
+        SET last_generated_invoice = NULL
+        WHERE last_generated_invoice = %s
+        """,
+        (doc.name,),
+    )
+
+    # Clear references in Member Payment History child table
+    frappe.db.sql(
+        """
+        UPDATE `tabMember Payment History`
+        SET invoice = NULL, invoice_doctype = NULL
+        WHERE invoice = %s AND invoice_doctype = 'Sales Invoice'
+        """,
+        (doc.name,),
+    )
+
+    frappe.logger().info(
+        f"Cleared Membership Dues Schedule and Member Payment History references to Sales Invoice {doc.name} before deletion"
+    )
+
+
 def set_member_from_customer(doc, method):
     """
     Automatically set member field on Sales Invoice from Customer

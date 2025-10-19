@@ -190,6 +190,11 @@ class TeamMember(Document):
             frappe.throw(f"Team Role '{self.team_role}' does not exist. Please select a valid role.")
             return
 
+        # CRITICAL FIX: self.parent can be None for new unsaved child docs
+        # Only validate if we actually have a parent team to check against
+        if not self.parent:
+            return
+
         # Check if someone else in this team already has this unique role
         # Use count instead of fetching all records for better performance
         # Check for active members with no end date OR future end date

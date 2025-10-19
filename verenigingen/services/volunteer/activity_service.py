@@ -65,9 +65,6 @@ class VolunteerActivityService:
             frappe.ValidationError: If validation fails
         """
         try:
-            # Load volunteer document
-            self._load_volunteer()
-
             # Validate required fields
             if not activity_type:
                 frappe.throw(_("Activity Type is required"))
@@ -79,9 +76,17 @@ class VolunteerActivityService:
             start_date = getdate(start_date) if start_date else today()
             end_date = getdate(end_date) if end_date else None
 
-            # Validate date logic
-            if end_date and end_date < start_date:
-                frappe.throw(_("End date cannot be before start date"))
+            # Validate date range using consistent validator
+            if end_date:
+                from verenigingen.utils.validation_utilities import DateRangeValidator
+
+                DateRangeValidator.validate_date_range(
+                    start_date,
+                    end_date,
+                    allow_past_start=True,  # Activities can start in the past
+                    allow_equal_dates=True,  # Same-day activities are valid
+                    throw_on_error=True,
+                )
 
             # Create Volunteer Activity document
             activity = frappe.get_doc(
@@ -109,15 +114,19 @@ class VolunteerActivityService:
 
             return activity.name
 
+        except frappe.ValidationError:
+            # ValidationErrors already have user-friendly messages, just re-raise
+            raise
         except Exception as e:
             frappe.log_error(
                 f"Error adding activity for volunteer {self.volunteer_name}: {str(e)}",
                 "Volunteer Activity Error",
             )
-            # Re-raise with user-friendly message
-            if isinstance(e, frappe.ValidationError):
-                raise
-            frappe.throw(_("Failed to add volunteer activity: {0}").format(str(e)))
+            # Preserve stack trace for debugging
+            frappe.throw(
+                _("Failed to add volunteer activity: {0}").format(str(e)),
+                exc=e,  # Preserve original exception for stack trace
+            )
 
     def end_activity(
         self, activity_name: str, end_date: Optional[str] = None, notes: Optional[str] = None
@@ -148,10 +157,16 @@ class VolunteerActivityService:
             # Normalize end date
             end_date = getdate(end_date) if end_date else getdate(today())
 
-            # Validate end date is not before start date (convert activity.start_date to date object)
-            activity_start_date = getdate(activity.start_date)
-            if end_date < activity_start_date:
-                frappe.throw(_("End date cannot be before start date"))
+            # Validate date range using consistent validator
+            from verenigingen.utils.validation_utilities import DateRangeValidator
+
+            DateRangeValidator.validate_date_range(
+                activity.start_date,
+                end_date,
+                allow_past_start=True,  # Activities can start in the past
+                allow_equal_dates=True,  # Same-day activities are valid
+                throw_on_error=True,
+            )
 
             # Update activity
             activity.end_date = end_date
@@ -170,15 +185,19 @@ class VolunteerActivityService:
 
         except frappe.DoesNotExistError:
             frappe.throw(_("Volunteer Activity {0} not found").format(activity_name))
+        except frappe.ValidationError:
+            # ValidationErrors already have user-friendly messages, just re-raise
+            raise
         except Exception as e:
             frappe.log_error(
                 f"Error ending activity {activity_name} for volunteer {self.volunteer_name}: {str(e)}",
                 "Volunteer Activity Error",
             )
-            # Re-raise with user-friendly message
-            if isinstance(e, frappe.ValidationError):
-                raise
-            frappe.throw(_("Failed to end volunteer activity: {0}").format(str(e)))
+            # Preserve stack trace for debugging
+            frappe.throw(
+                _("Failed to end volunteer activity: {0}").format(str(e)),
+                exc=e,  # Preserve original exception for stack trace
+            )
 
     def _load_volunteer(self):
         """Lazy load volunteer document"""

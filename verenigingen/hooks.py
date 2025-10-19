@@ -391,6 +391,9 @@ doc_events = {
             "verenigingen.events.invoice_events.emit_invoice_cancelled",
             "verenigingen.utils.cache_invalidation.on_document_cancel",  # Cache invalidation
         ],
+        "on_trash": [
+            "verenigingen.utils.sales_invoice_hooks.on_trash",  # Clear link references before deletion
+        ],
     },
     # Termination system events
     "Membership Termination Request": {

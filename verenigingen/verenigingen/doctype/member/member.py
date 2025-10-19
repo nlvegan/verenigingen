@@ -1003,6 +1003,21 @@ class Member(
             except Exception as e:
                 frappe.logger().error(f"Error deleting Membership Dues Schedule {schedule_name}: {str(e)}")
 
+        # Clear Member reference from Sales Invoices to allow deletion
+        # This prevents link validation errors when deleting members with invoices
+        try:
+            frappe.db.sql(
+                """
+                UPDATE `tabSales Invoice`
+                SET member = NULL
+                WHERE member = %s
+                """,
+                self.name,
+            )
+            frappe.logger().info(f"Cleared Member references from Sales Invoices for {self.name}")
+        except Exception as e:
+            frappe.logger().error(f"Error clearing Sales Invoice references: {str(e)}")
+
         # Delete Chapter Member assignments
         chapter_members = frappe.get_all("Chapter Member", filters={"member": self.name}, pluck="name")
 

@@ -247,149 +247,27 @@ class Volunteer(Document):
     @frappe.whitelist()
     @standard_api(operation_type=OperationType.UTILITY)
     def get_aggregated_assignments(self):
-        """Get aggregated assignments from all sources with optimized single query"""
-        try:
-            # Use single optimized query to get all assignments at once
-            return self.get_aggregated_assignments_optimized()
-        except Exception as e:
-            frappe.log_error(f"Error in optimized assignments query: {str(e)}")
-            # Show user-visible error - no fallback to N+1 queries
-            return self.get_aggregated_assignments_fallback()  # Always throws
+        """Get aggregated assignments from all sources with optimized single query
 
-    def get_aggregated_assignments_optimized(self):
-        """Optimized single query to get all assignments"""
-        assignments_data = frappe.db.sql(
-            """
-            SELECT
-                'Board Position' as source_type,
-                'Verenigingen Chapter Board Member' as source_doctype,
-                cbm.parent as source_name,
-                'Chapter' as source_doctype_display,
-                c.name as source_name_display,
-                cbm.chapter_role as role,
-                cbm.from_date as start_date,
-                cbm.to_date as end_date,
-                cbm.is_active,
-                0 as editable,
-                CONCAT('/app/chapter/', cbm.parent) as source_link,
-                '' as reference_display,
-                '' as reference_link
-            FROM `tabChapter Board Member` cbm
-            LEFT JOIN `tabChapter` c ON cbm.parent = c.name
-            WHERE cbm.volunteer = %s AND cbm.is_active = 1
+        Delegates to VolunteerAssignmentService for business logic.
 
-            UNION ALL
-
-            SELECT
-                'Team' as source_type,
-                'Team Member' as source_doctype,
-                tm.parent as source_name,
-                COALESCE(t.team_type, 'Team') as source_doctype_display,
-                t.team_name as source_name_display,
-                tm.role,
-                tm.from_date as start_date,
-                tm.to_date as end_date,
-                CASE WHEN tm.status = 'Active' THEN 1 ELSE 0 END as is_active,
-                0 as editable,
-                CONCAT('/app/team/', tm.parent) as source_link,
-                '' as reference_display,
-                '' as reference_link
-            FROM `tabTeam Member` tm
-            LEFT JOIN `tabTeam` t ON tm.parent = t.name
-            WHERE tm.volunteer = %s AND tm.status = 'Active'
-
-            UNION ALL
-
-            SELECT
-                'Activity' as source_type,
-                'Volunteer Activity' as source_doctype,
-                va.name as source_name,
-                va.activity_type as source_doctype_display,
-                COALESCE(va.description, va.role) as source_name_display,
-                va.role,
-                va.start_date,
-                va.end_date,
-                CASE WHEN va.status = 'Active' THEN 1 ELSE 0 END as is_active,
-                1 as editable,
-                CONCAT('/app/volunteer-activity/', va.name) as source_link,
-                CASE
-                    WHEN va.reference_doctype IS NOT NULL AND va.reference_name IS NOT NULL
-                    THEN CONCAT(va.reference_doctype, ': ', va.reference_name)
-                    ELSE ''
-                END as reference_display,
-                CASE
-                    WHEN va.reference_doctype IS NOT NULL AND va.reference_name IS NOT NULL
-                    THEN CONCAT('/app/', LOWER(REPLACE(va.reference_doctype, ' ', '-')), '/', va.reference_name)
-                    ELSE ''
-                END as reference_link
-            FROM `tabVolunteer Activity` va
-            WHERE va.volunteer = %s AND va.status = 'Active'
-
-            ORDER BY start_date DESC
-        """,
-            (self.name, self.name, self.name),
-            as_dict=True,
-        )
-
-        # Convert to the expected format
-        assignments = []
-        for data in assignments_data:
-            assignments.append(
-                {
-                    "source_type": data.source_type,
-                    "source_doctype": data.source_doctype,
-                    "source_name": data.source_name,
-                    "source_doctype_display": data.source_doctype_display,
-                    "source_name_display": data.source_name_display,
-                    "role": data.role,
-                    "start_date": data.start_date,
-                    "end_date": data.end_date,
-                    "is_active": bool(data.is_active),
-                    "editable": bool(data.editable),
-                    "source_link": data.source_link,
-                    "reference_display": data.reference_display,
-                    "reference_link": data.reference_link,
-                }
-            )
-
-        return assignments
-
-    def get_aggregated_assignments_fallback(self):
+        Returns:
+            List[Dict]: Aggregated assignments from all sources
         """
-        Fallback when optimized assignment query fails - shows user-visible error.
+        from verenigingen.services.volunteer.assignment_service import VolunteerAssignmentService
 
-        The optimized query should always work. If it fails, we need to alert the user
-        and log the error for investigation rather than silently hiding assignment data.
-        """
-        error_message = (
-            f"Critical: Optimized volunteer assignment query failed for {self.name}. "
-            "This indicates a system error that requires investigation."
-        )
+        service = VolunteerAssignmentService(self.name)
+        return service.get_aggregated_assignments()
 
-        frappe.log_error(error_message, "Volunteer Assignment Query Failure")
-
-        # Show user-visible error instead of silently hiding data
-        frappe.throw(
-            frappe._(
-                "Unable to load volunteer assignments due to a system error. "
-                "Please contact your administrator. The error has been logged for investigation."
-            ),
-            title=frappe._("System Error"),
-        )
-
-        return []  # Unreachable, but keeps type checker happy
-
-    # Dead code removed (2025-10-19): Phase 3 refactoring
-    # Removed 5 methods (~165 lines) that were superseded by get_aggregated_assignments_optimized():
-    # - _transform_membership_to_assignment() - helper for individual queries
-    # - _build_membership_query() - helper for individual queries
-    # - get_board_assignments() - replaced by optimized UNION query
-    # - get_team_assignments() - replaced by optimized UNION query
-    # - get_activity_assignments() - replaced by optimized UNION query
-    # The optimized version (get_aggregated_assignments_optimized) uses a single
-    # UNION query instead of N+1 individual queries, improving performance significantly.
-    # Only reference was in manual test utilities (test_volunteer_refactoring.py,
-    # test_board_assignments.py) which are not part of the active test suite.
+    # Dead code removed (2025-10-19): Phase 3 refactoring - Assignment service extraction
+    # Removed assignment aggregation methods (~245 lines) - now in VolunteerAssignmentService:
+    # - get_aggregated_assignments_optimized() - moved to service
+    # - get_aggregated_assignments_fallback() - moved to service
+    # - get_volunteer_history_optimized() - moved to service (see below)
+    # - get_volunteer_history_fallback() - moved to service (see below)
+    # - has_active_assignments_optimized() - moved to service (see below)
+    # The service provides centralized assignment aggregation logic using optimized
+    # UNION queries to prevent N+1 query problems across Board, Team, and Activity sources.
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.MEMBER_DATA)
@@ -450,240 +328,17 @@ class Volunteer(Document):
     @frappe.whitelist()
     @standard_api(operation_type=OperationType.REPORTING)
     def get_volunteer_history(self):
-        """Get volunteer history in chronological order with optimized single query"""
-        try:
-            # Use optimized single query to get all history at once
-            return self.get_volunteer_history_optimized()
-        except Exception as e:
-            frappe.log_error(f"Error in optimized history query: {str(e)}")
-            # Fallback to individual queries
-            return self.get_volunteer_history_fallback()
+        """Get volunteer history in chronological order with optimized single query
 
-    def get_volunteer_history_optimized(self):
-        """Optimized single query to get complete volunteer history"""
-        history_data = frappe.db.sql(
-            """
-            SELECT
-                'Board Position' as assignment_type,
-                cbm.chapter_role as role,
-                cbm.parent as reference,
-                cbm.from_date as start_date,
-                cbm.to_date as end_date,
-                cbm.is_active,
-                CASE WHEN cbm.is_active = 1 THEN 'Active' ELSE 'Completed' END as status
-            FROM `tabChapter Board Member` cbm
-            WHERE cbm.volunteer = %s
+        Delegates to VolunteerAssignmentService for business logic.
 
-            UNION ALL
+        Returns:
+            List[Dict]: Complete volunteer history from all sources
+        """
+        from verenigingen.services.volunteer.assignment_service import VolunteerAssignmentService
 
-            SELECT
-                'Team' as assignment_type,
-                tm.role,
-                tm.parent as reference,
-                tm.from_date as start_date,
-                tm.to_date as end_date,
-                CASE WHEN tm.status = 'Active' THEN 1 ELSE 0 END as is_active,
-                tm.status
-            FROM `tabTeam Member` tm
-            WHERE tm.volunteer = %s
-
-            UNION ALL
-
-            SELECT
-                va.activity_type as assignment_type,
-                va.role,
-                COALESCE(va.description, va.name) as reference,
-                va.start_date,
-                va.end_date,
-                CASE WHEN va.status = 'Active' THEN 1 ELSE 0 END as is_active,
-                va.status
-            FROM `tabVolunteer Activity` va
-            WHERE va.volunteer = %s
-
-            ORDER BY start_date DESC
-        """,
-            (self.name, self.name, self.name),
-            as_dict=True,
-        )
-
-        # Convert to the expected format
-        history = []
-        for data in history_data:
-            history.append(
-                {
-                    "assignment_type": data.assignment_type,
-                    "role": data.role,
-                    "reference": data.reference,
-                    "start_date": data.start_date,
-                    "end_date": data.end_date,
-                    "is_active": bool(data.is_active),
-                    "status": data.status,
-                }
-            )
-
-        # Add assignment history from the child table (for historical records)
-        for item in self.assignment_history:
-            history.append(
-                {
-                    "assignment_type": item.assignment_type,
-                    "role": item.role,
-                    "reference": (
-                        f"{item.reference_doctype}: {item.reference_name}" if item.reference_doctype else ""
-                    ),
-                    "start_date": item.start_date,
-                    "end_date": item.end_date,
-                    "is_active": False,
-                    "status": item.status,
-                }
-            )
-
-        # Sort by start date (newest first)
-        history.sort(
-            key=lambda x: getdate(x.get("start_date")) if x.get("start_date") else getdate("1900-01-01"),
-            reverse=True,
-        )
-
-        return history
-
-    def get_volunteer_history_fallback(self):
-        """Fallback method using individual queries"""
-        history = []
-
-        # Get board assignment history using Query Builder and consistent volunteer identification
-        CBM = DocType("Chapter Board Member")
-        board_history = (
-            frappe.qb.from_(CBM)
-            .select(
-                frappe.qb.terms.ValueWrapper("Board Position").as_("assignment_type"),
-                CBM.chapter_role.as_("role"),
-                CBM.parent.as_("reference"),
-                CBM.from_date.as_("start_date"),
-                CBM.to_date.as_("end_date"),
-                CBM.is_active,
-            )
-            .where(CBM.volunteer == self.name)
-        ).run(as_dict=True)
-
-        for item in board_history:
-            history.append(
-                {
-                    "assignment_type": item.assignment_type,
-                    "role": item.role,
-                    "reference": item.reference,
-                    "start_date": item.start_date,
-                    "end_date": item.end_date,
-                    "is_active": item.is_active,
-                    "status": "Active" if item.is_active else "Completed",
-                }
-            )
-
-        # Get team assignment history using Query Builder
-        TM = DocType("Team Member")
-        team_history = (
-            frappe.qb.from_(TM)
-            .select(
-                frappe.qb.terms.ValueWrapper("Team").as_("assignment_type"),
-                TM.role,
-                TM.parent.as_("reference"),
-                TM.from_date.as_("start_date"),
-                TM.to_date.as_("end_date"),
-                TM.status,
-            )
-            .where(TM.volunteer == self.name)
-        ).run(as_dict=True)
-
-        for item in team_history:
-            history.append(
-                {
-                    "assignment_type": item.assignment_type,
-                    "role": item.role,
-                    "reference": item.reference,
-                    "start_date": item.start_date,
-                    "end_date": item.end_date,
-                    "is_active": item.status == "Active",
-                    "status": item.status,
-                }
-            )
-
-        # Get activity history
-        activity_history = frappe.get_all(
-            "Volunteer Activity",
-            filters={"volunteer": self.name},
-            fields=[
-                "activity_type as assignment_type",
-                "role",
-                "description as reference",
-                "start_date",
-                "end_date",
-                "status",
-                "name",
-            ],
-        )
-
-        for item in activity_history:
-            history.append(
-                {
-                    "assignment_type": item.assignment_type,
-                    "role": item.role,
-                    "reference": item.reference or item.name,
-                    "start_date": item.start_date,
-                    "end_date": item.end_date,
-                    "is_active": item.status == "Active",
-                    "status": item.status,
-                }
-            )
-
-        # Add assignment history from the child table (for historical records)
-        for item in self.assignment_history:
-            history.append(
-                {
-                    "assignment_type": item.assignment_type,
-                    "role": item.role,
-                    "reference": (
-                        f"{item.reference_doctype}: {item.reference_name}" if item.reference_doctype else ""
-                    ),
-                    "start_date": item.start_date,
-                    "end_date": item.end_date,
-                    "is_active": False,
-                    "status": item.status,
-                }
-            )
-
-        # Sort by start date (newest first)
-        history.sort(
-            key=lambda x: getdate(x.get("start_date")) if x.get("start_date") else getdate("1900-01-01"),
-            reverse=True,
-        )
-
-        return history
-
-    def has_active_assignments_optimized(self):
-        """Optimized query to check if volunteer has any active assignments"""
-        result = frappe.db.sql(
-            """
-            SELECT 1 FROM (
-                SELECT 1 FROM `tabChapter Board Member` cbm
-                WHERE cbm.volunteer = %s AND cbm.is_active = 1
-                LIMIT 1
-
-                UNION ALL
-
-                SELECT 1 FROM `tabTeam Member` tm
-                WHERE tm.volunteer = %s AND tm.status = 'Active'
-                LIMIT 1
-
-                UNION ALL
-
-                SELECT 1 FROM `tabVolunteer Activity` va
-                WHERE va.volunteer = %s AND va.status = 'Active'
-                LIMIT 1
-            ) as assignments
-            LIMIT 1
-        """,
-            (self.name, self.name, self.name),
-        )
-
-        return bool(result)
+        service = VolunteerAssignmentService(self.name)
+        return service.get_volunteer_history()
 
     @frappe.whitelist()
     @standard_api(operation_type=OperationType.UTILITY)
