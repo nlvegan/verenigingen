@@ -83,6 +83,12 @@ class BaseManager(ABC):
             return
 
         try:
+            # MIGRATED: Use unified EmailService instead of legacy frappe.sendmail()
+            # This prevents broken pipe errors from SMTP subprocess failures
+            from verenigingen.services.communication.email_service import get_email_service
+
+            email_service = get_email_service()
+
             # Check if template exists
             if not frappe.db.exists("Email Template", template):
                 self.log_action(
@@ -90,16 +96,26 @@ class BaseManager(ABC):
                 )
                 return
 
-            # Send email using Email Template
-            email_template_doc = frappe.get_doc("Email Template", template)
-            frappe.sendmail(
+            # Send using EmailService with proper error handling
+            result = email_service.send_templated_email(
+                template_name=template,
                 recipients=recipients,
-                subject=email_template_doc.subject or subject or f"Notification from {self.chapter_name}",
-                message=frappe.render_template(email_template_doc.response, context),
-                header=[("Chapter Notification"), "blue"],
+                context=context,
+                reference_doctype="Chapter",
+                reference_name=self.chapter_name,
+                subject=subject,
             )
 
-            self.log_action(f"Notification sent via template '{template}'", {"recipients": len(recipients)})
+            if result.success:
+                self.log_action(
+                    f"Notification sent via template '{template}'", {"recipients": len(recipients)}
+                )
+            else:
+                self.log_action(
+                    f"Failed to send notification via template '{template}'",
+                    {"error": "; ".join(result.errors), "recipients": len(recipients)},
+                    "error",
+                )
 
         except Exception as e:
             self.log_action(
