@@ -255,17 +255,18 @@ class EnhancedTestDataFactory:
         deterministic_id = hash(f"{self.test_run_id}_{purpose}_{seq}") % 1000000
 
         # Add actual timestamp component to guarantee uniqueness across test runs
+        # Use nanoseconds and sequence to prevent millisecond collisions
         import time
-        timestamp_component = int(time.time() * 1000) % 1000000
+        timestamp_component = int(time.time() * 1000000) % 100000000  # Microseconds for better resolution
 
         if self.use_faker:
             # Use Faker but clearly mark as test
             base_email = self.fake.email()
             username, domain = base_email.split('@')
-            # Add timestamp to ensure absolute uniqueness
-            return f"TEST_{purpose}_{seq:04d}_{deterministic_id}_{username}_{self.test_run_id}_{timestamp_component}@test.invalid"
+            # Combine seq + timestamp + deterministic_id for absolute uniqueness
+            return f"TEST_{purpose}_{seq:04d}_{timestamp_component}_{deterministic_id}_{username}@test.invalid"
         else:
-            return f"TEST_{purpose}_{seq:04d}_{deterministic_id}_{self.test_run_id}_{timestamp_component}@test.invalid"
+            return f"TEST_{purpose}_{seq:04d}_{timestamp_component}_{deterministic_id}@test.invalid"
             
     def generate_test_name(self, type_name: str = "Person") -> str:
         """Generate clearly marked test name"""
@@ -2069,18 +2070,19 @@ class EnhancedTestCase(FrappeTestCase):
                     frappe.logger().info(f"Test cleanup removed {schedules_deleted} orphaned dues schedules")
 
                 # Clean up test volunteers (to prevent email duplicate key violations)
-                test_volunteers = frappe.get_all("Volunteer",
-                    filters=[
-                        ["email", "like", "%@test.invalid"],
-                    ],
-                    pluck="name",
-                    limit=100
-                )
+                # Include both @test.invalid and @verenigingen.test patterns
+                test_volunteers = frappe.db.sql("""
+                    SELECT name FROM `tabVolunteer`
+                    WHERE email LIKE '%@test.invalid'
+                       OR email LIKE '%@verenigingen.test'
+                       OR volunteer_name LIKE 'TEST %'
+                    LIMIT 200
+                """, as_dict=False)
 
                 volunteers_deleted = 0
-                for volunteer_name in test_volunteers:
+                for row in test_volunteers:
                     try:
-                        frappe.delete_doc("Volunteer", volunteer_name, force=True)
+                        frappe.delete_doc("Volunteer", row[0], force=True)
                         volunteers_deleted += 1
                     except Exception:
                         continue

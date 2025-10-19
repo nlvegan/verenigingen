@@ -22,6 +22,8 @@ from typing import Dict, List, Tuple, Any
 import json
 from datetime import datetime
 
+from verenigingen.utils.member_utils import get_member_dues_schedule
+
 
 class QueryCounter:
     """Context manager to count database queries during operations"""
@@ -161,10 +163,12 @@ class PerformanceBaseline:
             for mandate in batch_mandates:
                 # Simulate SEPA batch processing
                 member_data = frappe.get_doc("Member", mandate.member)
-                dues_schedule = frappe.db.get_value("Membership Dues Schedule",
-                    {"member": mandate.member, "is_active": 1}, 
-                    ["dues_rate", "next_invoice_date"], as_dict=True)
-                
+                dues_schedule = get_member_dues_schedule(
+                    mandate.member,
+                    status_filter="Active",
+                    fields=["dues_rate", "next_invoice_date"]
+                )
+
                 if dues_schedule:
                     batch_data.append({
                         "mandate": mandate.name,
@@ -180,10 +184,12 @@ class PerformanceBaseline:
                 
                 for mandate in batch_mandates:
                     member_data = frappe.get_doc("Member", mandate.member)
-                    dues_schedule = frappe.db.get_value("Membership Dues Schedule",
-                        {"member": mandate.member, "is_active": 1}, 
-                        ["dues_rate", "next_invoice_date"], as_dict=True)
-                    
+                    dues_schedule = get_member_dues_schedule(
+                        mandate.member,
+                        status_filter="Active",
+                        fields=["dues_rate", "next_invoice_date"]
+                    )
+
                     if dues_schedule:
                         batch_data.append({
                             "mandate": mandate.name,

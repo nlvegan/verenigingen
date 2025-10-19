@@ -3,6 +3,7 @@ from frappe import _
 from frappe.utils import today
 
 from verenigingen.utils.constants import PaymentStatus
+from verenigingen.utils.member_utils import get_dues_schedule_for_membership_name
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 
@@ -13,9 +14,7 @@ def sync_membership_with_dues_schedule(membership_doc):
     - Track payment history
     """
     # Find dues schedule that links to this membership
-    dues_schedule = frappe.db.get_value(
-        "Membership Dues Schedule", {"membership": membership_doc.name}, "name"
-    )
+    dues_schedule = get_dues_schedule_for_membership_name(membership_doc.name)
     if not dues_schedule:
         return
 
@@ -67,9 +66,7 @@ def get_membership_payment_history(membership_doc):
     Get payment history for a membership from linked dues schedule
     """
     # Find dues schedule that links to this membership
-    dues_schedule = frappe.db.get_value(
-        "Membership Dues Schedule", {"membership": membership_doc.name}, "name"
-    )
+    dues_schedule = get_dues_schedule_for_membership_name(membership_doc.name)
     if not dues_schedule:
         return []
 
@@ -347,7 +344,7 @@ def add_to_direct_debit_batch(membership_name):
     membership = frappe.get_doc("Membership", membership_name)
 
     # Find dues schedule that links to this membership
-    dues_schedule = frappe.db.get_value("Membership Dues Schedule", {"membership": membership.name}, "name")
+    dues_schedule = get_dues_schedule_for_membership_name(membership.name)
     if not dues_schedule:
         frappe.throw(_("Membership must have a dues schedule to add to direct debit batch"))
 
