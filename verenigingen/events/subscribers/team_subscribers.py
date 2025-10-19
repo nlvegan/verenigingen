@@ -11,11 +11,16 @@ import frappe
 from frappe import _
 
 
-def handle_assignment_history_updates(event_name, event_data):
+def handle_assignment_history_updates(event_name, event_data, **kwargs):
     """
     Handle assignment history updates when team membership changes.
 
     Updates volunteer assignment history based on team membership changes.
+
+    Args:
+        event_name: Name of the event that triggered this handler
+        event_data: Dict containing event-specific data
+        **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
     """
     try:
         team_name = event_data.get("team")
@@ -50,11 +55,16 @@ def handle_assignment_history_updates(event_name, event_data):
         frappe.log_error(f"Failed to update assignment history: {str(e)}", "Team Assignment History Error")
 
 
-def handle_role_profile_assignments(event_name, event_data):
+def handle_role_profile_assignments(event_name, event_data, **kwargs):
     """
     Handle role profile assignments when team membership changes.
 
     Assigns/removes appropriate role profiles based on team positions.
+
+    Args:
+        event_name: Name of the event that triggered this handler
+        event_data: Dict containing event-specific data
+        **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
     """
     try:
         team_name = event_data.get("team")
@@ -158,11 +168,16 @@ def handle_volunteer_integration(event_name, event_data, **kwargs):
         )
 
 
-def handle_settings_notifications(event_name, event_data):
+def handle_settings_notifications(event_name, event_data, **kwargs):
     """
     Handle notifications for team settings changes.
 
     Notifies relevant parties about configuration updates.
+
+    Args:
+        event_name: Name of the event that triggered this handler
+        event_data: Dict containing event-specific data
+        **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
     """
     try:
         team_name = event_data.get("team")
@@ -187,11 +202,16 @@ def handle_settings_notifications(event_name, event_data):
         )
 
 
-def handle_permissions_updates(event_name, event_data):
+def handle_permissions_updates(event_name, event_data, **kwargs):
     """
     Handle permission updates when team settings change.
 
     Updates user permissions based on new configuration.
+
+    Args:
+        event_name: Name of the event that triggered this handler
+        event_data: Dict containing event-specific data
+        **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
     """
     try:
         team_name = event_data.get("team")
@@ -243,11 +263,16 @@ def handle_cache_invalidation(event_name, event_data, **kwargs):
         frappe.log_error(f"Failed to clear caches: {str(e)}", "Team Cache Invalidation Error")
 
 
-def handle_leadership_notifications(event_name, event_data):
+def handle_leadership_notifications(event_name, event_data, **kwargs):
     """
     Handle notifications for team leadership changes.
 
     Notifies relevant parties about team lead transitions.
+
+    Args:
+        event_name: Name of the event that triggered this handler
+        event_data: Dict containing event-specific data
+        **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
     """
     try:
         team_name = event_data.get("team")
@@ -270,11 +295,16 @@ def handle_leadership_notifications(event_name, event_data):
         )
 
 
-def handle_leadership_role_updates(event_name, event_data):
+def handle_leadership_role_updates(event_name, event_data, **kwargs):
     """
     Handle role updates for team leadership changes.
 
     Updates permissions and access levels for new/former team leads.
+
+    Args:
+        event_name: Name of the event that triggered this handler
+        event_data: Dict containing event-specific data
+        **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
     """
     try:
         team_name = event_data.get("team")
@@ -297,11 +327,16 @@ def handle_leadership_role_updates(event_name, event_data):
         frappe.log_error(f"Failed to update leadership roles: {str(e)}", "Team Leadership Role Error")
 
 
-def handle_team_lead_permissions(event_name, event_data):
+def handle_team_lead_permissions(event_name, event_data, **kwargs):
     """
     Handle team lead permission updates.
 
     Manages special permissions for team leads.
+
+    Args:
+        event_name: Name of the event that triggered this handler
+        event_data: Dict containing event-specific data
+        **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
     """
     try:
         team_name = event_data.get("team")
