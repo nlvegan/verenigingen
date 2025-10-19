@@ -150,10 +150,9 @@ class Volunteer(Document):
                     - ((today_date.month, today_date.day) < (born.month, born.day))
                 )
 
-            # Get minimum volunteer age from configuration
-            from verenigingen.utils.config_manager import ConfigManager
-
-            min_volunteer_age = ConfigManager.get("min_volunteer_age", 12)
+            # Get minimum volunteer age from Verenigingen Settings
+            settings = frappe.get_single("Verenigingen Settings")
+            min_volunteer_age = settings.get("minimum_volunteer_age") or 12
 
             if age < min_volunteer_age:
                 frappe.throw(
@@ -758,10 +757,9 @@ def get_all_skills_list():
 @cache_with_ttl(ttl=3600)  # Cache for 1 hour - skills change infrequently
 def _get_all_skills_list_cached():
     """Get all skills using modern Query Builder for better type safety"""
-    from frappe.query_builder import DocType
     from frappe.query_builder.functions import Avg, Cast, Count
 
-    # Define DocTypes for Query Builder
+    # Define DocTypes for Query Builder (DocType already imported at module level)
     VolunteerSkill = DocType("Volunteer Skill")
     Volunteer = DocType("Volunteer")
 

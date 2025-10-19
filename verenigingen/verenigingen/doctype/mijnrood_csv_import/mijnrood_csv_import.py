@@ -1673,7 +1673,7 @@ class MijnroodCSVImport(Document):
             # Categorize by error type
             if "dues rate" in error_msg and "minimum amount" in error_msg:
                 categories["Dues Rate Below Minimum"].append(display_info)
-            elif "age" in error_msg or "16" in error_msg or "too young" in error_msg:
+            elif "too young" in error_msg or ("age" in error_msg and "minimum" in error_msg):
                 categories["Age Validation Failed"].append(display_info)
             elif "duplicate" in error_msg:
                 categories["Duplicate Entry"].append(display_info)
