@@ -123,11 +123,16 @@ def handle_membership_notifications(event_name, event_data, **kwargs):
         frappe.log_error(f"Failed to send team notifications: {str(e)}", "Team Notification Error")
 
 
-def handle_volunteer_integration(event_name, event_data):
+def handle_volunteer_integration(event_name, event_data, **kwargs):
     """
     Handle integration with volunteer system when team membership changes.
 
     Updates volunteer records and related systems.
+
+    Args:
+        event_name: Name of the event that triggered this handler
+        event_data: Dict containing event-specific data
+        **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
     """
     try:
         team_name = event_data.get("team")

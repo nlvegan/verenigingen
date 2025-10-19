@@ -14,7 +14,11 @@ class VolunteerActivity(Document):
         # Validate dates using consistent validator
         if self.end_date and self.start_date:
             result = DateRangeValidator.validate_date_range(
-                self.start_date, self.end_date, start_label="Start Date", end_label="End Date"
+                self.start_date,
+                self.end_date,
+                allow_past_start=True,
+                allow_equal_dates=True,
+                throw_on_error=False,
             )
             if not result.get("valid"):
                 frappe.throw(_(result.get("message")))

@@ -379,172 +379,17 @@ class Volunteer(Document):
 
         return []  # Unreachable, but keeps type checker happy
 
-    def _transform_membership_to_assignment(self, membership, config):
-        """Transform membership data to standardized assignment format"""
-        return {
-            "source_type": config["source_type"],
-            "source_doctype": config["source_doctype"],
-            "source_name": membership[config["source_name_field"]],
-            "source_doctype_display": config.get("source_doctype_display", config["source_doctype"]),
-            "source_name_display": membership[config["display_name_field"]],
-            "role": membership[config["role_field"]],
-            "start_date": membership.get("from_date"),
-            "end_date": membership.get("to_date"),
-            "is_active": config["is_active_func"](membership),
-            "editable": config.get("editable", False),
-            "source_link": config["source_link_template"].format(
-                source_id=membership[config["source_name_field"]]
-            ),
-        }
-
-    def _build_membership_query(self, child_doctype, parent_doctype, config):
-        """Build standardized membership query using Query Builder"""
-        ChildDT = DocType(child_doctype)
-        ParentDT = DocType(parent_doctype)
-
-        query = (
-            frappe.qb.from_(ChildDT)
-            .join(ParentDT)
-            .on(ChildDT.parent == ParentDT.name)
-            .select(
-                ChildDT.name.as_("membership_id"),
-                ChildDT.parent.as_(config["source_name_field"]),
-                *config["select_fields"],
-            )
-            .where((ChildDT.volunteer == self.name) & config["where_condition"](ChildDT))
-        )
-
-        return query.run(as_dict=True)
-
-    def get_board_assignments(self):
-        """Get board assignments from Chapter Board Member"""
-        CBM = DocType("Chapter Board Member")
-        Chapter = DocType("Chapter")
-
-        config = {
-            "source_type": "Board Position",
-            "source_doctype": "Chapter",
-            "source_name_field": "chapter",
-            "source_doctype_display": "Chapter",
-            "display_name_field": "chapter_name",
-            "role_field": "role",
-            "editable": False,
-            "source_link_template": "/app/chapter/{source_id}",
-            "is_active_func": lambda m: bool(m.is_active),
-            "where_condition": lambda dt: dt.is_active == 1,
-            "select_fields": [
-                CBM.chapter_role.as_("role"),
-                CBM.from_date,
-                CBM.to_date,
-                CBM.is_active,
-                Chapter.name.as_("chapter_name"),
-            ],
-        }
-
-        board_memberships = self._build_membership_query("Chapter Board Member", "Chapter", config)
-
-        return [
-            self._transform_membership_to_assignment(membership, config) for membership in board_memberships
-        ]
-
-    def get_team_assignments(self):
-        """Get team assignments from Team Member"""
-        TM = DocType("Team Member")
-        Team = DocType("Team")
-
-        config = {
-            "source_type": "Team",
-            "source_doctype": "Team",
-            "source_name_field": "team",
-            "display_name_field": "team_name",
-            "role_field": "role",
-            "editable": False,
-            "source_link_template": "/app/team/{source_id}",
-            "is_active_func": lambda m: m.status == "Active",
-            "where_condition": lambda dt: dt.status == "Active",
-            "select_fields": [
-                TM.role,
-                TM.role_type,
-                TM.from_date,
-                TM.to_date,
-                TM.status,
-                Team.team_name,
-                Team.team_type,
-            ],
-        }
-
-        team_memberships = self._build_membership_query("Team Member", "Team", config)
-
-        # Transform with special handling for team_type display
-        assignments = []
-        for membership in team_memberships:
-            assignment = self._transform_membership_to_assignment(membership, config)
-            # Special case: customize source_doctype_display for teams
-            assignment["source_doctype_display"] = f"{membership.team_type or 'Team'}"
-            assignments.append(assignment)
-
-        return assignments
-
-    def get_activity_assignments(self):
-        """Get active assignments from assignment history and Volunteer Activity"""
-        activity_assignments = []
-
-        # First check assignment_history child table
-        if hasattr(self, "assignment_history") and self.assignment_history:
-            for assignment in self.assignment_history:
-                if assignment.status == "Active":
-                    activity_assignments.append(assignment)
-            # If we found assignments in history, return them
-            if activity_assignments:
-                return activity_assignments
-
-        # Fallback to querying Volunteer Activity doctype
-        activities = frappe.get_all(
-            "Volunteer Activity",
-            filters={"volunteer": self.name, "status": "Active"},
-            fields=[
-                "name",
-                "activity_type",
-                "role",
-                "description",
-                "status",
-                "start_date",
-                "end_date",
-                "reference_doctype",
-                "reference_name",
-                "estimated_hours",
-                "actual_hours",
-                "notes",
-            ],
-        )
-
-        for activity in activities:
-            ref_display = ""
-            ref_link = ""
-
-            if activity.reference_doctype and activity.reference_name:
-                ref_display = f"{activity.reference_doctype}: {activity.reference_name}"
-                ref_link = f"/app/{frappe.scrub(activity.reference_doctype)}/{activity.reference_name}"
-
-            activity_assignments.append(
-                {
-                    "source_type": "Activity",
-                    "source_doctype": "Volunteer Activity",
-                    "source_name": activity.name,
-                    "source_doctype_display": activity.activity_type,
-                    "source_name_display": activity.description or activity.role,
-                    "role": activity.role,
-                    "start_date": activity.start_date,
-                    "end_date": activity.end_date,
-                    "is_active": activity.status == "Active",
-                    "editable": True,
-                    "source_link": f"/app/volunteer-activity/{activity.name}",
-                    "reference_display": ref_display,
-                    "reference_link": ref_link,
-                }
-            )
-
-        return activity_assignments
+    # Dead code removed (2025-10-19): Phase 3 refactoring
+    # Removed 5 methods (~165 lines) that were superseded by get_aggregated_assignments_optimized():
+    # - _transform_membership_to_assignment() - helper for individual queries
+    # - _build_membership_query() - helper for individual queries
+    # - get_board_assignments() - replaced by optimized UNION query
+    # - get_team_assignments() - replaced by optimized UNION query
+    # - get_activity_assignments() - replaced by optimized UNION query
+    # The optimized version (get_aggregated_assignments_optimized) uses a single
+    # UNION query instead of N+1 individual queries, improving performance significantly.
+    # Only reference was in manual test utilities (test_volunteer_refactoring.py,
+    # test_board_assignments.py) which are not part of the active test suite.
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.MEMBER_DATA)
@@ -560,87 +405,47 @@ class Volunteer(Document):
         estimated_hours=None,
         notes=None,
     ):
-        """Add a new volunteer activity"""
-        try:
-            if not start_date:
-                start_date = getdate(today())
-            else:
-                start_date = getdate(start_date)
+        """Add a new volunteer activity
 
-            if end_date:
-                end_date = getdate(end_date)
-                if start_date > end_date:
-                    frappe.throw(_("Start date cannot be after end date"))
+        Delegates to VolunteerActivityService for business logic.
 
-            # Validate required fields
-            if not activity_type:
-                frappe.throw(_("Activity type is required"))
-            if not role:
-                frappe.throw(_("Role is required"))
+        Returns:
+            str: Name of created Volunteer Activity record
+        """
+        from verenigingen.services.volunteer.activity_service import VolunteerActivityService
 
-            activity = frappe.get_doc(
-                {
-                    "doctype": "Volunteer Activity",
-                    "volunteer": self.name,
-                    "activity_type": activity_type,
-                    "role": role,
-                    "description": description,
-                    "start_date": start_date,
-                    "end_date": end_date,
-                    "status": "Active",
-                    "reference_doctype": reference_doctype,
-                    "reference_name": reference_name,
-                    "estimated_hours": estimated_hours,
-                    "notes": notes,
-                }
-            )
-
-            activity.insert()
-
-            return activity.name
-
-        except frappe.ValidationError as e:
-            frappe.throw(_("Failed to create activity: {0}").format(str(e)))
-        except Exception as e:
-            frappe.log_error(f"Error creating volunteer activity: {str(e)}")
-            frappe.throw(_("An error occurred while creating the activity"))
+        service = VolunteerActivityService(self.name)
+        return service.add_activity(
+            activity_type=activity_type,
+            role=role,
+            description=description,
+            start_date=start_date,
+            end_date=end_date,
+            reference_doctype=reference_doctype,
+            reference_name=reference_name,
+            estimated_hours=estimated_hours,
+            notes=notes,
+        )
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.MEMBER_DATA)
     def end_activity(self, activity_name, end_date=None, notes=None):
-        """End a volunteer activity"""
-        try:
-            if not end_date:
-                end_date = getdate(today())
-            else:
-                end_date = getdate(end_date)
+        """End a volunteer activity
 
-            if not activity_name:
-                frappe.throw(_("Activity name is required"))
+        Delegates to VolunteerActivityService for business logic.
 
-            activity = frappe.get_doc("Volunteer Activity", activity_name)
+        Returns:
+            bool: True if successful
+        """
+        from verenigingen.services.volunteer.activity_service import VolunteerActivityService
 
-            # Validate that this activity belongs to this volunteer
-            if activity.volunteer != self.name:
-                frappe.throw(_("You can only end activities assigned to this volunteer"))
-
-            activity.status = "Completed"
-            activity.end_date = end_date
-
-            if notes:
-                activity.notes = notes
-
-            activity.save()
-
-            return True
-
-        except frappe.DoesNotExistError:
-            frappe.throw(_("Activity {0} not found").format(activity_name))
-        except frappe.ValidationError as e:
-            frappe.throw(_("Failed to end activity: {0}").format(str(e)))
-        except Exception as e:
-            frappe.log_error(f"Error ending volunteer activity: {str(e)}")
-            frappe.throw(_("An error occurred while ending the activity"))
+        service = VolunteerActivityService(self.name)
+        service.end_activity(
+            activity_name=activity_name,
+            end_date=end_date,
+            notes=notes,
+        )
+        return True
 
     @frappe.whitelist()
     @standard_api(operation_type=OperationType.REPORTING)
@@ -927,135 +732,47 @@ class Volunteer(Document):
     # Removed create_minimal_employee method - now handled by secure AccountCreationManager
 
     def get_expense_approver_from_assignments(self):
-        """Get appropriate expense approver based on volunteer's assignments (native ERPNext approach)"""
-        try:
-            # Priority 1: If volunteer is on national board, use national treasurer/financial officer
-            settings = frappe.get_single("Verenigingen Settings")
-            if settings.national_board_chapter:
-                national_board_member = frappe.db.exists(
-                    "Chapter Board Member",
-                    {"parent": settings.national_board_chapter, "volunteer": self.name, "is_active": 1},
-                )
+        """Get appropriate expense approver based on volunteer's assignments
 
-                if national_board_member:
-                    # For national board members, find another national board member who can approve
-                    national_approver = self.get_board_financial_approver(
-                        settings.national_board_chapter, exclude_volunteer=self.name
-                    )
-                    if national_approver:
-                        return national_approver
+        Delegates to VolunteerExpenseApproverService for business logic.
 
-            # Priority 2: For chapter members, find chapter treasurer/financial officer
-            if self.member:
-                chapter_memberships = frappe.get_all(
-                    "Chapter Member", filters={"member": self.member, "enabled": 1}, fields=["parent"]
-                )
+        Returns:
+            str: User email of the expense approver
+        """
+        from verenigingen.services.volunteer.expense_approver_service import VolunteerExpenseApproverService
 
-                for membership in chapter_memberships:
-                    chapter_approver = self.get_board_financial_approver(membership.parent)
-                    if chapter_approver:
-                        return chapter_approver
-
-            # Priority 3: For team members, find chapter approver through team's chapter
-            team_memberships = frappe.get_all(
-                "Team Member", filters={"volunteer": self.name, "status": "Active"}, fields=["parent"]
-            )
-
-            # OPTIMIZED: Batch fetch all team data at once (N+1 → 2 queries)
-            if team_memberships:
-                team_names = [tm.parent for tm in team_memberships]
-                all_teams = frappe.get_all(
-                    "Team",
-                    filters={"name": ["in", team_names]},
-                    fields=["name", "chapter"],
-                )
-
-                # Build lookup: team_name → team_data
-                teams_by_name = {t.name: t for t in all_teams}
-
-                # Iterate using lookups (no queries!)
-                for team_membership in team_memberships:
-                    team_data = teams_by_name.get(team_membership.parent)
-                    if team_data and team_data.chapter:
-                        team_chapter_approver = self.get_board_financial_approver(team_data.chapter)
-                        if team_chapter_approver:
-                            return team_chapter_approver
-
-            # Priority 4: Fallback to any system manager with expense approver role
-            fallback_approver = frappe.db.get_value(
-                "User", {"enabled": 1, "name": ["!=", "Administrator"]}, "name", order_by="creation"
-            )
-
-            if fallback_approver:
-                # Ensure user has expense approver role
-                self._ensure_user_has_expense_approver_role(fallback_approver)
-                return fallback_approver
-
-            # Last resort: Administrator
-            return "Administrator"
-
-        except Exception as e:
-            frappe.log_error(
-                f"Error determining expense approver for volunteer {self.name}: {str(e)}",
-                "Expense Approver Error",
-            )
-            return "Administrator"  # Safe fallback
+        service = VolunteerExpenseApproverService(self.name)
+        return service.get_expense_approver()
 
     def get_board_financial_approver(self, chapter_name, exclude_volunteer=None):
-        """Get financial approver from chapter board (treasurer, financial officer, etc.)"""
-        # Priority order for financial approval roles
-        financial_roles = [
-            "Treasurer",
-            "Financial Officer",
-            "Secretary-Treasurer",
-            "Board Chair",
-            "Secretary",
-        ]
+        """Get financial approver from chapter board (treasurer, financial officer, etc.)
 
-        for role in financial_roles:
-            board_members = frappe.get_all(
-                "Chapter Board Member",
-                filters={
-                    "parent": chapter_name,
-                    "chapter_role": role,
-                    "is_active": 1,
-                    "volunteer": ["!=", exclude_volunteer] if exclude_volunteer else ["!=", ""],
-                },
-                fields=["volunteer"],
-            )
+        Delegates to VolunteerExpenseApproverService for business logic.
 
-            for member in board_members:
-                volunteer_doc = frappe.get_doc("Volunteer", member.volunteer)
-                user_email = volunteer_doc.email or volunteer_doc.personal_email
+        Args:
+            chapter_name: Chapter to search for approver
+            exclude_volunteer: Volunteer to exclude (for self-approval prevention)
 
-                if user_email and frappe.db.exists("User", user_email):
-                    user = frappe.get_doc("User", user_email)
-                    if user.enabled:
-                        # Ensure user has expense approver role
-                        self._ensure_user_has_expense_approver_role(user_email)
-                        return user_email
+        Returns:
+            Optional[str]: User email or None
+        """
+        from verenigingen.services.volunteer.expense_approver_service import VolunteerExpenseApproverService
 
-        return None
+        service = VolunteerExpenseApproverService(self.name)
+        return service.get_board_financial_approver(chapter_name, exclude_volunteer)
 
     def _ensure_user_has_expense_approver_role(self, user_email):
-        """Ensure user has expense approver role"""
-        user = frappe.get_doc("User", user_email)
+        """Ensure user has expense approver role
 
-        if "Expense Approver" not in [r.role for r in user.roles]:
-            user.append("roles", {"role": "Expense Approver"})
+        Delegates to VolunteerExpenseApproverService for business logic.
 
-            # Use secure document operation instead of permission bypass
-            result = secure_document_operation(
-                operation="save",
-                doc=user,
-                justification="Adding Expense Approver role for volunteer expense management",
-                required_permissions=["User:write", "Role:assign"],
-            )
+        Args:
+            user_email: User to assign role to
+        """
+        from verenigingen.services.volunteer.expense_approver_service import VolunteerExpenseApproverService
 
-            if not result.success:
-                frappe.throw(
-                    _("Failed to assign Expense Approver role: {0}").format("; ".join(result.errors))
-                )
+        service = VolunteerExpenseApproverService(self.name)
+        service.ensure_user_has_expense_approver_role(user_email)
 
     # Removed assign_employee_role method - now handled by secure AccountCreationManager
 
