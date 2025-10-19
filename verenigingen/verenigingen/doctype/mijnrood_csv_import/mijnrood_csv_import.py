@@ -1330,11 +1330,13 @@ class MijnroodCSVImport(Document):
                     return
 
             # Use the centralized ChapterMembershipManager for proper assignment
+            # Suppress notifications during bulk CSV imports to avoid email flood
             result = ChapterMembershipManager.assign_member_to_chapter(
                 member_id=member_doc.name,
                 chapter_name=chapter_name,
                 reason=f"Imported from Mijnrood CSV (Import: {self.name})",
                 assigned_by=frappe.session.user,
+                notify=False,  # Never send notifications during bulk imports
             )
 
             if result.get("success"):

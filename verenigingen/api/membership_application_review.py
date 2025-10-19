@@ -24,11 +24,16 @@ from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import critical_api, high_security_api, standard_api
 
 
-def assign_member_to_chapter(member, chapter):
+def assign_member_to_chapter(member, chapter, notify=None):
     """
     Assign member to chapter using centralized ChapterMembershipManager.
 
     This ensures proper history tracking and avoids race conditions.
+
+    Args:
+        member: Member document
+        chapter: Chapter name
+        notify: Override for notification sending (None = use global setting)
     """
     if not chapter:
         return
@@ -41,6 +46,7 @@ def assign_member_to_chapter(member, chapter):
             chapter_name=chapter,
             reason="Membership application approval",
             assigned_by=frappe.session.user,
+            notify=notify,  # Pass through notification override
         )
 
         if result.get("success"):
@@ -337,12 +343,10 @@ def approve_membership_application(
 
     # Activate volunteer record if explicitly requested (not automatic)
     # Note: interested_in_volunteering flag creates Volunteer record but doesn't auto-activate
-    volunteer_activated = False
     if activate_as_volunteer:
         try:
             if hasattr(member, "interested_in_volunteering") and member.interested_in_volunteering:
                 activate_volunteer_record(member)
-                volunteer_activated = True
                 frappe.logger().info(f"Activated volunteer record for {member.name} per approval request")
             else:
                 frappe.logger().warning(

@@ -31,6 +31,7 @@
   "auto_cancel_sepa_mandates",
   "auto_end_board_positions",
   "send_termination_notifications",
+  "send_chapter_assignment_notifications",
   "column_break_hzjj",
   "enable_email_group_sync",
   "enable_email_analytics",
@@ -507,6 +508,13 @@
    "fieldname": "send_termination_notifications",
    "fieldtype": "Check",
    "label": "Send Notifications"
+  },
+  {
+   "default": "0",
+   "description": "Send email notifications when members are added to chapters (can be overridden per-operation)",
+   "fieldname": "send_chapter_assignment_notifications",
+   "fieldtype": "Check",
+   "label": "Send Chapter Assignment Notifications"
   },
   {
    "default": "1",

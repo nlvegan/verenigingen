@@ -145,7 +145,7 @@ class ChapterMembershipManager:
 
     @staticmethod
     def assign_member_to_chapter(
-        member_id: str, chapter_name: str, reason: str = None, assigned_by: str = None
+        member_id: str, chapter_name: str, reason: str = None, assigned_by: str = None, notify: bool = None
     ) -> Dict[str, Any]:
         """
         Administrative method to assign a member to a chapter
@@ -155,6 +155,7 @@ class ChapterMembershipManager:
             chapter_name: Chapter name
             reason: Reason for assignment
             assigned_by: User making the assignment
+            notify: Override for notification sending (None = use global setting)
 
         Returns:
             Dict with operation result
@@ -176,11 +177,19 @@ class ChapterMembershipManager:
             # Get chapter document and use its member manager
             chapter_doc = frappe.get_doc("Chapter", chapter_name)
 
+            # Determine notification behavior: explicit override > global setting > default (False)
+            if notify is None:
+                # Check global setting
+                settings = frappe.get_single("Verenigingen Settings")
+                send_notifications = getattr(settings, "send_chapter_assignment_notifications", False)
+            else:
+                send_notifications = notify
+
             # Use the chapter's member manager which handles history tracking
             result = chapter_doc.member_manager.add_member(
                 member_id=member_id,
                 introduction=reason or "Assigned to {chapter_name} by administrator",
-                notify=True,
+                notify=send_notifications,
             )
 
             # Update member tracking fields if successful
