@@ -967,6 +967,11 @@ fixtures = [
         "doctype": "Item",
         "filters": [["item_code", "=", "MEMBERSHIP"]],
     },
+    # Mode of Payment
+    {
+        "doctype": "Mode of Payment",
+        "filters": [["name", "=", "Mollie"]],
+    },
     # Updated to use dues schedule system instead of subscription plans
     # Team Roles
     {

@@ -233,7 +233,10 @@ function renderPaymentsTable(payments) {
         const processedCell = document.createElement('td');
         processedCell.className = 'px-2 py-2';
         if (payment.already_processed) {
-            processedCell.innerHTML = `<span class="text-green-600">✓ ${payment.payment_entry || 'Yes'}</span>`;
+            // Show either Payment Entry or Bank Transaction that was already created
+            const recordName = payment.payment_entry || payment.bank_transaction || 'Yes';
+            const recordType = payment.payment_entry ? '(PE)' : payment.bank_transaction ? '(BT)' : '';
+            processedCell.innerHTML = `<span class="text-green-600">✓ ${recordName} ${recordType}</span>`;
         } else {
             processedCell.innerHTML = '<span class="text-gray-400">-</span>';
         }
@@ -353,7 +356,7 @@ function displayProcessingResults(result) {
         html += '<th class="px-2 py-1 text-left">Payment ID</th>';
         html += '<th class="px-2 py-1 text-left">Status</th>';
         html += '<th class="px-2 py-1 text-left">Member</th>';
-        html += '<th class="px-2 py-1 text-left">Payment Entry</th>';
+        html += '<th class="px-2 py-1 text-left">Created Record</th>';
         html += '<th class="px-2 py-1 text-left">Details</th>';
         html += '</tr></thead><tbody>';
 
@@ -363,11 +366,19 @@ function displayProcessingResults(result) {
                 item.status === 'skipped' || item.status === 'already_processed' ? 'text-yellow-600' :
                 'text-red-600';
 
+            // Determine which record was created (Payment Entry or Bank Transaction)
+            let recordDisplay = '-';
+            if (item.payment_entry) {
+                recordDisplay = `${item.payment_entry} (PE)`;
+            } else if (item.bank_transaction) {
+                recordDisplay = `${item.bank_transaction} (BT)`;
+            }
+
             html += `<tr class="border-b">`;
             html += `<td class="px-2 py-1 font-mono text-xs">${item.payment_id}</td>`;
             html += `<td class="px-2 py-1 ${statusClass} font-semibold">${item.status}</td>`;
             html += `<td class="px-2 py-1 text-xs">${item.member || '-'}</td>`;
-            html += `<td class="px-2 py-1 text-xs">${item.payment_entry || '-'}</td>`;
+            html += `<td class="px-2 py-1 text-xs">${recordDisplay}</td>`;
             html += `<td class="px-2 py-1 text-xs">${item.error || item.skipped_reason || '-'}</td>`;
             html += `</tr>`;
         });

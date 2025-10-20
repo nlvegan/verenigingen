@@ -93,8 +93,8 @@ class DuesPaymentProcessor:
         """
         Check if a payment has already been processed (robust idempotency check).
 
-        Checks for Payment Entry with this reference_no in ANY state (draft, submitted, cancelled)
-        to prevent duplicate processing even after failures.
+        Checks for BOTH Payment Entry and Bank Transaction with this reference
+        to prevent duplicate processing regardless of creation mode.
 
         Args:
             payment_id: Mollie payment ID (e.g., "tr_xxxxxxxxx")
@@ -103,6 +103,7 @@ class DuesPaymentProcessor:
             dict: {
                 "already_processed": bool,
                 "payment_entry": str or None,
+                "bank_transaction": str or None,
                 "docstatus": int or None (0=Draft, 1=Submitted, 2=Cancelled),
                 "details": str
             }
@@ -112,37 +113,68 @@ class DuesPaymentProcessor:
             "Payment Entry", filters={"reference_no": payment_id}, fields=["name", "docstatus"], limit=1
         )
 
-        if not existing_entries:
-            return {
-                "already_processed": False,
-                "payment_entry": None,
-                "docstatus": None,
-                "details": "Payment not yet processed",
-            }
+        if existing_entries:
+            existing = existing_entries[0]
+            status_map = {0: "Draft", 1: "Submitted", 2: "Cancelled"}
+            status_text = status_map.get(existing.docstatus, "Unknown")
 
-        existing = existing_entries[0]
-        status_map = {0: "Draft", 1: "Submitted", 2: "Cancelled"}
-        status_text = status_map.get(existing.docstatus, "Unknown")
+            # If cancelled, allow reprocessing (treat as not processed)
+            if existing.docstatus == 2:
+                frappe.logger().info(
+                    f"Found cancelled Payment Entry {existing.name} for payment {payment_id}. "
+                    f"Allowing reprocessing."
+                )
+                # Don't return yet - still check for Bank Transaction below
+            else:
+                # Draft or Submitted - consider as already processed
+                return {
+                    "already_processed": True,
+                    "payment_entry": existing.name,
+                    "bank_transaction": None,
+                    "docstatus": existing.docstatus,
+                    "details": f"Payment Entry {existing.name} already exists ({status_text})",
+                }
 
-        # If cancelled, allow reprocessing (treat as not processed)
-        if existing.docstatus == 2:
-            frappe.logger().info(
-                f"Found cancelled Payment Entry {existing.name} for payment {payment_id}. "
-                f"Allowing reprocessing."
-            )
-            return {
-                "already_processed": False,
-                "payment_entry": existing.name,
-                "docstatus": existing.docstatus,
-                "details": f"Previous Payment Entry {existing.name} was cancelled, allowing reprocessing",
-            }
+        # Check for ANY Bank Transaction with this reference_number
+        existing_bt = frappe.db.get_all(
+            "Bank Transaction",
+            filters={"reference_number": payment_id},
+            fields=["name", "docstatus"],
+            limit=1,
+        )
 
-        # Draft or Submitted - consider as already processed
+        if existing_bt:
+            bt = existing_bt[0]
+            status_map = {0: "Draft", 1: "Submitted", 2: "Cancelled"}
+            status_text = status_map.get(bt.docstatus, "Unknown")
+
+            # Allow reprocessing if cancelled
+            if bt.docstatus == 2:
+                frappe.logger().info(
+                    f"Found cancelled Bank Transaction {bt.name} for payment {payment_id}. "
+                    f"Allowing reprocessing."
+                )
+                # Fall through to return "not processed" at end
+            else:
+                # Draft or Submitted - already processed
+                frappe.logger().info(
+                    f"Found existing Bank Transaction {bt.name} for payment {payment_id} ({status_text})"
+                )
+                return {
+                    "already_processed": True,
+                    "payment_entry": None,
+                    "bank_transaction": bt.name,
+                    "docstatus": bt.docstatus,
+                    "details": f"Bank Transaction {bt.name} already exists ({status_text})",
+                }
+
+        # Nothing found - payment not yet processed
         return {
-            "already_processed": True,
-            "payment_entry": existing.name,
-            "docstatus": existing.docstatus,
-            "details": f"Payment Entry {existing.name} already exists ({status_text})",
+            "already_processed": False,
+            "payment_entry": None,
+            "bank_transaction": None,
+            "docstatus": None,
+            "details": "Payment not yet processed",
         }
 
     def process_dues_payment(self, payment_id: str, payment=None) -> Dict[str, Any]:
@@ -165,6 +197,7 @@ class DuesPaymentProcessor:
             "payment_type": "unknown",
             "member": None,
             "payment_entry": None,
+            "bank_transaction": None,
             "error": None,
             "skipped_reason": None,
         }
@@ -190,6 +223,7 @@ class DuesPaymentProcessor:
             if idempotency_check["already_processed"]:
                 result["status"] = "already_processed"
                 result["payment_entry"] = idempotency_check["payment_entry"]
+                result["bank_transaction"] = idempotency_check["bank_transaction"]
                 result["skipped_reason"] = idempotency_check["details"]
                 return result
 
@@ -211,18 +245,32 @@ class DuesPaymentProcessor:
 
             result["member"] = member_name
 
-            # Create Payment Entry
-            payment_entry_name = self._create_payment_entry_for_dues(member_name, payment)
+            # Check payment creation mode from settings
+            mollie_settings = frappe.get_single("Mollie Settings")
+            creation_mode = getattr(mollie_settings, "dues_payment_creation_mode", "Bank Transaction")
 
-            if payment_entry_name:
+            if creation_mode == "Payment Entry":
+                # Legacy mode: Create Payment Entry directly
+                record_name = self._create_payment_entry_for_dues(member_name, payment)
+                record_type = "Payment Entry"
+            else:
+                # Default mode: Create Bank Transaction for reconciliation
+                record_name = self._create_bank_transaction_for_dues(member_name, payment)
+                record_type = "Bank Transaction"
+
+            if record_name:
                 result["status"] = "success"
-                result["payment_entry"] = payment_entry_name
+                # Set BOTH fields for frontend compatibility, only one will have value
+                result["payment_entry"] = record_name if creation_mode == "Payment Entry" else None
+                result["bank_transaction"] = record_name if creation_mode != "Payment Entry" else None
+                result["record_type"] = record_type
                 frappe.logger().info(
-                    f"✅ Successfully processed dues payment {payment_id} for member {member_name}"
+                    f"✅ Successfully processed dues payment {payment_id} for member {member_name} "
+                    f"(created {record_type}: {record_name})"
                 )
             else:
                 result["status"] = "error"
-                result["error"] = "Failed to create Payment Entry"
+                result["error"] = f"Failed to create {record_type}"
 
         except Exception as e:
             result["status"] = "error"
@@ -284,22 +332,8 @@ class DuesPaymentProcessor:
         if not customer_account:
             frappe.throw(f"Missing customer receivable account for company {company}")
 
-        # Find unpaid Sales Invoice to link payment (match currency to prevent accounting errors)
-        unpaid_invoice = frappe.db.get_value(
-            "Sales Invoice",
-            {
-                "customer": customer,
-                "docstatus": 1,
-                "currency": currency,
-                "status": ["in", ["Unpaid", "Overdue", "Partly Paid"]],
-                "outstanding_amount": [">", 0],
-            },
-            ["name", "outstanding_amount"],
-            order_by="posting_date asc",
-            as_dict=True,
-        )
-
-        # Create Payment Entry with clearing account
+        # Create Payment Entry FIRST (separate concern from invoice matching)
+        # Payment Entry creation should always succeed even if we can't match an invoice
         payment_entry = frappe.get_doc(
             {
                 "doctype": "Payment Entry",
@@ -315,31 +349,11 @@ class DuesPaymentProcessor:
                 "reference_date": payment_date,
                 "posting_date": payment_date,
                 "mode_of_payment": mode_of_payment,
-                "remarks": f"Membership dues payment via Mollie for {member.full_name} (awaiting settlement)",
+                "remarks": f"Membership dues payment via Mollie for {member.full_name} (awaiting settlement). "
+                f"Manual reconciliation may be required.",
                 "custom_member": member_name,  # Link to member for payment history tracking
             }
         )
-
-        # Link to Sales Invoice if found
-        if unpaid_invoice:
-            allocated_amount = min(amount, unpaid_invoice.outstanding_amount)
-            payment_entry.append(
-                "references",
-                {
-                    "reference_doctype": "Sales Invoice",
-                    "reference_name": unpaid_invoice.name,
-                    "allocated_amount": allocated_amount,
-                },
-            )
-            frappe.logger().info(
-                f"✅ Linked payment to Sales Invoice {unpaid_invoice.name} "
-                f"(allocated: {allocated_amount} of {unpaid_invoice.outstanding_amount})"
-            )
-        else:
-            frappe.logger().warning(
-                f"⚠️ No unpaid Sales Invoice found for customer {customer}. "
-                f"Payment Entry created as unallocated payment."
-            )
 
         payment_entry.insert()
         payment_entry.submit()
@@ -350,6 +364,84 @@ class DuesPaymentProcessor:
         )
 
         return payment_entry.name
+
+    def _create_bank_transaction_for_dues(self, member_name: str, payment) -> Optional[str]:
+        """
+        Create a Bank Transaction for a membership dues payment from Mollie.
+
+        This creates an unreconciled bank transaction that can later be matched
+        to Sales Invoices via the Bank Reconciliation Tool.
+
+        Args:
+            member_name: Member document name
+            payment: Mollie payment object
+
+        Returns:
+            str: Bank Transaction name if created, None otherwise
+        """
+        # Get member and customer
+        member = frappe.get_doc("Member", member_name)
+        customer = member.customer
+
+        if not customer:
+            frappe.throw(f"Member {member_name} has no linked Customer record")
+
+        # Extract payment data from Mollie
+        payment_id = payment.id
+        amount = float(payment.amount["value"]) if payment.amount else 0.0
+        currency = payment.amount["currency"] if payment.amount else "EUR"
+        paid_at = getattr(payment, "paid_at", None)
+        payment_date = getdate(paid_at) if paid_at else getdate()
+
+        # Get settings and accounts
+        mollie_settings = frappe.get_single("Mollie Settings")
+        verenigingen_settings = frappe.get_single("Verenigingen Settings")
+        company = verenigingen_settings.donation_company or frappe.defaults.get_global_default("company")
+
+        # Get Mollie clearing account (where money sits until settlement)
+        mollie_clearing_account = getattr(mollie_settings, "mollie_clearing_account", None)
+        if not mollie_clearing_account:
+            frappe.throw(
+                "Mollie Clearing Account not configured. "
+                "Please set it in Mollie Settings to track payments awaiting settlement."
+            )
+
+        # Get Bank Account linked to the clearing account
+        bank_account = frappe.db.get_value("Bank Account", {"account": mollie_clearing_account}, "name")
+        if not bank_account:
+            frappe.throw(
+                f"No Bank Account found linked to clearing account {mollie_clearing_account}. "
+                f"Please create a Bank Account record and link it to this GL Account."
+            )
+
+        # Create unreconciled Bank Transaction
+        bank_transaction = frappe.get_doc(
+            {
+                "doctype": "Bank Transaction",
+                "date": payment_date,
+                "deposit": amount,
+                "withdrawal": 0.0,
+                "currency": currency,
+                "bank_account": bank_account,
+                "company": company,
+                "reference_number": payment_id,
+                "description": f"Mollie dues payment for {member.full_name} (Member: {member_name})",
+                "party_type": "Customer",
+                "party": customer,
+                "status": "Unreconciled",
+                "unallocated_amount": amount,
+            }
+        )
+
+        bank_transaction.insert()
+        bank_transaction.submit()
+
+        frappe.logger().info(
+            f"✅ Created Bank Transaction {bank_transaction.name} for member {member_name} "
+            f"(amount: {currency} {amount}, payment: {payment_id}, status: Unreconciled)"
+        )
+
+        return bank_transaction.name
 
     def _create_payment_entry_for_dues_OLD_CUSTOM_IMPLEMENTATION(
         self, member_name: str, payment

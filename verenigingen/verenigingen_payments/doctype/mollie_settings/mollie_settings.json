@@ -33,6 +33,8 @@
     "column_break_reconciliation",
     "mollie_clearing_account",
     "payment_processing_fees_account",
+    "section_break_payment_creation",
+    "dues_payment_creation_mode",
     "section_break_5",
     "header_img",
     "column_break_7",
@@ -223,6 +225,19 @@
       "fieldtype": "Link",
       "label": "Payment Processing Fees Account",
       "options": "Account"
+    },
+    {
+      "fieldname": "section_break_payment_creation",
+      "fieldtype": "Section Break",
+      "label": "Payment Creation Settings"
+    },
+    {
+      "default": "Bank Transaction",
+      "description": "Bank Transaction (default): Creates unreconciled bank transactions for manual/automated reconciliation via Bank Reconciliation Tool. Payment Entry: Directly creates payment entries (legacy mode, harder to reconcile).",
+      "fieldname": "dues_payment_creation_mode",
+      "fieldtype": "Select",
+      "label": "Dues Payment Creation Mode",
+      "options": "Bank Transaction\nPayment Entry"
     },
     {
       "description": "Internal encryption key for secure data storage",
