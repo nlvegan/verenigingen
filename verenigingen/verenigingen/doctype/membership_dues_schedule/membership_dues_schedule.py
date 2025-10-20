@@ -2506,6 +2506,38 @@ def generate_dues_invoices(test_mode=False):
                 )
                 # Continue without lock rather than failing completely
 
+        # ✅ CRITICAL: Validate accounting configuration before generating invoices
+        # Check that all companies have required accounting fields configured
+        companies_to_check = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"status": "Active", "auto_generate": 1},
+            pluck="company",
+            distinct=True,
+        )
+
+        missing_configs = []
+        for company in companies_to_check:
+            company_doc = frappe.get_cached_doc("Company", company)
+
+            # Check critical accounting fields
+            if not company_doc.round_off_account:
+                missing_configs.append(f"{company}: Missing Round Off Account")
+            if not company_doc.default_receivable_account:
+                missing_configs.append(f"{company}: Missing Default Receivable Account")
+            if not company_doc.default_income_account:
+                missing_configs.append(f"{company}: Missing Default Income Account")
+
+        if missing_configs:
+            error_msg = (
+                "Cannot generate invoices: Accounting configuration incomplete.\n\n"
+                + "Missing configurations:\n"
+                + "\n".join(f"  - {config}" for config in missing_configs)
+                + "\n\nPlease configure these fields in Company settings before running bulk invoice generation.\n"
+                + "This prevents creation of invoices without GL/Payment Ledger entries."
+            )
+            frappe.log_error(error_msg, "Bulk Invoice Generation - Accounting Config Missing")
+            frappe.throw(error_msg, title="Accounting Configuration Required")
+
         # Set bulk processing flag to prevent duplicate event handling
         frappe.flags.bulk_invoice_generation = True
 
