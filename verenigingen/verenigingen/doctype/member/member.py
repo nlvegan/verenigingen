@@ -1374,7 +1374,6 @@ class Member(
                 "reason": change_data["reason"],
                 "changed_by": change_data["changed_by"],
                 "dues_schedule": change_data.get("dues_schedule_name", ""),
-                "dues_schedule_doctype": "Membership Dues Schedule",
             }
             # Add billing frequency if provided
             if "billing_frequency" in change_data:
@@ -1382,7 +1381,6 @@ class Member(
             # Add amendment request reference if available
             if amendment_name:
                 entry_data["amendment_request"] = amendment_name
-                entry_data["amendment_request_doctype"] = "Contribution Amendment Request"
             return entry_data
 
         fee_history_manager = get_fee_change_history_manager(self)
@@ -2006,7 +2004,7 @@ class Member(
                 else "Custom"
             )
 
-            # Build entry data
+            # Build entry data with all required fields
             entry_data = {
                 "change_date": schedule_data.get("change_date")
                 or schedule_data.get("creation")
@@ -2019,13 +2017,16 @@ class Member(
                 "reason": schedule_data.get("reason")
                 or f"Dues schedule: {schedule_data.get('schedule_name') or schedule_data.get('name')}",
                 "changed_by": schedule_data.get("changed_by") or frappe.session.user or "Administrator",
-                "amendment_request": schedule_data.get("amendment_request"),  # Support amendment tracking
             }
 
+            # Add amendment request if provided
+            if schedule_data.get("amendment_request"):
+                entry_data["amendment_request"] = schedule_data.get("amendment_request")
+
             if existing_idx is not None:
-                # Update existing entry
+                # Update existing entry with new values
                 for key, value in entry_data.items():
-                    if value is not None:  # Only update non-None values
+                    if value is not None:
                         setattr(self.fee_change_history[existing_idx], key, value)
             else:
                 # Add new entry using append method (Frappe converts dict to child doc)
@@ -2036,22 +2037,8 @@ class Member(
                     # Remove oldest entries (at the end)
                     self.fee_change_history = self.fee_change_history[:50]
 
-            # CORRECTED SECURE VERSION: Use secure operations with explicit permission validation
-            result = secure_document_operation(
-                operation="update_child_table",
-                doc=self,
-                justification=f"Add fee change to history for member {self.name}",
-                required_permissions=["Member:write"],
-                allow_system_user=True,  # Allow system user for automated financial data tracking
-                bypass_validations=["link_validation"],  # Allow bypass of problematic chapter references
-            )
-
-            if not result.success:
-                frappe.log_error(
-                    f"Failed to add fee change to history for member {self.name}: {'; '.join(result.errors)}",
-                    "Fee Change History Manager",
-                )
-                return
+            # NOTE: Don't save here - caller is responsible for saving after all updates
+            # This prevents multiple saves when refreshing history
 
         except Exception as e:
             frappe.log_error(
@@ -2227,6 +2214,96 @@ class Member(
 
         return removed_count + updated_count + added_count
 
+    def _update_dues_payment_history(self):
+        """Update membership dues payment history from Payment Entries with custom_member field"""
+        removed_count = 0
+        updated_count = 0
+        added_count = 0
+
+        # Get the 20 most recent dues payments (Payment Entries linked via custom_member)
+        current_payments = frappe.get_all(
+            "Payment Entry",
+            filters={
+                "custom_member": self.name,
+                "docstatus": 1,  # Only submitted payment entries
+                "payment_type": "Receive",  # Only incoming payments
+            },
+            fields=[
+                "name",
+                "posting_date",
+                "paid_amount",
+                "received_amount",
+                "reference_no",
+                "reference_date",
+                "mode_of_payment",
+                "remarks",
+            ],
+            order_by="posting_date desc",
+            limit=20,
+        )
+
+        # Build a lookup of existing payment entries in history
+        existing_payments = {row.payment_entry: row for row in (self.payment_history or [])}
+        current_payment_names = {payment.name for payment in current_payments}
+
+        # Remove entries that are no longer in the top 20
+        rows_to_remove = [
+            idx
+            for idx, row in enumerate(self.payment_history or [])
+            if row.payment_entry
+            and row.payment_entry not in current_payment_names
+            and row.transaction_type == "Membership Dues Payment"  # Only remove dues payments
+        ]
+
+        # Remove in reverse order to maintain indices
+        for idx in reversed(rows_to_remove):
+            self.payment_history.pop(idx)
+            removed_count += 1
+
+        # Process each current payment
+        for payment in current_payments:
+            expected_row = {
+                "payment_entry": payment.name,
+                "payment_entry_doctype": "Payment Entry",
+                "transaction_type": "Membership Dues Payment",
+                "posting_date": payment.posting_date,
+                "payment_date": payment.posting_date,
+                "amount": payment.received_amount or payment.paid_amount,
+                "paid_amount": payment.received_amount or payment.paid_amount,
+                "payment_status": "Paid",
+                "payment_method": payment.mode_of_payment,
+                "reference_name": payment.reference_no,
+                "reconciled": 0,  # Unallocated payments are not reconciled
+                "notes": payment.remarks or "",
+            }
+
+            if payment.name in existing_payments:
+                # Check if existing row needs updating
+                existing_row = existing_payments[payment.name]
+                needs_update = any(
+                    getattr(existing_row, field, None) != expected_value
+                    for field, expected_value in expected_row.items()
+                )
+
+                if needs_update:
+                    for field, expected_value in expected_row.items():
+                        setattr(existing_row, field, expected_value)
+                    updated_count += 1
+            else:
+                # Add new row
+                try:
+                    self.append("payment_history", expected_row)
+                    added_count += 1
+                except Exception as e:
+                    frappe.log_error(
+                        f"Failed to append dues payment {payment.name} for {self.name}: {str(e)}",
+                        "Dues Payment History Append Error",
+                    )
+                    # Continue processing other entries - don't break entire update
+                    continue
+
+        return removed_count + updated_count + added_count
+
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.ADMIN)
     def incremental_update_history_tables(self):
@@ -2257,6 +2334,11 @@ class Member(
             if donation_changes > 0:
                 changes_made = True
 
+            # STEP 2.5: Update dues payment history (from Payment Entry custom_member field)
+            dues_changes = self._update_dues_payment_history()
+            if dues_changes > 0:
+                changes_made = True
+
             # STEP 3: Update volunteer expense history if employee is linked
             expense_changes = self._update_volunteer_expense_history()
             if expense_changes > 0:
@@ -2278,7 +2360,8 @@ class Member(
                     "cleaned": cleanup_removed,
                 },
                 "donations": {"success": True, "count": donation_changes},
-                "message": f"Incremental update: {donation_changes} donation changes, {expense_changes} expense changes, {cleanup_removed} broken entries cleaned",
+                "dues_payments": {"success": True, "count": dues_changes},
+                "message": f"Incremental update: {donation_changes} donation changes, {dues_changes} dues payment changes, {expense_changes} expense changes, {cleanup_removed} broken entries cleaned",
             }
 
         except Exception as e:
@@ -4056,6 +4139,9 @@ def refresh_fee_change_history(member_name):
             order_by="effective_date, applied_date",
         )
 
+        # Track if any changes are made to avoid unnecessary saves
+        changes_made = False
+
         # Process amendments first to capture all changes
         for amendment in applied_amendments:
             amendment_name = amendment.name
@@ -4075,6 +4161,7 @@ def refresh_fee_change_history(member_name):
                     "changed_by": amendment.applied_by or "Administrator",
                 }
                 member_doc.add_fee_change_to_history(amendment_data)
+                changes_made = True
 
         # STEP 3: Process schedules (for initial schedule creation only)
         for schedule in dues_schedules:
@@ -4106,6 +4193,7 @@ def refresh_fee_change_history(member_name):
                         "changed_by": frappe.session.user or "Administrator",
                     }
                     member_doc.update_fee_change_in_history(schedule_data)
+                    changes_made = True
             else:
                 # Add new entry using atomic method (initial schedule creation only)
                 schedule_data = {
@@ -4120,6 +4208,24 @@ def refresh_fee_change_history(member_name):
                     "changed_by": frappe.session.user or "Administrator",
                 }
                 member_doc.add_fee_change_to_history(schedule_data)
+                changes_made = True
+
+        # Account for cleanup operations that may have removed entries
+        if cleanup_stats["removed"] > 0:
+            changes_made = True
+
+        # Only save if changes were made
+        if not changes_made:
+            return {
+                "success": True,
+                "message": f"Fee change history is already up to date for {member_name}",
+                "history_count": len(member_doc.fee_change_history or []),
+                "amendments_found": len(applied_amendments),
+                "dues_schedules_found": len(dues_schedules),
+                "removed_entries": 0,
+                "cleanup_details": cleanup_stats,
+                "method": "no_changes",
+            }
 
         # Fee history updates are administrative operations that preserve audit trail
         member_doc.flags.ignore_validate_update_after_submit = True  # JUSTIFIED: Fee history update
@@ -4134,6 +4240,11 @@ def refresh_fee_change_history(member_name):
         )
 
         if not fee_history_result.success:
+            # Log full traceback for debugging
+            frappe.log_error(
+                title=f"Fee History Update Failed: {member_doc.name}",
+                message=f"Errors: {fee_history_result.errors}\n\nTraceback:\n{frappe.get_traceback()}",
+            )
             frappe.logger().error(
                 f"Failed to update fee change history: {'; '.join(fee_history_result.errors)}"
             )

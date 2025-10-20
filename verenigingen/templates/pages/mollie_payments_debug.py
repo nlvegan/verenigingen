@@ -317,6 +317,22 @@ def admin_cancel_payment(payment_id, reason="Administrative cancellation"):
 
 @frappe.whitelist(allow_guest=False)
 @high_security_api(operation_type=OperationType.FINANCIAL)
+def create_test_payment(amount, description, customer_id=None):
+    """Create a test payment that can be completed via Mollie checkout URL"""
+    try:
+        if not has_mollie_debug_access():
+            frappe.throw(_("Access denied"))
+
+        service = MollieDebugService()
+        return service.create_test_payment(amount, description, customer_id)
+
+    except Exception as e:
+        frappe.log_error(f"Mollie test payment creation error: {str(e)}")
+        return {"error": str(e), "status": "error"}
+
+
+@frappe.whitelist(allow_guest=False)
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def create_subscription(customer_id, amount, interval, description, mandate_id=None, start_date=None):
     """Create a new Mollie subscription for testing purposes (Verenigingen Administrator only)"""
     try:

@@ -64,59 +64,23 @@ class VerenigingenSettings(Document):
         has_national_account = getattr(self, "national_dues_income_account", None)
         has_source_account = getattr(self, "dues_income_account", None)
 
-        # If any account is configured, all three must be configured
-        accounts_configured = [has_chapter_account, has_national_account, has_source_account]
+        # Source account is always required for dues functionality
+        if not has_source_account:
+            frappe.throw(_("Dues Income Account (source) is required"))
 
-        if any(accounts_configured) and not all(accounts_configured):
-            missing = []
-            if not has_source_account:
-                missing.append("Dues Income Account (source)")
-            if not has_chapter_account:
-                missing.append("Chapter Dues Income Account")
-            if not has_national_account:
-                missing.append("National Dues Income Account")
+        # Chapter and national accounts are optional - if not set, dues_income_account is used
+        # No validation needed for optional accounts
 
-            frappe.throw(
-                _(
-                    "Incomplete chapter dues allocation configuration. Missing: {0}. "
-                    "All three accounts must be configured to use the Chapter Dues Allocation feature."
-                ).format(", ".join(missing))
-            )
-
-        # Validate accounts are different if all configured
-        if all(accounts_configured):
-            # Check that all three accounts are different
-            accounts = {
-                "Dues Income Account": has_source_account,
-                "Chapter Dues Income Account": has_chapter_account,
-                "National Dues Income Account": has_national_account,
-            }
-
-            # Check for duplicates
-            account_values = list(accounts.values())
-            if len(account_values) != len(set(account_values)):
-                duplicates = []
-                for name1, acc1 in accounts.items():
-                    for name2, acc2 in accounts.items():
-                        if name1 < name2 and acc1 == acc2:
-                            duplicates.append(f"{name1} and {name2} (both use {acc1})")
-
+        # Validate accounts are different if both optional accounts are configured
+        if has_chapter_account and has_national_account:
+            # Check that chapter and national accounts are different
+            if has_chapter_account == has_national_account:
                 frappe.throw(
                     _(
-                        "Chapter dues allocation accounts must be different from each other. "
-                        "Duplicate accounts found: {0}"
-                    ).format("; ".join(duplicates))
+                        "Chapter Dues Income Account and National Dues Income Account "
+                        "cannot be the same account ({0})"
+                    ).format(has_chapter_account)
                 )
-
-            # Validate all accounts are income accounts
-            for account_name, account_value in accounts.items():
-                account_type = frappe.db.get_value("Account", account_value, "account_type")
-                if account_type != "Income Account":
-                    frappe.throw(
-                        _("{0} must be an Income Account. Current account type: {1}").format(
-                            account_name, account_type or "Not set"
-                        )
-                    )
 
         # Validate default split percentage if configured
         if getattr(self, "default_chapter_split_percentage", None):

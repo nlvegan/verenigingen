@@ -364,6 +364,44 @@
                 <div id="payment-result" class="result-area" style="display: none;"></div>
             </div>
 
+            <!-- Create Test Payment Section -->
+            <div class="debug-card mt-6">
+                <div class="p-4 border border-green-300 rounded-lg bg-green-50">
+                    <h3 class="text-lg font-semibold text-green-800 mb-2">
+                        <i class="fa fa-plus-circle mr-2"></i>{{ _("Create Test Payment") }}
+                    </h3>
+                    <p class="text-green-700 mb-4">{{ _("Create a test payment with customizable description and complete it via Mollie checkout") }}</p>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Amount (EUR)") }} <span class="text-red-600">*</span></label>
+                            <input type="number" id="test-payment-amount" class="debug-input"
+                                   placeholder="25.00" min="0.01" max="1000" step="0.01" value="25.00">
+                        </div>
+                        <div class="md:col-span-2">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Description") }} <span class="text-red-600">*</span></label>
+                            <input type="text" id="test-payment-description" class="debug-input"
+                                   placeholder="Test membership dues payment">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 mb-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Customer ID (optional)") }}</label>
+                            <input type="text" id="test-payment-customer-id" class="debug-input"
+                                   placeholder="cst_xxxxxxxxxx">
+                            <p class="text-xs text-gray-500 mt-1">{{ _("Link payment to existing customer for subscription testing") }}</p>
+                        </div>
+                    </div>
+
+                    <button onclick="createTestPayment()" class="debug-button bg-green-600 hover:bg-green-700">
+                        <i class="fa fa-plus-circle mr-1"></i>{{ _("Create Test Payment") }}
+                    </button>
+
+                    <div id="test-payment-result" class="result-area" style="display: none;"></div>
+                </div>
+            </div>
+
             <!-- Payment List Section -->
             <div class="debug-card mt-6">
                 <div class="p-4 border border-gray-300 rounded-lg bg-purple-50">
@@ -1141,6 +1179,76 @@ function debugPayment() {
     })
     .catch(error => {
         displayResult('payment-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+function createTestPayment() {
+    const amount = document.getElementById('test-payment-amount').value.trim();
+    const description = document.getElementById('test-payment-description').value.trim();
+    const customerId = document.getElementById('test-payment-customer-id').value.trim();
+
+    // Validate inputs
+    if (!amount || parseFloat(amount) <= 0) {
+        alert('{{ _("Please enter a valid amount") }}');
+        return;
+    }
+
+    if (!description || description.length < 3) {
+        alert('{{ _("Please enter a description (at least 3 characters)") }}');
+        return;
+    }
+
+    showLoading('test-payment-result', '{{ _("Creating test payment...") }}');
+
+    const formData = new FormData();
+    formData.append('amount', amount);
+    formData.append('description', description);
+    if (customerId) {
+        formData.append('customer_id', customerId);
+    }
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.create_test_payment', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        // Frappe wraps the response in data.message
+        const result = data.message || data;
+
+        if (result.status === 'success' && result.checkout_url) {
+            // Format success message with clickable link
+            const successMessage = `✅ Payment Created Successfully!\n\n` +
+                `Payment ID: ${result.payment_id}\n` +
+                `Amount: ${result.amount}\n` +
+                `Description: ${result.description}\n` +
+                `Status: ${result.payment_status}\n` +
+                `Customer: ${result.customer_id || 'None'}\n\n` +
+                `🔗 Complete Payment: ${result.checkout_url}\n\n` +
+                `Click the button below to open the Mollie checkout page:`;
+
+            displayResult('test-payment-result', successMessage, 'success');
+
+            // Add clickable button to open checkout URL
+            const resultDiv = document.getElementById('test-payment-result');
+            const button = document.createElement('button');
+            button.className = 'debug-button mt-4';
+            button.innerHTML = '<i class="fa fa-external-link mr-1"></i>{{ _("Complete Payment at Mollie") }}';
+            button.onclick = () => window.open(result.checkout_url, '_blank');
+            resultDiv.appendChild(button);
+
+        } else if (result.error) {
+            displayResult('test-payment-result', `❌ Error: ${result.error}`, 'error');
+        } else {
+            // Show full response for debugging
+            displayResult('test-payment-result', JSON.stringify(result, null, 2), result.status === 'success' ? 'success' : 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('test-payment-result', `Error: ${error.message}`, 'error');
     });
 }
 

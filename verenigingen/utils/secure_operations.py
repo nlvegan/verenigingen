@@ -115,18 +115,32 @@ def _execute_document_operation(
         # specific link validation errors for known problematic fields
         try:
             doc.save()
-        except frappe.LinkValidationError as e:
+        except (frappe.LinkValidationError, frappe.ValidationError) as e:
             error_msg = str(e)
-            # Only bypass link validation for known problematic chapter references
-            if "Chapter:" in error_msg and "Could not find Row" in error_msg:
+            # Check if this is a link validation error that should be bypassed
+            is_link_validation_error = (
+                "Chapter:" in error_msg and "Could not find Row" in error_msg
+            ) or "Reference DocType must be set first" in error_msg
+
+            if is_link_validation_error:
                 # Check if link validation bypass is explicitly allowed
                 if bypass_validations and "link_validation" in bypass_validations:
                     # Temporarily bypass links for this specific case with monitoring
                     try:
                         doc.flags.ignore_links = True
-                        frappe.logger().warning(
-                            f"SECURITY: Bypassing link validation for chapter references: {error_msg}"
-                        )
+
+                        # CRITICAL: Reload the current modified timestamp from DB
+                        # The first save attempt updated the DB timestamp, so we need to reload it
+                        # before retry. Frappe's set_user_and_timestamp() will then use this current
+                        # value instead of the stale one, preventing timestamp mismatch errors.
+                        current_modified = frappe.db.get_value(doc.doctype, doc.name, "modified")
+                        if current_modified:
+                            doc.modified = current_modified
+                            # Also update doc_before_save if it exists to prevent other conflicts
+                            if hasattr(doc, "_doc_before_save") and doc._doc_before_save:
+                                doc._doc_before_save.modified = current_modified
+
+                        frappe.logger().warning(f"SECURITY: Bypassing link validation: {error_msg}")
                         frappe.logger().info(
                             f"SECURITY AUDIT: Link validation bypassed for {doc.doctype} {doc.name} "
                             f"- User: {frappe.session.user} - Justification: {justification}"
@@ -140,7 +154,7 @@ def _execute_document_operation(
                     frappe.logger().error("SECURITY: Link validation bypass denied - not in allowed bypasses")
                     raise
             else:
-                # Re-raise for other link validation errors
+                # Re-raise for other validation errors
                 raise
     elif operation == "submit":
         doc.submit()
@@ -403,16 +417,24 @@ def secure_document_operation(
             )
 
     except Exception as e:
+        # Capture full traceback for debugging
+        error_traceback = frappe.get_traceback()
         result.add_error(f"Operation failed: {str(e)}")
         result.add_audit_entry(
             "operation_failed",
             doc.doctype,
             getattr(doc, "name", "new"),
-            {"error": str(e), "operation": operation},
+            {"error": str(e), "operation": operation, "traceback": error_traceback},
         )
 
         frappe.logger().error(
-            f"SECURE_OP_FAILED: {operation} on {doc.doctype} failed: {str(e)} [{operation_id}]"
+            f"SECURE_OP_FAILED: {operation} on {doc.doctype} failed: {str(e)} [{operation_id}]\n{error_traceback}"
+        )
+
+        # Also log to Error Log for visibility
+        frappe.log_error(
+            title=f"Secure Operation Failed: {operation} on {doc.doctype}",
+            message=f"Operation: {operation}\nDocument: {doc.doctype} {getattr(doc, 'name', 'new')}\nError: {str(e)}\n\n{error_traceback}",
         )
 
     finally:

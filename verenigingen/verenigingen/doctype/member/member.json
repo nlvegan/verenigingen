@@ -988,6 +988,11 @@
    "link_doctype": "Payment Entry",
    "link_fieldname": "party",
    "table_fieldname": "references"
+  },
+  {
+   "group": "Transactions",
+   "link_doctype": "Payment Entry",
+   "link_fieldname": "custom_member"
   }
  ],
  "modified": "2025-10-15 23:18:46.798489",

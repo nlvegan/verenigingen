@@ -48,18 +48,15 @@ class HistoryIntegrityManager:
         """
         Clean up broken payment history entries.
 
+        Handles both:
+        - Invoice-based entries (reference_field: invoice)
+        - Unallocated payment entries (reference_field: payment_entry)
+
         Returns:
             dict: Cleanup statistics with 'removed', 'errors', and 'details' keys
         """
-        removed, errors = self._cleanup_history(
-            child_table_name="payment_history",
-            reference_field="invoice",
-            reference_doctype="Sales Invoice",
-            required_fields=["invoice", "posting_date", "amount"],
-            sort_field="posting_date",
-            history_type="payment",
-            amount_field="amount",
-        )
+        # Use custom validation for payment_history since it can have either invoice OR payment_entry
+        removed, errors = self._cleanup_payment_history_custom()
 
         return {"removed": len(removed), "errors": len(errors), "details": removed, "error_details": errors}
 
@@ -273,6 +270,128 @@ class HistoryIntegrityManager:
             logger.error(error_msg)
             frappe.log_error(
                 title=f"{history_type.title()} History Cleanup Failed: {self.member.name}",
+                message=frappe.get_traceback(),
+            )
+            raise
+
+        return (removed, errors)
+
+    def _cleanup_payment_history_custom(self) -> Tuple[List[Dict], List[Dict]]:
+        """
+        Custom cleanup for payment_history that handles both invoice-based and unallocated payment entries.
+
+        Valid entries must have EITHER:
+        - invoice field populated (invoice-based entries)
+        - payment_entry field populated (unallocated dues payments)
+
+        Returns:
+            tuple: (removed_entries, errors)
+        """
+        # SECURITY: Validate permissions before modifying data
+        if not frappe.has_permission("Member", "write", self.member):
+            frappe.throw(_("Insufficient permissions to modify member history"))
+
+        child_table = getattr(self.member, "payment_history", [])
+        if not child_table:
+            return ([], [])
+
+        removed = []
+        errors = []
+
+        try:
+            # Batch validate both invoice and payment_entry references
+            invoice_refs = self._batch_validate_references(child_table, "invoice", "Sales Invoice")
+            payment_refs = self._batch_validate_references(child_table, "payment_entry", "Payment Entry")
+
+            entries_to_remove = []
+
+            for entry in child_table:
+                try:
+                    invoice_value = getattr(entry, "invoice", None)
+                    payment_entry_value = getattr(entry, "payment_entry", None)
+                    posting_date = getattr(entry, "posting_date", None)
+                    amount = getattr(entry, "amount", None)
+
+                    # Entry must have EITHER invoice OR payment_entry (not neither, not both)
+                    if not invoice_value and not payment_entry_value:
+                        entries_to_remove.append((entry, "Missing both invoice and payment_entry"))
+                        continue
+
+                    # If it has an invoice, validate invoice-based requirements
+                    if invoice_value:
+                        # Check required fields for invoice-based entries
+                        if not posting_date or amount is None:
+                            entries_to_remove.append(
+                                (entry, "Invoice-based entry missing posting_date or amount")
+                            )
+                            continue
+
+                        # Check if invoice still exists
+                        if invoice_value not in invoice_refs:
+                            if self._is_within_grace_period(entry, "posting_date", grace_days=7):
+                                logger.warning(
+                                    f"Skipping cleanup of recent missing Sales Invoice "
+                                    f"{invoice_value} for member {self.member.name} (within grace period)"
+                                )
+                                continue
+                            entries_to_remove.append((entry, "Sales Invoice deleted from system"))
+                            continue
+
+                    # If it has a payment_entry, validate payment-based requirements
+                    if payment_entry_value:
+                        # Check required fields for unallocated payment entries
+                        if not posting_date or amount is None:
+                            entries_to_remove.append((entry, "Payment entry missing posting_date or amount"))
+                            continue
+
+                        # Check if payment entry still exists
+                        if payment_entry_value not in payment_refs:
+                            if self._is_within_grace_period(entry, "posting_date", grace_days=7):
+                                logger.warning(
+                                    f"Skipping cleanup of recent missing Payment Entry "
+                                    f"{payment_entry_value} for member {self.member.name} (within grace period)"
+                                )
+                                continue
+                            entries_to_remove.append((entry, "Payment Entry deleted from system"))
+                            continue
+
+                except Exception as e:
+                    error_msg = f"Error processing payment history entry {entry.idx}: {str(e)}"
+                    logger.error(f"[Member {self.member.name}] {error_msg}")
+                    errors.append({"entry_idx": entry.idx, "error": str(e)})
+                    continue
+
+            # Remove marked entries
+            for entry, reason in entries_to_remove:
+                ref_value = (
+                    getattr(entry, "invoice", None) or getattr(entry, "payment_entry", None) or "UNKNOWN"
+                )
+                logger.warning(
+                    f"Removing payment history entry from {self.member.name}: "
+                    f"reference={ref_value}, reason={reason}"
+                )
+
+                child_table.remove(entry)
+                removed.append(
+                    {"reference": ref_value, "reason": reason, "idx": entry.idx, "history_type": "payment"}
+                )
+
+            # Sort remaining entries by date (newest first)
+            if child_table:
+                child_table.sort(key=lambda x: getattr(x, "posting_date", "") or "1900-01-01", reverse=True)
+
+            # AUDIT TRAIL: Create audit log if entries were removed
+            if removed:
+                self._create_audit_log("payment", removed)
+
+        except Exception as e:
+            error_msg = (
+                f"Critical error during payment history cleanup for "
+                f"{self.member.name}: {str(e)}\n{frappe.get_traceback()}"
+            )
+            logger.error(error_msg)
+            frappe.log_error(
+                title=f"Payment History Cleanup Failed: {self.member.name}",
                 message=frappe.get_traceback(),
             )
             raise

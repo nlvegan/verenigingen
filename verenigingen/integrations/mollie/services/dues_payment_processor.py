@@ -9,6 +9,7 @@ Handles processing of Mollie payments for membership dues, including:
 """
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 import frappe
@@ -17,6 +18,9 @@ from frappe.utils import flt, getdate
 
 from verenigingen.integrations.mollie.core.mollie_client import MollieClient
 from verenigingen.integrations.mollie.domain.payment_classification import PaymentClassifier
+from verenigingen.verenigingen_payments.services.payment.payment_entry_creation_service import (
+    payment_entry_service,
+)
 
 
 class DuesPaymentProcessor:
@@ -168,8 +172,7 @@ class DuesPaymentProcessor:
         try:
             # Fetch payment from Mollie if not provided
             if not payment:
-                client = self.mollie_client._get_mollie_client()
-                payment = client.payments.get(payment_id)
+                payment = self.mollie_client.sdk_client.payments.get(payment_id)
 
             result["payment_status"] = payment.status
             result["amount"] = (
@@ -232,6 +235,89 @@ class DuesPaymentProcessor:
 
     def _create_payment_entry_for_dues(self, member_name: str, payment) -> Optional[str]:
         """
+        Create a Payment Entry for a membership dues payment from Mollie.
+
+        Creates an unallocated payment entry - reconciliation with Sales Invoices
+        happens separately (either automatically via payment hooks or manually).
+
+        Args:
+            member_name: Member document name
+            payment: Mollie payment object
+
+        Returns:
+            str: Payment Entry name if created, None otherwise
+        """
+        # Get member and customer
+        member = frappe.get_doc("Member", member_name)
+        customer = member.customer
+
+        if not customer:
+            frappe.throw(f"Member {member_name} has no linked Customer record")
+
+        # Extract payment data from Mollie
+        payment_id = payment.id
+        amount = float(payment.amount["value"]) if payment.amount else 0.0
+        currency = payment.amount["currency"] if payment.amount else "EUR"
+        paid_at = getattr(payment, "paid_at", None)
+        payment_date = getdate(paid_at) if paid_at else getdate()
+
+        # Get settings and accounts
+        settings = frappe.get_single("Verenigingen Settings")
+        company = settings.donation_company or frappe.defaults.get_global_default("company")
+        mode_of_payment = getattr(settings, "mode_of_payment", None) or "Mollie"
+
+        # Get Mollie bank account (where money arrives)
+        mollie_bank_account = getattr(settings, "mollie_bank_account", None) or frappe.db.get_value(
+            "Company", company, "default_bank_account"
+        )
+
+        # Get customer receivable account (customer's outstanding balance)
+        # Use dues-specific receivable account from settings, fallback to company default
+        customer_account = getattr(settings, "dues_payments_receivable_account", None)
+        if not customer_account:
+            customer_account = frappe.get_cached_value("Company", company, "default_receivable_account")
+
+        if not mollie_bank_account or not customer_account:
+            frappe.throw(
+                f"Missing accounts - Mollie bank: {mollie_bank_account}, "
+                f"Customer receivable: {customer_account}"
+            )
+
+        # Create unallocated Payment Entry
+        payment_entry = frappe.get_doc(
+            {
+                "doctype": "Payment Entry",
+                "payment_type": "Receive",
+                "party_type": "Customer",
+                "party": customer,
+                "company": company,
+                "paid_from": customer_account,
+                "paid_to": mollie_bank_account,
+                "paid_amount": amount,
+                "received_amount": amount,
+                "reference_no": payment_id,
+                "reference_date": payment_date,
+                "posting_date": payment_date,
+                "mode_of_payment": mode_of_payment,
+                "remarks": f"Membership dues payment via Mollie for {member.full_name} (subscription payment)",
+                "custom_member": member_name,  # Link to member for payment history tracking
+            }
+        )
+
+        payment_entry.insert()
+        payment_entry.submit()
+
+        frappe.logger().info(
+            f"✅ Created Payment Entry {payment_entry.name} for member {member_name} "
+            f"(amount: {currency} {amount}, payment: {payment_id})"
+        )
+
+        return payment_entry.name
+
+    def _create_payment_entry_for_dues_OLD_CUSTOM_IMPLEMENTATION(
+        self, member_name: str, payment
+    ) -> Optional[str]:
+        """
         Create a Payment Entry for a membership dues payment.
 
         Args:
@@ -286,33 +372,9 @@ class DuesPaymentProcessor:
                     f"or configure default_bank_account for company {company}"
                 )
 
-            # 2. Customer receivable account (paid_from) - customer's outstanding balance
-            customer_account = frappe.db.get_value(
-                "Party Account", {"parent": customer, "company": company}, "account"
-            )
-
-            if not customer_account:
-                # Fallback to company default
-                customer_account = frappe.get_cached_value("Company", company, "default_receivable_account")
-
-            if not customer_account:
-                raise frappe.ValidationError(
-                    f"No receivable account found for customer {customer}. "
-                    f"Please configure Party Account or company default_receivable_account"
-                )
-
-            # 3. Mode of Payment
-            mode_of_payment = getattr(settings, "mode_of_payment", None) or "Mollie"
-
-            # Verify mode of payment exists
-            if not frappe.db.exists("Mode of Payment", mode_of_payment):
-                frappe.logger().warning(
-                    f"Mode of Payment '{mode_of_payment}' not found, creating Payment Entry without it"
-                )
-                mode_of_payment = None
-
-            # Find unpaid Sales Invoice to reconcile against
+            # 2. Find unpaid Sales Invoice FIRST to determine correct receivable account
             # IMPORTANT: Match currency to prevent accounting errors
+            # Also fetch debit_to to use the invoice's receivable account
             unpaid_invoice = frappe.db.get_value(
                 "Sales Invoice",
                 {
@@ -322,10 +384,46 @@ class DuesPaymentProcessor:
                     "status": ["in", ["Unpaid", "Overdue", "Partly Paid"]],
                     "outstanding_amount": [">", 0],
                 },
-                ["name", "outstanding_amount", "currency"],
+                ["name", "outstanding_amount", "currency", "debit_to"],
                 order_by="posting_date asc",
                 as_dict=True,
             )
+
+            # 3. Customer receivable account (paid_from) - customer's outstanding balance
+            # Prefer invoice's debit_to account to prevent account mismatch errors
+            if unpaid_invoice and unpaid_invoice.debit_to:
+                customer_account = unpaid_invoice.debit_to
+                frappe.logger().info(
+                    f"Using Sales Invoice's receivable account: {customer_account} "
+                    f"(from invoice {unpaid_invoice.name})"
+                )
+            else:
+                # Fallback to customer's default account
+                customer_account = frappe.db.get_value(
+                    "Party Account", {"parent": customer, "company": company}, "account"
+                )
+
+                if not customer_account:
+                    # Fallback to company default
+                    customer_account = frappe.get_cached_value(
+                        "Company", company, "default_receivable_account"
+                    )
+
+                if not customer_account:
+                    raise frappe.ValidationError(
+                        f"No receivable account found for customer {customer}. "
+                        f"Please configure Party Account or company default_receivable_account"
+                    )
+
+            # 4. Mode of Payment
+            mode_of_payment = getattr(settings, "mode_of_payment", None) or "Mollie"
+
+            # Verify mode of payment exists
+            if not frappe.db.exists("Mode of Payment", mode_of_payment):
+                frappe.logger().warning(
+                    f"Mode of Payment '{mode_of_payment}' not found, creating Payment Entry without it"
+                )
+                mode_of_payment = None
 
             # Store comprehensive Mollie metadata for audit trail and compliance
             payment_metadata = {
@@ -488,8 +586,7 @@ class DuesPaymentProcessor:
 
         try:
             # Retrieve all payments for customer
-            client = self.mollie_client._get_mollie_client()
-            customer_obj = client.customers.get(customer_id)
+            customer_obj = self.mollie_client.sdk_client.customers.get(customer_id)
             payments = customer_obj.payments.list(limit=limit)
 
             batch_result["total_retrieved"] = len(payments)

@@ -45,7 +45,7 @@ class MollieDebugService:
             }
 
             # Get subscriptions using raw mollie client
-            client = self.mollie_client._get_mollie_client()
+            client = self.mollie_client.sdk_client
             customer_obj = client.customers.get(customer_id)
             subscriptions = customer_obj.subscriptions.list()
 
@@ -131,7 +131,7 @@ class MollieDebugService:
         }
 
         try:
-            client = self.mollie_client._get_mollie_client()
+            client = self.mollie_client.sdk_client
             customer_obj = client.customers.get(customer_id)
             subscription = customer_obj.subscriptions.get(subscription_id)
 
@@ -189,7 +189,7 @@ class MollieDebugService:
         }
 
         try:
-            client = self.mollie_client._get_mollie_client()
+            client = self.mollie_client.sdk_client
             customer_obj = client.customers.get(customer_id)
             mandate = customer_obj.mandates.get(mandate_id)
 
@@ -222,7 +222,7 @@ class MollieDebugService:
 
         try:
             # Use direct Mollie API call to avoid retry/circuit breaker issues
-            client = self.mollie_client._get_mollie_client()
+            client = self.mollie_client.sdk_client
             customer_obj = client.customers.get(customer_id)
             cancelled_subscription = customer_obj.subscriptions.delete(subscription_id)
 
@@ -291,7 +291,7 @@ class MollieDebugService:
 
         try:
             # Use direct Mollie API call
-            client = self.mollie_client._get_mollie_client()
+            client = self.mollie_client.sdk_client
             customer_obj = client.customers.get(customer_id)
 
             # STEP 1: Cancel all active subscriptions first to prevent pending state
@@ -373,7 +373,7 @@ class MollieDebugService:
 
         try:
             # Get customer details first for logging
-            client = self.mollie_client._get_mollie_client()
+            client = self.mollie_client.sdk_client
             customer_obj = client.customers.get(customer_id)
             customer_details = {
                 "id": customer_obj.id,
@@ -458,7 +458,7 @@ class MollieDebugService:
 
         try:
             # Use direct Mollie API call to avoid retry decorators
-            client = self.mollie_client._get_mollie_client()
+            client = self.mollie_client.sdk_client
             customers = client.customers.list(limit=limit)
 
             for customer in customers:
@@ -492,7 +492,7 @@ class MollieDebugService:
         }
 
         try:
-            client = self.mollie_client._get_mollie_client()
+            client = self.mollie_client.sdk_client
             payment = client.payments.get(payment_id)
 
             result["payment_found"] = True
@@ -601,7 +601,7 @@ class MollieDebugService:
         }
 
         try:
-            client = self.mollie_client._get_mollie_client()
+            client = self.mollie_client.sdk_client
 
             if customer_id:
                 # Get payments via customer (Mollie API doesn't support customerId filter on payments.list)
@@ -655,7 +655,7 @@ class MollieDebugService:
         }
 
         try:
-            client = self.mollie_client._get_mollie_client()
+            client = self.mollie_client.sdk_client
 
             if payment_id:
                 # Get refund via payment
@@ -706,7 +706,7 @@ class MollieDebugService:
         }
 
         try:
-            client = self.mollie_client._get_mollie_client()
+            client = self.mollie_client.sdk_client
 
             # Get chargebacks - Note: Mollie API may require getting via payments
             if customer_id:
@@ -775,7 +775,7 @@ class MollieDebugService:
         }
 
         try:
-            client = self.mollie_client._get_mollie_client()
+            client = self.mollie_client.sdk_client
             payment = client.payments.get(payment_id)
 
             result["webhook_info"] = {
@@ -831,7 +831,7 @@ class MollieDebugService:
 
         try:
             # Use direct Mollie API call to avoid retry/circuit breaker issues
-            client = self.mollie_client._get_mollie_client()
+            client = self.mollie_client.sdk_client
 
             # First check if payment exists and is cancellable
             payment = client.payments.get(payment_id)
@@ -960,7 +960,7 @@ class MollieDebugService:
             return result
 
         try:
-            client = self.mollie_client._get_mollie_client()
+            client = self.mollie_client.sdk_client
 
             # Get more customers to search through (Mollie API doesn't support server-side search)
             all_customers = client.customers.list(limit=250)
@@ -1149,7 +1149,7 @@ class MollieDebugService:
 
         try:
             # Get the raw Mollie client
-            client = self.mollie_client._get_mollie_client()
+            client = self.mollie_client.sdk_client
 
             # Build subscription data
             # Note: webhookUrl intentionally omitted to use Mollie dashboard webhook settings
@@ -1257,7 +1257,7 @@ class MollieDebugService:
         }
 
         try:
-            client = self.mollie_client._get_mollie_client()
+            client = self.mollie_client.sdk_client
 
             # List subscriptions for specific customer
             customer = client.customers.get(customer_id)
@@ -1358,7 +1358,7 @@ class MollieDebugService:
             dues_processor = DuesPaymentProcessor()
 
             # Get all payments for customer
-            client = self.mollie_client._get_mollie_client()
+            client = self.mollie_client.sdk_client
             customer_obj = client.customers.get(customer_id)
             payments = customer_obj.payments.list(limit=limit)
 
@@ -1465,5 +1465,99 @@ class MollieDebugService:
         except Exception as e:
             result["error"] = str(e)
             frappe.log_error(f"Batch processing error: {e}")
+
+        return result
+
+    def create_test_payment(self, amount: float, description: str, customer_id: str = None):
+        """
+        Create a test payment with customizable description.
+
+        Args:
+            amount: Payment amount in EUR
+            description: Custom payment description
+            customer_id: Optional customer ID to link payment to
+
+        Returns:
+            Dict containing:
+                - status: "success" or "error"
+                - payment_id: Created payment ID (if successful)
+                - checkout_url: URL to complete payment
+                - error: Error message (if failed)
+        """
+        # Validate amount
+        try:
+            amount_float = float(amount)
+        except (ValueError, TypeError):
+            raise ValueError(_("Invalid amount format - must be a number"))
+
+        if amount_float <= 0:
+            raise ValueError(_("Amount must be positive"))
+
+        # Add reasonable maximum for test payments (€1,000)
+        if amount_float > 1000.00:
+            raise ValueError(_("Test payment amount cannot exceed €1,000"))
+
+        if not description or len(description.strip()) < 3:
+            raise ValueError(_("Description must be at least 3 characters"))
+
+        result = {
+            "test_mode": self.mollie_client.is_test_mode(),
+            "timestamp": frappe.utils.now(),
+            "status": "pending",
+            "error": None,
+        }
+
+        try:
+            # Get site URL for redirect
+            site_url = frappe.utils.get_url()
+            redirect_url = f"{site_url}/mollie_payments_debug"
+
+            # Get webhook URL using MollieClient method
+            webhook_url = self.mollie_client.get_webhook_url()
+
+            # Build payment data (amount as dict, not Money object)
+            payment_data = {
+                "amount": {"value": f"{amount_float:.2f}", "currency": "EUR"},
+                "description": description[:255],  # Mollie has 255 char limit
+                "redirectUrl": redirect_url,
+                "webhookUrl": webhook_url,
+                "metadata": {
+                    "created_via": "debug_page",
+                    "created_by": frappe.session.user,
+                    "created_at": frappe.utils.now(),
+                },
+            }
+
+            # Add customer if provided
+            if customer_id:
+                payment_data["customerId"] = customer_id
+
+            # Create payment using MollieClient
+            payment = self.mollie_client.create_payment(payment_data)
+
+            result["status"] = "success"
+            result["payment_id"] = payment.id
+            result["payment_status"] = payment.status
+            result["amount"] = self._format_mollie_amount(payment.amount)
+            result["description"] = payment.description
+            result["checkout_url"] = payment.checkout_url
+            result["customer_id"] = customer_id
+
+            # Enhanced audit logging
+            frappe.logger().info(
+                f"DEBUG PAYMENT CREATION: User {frappe.session.user} "
+                f"created payment {payment.id} "
+                f"(amount: €{amount_float:.2f}, description: {description}, "
+                f"customer: {customer_id or 'none'})"
+            )
+
+        except Exception as e:
+            # Sanitize error message before returning to client
+            sanitized_error = self._sanitize_error_message(str(e))
+            result["error"] = sanitized_error
+            result["status"] = "error"
+
+            # Log full error internally with user context
+            frappe.log_error(f"Mollie test payment creation error for user {frappe.session.user}: {str(e)}")
 
         return result

@@ -61,6 +61,16 @@ class MollieClient:
                 raise MolliePaymentError(f"Failed to initialize Mollie client: {e}")
         return self._mollie_client
 
+    @property
+    def sdk_client(self):
+        """
+        Public property to access the underlying Mollie SDK client.
+
+        This is provided for advanced operations that aren't wrapped
+        by the MollieClient API (e.g., listing subscriptions, mandates).
+        """
+        return self._get_mollie_client()
+
     @with_circuit_breaker(
         "mollie_api_get_payment", CircuitBreakerConfig(failure_threshold=5, recovery_timeout=60)
     )
