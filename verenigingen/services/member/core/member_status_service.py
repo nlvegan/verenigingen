@@ -31,6 +31,15 @@ def set_member_application_status_defaults(member_doc):
         dict: Result with success status and any errors
     """
     try:
+        # Skip application_status setting during CSV import
+        # CSV imported members are backend-created, not application-created
+        if getattr(member_doc, "_csv_import", False) or getattr(member_doc, "_skip_status_validation", False):
+            return {
+                "success": True,
+                "application_status": getattr(member_doc, "application_status", None),
+                "skipped": True,
+            }
+
         # Set default application_status if not set
         if not getattr(member_doc, "application_status", ""):
             # Check if this is a new application or existing member

@@ -128,12 +128,16 @@ def get_data(filters: Optional[Dict]) -> List[Dict]:
         chapter_name = row["chapter"]
         allocation = allocations_map[chapter_name]
 
+        # Chapter has custom split only if value is not None AND not 0
+        chapter_pct = chapter_configs.get(chapter_name)
+        has_custom_split = chapter_pct is not None and chapter_pct != 0
+
         data.append(
             {
                 "chapter": chapter_name,
                 "total_invoices": row["total_invoices"],
                 **allocation.to_dict(),
-                "uses_custom_split": 1 if chapter_configs.get(chapter_name) is not None else 0,
+                "uses_custom_split": 1 if has_custom_split else 0,
             }
         )
 

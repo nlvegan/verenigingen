@@ -2215,12 +2215,12 @@ class Member(
         return removed_count + updated_count + added_count
 
     def _update_dues_payment_history(self):
-        """Update membership dues payment history from Payment Entries with custom_member field"""
+        """Rebuild membership dues payment history from ALL Payment Entries with custom_member field"""
         removed_count = 0
         updated_count = 0
         added_count = 0
 
-        # Get the 20 most recent dues payments (Payment Entries linked via custom_member)
+        # Get ALL dues payments (Payment Entries linked via custom_member) - full rebuild
         current_payments = frappe.get_all(
             "Payment Entry",
             filters={
@@ -2239,14 +2239,13 @@ class Member(
                 "remarks",
             ],
             order_by="posting_date desc",
-            limit=20,
         )
 
         # Build a lookup of existing payment entries in history
         existing_payments = {row.payment_entry: row for row in (self.payment_history or [])}
         current_payment_names = {payment.name for payment in current_payments}
 
-        # Remove entries that are no longer in the top 20
+        # Remove dues payment entries that no longer exist in database
         rows_to_remove = [
             idx
             for idx, row in enumerate(self.payment_history or [])
@@ -2304,13 +2303,112 @@ class Member(
 
         return removed_count + updated_count + added_count
 
+    def _update_invoice_payment_history(self):
+        """Rebuild membership invoice payment history from ALL Sales Invoices linked to member's customer"""
+        if not self.customer:
+            return 0
+
+        removed_count = 0
+        updated_count = 0
+        added_count = 0
+
+        # Get ALL Sales Invoices for this member's customer - full rebuild
+        current_invoices = frappe.get_all(
+            "Sales Invoice",
+            filters={
+                "customer": self.customer,
+                "docstatus": ["!=", 2],  # Exclude cancelled
+            },
+            fields=[
+                "name",
+                "posting_date",
+                "due_date",
+                "grand_total",
+                "outstanding_amount",
+                "status",
+                "custom_coverage_start_date",
+                "custom_coverage_end_date",
+                "membership",
+            ],
+            order_by="posting_date desc",
+        )
+
+        # Build a lookup of existing invoices in history
+        existing_invoices = {row.invoice: row for row in (self.payment_history or []) if row.invoice}
+        current_invoice_names = {invoice.name for invoice in current_invoices}
+
+        # Remove invoice entries that no longer exist in database
+        rows_to_remove = [
+            idx
+            for idx, row in enumerate(self.payment_history or [])
+            if row.invoice
+            and row.invoice not in current_invoice_names
+            and row.invoice_doctype == "Sales Invoice"  # Only remove sales invoices
+        ]
+
+        # Remove in reverse order to maintain indices
+        for idx in reversed(rows_to_remove):
+            self.payment_history.pop(idx)
+            removed_count += 1
+
+        # Process each current invoice
+        for invoice in current_invoices:
+            # Use the payment history builder to create consistent entries
+            from verenigingen.utils.payment_history_builder import PaymentHistoryEntryBuilder
+
+            try:
+                # Get full invoice document for builder
+                invoice_doc = frappe.get_doc("Sales Invoice", invoice.name)
+                expected_row = PaymentHistoryEntryBuilder.build_from_invoice_doc(invoice_doc, member_doc=self)
+
+                if invoice.name in existing_invoices:
+                    # Check if existing row needs updating
+                    existing_row = existing_invoices[invoice.name]
+                    needs_update = any(
+                        getattr(existing_row, field, None) != expected_value
+                        for field, expected_value in expected_row.items()
+                    )
+
+                    if needs_update:
+                        for field, expected_value in expected_row.items():
+                            setattr(existing_row, field, expected_value)
+                        updated_count += 1
+                else:
+                    # Add new row
+                    try:
+                        self.append("payment_history", expected_row)
+                        added_count += 1
+                    except Exception as e:
+                        frappe.log_error(
+                            f"Failed to append invoice {invoice.name} for {self.name}: {str(e)}",
+                            "Invoice Payment History Append Error",
+                        )
+                        # Continue processing other entries - don't break entire update
+                        continue
+
+            except Exception as e:
+                frappe.log_error(
+                    f"Failed to process invoice {invoice.name} for {self.name}: {str(e)}",
+                    "Invoice Payment History Process Error",
+                )
+                # Continue processing other entries
+                continue
+
+        return removed_count + updated_count + added_count
+
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.ADMIN)
     def incremental_update_history_tables(self):
         """
-        Incremental update of both donation and volunteer expense history tables.
+        Rebuild payment history, donation history, and volunteer expense history tables.
 
-        Now includes integrity checking and cleanup via HistoryIntegrityManager.
+        Performs a FULL rebuild (no record limits) including:
+        - ALL Sales Invoices with coverage dates
+        - ALL Payment Entries (dues payments)
+        - ALL Donations
+        - ALL Volunteer Expenses
+
+        Includes integrity checking and cleanup via HistoryIntegrityManager.
         """
         try:
             changes_made = False
@@ -2339,6 +2437,11 @@ class Member(
             if dues_changes > 0:
                 changes_made = True
 
+            # STEP 2.6: Update invoice payment history (from Sales Invoices linked to member)
+            invoice_changes = self._update_invoice_payment_history()
+            if invoice_changes > 0:
+                changes_made = True
+
             # STEP 3: Update volunteer expense history if employee is linked
             expense_changes = self._update_volunteer_expense_history()
             if expense_changes > 0:
@@ -2350,6 +2453,8 @@ class Member(
                 self.flags.ignore_version = True
                 # Skip link validation for automated system updates
                 self.flags.ignore_links = True
+                # Suppress activity log spam for automated child table updates
+                self.flags.ignore_comment = True
                 self.save()
 
             return {
@@ -2361,7 +2466,8 @@ class Member(
                 },
                 "donations": {"success": True, "count": donation_changes},
                 "dues_payments": {"success": True, "count": dues_changes},
-                "message": f"Incremental update: {donation_changes} donation changes, {dues_changes} dues payment changes, {expense_changes} expense changes, {cleanup_removed} broken entries cleaned",
+                "invoices": {"success": True, "count": invoice_changes},
+                "message": f"Incremental update: {donation_changes} donation changes, {dues_changes} dues payment changes, {invoice_changes} invoice changes, {expense_changes} expense changes, {cleanup_removed} broken entries cleaned",
             }
 
         except Exception as e:

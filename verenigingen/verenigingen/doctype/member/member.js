@@ -859,9 +859,9 @@ function add_consolidated_action_buttons(frm) {
 
 	// === MEMBER ACTIONS GROUP ===
 
-	// Payment history update
+	// Payment history rebuild
 	frm.add_custom_button(
-		__('Update Payment History'),
+		__('Rebuild Payment History'),
 		() => {
 			incremental_update_history_tables(frm);
 		},
@@ -976,7 +976,7 @@ function add_administrative_buttons(frm) {
 
 		if (frm.doc.customer) {
 			frm.add_custom_button(
-				__('Refresh Dues Schedule History'),
+				__('Rebuild Fee Change History'),
 				() => {
 					refresh_fee_change_history(frm);
 				},
@@ -3278,15 +3278,6 @@ function add_consolidated_dues_schedule_buttons(frm) {
 					__('Membership & Dues')
 				);
 
-				// Refresh dues history button
-				frm.add_custom_button(
-					__('Refresh Dues History'),
-					() => {
-						refresh_fee_change_history(frm);
-					},
-					__('Membership & Dues')
-				);
-
 				// Sync dues rate button
 				frm.add_custom_button(
 					__('Sync Dues Rate'),
@@ -3478,14 +3469,14 @@ function incremental_update_history_tables(frm) {
 
 	frappe.confirm(
 		__(
-			'This will update both volunteer expense and donation payment history with the most recent entries. Continue?'
+			'This will rebuild ALL payment history (invoices, payments, donations, expenses) from the database. Continue?'
 		),
 		() => {
 			frappe.call({
 				method: 'incremental_update_history_tables',
 				doc: frm.doc,
 				freeze: true,
-				freeze_message: __('Updating payment history...'),
+				freeze_message: __('Rebuilding payment history...'),
 				callback(r) {
 					if (r.message && r.message.overall_success) {
 						const message_parts = [];

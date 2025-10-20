@@ -67,12 +67,13 @@ class SplitPercentage:
         # Try chapter-specific override
         chapter_pct = frappe.db.get_value("Chapter", chapter_name, "chapter_split_percentage")
 
-        if chapter_pct is not None:
+        # Only use chapter-specific value if it's explicitly set and non-zero
+        # Chapters with 0 should fall back to the default
+        if chapter_pct is not None and chapter_pct != 0:
             return cls(chapter_percentage=Decimal(str(chapter_pct)))
 
         # Fall back to system default
-        settings = frappe.get_cached_single("Verenigingen Settings")
-        default_pct = getattr(settings, "default_chapter_split_percentage", None)
+        default_pct = frappe.db.get_single_value("Verenigingen Settings", "default_chapter_split_percentage")
 
         if default_pct is not None:
             return cls(chapter_percentage=Decimal(str(default_pct)))
@@ -233,12 +234,31 @@ class DuesAllocationService:
                 fields=["name", "chapter_split_percentage"],
             )
 
-            # Pre-populate cache
+            # Get default percentage once for all chapters without custom splits
+            # Query directly from database to avoid any caching issues
+            default_pct = frappe.db.get_single_value(
+                "Verenigingen Settings", "default_chapter_split_percentage"
+            )
+            default_split = Decimal(str(default_pct)) if default_pct is not None else Decimal("60.0")
+
+            # Pre-populate cache for ALL chapters
+            chapters_with_config = {c.name for c in configs}
             for config in configs:
-                if config.chapter_split_percentage is not None:
+                # Only use chapter-specific value if it's explicitly set and non-zero
+                # Chapters with 0 should fall back to the default
+                if config.chapter_split_percentage is not None and config.chapter_split_percentage != 0:
+                    # Chapter has custom split (non-zero)
                     self._percentage_cache[config.name] = SplitPercentage(
                         chapter_percentage=Decimal(str(config.chapter_split_percentage))
                     )
+                else:
+                    # Chapter uses default split (either NULL or 0 in database)
+                    self._percentage_cache[config.name] = SplitPercentage(chapter_percentage=default_split)
+
+            # Handle chapters that weren't found in database (edge case)
+            for chapter_name in chapter_names:
+                if chapter_name not in chapters_with_config:
+                    self._percentage_cache[chapter_name] = SplitPercentage(chapter_percentage=default_split)
 
         # Calculate allocations using cached percentages
         allocations = {}

@@ -747,20 +747,21 @@ class MijnroodCSVImport(Document):
         member_doc._system_update = True  # Bypass fee override validation
         member_doc._csv_import = True  # Mark as CSV import for other validations
         member_doc._skip_workflow_validation = True
+        member_doc._skip_status_validation = True  # Skip application_status validation
         member_doc.flags.ignore_validate = False  # Still validate but with flags
         member_doc.flags.ignore_mandatory = False  # Don't ignore mandatory fields
 
         # FIRST PRIORITY: Set status fields to prevent any workflow issues
         # CSV imported members are backend-created, not application-created
         member_doc.application_id = None  # Explicitly ensure no application ID
-        member_doc.application_status = "Approved"  # Backend-created = pre-approved
+        # Note: DON'T set application_status here - it's not part of any workflow
+        # and causes false positive validation errors during CSV import
 
         # Set status based on membership type (Lidmaatschapstype from CSV)
         # Defensive: handle None values from CSV
         membership_type = (row_data.get("membership_type") or "").lower()
         if membership_type in ["lid", "standard", "aspirant"]:
             member_doc.status = "Active"
-            member_doc.application_status = "Approved"
             # Mark as aspirant if membership type is "aspirant"
             if membership_type == "aspirant":
                 member_doc.is_aspirant = 1
@@ -768,26 +769,20 @@ class MijnroodCSVImport(Document):
                 member_doc.is_aspirant = 0
         elif membership_type == "overleden":
             member_doc.status = "Deceased"
-            member_doc.application_status = "Approved"  # Was approved before passing
             # Note: member_end_date left as NULL for historical imports (MNAR data)
         elif membership_type in ["opgezegd", "terminated", "uitgeschreven"]:
             member_doc.status = "Terminated"
-            member_doc.application_status = "Approved"  # Was approved, then terminated
             # Note: member_end_date left as NULL for historical imports (MNAR data)
         elif membership_type in ["geroyeerd", "expelled"]:
             member_doc.status = "Banned"
-            member_doc.application_status = "Approved"  # Was approved, then banned
             # Note: member_end_date left as NULL for historical imports (MNAR data)
         elif membership_type == "dubbel":
             # Duplicate entries should be marked as rejected
             member_doc.status = "Rejected"
-            member_doc.application_status = "Rejected"
         elif membership_type == "geschorst":
             member_doc.status = "Suspended"
-            member_doc.application_status = "Approved"  # Was approved, then suspended
         else:
             member_doc.status = "Active"  # Default for unknown types
-            member_doc.application_status = "Approved"
 
         # Flags are already set at the top of this method - no need to repeat
 
