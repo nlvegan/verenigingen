@@ -262,28 +262,44 @@ class DuesPaymentProcessor:
         payment_date = getdate(paid_at) if paid_at else getdate()
 
         # Get settings and accounts
-        settings = frappe.get_single("Verenigingen Settings")
-        company = settings.donation_company or frappe.defaults.get_global_default("company")
-        mode_of_payment = getattr(settings, "mode_of_payment", None) or "Mollie"
+        verenigingen_settings = frappe.get_single("Verenigingen Settings")
+        mollie_settings = frappe.get_single("Mollie Settings")
+        company = verenigingen_settings.donation_company or frappe.defaults.get_global_default("company")
+        mode_of_payment = getattr(verenigingen_settings, "mode_of_payment", None) or "Mollie"
 
-        # Get Mollie bank account (where money arrives)
-        mollie_bank_account = getattr(settings, "mollie_bank_account", None) or frappe.db.get_value(
-            "Company", company, "default_bank_account"
-        )
+        # Get Mollie clearing account (where money sits until settlement)
+        mollie_clearing_account = getattr(mollie_settings, "mollie_clearing_account", None)
+        if not mollie_clearing_account:
+            frappe.throw(
+                "Mollie Clearing Account not configured. "
+                "Please set it in Mollie Settings to track payments awaiting settlement."
+            )
 
         # Get customer receivable account (customer's outstanding balance)
         # Use dues-specific receivable account from settings, fallback to company default
-        customer_account = getattr(settings, "dues_payments_receivable_account", None)
+        customer_account = getattr(verenigingen_settings, "dues_payments_receivable_account", None)
         if not customer_account:
             customer_account = frappe.get_cached_value("Company", company, "default_receivable_account")
 
-        if not mollie_bank_account or not customer_account:
-            frappe.throw(
-                f"Missing accounts - Mollie bank: {mollie_bank_account}, "
-                f"Customer receivable: {customer_account}"
-            )
+        if not customer_account:
+            frappe.throw(f"Missing customer receivable account for company {company}")
 
-        # Create unallocated Payment Entry
+        # Find unpaid Sales Invoice to link payment (match currency to prevent accounting errors)
+        unpaid_invoice = frappe.db.get_value(
+            "Sales Invoice",
+            {
+                "customer": customer,
+                "docstatus": 1,
+                "currency": currency,
+                "status": ["in", ["Unpaid", "Overdue", "Partly Paid"]],
+                "outstanding_amount": [">", 0],
+            },
+            ["name", "outstanding_amount"],
+            order_by="posting_date asc",
+            as_dict=True,
+        )
+
+        # Create Payment Entry with clearing account
         payment_entry = frappe.get_doc(
             {
                 "doctype": "Payment Entry",
@@ -292,17 +308,38 @@ class DuesPaymentProcessor:
                 "party": customer,
                 "company": company,
                 "paid_from": customer_account,
-                "paid_to": mollie_bank_account,
+                "paid_to": mollie_clearing_account,  # Use clearing account, not bank account
                 "paid_amount": amount,
                 "received_amount": amount,
                 "reference_no": payment_id,
                 "reference_date": payment_date,
                 "posting_date": payment_date,
                 "mode_of_payment": mode_of_payment,
-                "remarks": f"Membership dues payment via Mollie for {member.full_name} (subscription payment)",
+                "remarks": f"Membership dues payment via Mollie for {member.full_name} (awaiting settlement)",
                 "custom_member": member_name,  # Link to member for payment history tracking
             }
         )
+
+        # Link to Sales Invoice if found
+        if unpaid_invoice:
+            allocated_amount = min(amount, unpaid_invoice.outstanding_amount)
+            payment_entry.append(
+                "references",
+                {
+                    "reference_doctype": "Sales Invoice",
+                    "reference_name": unpaid_invoice.name,
+                    "allocated_amount": allocated_amount,
+                },
+            )
+            frappe.logger().info(
+                f"✅ Linked payment to Sales Invoice {unpaid_invoice.name} "
+                f"(allocated: {allocated_amount} of {unpaid_invoice.outstanding_amount})"
+            )
+        else:
+            frappe.logger().warning(
+                f"⚠️ No unpaid Sales Invoice found for customer {customer}. "
+                f"Payment Entry created as unallocated payment."
+            )
 
         payment_entry.insert()
         payment_entry.submit()
