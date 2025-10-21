@@ -14,11 +14,13 @@ from frappe import _
 from frappe.utils import add_days, get_datetime, now_datetime
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 from ..clients.balances_client import BalancesClient
 from ..clients.settlements_client import SettlementsClient
 from ..core.compliance.audit_trail import AuditEventType, AuditSeverity
 from ..core.compliance.audit_trail import ImmutableAuditTrail as AuditTrail
+from ..utils.payment_data_extractor import get_payment_data_extractor
 
 
 class AlertSeverity(Enum):
@@ -148,10 +150,12 @@ class BalanceMonitor:
         """Check individual balance for issues"""
         alerts = []
 
-        # Get balance details
-        available = balance.available_amount.decimal_value if balance.available_amount else Decimal("0")
-        pending = balance.pending_amount.decimal_value if balance.pending_amount else Decimal("0")
-        currency = balance.currency
+        # Get balance details using PaymentDataExtractor
+        extractor = get_payment_data_extractor()
+        amounts = extractor.extract_balance_amounts(balance)
+        available = Decimal(str(amounts["available"]))
+        pending = Decimal(str(amounts["pending"]))
+        currency = amounts["currency"]
 
         # Check for negative balance
         if available < 0:
@@ -225,14 +229,15 @@ class BalanceMonitor:
                 balance.id, from_date=datetime.now() - timedelta(hours=1)
             )
 
-            # Calculate net change
+            # Calculate net change using PaymentDataExtractor
+            extractor = get_payment_data_extractor()
             net_change = sum(
-                t.result_amount.decimal_value if t.result_amount else Decimal("0") for t in transactions
+                Decimal(str(extractor.extract_amount(t, source_type="balance_transaction", allow_zero=True)))
+                for t in transactions
             )
 
-            current_balance = (
-                balance.available_amount.decimal_value if balance.available_amount else Decimal("0")
-            )
+            amounts = extractor.extract_balance_amounts(balance)
+            current_balance = Decimal(str(amounts["available"]))
 
             if current_balance > 0 and net_change < 0:
                 decrease_percent = abs(net_change / current_balance * 100)
@@ -286,15 +291,19 @@ class BalanceMonitor:
             # Check total available across all currencies
             total_eur_equivalent = Decimal("0")
 
+            extractor = get_payment_data_extractor()
             for balance in balances:
-                if balance.available_amount:
+                amounts = extractor.extract_balance_amounts(balance)
+                available = Decimal(str(amounts["available"]))
+
+                if available > 0:
                     # Convert to EUR (simplified - would use actual rates)
                     if balance.currency == "EUR":
-                        total_eur_equivalent += balance.available_amount.decimal_value
+                        total_eur_equivalent += available
                     elif balance.currency == "USD":
-                        total_eur_equivalent += balance.available_amount.decimal_value * Decimal("0.85")
+                        total_eur_equivalent += available * Decimal("0.85")
                     elif balance.currency == "GBP":
-                        total_eur_equivalent += balance.available_amount.decimal_value * Decimal("1.15")
+                        total_eur_equivalent += available * Decimal("1.15")
 
             # Check if total is concerning
             if total_eur_equivalent < 5000:
@@ -319,6 +328,9 @@ class BalanceMonitor:
         predictions = {"run_at": now_datetime(), "predictions": []}
 
         try:
+            # Create extractor once for all balances (performance optimization)
+            extractor = get_payment_data_extractor()
+
             for balance in balances:
                 if balance.currency != "EUR":
                     continue
@@ -328,21 +340,22 @@ class BalanceMonitor:
                     balance.id, from_date=datetime.now() - timedelta(days=7)
                 )
 
-                # Calculate average daily change
+                # Calculate average daily change using PaymentDataExtractor
                 daily_changes = {}
                 for transaction in transactions:
                     date = transaction.created_at[:10] if transaction.created_at else None
                     if date:
                         if date not in daily_changes:
                             daily_changes[date] = Decimal("0")
-                        if transaction.result_amount:
-                            daily_changes[date] += transaction.result_amount.decimal_value
+                        amount = extractor.extract_amount(
+                            transaction, source_type="balance_transaction", allow_zero=True
+                        )
+                        daily_changes[date] += Decimal(str(amount))
 
                 if daily_changes:
                     avg_daily_change = sum(daily_changes.values()) / len(daily_changes)
-                    current = (
-                        balance.available_amount.decimal_value if balance.available_amount else Decimal("0")
-                    )
+                    amounts = extractor.extract_balance_amounts(balance)
+                    current = Decimal(str(amounts["available"]))
 
                     # Predict balance in 3 days
                     predicted_3d = current + (avg_daily_change * 3)
@@ -585,8 +598,11 @@ class BalanceMonitor:
             # Get balance
             balance = self.balances_client.get_balance(balance_id)
 
-            available = balance.available_amount.decimal_value if balance.available_amount else Decimal("0")
-            pending = balance.pending_amount.decimal_value if balance.pending_amount else Decimal("0")
+            # Extract amounts using PaymentDataExtractor
+            extractor = get_payment_data_extractor()
+            amounts = extractor.extract_balance_amounts(balance)
+            available = Decimal(str(amounts["available"]))
+            pending = Decimal(str(amounts["pending"]))
 
             # Factor 1: Balance level
             if available < 0:
@@ -630,10 +646,6 @@ class BalanceMonitor:
         return health
 
 
-# Import security framework
-from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
-
-
 # Scheduled monitoring task
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
@@ -665,15 +677,19 @@ def get_balance_health_dashboard():
 
     dashboard = {"balances": [], "overall_health": "healthy", "active_alerts": [], "predictions": {}}
 
+    extractor = get_payment_data_extractor()
     for balance in balances:
         # Get health score
         health = monitor.get_balance_health_score(balance.id)
 
+        # Extract amounts using PaymentDataExtractor
+        amounts = extractor.extract_balance_amounts(balance)
+
         balance_info = {
             "id": balance.id,
-            "currency": balance.currency,
-            "available": float(balance.available_amount.decimal_value) if balance.available_amount else 0,
-            "pending": float(balance.pending_amount.decimal_value) if balance.pending_amount else 0,
+            "currency": amounts["currency"],
+            "available": amounts["available"],
+            "pending": amounts["pending"],
             "health_score": health["score"],
             "health_status": health["status"],
         }

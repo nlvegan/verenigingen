@@ -233,7 +233,15 @@ class BalanceTransactionProcessor:
                 )
                 return result
 
-            # Extract amounts
+            # Extract amounts using centralized extractor
+            from verenigingen.verenigingen_payments.utils.payment_data_extractor import (
+                get_payment_data_extractor,
+            )
+
+            extractor = get_payment_data_extractor()
+
+            # Balance transactions need BOTH result_amount (net) and initial_amount (gross)
+            # For now, extract manually since extractor doesn't support dual extraction yet
             result_amount = (
                 float(transaction.result_amount.decimal_value)
                 if transaction.result_amount and hasattr(transaction.result_amount, "decimal_value")
@@ -254,9 +262,6 @@ class BalanceTransactionProcessor:
             deposit = abs(initial_amount) if is_deposit else 0.0
             withdrawal = abs(initial_amount) if not is_deposit else 0.0
 
-            # Get transaction date
-            transaction_date = getdate(transaction.created_at) if transaction.created_at else getdate()
-
             # Get company and bank account using centralized service
             from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
                 get_bank_transaction_creator,
@@ -272,7 +277,15 @@ class BalanceTransactionProcessor:
 
             bank_account = config["bank_account"]
             company = config["company"]
-            currency = transaction.result_amount.currency if transaction.result_amount else "EUR"
+
+            # Use extractor for date and currency extraction
+            transaction_date = extractor.extract_date(transaction, field_name="created_at")
+            # Currency extraction from balance transaction (tries result_amount.currency first)
+            currency = (
+                transaction.result_amount.currency
+                if transaction.result_amount and hasattr(transaction.result_amount, "currency")
+                else "EUR"
+            )
 
             # Build description
             description = self._build_transaction_description(

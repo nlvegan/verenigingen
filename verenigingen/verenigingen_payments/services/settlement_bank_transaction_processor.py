@@ -116,10 +116,18 @@ class SettlementBankTransactionProcessor:
                     "message": f"Bank Transaction {existing_check['name']} already exists for this settlement",
                 }
 
-            # Step 5: Extract settlement financial data
+            # Step 5: Extract settlement financial data using centralized extractor
+            from verenigingen.verenigingen_payments.utils.payment_data_extractor import (
+                get_payment_data_extractor,
+            )
+
+            extractor = get_payment_data_extractor()
+
+            # Settlement objects have similar structure to balance transactions (amount.decimal_value)
+            # For now, extract manually until we add settlement-specific handling to extractor
             settlement_amount = float(settlement.amount.decimal_value) if settlement.amount else 0.0
             currency = settlement.amount.currency if settlement.amount else "EUR"
-            settlement_date = getdate(settlement.settled_at) if settlement.settled_at else getdate()
+            settlement_date = extractor.extract_date(settlement, field_name="settled_at")
 
             # Step 6: Create Bank Transaction using centralized service
             description = self._build_settlement_description(settlement, reconciliation)
@@ -289,43 +297,45 @@ class SettlementBankTransactionProcessor:
         """
         Validate Mollie and ERPNext configuration for settlement processing.
 
+        Uses centralized MollieConfigurationService for consistent configuration access.
+
         Returns:
             dict: Configuration details or error
         """
-        # Get Mollie settings
-        mollie_settings = frappe.get_single("Mollie Settings")
-        mollie_bank_account_gl = mollie_settings.mollie_bank_account
+        from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
-        if not mollie_bank_account_gl:
+        try:
+            # Get Mollie bank account GL from centralized config
+            mollie_config = get_mollie_config()
+            mollie_bank_account_gl = mollie_config.get_bank_account_gl()
+
+            # Get Bank Account linked to GL Account
+            bank_account = frappe.db.get_value("Bank Account", {"account": mollie_bank_account_gl}, "name")
+
+            if not bank_account:
+                return {
+                    "status": "error",
+                    "error": f"No Bank Account found linked to GL Account '{mollie_bank_account_gl}'. "
+                    f"Please create a Bank Account record and link it to this account.",
+                }
+
+            # Get company
+            verenigingen_settings = frappe.get_single("Verenigingen Settings")
+            company = verenigingen_settings.donation_company or frappe.defaults.get_global_default("company")
+
+            if not company:
+                return {"status": "error", "error": "No company configured for settlement processing"}
+
             return {
-                "status": "error",
-                "error": "Mollie Bank Account not configured in Mollie Settings. "
-                "Please configure it to specify where settlement deposits are received.",
+                "status": "valid",
+                "mollie_bank_account_gl": mollie_bank_account_gl,
+                "bank_account": bank_account,
+                "company": company,
             }
 
-        # Get Bank Account linked to GL Account
-        bank_account = frappe.db.get_value("Bank Account", {"account": mollie_bank_account_gl}, "name")
-
-        if not bank_account:
-            return {
-                "status": "error",
-                "error": f"No Bank Account found linked to GL Account '{mollie_bank_account_gl}'. "
-                f"Please create a Bank Account record and link it to this account.",
-            }
-
-        # Get company
-        verenigingen_settings = frappe.get_single("Verenigingen Settings")
-        company = verenigingen_settings.donation_company or frappe.defaults.get_global_default("company")
-
-        if not company:
-            return {"status": "error", "error": "No company configured for settlement processing"}
-
-        return {
-            "status": "valid",
-            "mollie_bank_account_gl": mollie_bank_account_gl,
-            "bank_account": bank_account,
-            "company": company,
-        }
+        except frappe.ValidationError as e:
+            # MollieConfigurationService throws ValidationError for missing config
+            return {"status": "error", "error": str(e)}
 
     def _check_existing_bank_transaction(self, settlement_id: str) -> Dict:
         """
@@ -568,15 +578,23 @@ class SettlementBankTransactionProcessor:
         Returns:
             Bank Transaction document or None
         """
-        from frappe.utils import getdate
+        from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
 
-        # Extract payment data
-        payment_id = payment.get("id")
-        amount = float(payment.get("amount", {}).get("value", 0))
-        currency = payment.get("amount", {}).get("currency", "EUR")
-        paid_at = payment.get("paidAt")
-        description = payment.get("description", "Mollie payment")
-        metadata = payment.get("metadata", {})
+        extractor = get_payment_data_extractor()
+
+        # Use payment_obj if available (SDK object), otherwise use dict
+        source = payment_obj if payment_obj else payment
+
+        # Extract payment data using centralized extractor
+        payment_id = extractor.extract_payment_id(source)
+        amount = extractor.extract_amount(source, allow_zero=True)  # Allow zero for some settlement entries
+        currency = extractor.extract_currency(
+            source, company, strict_validation=False
+        )  # Lenient for API data
+
+        # Extract description and metadata
+        description = extractor.extract_description(source, fallback_description="Mollie payment")
+        metadata = getattr(source, "metadata", None) or payment.get("metadata", {})
 
         # Build rich description
         bt_description = description
@@ -638,18 +656,25 @@ class SettlementBankTransactionProcessor:
             # No significant fees to record
             return None
 
-        # Get accounts from settings
-        mollie_settings = frappe.get_single("Mollie Settings")
-        clearing_account = mollie_settings.mollie_clearing_account
-        fees_account = mollie_settings.payment_processing_fees_account
+        # Get accounts from centralized configuration service
+        from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
-        if not clearing_account or not fees_account:
-            frappe.logger().warning("⚠️ Clearing or Fees account not configured - skipping fee Journal Entry")
+        try:
+            mollie_config = get_mollie_config()
+            clearing_account = mollie_config.get_clearing_account()
+            fees_account = mollie_config.get_fees_account_optional()
+
+            if not fees_account:
+                frappe.logger().warning(
+                    "⚠️ Payment Processing Fees Account not configured - skipping fee Journal Entry"
+                )
+                return None
+
+        except frappe.ValidationError as e:
+            frappe.logger().warning(f"⚠️ Configuration error: {e} - skipping fee Journal Entry")
             return None
 
-        # Create Journal Entry with secure operations
-        from verenigingen.security.permission_validator import secure_document_operation
-
+        # Create and submit Journal Entry
         je = frappe.get_doc(
             {
                 "doctype": "Journal Entry",
@@ -672,40 +697,14 @@ class SettlementBankTransactionProcessor:
             }
         )
 
-        # Secure create operation
-        create_result = secure_document_operation(
-            operation="create",
-            doc=je,
-            justification=f"Mollie fee Journal Entry for settlement {settlement_id}",
-            required_permissions=["Journal Entry:create"],
-            allow_system_user=True,
-        )
-
-        if not create_result.success:
-            frappe.logger().error(f"❌ Permission denied for Journal Entry creation: {create_result.message}")
-            return None
-
-        # Secure submit operation
-        submit_result = secure_document_operation(
-            operation="submit",
-            doc=create_result.document,
-            justification=f"Auto-submit fee Journal Entry for settlement {settlement_id}",
-            required_permissions=["Journal Entry:submit"],
-            allow_system_user=True,
-        )
-
-        if not submit_result.success:
-            frappe.logger().error(
-                f"❌ Permission denied for Journal Entry submission: {submit_result.message}"
-            )
-            create_result.document.delete()
-            return None
+        je.insert()
+        je.submit()
 
         frappe.logger().info(
-            f"✅ Created fee Journal Entry {submit_result.document.name} for settlement {settlement_id} (EUR {fee_amount:.2f})"
+            f"✅ Created fee Journal Entry {je.name} for settlement {settlement_id} (EUR {fee_amount:.2f})"
         )
 
-        return submit_result.document
+        return je
 
     def batch_process_recent_settlements(self, days: int = 7) -> Dict:
         """

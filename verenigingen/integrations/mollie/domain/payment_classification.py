@@ -249,16 +249,61 @@ class DescriptionKeywordClassification(PaymentClassificationRule):
     Classify payment by description keywords (low confidence).
 
     Configurable keyword-based classification with support for multiple
-    payment types and keywords. Note: "Bestelling" is handled by
-    OrderBasedClassification with higher priority.
+    payment types and keywords. Keywords are loaded from Verenigingen Payments Settings.
+    Note: "Bestelling" is handled by OrderBasedClassification with higher priority.
     """
 
-    # Keyword mappings: payment_type -> list of keywords
-    KEYWORD_MAP = {
+    # Default keyword mappings (used as fallback if settings not configured)
+    DEFAULT_KEYWORD_MAP = {
         PaymentType.DUES: ["contributie"],
         PaymentType.DONATION: ["donation", "donatie"],
         # Note: "bestelling" removed - handled by OrderBasedClassification
     }
+
+    def _get_keyword_map(self) -> Dict[str, List[str]]:
+        """
+        Get keyword mappings from Verenigingen Payments Settings.
+
+        Returns:
+            Dict mapping payment type to list of keywords
+
+        Falls back to DEFAULT_KEYWORD_MAP if settings not configured.
+        """
+        try:
+            settings = frappe.get_cached_doc("Verenigingen Payments Settings")
+
+            keyword_map = {}
+
+            # Parse dues keywords
+            dues_keywords_str = getattr(settings, "dues_keywords", "")
+            if dues_keywords_str:
+                # Split by comma, strip whitespace, filter empty strings, convert to lowercase
+                keyword_map[PaymentType.DUES] = [
+                    kw.strip().lower() for kw in dues_keywords_str.split(",") if kw.strip()
+                ]
+
+            # Parse donation keywords
+            donation_keywords_str = getattr(settings, "donation_keywords", "")
+            if donation_keywords_str:
+                keyword_map[PaymentType.DONATION] = [
+                    kw.strip().lower() for kw in donation_keywords_str.split(",") if kw.strip()
+                ]
+
+            # If no keywords configured, use defaults
+            if not keyword_map:
+                frappe.logger().info(
+                    "No payment classification keywords configured in Verenigingen Payments Settings, "
+                    "using default keywords"
+                )
+                return self.DEFAULT_KEYWORD_MAP
+
+            return keyword_map
+
+        except Exception as e:
+            frappe.logger().warning(
+                f"Failed to load payment classification keywords from settings: {e}. Using defaults."
+            )
+            return self.DEFAULT_KEYWORD_MAP
 
     def classify(self, payment) -> Optional[ClassificationResult]:
         description = getattr(payment, "description", "")
@@ -267,8 +312,11 @@ class DescriptionKeywordClassification(PaymentClassificationRule):
 
         description_lower = description.lower()
 
+        # Get keyword mappings from settings
+        keyword_map = self._get_keyword_map()
+
         # Check each payment type's keywords
-        for payment_type, keywords in self.KEYWORD_MAP.items():
+        for payment_type, keywords in keyword_map.items():
             for keyword in keywords:
                 if keyword in description_lower:
                     frappe.logger().debug(
@@ -446,7 +494,7 @@ class PaymentClassifier:
         Returns:
             ClassificationResult
         """
-        payment_id = getattr(payment, "id", "unknown")
+        # payment_id = getattr(payment, "id", "unknown")  # Unused - for future logging
 
         # Try subscription-based classification first (HIGH confidence)
         subscription_id = getattr(payment, "subscription_id", None)

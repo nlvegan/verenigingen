@@ -9,6 +9,8 @@ from typing import Dict, List, Optional
 import frappe
 from frappe import _
 
+from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
+
 from ..core.compliance.audit_trail import AuditEventType, AuditSeverity
 from ..core.models.balance import Balance, BalanceReport, BalanceTransaction
 from ..core.mollie_base_client import MollieBaseClient
@@ -277,18 +279,17 @@ class BalancesClient(MollieBaseClient):
                     summary["by_currency"][balance.currency] = []
                 summary["by_currency"][balance.currency].append(balance.id)
 
-                # Sum amounts by currency
-                if balance.available_amount and hasattr(balance.available_amount, "decimal_value"):
-                    if balance.currency not in summary["total_available"]:
-                        summary["total_available"][balance.currency] = 0
-                    summary["total_available"][balance.currency] += float(
-                        balance.available_amount.decimal_value
-                    )
+                # Sum amounts by currency using PaymentDataExtractor
+                extractor = get_payment_data_extractor()
+                amounts = extractor.extract_balance_amounts(balance)
 
-                if balance.pending_amount and hasattr(balance.pending_amount, "decimal_value"):
-                    if balance.currency not in summary["total_pending"]:
-                        summary["total_pending"][balance.currency] = 0
-                    summary["total_pending"][balance.currency] += float(balance.pending_amount.decimal_value)
+                if balance.currency not in summary["total_available"]:
+                    summary["total_available"][balance.currency] = 0
+                summary["total_available"][balance.currency] += amounts["available"]
+
+                if balance.currency not in summary["total_pending"]:
+                    summary["total_pending"][balance.currency] = 0
+                summary["total_pending"][balance.currency] += amounts["pending"]
 
         return summary
 
@@ -314,19 +315,18 @@ class BalancesClient(MollieBaseClient):
             balance_id, from_date=datetime.now() - timedelta(days=1), limit=50
         )
 
-        # Check for threshold breach
-        current_amount = 0
-        if balance.available_amount and hasattr(balance.available_amount, "decimal_value"):
-            current_amount = float(balance.available_amount.decimal_value)
+        # Check for threshold breach using PaymentDataExtractor
+        extractor = get_payment_data_extractor()
+        amounts = extractor.extract_balance_amounts(balance)
+        current_amount = amounts["available"]
 
         alert_triggered = current_amount < threshold_amount
 
-        # Calculate transaction velocity
+        # Calculate transaction velocity using PaymentDataExtractor
         transaction_count = len(recent_transactions)
         total_volume = sum(
-            float(tx.result_amount.decimal_value)
+            extractor.extract_amount(tx, source_type="balance_transaction", allow_zero=True)
             for tx in recent_transactions
-            if tx.result_amount and hasattr(tx.result_amount, "decimal_value")
         )
 
         monitoring_result = {
@@ -386,18 +386,17 @@ class BalancesClient(MollieBaseClient):
         # Get balance at end
         balance_end = self.get_balance(balance_id)
 
-        # Calculate expected vs actual
-        starting_balance = (
-            float(balance_start.available_amount.decimal_value) if balance_start.available_amount else 0
-        )
-        ending_balance = (
-            float(balance_end.available_amount.decimal_value) if balance_end.available_amount else 0
-        )
+        # Calculate expected vs actual using PaymentDataExtractor
+        extractor = get_payment_data_extractor()
+        start_amounts = extractor.extract_balance_amounts(balance_start)
+        end_amounts = extractor.extract_balance_amounts(balance_end)
+
+        starting_balance = start_amounts["available"]
+        ending_balance = end_amounts["available"]
 
         transaction_total = sum(
-            float(tx.result_amount.decimal_value)
+            extractor.extract_amount(tx, source_type="balance_transaction", allow_zero=True)
             for tx in transactions
-            if tx.result_amount and hasattr(tx.result_amount, "decimal_value")
         )
 
         expected_balance = starting_balance + transaction_total

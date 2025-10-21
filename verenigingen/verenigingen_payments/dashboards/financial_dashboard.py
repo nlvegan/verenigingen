@@ -20,6 +20,7 @@ from ..clients.chargebacks_client import ChargebacksClient
 from ..clients.invoices_client import InvoicesClient
 from ..clients.payments_client import PaymentsClient
 from ..clients.settlements_client import SettlementsClient
+from ..utils.payment_data_extractor import get_payment_data_extractor
 from ..workflows.reconciliation_engine import ReconciliationEngine
 
 
@@ -342,19 +343,15 @@ class FinancialDashboard:
             balances = self.balances_client.list_balances()
             frappe.logger().info(f"_get_balance_overview: Got {len(balances)} balances")
 
+            extractor = get_payment_data_extractor()
             for balance in balances:
-                available_value = 0
-                if balance.available_amount and hasattr(balance.available_amount, "decimal_value"):
-                    available_value = float(balance.available_amount.decimal_value)
-
-                pending_value = 0
-                if balance.pending_amount and hasattr(balance.pending_amount, "decimal_value"):
-                    pending_value = float(balance.pending_amount.decimal_value)
+                # Extract amounts using PaymentDataExtractor
+                amounts = extractor.extract_balance_amounts(balance)
 
                 balance_info = {
-                    "currency": balance.currency,
-                    "available": available_value,
-                    "pending": pending_value,
+                    "currency": amounts["currency"],
+                    "available": amounts["available"],
+                    "pending": amounts["pending"],
                     "status": balance.status,
                 }
 
@@ -473,11 +470,12 @@ class FinancialDashboard:
 
             # Get next and open settlements
             next_settlement = self.settlements_client.get_next_settlement()
+            extractor = get_payment_data_extractor()
             if next_settlement:
                 metrics["next_settlement"] = {
                     "id": next_settlement.id,
-                    "expected_amount": (
-                        float(next_settlement.amount.decimal_value) if next_settlement.amount else 0
+                    "expected_amount": extractor.extract_amount(
+                        next_settlement, source_type="settlement", allow_zero=True
                     ),
                     "status": next_settlement.status,
                     "created_at": next_settlement.created_at,
@@ -495,8 +493,8 @@ class FinancialDashboard:
             if open_settlement:
                 metrics["open_settlement"] = {
                     "id": open_settlement.id,
-                    "current_amount": (
-                        float(open_settlement.amount.decimal_value) if open_settlement.amount else 0
+                    "current_amount": extractor.extract_amount(
+                        open_settlement, source_type="settlement", allow_zero=True
                     ),
                 }
 
@@ -590,16 +588,27 @@ class FinancialDashboard:
                 costs = settlement.get_total_costs()
                 breakdown["current_month"]["total_costs"] += costs
 
-            # Get chargeback costs - disable for now as API doesn't support date filtering
+            # DEAD CODE (2025-10-21): Chargeback API disabled - lacks date filtering support
+            # TODO: Remove this code block by 2026-04-21 (6 months) if not re-enabled
+            # OR: Re-enable when Mollie adds date filtering to Chargebacks API
+            # Reference: https://docs.mollie.com/reference/v2/chargebacks-api/list-chargebacks
             # chargebacks = self.chargebacks_client.list_all_chargebacks(from_date=month_start, until_date=now)
             chargebacks = []  # Skip chargeback processing to avoid API errors
 
+            # Chargeback fee calculation ready for re-enablement
+            extractor = get_payment_data_extractor()
             for chargeback in chargebacks:
                 if chargeback.settlement_amount:
-                    # Chargeback fees are typically the difference
-                    fee = abs(chargeback.settlement_amount.decimal_value) - (
-                        chargeback.amount.decimal_value if chargeback.amount else Decimal("0")
+                    # Chargeback fees are typically the difference between settlement and original amount
+                    settlement_amt = extractor.extract_amount(
+                        chargeback, source_type="settlement", allow_zero=True
                     )
+                    original_amt = (
+                        extractor.extract_amount(chargeback, source_type="settlement", allow_zero=True)
+                        if chargeback.amount
+                        else Decimal("0")
+                    )
+                    fee = abs(Decimal(str(settlement_amt))) - Decimal(str(original_amt))
                     breakdown["current_month"]["chargeback_fees"] += fee
 
             # Calculate cost rate
@@ -648,14 +657,20 @@ class FinancialDashboard:
             now = datetime.now(timezone.utc)
             month_start = now.replace(day=1)
 
-            # Skip chargebacks to avoid API errors with unsupported date parameters
-            chargebacks = []
+            # DEAD CODE (2025-10-21): Chargeback metrics disabled - API lacks date filtering
+            # TODO: Remove this code block by 2026-04-21 (6 months) if not re-enabled
+            # OR: Re-enable when Mollie adds date filtering to Chargebacks API
+            # Reference: https://docs.mollie.com/reference/v2/chargebacks-api/list-chargebacks
+            chargebacks = []  # Skip to avoid API errors
 
             metrics["current_month"]["count"] = len(chargebacks)
 
+            # Chargeback metrics calculation ready for re-enablement
+            extractor = get_payment_data_extractor()
             for chargeback in chargebacks:
                 if chargeback.amount:
-                    metrics["current_month"]["total_amount"] += chargeback.amount.decimal_value
+                    amount = extractor.extract_amount(chargeback, source_type="settlement", allow_zero=True)
+                    metrics["current_month"]["total_amount"] += Decimal(str(amount))
 
                 if chargeback.is_reversed():
                     metrics["current_month"]["reversed_count"] += 1

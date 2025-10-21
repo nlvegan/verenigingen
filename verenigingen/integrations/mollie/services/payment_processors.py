@@ -63,31 +63,25 @@ class AbstractPaymentProcessor(ABC):
         pass
 
     def extract_mollie_payment_data(self, payment) -> Dict[str, Any]:
-        """Extract relevant data from Mollie payment object"""
+        """Extract relevant data from Mollie payment object using centralized extractor"""
+        from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
+
+        extractor = get_payment_data_extractor()
+
         return {
-            "payment_id": payment.id,
+            "payment_id": extractor.extract_payment_id(payment),
             "status": payment.status,
-            "amount": (
-                payment.amount.get("value")
-                if isinstance(payment.amount, dict)
-                else getattr(payment.amount, "value", None)
-                if hasattr(payment, "amount")
-                else None
-            ),
-            "currency": (
-                payment.amount.get("currency")
-                if isinstance(payment.amount, dict)
-                else getattr(payment.amount, "currency", None)
-                if hasattr(payment, "amount")
-                else None
-            ),
+            "amount": extractor.extract_amount(payment, allow_zero=True),  # Handles both dict and object
+            "currency": extractor._extract_payment_currency(
+                payment
+            ),  # Returns None if missing (for dict compatibility)
             "method": getattr(payment, "method", None),
             "customer_id": getattr(payment, "customer_id", None),
             "mandate_id": getattr(payment, "mandate_id", None),
             "subscription_id": getattr(payment, "subscription_id", None),
-            "created_at": getattr(payment, "created_at", None),
-            "paid_at": getattr(payment, "paid_at", None),
-            "description": getattr(payment, "description", None),
+            "created_at": getattr(payment, "created_at", None),  # Keep raw for dict return
+            "paid_at": getattr(payment, "paid_at", None),  # Keep raw for dict return
+            "description": extractor.extract_description(payment, fallback_description=None),
             "metadata": getattr(payment, "metadata", {}),
         }
 
@@ -117,7 +111,7 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
             if idempotency_status.get("all_complete"):
                 return PaymentProcessingResult(
                     success=True,
-                    message=f"Donation payment already processed",
+                    message="Donation payment already processed",
                     data={"donation_id": context.target_name, "status": "already_processed"},
                 )
 
@@ -277,7 +271,7 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
 
             return PaymentProcessingResult(
                 success=True,
-                message=f"Failed donation payment recorded",
+                message="Failed donation payment recorded",
                 data={"donation_id": donation.name, "status": "failed_payment_recorded"},
             )
 
@@ -406,7 +400,7 @@ class MembershipPaymentProcessor(AbstractPaymentProcessor):
             if idempotency_status.get("all_complete"):
                 return PaymentProcessingResult(
                     success=True,
-                    message=f"Membership payment already processed",
+                    message="Membership payment already processed",
                     data={"member_id": context.target_name, "status": "already_processed"},
                 )
 
@@ -444,7 +438,7 @@ class MembershipPaymentProcessor(AbstractPaymentProcessor):
 
             return PaymentProcessingResult(
                 success=True,
-                message=f"Membership payment processed successfully",
+                message="Membership payment processed successfully",
                 data={
                     "member_id": member.name,
                     "payment_entry": payment_entry.name,
@@ -497,7 +491,7 @@ class MembershipPaymentProcessor(AbstractPaymentProcessor):
 
             return PaymentProcessingResult(
                 success=True,
-                message=f"Failed membership payment recorded",
+                message="Failed membership payment recorded",
                 data={"member_id": member.name, "status": "failed_payment_recorded"},
             )
 

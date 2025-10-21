@@ -479,18 +479,20 @@ class WebhookService:
         return result
 
     def _extract_mollie_payment_data(self, payment) -> dict:
-        """Extract relevant data from Mollie payment object"""
+        """Extract relevant data from Mollie payment object using centralized extractor"""
+        from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
+
+        extractor = get_payment_data_extractor()
+
         return {
-            "payment_id": payment.id,
-            "amount": (
-                float(payment.amount.value) if hasattr(payment.amount, "value") else float(payment.amount)
-            ),
+            "payment_id": extractor.extract_payment_id(payment),
+            "amount": extractor.extract_amount(payment, allow_zero=True),  # Allow zero for audit purposes
             "currency": payment.amount.currency if hasattr(payment.amount, "currency") else "EUR",
             "status": payment.status,
             "method": getattr(payment, "method", None),
-            "paid_at": getattr(payment, "paid_at", None),
-            "created_at": getattr(payment, "created_at", None),
-            "description": getattr(payment, "description", ""),
+            "paid_at": getattr(payment, "paid_at", None),  # Keep raw for dict return
+            "created_at": getattr(payment, "created_at", None),  # Keep raw for dict return
+            "description": extractor.extract_description(payment, fallback_description=""),
             "customer_id": getattr(payment, "customer_id", None),
             "subscription_id": getattr(payment, "subscription_id", None),
             "metadata": getattr(payment, "metadata", {}),

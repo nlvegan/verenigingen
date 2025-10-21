@@ -16,6 +16,7 @@ except ImportError:
     get_mollie_connector = None
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
 
 
 @frappe.whitelist()
@@ -145,6 +146,9 @@ def sync_customer_subscriptions(connector, customer_data: Dict, dry_run: bool = 
 
     mollie_customer_id = customer_data["custom_mollie_customer_id"]
 
+    # Create extractor once for entire function (performance optimization)
+    extractor = get_payment_data_extractor()
+
     try:
         # Get all subscriptions for this customer from Mollie
         # Note: The connector doesn't have a direct method for this, so we'll use the client directly
@@ -156,16 +160,16 @@ def sync_customer_subscriptions(connector, customer_data: Dict, dry_run: bool = 
         for subscription in customer_subscriptions:
             result["subscriptions_found"] += 1
 
-            # Handle amount field which might be a dict or object
+            # Extract amount using centralized extractor (handles both object and dict formats)
+            amount = extractor.extract_amount(subscription, allow_zero=True, source_type="subscription")
+
+            # Extract currency from subscription amount
             amount_value = subscription.amount
-            if hasattr(amount_value, "value"):
-                amount = float(amount_value.value)
+            if hasattr(amount_value, "currency"):
                 currency = amount_value.currency
             elif isinstance(amount_value, dict):
-                amount = float(amount_value.get("value", "0"))
                 currency = amount_value.get("currency", "EUR")
             else:
-                amount = 0.0
                 currency = "EUR"
 
             subscription_info = {
@@ -297,19 +301,22 @@ def get_mollie_subscription_details(customer_name: str) -> Dict:
         # Get all subscriptions for this customer
         customer_subscriptions = connector.client.customers.get(mollie_customer_id).subscriptions.list()
 
+        # Create extractor once for entire loop (performance optimization)
+        extractor = get_payment_data_extractor()
+
         subscription_details = []
 
         for subscription in customer_subscriptions:
-            # Handle amount field which might be a dict or object
+            # Extract amount using centralized extractor (handles both object and dict formats)
+            amount = extractor.extract_amount(subscription, allow_zero=True, source_type="subscription")
+
+            # Extract currency from subscription amount
             amount_value = subscription.amount
-            if hasattr(amount_value, "value"):
-                amount = float(amount_value.value)
+            if hasattr(amount_value, "currency"):
                 currency = amount_value.currency
             elif isinstance(amount_value, dict):
-                amount = float(amount_value.get("value", "0"))
                 currency = amount_value.get("currency", "EUR")
             else:
-                amount = 0.0
                 currency = "EUR"
 
             subscription_info = {
@@ -329,14 +336,8 @@ def get_mollie_subscription_details(customer_name: str) -> Dict:
                 recent_payments = []
                 payments = subscription.payments.list(limit=5)
                 for payment in payments:
-                    # Handle payment amount field
-                    payment_amount_value = payment.amount
-                    if hasattr(payment_amount_value, "value"):
-                        payment_amount = float(payment_amount_value.value)
-                    elif isinstance(payment_amount_value, dict):
-                        payment_amount = float(payment_amount_value.get("value", "0"))
-                    else:
-                        payment_amount = 0.0
+                    # Extract payment amount using centralized extractor
+                    payment_amount = extractor.extract_amount(payment, allow_zero=True)
 
                     recent_payments.append(
                         {

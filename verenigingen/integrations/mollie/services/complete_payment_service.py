@@ -16,6 +16,8 @@ from typing import Any, Dict, List, Optional, Union
 
 import frappe
 
+from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
+
 from ..core.client import MollieClient
 from ..exceptions import MolliePaymentError, MollieValidationError, MollieWebhookError
 from .webhook_wrapper_service_unified import UnifiedWebhookWrapperService
@@ -449,8 +451,9 @@ class CompletePaymentService:
         # Note: payment_status and payment_url fields don't exist in current Donation DocType schema
         # The payment_id is sufficient for tracking and webhook processing
 
-        # Save payment amount in case it differs from requested amount
-        payment_amount = float(mollie_payment.amount["value"])
+        # Save payment amount in case it differs from requested amount (use centralized extractor)
+        extractor = get_payment_data_extractor()
+        payment_amount = extractor.extract_amount(mollie_payment, allow_zero=False)
         if abs(payment_amount - float(donation_doc.amount)) > 0.01:
             frappe.logger().warning(
                 f"Payment amount {payment_amount} differs from donation amount {donation_doc.amount}"

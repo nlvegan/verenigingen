@@ -102,6 +102,17 @@ class MollieSettings(Document):
 
     def on_update(self):
         """Called after document is saved"""
+        # Clear MollieConfigurationService cache to ensure fresh config
+        try:
+            from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
+                MollieConfigurationService,
+            )
+
+            MollieConfigurationService.clear_cache()
+            frappe.logger().info("Cleared MollieConfigurationService cache after settings update")
+        except ImportError:
+            frappe.logger().warning("Could not import MollieConfigurationService for cache clearing")
+
         # Update webhook URLs (always needed for payments)
         self.update_webhook_urls()
 

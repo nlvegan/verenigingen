@@ -343,10 +343,15 @@ def cross_reference_payments(audit_report, mollie_payments, db_payments):
             )
 
     # Find amount and status mismatches
+    from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
+
+    extractor = get_payment_data_extractor()
+
     for payment_id, db_payment in db_by_payment_id.items():
         if payment_id in mollie_by_id:
             mollie_payment = mollie_by_id[payment_id]
-            mollie_amount = float(mollie_payment["amount"]["value"])
+            # Use PaymentDataExtractor for consistent extraction (handles dict format)
+            mollie_amount = extractor.extract_amount(mollie_payment, allow_zero=True)
             db_amount = float(db_payment["amount"])
 
             # Check amount mismatch (allow small rounding differences)

@@ -12,92 +12,17 @@ from frappe.utils import getdate
 
 
 class BankTransactionCreator:
-    """Service for creating Bank Transactions with idempotency and validation"""
+    """
+    Service for creating Bank Transactions with idempotency and validation.
 
-    def _safe_extract_amount(self, payment) -> float:
-        """
-        Safely extract and validate payment amount.
+    Uses PaymentDataExtractor for consistent amount/currency/date extraction.
+    """
 
-        Args:
-            payment: Mollie payment object
+    def __init__(self):
+        """Initialize with PaymentDataExtractor for data extraction."""
+        from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
 
-        Returns:
-            Validated amount as float
-
-        Raises:
-            ValueError: If amount is invalid or out of acceptable range
-        """
-        try:
-            amount_dict = getattr(payment, "amount", {})
-            if not amount_dict:
-                raise ValueError("Payment missing amount field")
-
-            amount_value = amount_dict.get("value", "0")
-
-            # Validate type
-            if not isinstance(amount_value, (str, int, float)):
-                raise ValueError(f"Invalid amount type: {type(amount_value).__name__}")
-
-            # Convert to float
-            amount = float(amount_value)
-
-            # Validate range
-            if amount < 0:
-                raise ValueError(f"Negative amount not allowed: {amount}")
-
-            if amount > 1_000_000:  # Sanity check for unusually large amounts
-                frappe.logger().warning(f"Unusually large payment amount: €{amount}")
-
-            if amount == 0:
-                raise ValueError("Zero amount not allowed")
-
-            return amount
-
-        except (ValueError, TypeError, AttributeError) as e:
-            frappe.logger().error(f"Amount extraction failed: {e}")
-            raise ValueError(f"Invalid payment amount: {getattr(payment, 'amount', 'N/A')}") from e
-
-    def _safe_extract_currency(self, payment, company: str) -> str:
-        """
-        Safely extract and validate payment currency.
-
-        Args:
-            payment: Mollie payment object
-            company: Company name for validation
-
-        Returns:
-            Validated currency code
-
-        Raises:
-            ValueError: If currency is missing or invalid
-        """
-        import re
-
-        try:
-            amount_dict = getattr(payment, "amount", {})
-            currency = amount_dict.get("currency")
-
-            # Require explicit currency
-            if not currency:
-                raise ValueError("Payment missing currency field")
-
-            # Validate ISO currency code format (3 uppercase letters)
-            if not isinstance(currency, str) or not re.match(r"^[A-Z]{3}$", currency):
-                raise ValueError(f"Invalid currency code format: {currency}")
-
-            # Verify against company default
-            company_currency = frappe.get_cached_value("Company", company, "default_currency")
-            if currency != company_currency:
-                frappe.logger().warning(
-                    f"Currency mismatch: Payment is {currency}, company uses {company_currency}. "
-                    f"Multi-currency transaction may require exchange rate handling."
-                )
-
-            return currency
-
-        except (ValueError, AttributeError) as e:
-            frappe.logger().error(f"Currency extraction failed: {e}")
-            raise ValueError(f"Invalid payment currency: {getattr(payment, 'amount', 'N/A')}") from e
+        self._extractor = get_payment_data_extractor()
 
     def create_from_mollie_payment(
         self,
@@ -130,14 +55,15 @@ class BankTransactionCreator:
         if not company:
             company = self._get_default_company()
 
-        # Safe extraction with validation (can raise ValueError)
-        amount = self._safe_extract_amount(payment)
-        currency = self._safe_extract_currency(payment, company)
+        # Use centralized PaymentDataExtractor for consistent extraction
+        amount = self._extractor.extract_amount(payment)
+        currency = self._extractor.extract_currency(payment, company)
+        payment_date = self._extractor.extract_date(payment, field_name="paid_at")
 
-        # Extract other fields
-        description = payment.description or f"Mollie payment {payment_id}"
-        paid_at = getattr(payment, "paid_at", None)
-        payment_date = getdate(paid_at) if paid_at else getdate()
+        # Extract description
+        description = self._extractor.extract_description(
+            payment, fallback_description=f"Mollie payment {payment_id}"
+        )
 
         # Build description
         bt_description = description
@@ -213,9 +139,124 @@ class BankTransactionCreator:
         """
         return frappe.db.get_value("Bank Transaction", {"reference_number": reference_number}, "name")
 
+    def check_already_processed(
+        self, reference_number: str, check_payment_entry: bool = False
+    ) -> Dict[str, any]:
+        """
+        Comprehensive idempotency check for payment processing.
+
+        Checks for existing Bank Transaction and optionally Payment Entry to prevent
+        duplicate processing. Handles cancelled documents properly (allows reprocessing).
+
+        Args:
+            reference_number: Payment/settlement/transaction reference ID
+            check_payment_entry: If True, also checks for Payment Entry (default: False)
+
+        Returns:
+            dict: {
+                "already_processed": bool,  # True if found non-cancelled document
+                "bank_transaction": str or None,  # Bank Transaction name if found
+                "payment_entry": str or None,  # Payment Entry name if found (when check_payment_entry=True)
+                "docstatus": int or None,  # 0=Draft, 1=Submitted, 2=Cancelled
+                "document_type": str or None,  # "Bank Transaction" or "Payment Entry"
+                "details": str  # Human-readable description
+            }
+
+        Examples:
+            # Basic check (Bank Transaction only)
+            result = creator.check_already_processed("tr_abc123")
+            if result["already_processed"]:
+                print(f"Already exists: {result['details']}")
+
+            # Dual mode check (both Bank Transaction and Payment Entry)
+            result = creator.check_already_processed("tr_abc123", check_payment_entry=True)
+            if result["already_processed"]:
+                print(f"Found {result['document_type']}: {result['details']}")
+        """
+        result = {
+            "already_processed": False,
+            "bank_transaction": None,
+            "payment_entry": None,
+            "docstatus": None,
+            "document_type": None,
+            "details": "Not yet processed",
+        }
+
+        # Check Payment Entry first (if requested)
+        if check_payment_entry:
+            existing_entries = frappe.db.get_all(
+                "Payment Entry",
+                filters={"reference_no": reference_number},
+                fields=["name", "docstatus"],
+                limit=1,
+            )
+
+            if existing_entries:
+                entry = existing_entries[0]
+                status_map = {0: "Draft", 1: "Submitted", 2: "Cancelled"}
+                status_text = status_map.get(entry.docstatus, "Unknown")
+
+                # Cancelled documents can be reprocessed
+                if entry.docstatus == 2:
+                    frappe.logger().info(
+                        f"Found cancelled Payment Entry {entry.name} for reference {reference_number}. "
+                        f"Allowing reprocessing."
+                    )
+                    # Continue to check Bank Transaction below
+                else:
+                    # Draft or Submitted - already processed
+                    result.update(
+                        {
+                            "already_processed": True,
+                            "payment_entry": entry.name,
+                            "docstatus": entry.docstatus,
+                            "document_type": "Payment Entry",
+                            "details": f"Payment Entry {entry.name} already exists ({status_text})",
+                        }
+                    )
+                    return result
+
+        # Check Bank Transaction
+        existing_bt = frappe.db.get_all(
+            "Bank Transaction",
+            filters={"reference_number": reference_number},
+            fields=["name", "docstatus"],
+            limit=1,
+        )
+
+        if existing_bt:
+            bt = existing_bt[0]
+            status_map = {0: "Draft", 1: "Submitted", 2: "Cancelled"}
+            status_text = status_map.get(bt.docstatus, "Unknown")
+
+            # Cancelled documents can be reprocessed
+            if bt.docstatus == 2:
+                frappe.logger().info(
+                    f"Found cancelled Bank Transaction {bt.name} for reference {reference_number}. "
+                    f"Allowing reprocessing."
+                )
+                # Return "not processed" result
+                return result
+            else:
+                # Draft or Submitted - already processed
+                result.update(
+                    {
+                        "already_processed": True,
+                        "bank_transaction": bt.name,
+                        "docstatus": bt.docstatus,
+                        "document_type": "Bank Transaction",
+                        "details": f"Bank Transaction {bt.name} already exists ({status_text})",
+                    }
+                )
+                return result
+
+        return result
+
     def get_mollie_bank_account_config(self) -> Dict[str, any]:
         """
         Get Mollie bank account configuration from settings.
+
+        Uses centralized MollieConfigurationService for consistent configuration access.
 
         Returns:
             dict with 'bank_account' and 'company', or error info
@@ -228,36 +269,38 @@ class BankTransactionCreator:
                 bank_account = config['bank_account']
                 company = config['company']
         """
-        # Get Mollie settings
-        mollie_settings = frappe.get_single("Mollie Settings")
-        mollie_clearing_account = getattr(mollie_settings, "mollie_clearing_account", None)
+        from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
-        if not mollie_clearing_account:
+        try:
+            # Get clearing account GL from centralized config
+            mollie_config = get_mollie_config()
+            mollie_clearing_account = mollie_config.get_clearing_account()
+
+            # Get Bank Account linked to Mollie clearing account
+            # This should return "Mollie" Bank Account, not Triodos
+            bank_account = frappe.db.get_value("Bank Account", {"account": mollie_clearing_account}, "name")
+
+            if not bank_account:
+                return {
+                    "error": f"No Bank Account found for Mollie clearing account '{mollie_clearing_account}'",
+                }
+
+            # Get company
+            company = self._get_default_company()
+
+            frappe.logger().info(
+                f"✅ Mollie config: Bank Account='{bank_account}', Clearing Account='{mollie_clearing_account}'"
+            )
+
             return {
-                "error": "Mollie Clearing Account not configured in Mollie Settings",
+                "bank_account": bank_account,
+                "company": company,
+                "clearing_account": mollie_clearing_account,
             }
 
-        # Get Bank Account linked to Mollie clearing account
-        # This should return "Mollie" Bank Account, not Triodos
-        bank_account = frappe.db.get_value("Bank Account", {"account": mollie_clearing_account}, "name")
-
-        if not bank_account:
-            return {
-                "error": f"No Bank Account found for Mollie clearing account '{mollie_clearing_account}'",
-            }
-
-        # Get company
-        company = self._get_default_company()
-
-        frappe.logger().info(
-            f"✅ Mollie config: Bank Account='{bank_account}', Clearing Account='{mollie_clearing_account}'"
-        )
-
-        return {
-            "bank_account": bank_account,
-            "company": company,
-            "clearing_account": mollie_clearing_account,
-        }
+        except frappe.ValidationError as e:
+            # MollieConfigurationService throws ValidationError for missing config
+            return {"error": str(e)}
 
     def _get_default_company(self) -> str:
         """
@@ -368,8 +411,6 @@ class BankTransactionCreator:
         """
         from frappe.exceptions import DuplicateEntryError
 
-        from verenigingen.security.permission_validator import secure_document_operation
-
         try:
             bank_transaction_dict = {
                 "doctype": "Bank Transaction",
@@ -398,44 +439,16 @@ class BankTransactionCreator:
 
             bank_transaction = frappe.get_doc(bank_transaction_dict)
 
-            # Use secure document operation for creation with permission validation
-            create_result = secure_document_operation(
-                operation="create",
-                doc=bank_transaction,
-                justification=f"Bank Transaction creation via centralized service: {reference_number}",
-                required_permissions=["Bank Transaction:create"],
-                allow_system_user=True,
-            )
-
-            if not create_result.success:
-                frappe.logger().error(
-                    f"❌ Permission denied for Bank Transaction creation: {create_result.message}"
-                )
-                return None
-
-            # Use secure document operation for submission with permission validation
-            submit_result = secure_document_operation(
-                operation="submit",
-                doc=create_result.document,
-                justification=f"Auto-submit Bank Transaction: {reference_number}",
-                required_permissions=["Bank Transaction:submit"],
-                allow_system_user=True,
-            )
-
-            if not submit_result.success:
-                frappe.logger().error(
-                    f"❌ Permission denied for Bank Transaction submission: {submit_result.message}"
-                )
-                # Cancel the created document if submission fails
-                create_result.document.delete()
-                return None
+            # Insert and submit Bank Transaction
+            bank_transaction.insert()
+            bank_transaction.submit()
 
             frappe.logger().info(
-                f"✅ Created Bank Transaction: {submit_result.document.name} "
+                f"✅ Created Bank Transaction: {bank_transaction.name} "
                 f"(ref: {reference_number}, amount: {currency} {deposit or withdrawal})"
             )
 
-            return submit_result.document.name
+            return bank_transaction.name
 
         except DuplicateEntryError:
             # Handle race condition: another process created this Bank Transaction

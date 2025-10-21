@@ -13,6 +13,7 @@ from verenigingen.utils.member_utils import validate_member_ownership
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
 
 
 class PaymentGateway(ABC):
@@ -1617,7 +1618,9 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
         invoice = unpaid_invoices[0]
 
         # Verify payment amount matches invoice (with some tolerance for currency precision)
-        payment_amount = float(payment.amount["value"])
+        # Use centralized extractor for payment amount
+        extractor = get_payment_data_extractor()
+        payment_amount = extractor.extract_amount(payment, allow_zero=False)
         invoice_amount = float(invoice["grand_total"])
 
         if abs(payment_amount - invoice_amount) > 0.01:  # 1 cent tolerance

@@ -5,7 +5,14 @@
   "doctype": "DocType",
   "editable_grid": 1,
   "engine": "InnoDB",
-  "field_order": ["webhook_section", "webhook_user"],
+  "field_order": [
+    "webhook_section",
+    "webhook_user",
+    "payment_classification_section",
+    "dues_keywords",
+    "donation_keywords",
+    "order_keywords"
+  ],
   "fields": [
     {
       "fieldname": "webhook_section",
@@ -18,6 +25,33 @@
       "label": "Webhook User",
       "options": "User",
       "description": "User account for webhook operations. Should have minimal permissions."
+    },
+    {
+      "fieldname": "payment_classification_section",
+      "fieldtype": "Section Break",
+      "label": "Payment Classification Keywords",
+      "description": "Configure keywords used to classify incoming Mollie payments by type"
+    },
+    {
+      "fieldname": "dues_keywords",
+      "fieldtype": "Small Text",
+      "label": "Membership Dues Keywords",
+      "description": "Comma-separated keywords to identify membership dues payments (e.g., contributie)",
+      "default": "contributie"
+    },
+    {
+      "fieldname": "donation_keywords",
+      "fieldtype": "Small Text",
+      "label": "Donation Keywords",
+      "description": "Comma-separated keywords to identify donation payments (e.g., donation, donatie)",
+      "default": "donation, donatie"
+    },
+    {
+      "fieldname": "order_keywords",
+      "fieldtype": "Small Text",
+      "label": "Order Keywords",
+      "description": "Comma-separated keywords to identify shop/WooCommerce order payments (e.g., bestelling, order)",
+      "default": "bestelling, order"
     }
   ],
   "icon": "fa fa-cog",

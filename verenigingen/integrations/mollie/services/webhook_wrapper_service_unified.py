@@ -12,6 +12,9 @@ from typing import Any, Dict, Optional
 
 import frappe
 
+# Import payment data extraction utilities
+from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
+
 # Import custom exceptions
 from ..exceptions import MolliePaymentError, MollieSecurityError, MollieWebhookError
 from ..utils.error_recovery import CircuitBreakerConfig, RetryConfig, error_recovery
@@ -1003,8 +1006,9 @@ class UnifiedWebhookWrapperService:
         try:
             from ..utils.unified_payment_entry_creator import create_unified_payment_entry
 
-            # Extract payment amount
-            amount = float(payment_data.get("amount", {}).get("value", 0))
+            # Extract payment amount using centralized extractor
+            extractor = get_payment_data_extractor()
+            amount = extractor.extract_amount(payment_data, allow_zero=True)  # payment_data is dict format
             payment_id = payment_data.get("id")
 
             self.logger.info(f"Creating Payment Entry for donation {donation.name}: €{amount}")
@@ -1071,8 +1075,11 @@ class UnifiedWebhookWrapperService:
                 self.logger.info(f"Payment history already exists for {payment_id}")
                 return True
 
-            # Add new payment history entry
-            payment_amount = float(payment_data.get("amount", {}).get("value", 0))
+            # Add new payment history entry using centralized extractor
+            extractor = get_payment_data_extractor()
+            payment_amount = extractor.extract_amount(
+                payment_data, allow_zero=True
+            )  # payment_data is dict format
             paid_date = payment_data.get("paid_at") or payment_data.get("created_at")
 
             # Parse ISO datetime to date

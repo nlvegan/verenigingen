@@ -10,6 +10,8 @@ from typing import Dict, List, Optional
 import frappe
 from frappe import _
 
+from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
+
 from ..core.compliance.audit_trail import AuditEventType, AuditSeverity
 from ..core.models.settlement import Settlement, SettlementCapture, SettlementLine
 from ..core.mollie_base_client import MollieBaseClient
@@ -372,18 +374,21 @@ class SettlementsClient(MollieBaseClient):
 
         chargeback_total = sum(Decimal(c.get("settlementAmount", {}).get("value", "0")) for c in chargebacks)
 
+        # Use centralized extractor for settlement amounts
+        extractor = get_payment_data_extractor()
         capture_total = sum(
-            c.settlement_amount.decimal_value
+            Decimal(str(extractor.extract_amount(c, source_type="settlement", allow_zero=True)))
             for c in captures
-            if c.settlement_amount and hasattr(c.settlement_amount, "decimal_value")
+            if hasattr(c, "settlement_amount") and c.settlement_amount
         )
 
         # Calculate expected vs actual
         calculated_total = payment_total - refund_total - chargeback_total
 
-        actual_amount = Decimal("0")
-        if settlement.amount and hasattr(settlement.amount, "decimal_value"):
-            actual_amount = settlement.amount.decimal_value
+        # Extract settlement amount using centralized extractor
+        actual_amount = Decimal(
+            str(extractor.extract_amount(settlement, source_type="settlement", allow_zero=True))
+        )
 
         discrepancy = actual_amount - calculated_total
 
@@ -452,6 +457,9 @@ class SettlementsClient(MollieBaseClient):
             "settlements": [],
         }
 
+        # Create extractor once for all settlements
+        extractor = get_payment_data_extractor()
+
         for settlement in settlements:
             # Count by status
             if settlement.status:
@@ -459,20 +467,21 @@ class SettlementsClient(MollieBaseClient):
                 if status_key in summary["by_status"]:
                     summary["by_status"][status_key] += 1
 
-            # Sum amounts
-            if settlement.amount and hasattr(settlement.amount, "decimal_value"):
-                summary["total_amount"] += settlement.amount.decimal_value
+            # Sum amounts using centralized extractor
+            summary["total_amount"] += extractor.extract_amount(
+                settlement, source_type="settlement", allow_zero=True
+            )
 
             summary["total_revenue"] += settlement.get_total_revenue()
             summary["total_costs"] += settlement.get_total_costs()
 
-            # Add settlement info
+            # Add settlement info (extract amount for dict)
             summary["settlements"].append(
                 {
                     "id": settlement.id,
                     "reference": settlement.reference,
                     "status": settlement.status,
-                    "amount": float(settlement.amount.decimal_value) if settlement.amount else 0,
+                    "amount": extractor.extract_amount(settlement, source_type="settlement", allow_zero=True),
                     "created_at": settlement.created_at,
                     "settled_at": settlement.settled_at,
                 }
@@ -498,6 +507,9 @@ class SettlementsClient(MollieBaseClient):
         """
         settlement = self.get_settlement(settlement_id)
 
+        # Use centralized extractor for settlement amount
+        extractor = get_payment_data_extractor()
+
         status_info = {
             "settlement_id": settlement_id,
             "current_status": settlement.status,
@@ -506,7 +518,7 @@ class SettlementsClient(MollieBaseClient):
             "created_at": settlement.created_at,
             "settled_at": settlement.settled_at,
             "reference": settlement.reference,
-            "amount": float(settlement.amount.decimal_value) if settlement.amount else 0,
+            "amount": extractor.extract_amount(settlement, source_type="settlement", allow_zero=True),
             "tracked_at": datetime.now().isoformat(),
         }
 
