@@ -290,6 +290,8 @@ class BankTransactionCreator:
         reference_number: str,
         description: str,
         transaction_id: Optional[str] = None,
+        party_type: Optional[str] = None,
+        party: Optional[str] = None,
     ) -> Optional[str]:
         """
         Create and submit Bank Transaction (low-level method for all transaction types).
@@ -307,6 +309,8 @@ class BankTransactionCreator:
             reference_number: Unique reference for idempotency (payment/settlement/balance ID)
             description: Human-readable description
             transaction_id: Optional additional transaction ID for tracking
+            party_type: Optional party type (e.g., "Customer", "Supplier") for dues payments
+            party: Optional party name (Customer/Supplier name) for dues payments
 
         Returns:
             Bank Transaction name if created, None on failure
@@ -327,6 +331,8 @@ class BankTransactionCreator:
             reference_number=reference_number,
             description=description,
             transaction_id=transaction_id,
+            party_type=party_type,
+            party=party,
         )
 
     def _create_bank_transaction(
@@ -340,6 +346,8 @@ class BankTransactionCreator:
         reference_number: str,
         description: str,
         transaction_id: Optional[str] = None,
+        party_type: Optional[str] = None,
+        party: Optional[str] = None,
     ) -> Optional[str]:
         """
         Internal method to create and submit Bank Transaction.
@@ -381,6 +389,12 @@ class BankTransactionCreator:
             # Add transaction_id if provided (for balance transactions)
             if transaction_id:
                 bank_transaction_dict["transaction_id"] = transaction_id
+
+            # Add party fields if provided (for dues payments)
+            if party_type:
+                bank_transaction_dict["party_type"] = party_type
+            if party:
+                bank_transaction_dict["party"] = party
 
             bank_transaction = frappe.get_doc(bank_transaction_dict)
 

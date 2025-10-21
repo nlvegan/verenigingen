@@ -44,6 +44,13 @@ class BalanceTransactionProcessor:
     def __init__(self):
         self.balances_client = BalancesClient()
 
+        # Use centralized Bank Transaction creator
+        from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+            get_bank_transaction_creator,
+        )
+
+        self.bank_tx_creator = get_bank_transaction_creator()
+
     def process_balance_transactions(
         self,
         balance_id: str,
@@ -434,39 +441,26 @@ class BalanceTransactionProcessor:
         """
         Validate Mollie and ERPNext configuration.
 
+        Uses centralized configuration helper to ensure consistent bank account selection.
+        Balance transactions go to the Mollie clearing account (virtual account),
+        not the physical bank account.
+
         Returns:
             dict: Configuration details or error
         """
-        # Get Mollie settings
-        mollie_settings = frappe.get_single("Mollie Settings")
-        mollie_bank_account_gl = mollie_settings.mollie_bank_account
+        # Use centralized configuration helper
+        config = self.bank_tx_creator.get_mollie_bank_account_config()
 
-        if not mollie_bank_account_gl:
+        if config.get("error"):
             return {
                 "status": "error",
-                "error": "Mollie Bank Account not configured in Mollie Settings.",
+                "error": config["error"],
             }
-
-        # Get Bank Account linked to GL Account
-        bank_account = frappe.db.get_value("Bank Account", {"account": mollie_bank_account_gl}, "name")
-
-        if not bank_account:
-            return {
-                "status": "error",
-                "error": f"No Bank Account found linked to GL Account '{mollie_bank_account_gl}'.",
-            }
-
-        # Get company
-        verenigingen_settings = frappe.get_single("Verenigingen Settings")
-        company = verenigingen_settings.donation_company or frappe.defaults.get_global_default("company")
-
-        if not company:
-            return {"status": "error", "error": "No company configured"}
 
         return {
             "status": "valid",
-            "bank_account": bank_account,
-            "company": company,
+            "bank_account": config["bank_account"],
+            "company": config["company"],
         }
 
     def get_primary_balance_id(self) -> str:

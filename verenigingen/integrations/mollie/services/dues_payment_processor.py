@@ -30,6 +30,13 @@ class DuesPaymentProcessor:
         self.mollie_client = MollieClient()
         self.classifier = PaymentClassifier()
 
+        # Use centralized Bank Transaction creator
+        from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+            get_bank_transaction_creator,
+        )
+
+        self.bank_tx_creator = get_bank_transaction_creator()
+
     def identify_payment_type(self, payment: Any) -> str:
         """
         Identify whether a payment is for membership dues or a donation.
@@ -386,70 +393,61 @@ class DuesPaymentProcessor:
         if not customer:
             frappe.throw(f"Member {member_name} has no linked Customer record")
 
+        # Get bank account configuration using centralized helper
+        config = self.bank_tx_creator.get_mollie_bank_account_config()
+
+        if config.get("error"):
+            frappe.throw(config["error"])
+
+        bank_account = config["bank_account"]
+        company = config["company"]
+
         # Extract payment data from Mollie
         payment_id = payment.id
-        amount = float(payment.amount["value"]) if payment.amount else 0.0
-        currency = payment.amount["currency"] if payment.amount else "EUR"
-        paid_at = getattr(payment, "paid_at", None)
-        payment_date = getdate(paid_at) if paid_at else getdate()
         payment_description = getattr(payment, "description", None)
 
-        # Get settings and accounts
-        mollie_settings = frappe.get_single("Mollie Settings")
-        verenigingen_settings = frappe.get_single("Verenigingen Settings")
-        company = verenigingen_settings.donation_company or frappe.defaults.get_global_default("company")
-
-        # Get Mollie clearing account (where money sits until settlement)
-        mollie_clearing_account = getattr(mollie_settings, "mollie_clearing_account", None)
-        if not mollie_clearing_account:
-            frappe.throw(
-                "Mollie Clearing Account not configured. "
-                "Please set it in Mollie Settings to track payments awaiting settlement."
-            )
-
-        # Get Bank Account linked to the clearing account
-        bank_account = frappe.db.get_value("Bank Account", {"account": mollie_clearing_account}, "name")
-        if not bank_account:
-            frappe.throw(
-                f"No Bank Account found linked to clearing account {mollie_clearing_account}. "
-                f"Please create a Bank Account record and link it to this GL Account."
-            )
-
-        # Build description (start with payment description for title_field visibility)
+        # Build description with member context (start with payment description for title_field visibility)
         if payment_description:
-            description = f"{payment_description} | {payment_id} | Member: {member.full_name}"
+            additional_description = f"{payment_id} | Member: {member.full_name}"
         else:
-            description = f"Mollie dues payment | {payment_id} | Member: {member.full_name}"
+            additional_description = f"Mollie dues payment | {payment_id} | Member: {member.full_name}"
 
-        # Create unreconciled Bank Transaction
-        bank_transaction = frappe.get_doc(
-            {
-                "doctype": "Bank Transaction",
-                "date": payment_date,
-                "deposit": amount,
-                "withdrawal": 0.0,
-                "currency": currency,
-                "bank_account": bank_account,
-                "company": company,
-                "reference_number": payment_id,
-                "transaction_id": payment_id,  # Use payment ID for idempotency across APIs
-                "description": description,
-                "party_type": "Customer",
-                "party": customer,
-                "status": "Unreconciled",
-                "unallocated_amount": amount,
-            }
+        # Use centralized Bank Transaction creator with party context
+        from frappe.utils import getdate
+
+        paid_at = getattr(payment, "paid_at", None)
+        payment_date = getdate(paid_at) if paid_at else getdate()
+        amount = float(payment.amount["value"]) if payment.amount else 0.0
+        currency = payment.amount["currency"] if payment.amount else "EUR"
+
+        # Build full description
+        if payment_description:
+            description = f"{payment_description} | {additional_description}"
+        else:
+            description = additional_description
+
+        # Use centralized create() method with party fields
+        bank_transaction_name = self.bank_tx_creator.create(
+            date=payment_date,
+            bank_account=bank_account,
+            company=company,
+            deposit=amount,
+            withdrawal=0.0,
+            currency=currency,
+            reference_number=payment_id,
+            transaction_id=payment_id,
+            description=description,
+            party_type="Customer",
+            party=customer,
         )
 
-        bank_transaction.insert()
-        bank_transaction.submit()
+        if bank_transaction_name:
+            frappe.logger().info(
+                f"✅ Created Bank Transaction {bank_transaction_name} for member {member_name} "
+                f"(amount: {currency} {amount}, payment: {payment_id}, status: Unreconciled)"
+            )
 
-        frappe.logger().info(
-            f"✅ Created Bank Transaction {bank_transaction.name} for member {member_name} "
-            f"(amount: {currency} {amount}, payment: {payment_id}, status: Unreconciled)"
-        )
-
-        return bank_transaction.name
+        return bank_transaction_name
 
     def _create_payment_entry_for_dues_OLD_CUSTOM_IMPLEMENTATION(
         self, member_name: str, payment
