@@ -20,6 +20,7 @@ from ..clients.balances_client import BalancesClient
 from ..clients.settlements_client import SettlementsClient
 from ..core.compliance.audit_trail import AuditEventType, AuditSeverity
 from ..core.compliance.audit_trail import ImmutableAuditTrail as AuditTrail
+from ..services.mollie_configuration_service import get_mollie_config
 from ..utils.payment_data_extractor import MollieObjectType, get_payment_data_extractor
 
 
@@ -232,7 +233,13 @@ class BalanceMonitor:
             # Calculate net change using PaymentDataExtractor
             extractor = get_payment_data_extractor()
             net_change = sum(
-                Decimal(str(extractor.extract_amount(t, source_type=MollieObjectType.BALANCE_TRANSACTION, allow_zero=True)))
+                Decimal(
+                    str(
+                        extractor.extract_amount(
+                            t, source_type=MollieObjectType.BALANCE_TRANSACTION, allow_zero=True
+                        )
+                    )
+                )
                 for t in transactions
             )
 
@@ -651,9 +658,7 @@ class BalanceMonitor:
 @critical_api(operation_type=OperationType.FINANCIAL)
 def run_balance_monitoring():
     """Run scheduled balance monitoring"""
-    settings = frappe.get_single("Mollie Settings")
-
-    if not settings.enable_backend_api:
+    if not get_mollie_config().is_backend_api_enabled():
         return {"status": "skipped", "reason": "Backend API not enabled"}
 
     monitor = BalanceMonitor()
@@ -665,9 +670,7 @@ def run_balance_monitoring():
 @high_security_api(operation_type=OperationType.REPORTING)
 def get_balance_health_dashboard():
     """Get balance health dashboard data"""
-    settings = frappe.get_single("Mollie Settings")
-
-    if not settings.enable_backend_api:
+    if not get_mollie_config().is_backend_api_enabled():
         return {"status": "error", "message": "Backend API not enabled"}
 
     monitor = BalanceMonitor()

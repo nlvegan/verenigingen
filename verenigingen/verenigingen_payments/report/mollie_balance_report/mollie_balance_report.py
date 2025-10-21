@@ -10,6 +10,8 @@ import frappe
 from frappe import _
 from frappe.utils import flt, formatdate, now_datetime
 
+from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
+
 
 def execute(filters=None) -> tuple:
     """
@@ -22,12 +24,12 @@ def execute(filters=None) -> tuple:
         tuple: (columns, data)
     """
     try:
-        # Check if Mollie Settings is configured
-        settings = frappe.get_single("Mollie Settings")
-        if not settings.enable_backend_api:
+        # Check if Mollie Backend API is enabled
+        if not get_mollie_config().is_backend_api_enabled():
             return get_columns(), [["Mollie Backend API is not enabled in Mollie Settings", "", "", "", ""]]
 
-        # Check for Organization Access Token
+        # Check for Organization Access Token (API key - keep as direct access for security)
+        settings = frappe.get_single("Mollie Settings")
         oat = settings.get_password("organization_access_token", raise_exception=False)
         if not oat:
             return get_columns(), [

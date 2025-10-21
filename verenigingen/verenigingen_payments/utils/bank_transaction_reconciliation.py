@@ -14,6 +14,7 @@ from verenigingen.utils.security.authorization import (
 )
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from verenigingen.verenigingen_payments.clients.settlements_client import SettlementsClient
+from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 
 class PaymentReconciliationManager:
@@ -35,7 +36,7 @@ class PaymentReconciliationManager:
 
     def __init__(self):
         self.settings = frappe.get_single("Verenigingen Settings")
-        self.mollie_settings = frappe.get_single("Mollie Settings")
+        self.config = get_mollie_config()  # Use cached configuration service
         self.match_threshold = 0.85  # 85% similarity required for auto-match
         self._validate_bank_transaction_fields()
         self._validate_mollie_accounts()
@@ -43,37 +44,25 @@ class PaymentReconciliationManager:
 
     def _validate_mollie_accounts(self):
         """Validate that Mollie accounts are properly configured"""
-        # Only validate if Mollie fields exist (for backward compatibility)
-        if not hasattr(self.mollie_settings, "mollie_bank_account"):
-            # Fields don't exist yet - skip validation
-            return
+        try:
+            # Use configuration service (will raise ValidationError if not configured)
+            bank_account = self.config.get_bank_account_gl()
+            clearing_account = self.config.get_clearing_account()
 
-        if not self.mollie_settings.mollie_bank_account:
-            frappe.log_error(
-                "Mollie Bank Account not configured in Mollie Settings", "Mollie Account Configuration"
-            )
-            return
+            # Validate accounts exist in database
+            if not DocumentExistenceValidator.check_document_exists("Account", bank_account):
+                frappe.log_error(
+                    f"Mollie Bank Account {bank_account} does not exist", "Mollie Account Configuration"
+                )
 
-        if not self.mollie_settings.mollie_clearing_account:
-            frappe.log_error(
-                "Mollie Clearing Account not configured in Mollie Settings", "Mollie Account Configuration"
-            )
-            return
-
-        # Validate accounts exist
-        if not DocumentExistenceValidator.check_document_exists(
-            "Account", self.mollie_settings.mollie_bank_account
-        ):
-            frappe.log_error(
-                f"Mollie Bank Account {self.mollie_settings.mollie_bank_account} does not exist",
-                "Mollie Account Configuration",
-            )
-
-        if not frappe.db.exists("Account", self.mollie_settings.mollie_clearing_account):
-            frappe.log_error(
-                f"Mollie Clearing Account {self.mollie_settings.mollie_clearing_account} does not exist",
-                "Mollie Account Configuration",
-            )
+            if not frappe.db.exists("Account", clearing_account):
+                frappe.log_error(
+                    f"Mollie Clearing Account {clearing_account} does not exist",
+                    "Mollie Account Configuration",
+                )
+        except frappe.ValidationError:
+            # Configuration not complete - log error but don't break
+            frappe.log_error("Mollie accounts not properly configured", "Mollie Account Configuration")
 
     def _validate_bank_transaction_fields(self):
         """Validate that required Bank Transaction fields exist"""
@@ -353,13 +342,12 @@ class PaymentReconciliationManager:
         """
 
         # Only check transactions on the configured Mollie bank account
-        if (
-            not hasattr(self.mollie_settings, "mollie_bank_account")
-            or not self.mollie_settings.mollie_bank_account
-        ):
+        try:
+            mollie_bank_account = self.config.get_bank_account_gl()
+        except frappe.ValidationError:
             return None
 
-        if transaction.get("bank_account") != self.mollie_settings.mollie_bank_account:
+        if transaction.get("bank_account") != mollie_bank_account:
             return None
 
         amount = self._safe_decimal(transaction.get("deposit", 0))
@@ -895,11 +883,10 @@ class PaymentReconciliationManager:
         payment_entry.mode_of_payment = "Mollie"
 
         # Use clearing account instead of direct bank account
-        if (
-            hasattr(self.mollie_settings, "mollie_clearing_account")
-            and self.mollie_settings.mollie_clearing_account
-        ):
-            payment_entry.paid_from = self.mollie_settings.mollie_clearing_account
+        try:
+            payment_entry.paid_from = self.config.get_clearing_account()
+        except frappe.ValidationError:
+            pass  # Use default if clearing account not configured
 
         # Add custom fields for tracking
         payment_entry.custom_mollie_payment_id = mollie_payment.get("id")
@@ -923,10 +910,9 @@ class PaymentReconciliationManager:
         from frappe import get_doc
 
         # Check if Mollie accounts are configured
-        if (
-            not hasattr(self.mollie_settings, "mollie_clearing_account")
-            or not self.mollie_settings.mollie_clearing_account
-        ):
+        try:
+            mollie_clearing_account = self.config.get_clearing_account()
+        except frappe.ValidationError:
             frappe.log_error(
                 "Cannot create Mollie fee entry - clearing account not configured", "Mollie Fee Processing"
             )
@@ -935,7 +921,7 @@ class PaymentReconciliationManager:
         # Create journal entry for fees
         accounts = [
             {
-                "account": self.mollie_settings.mollie_clearing_account,
+                "account": mollie_clearing_account,
                 "debit_in_account_currency": float(abs(fee_amount_decimal)) if fee_amount_decimal > 0 else 0,
                 "credit_in_account_currency": float(abs(fee_amount_decimal)) if fee_amount_decimal < 0 else 0,
             },
@@ -966,11 +952,10 @@ class PaymentReconciliationManager:
         """Get configured payment processing fees account"""
 
         # Check if configured in Mollie Settings
-        if (
-            hasattr(self.mollie_settings, "payment_processing_fees_account")
-            and self.mollie_settings.payment_processing_fees_account
-        ):
-            return self.mollie_settings.payment_processing_fees_account
+        # Check if configured in Mollie Settings (use optional getter)
+        fees_account = self.config.get_fees_account_optional()
+        if fees_account:
+            return fees_account
 
         # Try to find a suitable account by name patterns
         fee_account_patterns = [

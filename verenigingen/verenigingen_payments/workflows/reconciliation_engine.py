@@ -21,6 +21,7 @@ from ..clients.invoices_client import InvoicesClient
 from ..clients.settlements_client import SettlementsClient
 from ..core.compliance.audit_trail import AuditEventType, AuditSeverity
 from ..core.compliance.audit_trail import ImmutableAuditTrail as AuditTrail
+from ..services.mollie_configuration_service import get_mollie_config
 
 
 class ReconciliationStatus:
@@ -691,9 +692,7 @@ class ReconciliationEngine:
 @critical_api(operation_type=OperationType.FINANCIAL)
 def run_scheduled_reconciliation():
     """Run scheduled daily reconciliation"""
-    settings = frappe.get_single("Mollie Settings")
-
-    if settings.enable_backend_api:
+    if get_mollie_config().is_backend_api_enabled():
         engine = ReconciliationEngine()
         return engine.run_daily_reconciliation()
 

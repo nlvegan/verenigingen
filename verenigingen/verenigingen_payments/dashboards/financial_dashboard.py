@@ -20,6 +20,7 @@ from ..clients.chargebacks_client import ChargebacksClient
 from ..clients.invoices_client import InvoicesClient
 from ..clients.payments_client import PaymentsClient
 from ..clients.settlements_client import SettlementsClient
+from ..services.mollie_configuration_service import get_mollie_config
 from ..utils.payment_data_extractor import MollieObjectType, get_payment_data_extractor
 from ..workflows.reconciliation_engine import ReconciliationEngine
 
@@ -604,7 +605,9 @@ class FinancialDashboard:
                         chargeback, source_type=MollieObjectType.SETTLEMENT, allow_zero=True
                     )
                     original_amt = (
-                        extractor.extract_amount(chargeback, source_type=MollieObjectType.SETTLEMENT, allow_zero=True)
+                        extractor.extract_amount(
+                            chargeback, source_type=MollieObjectType.SETTLEMENT, allow_zero=True
+                        )
                         if chargeback.amount
                         else Decimal("0")
                     )
@@ -669,7 +672,9 @@ class FinancialDashboard:
             extractor = get_payment_data_extractor()
             for chargeback in chargebacks:
                 if chargeback.amount:
-                    amount = extractor.extract_amount(chargeback, source_type=MollieObjectType.SETTLEMENT, allow_zero=True)
+                    amount = extractor.extract_amount(
+                        chargeback, source_type=MollieObjectType.SETTLEMENT, allow_zero=True
+                    )
                     metrics["current_month"]["total_amount"] += Decimal(str(amount))
 
                 if chargeback.is_reversed():
@@ -920,15 +925,15 @@ def get_dashboard_data():
         # Debug: Log the current user and session
         frappe.logger().info(f"Dashboard API called by user: {frappe.session.user}")
 
-        # Check if Mollie Settings is configured
-        settings = frappe.get_single("Mollie Settings")
-        if not settings.enable_backend_api:
+        # Check if Mollie Backend API is enabled
+        if not get_mollie_config().is_backend_api_enabled():
             return {
                 "success": False,
                 "error": "Mollie Backend API is not enabled. Please enable it in Mollie Settings.",
             }
 
-        # Additional debugging information
+        # Check Organization Access Token (API key - keep as direct access for security)
+        settings = frappe.get_single("Mollie Settings")
         oat = settings.get_password("organization_access_token", raise_exception=False)
         if not oat:
             return {

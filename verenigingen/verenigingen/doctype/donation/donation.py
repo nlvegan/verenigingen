@@ -533,7 +533,7 @@ def send_donation_confirmation_email(donation_id):
             template_name="donation_confirmation",
             recipients=[donor_email],
             context=context,
-            subject=_("Thank you for your donation - {0}").format(donation.name),
+            subject_override=_("Thank you for your donation - {0}").format(donation.name),
             reference_doctype="Donation",
             reference_name=donation.name,
         )
@@ -541,7 +541,9 @@ def send_donation_confirmation_email(donation_id):
         return result.success
 
     except Exception as e:
-        frappe.log_error(f"Failed to send donation confirmation: {str(e)}", "Donation Email Error")
+        # Log error with truncated message to avoid field length issues
+        error_msg = str(e)[:100] + "..." if len(str(e)) > 100 else str(e)
+        frappe.log_error(f"Donation confirmation failed: {error_msg}", "Donation Email Error")
         return False
 
 
@@ -589,7 +591,7 @@ def send_payment_confirmation_email(donation_id):
             template_name="donation_payment_confirmation",
             recipients=[donor_email],
             context=context,
-            subject=_("Payment Received - Donation {0}").format(donation.name),
+            subject_override=_("Payment Received - Donation {0}").format(donation.name),
             reference_doctype="Donation",
             reference_name=donation.name,
         )
@@ -597,5 +599,7 @@ def send_payment_confirmation_email(donation_id):
         return result.success
 
     except Exception as e:
-        frappe.log_error(f"Failed to send payment confirmation: {str(e)}", "Payment Email Error")
+        # Log error with truncated message to avoid field length issues
+        error_msg = str(e)[:100] + "..." if len(str(e)) > 100 else str(e)
+        frappe.log_error(f"Payment confirmation failed: {error_msg}", "Payment Email Error")
         return False

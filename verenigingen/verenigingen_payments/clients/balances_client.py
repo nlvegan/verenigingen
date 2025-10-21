@@ -135,53 +135,42 @@ class BalancesClient(MollieBaseClient):
 
         Args:
             balance_id: Balance identifier
-            from_date: Start date filter (applied via API if supported, fallback to memory filtering)
-            until_date: End date filter (applied via API if supported, fallback to memory filtering)
-            limit: Maximum number of results
+            from_date: Start date filter (memory-based, Mollie API doesn't support date params)
+            until_date: End date filter (memory-based, Mollie API doesn't support date params)
+            limit: Maximum number of results to fetch before filtering (default: 250)
 
         Returns:
             List of BalanceTransaction objects
+
+        Note:
+            Mollie's balance transaction API doesn't support from/until date parameters.
+            This method fetches transactions up to 'limit' and then filters them in memory.
+            For large date ranges, you may need to increase the limit parameter.
         """
         params = {"limit": limit}
 
-        # Try to use API date filtering first, with fallback to memory filtering
-        api_date_filtering = True
-        if from_date and api_date_filtering:
-            params["from"] = from_date.strftime("%Y-%m-%d")
-        if until_date and api_date_filtering:
-            params["until"] = until_date.strftime("%Y-%m-%d")
+        # Mollie API doesn't support date filtering for balance transactions
+        # We always use memory-based filtering
+        api_date_filtering = False
 
         self.audit_trail.log_event(
             AuditEventType.BALANCE_CHECKED,
             AuditSeverity.INFO,
             f"Listing transactions for balance: {balance_id}",
-            details={"from_date": params.get("from"), "until_date": params.get("until"), "limit": limit},
+            details={
+                "from_date": from_date.strftime("%Y-%m-%d") if from_date else None,
+                "until_date": until_date.strftime("%Y-%m-%d") if until_date else None,
+                "limit": limit,
+                "filtering_method": "memory",  # Always memory-based for balance transactions
+            },
         )
 
-        try:
-            response = self.get(f"balances/{balance_id}/transactions", params=params, paginated=True)
-            transactions = [BalanceTransaction(item) for item in response]
+        # Fetch transactions without date parameters (API doesn't support them)
+        response = self.get(f"balances/{balance_id}/transactions", params=params, paginated=True)
+        transactions = [BalanceTransaction(item) for item in response]
 
-            # If API date filtering was used successfully, return directly
-            if api_date_filtering and (from_date or until_date):
-                return transactions
-
-        except Exception as e:
-            # If API date filtering failed (400 error), fall back to memory filtering
-            if "400" in str(e) and ("from" in str(e) or "until" in str(e)):
-                frappe.logger().warning(
-                    "API date filtering not supported for balance transactions, using memory filtering"
-                )
-                api_date_filtering = False
-                # Retry without date parameters
-                params = {"limit": limit}
-                response = self.get(f"balances/{balance_id}/transactions", params=params, paginated=True)
-                transactions = [BalanceTransaction(item) for item in response]
-            else:
-                raise
-
-        # Apply memory-based date filtering if needed
-        if (from_date or until_date) and not api_date_filtering:
+        # Apply memory-based date filtering if requested
+        if from_date or until_date:
             filtered_transactions = []
             for transaction in transactions:
                 # Try to get transaction date from created_at

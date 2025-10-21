@@ -18,6 +18,7 @@ from ..clients.balances_client import BalancesClient
 from ..clients.settlements_client import SettlementsClient
 from ..core.compliance.audit_trail import AuditEventType, AuditSeverity
 from ..core.compliance.audit_trail import ImmutableAuditTrail as AuditTrail
+from ..services.mollie_configuration_service import get_mollie_config
 
 
 class SubscriptionStatus:
@@ -50,9 +51,6 @@ class SubscriptionManager:
         # Initialize API clients
         self.balances_client = BalancesClient()
         self.settlements_client = SettlementsClient()
-
-        # Get Mollie settings (singleton)
-        self.settings = frappe.get_single("Mollie Settings")
 
     def sync_subscription_payments(self, member_name: str) -> Dict:
         """
@@ -582,9 +580,7 @@ class SubscriptionManager:
 @critical_api(operation_type=OperationType.FINANCIAL)
 def sync_all_subscription_payments():
     """Sync payments for all active subscriptions"""
-    settings = frappe.get_single("Mollie Settings")
-
-    if not settings.enable_backend_api:
+    if not get_mollie_config().is_backend_api_enabled():
         return {"status": "skipped", "reason": "Backend API not enabled"}
 
     manager = SubscriptionManager()
@@ -616,9 +612,7 @@ def sync_all_subscription_payments():
 @high_security_api(operation_type=OperationType.REPORTING)
 def analyze_subscription_health():
     """Analyze overall subscription health"""
-    settings = frappe.get_single("Mollie Settings")
-
-    if not settings.enable_backend_api:
+    if not get_mollie_config().is_backend_api_enabled():
         return {"status": "error", "message": "Backend API not enabled"}
 
     manager = SubscriptionManager()

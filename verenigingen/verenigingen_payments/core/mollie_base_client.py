@@ -152,8 +152,12 @@ class MollieBaseClient:
             if not settings:
                 raise frappe.ValidationError(_("Mollie Settings not configured"))
 
-            # Check if backend API is enabled
-            if not settings.get("enable_backend_api"):
+            # Check if backend API is enabled (use config service for performance)
+            from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
+                get_mollie_config,
+            )
+
+            if not get_mollie_config().is_backend_api_enabled():
                 raise frappe.ValidationError(
                     _("Mollie Backend API is not enabled. Please enable it in Mollie Settings.")
                 )

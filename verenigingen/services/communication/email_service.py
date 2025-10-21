@@ -346,6 +346,20 @@ class EmailService:
                     operation="_send_email_internal",
                 )
 
+            # Check if email account is configured
+            if not self._has_active_email_account():
+                frappe.logger("email_service").warning(
+                    f"No active email account configured. Email not queued.\n"
+                    f"Recipients: {recipients}\n"
+                    f"Subject: {subject[:50]}..."
+                )
+                return create_service_result(
+                    success=False,
+                    error="No active email account configured. Please configure an email account in Settings.",
+                    service_name="EmailService",
+                    operation="_send_email_internal",
+                )
+
             # Use Email Queue instead of direct sendmail() to prevent broken pipe errors
             # This queues the email for background processing by RQ workers
             from frappe.email.queue import queue as add_to_email_queue
@@ -525,6 +539,16 @@ class EmailService:
                 "organization_name": "",
                 "default_sender": "noreply@verenigingen.org",
             }
+
+    def _has_active_email_account(self) -> bool:
+        """Check if there's at least one active email account configured."""
+        try:
+            # Check for any enabled email accounts
+            active_accounts = frappe.get_all("Email Account", filters={"enable_outgoing": 1}, limit=1)
+            return len(active_accounts) > 0
+        except Exception as e:
+            frappe.logger("email_service").error(f"Error checking email accounts: {str(e)}")
+            return False
 
 
 # Singleton instance for easy access

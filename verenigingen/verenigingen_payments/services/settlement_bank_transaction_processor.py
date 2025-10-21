@@ -477,11 +477,12 @@ class SettlementBankTransactionProcessor:
             "transactions": [],
         }
 
-        # Get Mollie Clearing Account from settings
-        mollie_settings = frappe.get_single("Mollie Settings")
-        clearing_account_gl = mollie_settings.mollie_clearing_account
+        # Get Mollie Clearing Account from settings (cached)
+        from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
-        if not clearing_account_gl:
+        try:
+            clearing_account_gl = get_mollie_config().get_clearing_account()
+        except frappe.ValidationError:
             frappe.logger().warning(
                 "⚠️ Mollie Clearing Account not configured - skipping individual payment transactions"
             )

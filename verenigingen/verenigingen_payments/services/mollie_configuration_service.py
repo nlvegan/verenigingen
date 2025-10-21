@@ -293,6 +293,27 @@ class MollieConfigurationService:
             "warnings": warnings,
         }
 
+    @classmethod
+    def is_backend_api_enabled(cls) -> bool:
+        """
+        Check if Mollie Backend API (organization token) is enabled.
+
+        The Backend API provides access to advanced features like:
+        - Balance monitoring
+        - Settlement tracking
+        - Transaction details
+
+        Returns:
+            bool: True if backend API is enabled
+
+        Example:
+            if get_mollie_config().is_backend_api_enabled():
+                # Use BalancesClient, SettlementsClient, etc.
+                balances = BalancesClient().list_balances()
+        """
+        settings = cls.get_settings()
+        return bool(settings.get("enable_backend_api", False))
+
 
 def get_mollie_config() -> MollieConfigurationService:
     """
