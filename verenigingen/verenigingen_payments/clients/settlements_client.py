@@ -10,7 +10,10 @@ from typing import Dict, List, Optional
 import frappe
 from frappe import _
 
-from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
+from verenigingen.verenigingen_payments.utils.payment_data_extractor import (
+    MollieObjectType,
+    get_payment_data_extractor,
+)
 
 from ..core.compliance.audit_trail import AuditEventType, AuditSeverity
 from ..core.models.settlement import Settlement, SettlementCapture, SettlementLine
@@ -377,7 +380,7 @@ class SettlementsClient(MollieBaseClient):
         # Use centralized extractor for settlement amounts
         extractor = get_payment_data_extractor()
         capture_total = sum(
-            Decimal(str(extractor.extract_amount(c, source_type="settlement", allow_zero=True)))
+            Decimal(str(extractor.extract_amount(c, source_type=MollieObjectType.SETTLEMENT, allow_zero=True)))
             for c in captures
             if hasattr(c, "settlement_amount") and c.settlement_amount
         )
@@ -387,7 +390,7 @@ class SettlementsClient(MollieBaseClient):
 
         # Extract settlement amount using centralized extractor
         actual_amount = Decimal(
-            str(extractor.extract_amount(settlement, source_type="settlement", allow_zero=True))
+            str(extractor.extract_amount(settlement, source_type=MollieObjectType.SETTLEMENT, allow_zero=True))
         )
 
         discrepancy = actual_amount - calculated_total
@@ -469,7 +472,7 @@ class SettlementsClient(MollieBaseClient):
 
             # Sum amounts using centralized extractor
             summary["total_amount"] += extractor.extract_amount(
-                settlement, source_type="settlement", allow_zero=True
+                settlement, source_type=MollieObjectType.SETTLEMENT, allow_zero=True
             )
 
             summary["total_revenue"] += settlement.get_total_revenue()
@@ -481,7 +484,7 @@ class SettlementsClient(MollieBaseClient):
                     "id": settlement.id,
                     "reference": settlement.reference,
                     "status": settlement.status,
-                    "amount": extractor.extract_amount(settlement, source_type="settlement", allow_zero=True),
+                    "amount": extractor.extract_amount(settlement, source_type=MollieObjectType.SETTLEMENT, allow_zero=True),
                     "created_at": settlement.created_at,
                     "settled_at": settlement.settled_at,
                 }
@@ -518,7 +521,7 @@ class SettlementsClient(MollieBaseClient):
             "created_at": settlement.created_at,
             "settled_at": settlement.settled_at,
             "reference": settlement.reference,
-            "amount": extractor.extract_amount(settlement, source_type="settlement", allow_zero=True),
+            "amount": extractor.extract_amount(settlement, source_type=MollieObjectType.SETTLEMENT, allow_zero=True),
             "tracked_at": datetime.now().isoformat(),
         }
 

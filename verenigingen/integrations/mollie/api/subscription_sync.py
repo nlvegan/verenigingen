@@ -16,7 +16,10 @@ except ImportError:
     get_mollie_connector = None
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
-from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
+from verenigingen.verenigingen_payments.utils.payment_data_extractor import (
+    MollieObjectType,
+    get_payment_data_extractor,
+)
 
 
 @frappe.whitelist()
@@ -161,7 +164,9 @@ def sync_customer_subscriptions(connector, customer_data: Dict, dry_run: bool = 
             result["subscriptions_found"] += 1
 
             # Extract amount using centralized extractor (handles both object and dict formats)
-            amount = extractor.extract_amount(subscription, allow_zero=True, source_type="subscription")
+            amount = extractor.extract_amount(
+                subscription, allow_zero=True, source_type=MollieObjectType.SUBSCRIPTION
+            )
 
             # Extract currency from subscription amount
             amount_value = subscription.amount
@@ -308,7 +313,9 @@ def get_mollie_subscription_details(customer_name: str) -> Dict:
 
         for subscription in customer_subscriptions:
             # Extract amount using centralized extractor (handles both object and dict formats)
-            amount = extractor.extract_amount(subscription, allow_zero=True, source_type="subscription")
+            amount = extractor.extract_amount(
+                subscription, allow_zero=True, source_type=MollieObjectType.SUBSCRIPTION
+            )
 
             # Extract currency from subscription amount
             amount_value = subscription.amount

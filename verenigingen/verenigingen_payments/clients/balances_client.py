@@ -9,7 +9,10 @@ from typing import Dict, List, Optional
 import frappe
 from frappe import _
 
-from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
+from verenigingen.verenigingen_payments.utils.payment_data_extractor import (
+    MollieObjectType,
+    get_payment_data_extractor,
+)
 
 from ..core.compliance.audit_trail import AuditEventType, AuditSeverity
 from ..core.models.balance import Balance, BalanceReport, BalanceTransaction
@@ -325,7 +328,7 @@ class BalancesClient(MollieBaseClient):
         # Calculate transaction velocity using PaymentDataExtractor
         transaction_count = len(recent_transactions)
         total_volume = sum(
-            extractor.extract_amount(tx, source_type="balance_transaction", allow_zero=True)
+            extractor.extract_amount(tx, source_type=MollieObjectType.BALANCE_TRANSACTION, allow_zero=True)
             for tx in recent_transactions
         )
 
@@ -395,7 +398,7 @@ class BalancesClient(MollieBaseClient):
         ending_balance = end_amounts["available"]
 
         transaction_total = sum(
-            extractor.extract_amount(tx, source_type="balance_transaction", allow_zero=True)
+            extractor.extract_amount(tx, source_type=MollieObjectType.BALANCE_TRANSACTION, allow_zero=True)
             for tx in transactions
         )
 

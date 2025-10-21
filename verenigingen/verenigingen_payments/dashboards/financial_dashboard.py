@@ -20,7 +20,7 @@ from ..clients.chargebacks_client import ChargebacksClient
 from ..clients.invoices_client import InvoicesClient
 from ..clients.payments_client import PaymentsClient
 from ..clients.settlements_client import SettlementsClient
-from ..utils.payment_data_extractor import get_payment_data_extractor
+from ..utils.payment_data_extractor import MollieObjectType, get_payment_data_extractor
 from ..workflows.reconciliation_engine import ReconciliationEngine
 
 
@@ -475,7 +475,7 @@ class FinancialDashboard:
                 metrics["next_settlement"] = {
                     "id": next_settlement.id,
                     "expected_amount": extractor.extract_amount(
-                        next_settlement, source_type="settlement", allow_zero=True
+                        next_settlement, source_type=MollieObjectType.SETTLEMENT, allow_zero=True
                     ),
                     "status": next_settlement.status,
                     "created_at": next_settlement.created_at,
@@ -494,7 +494,7 @@ class FinancialDashboard:
                 metrics["open_settlement"] = {
                     "id": open_settlement.id,
                     "current_amount": extractor.extract_amount(
-                        open_settlement, source_type="settlement", allow_zero=True
+                        open_settlement, source_type=MollieObjectType.SETTLEMENT, allow_zero=True
                     ),
                 }
 
@@ -601,10 +601,10 @@ class FinancialDashboard:
                 if chargeback.settlement_amount:
                     # Chargeback fees are typically the difference between settlement and original amount
                     settlement_amt = extractor.extract_amount(
-                        chargeback, source_type="settlement", allow_zero=True
+                        chargeback, source_type=MollieObjectType.SETTLEMENT, allow_zero=True
                     )
                     original_amt = (
-                        extractor.extract_amount(chargeback, source_type="settlement", allow_zero=True)
+                        extractor.extract_amount(chargeback, source_type=MollieObjectType.SETTLEMENT, allow_zero=True)
                         if chargeback.amount
                         else Decimal("0")
                     )
@@ -669,7 +669,7 @@ class FinancialDashboard:
             extractor = get_payment_data_extractor()
             for chargeback in chargebacks:
                 if chargeback.amount:
-                    amount = extractor.extract_amount(chargeback, source_type="settlement", allow_zero=True)
+                    amount = extractor.extract_amount(chargeback, source_type=MollieObjectType.SETTLEMENT, allow_zero=True)
                     metrics["current_month"]["total_amount"] += Decimal(str(amount))
 
                 if chargeback.is_reversed():
