@@ -112,22 +112,15 @@ class OrderPaymentProcessor:
             Bank Transaction name if created, None on failure
         """
         try:
-            # Get Mollie clearing account from settings
-            mollie_settings = frappe.get_single("Mollie Settings")
-            mollie_clearing_account = getattr(mollie_settings, "mollie_clearing_account", None)
+            # Get Mollie bank account configuration using centralized helper
+            config = self.bank_tx_creator.get_mollie_bank_account_config()
 
-            if not mollie_clearing_account:
-                frappe.logger().error("❌ Mollie Clearing Account not configured in Mollie Settings")
+            if config.get("error"):
+                frappe.logger().error(f"❌ Mollie configuration error: {config['error']}")
                 return None
 
-            # Get Bank Account linked to the clearing account
-            bank_account = frappe.db.get_value("Bank Account", {"account": mollie_clearing_account}, "name")
-
-            if not bank_account:
-                frappe.logger().error(
-                    f"❌ No Bank Account found linked to clearing account {mollie_clearing_account}"
-                )
-                return None
+            bank_account = config["bank_account"]
+            company = config["company"]
 
             # Build description with invoice number hint if available
             additional_desc = None
@@ -138,7 +131,7 @@ class OrderPaymentProcessor:
             bank_tx_name = self.bank_tx_creator.create_from_mollie_payment(
                 payment=payment,
                 bank_account=bank_account,
-                company=None,  # Auto-detect from settings
+                company=company,
                 additional_description=additional_desc,
             )
 

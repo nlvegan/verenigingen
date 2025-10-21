@@ -213,6 +213,52 @@ class BankTransactionCreator:
         """
         return frappe.db.get_value("Bank Transaction", {"reference_number": reference_number}, "name")
 
+    def get_mollie_bank_account_config(self) -> Dict[str, any]:
+        """
+        Get Mollie bank account configuration from settings.
+
+        Returns:
+            dict with 'bank_account' and 'company', or error info
+
+        Example:
+            config = creator.get_mollie_bank_account_config()
+            if config.get('error'):
+                # Handle error
+            else:
+                bank_account = config['bank_account']
+                company = config['company']
+        """
+        # Get Mollie settings
+        mollie_settings = frappe.get_single("Mollie Settings")
+        mollie_clearing_account = getattr(mollie_settings, "mollie_clearing_account", None)
+
+        if not mollie_clearing_account:
+            return {
+                "error": "Mollie Clearing Account not configured in Mollie Settings",
+            }
+
+        # Get Bank Account linked to Mollie clearing account
+        # This should return "Mollie" Bank Account, not Triodos
+        bank_account = frappe.db.get_value("Bank Account", {"account": mollie_clearing_account}, "name")
+
+        if not bank_account:
+            return {
+                "error": f"No Bank Account found for Mollie clearing account '{mollie_clearing_account}'",
+            }
+
+        # Get company
+        company = self._get_default_company()
+
+        frappe.logger().info(
+            f"✅ Mollie config: Bank Account='{bank_account}', Clearing Account='{mollie_clearing_account}'"
+        )
+
+        return {
+            "bank_account": bank_account,
+            "company": company,
+            "clearing_account": mollie_clearing_account,
+        }
+
     def _get_default_company(self) -> str:
         """
         Get default company from system settings.
@@ -233,6 +279,56 @@ class BankTransactionCreator:
 
         return company
 
+    def create(
+        self,
+        date,
+        bank_account: str,
+        company: str,
+        deposit: float,
+        withdrawal: float,
+        currency: str,
+        reference_number: str,
+        description: str,
+        transaction_id: Optional[str] = None,
+    ) -> Optional[str]:
+        """
+        Create and submit Bank Transaction (low-level method for all transaction types).
+
+        This is the canonical method for creating Bank Transactions from any source
+        (Mollie payments, settlements, balance transactions, manual imports, etc.)
+
+        Args:
+            date: Transaction date
+            bank_account: Bank Account name (ERPNext Bank Account DocType)
+            company: Company name
+            deposit: Deposit amount (incoming, use 0 for withdrawals)
+            withdrawal: Withdrawal amount (outgoing, use 0 for deposits)
+            currency: Currency code (e.g., EUR, USD)
+            reference_number: Unique reference for idempotency (payment/settlement/balance ID)
+            description: Human-readable description
+            transaction_id: Optional additional transaction ID for tracking
+
+        Returns:
+            Bank Transaction name if created, None on failure
+        """
+        # Check for existing Bank Transaction first (idempotency)
+        existing_bt = self._check_existing_by_reference(reference_number)
+        if existing_bt:
+            frappe.logger().info(f"⏭️ Bank Transaction already exists: {existing_bt}")
+            return existing_bt
+
+        return self._create_bank_transaction(
+            date=date,
+            bank_account=bank_account,
+            company=company,
+            deposit=deposit,
+            withdrawal=withdrawal,
+            currency=currency,
+            reference_number=reference_number,
+            description=description,
+            transaction_id=transaction_id,
+        )
+
     def _create_bank_transaction(
         self,
         date,
@@ -243,9 +339,10 @@ class BankTransactionCreator:
         currency: str,
         reference_number: str,
         description: str,
+        transaction_id: Optional[str] = None,
     ) -> Optional[str]:
         """
-        Create and submit Bank Transaction.
+        Internal method to create and submit Bank Transaction.
 
         Args:
             date: Transaction date
@@ -256,37 +353,81 @@ class BankTransactionCreator:
             currency: Currency code
             reference_number: Unique reference (payment/settlement ID)
             description: Human-readable description
+            transaction_id: Optional transaction ID field
 
         Returns:
             Bank Transaction name if created, None on failure
         """
+        from frappe.exceptions import DuplicateEntryError
+
+        from verenigingen.security.permission_validator import secure_document_operation
+
         try:
-            bank_transaction = frappe.get_doc(
-                {
-                    "doctype": "Bank Transaction",
-                    "date": date,
-                    "bank_account": bank_account,
-                    "company": company,
-                    "deposit": deposit,
-                    "withdrawal": withdrawal,
-                    "currency": currency,
-                    "reference_number": reference_number,
-                    "description": description,
-                    "status": "Unreconciled",
-                    "unallocated_amount": deposit if deposit > 0 else abs(withdrawal),
-                    "allocated_amount": 0.0,
-                }
+            bank_transaction_dict = {
+                "doctype": "Bank Transaction",
+                "date": date,
+                "bank_account": bank_account,
+                "company": company,
+                "deposit": deposit,
+                "withdrawal": withdrawal,
+                "currency": currency,
+                "reference_number": reference_number,
+                "description": description,
+                "status": "Unreconciled",
+                "unallocated_amount": deposit if deposit > 0 else abs(withdrawal),
+                "allocated_amount": 0.0,
+            }
+
+            # Add transaction_id if provided (for balance transactions)
+            if transaction_id:
+                bank_transaction_dict["transaction_id"] = transaction_id
+
+            bank_transaction = frappe.get_doc(bank_transaction_dict)
+
+            # Use secure document operation for creation with permission validation
+            create_result = secure_document_operation(
+                operation="create",
+                doc=bank_transaction,
+                justification=f"Bank Transaction creation via centralized service: {reference_number}",
+                required_permissions=["Bank Transaction:create"],
+                allow_system_user=True,
             )
 
-            bank_transaction.insert()
-            bank_transaction.submit()
+            if not create_result.success:
+                frappe.logger().error(
+                    f"❌ Permission denied for Bank Transaction creation: {create_result.message}"
+                )
+                return None
+
+            # Use secure document operation for submission with permission validation
+            submit_result = secure_document_operation(
+                operation="submit",
+                doc=create_result.document,
+                justification=f"Auto-submit Bank Transaction: {reference_number}",
+                required_permissions=["Bank Transaction:submit"],
+                allow_system_user=True,
+            )
+
+            if not submit_result.success:
+                frappe.logger().error(
+                    f"❌ Permission denied for Bank Transaction submission: {submit_result.message}"
+                )
+                # Cancel the created document if submission fails
+                create_result.document.delete()
+                return None
 
             frappe.logger().info(
-                f"✅ Created Bank Transaction: {bank_transaction.name} "
+                f"✅ Created Bank Transaction: {submit_result.document.name} "
                 f"(ref: {reference_number}, amount: {currency} {deposit or withdrawal})"
             )
 
-            return bank_transaction.name
+            return submit_result.document.name
+
+        except DuplicateEntryError:
+            # Handle race condition: another process created this Bank Transaction
+            frappe.logger().info(f"⏭️ Bank Transaction already created (race condition): {reference_number}")
+            # Return existing Bank Transaction
+            return self._check_existing_by_reference(reference_number)
 
         except Exception as e:
             frappe.logger().error(f"❌ Failed to create Bank Transaction: {e}")

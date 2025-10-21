@@ -250,9 +250,15 @@ class BalanceTransactionProcessor:
             # Get transaction date
             transaction_date = getdate(transaction.created_at) if transaction.created_at else getdate()
 
-            # Get company and bank account
-            config = self._validate_configuration()
-            if config.get("status") == "error":
+            # Get company and bank account using centralized service
+            from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+                get_bank_transaction_creator,
+            )
+
+            creator = get_bank_transaction_creator()
+            config = creator.get_mollie_bank_account_config()
+
+            if config.get("error"):
                 result["status"] = "error"
                 result["error"] = config["error"]
                 return result
@@ -288,7 +294,7 @@ class BalanceTransactionProcessor:
                 stored_transaction_id = transaction_id
                 reference_number = transaction_id
 
-            # Create Bank Transaction (same logic for both regular and settlement transactions)
+            # Create Bank Transaction using centralized service
             # For settlements: Use result_amount (net after fees) since that's what hits the bank
             # For regular payments: Use initial_amount (gross) since fees were already deducted per-payment
             # Fees are recorded in description for visibility
@@ -299,55 +305,26 @@ class BalanceTransactionProcessor:
                 deposit = abs(amount_to_record) if is_deposit else 0.0
                 withdrawal = abs(amount_to_record) if not is_deposit else 0.0
 
-                bank_transaction_doc = frappe.get_doc(
-                    {
-                        "doctype": "Bank Transaction",
-                        "date": transaction_date,
-                        "deposit": deposit,
-                        "withdrawal": withdrawal,
-                        "currency": currency,
-                        "bank_account": bank_account,
-                        "company": company,
-                        "reference_number": reference_number,
-                        "transaction_id": stored_transaction_id,  # Store balance transaction ID
-                        "description": description,
-                        "status": "Unreconciled",
-                        "unallocated_amount": abs(amount_to_record),
-                    }
+                # Use centralized BankTransactionCreator service
+                bank_transaction_name = creator.create(
+                    date=transaction_date,
+                    bank_account=bank_account,
+                    company=company,
+                    deposit=deposit,
+                    withdrawal=withdrawal,
+                    currency=currency,
+                    reference_number=reference_number,
+                    description=description,
+                    transaction_id=stored_transaction_id,  # Store balance transaction ID
                 )
 
-                # Use secure document operation with race condition handling
-                op_result = secure_document_operation(
-                    operation="create",
-                    doc=bank_transaction_doc,
-                    justification=f"Balance transaction processing: {transaction_type} {transaction_id}",
-                    required_permissions=["Bank Transaction:create"],
-                    allow_system_user=True,
-                )
-
-                if not op_result.success:
+                if not bank_transaction_name:
                     result["status"] = "error"
-                    result["error"] = f"Failed to create Bank Transaction: {op_result.error}"
-                    return result
-
-                bank_transaction = op_result.document
-
-                # Submit the Bank Transaction to move it from Draft to Submitted state
-                submit_result = secure_document_operation(
-                    operation="submit",
-                    doc=bank_transaction,
-                    justification=f"Auto-submit balance transaction: {transaction_type} {transaction_id}",
-                    required_permissions=["Bank Transaction:submit"],
-                    allow_system_user=True,
-                )
-
-                if not submit_result.success:
-                    result["status"] = "error"
-                    result["error"] = f"Created Bank Transaction but failed to submit: {submit_result.error}"
+                    result["error"] = "Failed to create Bank Transaction via centralized service"
                     return result
 
                 result["status"] = "success"
-                result["bank_transaction"] = bank_transaction.name
+                result["bank_transaction"] = bank_transaction_name
                 result["amount"] = amount_to_record
                 result["transaction_type"] = transaction_type
                 result["payment_id"] = payment_id
@@ -355,7 +332,7 @@ class BalanceTransactionProcessor:
                 if is_settlement:
                     result["fees"] = total_deductions
 
-                log_msg = f"✅ Created Bank Transaction {bank_transaction.name} from balance transaction {transaction_id}"
+                log_msg = f"✅ Created Bank Transaction {bank_transaction_name} from balance transaction {transaction_id}"
                 if is_settlement:
                     log_msg += (
                         f" (settlement net: {currency} {result_amount}, fees: {currency} {total_deductions})"

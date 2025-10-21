@@ -351,6 +351,7 @@ def create_address_from_application(data):
 def create_member_from_application(data, application_id, address=None):
     """Create member record from application data"""
     # Import here to avoid circular imports
+    from verenigingen.utils.secure_operations import get_system_user_for_operation
     from verenigingen.utils.validation.application_validators import validate_name
 
     # Sanitize names before creating member record
@@ -409,9 +410,9 @@ def create_member_from_application(data, application_id, address=None):
             "iban": data.get("iban", ""),
             "bic": data.get("bic", ""),
             "bank_account_name": data.get("bank_account_name", ""),
-            # IMPORTANT: Set owner to the configured creation user
+            # IMPORTANT: Set owner to the configured system user
             # This prevents the applicant from becoming the owner of the member record
-            "owner": get_creation_user(),
+            "owner": get_system_user_for_operation("member_record_owner_assignment"),
         }
     )
 

@@ -45,6 +45,13 @@ class SettlementBankTransactionProcessor:
         self.settlement_cache = get_settlement_cache()
         self.dues_processor = DuesPaymentProcessor()
 
+        # Use centralized Bank Transaction creator
+        from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+            get_bank_transaction_creator,
+        )
+
+        self.bank_tx_creator = get_bank_transaction_creator()
+
     def process_settlement_deposit(
         self, settlement_id: Optional[str] = None, bank_reference: Optional[str] = None
     ) -> Dict:
@@ -114,20 +121,29 @@ class SettlementBankTransactionProcessor:
             currency = settlement.amount.currency if settlement.amount else "EUR"
             settlement_date = getdate(settlement.settled_at) if settlement.settled_at else getdate()
 
-            # Step 6: Create Bank Transaction
-            bank_transaction = self._create_bank_transaction(
+            # Step 6: Create Bank Transaction using centralized service
+            description = self._build_settlement_description(settlement, reconciliation)
+
+            bank_transaction_name = self.bank_tx_creator.create_from_settlement(
+                settlement=settlement,
                 bank_account=bank_account,
                 company=company,
-                settlement_date=settlement_date,
                 settlement_amount=settlement_amount,
+                settlement_date=settlement_date,
                 currency=currency,
-                settlement=settlement,
-                reconciliation=reconciliation,
+                description=description,
             )
+
+            if not bank_transaction_name:
+                return {
+                    "status": "error",
+                    "error": "Failed to create Bank Transaction",
+                    "settlement_id": settlement.id,
+                }
 
             # Step 7: Link underlying Payment Entries
             payment_entries_linked = self._link_payment_entries(
-                bank_transaction.name, settlement.id, reconciliation
+                bank_transaction_name, settlement.id, reconciliation
             )
 
             # Step 8: Commit transaction to database
@@ -135,13 +151,13 @@ class SettlementBankTransactionProcessor:
 
             # Step 9: Log success
             frappe.logger().info(
-                f"✅ Created Bank Transaction {bank_transaction.name} for settlement {settlement.id} "
+                f"✅ Created Bank Transaction {bank_transaction_name} for settlement {settlement.id} "
                 f"(amount: {currency} {settlement_amount}, linked PEs: {payment_entries_linked})"
             )
 
             return {
                 "status": "success",
-                "bank_transaction": bank_transaction.name,
+                "bank_transaction": bank_transaction_name,
                 "settlement_id": settlement.id,
                 "settlement_reference": settlement.reference,
                 "amount": settlement_amount,
@@ -324,52 +340,6 @@ class SettlementBankTransactionProcessor:
         existing_bt = frappe.db.get_value("Bank Transaction", {"reference_number": settlement_id}, "name")
 
         return {"exists": bool(existing_bt), "name": existing_bt}
-
-    def _create_bank_transaction(
-        self,
-        bank_account: str,
-        company: str,
-        settlement_date,
-        settlement_amount: float,
-        currency: str,
-        settlement,
-        reconciliation: Dict,
-    ):
-        """
-        Create and submit Bank Transaction for settlement deposit.
-
-        Args:
-            bank_account: ERPNext Bank Account name
-            company: Company name
-            settlement_date: Date of settlement
-            settlement_amount: Amount in settlement currency
-            currency: Currency code
-            settlement: Mollie settlement object
-            reconciliation: Settlement reconciliation details
-
-        Returns:
-            Bank Transaction document
-        """
-        bank_transaction = frappe.get_doc(
-            {
-                "doctype": "Bank Transaction",
-                "date": settlement_date,
-                "deposit": settlement_amount,
-                "withdrawal": 0.0,
-                "currency": currency,
-                "bank_account": bank_account,
-                "company": company,
-                "reference_number": settlement.id,  # Mollie settlement ID
-                "description": self._build_settlement_description(settlement, reconciliation),
-                "status": "Unreconciled",
-                "unallocated_amount": settlement_amount,
-            }
-        )
-
-        bank_transaction.insert()
-        bank_transaction.submit()
-
-        return bank_transaction
 
     def _build_settlement_description(self, settlement, reconciliation: Dict) -> str:
         """
@@ -628,31 +598,28 @@ class SettlementBankTransactionProcessor:
         # Add settlement reference for traceability
         bt_description += f" | Settlement: {settlement_id}"
 
-        # Create Bank Transaction
-        bank_transaction = frappe.get_doc(
-            {
-                "doctype": "Bank Transaction",
-                "date": getdate(paid_at) if paid_at else getdate(),
-                "deposit": amount,
-                "withdrawal": 0.0,
-                "currency": currency,
-                "bank_account": clearing_bank_account,
-                "company": company,
-                "reference_number": payment_id,
-                "description": bt_description,
-                "status": "Unreconciled",
-                "unallocated_amount": amount,
-            }
+        # Create Bank Transaction using centralized creator
+        bank_transaction_name = self.bank_tx_creator.create(
+            date=getdate(paid_at) if paid_at else getdate(),
+            bank_account=clearing_bank_account,
+            company=company,
+            deposit=amount,
+            withdrawal=0.0,
+            currency=currency,
+            reference_number=payment_id,
+            description=bt_description,
         )
 
-        bank_transaction.insert()
-        bank_transaction.submit()
+        if not bank_transaction_name:
+            frappe.logger().error(f"❌ Failed to create generic Bank Transaction for {payment_id}")
+            return None
 
         frappe.logger().info(
-            f"✅ Created generic Bank Transaction {bank_transaction.name} for {payment_id} (EUR {amount})"
+            f"✅ Created generic Bank Transaction {bank_transaction_name} for {payment_id} (EUR {amount})"
         )
 
-        return bank_transaction
+        # Return the document for compatibility
+        return frappe.get_doc("Bank Transaction", bank_transaction_name)
 
     def _create_fee_journal_entry(self, settlement_id: str, fee_amount: float, company: str, settlement_date):
         """
@@ -680,7 +647,9 @@ class SettlementBankTransactionProcessor:
             frappe.logger().warning("⚠️ Clearing or Fees account not configured - skipping fee Journal Entry")
             return None
 
-        # Create Journal Entry
+        # Create Journal Entry with secure operations
+        from verenigingen.security.permission_validator import secure_document_operation
+
         je = frappe.get_doc(
             {
                 "doctype": "Journal Entry",
@@ -703,14 +672,40 @@ class SettlementBankTransactionProcessor:
             }
         )
 
-        je.insert()
-        je.submit()
-
-        frappe.logger().info(
-            f"✅ Created fee Journal Entry {je.name} for settlement {settlement_id} (EUR {fee_amount:.2f})"
+        # Secure create operation
+        create_result = secure_document_operation(
+            operation="create",
+            doc=je,
+            justification=f"Mollie fee Journal Entry for settlement {settlement_id}",
+            required_permissions=["Journal Entry:create"],
+            allow_system_user=True,
         )
 
-        return je
+        if not create_result.success:
+            frappe.logger().error(f"❌ Permission denied for Journal Entry creation: {create_result.message}")
+            return None
+
+        # Secure submit operation
+        submit_result = secure_document_operation(
+            operation="submit",
+            doc=create_result.document,
+            justification=f"Auto-submit fee Journal Entry for settlement {settlement_id}",
+            required_permissions=["Journal Entry:submit"],
+            allow_system_user=True,
+        )
+
+        if not submit_result.success:
+            frappe.logger().error(
+                f"❌ Permission denied for Journal Entry submission: {submit_result.message}"
+            )
+            create_result.document.delete()
+            return None
+
+        frappe.logger().info(
+            f"✅ Created fee Journal Entry {submit_result.document.name} for settlement {settlement_id} (EUR {fee_amount:.2f})"
+        )
+
+        return submit_result.document
 
     def batch_process_recent_settlements(self, days: int = 7) -> Dict:
         """
