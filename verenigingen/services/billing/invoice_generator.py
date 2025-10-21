@@ -629,6 +629,15 @@ class InvoiceGenerator:
         invoice.custom_coverage_start_date = coverage_start
         invoice.custom_coverage_end_date = coverage_end
 
+        # Set descriptive title for list view (instead of just customer name)
+        # Format: "Membership Dues - CustomerName - YYYY-MM"
+        from frappe.utils import formatdate
+
+        period_label = formatdate(coverage_start, "yyyy-MM")
+        # Get customer_name from Customer record (not Member)
+        customer_name = frappe.get_cached_value("Customer", member_doc.customer, "customer_name")
+        invoice.title = f"Membership Dues - {customer_name} - {period_label}"
+
         # Set membership-related fields
         invoice.is_membership_invoice = 1
         invoice.membership_dues_schedule_display = self.schedule_name

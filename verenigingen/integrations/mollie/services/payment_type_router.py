@@ -26,10 +26,12 @@ class PaymentTypeRouter:
     def __init__(self):
         from ..core.mollie_client import MollieClient
         from .dues_payment_processor import DuesPaymentProcessor
+        from .order_payment_processor import OrderPaymentProcessor
 
         self.mollie_client = MollieClient()
         self.classifier = PaymentClassifier()
         self.dues_processor = DuesPaymentProcessor()
+        self.order_processor = OrderPaymentProcessor()
 
     def fetch_payment(self, payment_id: str) -> Any:
         """
@@ -120,7 +122,15 @@ class PaymentTypeRouter:
             }
 
             # Route based on payment type
-            if classification["payment_type"] == PaymentType.DUES:
+            if classification["payment_type"] == PaymentType.ORDER:
+                frappe.logger().info(f"🛒 Routing payment {payment_id} to OrderPaymentProcessor")
+                result["processor"] = "OrderPaymentProcessor"
+
+                # Process as shop/WooCommerce order
+                order_result = self.order_processor.process_order_payment(payment_id, payment)
+                result.update(order_result)
+
+            elif classification["payment_type"] == PaymentType.DUES:
                 frappe.logger().info(f"📋 Routing payment {payment_id} to DuesPaymentProcessor")
                 result["processor"] = "DuesPaymentProcessor"
 
@@ -131,14 +141,16 @@ class PaymentTypeRouter:
             elif classification["payment_type"] == PaymentType.DONATION:
                 frappe.logger().info(f"💝 Routing payment {payment_id} to donation processor")
                 result["processor"] = "DonationProcessor"
+                result["status"] = "pending_implementation"
+                result["message"] = (
+                    f"Donation payment routing not yet implemented. "
+                    f"Payment will be processed via fallback donation logic in webhook handler. "
+                    f"Donor: {classification.get('donor_id', 'Unknown')}"
+                )
 
-                # Use existing donation processing logic
-                from .webhook_wrapper_service_unified import UnifiedWebhookWrapperService
-
-                donation_service = UnifiedWebhookWrapperService()
-                webhook_data = {"id": payment_id}
-                donation_result = donation_service.process_payment_webhook(payment_id, webhook_data)
-                result.update(donation_result)
+                # NOTE: Donation processing currently handled by existing logic in
+                # webhook_wrapper_service_unified.py. This should be refactored into
+                # a dedicated DonationProcessor to complete the routing architecture.
 
             else:
                 # Unknown payment type
@@ -146,7 +158,7 @@ class PaymentTypeRouter:
                 result["status"] = "error"
                 result["processor"] = "none"
                 result["message"] = (
-                    f"Cannot determine payment type - no matching member/donor found. "
+                    f"Cannot determine payment type - no matching member/donor/order found. "
                     f"Classification: {classification['matched_by']}"
                 )
 

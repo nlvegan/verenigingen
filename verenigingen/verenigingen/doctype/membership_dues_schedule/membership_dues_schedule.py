@@ -1345,8 +1345,27 @@ class MembershipDuesSchedule(Document):
             coverage_start: Start date for invoice coverage period (if None, calculates from posting date)
             coverage_end: End date for invoice coverage period (if None, calculates from posting date)
         """
-        # Get member's customer record
-        member_doc = frappe.get_doc("Member", self.member)
+        # TEMPORARILY DISABLED to find if anything still calls this
+        import traceback
+
+        caller_stack = "\n".join(traceback.format_stack()[:-1])
+
+        error_message = (
+            "DEPRECATED METHOD CALLED: create_sales_invoice() is deprecated.\n"
+            "Use InvoiceGenerator service instead.\n\n"
+            f"Called from:\n{caller_stack}"
+        )
+
+        frappe.log_error(error_message, "Deprecated Method Usage")
+        frappe.throw(
+            "This method is deprecated. Use InvoiceGenerator service instead. "
+            "Check Error Log for call stack details.",
+            title="Deprecated Method Called",
+        )
+
+        # Original code commented out to force migration - DO NOT USE
+        # Function ends here - everything below is old implementation
+        return None
         if not member_doc.customer:
             frappe.throw(f"Member {self.member} does not have a customer record")
 
@@ -1366,6 +1385,15 @@ class MembershipDuesSchedule(Document):
         # ✅ CRITICAL: Use provided coverage dates (for sequential billing) or calculate from posting date (fallback)
         if coverage_start is None or coverage_end is None:
             coverage_start, coverage_end = self.calculate_billing_period(invoice.posting_date)
+
+        # Set descriptive title for list view (instead of just customer name)
+        # Format: "Membership Dues - CustomerName - YYYY-MM"
+        from frappe.utils import formatdate
+
+        period_label = formatdate(coverage_start, "yyyy-MM")
+        # Get customer_name from Customer record (not Member)
+        customer_name = frappe.get_cached_value("Customer", member_doc.customer, "customer_name")
+        invoice.title = f"Membership Dues - {customer_name} - {period_label}"
 
         invoice.custom_coverage_start_date = coverage_start
         invoice.custom_coverage_end_date = coverage_end

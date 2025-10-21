@@ -90,8 +90,9 @@ class TestInvoiceGenerationAndPaymentHistorySync(VereningingenTestCase):
         (a past date) instead of a proper future due date.
         """
         # Generate invoice using the dues schedule
-        invoice_name = self.dues_schedule.create_sales_invoice()
-        self.assertIsNotNone(invoice_name, "Invoice should be created successfully")
+        invoice_doc = self.dues_schedule.generate_invoice()
+        self.assertIsNotNone(invoice_doc, "Invoice should be created successfully")
+        invoice_name = invoice_doc.name if hasattr(invoice_doc, 'name') else invoice_doc
         
         # Track the invoice for cleanup
         self.track_doc("Sales Invoice", invoice_name)
@@ -265,7 +266,8 @@ class TestInvoiceGenerationAndPaymentHistorySync(VereningingenTestCase):
         self.dues_schedule.save()
         
         # Generate invoice
-        invoice_name = self.dues_schedule.create_sales_invoice()
+        invoice_doc = self.dues_schedule.generate_invoice()
+        invoice_name = invoice_doc.name if hasattr(invoice_doc, 'name') else invoice_doc
         self.track_doc("Sales Invoice", invoice_name)
         
         invoice = frappe.get_doc("Sales Invoice", invoice_name)
@@ -289,7 +291,8 @@ class TestInvoiceGenerationAndPaymentHistorySync(VereningingenTestCase):
         # the type of test needed to catch silent auto-submit failures
         
         # Generate invoice
-        invoice_name = self.dues_schedule.create_sales_invoice()
+        invoice_doc = self.dues_schedule.generate_invoice()
+        invoice_name = invoice_doc.name if hasattr(invoice_doc, 'name') else invoice_doc
         self.track_doc("Sales Invoice", invoice_name)
         
         invoice = frappe.get_doc("Sales Invoice", invoice_name)

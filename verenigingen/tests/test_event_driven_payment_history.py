@@ -276,8 +276,9 @@ class TestEventSystemIntegration(VereningingenTestCase):
         self.track_doc("Membership Dues Schedule", dues_schedule.name)
         
         # Generate invoice through dues schedule
-        invoice_name = dues_schedule.create_sales_invoice()
-        self.assertIsNotNone(invoice_name, "Invoice should be created")
+        invoice_doc = dues_schedule.generate_invoice()
+        self.assertIsNotNone(invoice_doc, "Invoice should be created")
+        invoice_name = invoice_doc.name if hasattr(invoice_doc, 'name') else invoice_doc
         self.track_doc("Sales Invoice", invoice_name)
         
         # Get the invoice and verify it can be submitted

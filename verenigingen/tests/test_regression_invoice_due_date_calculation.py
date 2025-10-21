@@ -61,8 +61,9 @@ class TestRegressionInvoiceDueDateCalculation(EnhancedTestCase):
         # Enhanced Test Factory handles cleanup automatically
         
         # Generate invoice using the dues schedule
-        invoice_name = dues_schedule.create_sales_invoice()
-        self.assertIsNotNone(invoice_name, "Invoice should be created successfully")
+        invoice_doc = dues_schedule.generate_invoice()
+        self.assertIsNotNone(invoice_doc, "Invoice should be created successfully")
+        invoice_name = invoice_doc.name if hasattr(invoice_doc, 'name') else invoice_doc
         # Enhanced Test Factory handles cleanup automatically
         
         # Get the created invoice
@@ -141,9 +142,10 @@ class TestRegressionInvoiceDueDateCalculation(EnhancedTestCase):
         # Enhanced Test Factory handles cleanup automatically
         
         # Generate invoice
-        invoice_name = dues_schedule.create_sales_invoice()
+        invoice_doc = dues_schedule.generate_invoice()
+        invoice_name = invoice_doc.name if hasattr(invoice_doc, 'name') else invoice_doc
         # Enhanced Test Factory handles cleanup automatically
-        
+
         invoice = frappe.get_doc("Sales Invoice", invoice_name)
         
         # Verify payment terms template was set
@@ -221,9 +223,10 @@ class TestRegressionInvoiceDueDateCalculation(EnhancedTestCase):
                 # Enhanced Test Factory handles cleanup automatically
                 
                 # Generate invoice
-                invoice_name = dues_schedule.create_sales_invoice()
+                invoice_doc = dues_schedule.generate_invoice()
+                invoice_name = invoice_doc.name if hasattr(invoice_doc, 'name') else invoice_doc
                 # Enhanced Test Factory handles cleanup automatically
-                
+
                 invoice = frappe.get_doc("Sales Invoice", invoice_name)
                 
                 # Verify due date
@@ -292,7 +295,8 @@ class TestRegressionInvoiceDueDateCalculation(EnhancedTestCase):
         # Enhanced Test Factory handles cleanup automatically
         
         # Generate invoice (this is what happened at 06:22:52 on 2025-07-22)
-        invoice_name = dues_schedule.create_sales_invoice()
+        invoice_doc = dues_schedule.generate_invoice()
+        invoice_name = invoice_doc.name if hasattr(invoice_doc, 'name') else invoice_doc
         # Enhanced Test Factory handles cleanup automatically
         
         invoice = frappe.get_doc("Sales Invoice", invoice_name)

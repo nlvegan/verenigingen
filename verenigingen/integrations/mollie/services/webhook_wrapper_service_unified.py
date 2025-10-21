@@ -282,10 +282,29 @@ class UnifiedWebhookWrapperService:
                     f"confidence={classification['confidence']}, matched_by={classification['matched_by']}"
                 )
 
-                # If it's a membership dues payment, route to DuesPaymentProcessor
+                # Route based on payment type
                 from ..domain.payment_classification import PaymentType
 
-                if classification["payment_type"] == PaymentType.DUES:
+                payment_type = classification["payment_type"]
+
+                # ORDER payments: Create Bank Transactions for reconciliation
+                if payment_type == PaymentType.ORDER:
+                    self.logger.info(f"🛒 Routing {payment_id} to OrderPaymentProcessor")
+                    result = router.route_payment(payment_id, payment)
+
+                    # Add timing information
+                    duration = time.time() - start_time
+                    result["duration_seconds"] = duration
+                    record_operation_performance(
+                        "unified_webhook_processing",
+                        duration,
+                        result.get("status") not in ["error", "skipped"],
+                    )
+
+                    return result
+
+                # DUES payments: Create Payment Entries for membership dues
+                elif payment_type == PaymentType.DUES:
                     self.logger.info(f"🔀 Routing {payment_id} to DuesPaymentProcessor")
                     result = router.route_payment(payment_id, payment)
 
@@ -300,11 +319,14 @@ class UnifiedWebhookWrapperService:
 
                     return result
 
-                # For donations and unknown types, continue with existing donation-focused logic
-                self.logger.info(
-                    f"📝 Continuing with donation processor for {payment_id} "
-                    f"(type: {classification['payment_type']})"
-                )
+                # DONATION and UNKNOWN types: Continue with existing donation-focused logic
+                # NOTE: Donation routing not yet implemented in PaymentTypeRouter
+                # This maintains backward compatibility for donation and unclassified payments
+                else:
+                    self.logger.info(
+                        f"📝 Continuing with existing donation processor for {payment_id} "
+                        f"(type: {payment_type})"
+                    )
 
             except Exception as classification_error:
                 # If classification fails, continue with existing donation logic as fallback

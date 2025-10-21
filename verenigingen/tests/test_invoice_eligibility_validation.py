@@ -88,8 +88,9 @@ class TestInvoiceEligibilityValidation(EnhancedTestCase):
         self.assertTrue(can_generate, f"Should be able to generate invoice: {reason}")
 
         # Generate invoice
-        invoice_name = dues_schedule.create_sales_invoice()
-        self.assertIsNotNone(invoice_name, "Invoice should be created despite missing SEPA mandate")
+        invoice = dues_schedule.generate_invoice()
+        self.assertIsNotNone(invoice, "Invoice should be created despite missing SEPA mandate")
+        invoice_name = invoice.name if hasattr(invoice, 'name') else invoice
         self.track_doc("Sales Invoice", invoice_name)
 
         # Verify invoice was created successfully
@@ -148,8 +149,9 @@ class TestInvoiceEligibilityValidation(EnhancedTestCase):
         self.assertTrue(is_eligible, "Member with Bank Transfer should be eligible for invoicing")
 
         # Generate invoice
-        invoice_name = dues_schedule.create_sales_invoice()
-        self.assertIsNotNone(invoice_name, "Invoice should be created for Bank Transfer member")
+        invoice = dues_schedule.generate_invoice()
+        self.assertIsNotNone(invoice, "Invoice should be created for Bank Transfer member")
+        invoice_name = invoice.name if hasattr(invoice, 'name') else invoice
         self.track_doc("Sales Invoice", invoice_name)
 
     def test_terminated_member_still_blocked_from_invoicing(self):
@@ -317,8 +319,9 @@ class TestInvoiceEligibilityValidation(EnhancedTestCase):
         self.assertTrue(is_eligible, "Member with valid SEPA setup should be eligible for invoicing")
 
         # Generate invoice
-        invoice_name = dues_schedule.create_sales_invoice()
-        self.assertIsNotNone(invoice_name, "Invoice should be created for member with valid SEPA setup")
+        invoice = dues_schedule.generate_invoice()
+        self.assertIsNotNone(invoice, "Invoice should be created for member with valid SEPA setup")
+        invoice_name = invoice.name if hasattr(invoice, 'name') else invoice
         self.track_doc("Sales Invoice", invoice_name)
 
         # This member should also be eligible for DD batch inclusion
@@ -409,11 +412,13 @@ class TestInvoiceEligibilityValidation(EnhancedTestCase):
                         "Terminated member should NOT be eligible")
 
         # Test invoice generation
-        valid_invoice = valid_schedule.create_sales_invoice()
-        broken_invoice = broken_schedule.create_sales_invoice()
-        
-        self.assertIsNotNone(valid_invoice, "Valid SEPA member should get invoice")
-        self.assertIsNotNone(broken_invoice, "Broken SEPA member should STILL get invoice")
+        valid_invoice_doc = valid_schedule.generate_invoice()
+        broken_invoice_doc = broken_schedule.generate_invoice()
+
+        self.assertIsNotNone(valid_invoice_doc, "Valid SEPA member should get invoice")
+        self.assertIsNotNone(broken_invoice_doc, "Broken SEPA member should STILL get invoice")
+        valid_invoice = valid_invoice_doc.name if hasattr(valid_invoice_doc, 'name') else valid_invoice_doc
+        broken_invoice = broken_invoice_doc.name if hasattr(broken_invoice_doc, 'name') else broken_invoice_doc
         self.track_doc("Sales Invoice", valid_invoice)
         self.track_doc("Sales Invoice", broken_invoice)
 
