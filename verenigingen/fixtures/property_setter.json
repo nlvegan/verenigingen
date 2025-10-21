@@ -1,0 +1,12 @@
+[
+  {
+    "doctype": "Property Setter",
+    "name": "Bank Transaction-main-title_field",
+    "doctype_or_field": "DocType",
+    "doc_type": "Bank Transaction",
+    "property": "title_field",
+    "property_type": "Data",
+    "value": "description",
+    "is_system_generated": 0
+  }
+]

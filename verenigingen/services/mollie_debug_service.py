@@ -1001,6 +1001,7 @@ class MollieDebugService:
         Test webhook processing for a specific payment ID.
 
         Calls the unified webhook handler directly to simulate webhook delivery.
+        Now supports both donation and membership dues payments.
         """
         if not payment_id:
             raise ValueError(_("Payment ID is required"))
@@ -1018,13 +1019,27 @@ class MollieDebugService:
         }
 
         try:
+            # First, classify the payment to show what type it is
+            from verenigingen.integrations.mollie.services.payment_type_router import get_payment_router
+
+            router = get_payment_router()
+            payment = router.fetch_payment(payment_id)
+            classification = router.classify_payment(payment)
+
+            result["payment_type"] = classification["payment_type"]
+            result["classification_confidence"] = classification["confidence"]
+            result["classification_method"] = classification["matched_by"]
+
             # Call the unified webhook handler
             webhook_result = handle_payment_webhook(payment_id=payment_id)
 
             result["webhook_called"] = True
             result["webhook_result"] = webhook_result
             result["status"] = "success"
-            result["message"] = f"Webhook processed successfully for payment {payment_id}"
+            result["message"] = (
+                f"Webhook processed successfully for payment {payment_id} "
+                f"(type: {classification['payment_type']})"
+            )
 
             # Extract useful info from result if available
             if isinstance(webhook_result, dict):

@@ -258,11 +258,60 @@ class UnifiedWebhookWrapperService:
 
         This is the main entry point that ensures consistent state checking
         across all webhook processing scenarios.
+
+        Now supports both donation and membership dues payments via PaymentTypeRouter.
         """
         start_time = time.time()
 
         try:
             self.logger.info(f"🚀 UNIFIED webhook processing started for payment {payment_id}")
+
+            # STEP 0: PAYMENT TYPE CLASSIFICATION & ROUTING
+            # Try to classify the payment type first to route to appropriate processor
+            from .payment_type_router import get_payment_router
+
+            router = get_payment_router()
+
+            # Fetch payment to classify it
+            try:
+                payment = router.fetch_payment(payment_id)
+                classification = router.classify_payment(payment)
+
+                self.logger.info(
+                    f"📊 Payment classification: type={classification['payment_type']}, "
+                    f"confidence={classification['confidence']}, matched_by={classification['matched_by']}"
+                )
+
+                # If it's a membership dues payment, route to DuesPaymentProcessor
+                from ..domain.payment_classification import PaymentType
+
+                if classification["payment_type"] == PaymentType.DUES:
+                    self.logger.info(f"🔀 Routing {payment_id} to DuesPaymentProcessor")
+                    result = router.route_payment(payment_id, payment)
+
+                    # Add timing information
+                    duration = time.time() - start_time
+                    result["duration_seconds"] = duration
+                    record_operation_performance(
+                        "unified_webhook_processing",
+                        duration,
+                        result.get("status") not in ["error", "skipped"],
+                    )
+
+                    return result
+
+                # For donations and unknown types, continue with existing donation-focused logic
+                self.logger.info(
+                    f"📝 Continuing with donation processor for {payment_id} "
+                    f"(type: {classification['payment_type']})"
+                )
+
+            except Exception as classification_error:
+                # If classification fails, continue with existing donation logic as fallback
+                self.logger.warning(
+                    f"⚠️ Payment classification failed for {payment_id}: {classification_error}. "
+                    f"Falling back to donation processor"
+                )
 
             # STEP 1: UNIFIED IDEMPOTENCY CHECK - single source of truth
             self.logger.info(f"🔍 STEP 1: Unified idempotency check for {payment_id}")

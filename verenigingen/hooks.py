@@ -785,6 +785,8 @@ workflow_action_handlers = {
 # Fixtures
 # --------
 fixtures = [
+    # Property Setters (customize ERPNext DocTypes)
+    "Property Setter",
     # Donation Types
     {
         "doctype": "Donation Type",

@@ -392,6 +392,7 @@ class DuesPaymentProcessor:
         currency = payment.amount["currency"] if payment.amount else "EUR"
         paid_at = getattr(payment, "paid_at", None)
         payment_date = getdate(paid_at) if paid_at else getdate()
+        payment_description = getattr(payment, "description", None)
 
         # Get settings and accounts
         mollie_settings = frappe.get_single("Mollie Settings")
@@ -414,6 +415,12 @@ class DuesPaymentProcessor:
                 f"Please create a Bank Account record and link it to this GL Account."
             )
 
+        # Build description (start with payment description for title_field visibility)
+        if payment_description:
+            description = f"{payment_description} | {payment_id} | Member: {member.full_name}"
+        else:
+            description = f"Mollie dues payment | {payment_id} | Member: {member.full_name}"
+
         # Create unreconciled Bank Transaction
         bank_transaction = frappe.get_doc(
             {
@@ -425,7 +432,8 @@ class DuesPaymentProcessor:
                 "bank_account": bank_account,
                 "company": company,
                 "reference_number": payment_id,
-                "description": f"Mollie dues payment for {member.full_name} (Member: {member_name})",
+                "transaction_id": payment_id,  # Use payment ID for idempotency across APIs
+                "description": description,
                 "party_type": "Customer",
                 "party": customer,
                 "status": "Unreconciled",

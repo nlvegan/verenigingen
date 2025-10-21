@@ -202,16 +202,15 @@ def search_customers_by_name(search_term, limit=20):
 @high_security_api(operation_type=OperationType.FINANCIAL)
 def debug_payment(payment_id):
     """Debug a specific payment with comprehensive details"""
-    try:
-        if not has_mollie_debug_access():
-            frappe.throw(_("Access denied"))
+    if not has_mollie_debug_access():
+        frappe.throw(_("Access denied"))
 
-        service = MollieDebugService()
-        return service.debug_payment(payment_id)
+    service = MollieDebugService()
+    result = service.debug_payment(payment_id)
 
-    except Exception as e:
-        frappe.log_error(f"Mollie debug payment error: {str(e)}")
-        return {"error": str(e), "payment_id": payment_id}
+    # Always return the result directly - Frappe will wrap it in {"message": result}
+    # The service already handles exceptions and returns error info in the result dict
+    return result
 
 
 @frappe.whitelist(allow_guest=False)
@@ -475,3 +474,174 @@ def batch_process_dues_payments(payment_ids, customer_id=None):
     except Exception as e:
         frappe.log_error(f"Mollie batch process dues payments error: {str(e)}")
         return {"error": str(e), "payment_ids": payment_ids}
+
+
+# Balance Transaction Processing API Endpoints
+
+
+@frappe.whitelist(allow_guest=False)
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def get_balance_info():
+    """Get primary balance information"""
+    try:
+        if not has_mollie_debug_access():
+            frappe.throw(_("Access denied"))
+
+        from verenigingen.verenigingen_payments.api.balance_transaction_processing import (
+            get_primary_balance_info,
+        )
+
+        return get_primary_balance_info()
+
+    except Exception as e:
+        frappe.log_error(f"Get balance info error: {str(e)}")
+        return {"error": str(e)}
+
+
+@frappe.whitelist(allow_guest=False)
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def process_recent_balance_transactions(days, limit=250):
+    """Process balance transactions from recent days"""
+    try:
+        if not has_mollie_debug_access():
+            frappe.throw(_("Access denied"))
+
+        from datetime import datetime, timedelta
+
+        from verenigingen.verenigingen_payments.api.balance_transaction_processing import (
+            process_balance_transactions,
+        )
+
+        # Calculate date range
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=int(days))
+
+        return process_balance_transactions(
+            from_date=start_date.strftime("%Y-%m-%d"),
+            until_date=end_date.strftime("%Y-%m-%d"),
+            limit=int(limit),
+        )
+
+    except Exception as e:
+        frappe.log_error(f"Process recent balance transactions error: {str(e)}")
+        return {"error": str(e)}
+
+
+@frappe.whitelist(allow_guest=False)
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def process_balance_date_range(from_date, until_date, limit=250):
+    """Process balance transactions for a specific date range"""
+    try:
+        if not has_mollie_debug_access():
+            frappe.throw(_("Access denied"))
+
+        from verenigingen.verenigingen_payments.api.balance_transaction_processing import (
+            process_balance_transactions,
+        )
+
+        return process_balance_transactions(from_date=from_date, until_date=until_date, limit=int(limit))
+
+    except Exception as e:
+        frappe.log_error(f"Process balance date range error: {str(e)}")
+        return {"error": str(e)}
+
+
+@frappe.whitelist(allow_guest=False)
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def process_balance_historical_data(months_back, batch_size=250):
+    """Process historical balance transactions in batches"""
+    try:
+        if not has_mollie_debug_access():
+            frappe.throw(_("Access denied"))
+
+        from verenigingen.verenigingen_payments.api.balance_transaction_processing import (
+            process_historical_data,
+        )
+
+        return process_historical_data(months_back=int(months_back), batch_size=int(batch_size))
+
+    except Exception as e:
+        frappe.log_error(f"Process historical balance data error: {str(e)}")
+        return {"error": str(e)}
+
+
+@frappe.whitelist(allow_guest=False)
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def check_balance_transaction_status(transaction_id, include_mollie_data=False):
+    """Check if a balance transaction has been processed"""
+    try:
+        if not has_mollie_debug_access():
+            frappe.throw(_("Access denied"))
+
+        from verenigingen.verenigingen_payments.api.balance_transaction_processing import (
+            check_transaction_status,
+        )
+
+        # Convert string boolean from form data
+        if isinstance(include_mollie_data, str):
+            include_mollie_data = include_mollie_data.lower() in ("true", "1", "yes")
+
+        return check_transaction_status(
+            transaction_id=transaction_id, include_mollie_data=include_mollie_data
+        )
+
+    except Exception as e:
+        frappe.log_error(f"Check balance transaction status error: {str(e)}")
+        return {"error": str(e)}
+
+
+@frappe.whitelist(allow_guest=False)
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def search_balance_transactions(search_term, limit=50):
+    """Search Bank Transactions by description"""
+    try:
+        if not has_mollie_debug_access():
+            frappe.throw(_("Access denied"))
+
+        from verenigingen.verenigingen_payments.api.balance_transaction_processing import (
+            search_transactions_by_description,
+        )
+
+        return search_transactions_by_description(search_term=search_term, limit=int(limit))
+
+    except Exception as e:
+        frappe.log_error(f"Search balance transactions error: {str(e)}")
+        return {"error": str(e)}
+
+
+@frappe.whitelist(allow_guest=False)
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def fetch_recent_for_search(limit=100):
+    """Fetch recent balance transactions from Mollie for search"""
+    try:
+        if not has_mollie_debug_access():
+            frappe.throw(_("Access denied"))
+
+        from verenigingen.verenigingen_payments.api.balance_transaction_processing import (
+            fetch_recent_transactions_for_search,
+        )
+
+        return fetch_recent_transactions_for_search(limit=int(limit))
+
+    except Exception as e:
+        frappe.log_error(f"Fetch recent transactions error: {str(e)}")
+        return {"error": str(e)}
+
+
+@frappe.whitelist(allow_guest=False)
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def get_balance_processing_statistics(days=30):
+    """Get statistics about balance transaction processing"""
+    try:
+        if not has_mollie_debug_access():
+            frappe.throw(_("Access denied"))
+
+        from verenigingen.verenigingen_payments.api.balance_transaction_processing import (
+            get_processing_statistics,
+        )
+
+        return get_processing_statistics(days=int(days))
+
+    except Exception as e:
+        frappe.log_error(f"Get balance processing statistics error: {str(e)}")
+        return {"error": str(e)}
