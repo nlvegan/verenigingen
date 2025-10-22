@@ -596,7 +596,7 @@ def send_payment_confirmation_email(donation_id):
             reference_name=donation.name,
         )
 
-        return result.success
+        return result.get("success", False)
 
     except Exception as e:
         # Log error with truncated message to avoid field length issues

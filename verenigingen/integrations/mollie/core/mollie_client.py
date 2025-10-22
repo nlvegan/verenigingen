@@ -103,7 +103,12 @@ class MollieClient:
         """Test API connectivity with a simple call."""
         try:
             if self.sdk_client:
-                self.sdk_client.organizations.get("me")
+                # Use methods.list() instead of organizations.get("me")
+                # because organizations endpoint requires:
+                # 1. Live mode (not test mode)
+                # 2. Organization Access Token (not regular API key)
+                # methods.list() works in both test and live mode
+                self.sdk_client.methods.list()
         except Exception as e:
             frappe.log_error(f"Mollie connectivity test failed: {e}", "Mollie Client")
 
