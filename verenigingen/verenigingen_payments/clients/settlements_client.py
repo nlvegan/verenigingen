@@ -89,46 +89,32 @@ class SettlementsClient(MollieBaseClient):
         response = self.get("settlements", params=params, paginated=True)
         settlements = [Settlement(item) for item in response]
 
-        # Apply optimized date filtering in memory if requested
-        if from_date or until_date:
-            filtered_settlements = []
+        # Apply memory-based date filtering
+        # Settlement objects prefer settled_at_datetime, fall back to created_at_datetime
+        filtered_settlements = []
+        for settlement in settlements:
+            # Try settled_at_datetime first, then created_at_datetime
+            date_value = None
+            if hasattr(settlement, "settled_at_datetime") and settlement.settled_at_datetime:
+                date_value = settlement.settled_at_datetime
+            elif hasattr(settlement, "created_at_datetime") and settlement.created_at_datetime:
+                date_value = settlement.created_at_datetime
 
-            # Use optimized date comparison with model's parsed datetime objects
-            for settlement in settlements:
-                settlement_date = None
+            # Add date_value as temporary attribute for filtering
+            settlement._filter_date = date_value
+            filtered_settlements.append(settlement)
 
-                # Use the model's parsed datetime objects (already converted to naive)
-                if hasattr(settlement, "settled_at_datetime") and settlement.settled_at_datetime:
-                    settlement_date = settlement.settled_at_datetime
-                elif hasattr(settlement, "created_at_datetime") and settlement.created_at_datetime:
-                    settlement_date = settlement.created_at_datetime
+        # Use centralized filtering with custom field
+        result = self._filter_by_date(
+            filtered_settlements, from_date=from_date, until_date=until_date, date_field="_filter_date"
+        )
 
-                # Apply date filter using date-only comparison for better performance
-                if settlement_date:
-                    settlement_date_only = (
-                        settlement_date.date() if hasattr(settlement_date, "date") else settlement_date
-                    )
-                    from_date_only = (
-                        from_date.date() if from_date and hasattr(from_date, "date") else from_date
-                    )
-                    until_date_only = (
-                        until_date.date() if until_date and hasattr(until_date, "date") else until_date
-                    )
+        # Clean up temporary attribute
+        for settlement in result:
+            if hasattr(settlement, "_filter_date"):
+                delattr(settlement, "_filter_date")
 
-                    if from_date_only and settlement_date_only < from_date_only:
-                        continue
-                    if until_date_only and settlement_date_only > until_date_only:
-                        continue
-
-                filtered_settlements.append(settlement)
-
-            # Log performance information
-            frappe.logger().info(
-                f"Filtered {len(settlements)} settlements to {len(filtered_settlements)} based on date range"
-            )
-            return filtered_settlements
-
-        return settlements
+        return result
 
     def get_next_settlement(self) -> Optional[Settlement]:
         """
@@ -380,7 +366,9 @@ class SettlementsClient(MollieBaseClient):
         # Use centralized extractor for settlement amounts
         extractor = get_payment_data_extractor()
         capture_total = sum(
-            Decimal(str(extractor.extract_amount(c, source_type=MollieObjectType.SETTLEMENT, allow_zero=True)))
+            Decimal(
+                str(extractor.extract_amount(c, source_type=MollieObjectType.SETTLEMENT, allow_zero=True))
+            )
             for c in captures
             if hasattr(c, "settlement_amount") and c.settlement_amount
         )
@@ -390,7 +378,9 @@ class SettlementsClient(MollieBaseClient):
 
         # Extract settlement amount using centralized extractor
         actual_amount = Decimal(
-            str(extractor.extract_amount(settlement, source_type=MollieObjectType.SETTLEMENT, allow_zero=True))
+            str(
+                extractor.extract_amount(settlement, source_type=MollieObjectType.SETTLEMENT, allow_zero=True)
+            )
         )
 
         discrepancy = actual_amount - calculated_total
@@ -484,7 +474,9 @@ class SettlementsClient(MollieBaseClient):
                     "id": settlement.id,
                     "reference": settlement.reference,
                     "status": settlement.status,
-                    "amount": extractor.extract_amount(settlement, source_type=MollieObjectType.SETTLEMENT, allow_zero=True),
+                    "amount": extractor.extract_amount(
+                        settlement, source_type=MollieObjectType.SETTLEMENT, allow_zero=True
+                    ),
                     "created_at": settlement.created_at,
                     "settled_at": settlement.settled_at,
                 }
@@ -521,7 +513,9 @@ class SettlementsClient(MollieBaseClient):
             "created_at": settlement.created_at,
             "settled_at": settlement.settled_at,
             "reference": settlement.reference,
-            "amount": extractor.extract_amount(settlement, source_type=MollieObjectType.SETTLEMENT, allow_zero=True),
+            "amount": extractor.extract_amount(
+                settlement, source_type=MollieObjectType.SETTLEMENT, allow_zero=True
+            ),
             "tracked_at": datetime.now().isoformat(),
         }
 

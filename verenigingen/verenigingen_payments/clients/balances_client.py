@@ -169,41 +169,8 @@ class BalancesClient(MollieBaseClient):
         response = self.get(f"balances/{balance_id}/transactions", params=params, paginated=True)
         transactions = [BalanceTransaction(item) for item in response]
 
-        # Apply memory-based date filtering if requested
-        if from_date or until_date:
-            filtered_transactions = []
-            for transaction in transactions:
-                # Try to get transaction date from created_at
-                transaction_date = None
-
-                if hasattr(transaction, "created_at") and transaction.created_at:
-                    if isinstance(transaction.created_at, str):
-                        try:
-                            transaction_date = datetime.fromisoformat(
-                                transaction.created_at.replace("Z", "+00:00")
-                            )
-                            transaction_date = transaction_date.replace(
-                                tzinfo=None
-                            )  # Convert to naive for comparison
-                        except (ValueError, TypeError):
-                            pass
-                    elif isinstance(transaction.created_at, datetime):
-                        transaction_date = transaction.created_at
-                        if transaction_date.tzinfo:
-                            transaction_date = transaction_date.replace(tzinfo=None)
-
-                # Apply date filter
-                if transaction_date:
-                    if from_date and transaction_date.date() < from_date.date():
-                        continue
-                    if until_date and transaction_date.date() > until_date.date():
-                        continue
-
-                filtered_transactions.append(transaction)
-
-            return filtered_transactions
-
-        return transactions
+        # Apply memory-based date filtering using centralized method
+        return self._filter_by_date(transactions, from_date=from_date, until_date=until_date)
 
     def get_balance_report(
         self,

@@ -11,6 +11,7 @@ from frappe import _
 from frappe.utils import formatdate, getdate
 
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.validation.iban_validator import validate_iban
 
 from ..core.compliance.audit_trail import AuditEventType, AuditSeverity
 from ..core.compliance.audit_trail import ImmutableAuditTrail as AuditTrail
@@ -589,13 +590,19 @@ class BulkTransactionImporter(MollieBaseClient):
                 # Use standard Mollie API field names (not bankHolderName/bankAccount)
                 consumer_name = payment_details.get("consumerName")
                 consumer_account = payment_details.get("consumerAccount")
-                consumer_iban = consumer_account if self._validate_iban_format(consumer_account) else None
+                consumer_iban = (
+                    consumer_account
+                    if (consumer_account and validate_iban(consumer_account)["valid"])
+                    else None
+                )
             elif payment.get("method") == "directdebit" and payment_details:
                 consumer_name = payment_details.get("consumerName")
                 consumer_account = payment_details.get("consumerAccount")
                 consumer_account_raw = payment_details.get("consumerAccount")
                 consumer_iban = (
-                    consumer_account_raw if self._validate_iban_format(consumer_account_raw) else None
+                    consumer_account_raw
+                    if (consumer_account_raw and validate_iban(consumer_account_raw)["valid"])
+                    else None
                 )
 
             # Determine party information and attempt member matching
@@ -983,49 +990,6 @@ class BulkTransactionImporter(MollieBaseClient):
 
         return estimates
 
-    def _validate_iban_format(self, account_number: str) -> bool:
-        """
-        Validate if account number is a valid IBAN format with comprehensive checks
-
-        .. deprecated:: 1.0.0
-            Use :func:`verenigingen.utils.validation.iban_validator.validate_iban` instead.
-            **SECURITY RISK:** This method only checks format (regex + country code) without
-            validating the MOD-97 checksum. It may accept IBANs with invalid checksums!
-
-            **Migration Example**::
-
-                # Old (basic validation, NO checksum!)
-                if self._validate_iban_format(account_number):
-                    consumer_iban = account_number
-
-                # New (full validation WITH checksum)
-                from verenigingen.utils.validation.iban_validator import validate_iban
-                result = validate_iban(account_number)
-                if result["valid"]:
-                    consumer_iban = account_number
-
-        Args:
-            account_number: Account number to validate
-
-        Returns:
-            True if valid IBAN format, False otherwise
-        """
-        import warnings
-
-        warnings.warn(
-            "BulkTransactionImporter._validate_iban_format() is deprecated. "
-            "Use iban_validator.validate_iban() instead. "
-            "SECURITY RISK: This method lacks MOD-97 checksum validation and may accept invalid IBANs!",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-
-        # Delegate to canonical implementation
-        from verenigingen.utils.validation.iban_validator import validate_iban
-
-        result = validate_iban(account_number)
-        return result["valid"]
-
     def _find_member_by_payment_details(self, consumer_name: str = None, consumer_iban: str = None) -> str:
         """
         Find a Member record based on consumer payment details
@@ -1039,7 +1003,7 @@ class BulkTransactionImporter(MollieBaseClient):
         """
         try:
             # First try to match by IBAN in SEPA Mandates
-            if consumer_iban and self._validate_iban_format(consumer_iban):
+            if consumer_iban and validate_iban(consumer_iban)["valid"]:
                 # Clean and standardize IBAN format
                 clean_iban = consumer_iban.replace(" ", "").upper()
 

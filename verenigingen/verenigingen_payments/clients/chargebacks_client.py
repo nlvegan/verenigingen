@@ -126,36 +126,8 @@ class ChargebacksClient(MollieBaseClient):
         response = self.get("chargebacks", params=params, paginated=True)
         chargebacks = [Chargeback(item) for item in response]
 
-        # Apply date filtering in memory if requested
-        if from_date or until_date:
-            filtered_chargebacks = []
-            for chargeback in chargebacks:
-                # Try to get chargeback date from createdAt
-                chargeback_date = None
-
-                if hasattr(chargeback, "created_at") and chargeback.created_at:
-                    if isinstance(chargeback.created_at, str):
-                        try:
-                            chargeback_date = datetime.fromisoformat(
-                                chargeback.created_at.replace("Z", "+00:00")
-                            )
-                        except (ValueError, TypeError):
-                            pass
-                    elif isinstance(chargeback.created_at, datetime):
-                        chargeback_date = chargeback.created_at
-
-                # Apply date filter
-                if chargeback_date:
-                    if from_date and chargeback_date < from_date:
-                        continue
-                    if until_date and chargeback_date > until_date:
-                        continue
-
-                filtered_chargebacks.append(chargeback)
-
-            return filtered_chargebacks
-
-        return chargebacks
+        # Apply memory-based date filtering using centralized method
+        return self._filter_by_date(chargebacks, from_date=from_date, until_date=until_date)
 
     def analyze_chargeback_trends(self, period_days: int = 90) -> Dict:
         """

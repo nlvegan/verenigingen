@@ -473,6 +473,90 @@ class MollieBaseClient:
         """Get client performance metrics"""
         return self.http_client.get_metrics()
 
+    def _filter_by_date(
+        self,
+        items: List[Any],
+        from_date: Optional[datetime] = None,
+        until_date: Optional[datetime] = None,
+        date_field: str = "created_at",
+    ) -> List[Any]:
+        """
+        Memory-based date filtering for Mollie API responses
+
+        This method is necessary because some Mollie API endpoints don't support
+        from/until date parameters (e.g., balance transactions, settlement listings).
+        It filters items in memory based on their date field.
+
+        Args:
+            items: List of items to filter (can be model objects or dicts)
+            from_date: Start date for filtering (inclusive, compared by date only)
+            until_date: End date for filtering (inclusive, compared by date only)
+            date_field: Name of the date field to use for filtering (default: "created_at")
+
+        Returns:
+            Filtered list of items
+
+        Example:
+            # Filter balance transactions by date
+            transactions = self.get("balances/bal_xxx/transactions", paginated=True)
+            filtered = self._filter_by_date(
+                transactions,
+                from_date=datetime(2025, 1, 1),
+                until_date=datetime(2025, 1, 31)
+            )
+
+        Note:
+            - Handles both string ISO dates and datetime objects
+            - Converts timezone-aware datetimes to naive for comparison
+            - Items without valid dates are excluded from results
+            - Date comparison uses .date() so times are ignored
+        """
+        # If no date filtering requested, return original list
+        if not from_date and not until_date:
+            return items
+
+        filtered_items = []
+
+        for item in items:
+            # Extract date from item (handle both objects and dicts)
+            item_date = None
+
+            if hasattr(item, date_field):
+                date_value = getattr(item, date_field)
+            elif isinstance(item, dict) and date_field in item:
+                date_value = item[date_field]
+            else:
+                # Item doesn't have the date field - skip it
+                continue
+
+            # Parse date value
+            if date_value:
+                if isinstance(date_value, str):
+                    try:
+                        # ISO format with timezone (e.g., "2025-01-15T10:30:00+00:00" or "...Z")
+                        item_date = datetime.fromisoformat(date_value.replace("Z", "+00:00"))
+                        # Convert to naive datetime for comparison
+                        item_date = item_date.replace(tzinfo=None)
+                    except (ValueError, TypeError):
+                        # Invalid date format - skip this item
+                        continue
+                elif isinstance(date_value, datetime):
+                    item_date = date_value
+                    # Strip timezone if present
+                    if item_date.tzinfo:
+                        item_date = item_date.replace(tzinfo=None)
+
+            # Apply date filter (compare dates only, ignore times)
+            if item_date:
+                if from_date and item_date.date() < from_date.date():
+                    continue
+                if until_date and item_date.date() > until_date.date():
+                    continue
+
+                filtered_items.append(item)
+
+        return filtered_items
+
     def test_endpoint_parameter_support(self, endpoint: str, test_params: Dict[str, str]) -> Dict[str, bool]:
         """
         Test which parameters are supported by an endpoint
