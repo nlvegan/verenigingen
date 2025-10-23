@@ -147,7 +147,8 @@ class SettlementsClient(MollieBaseClient):
         Returns:
             List of settlement dictionaries
         """
-        try:
+
+        def _fetch_and_filter():
             # Get all settlements and filter by date range in memory
             # (Mollie API doesn't support date filtering directly)
             all_settlements = self.get("settlements", paginated=True)
@@ -173,9 +174,16 @@ class SettlementsClient(MollieBaseClient):
 
             return filtered_settlements
 
-        except Exception as e:
-            frappe.log_error(f"Error getting settlements by date range: {str(e)}")
-            return []
+        # Use centralized error handler with graceful failure
+        return self.error_handler.wrap_operation(
+            operation_name="get_settlements_by_date_range",
+            operation_callable=_fetch_and_filter,
+            error_type="settlement_processing",
+            context={"from_date": from_date, "to_date": to_date},
+            audit_trail=self.audit_trail,
+            fallback_value=[],
+            suppress_errors=True,
+        )
 
     def get_payments_for_settlement(self, settlement_id: str) -> List[Dict]:
         """
@@ -187,7 +195,8 @@ class SettlementsClient(MollieBaseClient):
         Returns:
             List of payment dictionaries
         """
-        try:
+
+        def _fetch_settlement_payments():
             # Get settlement details to find payment IDs
             settlement = self.get(f"settlements/{settlement_id}")
 
@@ -195,10 +204,7 @@ class SettlementsClient(MollieBaseClient):
                 return []
 
             # Get payments that were settled in this settlement
-            # Note: This might need to be implemented differently based on Mollie API structure
-            # For now, we'll use a simplified approach
-
-            # Get payments with settlement ID filter if supported
+            # Try direct API endpoint first, fallback to filtering if not supported
             try:
                 payments = self.get(f"settlements/{settlement_id}/payments", paginated=True)
                 return payments if payments else []
@@ -221,9 +227,16 @@ class SettlementsClient(MollieBaseClient):
 
                 return settlement_payments
 
-        except Exception as e:
-            frappe.log_error(f"Error getting payments for settlement {settlement_id}: {str(e)}")
-            return []
+        # Use centralized error handler with graceful failure
+        return self.error_handler.wrap_operation(
+            operation_name="get_payments_for_settlement",
+            operation_callable=_fetch_settlement_payments,
+            error_type="settlement_processing",
+            context={"settlement_id": settlement_id},
+            audit_trail=self.audit_trail,
+            fallback_value=[],
+            suppress_errors=True,
+        )
 
     def get_open_settlement(self) -> Optional[Settlement]:
         """

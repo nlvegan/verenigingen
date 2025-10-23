@@ -22,6 +22,7 @@ from frappe import _
 
 from .compliance.audit_trail import AuditEventType, AuditSeverity, get_audit_trail
 from .compliance.financial_validator import FinancialValidator
+from .error_handler import MollieErrorHandler
 from .http_client import ResilientHTTPClient
 from .security.mollie_security_manager import MollieSecurityManager
 
@@ -95,6 +96,7 @@ class MollieBaseClient:
         self.security_manager = MollieSecurityManager(self.mollie_settings)
         self.financial_validator = FinancialValidator()
         self.audit_trail = get_audit_trail()
+        self.error_handler = MollieErrorHandler()
 
         # Set authentication header
         self.http_client.session.headers.update({"Authorization": f"Bearer {self.api_key}"})
@@ -422,27 +424,37 @@ class MollieBaseClient:
             )
 
     def _handle_request_error(self, error: Exception, method: str, endpoint: str):
-        """Handle request exception"""
-        self.audit_trail.log_event(
-            AuditEventType.ERROR_OCCURRED,
-            AuditSeverity.ERROR,
-            f"Mollie API request failed: {method} {endpoint}",
-            details={"error_type": type(error).__name__, "error_message": str(error)},
-        )
+        """Handle request exception using centralized error handler"""
+        context = {
+            "method": method,
+            "endpoint": endpoint,
+            "test_mode": self.test_mode,
+            "use_backend_api": self.use_backend_api,
+        }
 
-        raise frappe.ValidationError(f"Failed to connect to Mollie API: {str(error)}")
+        self.error_handler.handle_error(
+            error_type="api_connection",
+            error=error,
+            context=context,
+            audit_trail=self.audit_trail,
+        )
 
     def _handle_general_error(self, error: Exception, method: str, endpoint: str):
-        """Handle general exception"""
-        self.audit_trail.log_event(
-            AuditEventType.ERROR_OCCURRED,
-            AuditSeverity.CRITICAL,
-            f"Unexpected error in Mollie API call: {method} {endpoint}",
-            details={"error_type": type(error).__name__, "error_message": str(error)},
-        )
+        """Handle general exception using centralized error handler"""
+        context = {
+            "method": method,
+            "endpoint": endpoint,
+            "test_mode": self.test_mode,
+            "use_backend_api": self.use_backend_api,
+        }
 
-        frappe.log_error(f"Mollie API Error: {str(error)}", "Mollie Backend")
-        raise
+        self.error_handler.handle_error(
+            error_type="operation_failed",
+            error=error,
+            context=context,
+            severity_override="critical",
+            audit_trail=self.audit_trail,
+        )
 
     def _log_api_call(self, method: str, endpoint: str, status_code: int):
         """Log successful API call"""

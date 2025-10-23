@@ -200,8 +200,31 @@ class PaymentEntryHandler:
                 else:
                     raise
 
+            # CRITICAL: Create Bank Transaction BEFORE submitting Payment Entry
+            # This ensures both operations happen within the same atomic transaction
+            self._log(
+                f"ATOMIC TRANSACTION START: Creating Bank Transaction for Payment Entry {pe.name} "
+                f"(Mutation #{mutation_id}, Amount: {pe.paid_amount or pe.received_amount})"
+            )
+
+            bank_transaction_name = self._create_bank_transaction_for_payment(mutation, pe, bank_account)
+            if bank_transaction_name:
+                self._log(f"✓ Bank Transaction created: {bank_transaction_name}")
+
+                # Link the bank transaction to payment entry immediately
+                self._log(f"Linking Bank Transaction {bank_transaction_name} to Payment Entry {pe.name}...")
+                self._link_bank_transaction_to_payment(bank_transaction_name, pe.name)
+                self._log(f"✓ Bank Transaction linked successfully")
+            else:
+                self._log("WARNING: Failed to create Bank Transaction - proceeding with Payment Entry only")
+
+            # Submit Payment Entry (commits both PE and BT together in atomic transaction)
+            self._log(f"Submitting Payment Entry {pe.name} (will commit both PE and BT atomically)...")
             pe.submit()
-            self._log(f"Submitted Payment Entry {pe.name}")
+            self._log(
+                f"✓ ATOMIC TRANSACTION COMPLETE: Payment Entry {pe.name} submitted "
+                f"{f'with linked Bank Transaction {bank_transaction_name}' if bank_transaction_name else 'without Bank Transaction'}"
+            )
 
             return pe.name
 
@@ -1015,6 +1038,203 @@ class PaymentEntryHandler:
         self._log(
             f"Payment direction validation passed: type={mutation_type}, amount={amount}, payment_type={payment_type}, party_type={party_type}"
         )
+
+    def _create_bank_transaction_for_payment(
+        self, mutation: Dict, payment_entry: frappe._dict, bank_account: str
+    ) -> Optional[str]:
+        """
+        Create Bank Transaction for payment mutation with rich description preservation.
+
+        This creates the missing Bank Transaction record that ERPNext expects for proper
+        bank reconciliation. The eBoekhouden API only provides mutation data, not the
+        underlying bank transactions, so we synthesize them here.
+
+        Args:
+            mutation: E-Boekhouden mutation data
+            payment_entry: Created Payment Entry document (draft state, not yet submitted)
+            bank_account: Bank account used in Payment Entry
+
+        Returns:
+            Bank Transaction name if created, None on failure
+        """
+        from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+            get_bank_transaction_creator,
+        )
+
+        try:
+            creator = get_bank_transaction_creator()
+
+            # Get amount from Payment Entry
+            amount = payment_entry.paid_amount or payment_entry.received_amount
+
+            # Validate non-zero amount
+            if not amount or amount < 0.01:
+                self._log(f"Skipping Bank Transaction creation for zero/near-zero amount: {amount}")
+                return None
+
+            # CRITICAL: Use RAW mutation amount for correct sign
+            # The Payment Entry payment_type may be reversed for refunds,
+            # so we must use the original mutation amount to determine deposit/withdrawal
+            raw_amount = flt(mutation.get("amount", 0))
+
+            # Build comprehensive description preserving all SEPA/bank data
+            # This is where the rich bank transaction data belongs
+            description_parts = []
+
+            # Primary description from mutation (e.g., "TRTP SEPA OVERBOEKING IBAN...")
+            if mutation.get("description"):
+                description_parts.append(mutation.get("description"))
+
+            # Add mutation context
+            mutation_id = mutation.get("id")
+            if mutation_id:
+                description_parts.append(f"[eBoekhouden Mutation #{mutation_id}]")
+
+            # Add payment entry reference for linkage
+            if payment_entry.name:
+                description_parts.append(f"[Payment Entry: {payment_entry.name}]")
+
+            # Add invoice references if available
+            invoice_number = mutation.get("invoiceNumber")
+            if invoice_number:
+                description_parts.append(f"[Invoice(s): {invoice_number}]")
+
+            bt_description = " ".join(description_parts)
+
+            # Create Bank Transaction using service
+            transaction_data = {
+                "date": payment_entry.posting_date,
+                "amount": raw_amount,  # Use raw amount - BankTransactionCreator handles sign correctly
+                "currency": "EUR",  # E-Boekhouden is always EUR
+                "description": bt_description,
+                "reference_number": f"EB-{mutation_id}",  # Unique reference for idempotency
+                "party_type": payment_entry.party_type if payment_entry.party else None,
+                "party": payment_entry.party if payment_entry.party else None,
+            }
+
+            bank_transaction_name = creator.create_from_dict(
+                transaction_data=transaction_data,
+                bank_account=bank_account,
+                company=self.company,
+                source_type="E-Boekhouden Import",
+            )
+
+            return bank_transaction_name
+
+        except Exception as e:
+            self._log(f"ERROR creating Bank Transaction: {str(e)}")
+            frappe.log_error(
+                f"Failed to create Bank Transaction for mutation {mutation.get('id')}: {str(e)}",
+                "E-Boekhouden Bank Transaction Creation",
+            )
+            return None
+
+    # Status constants
+    BANK_TRANSACTION_STATUS_RECONCILED = "Reconciled"
+
+    def _link_bank_transaction_to_payment(self, bank_transaction_name: str, payment_entry_name: str):
+        """
+        Link Bank Transaction to Payment Entry for proper reconciliation.
+
+        Uses secure_document_operation() to ensure proper permission validation.
+
+        Args:
+            bank_transaction_name: Bank Transaction name
+            payment_entry_name: Payment Entry name (draft state)
+
+        Raises:
+            frappe.DoesNotExistError: If documents don't exist
+            frappe.ValidationError: If linking fails
+        """
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        try:
+            # Validate Payment Entry exists
+            if not frappe.db.exists("Payment Entry", payment_entry_name):
+                raise frappe.DoesNotExistError(f"Payment Entry {payment_entry_name} not found")
+
+            # Validate Bank Transaction exists
+            if not frappe.db.exists("Bank Transaction", bank_transaction_name):
+                raise frappe.DoesNotExistError(f"Bank Transaction {bank_transaction_name} not found")
+
+            # Get documents
+            bt = frappe.get_doc("Bank Transaction", bank_transaction_name)
+            pe = frappe.get_doc("Payment Entry", payment_entry_name)
+
+            # Add to Bank Transaction Payments child table
+            bt.append(
+                "payment_entries",
+                {
+                    "payment_document": "Payment Entry",
+                    "payment_entry": payment_entry_name,
+                    "allocated_amount": pe.paid_amount or pe.received_amount,
+                },
+            )
+
+            # Update Bank Transaction status and amounts
+            bt.status = self.BANK_TRANSACTION_STATUS_RECONCILED
+            bt.allocated_amount = pe.paid_amount or pe.received_amount
+            bt.unallocated_amount = 0.0
+
+            # Use secure update operation
+            update_result = secure_document_operation(
+                operation="update",
+                doc=bt,
+                justification=f"Linking Bank Transaction to Payment Entry {payment_entry_name} from eBoekhouden import",
+                required_permissions=["Bank Transaction:write"],
+                allow_system_user=True,  # Allow system context for automated processing
+            )
+
+            if not update_result.success:
+                # Provide specific error messages based on failure type
+                if update_result.errors:
+                    error_details = update_result.errors
+
+                    # Check for permission-related errors
+                    if any("permission" in str(err).lower() for err in error_details):
+                        raise frappe.PermissionError(
+                            f"Permission denied while linking Bank Transaction {bank_transaction_name} "
+                            f"to Payment Entry {payment_entry_name}. User lacks required permissions: "
+                            f"{', '.join(str(e) for e in error_details)}"
+                        )
+
+                    # Check for validation errors
+                    elif any("validation" in str(err).lower() or "invalid" in str(err).lower() for err in error_details):
+                        raise frappe.ValidationError(
+                            f"Validation failed while linking Bank Transaction {bank_transaction_name} "
+                            f"to Payment Entry {payment_entry_name}. Details: {', '.join(str(e) for e in error_details)}"
+                        )
+
+                    # Generic error with details
+                    else:
+                        raise frappe.ValidationError(
+                            f"Failed to link Bank Transaction {bank_transaction_name} "
+                            f"to Payment Entry {payment_entry_name}. Errors: {', '.join(str(e) for e in error_details)}"
+                        )
+                else:
+                    # No error details provided - this is unusual
+                    raise frappe.ValidationError(
+                        f"Failed to link Bank Transaction {bank_transaction_name} "
+                        f"to Payment Entry {payment_entry_name} with no error details. "
+                        f"This may indicate a framework issue - check logs for details."
+                    )
+
+            self._log(f"Linked Bank Transaction {bank_transaction_name} to Payment Entry {payment_entry_name}")
+
+        except (frappe.DoesNotExistError, frappe.ValidationError, frappe.PermissionError):
+            # Re-raise known errors without modification
+            raise
+
+        except Exception as e:
+            self._log(f"ERROR: Failed to link Bank Transaction to Payment Entry: {str(e)}")
+            frappe.log_error(
+                f"Bank Transaction linking failed: {str(e)}",
+                "E-Boekhouden Bank Transaction Linking",
+            )
+            # Re-raise to fail atomic transaction if linking fails
+            raise frappe.ValidationError(
+                f"Failed to link Bank Transaction {bank_transaction_name} to Payment Entry {payment_entry_name}: {str(e)}"
+            )
 
     def get_debug_log(self) -> List[str]:
         """Get the debug log for inspection."""

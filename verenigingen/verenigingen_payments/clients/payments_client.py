@@ -42,14 +42,15 @@ class PaymentsClient(MollieBaseClient):
         Returns:
             List of payment dictionaries
         """
-        params = {"limit": limit}
 
-        # Note: Mollie Payments API doesn't support date filtering via from/to parameters
-        # We get all payments and filter in memory
-        if status:
-            params["status"] = status
+        def _fetch_and_filter_payments():
+            params = {"limit": limit}
 
-        try:
+            # Note: Mollie Payments API doesn't support date filtering via from/to parameters
+            # We get all payments and filter in memory
+            if status:
+                params["status"] = status
+
             response = self.get("/payments", params=params, paginated=True)
             frappe.logger().info(f"Retrieved {len(response)} payments from API")
 
@@ -60,10 +61,8 @@ class PaymentsClient(MollieBaseClient):
                 # Ensure filter dates are timezone-aware for comparison
                 from ..utils.timezone_utils import ensure_timezone_aware
 
-                if from_date:
-                    from_date = ensure_timezone_aware(from_date)
-                if to_date:
-                    to_date = ensure_timezone_aware(to_date)
+                filter_from = ensure_timezone_aware(from_date) if from_date else None
+                filter_to = ensure_timezone_aware(to_date) if to_date else None
 
                 for payment in response:
                     payment_date = None
@@ -78,9 +77,9 @@ class PaymentsClient(MollieBaseClient):
 
                     if payment_date:
                         # Apply date filter using timezone-aware comparison
-                        if from_date and payment_date < from_date:
+                        if filter_from and payment_date < filter_from:
                             continue
-                        if to_date and payment_date > to_date:
+                        if filter_to and payment_date > filter_to:
                             continue
 
                     filtered_payments.append(payment)
@@ -89,9 +88,22 @@ class PaymentsClient(MollieBaseClient):
                 return filtered_payments
 
             return response
-        except Exception as e:
-            frappe.logger().error(f"Failed to list payments: {e}")
-            return []
+
+        # Use centralized error handler with graceful failure
+        return self.error_handler.wrap_operation(
+            operation_name="list_payments",
+            operation_callable=_fetch_and_filter_payments,
+            error_type="payment_operation",
+            context={
+                "from_date": from_date.isoformat() if from_date else None,
+                "to_date": to_date.isoformat() if to_date else None,
+                "status": status,
+                "limit": limit,
+            },
+            audit_trail=self.audit_trail,
+            fallback_value=[],
+            suppress_errors=True,
+        )
 
     def get_payments_for_period(
         self, start_date: datetime, end_date: Optional[datetime] = None
