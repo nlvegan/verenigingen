@@ -236,7 +236,10 @@ class MollieBaseClient:
         data: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         """
-        Handle paginated API requests
+        Handle paginated API requests with automatic page following
+
+        Fetches all pages from Mollie API using cursor-based pagination.
+        Includes safety limits and progress logging for monitoring.
 
         Args:
             method: HTTP method
@@ -246,20 +249,40 @@ class MollieBaseClient:
 
         Returns:
             List of all items from paginated response
+
+        Note:
+            - Sets limit=250 (Mollie's maximum)
+            - Follows _links.next for cursor-based pagination
+            - Safety limit of 100 pages to prevent runaway requests
+            - Logs pagination progress for debugging
         """
         all_items = []
         params = params or {}
+        page_count = 0
+
+        # Safety limit to prevent runaway pagination
+        MAX_PAGES = 100
 
         # Set initial pagination parameters
         params["limit"] = 250  # Max limit for Mollie
 
         while True:
+            page_count += 1
+
+            # Safety check: prevent runaway pagination
+            if page_count > MAX_PAGES:
+                frappe.logger().warning(
+                    f"Pagination safety limit reached ({MAX_PAGES} pages) for {endpoint}. "
+                    f"Fetched {len(all_items)} items total."
+                )
+                break
+
             # Make request
             response, status_code = self.http_client.request(
                 method=method, endpoint=endpoint, params=params, json_data=data
             )
 
-            # Debug logging - only log on error or if needed for debugging
+            # Error logging
             if status_code >= 400:
                 frappe.log_error(
                     f"[MOLLIE ERROR] MollieBaseClient._request_paginated: Error response (status {status_code}): {response}",
@@ -270,18 +293,29 @@ class MollieBaseClient:
             self._validate_response(response, status_code)
 
             # Extract items based on response structure
+            items_this_page = 0
             if "_embedded" in response:
                 # Mollie uses _embedded for collections
                 for key in response["_embedded"]:
                     items = response["_embedded"][key]
                     if isinstance(items, list):
+                        items_this_page = len(items)
                         all_items.extend(items)
             elif "data" in response and isinstance(response["data"], list):
+                items_this_page = len(response["data"])
                 all_items.extend(response["data"])
             else:
                 # Single item response
+                items_this_page = 1
                 all_items.append(response)
+                frappe.logger().debug(f"Pagination {endpoint}: Single item response, stopping")
                 break
+
+            # Debug logging for pagination progress
+            frappe.logger().debug(
+                f"Pagination {endpoint}: Page {page_count}, "
+                f"items this page: {items_this_page}, total: {len(all_items)}"
+            )
 
             # Check for next page
             if "_links" in response and "next" in response["_links"] and response["_links"]["next"]:
@@ -293,12 +327,25 @@ class MollieBaseClient:
                     match = re.search(r"from=([^&]+)", next_url)
                     if match:
                         params["from"] = match.group(1)
+                        frappe.logger().debug(
+                            f"Pagination {endpoint}: Following next page cursor={params['from']}"
+                        )
                     else:
+                        frappe.logger().debug(
+                            f"Pagination {endpoint}: Could not extract cursor from next URL"
+                        )
                         break
                 else:
+                    frappe.logger().debug(f"Pagination {endpoint}: Next URL has no 'from' parameter")
                     break
             else:
+                frappe.logger().debug(f"Pagination {endpoint}: No next page link, stopping")
                 break
+
+        # Info logging for pagination completion
+        frappe.logger().info(
+            f"Pagination complete for {endpoint}: {page_count} pages, {len(all_items)} total items"
+        )
 
         return all_items
 
