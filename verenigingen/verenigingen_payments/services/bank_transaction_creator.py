@@ -382,9 +382,9 @@ class BankTransactionCreator:
 
     def get_mollie_bank_account_config(self) -> Dict[str, any]:
         """
-        Get Mollie bank account configuration from settings.
+        Get Mollie bank account configuration from settings with comprehensive validation.
 
-        Uses centralized MollieConfigurationService for consistent configuration access.
+        Uses centralized MollieConfigurationService with GL account validation.
 
         Returns:
             dict with 'bank_account' and 'company', or error info
@@ -400,8 +400,24 @@ class BankTransactionCreator:
         from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
         try:
-            # Get clearing account GL from centralized config
+            # Use centralized validation from configuration service
             mollie_config = get_mollie_config()
+            validation_result = mollie_config.validate_all_mollie_accounts(raise_on_error=False)
+
+            if not validation_result["valid"]:
+                # Log detailed validation errors
+                for error in validation_result["errors"]:
+                    frappe.log_error(
+                        f"Mollie GL Account validation failed: {error}",
+                        "Bank Transaction Creator Configuration Error",
+                    )
+
+                # Return first error for immediate feedback
+                return {
+                    "error": f"Configuration validation failed: {', '.join(validation_result['errors'])}",
+                }
+
+            # Get clearing account GL (now validated)
             mollie_clearing_account = mollie_config.get_clearing_account()
 
             # Get Bank Account linked to Mollie clearing account

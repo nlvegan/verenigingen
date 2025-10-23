@@ -297,7 +297,7 @@ class SettlementBankTransactionProcessor:
         """
         Validate Mollie and ERPNext configuration for settlement processing.
 
-        Uses centralized MollieConfigurationService for consistent configuration access.
+        Uses centralized MollieConfigurationService with comprehensive GL account validation.
 
         Returns:
             dict: Configuration details or error
@@ -305,8 +305,25 @@ class SettlementBankTransactionProcessor:
         from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
         try:
-            # Get Mollie bank account GL from centralized config
+            # Use centralized validation from configuration service
             mollie_config = get_mollie_config()
+            validation_result = mollie_config.validate_all_mollie_accounts(raise_on_error=False)
+
+            if not validation_result["valid"]:
+                # Log detailed validation errors
+                for error in validation_result["errors"]:
+                    frappe.log_error(
+                        f"Mollie GL Account validation failed: {error}",
+                        "Settlement Processing Configuration Error",
+                    )
+
+                # Return first error for immediate feedback
+                return {
+                    "status": "error",
+                    "error": f"Configuration validation failed: {', '.join(validation_result['errors'])}",
+                }
+
+            # Get Mollie bank account GL (now validated)
             mollie_bank_account_gl = mollie_config.get_bank_account_gl()
 
             # Get Bank Account linked to GL Account

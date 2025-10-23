@@ -454,27 +454,54 @@ class BalanceTransactionProcessor:
         """
         Validate Mollie and ERPNext configuration.
 
-        Uses centralized configuration helper to ensure consistent bank account selection.
+        Uses centralized MollieConfigurationService with comprehensive GL account validation.
         Balance transactions go to the Mollie clearing account (virtual account),
         not the physical bank account.
 
         Returns:
             dict: Configuration details or error
         """
-        # Use centralized configuration helper
-        config = self.bank_tx_creator.get_mollie_bank_account_config()
+        from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
-        if config.get("error"):
+        try:
+            # Use centralized validation from configuration service
+            mollie_config = get_mollie_config()
+            validation_result = mollie_config.validate_all_mollie_accounts(raise_on_error=False)
+
+            if not validation_result["valid"]:
+                # Log detailed validation errors
+                for error in validation_result["errors"]:
+                    frappe.log_error(
+                        f"Mollie GL Account validation failed: {error}",
+                        "Balance Transaction Processing Configuration Error",
+                    )
+
+                # Return first error for immediate feedback
+                return {
+                    "status": "error",
+                    "error": f"Configuration validation failed: {', '.join(validation_result['errors'])}",
+                }
+
+            # Get configuration from helper (bank account lookup)
+            config = self.bank_tx_creator.get_mollie_bank_account_config()
+
+            if config.get("error"):
+                return {
+                    "status": "error",
+                    "error": config["error"],
+                }
+
             return {
-                "status": "error",
-                "error": config["error"],
+                "status": "valid",
+                "bank_account": config["bank_account"],
+                "company": config["company"],
             }
 
-        return {
-            "status": "valid",
-            "bank_account": config["bank_account"],
-            "company": config["company"],
-        }
+        except frappe.ValidationError as e:
+            return {
+                "status": "error",
+                "error": str(e),
+            }
 
     def get_primary_balance_id(self) -> str:
         """
