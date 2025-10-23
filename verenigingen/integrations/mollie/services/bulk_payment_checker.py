@@ -303,6 +303,7 @@ class BulkPaymentChecker:
         limit_per_customer: int = 250,
         max_members: Optional[int] = None,
         retrieval_mode: str = "customer",
+        date_offset: int = 0,
     ) -> Dict[str, Any]:
         """
         Stage 1: Discovery - Check all member Mollie customers for new payments.
@@ -316,6 +317,7 @@ class BulkPaymentChecker:
             limit_per_customer: Maximum payments to retrieve per customer (customer mode only)
             max_members: Maximum members to check (defaults to MAX_MEMBERS_PER_RUN, customer mode only)
             retrieval_mode: "customer" (iterate through members) or "balance_transactions" (get all balance txs)
+            date_offset: Start lookback N days ago (e.g., 30 = check days 30-37 ago if days_back=7)
 
         Returns:
             Dict containing:
@@ -336,13 +338,14 @@ class BulkPaymentChecker:
 
         # Route to appropriate method
         if retrieval_mode == "balance_transactions":
-            return self._check_via_balance_transactions(days_back=days_back)
+            return self._check_via_balance_transactions(days_back=days_back, date_offset=date_offset)
         else:
             return self._check_via_customers(
                 days_back=days_back,
                 all_history=all_history,
                 limit_per_customer=limit_per_customer,
                 max_members=max_members,
+                date_offset=date_offset,
             )
 
     def _check_via_customers(
@@ -351,6 +354,7 @@ class BulkPaymentChecker:
         all_history: bool = False,
         limit_per_customer: int = 250,
         max_members: Optional[int] = None,
+        date_offset: int = 0,
     ) -> Dict[str, Any]:
         """Customer-by-customer payment checking (original implementation)"""
         result = {
@@ -361,6 +365,7 @@ class BulkPaymentChecker:
             "total_new_payments": 0,
             "customers": [],
             "errors": 0,
+            "error_details": [],  # List of error messages with member/customer context
             "circuit_breaker_triggered": False,
             "started_at": frappe.utils.now(),
             "completed_at": None,
@@ -377,11 +382,26 @@ class BulkPaymentChecker:
                     )
                 )
 
-            # Calculate date filter
+            # Calculate date filter with offset support
+            # date_offset allows searching historical periods
+            # Example: offset=30, days_back=7 searches days 30-37 ago
             from_date = None
             if not all_history:
-                from_date = datetime.now(timezone.utc) - timedelta(days=days_back)
-                frappe.logger().info(f"Checking payments from {from_date.strftime('%Y-%m-%d')} onwards")
+                # Apply offset: start from (now - offset - days_back) to (now - offset)
+                end_offset = date_offset
+                start_offset = date_offset + days_back
+
+                from_date = datetime.now(timezone.utc) - timedelta(days=start_offset)
+                to_date = (
+                    datetime.now(timezone.utc) - timedelta(days=end_offset)
+                    if end_offset > 0
+                    else datetime.now(timezone.utc)
+                )
+
+                frappe.logger().info(
+                    f"Checking payments from {from_date.strftime('%Y-%m-%d')} "
+                    f"to {to_date.strftime('%Y-%m-%d')} (offset: {date_offset} days)"
+                )
             else:
                 frappe.logger().info("Checking ALL historical payments (limited to 90 days)")
                 from_date = datetime.now(timezone.utc) - timedelta(
@@ -418,6 +438,17 @@ class BulkPaymentChecker:
                 if customer_result["error"]:
                     result["errors"] += 1
                     consecutive_errors += 1
+
+                    # Collect error details for display
+                    result["error_details"].append(
+                        {
+                            "member": member["name"],
+                            "member_full_name": member.get("full_name", "Unknown"),
+                            "customer_id": member["mollie_customer_id"],
+                            "error": customer_result["error"],
+                            "step": "customer_payment_check",
+                        }
+                    )
 
                     # Circuit breaker: Stop after consecutive errors
                     if consecutive_errors >= BulkPaymentCheckerConfig.MAX_CONSECUTIVE_ERRORS:
@@ -519,8 +550,6 @@ class BulkPaymentChecker:
                 title="Audit Logging Failure - CRITICAL",
                 message=f"Bulk payment {operation_type} completed but audit logging failed: {str(e)}\n\n"
                 f"Operation details: {details}",
-                reference_doctype="Bulk Payment Checker",
-                reference_name=f"audit_failure_{operation_type}",
             )
 
             # Increment failure counter for monitoring dashboard
@@ -611,7 +640,7 @@ class BulkPaymentChecker:
 
         return result
 
-    def _check_via_balance_transactions(self, days_back: int = 10) -> Dict[str, Any]:
+    def _check_via_balance_transactions(self, days_back: int = 10, date_offset: int = 0) -> Dict[str, Any]:
         """
         Balance transaction-based payment checking (systematic approach).
 
@@ -619,7 +648,8 @@ class BulkPaymentChecker:
         This is more systematic than customer-by-customer iteration.
 
         Args:
-            days_back: Number of days back to check (default: 10, fixed for this mode)
+            days_back: Number of days back to check (default: 10)
+            date_offset: Start lookback N days ago (e.g., 30 = check days 30-40 ago if days_back=10)
 
         Returns:
             Dict with same structure as customer mode but different data source
@@ -631,6 +661,7 @@ class BulkPaymentChecker:
             "balance_transactions": [],
             "orphaned_transactions": [],  # Transactions without payment IDs
             "errors": 0,
+            "error_details": [],  # List of error messages with payment IDs
             "circuit_breaker_triggered": False,
             "started_at": frappe.utils.now(),
             "completed_at": None,
@@ -643,13 +674,22 @@ class BulkPaymentChecker:
 
             balance_client = BalancesClient()
 
-            # Calculate date range (fixed 10 days for this mode)
-            from_date = datetime.now(timezone.utc) - timedelta(days=days_back)
-            to_date = datetime.now(timezone.utc)
+            # Calculate date range with offset support
+            # date_offset allows searching historical periods
+            # Example: offset=30, days_back=10 searches days 30-40 ago
+            end_offset = date_offset
+            start_offset = date_offset + days_back
+
+            from_date = datetime.now(timezone.utc) - timedelta(days=start_offset)
+            to_date = (
+                datetime.now(timezone.utc) - timedelta(days=end_offset)
+                if end_offset > 0
+                else datetime.now(timezone.utc)
+            )
 
             frappe.logger().info(
                 f"Checking balance transactions from {from_date.strftime('%Y-%m-%d')} "
-                f"to {to_date.strftime('%Y-%m-%d')}"
+                f"to {to_date.strftime('%Y-%m-%d')} (offset: {date_offset} days)"
             )
 
             # Get primary balance
@@ -721,71 +761,111 @@ class BulkPaymentChecker:
             result["total_payments_found"] = len(payment_ids_found)
             frappe.logger().info(f"Found {len(payment_ids_found)} unique payment IDs in date range")
 
-            # Now check each payment for processing status and member matching
-            new_payments = []
+            # OPTIMIZATION: Batch check all payment IDs for existing processing (2 queries instead of N*2)
+            payment_ids_list = list(payment_ids_found)
 
-            for payment_id in payment_ids_found:
+            # Batch query for Payment Entries
+            existing_payment_entries = {}
+            if payment_ids_list:
+                placeholders = ", ".join(["%s"] * len(payment_ids_list))
+                pe_results = frappe.db.sql(
+                    f"""
+                    SELECT reference_no, name, docstatus
+                    FROM `tabPayment Entry`
+                    WHERE reference_no IN ({placeholders})
+                    AND docstatus != 2
+                    """,
+                    tuple(payment_ids_list),
+                    as_dict=True,
+                )
+                existing_payment_entries = {pe["reference_no"]: pe for pe in pe_results}
+                frappe.logger().info(
+                    f"Batch check found {len(existing_payment_entries)} existing Payment Entries"
+                )
+
+            # Batch query for Bank Transactions
+            existing_bank_txs = {}
+            if payment_ids_list:
+                placeholders = ", ".join(["%s"] * len(payment_ids_list))
+                bt_results = frappe.db.sql(
+                    f"""
+                    SELECT reference_number, name, docstatus
+                    FROM `tabBank Transaction`
+                    WHERE reference_number IN ({placeholders})
+                    AND docstatus != 2
+                    """,
+                    tuple(payment_ids_list),
+                    as_dict=True,
+                )
+                existing_bank_txs = {bt["reference_number"]: bt for bt in bt_results}
+                frappe.logger().info(f"Batch check found {len(existing_bank_txs)} existing Bank Transactions")
+
+            # Filter to only unprocessed payments
+            unprocessed_payment_ids = [
+                pid
+                for pid in payment_ids_list
+                if pid not in existing_payment_entries and pid not in existing_bank_txs
+            ]
+
+            frappe.logger().info(
+                f"After batch idempotency check: {len(unprocessed_payment_ids)} unprocessed payments "
+                f"out of {len(payment_ids_list)} total"
+            )
+
+            # Now process only unprocessed payments (much fewer API calls)
+            for payment_id in unprocessed_payment_ids:
                 try:
-                    # Check idempotency
-                    from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
-                        get_bank_transaction_creator,
-                    )
+                    # Fetch payment details from Mollie (only for unprocessed)
+                    payment = self.mollie_client.sdk_client.payments.get(payment_id)
 
-                    creator = get_bank_transaction_creator()
-                    idempotency_check = creator.check_already_processed(
-                        payment_id,
-                        check_payment_entry=True,
-                    )
+                    # Identify payment type
+                    payment_type = self.dues_processor.identify_payment_type(payment)
 
-                    if not idempotency_check["already_processed"]:
-                        # Fetch payment details from Mollie
-                        payment = self.mollie_client.sdk_client.payments.get(payment_id)
+                    # Try to find member/donor for this payment
+                    member_name = self.dues_processor.find_member_for_payment(payment)
 
-                        # Identify payment type
-                        payment_type = self.dues_processor.identify_payment_type(payment)
+                    # Extract currency
+                    currency = payment.amount["currency"] if payment.amount else "Unknown"
+                    amount = payment.amount["value"] if payment.amount else "Unknown"
 
-                        # Try to find member/donor for this payment
-                        member_name = self.dues_processor.find_member_for_payment(payment)
+                    # If we can't match to a member/donor, mark as orphaned
+                    if not member_name:
+                        result["orphaned_transactions"].append(
+                            {
+                                "payment_id": payment_id,
+                                "status": payment.status,
+                                "amount": f"{currency} {amount}",
+                                "description": getattr(payment, "description", "No description"),
+                                "customer_id": getattr(payment, "customer_id", "No customer"),
+                                "subscription_id": getattr(payment, "subscription_id", None),
+                                "payment_type": payment_type,
+                                "paid_at": str(getattr(payment, "paid_at", None)),
+                                "reason": "Cannot match to any member or donor",
+                            }
+                        )
+                        frappe.logger().warning(
+                            f"⚠️ Orphaned payment {payment_id}: {currency} {amount}, "
+                            f"type: {payment_type}, cannot match to member"
+                        )
+                    else:
+                        # Check if processable
+                        is_processable = (
+                            payment.status == "paid" and payment_type == "dues" and currency == "EUR"
+                        )
 
-                        # Extract currency
-                        currency = payment.amount["currency"] if payment.amount else "Unknown"
-                        amount = payment.amount["value"] if payment.amount else "Unknown"
+                        if is_processable:
+                            result["total_new_payments"] += 1
 
-                        # If we can't match to a member/donor, mark as orphaned
-                        if not member_name:
-                            # Remove from regular transactions, add to orphaned
-                            result["orphaned_transactions"].append(
-                                {
-                                    "payment_id": payment_id,
-                                    "status": payment.status,
-                                    "amount": f"{currency} {amount}",
-                                    "description": getattr(payment, "description", "No description"),
-                                    "customer_id": getattr(payment, "customer_id", "No customer"),
-                                    "subscription_id": getattr(payment, "subscription_id", None),
-                                    "payment_type": payment_type,
-                                    "paid_at": str(getattr(payment, "paid_at", None)),
-                                    "reason": "Cannot match to any member or donor",
-                                }
-                            )
-                            frappe.logger().warning(
-                                f"⚠️ Orphaned payment {payment_id}: {currency} {amount}, "
-                                f"type: {payment_type}, cannot match to member"
-                            )
-                        else:
-                            # Check if processable
-                            is_processable = (
-                                payment.status == "paid" and payment_type == "dues" and currency == "EUR"
-                            )
-
-                            if is_processable:
-                                new_payments.append(payment_id)
-                                result["total_new_payments"] += 1
-
-                    # Small delay to respect rate limits
-                    time.sleep(BulkPaymentCheckerConfig.API_CALL_DELAY_MS / 1000)
+                    # Reduced delay for balance mode (100ms instead of 600ms)
+                    # We're not hammering the primary payments API, just fetching details
+                    time.sleep(0.1)
 
                 except Exception as e:
                     result["errors"] += 1
+                    error_msg = str(e)
+                    result["error_details"].append(
+                        {"payment_id": payment_id, "error": error_msg, "step": "payment_detail_fetch"}
+                    )
                     frappe.logger().warning(f"Error checking payment {payment_id}: {e}")
 
             result["completed_at"] = frappe.utils.now()
