@@ -631,6 +631,160 @@ class MollieConfigurationService:
 
         return result
 
+    # ===== Company Validation Methods (Phase 3.3) =====
+
+    @classmethod
+    def validate_company(cls, company: str) -> Dict[str, Any]:
+        """
+        Validate company exists and is active.
+
+        Performs comprehensive company validation including:
+        - Existence check
+        - Active/disabled status
+        - Basic company information
+
+        Args:
+            company: Company name to validate
+
+        Returns:
+            Dict with validation result:
+            {
+                "valid": True,
+                "company_name": "Vegan Netwerk Nederland",
+                "abbr": "NVN",
+                "is_group": False,
+                "disabled": False
+            }
+
+        Raises:
+            frappe.ValidationError: If company invalid with specific reason
+
+        Example:
+            result = get_mollie_config().validate_company("Vegan Netwerk Nederland")
+            if result["valid"]:
+                print(f"Company {result['company_name']} is active")
+        """
+        if not company:
+            frappe.throw(_("Company name is required for validation"), frappe.ValidationError)
+
+        # Check if company exists
+        if not frappe.db.exists("Company", company):
+            frappe.throw(
+                _("Company '{0}' does not exist. Please check the company name.").format(company),
+                frappe.ValidationError,
+            )
+
+        # Get company details
+        # Note: Company DocType doesn't have a 'disabled' field in ERPNext v15
+        company_details = frappe.db.get_value("Company", company, ["name", "abbr", "is_group"], as_dict=True)
+
+        if not company_details:
+            frappe.throw(
+                _("Could not retrieve details for Company '{0}'.").format(company), frappe.ValidationError
+            )
+
+        # Warn if company is a group
+        is_group = bool(company_details.get("is_group", False))
+        if is_group:
+            frappe.logger().warning(
+                f"Company '{company}' is a group company. "
+                f"Ensure this is intentional for financial transactions."
+            )
+
+        return {
+            "valid": True,
+            "company_name": company_details.get("name"),
+            "abbr": company_details.get("abbr"),
+            "is_group": is_group,
+        }
+
+    @classmethod
+    def get_default_company(cls) -> str:
+        """
+        Get default company for Mollie operations with sensible fallback logic.
+
+        Priority order:
+        1. donation_company from Verenigingen Settings (domain-specific)
+        2. Global Defaults company (system-wide default from Global Defaults DocType)
+        3. User default Company (user-specific preference)
+
+        Returns:
+            str: Company name
+
+        Raises:
+            frappe.ValidationError: If no company configured or company invalid
+
+        Example:
+            company = get_mollie_config().get_default_company()
+            print(f"Using company: {company}")
+        """
+        company = None
+
+        # Priority 1: donation_company from Verenigingen Settings (most specific)
+        try:
+            verenigingen_settings = frappe.get_single("Verenigingen Settings")
+            if hasattr(verenigingen_settings, "donation_company") and verenigingen_settings.donation_company:
+                company = verenigingen_settings.donation_company
+                frappe.logger().info(f"Using donation_company from Verenigingen Settings: {company}")
+        except Exception as e:
+            frappe.logger().warning(f"Could not get donation_company from Verenigingen Settings: {e}")
+
+        # Priority 2: Global Defaults company (system-wide default)
+        if not company:
+            company = frappe.defaults.get_global_default("company")
+            if company:
+                frappe.logger().info(f"Using global default company: {company}")
+
+        # Priority 3: User default Company (user-specific override)
+        if not company:
+            company = frappe.defaults.get_user_default("Company")
+            if company:
+                frappe.logger().info(f"Using user default Company: {company}")
+
+        # If still no company found, raise error - don't use arbitrary fallbacks
+        if not company:
+            frappe.throw(
+                _(
+                    "No company configured for Mollie operations. "
+                    "Please set donation_company in Verenigingen Settings or configure a default company in Global Defaults."
+                ),
+                frappe.ValidationError,
+            )
+
+        # Validate the company we found
+        cls.validate_company(company)
+
+        return company
+
+    @classmethod
+    def get_default_company_validated(cls) -> Dict[str, Any]:
+        """
+        Get default company with full validation details.
+
+        This is a convenience method that combines get_default_company()
+        and validate_company() into a single call.
+
+        Returns:
+            Dict with company details and validation:
+            {
+                "company_name": "Vegan Netwerk Nederland",
+                "abbr": "NVN",
+                "valid": True,
+                "is_group": False,
+                "disabled": False
+            }
+
+        Raises:
+            frappe.ValidationError: If no company found or invalid
+
+        Example:
+            company_info = get_mollie_config().get_default_company_validated()
+            print(f"Using {company_info['company_name']} ({company_info['abbr']})")
+        """
+        company = cls.get_default_company()
+        validation = cls.validate_company(company)
+        return validation
+
 
 def get_mollie_config() -> MollieConfigurationService:
     """

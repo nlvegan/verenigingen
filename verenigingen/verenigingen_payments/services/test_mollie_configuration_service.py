@@ -360,6 +360,74 @@ class TestMollieConfigurationService(FrappeTestCase):
             error_msg = str(context.exception)
             self.assertIn("validation failed", error_msg.lower())
 
+    # ===== Company Validation Tests (Phase 3.3) =====
+
+    def test_validate_company_with_valid_company(self):
+        """Test validate_company() with a valid company"""
+        # Get first company from system
+        company_name = frappe.db.get_value("Company", {}, "name")
+
+        if company_name:
+            config = get_mollie_config()
+            result = config.validate_company(company_name)
+
+            # Verify validation result structure
+            self.assertIsInstance(result, dict)
+            self.assertTrue(result.get("valid"))
+            self.assertEqual(result.get("company_name"), company_name)
+            self.assertIn("abbr", result)
+            self.assertIn("is_group", result)
+
+    def test_validate_company_with_nonexistent_company(self):
+        """Test validate_company() with non-existent company"""
+        config = get_mollie_config()
+
+        with self.assertRaises(frappe.ValidationError) as context:
+            config.validate_company("NonExistent Company XYZ 99999")
+
+        # Verify error message mentions company doesn't exist
+        self.assertIn("does not exist", str(context.exception))
+
+    def test_validate_company_requires_company_name(self):
+        """Test validate_company() requires company parameter"""
+        config = get_mollie_config()
+
+        # Should raise ValidationError for empty company
+        with self.assertRaises(frappe.ValidationError) as context:
+            config.validate_company("")
+
+        error_msg = str(context.exception)
+        self.assertIn("required", error_msg.lower())
+
+    def test_get_default_company_returns_string(self):
+        """Test get_default_company() returns a company name"""
+        config = get_mollie_config()
+        result = config.get_default_company()
+
+        # Should return a non-empty string
+        self.assertIsInstance(result, str)
+        self.assertTrue(len(result) > 0)
+
+        # The returned company should be valid
+        # (get_default_company validates internally)
+        company_exists = frappe.db.exists("Company", result)
+        self.assertTrue(company_exists)
+
+    def test_get_default_company_validated_returns_dict(self):
+        """Test get_default_company_validated() returns validation dict"""
+        config = get_mollie_config()
+        result = config.get_default_company_validated()
+
+        # Verify structure
+        self.assertIsInstance(result, dict)
+        self.assertIn("valid", result)
+        self.assertIn("company_name", result)
+        self.assertIn("abbr", result)
+        self.assertIn("is_group", result)
+
+        # Should be valid
+        self.assertTrue(result.get("valid"))
+
 
 def run_tests():
     """Helper function to run tests from console"""
