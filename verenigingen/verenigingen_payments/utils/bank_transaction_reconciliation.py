@@ -12,7 +12,6 @@ from verenigingen.utils.security.authorization import (
     SEPAPermissionLevel,
     require_sepa_permission,
 )
-from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from verenigingen.verenigingen_payments.clients.settlements_client import SettlementsClient
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
@@ -43,26 +42,31 @@ class PaymentReconciliationManager:
         self._processed_mollie_payments = set()  # Track processed payment IDs
 
     def _validate_mollie_accounts(self):
-        """Validate that Mollie accounts are properly configured"""
-        try:
-            # Use configuration service (will raise ValidationError if not configured)
-            bank_account = self.config.get_bank_account_gl()
-            clearing_account = self.config.get_clearing_account()
+        """
+        Validate that Mollie accounts are properly configured.
 
-            # Validate accounts exist in database
-            if not DocumentExistenceValidator.check_document_exists("Account", bank_account):
+        Uses centralized validation from MollieConfigurationService to ensure
+        all GL accounts exist, have correct types, and are properly configured.
+        """
+        # Use centralized validation from configuration service
+        validation_result = self.config.validate_all_mollie_accounts(raise_on_error=False)
+
+        if not validation_result["valid"]:
+            # Log detailed validation errors
+            for error in validation_result["errors"]:
                 frappe.log_error(
-                    f"Mollie Bank Account {bank_account} does not exist", "Mollie Account Configuration"
+                    f"Mollie GL Account validation failed: {error}", "Mollie Account Configuration"
                 )
 
-            if not frappe.db.exists("Account", clearing_account):
-                frappe.log_error(
-                    f"Mollie Clearing Account {clearing_account} does not exist",
-                    "Mollie Account Configuration",
-                )
-        except frappe.ValidationError:
-            # Configuration not complete - log error but don't break
-            frappe.log_error("Mollie accounts not properly configured", "Mollie Account Configuration")
+            # Log overall failure
+            frappe.log_error(
+                f"Mollie accounts not properly configured. Errors: {', '.join(validation_result['errors'])}",
+                "Mollie Account Configuration",
+            )
+
+        # Log warnings (e.g., optional fees account not configured)
+        for warning in validation_result.get("warnings", []):
+            frappe.logger().info(f"Mollie configuration warning: {warning}")
 
     def _validate_bank_transaction_fields(self):
         """Validate that required Bank Transaction fields exist"""

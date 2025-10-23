@@ -338,6 +338,299 @@ class MollieConfigurationService:
         settings = cls.get_settings()
         return bool(settings.get("enable_backend_api", False))
 
+    @classmethod
+    def validate_gl_account(
+        cls,
+        account_name: str,
+        account_type: Optional[str] = None,
+        company: Optional[str] = None,
+        allow_frozen: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Validate GL account exists and meets requirements.
+
+        Performs comprehensive validation of General Ledger accounts including:
+        - Existence check
+        - Account type validation
+        - Company ownership validation
+        - Frozen status check
+        - Group account validation
+
+        Args:
+            account_name: GL Account name to validate (e.g., "10460 - Mollie - NVV")
+            account_type: Expected account type ("Asset", "Liability", "Expense", etc.)
+            company: Company name (validates account belongs to company)
+            allow_frozen: Whether to allow frozen accounts (default: False)
+
+        Returns:
+            Dict with validation result and account details:
+            {
+                "valid": True,
+                "account_name": "10460 - Mollie - NVV",
+                "account_type": "Asset",
+                "company": "Vegan Netwerk Nederland",
+                "is_group": False,
+                "frozen": False
+            }
+
+        Raises:
+            frappe.ValidationError: If account invalid with specific reason
+
+        Example:
+            # Validate clearing account is Asset type
+            result = get_mollie_config().validate_gl_account(
+                "10460 - Mollie - NVV",
+                account_type="Asset"
+            )
+
+            # Validate with company check
+            result = get_mollie_config().validate_gl_account(
+                "10460 - Mollie - NVV",
+                account_type="Asset",
+                company="Vegan Netwerk Nederland"
+            )
+        """
+        if not account_name:
+            frappe.throw(_("Account name is required for validation"), frappe.ValidationError)
+
+        # Check account exists
+        if not frappe.db.exists("Account", account_name):
+            frappe.throw(
+                _("GL Account '{0}' does not exist. Please check Mollie Settings configuration.").format(
+                    account_name
+                ),
+                title=_("Account Not Found"),
+                exc=frappe.ValidationError,
+            )
+
+        # Fetch account details in single query for performance
+        account_details = frappe.db.get_value(
+            "Account",
+            account_name,
+            ["account_type", "company", "is_group", "disabled"],
+            as_dict=True,
+        )
+
+        # Validate account type if specified
+        if account_type and account_details.get("account_type") != account_type:
+            frappe.throw(
+                _(
+                    "GL Account '{0}' is type '{1}' but '{2}' was expected. "
+                    "Please update Mollie Settings with correct account."
+                ).format(account_name, account_details.get("account_type"), account_type),
+                title=_("Account Type Mismatch"),
+                exc=frappe.ValidationError,
+            )
+
+        # Validate company ownership if specified
+        if company and account_details.get("company") != company:
+            frappe.throw(
+                _(
+                    "GL Account '{0}' belongs to company '{1}' but '{2}' was expected. "
+                    "Please use accounts from the correct company."
+                ).format(account_name, account_details.get("company"), company),
+                title=_("Company Mismatch"),
+                exc=frappe.ValidationError,
+            )
+
+        # Check if account is frozen/disabled
+        if not allow_frozen and account_details.get("disabled"):
+            frappe.throw(
+                _("GL Account '{0}' is disabled and cannot be used for transactions.").format(account_name),
+                title=_("Account Disabled"),
+                exc=frappe.ValidationError,
+            )
+
+        # Warn if group account (should use leaf accounts)
+        if account_details.get("is_group"):
+            frappe.msgprint(
+                _(
+                    "Warning: GL Account '{0}' is a group account. "
+                    "It's recommended to use leaf accounts for transactions."
+                ).format(account_name),
+                indicator="orange",
+                alert=True,
+            )
+
+        return {
+            "valid": True,
+            "account_name": account_name,
+            "account_type": account_details.get("account_type"),
+            "company": account_details.get("company"),
+            "is_group": bool(account_details.get("is_group", False)),
+            "frozen": bool(account_details.get("disabled", False)),
+        }
+
+    @classmethod
+    def get_all_mollie_accounts(cls, validate: bool = True) -> Dict[str, str]:
+        """
+        Get all configured Mollie GL accounts with optional validation.
+
+        Retrieves all Mollie-related GL accounts from configuration. Optionally
+        validates that each account exists and is properly configured.
+
+        Args:
+            validate: Whether to validate accounts exist and are valid (default: True)
+
+        Returns:
+            Dict mapping account purpose to account name:
+            {
+                "clearing_account": "10460 - Mollie - NVV",
+                "bank_account": "10500 - Triodos Bank - NVV",
+                "fees_account": "70100 - Payment Fees - NVV"  # May be None
+            }
+
+        Raises:
+            frappe.ValidationError: If validation enabled and any account invalid
+
+        Example:
+            # Get all accounts with validation
+            accounts = get_mollie_config().get_all_mollie_accounts()
+            clearing = accounts["clearing_account"]
+
+            # Get accounts without validation (faster, for display purposes)
+            accounts = get_mollie_config().get_all_mollie_accounts(validate=False)
+        """
+        settings = cls.get_settings()
+
+        accounts = {
+            "clearing_account": settings.get("mollie_clearing_account"),
+            "bank_account": settings.get("mollie_bank_account"),
+            "fees_account": settings.get("payment_processing_fees_account"),  # Optional
+        }
+
+        # Validate accounts if requested
+        if validate:
+            for account_purpose, account_name in accounts.items():
+                if account_name:  # Skip optional accounts like fees_account
+                    try:
+                        cls.validate_gl_account(account_name)
+                    except frappe.ValidationError as e:
+                        frappe.throw(
+                            _(
+                                "Mollie {0} validation failed: {1}. "
+                                "Please check Mollie Settings configuration."
+                            ).format(account_purpose.replace("_", " ").title(), str(e)),
+                            title=_("GL Account Validation Failed"),
+                            exc=frappe.ValidationError,
+                        )
+
+        return accounts
+
+    @classmethod
+    def validate_all_mollie_accounts(cls, raise_on_error: bool = True) -> Dict[str, Any]:
+        """
+        Validate all Mollie GL accounts configuration comprehensively.
+
+        Performs validation of all configured Mollie GL accounts and returns
+        detailed results. Useful for initialization checks and configuration
+        validation in admin tools.
+
+        Args:
+            raise_on_error: Whether to raise exception on validation failure (default: True)
+
+        Returns:
+            Dict with validation results:
+            {
+                "valid": True,
+                "accounts": {
+                    "clearing_account": {
+                        "valid": True,
+                        "account_name": "10460 - Mollie - NVV",
+                        "account_type": "Asset",
+                        ...
+                    },
+                    "bank_account": {"valid": True, ...},
+                    "fees_account": {"valid": False, "error": "Account not configured"}
+                },
+                "errors": [],
+                "warnings": ["Fees account not configured - fee accounting disabled"]
+            }
+
+        Example:
+            # Use in __init__ methods to validate configuration
+            validation = get_mollie_config().validate_all_mollie_accounts(raise_on_error=False)
+            if not validation["valid"]:
+                frappe.log_error(
+                    f"GL Account validation failed: {validation['errors']}",
+                    "Mollie Configuration"
+                )
+
+            # Strict validation that raises on error
+            get_mollie_config().validate_all_mollie_accounts()  # Raises if any account invalid
+        """
+        settings = cls.get_settings()
+        accounts_to_validate = {
+            "clearing_account": {
+                "name": settings.get("mollie_clearing_account"),
+                "required": True,
+                "account_type": "Bank",  # Mollie accounts are typically Bank type in ERPNext
+            },
+            "bank_account": {
+                "name": settings.get("mollie_bank_account"),
+                "required": True,
+                "account_type": "Bank",  # Physical bank accounts are Bank type
+            },
+            "fees_account": {
+                "name": settings.get("payment_processing_fees_account"),
+                "required": False,
+                "account_type": None,  # Don't validate type for fees (can be "Expense" or "Expense Account")
+            },
+        }
+
+        validation_results = {}
+        errors = []
+        warnings = []
+
+        for account_purpose, account_config in accounts_to_validate.items():
+            account_name = account_config["name"]
+            account_type = account_config["account_type"]
+            required = account_config["required"]
+
+            if not account_name:
+                if required:
+                    error_msg = f"{account_purpose.replace('_', ' ').title()} not configured"
+                    errors.append(error_msg)
+                    validation_results[account_purpose] = {"valid": False, "error": error_msg}
+                else:
+                    warning_msg = f"{account_purpose.replace('_', ' ').title()} not configured - optional feature disabled"
+                    warnings.append(warning_msg)
+                    validation_results[account_purpose] = {
+                        "valid": True,
+                        "configured": False,
+                        "warning": warning_msg,
+                    }
+                continue
+
+            try:
+                result = cls.validate_gl_account(account_name, account_type=account_type)
+                validation_results[account_purpose] = result
+            except frappe.ValidationError as e:
+                error_msg = f"{account_purpose.replace('_', ' ').title()}: {str(e)}"
+                errors.append(error_msg)
+                validation_results[account_purpose] = {"valid": False, "error": str(e)}
+
+        overall_valid = len(errors) == 0
+
+        result = {
+            "valid": overall_valid,
+            "accounts": validation_results,
+            "errors": errors,
+            "warnings": warnings,
+        }
+
+        if not overall_valid and raise_on_error:
+            frappe.throw(
+                _(
+                    "Mollie GL Account validation failed:\n{0}\n\n"
+                    "Please check Mollie Settings and configure valid GL accounts."
+                ).format("\n".join(errors)),
+                title=_("Configuration Validation Failed"),
+                exc=frappe.ValidationError,
+            )
+
+        return result
+
 
 def get_mollie_config() -> MollieConfigurationService:
     """
