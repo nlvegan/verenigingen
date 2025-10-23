@@ -448,23 +448,23 @@ class BankTransactionCreator:
 
     def _get_default_company(self) -> str:
         """
-        Get default company from system settings.
+        Get default company using centralized configuration service.
+
+        Uses MollieConfigurationService for consistent company resolution with
+        proper priority chain (Verenigingen Settings → Global Defaults → User defaults).
 
         Returns:
-            Company name
+            Company name (validated to exist)
 
         Raises:
-            ValueError if no default company configured
+            frappe.ValidationError: If no company configured
+
+        Note: This method wraps MollieConfigurationService.get_default_company()
+        for backward compatibility within BankTransactionCreator.
         """
-        company = frappe.defaults.get_user_default("Company")
-        if not company:
-            # Fallback to first company in system
-            company = frappe.db.get_value("Company", {}, "name")
+        from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
-        if not company:
-            raise ValueError("No company found in system. Please configure a company first.")
-
-        return company
+        return get_mollie_config().get_default_company()
 
     def create(
         self,

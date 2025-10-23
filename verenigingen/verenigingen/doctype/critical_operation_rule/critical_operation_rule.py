@@ -4,6 +4,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
+
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 

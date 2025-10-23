@@ -652,8 +652,7 @@ class MollieConfigurationService:
                 "valid": True,
                 "company_name": "Vegan Netwerk Nederland",
                 "abbr": "NVN",
-                "is_group": False,
-                "disabled": False
+                "is_group": False
             }
 
         Raises:
@@ -664,7 +663,7 @@ class MollieConfigurationService:
             if result["valid"]:
                 print(f"Company {result['company_name']} is active")
         """
-        if not company:
+        if not company or not company.strip():
             frappe.throw(_("Company name is required for validation"), frappe.ValidationError)
 
         # Check if company exists
@@ -701,12 +700,16 @@ class MollieConfigurationService:
     @classmethod
     def get_default_company(cls) -> str:
         """
-        Get default company for Mollie operations with sensible fallback logic.
+        Get default company with sensible fallback logic.
 
         Priority order:
-        1. donation_company from Verenigingen Settings (domain-specific)
+        1. company from Verenigingen Settings (primary organization company)
         2. Global Defaults company (system-wide default from Global Defaults DocType)
         3. User default Company (user-specific preference)
+
+        Note: This returns the organization's primary company for all operations
+        (memberships, donations, SEPA, etc.). Most organizations have a single
+        legal entity handling all operations.
 
         Returns:
             str: Company name
@@ -720,14 +723,14 @@ class MollieConfigurationService:
         """
         company = None
 
-        # Priority 1: donation_company from Verenigingen Settings (most specific)
+        # Priority 1: company from Verenigingen Settings (primary company)
         try:
             verenigingen_settings = frappe.get_single("Verenigingen Settings")
-            if hasattr(verenigingen_settings, "donation_company") and verenigingen_settings.donation_company:
-                company = verenigingen_settings.donation_company
-                frappe.logger().info(f"Using donation_company from Verenigingen Settings: {company}")
+            if hasattr(verenigingen_settings, "company") and verenigingen_settings.company:
+                company = verenigingen_settings.company
+                frappe.logger().info(f"Using company from Verenigingen Settings: {company}")
         except Exception as e:
-            frappe.logger().warning(f"Could not get donation_company from Verenigingen Settings: {e}")
+            frappe.logger().warning(f"Could not get company from Verenigingen Settings: {e}")
 
         # Priority 2: Global Defaults company (system-wide default)
         if not company:
@@ -745,8 +748,8 @@ class MollieConfigurationService:
         if not company:
             frappe.throw(
                 _(
-                    "No company configured for Mollie operations. "
-                    "Please set donation_company in Verenigingen Settings or configure a default company in Global Defaults."
+                    "No company configured. "
+                    "Please set company in Verenigingen Settings or configure a default company in Global Defaults."
                 ),
                 frappe.ValidationError,
             )

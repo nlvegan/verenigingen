@@ -25,6 +25,14 @@ frappe.pages['mollie-bulk-payment-discovery'].on_page_load = function(wrapper) {
 		run_discovery(page);
 	});
 
+	// Store bulk process button for later showing/hiding
+	page.bulk_process_btn = page.add_inner_button('Process All Processable', function() {
+		process_bulk_payments(page);
+	}, null, 'btn-success');
+
+	// Hide bulk process button initially
+	$(page.bulk_process_btn).hide();
+
 	// Build the page UI
 	$(page.body).html(`
 		<div class="mollie-discovery-container">
@@ -252,7 +260,20 @@ function render_results(page, data, filters) {
 	// Render table
 	if (payments.length === 0) {
 		$table.html('<p class="text-muted">No payments found.</p>');
+		$(page.bulk_process_btn).hide();
 		return;
+	}
+
+	// Count processable payments
+	const processable_payments = payments.filter(p => p.processable === 'Yes' && p.member !== '⚠️ ORPHANED');
+	const processable_count = processable_payments.length;
+
+	// Show/hide bulk process button based on processable count
+	if (processable_count > 0) {
+		$(page.bulk_process_btn).find('span').text(`Process All Processable (${processable_count})`);
+		$(page.bulk_process_btn).show();
+	} else {
+		$(page.bulk_process_btn).hide();
 	}
 
 	let html = `
@@ -303,6 +324,9 @@ function render_results(page, data, filters) {
 
 	html += '</tbody></table>';
 	$table.html(html);
+
+	// Store processable payment IDs on page for bulk processing
+	page.processable_payment_ids = processable_payments.map(p => p.payment_id);
 
 	// Attach click handlers
 	$table.find('.process-payment').on('click', function() {
@@ -372,4 +396,133 @@ function process_single_payment(payment_id, page) {
 			});
 		}
 	);
+}
+
+function process_bulk_payments(page) {
+	const payment_ids = page.processable_payment_ids || [];
+
+	if (payment_ids.length === 0) {
+		frappe.msgprint({
+			title: __('No Payments'),
+			message: __('No processable payments found'),
+			indicator: 'orange'
+		});
+		return;
+	}
+
+	frappe.confirm(
+		__('Process {0} payments in bulk?<br><br>This will create Bank Transactions and Payment Entries for all processable payments.', [payment_ids.length]),
+		function() {
+			frappe.dom.freeze(__('Processing {0} payments...', [payment_ids.length]));
+
+			frappe.call({
+				method: 'verenigingen.verenigingen_payments.page.mollie_bulk_payment_discovery.mollie_bulk_payment_discovery.process_bulk_payments',
+				args: {
+					payment_ids: payment_ids
+				},
+				callback: function(r) {
+					frappe.dom.unfreeze();
+
+					if (r.message && r.message.success) {
+						const data = r.message.data;
+						render_bulk_results(data);
+
+						// Refresh the discovery to see updated status
+						setTimeout(() => run_discovery(page), 1500);
+					} else {
+						frappe.msgprint({
+							title: __('Bulk Processing Failed'),
+							message: r.message.error || 'Unknown error occurred',
+							indicator: 'red'
+						});
+					}
+				},
+				error: function(r) {
+					frappe.dom.unfreeze();
+					frappe.msgprint({
+						title: __('Error'),
+						message: __('Failed to process bulk payments. Check error log for details.'),
+						indicator: 'red'
+					});
+				}
+			});
+		}
+	);
+}
+
+function render_bulk_results(data) {
+	let message = `
+		<div style="padding: 10px;">
+			<h5>Bulk Processing Results</h5>
+			<table class="table table-sm">
+				<tr>
+					<td><strong>Total Payments:</strong></td>
+					<td>${data.total}</td>
+				</tr>
+				<tr style="color: #28a745;">
+					<td><strong>Successfully Processed:</strong></td>
+					<td>${data.processed}</td>
+				</tr>
+				<tr style="color: #6c757d;">
+					<td><strong>Already Processed:</strong></td>
+					<td>${data.already_processed}</td>
+				</tr>
+				<tr style="color: #ffc107;">
+					<td><strong>Skipped:</strong></td>
+					<td>${data.skipped}</td>
+				</tr>
+				<tr style="color: #dc3545;">
+					<td><strong>Errors:</strong></td>
+					<td>${data.errors}</td>
+				</tr>
+			</table>
+	`;
+
+	// Show error details if any
+	if (data.errors > 0 && data.details) {
+		const error_details = data.details.filter(d => d.status === 'error');
+		if (error_details.length > 0) {
+			message += `
+				<div style="margin-top: 15px; max-height: 200px; overflow-y: auto;">
+					<h6 style="color: #dc3545;">Error Details:</h6>
+					<table class="table table-sm table-bordered">
+						<thead>
+							<tr>
+								<th>Payment ID</th>
+								<th>Error</th>
+							</tr>
+						</thead>
+						<tbody>
+			`;
+
+			error_details.forEach(detail => {
+				message += `
+					<tr>
+						<td style="font-family: monospace; font-size: 0.9em;">${detail.payment_id}</td>
+						<td style="color: #721c24;">${detail.error || detail.message || 'Unknown error'}</td>
+					</tr>
+				`;
+			});
+
+			message += `
+						</tbody>
+					</table>
+				</div>
+			`;
+		}
+	}
+
+	message += '</div>';
+
+	const indicator = data.errors > 0 ? 'orange' : 'green';
+	const title = data.errors > 0 ?
+		__('Bulk Processing Completed with Errors') :
+		__('Bulk Processing Completed Successfully');
+
+	frappe.msgprint({
+		title: title,
+		message: message,
+		indicator: indicator,
+		wide: true
+	});
 }

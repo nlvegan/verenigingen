@@ -399,6 +399,26 @@ class TestMollieConfigurationService(FrappeTestCase):
         error_msg = str(context.exception)
         self.assertIn("required", error_msg.lower())
 
+    def test_validate_company_with_none(self):
+        """Test validate_company() rejects None input"""
+        config = get_mollie_config()
+
+        with self.assertRaises(frappe.ValidationError) as context:
+            config.validate_company(None)
+
+        error_msg = str(context.exception)
+        self.assertIn("required", error_msg.lower())
+
+    def test_validate_company_with_whitespace(self):
+        """Test validate_company() rejects whitespace-only input"""
+        config = get_mollie_config()
+
+        with self.assertRaises(frappe.ValidationError) as context:
+            config.validate_company("   ")
+
+        error_msg = str(context.exception)
+        self.assertIn("required", error_msg.lower())
+
     def test_get_default_company_returns_string(self):
         """Test get_default_company() returns a company name"""
         config = get_mollie_config()
