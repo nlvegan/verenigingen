@@ -289,7 +289,7 @@ def periodic_sepa_mandate_child_table_sync():
                 if issue["count"] > 0:
                     alert_message += f"- {issue['title']}: {issue['count']} ({issue['severity']} severity)\n"
 
-            alert_message += f"\nPlease review and fix these issues at: sepa_mandate_diagnostics"
+            alert_message += "\nPlease review and fix these issues at: sepa_mandate_diagnostics"
 
             # Create notification for administrators
             frappe.log_error(alert_message, "SEPA Mandate Sync - Issues Detected")

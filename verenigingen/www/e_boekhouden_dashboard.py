@@ -3,6 +3,8 @@ import json
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, public_api
+
 
 def get_context(context):
     """Get context for dashboard page"""
@@ -175,6 +177,7 @@ def get_system_health():
 
         # Check for stuck migrations
         from frappe.utils import add_to_date, now
+
         two_hours_ago = add_to_date(now(), hours=-2)
         stuck_migrations = frappe.db.count(
             "E-Boekhouden Migration",
@@ -210,9 +213,6 @@ def get_system_health():
         health["issues"].append(f"Health check failed: {str(e)}")
 
     return health
-
-
-from verenigingen.utils.security.api_security_framework import OperationType, public_api
 
 
 @frappe.whitelist(allow_guest=True)

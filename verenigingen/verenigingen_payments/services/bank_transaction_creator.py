@@ -127,6 +127,134 @@ class BankTransactionCreator:
             description=description,
         )
 
+    def create_from_dict(
+        self,
+        transaction_data: Dict,
+        bank_account: str,
+        company: str,
+        source_type: str = "Generic Import",
+    ) -> Optional[str]:
+        """
+        Create Bank Transaction from generic dictionary data.
+
+        This method enables Bank Transaction creation from any data source:
+        - SEPA/CAMT XML imports
+        - MT940 bank statement imports
+        - Manual CSV/Excel imports
+        - Member payment imports
+        - Generic banking integrations
+
+        Args:
+            transaction_data: Dictionary with transaction details. Required keys:
+                - date: Transaction date (datetime or date object, or ISO string)
+                - amount: Transaction amount (float, positive=deposit, negative=withdrawal)
+
+                Optional keys:
+                - currency: Currency code (default: EUR)
+                - description: Transaction description (default: generated from source_type)
+                - reference_number: External reference (default: empty string)
+                - transaction_id: Additional transaction ID for tracking
+                - party_type: Party type (Customer, Supplier, Member)
+                - party: Party name
+                - bank_party_name: Counterparty name from bank statement
+                - bank_party_iban: Counterparty IBAN
+                - bank_party_account_number: Counterparty account number
+                - Any custom_ fields will be passed through to Bank Transaction
+
+            bank_account: ERPNext Bank Account name
+            company: Company name
+            source_type: Source identifier for description (e.g., "SEPA Import", "Member Payment")
+
+        Returns:
+            Bank Transaction name if created, None on failure
+
+        Example:
+            >>> creator = get_bank_transaction_creator()
+            >>> bt_name = creator.create_from_dict(
+            ...     transaction_data={
+            ...         "date": "2025-10-22",
+            ...         "amount": 100.50,
+            ...         "currency": "EUR",
+            ...         "description": "Monthly donation",
+            ...         "reference_number": "DON-2025-001",
+            ...         "bank_party_name": "John Doe",
+            ...         "bank_party_iban": "NL91ABNA0417164300",
+            ...     },
+            ...     bank_account="Main Bank Account",
+            ...     company="My Company",
+            ...     source_type="Donation Import"
+            ... )
+        """
+        # Extract and validate required fields
+        date = transaction_data.get("date")
+        amount = transaction_data.get("amount")
+
+        if not date:
+            frappe.logger().error(f"Missing required field 'date' in transaction_data for {source_type}")
+            return None
+
+        if amount is None:
+            frappe.logger().error(f"Missing required field 'amount' in transaction_data for {source_type}")
+            return None
+
+        # Convert date to proper format if it's a string
+        if isinstance(date, str):
+            date = getdate(date)
+
+        # Determine deposit/withdrawal based on amount sign
+        deposit = float(amount) if amount > 0 else 0.0
+        withdrawal = abs(float(amount)) if amount < 0 else 0.0
+
+        # Extract optional fields
+        currency = transaction_data.get("currency", "EUR")
+        description = transaction_data.get("description", f"{source_type} transaction")
+        reference_number = transaction_data.get("reference_number", "")
+        transaction_id = transaction_data.get("transaction_id")
+
+        # Check for existing Bank Transaction (idempotency)
+        if reference_number:
+            existing_bt = self._check_existing_by_reference(reference_number)
+            if existing_bt:
+                frappe.logger().info(
+                    f"Bank Transaction already exists for reference {reference_number}: {existing_bt}"
+                )
+                return existing_bt
+
+        # Extract party fields
+        party_type = transaction_data.get("party_type")
+        party = transaction_data.get("party")
+
+        # Extract bank party fields
+        bank_party_name = transaction_data.get("bank_party_name")
+        bank_party_iban = transaction_data.get("bank_party_iban")
+        bank_party_account_number = transaction_data.get("bank_party_account_number")
+
+        # Extract any custom fields (custom_* pattern)
+        custom_fields = {
+            key: value
+            for key, value in transaction_data.items()
+            if key.startswith("custom_") and value is not None
+        }
+
+        # Create Bank Transaction using centralized method
+        return self._create_bank_transaction(
+            date=date,
+            bank_account=bank_account,
+            company=company,
+            deposit=deposit,
+            withdrawal=withdrawal,
+            currency=currency,
+            reference_number=reference_number,
+            description=description,
+            transaction_id=transaction_id,
+            party_type=party_type,
+            party=party,
+            bank_party_name=bank_party_name,
+            bank_party_iban=bank_party_iban,
+            bank_party_account_number=bank_party_account_number,
+            **custom_fields,
+        )
+
     def _check_existing_by_reference(self, reference_number: str) -> Optional[str]:
         """
         Check if Bank Transaction already exists with this reference number.
@@ -391,9 +519,15 @@ class BankTransactionCreator:
         transaction_id: Optional[str] = None,
         party_type: Optional[str] = None,
         party: Optional[str] = None,
+        bank_party_name: Optional[str] = None,
+        bank_party_iban: Optional[str] = None,
+        bank_party_account_number: Optional[str] = None,
+        **additional_fields,
     ) -> Optional[str]:
         """
-        Internal method to create and submit Bank Transaction.
+        Internal method to create and submit Bank Transaction using secure operations framework.
+
+        Uses secure_document_operation() to ensure proper permission validation and audit trail.
 
         Args:
             date: Transaction date
@@ -405,11 +539,19 @@ class BankTransactionCreator:
             reference_number: Unique reference (payment/settlement ID)
             description: Human-readable description
             transaction_id: Optional transaction ID field
+            party_type: Optional party type (Customer, Supplier, Member)
+            party: Optional party name
+            bank_party_name: Optional counterparty name from bank statement
+            bank_party_iban: Optional counterparty IBAN
+            bank_party_account_number: Optional counterparty account number
+            **additional_fields: Any additional fields to set on Bank Transaction
 
         Returns:
             Bank Transaction name if created, None on failure
         """
         from frappe.exceptions import DuplicateEntryError
+
+        from verenigingen.utils.secure_operations import secure_document_operation
 
         try:
             bank_transaction_dict = {
@@ -437,16 +579,65 @@ class BankTransactionCreator:
             if party:
                 bank_transaction_dict["party"] = party
 
+            # Add bank party fields if provided (for SEPA/bank imports)
+            if bank_party_name:
+                bank_transaction_dict["bank_party_name"] = bank_party_name
+            if bank_party_iban:
+                bank_transaction_dict["bank_party_iban"] = bank_party_iban
+            if bank_party_account_number:
+                bank_transaction_dict["bank_party_account_number"] = bank_party_account_number
+
+            # Add any additional custom fields (e.g., Mollie-specific fields)
+            for field, value in additional_fields.items():
+                if value is not None:
+                    bank_transaction_dict[field] = value
+
             bank_transaction = frappe.get_doc(bank_transaction_dict)
 
-            # Insert and submit Bank Transaction
-            bank_transaction.insert()
-            bank_transaction.submit()
+            # Create Bank Transaction using secure operations framework
+            # This handles permission validation and creates in draft if user lacks submit permission
+            create_result = secure_document_operation(
+                operation="create",
+                doc=bank_transaction,
+                justification=f"Bank Transaction creation from {description[:50]}",
+                required_permissions=["Bank Transaction:create"],
+                allow_system_user=True,  # Allow system user fallback for webhook/automated contexts
+            )
+
+            if not create_result.success:
+                error_msg = ", ".join(create_result.errors) if create_result.errors else "Unknown error"
+                frappe.logger().error(f"❌ Failed to create Bank Transaction: {error_msg}")
+                return None
+
+            # Get the created document
+            bank_transaction = create_result.document
 
             frappe.logger().info(
-                f"✅ Created Bank Transaction: {bank_transaction.name} "
-                f"(ref: {reference_number}, amount: {currency} {deposit or withdrawal})"
+                f"After create: Bank Transaction {bank_transaction.name} docstatus={bank_transaction.docstatus}"
             )
+
+            # Attempt to submit Bank Transaction using secure operations framework
+            # Framework will only submit if current user has submit permission
+            # If user lacks permission, document remains in draft state
+            submit_result = secure_document_operation(
+                operation="submit",
+                doc=bank_transaction,
+                justification=f"Bank Transaction submission for {reference_number}",
+                required_permissions=["Bank Transaction:submit"],
+                allow_system_user=False,  # Require actual user permission for submit
+            )
+
+            if submit_result.success:
+                frappe.logger().info(
+                    f"✅ Created and submitted Bank Transaction: {bank_transaction.name} "
+                    f"(ref: {reference_number}, amount: {currency} {deposit or withdrawal})"
+                )
+            else:
+                # Document created but not submitted (draft state)
+                frappe.logger().info(
+                    f"✅ Created Bank Transaction (draft): {bank_transaction.name} "
+                    f"(ref: {reference_number}) - user lacks submit permission"
+                )
 
             return bank_transaction.name
 

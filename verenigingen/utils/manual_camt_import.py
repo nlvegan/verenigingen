@@ -131,10 +131,13 @@ def process_manual_camt_document(xml_content, bank_account, company):
 def create_bank_transaction_from_sepa(sepa_transaction, bank_account, company):
     """
     Create ERPNext Bank Transaction from SEPA transaction.
-    Adapted from banking app's _create_bank_transaction function.
+
+    Uses centralized BankTransactionCreator for consistent creation logic.
     """
     try:
-        import contextlib
+        from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+            get_bank_transaction_creator,
+        )
 
         # Generate transaction ID
         transaction_id = (
@@ -143,46 +146,48 @@ def create_bank_transaction_from_sepa(sepa_transaction, bank_account, company):
             or generate_transaction_hash(sepa_transaction)
         )
 
-        # Check if transaction already exists
+        # Check if transaction already exists (idempotency)
         if transaction_id and frappe.db.exists(
             "Bank Transaction", {"transaction_id": transaction_id, "bank_account": bank_account}
         ):
+            frappe.logger().info(f"SEPA transaction already imported: {transaction_id}")
             return False  # Already exists
 
-        # Create new Bank Transaction
-        bt = frappe.new_doc("Bank Transaction")
-        bt.date = sepa_transaction.date
-        bt.bank_account = bank_account
-        bt.company = company
-
-        amount = float(sepa_transaction.amount.value)
-        bt.deposit = max(amount, 0)
-        bt.withdrawal = abs(min(amount, 0))
-        bt.currency = sepa_transaction.amount.currency
-
-        # Set description from purpose lines or info
+        # Extract description from purpose lines or info
         purposes = getattr(sepa_transaction, "purpose", [])
-        if purposes:
-            bt.description = "\n".join(purposes)
-        else:
-            bt.description = getattr(sepa_transaction, "info", "")
+        description = "\n".join(purposes) if purposes else getattr(sepa_transaction, "info", "")
 
-        bt.reference_number = getattr(sepa_transaction, "ere", "")
-        bt.transaction_id = transaction_id
-        bt.bank_party_iban = getattr(sepa_transaction, "iban", "")
-        bt.bank_party_name = getattr(sepa_transaction, "name", "")
+        # Prepare transaction data for BankTransactionCreator
+        transaction_data = {
+            "date": sepa_transaction.date,
+            "amount": float(sepa_transaction.amount.value),
+            "currency": sepa_transaction.amount.currency,
+            "description": description,
+            "reference_number": getattr(sepa_transaction, "eref", ""),
+            "transaction_id": transaction_id,
+            "bank_party_iban": getattr(sepa_transaction, "iban", ""),
+            "bank_party_name": getattr(sepa_transaction, "name", ""),
+        }
 
-        # Insert and submit
-        with contextlib.suppress(frappe.exceptions.UniqueValidationError):
-            bt.insert()
-            bt.submit()
+        # Create Bank Transaction using centralized service
+        creator = get_bank_transaction_creator()
+        bank_transaction_name = creator.create_from_dict(
+            transaction_data=transaction_data,
+            bank_account=bank_account,
+            company=company,
+            source_type="SEPA/CAMT Import",
+        )
+
+        if bank_transaction_name:
+            frappe.logger().info(f"Created Bank Transaction from SEPA: {bank_transaction_name}")
             return True
+        else:
+            frappe.logger().error("Failed to create Bank Transaction from SEPA")
+            return False
 
     except Exception as e:
-        frappe.logger().error(f"Error creating bank transaction: {str(e)}")
+        frappe.logger().error(f"Error creating bank transaction from SEPA: {str(e)}")
         raise
-
-    return False
 
 
 def generate_transaction_hash(transaction):

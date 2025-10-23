@@ -310,12 +310,16 @@ class DonationReportingService:
                 {date_filter}
             ORDER BY d.donation_date DESC
         """.format(
-                chapter_filter="AND d.chapter_reference = %(chapter)s AND d.donation_purpose_type = 'Chapter'"
-                if chapter
-                else "",
-                date_filter="AND d.donation_date BETWEEN %(from_date)s AND %(to_date)s"
-                if from_date and to_date
-                else "",
+                chapter_filter=(
+                    "AND d.chapter_reference = %(chapter)s AND d.donation_purpose_type = 'Chapter'"
+                    if chapter
+                    else ""
+                ),
+                date_filter=(
+                    "AND d.donation_date BETWEEN %(from_date)s AND %(to_date)s"
+                    if from_date and to_date
+                    else ""
+                ),
             ),
             {"chapter": chapter, "from_date": from_date, "to_date": to_date},
             as_dict=True,

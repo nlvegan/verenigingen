@@ -488,44 +488,39 @@ class BulkTransactionImporter(MollieBaseClient):
                 frappe.logger().warning("No bank account found for settlement import")
                 return None
 
-            # Create Bank Transaction
-            bank_transaction = frappe.new_doc("Bank Transaction")
-            bank_transaction.update(
-                {
+            # Validate custom fields exist before using them
+            self._validate_mollie_custom_fields()
+
+            # Create Bank Transaction using centralized service
+            from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+                get_bank_transaction_creator,
+            )
+
+            creator = get_bank_transaction_creator()
+            bank_transaction_name = creator.create_from_dict(
+                transaction_data={
                     "date": settlement_date.date(),
-                    "bank_account": bank_account,
-                    "company": company,
-                    "deposit": float(settlement.get("amount", {}).get("value", "0")),
-                    "withdrawal": 0,
+                    "amount": float(settlement.get("amount", {}).get("value", "0")),
                     "currency": settlement.get("amount", {}).get("currency", "EUR"),
                     "description": f"Mollie Settlement {settlement.get('reference', settlement.get('id', ''))}",
                     "reference_number": settlement.get("id"),
-                    "transaction_type": "Mollie Settlement",
-                    # Add Mollie-specific fields
+                    # Mollie-specific custom fields
                     "custom_mollie_settlement_id": settlement.get("id"),
                     "custom_mollie_reference": settlement.get("reference"),
                     "custom_mollie_import_source": "Bulk Import",
                     "custom_import_batch_id": self.import_id,
-                }
+                },
+                bank_account=bank_account,
+                company=company,
+                source_type="Mollie Bulk Settlement Import",
             )
 
-            # Validate permissions before creating financial records
-            if not frappe.has_permission("Bank Transaction", "create"):
-                raise frappe.PermissionError("Insufficient permissions to create Bank Transaction")
+            if not bank_transaction_name:
+                frappe.logger().error("Failed to create Bank Transaction from settlement")
+                return None
 
-            # Validate custom fields exist before using them
-            self._validate_mollie_custom_fields()
-
-            bank_transaction.insert()
-
-            # Submit only if user has submit permissions
-            if frappe.has_permission("Bank Transaction", "submit"):
-                bank_transaction.submit()
-            else:
-                frappe.logger().info(
-                    f"Bank Transaction {bank_transaction.name} created but not submitted - no submit permission"
-                )
-
+            # Return the created Bank Transaction document
+            bank_transaction = frappe.get_doc("Bank Transaction", bank_transaction_name)
             return bank_transaction
 
         except Exception as e:
@@ -574,8 +569,6 @@ class BulkTransactionImporter(MollieBaseClient):
 
             # Determine amount and direction
             amount = float(payment.get("amount", {}).get("value", "0"))
-            deposit = amount if amount > 0 else 0
-            withdrawal = abs(amount) if amount < 0 else 0
 
             # Extract consumer details for iDEAL and other payment methods
             consumer_name = None
@@ -618,51 +611,46 @@ class BulkTransactionImporter(MollieBaseClient):
                     party_type = "Member"
                     party = matched_member
 
-            # Create Bank Transaction
-            bank_transaction = frappe.new_doc("Bank Transaction")
-            bank_transaction.update(
-                {
+            # Validate custom fields exist before using them
+            self._validate_mollie_custom_fields()
+
+            # Create Bank Transaction using centralized service
+            from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+                get_bank_transaction_creator,
+            )
+
+            creator = get_bank_transaction_creator()
+            bank_transaction_name = creator.create_from_dict(
+                transaction_data={
                     "date": payment_date.date(),
-                    "bank_account": bank_account,
-                    "company": company,
-                    "deposit": deposit,
-                    "withdrawal": withdrawal,
+                    "amount": amount,  # Positive=deposit, negative=withdrawal
                     "currency": payment.get("amount", {}).get("currency", "EUR"),
                     "description": payment.get("description", f"Mollie Payment {payment.get('id', '')}"),
                     "reference_number": payment.get("id"),
-                    "transaction_type": "Mollie Payment",
                     # Standard Bank Transaction party fields
                     "party_type": party_type,
                     "party": party,
                     "bank_party_name": consumer_name,
                     "bank_party_iban": consumer_iban,
                     "bank_party_account_number": consumer_account,
-                    # Add Mollie-specific fields
+                    # Mollie-specific custom fields
                     "custom_mollie_payment_id": payment.get("id"),
                     "custom_mollie_status": payment.get("status"),
                     "custom_mollie_method": payment.get("method"),
                     "custom_mollie_import_source": "Bulk Import",
                     "custom_import_batch_id": self.import_id,
-                }
+                },
+                bank_account=bank_account,
+                company=company,
+                source_type="Mollie Bulk Payment Import",
             )
 
-            # Validate permissions before creating financial records
-            if not frappe.has_permission("Bank Transaction", "create"):
-                raise frappe.PermissionError("Insufficient permissions to create Bank Transaction")
+            if not bank_transaction_name:
+                frappe.logger().error("Failed to create Bank Transaction from payment")
+                return None
 
-            # Validate custom fields exist before using them
-            self._validate_mollie_custom_fields()
-
-            bank_transaction.insert()
-
-            # Submit only if user has submit permissions
-            if frappe.has_permission("Bank Transaction", "submit"):
-                bank_transaction.submit()
-            else:
-                frappe.logger().info(
-                    f"Bank Transaction {bank_transaction.name} created but not submitted - no submit permission"
-                )
-
+            # Return the created Bank Transaction document
+            bank_transaction = frappe.get_doc("Bank Transaction", bank_transaction_name)
             return bank_transaction
 
         except Exception as e:

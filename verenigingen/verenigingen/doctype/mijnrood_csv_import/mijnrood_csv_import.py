@@ -846,9 +846,11 @@ class MijnroodCSVImport(Document):
             member_doc._pending_dues_schedule_data = {
                 "dues_rate": dues_rate,
                 "payment_period": row_data.get("payment_period"),
-                "override_reason": "Imported from CSV with custom rate"
-                if row_data.get("dues_rate")
-                else "Default membership type rate",
+                "override_reason": (
+                    "Imported from CSV with custom rate"
+                    if row_data.get("dues_rate")
+                    else "Default membership type rate"
+                ),
             }
 
         # Store Mollie information for later - will be set on Customer record

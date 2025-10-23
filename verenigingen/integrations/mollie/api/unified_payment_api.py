@@ -386,9 +386,11 @@ def handle_refund_webhook():
         # Return standardized response
         result = standardized_webhook_response(
             "success" if refund_pe else "error",
-            f"Refund Payment Entry created: {refund_pe.name}"
-            if refund_pe
-            else "Failed to create refund Payment Entry",
+            (
+                f"Refund Payment Entry created: {refund_pe.name}"
+                if refund_pe
+                else "Failed to create refund Payment Entry"
+            ),
             payment_entry_id=refund_pe.name if refund_pe else None,
             refund_id=ids["refund_id"],
             payment_id=ids["payment_id"],

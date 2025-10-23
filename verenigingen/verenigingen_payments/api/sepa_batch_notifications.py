@@ -173,9 +173,11 @@ def send_daily_batch_summary(validation_summary, batch_result):
             "payment_date": today(),
             "payment_method": "SEPA Batch Processing",
             "next_steps": f"Processing Results: {status_summary}. Batches Created: {batch_result.get('batches_created', 0)}. Success Rate: {((validation_summary.get('processed', 0) + validation_summary.get('processed_with_warnings', 0)) / total_batches * 100):.1f}%",
-            "action_required": f"{validation_summary.get('blocked', 0)} batch(es) require manual intervention"
-            if validation_summary.get("blocked", 0) > 0
-            else None,
+            "action_required": (
+                f"{validation_summary.get('blocked', 0)} batch(es) require manual intervention"
+                if validation_summary.get("blocked", 0) > 0
+                else None
+            ),
             "company": frappe.defaults.get_global_default("company") or "Verenigingen",
         }
 

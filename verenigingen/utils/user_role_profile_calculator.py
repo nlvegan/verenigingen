@@ -642,9 +642,11 @@ def sync_user_role_profile(user: str, dry_run: bool = False) -> dict:
             "changed": changed,
             "role_changed": role_changed,
             "module_changed": module_changed,
-            "message": f"Profile {'would change' if dry_run and changed else 'changed' if changed else 'unchanged'}: role={old_profile}→{new_profile}, module={old_module_profile}→{new_module_profile}"
-            if changed
-            else f"Profiles correct: role={new_profile}, module={new_module_profile}",
+            "message": (
+                f"Profile {'would change' if dry_run and changed else 'changed' if changed else 'unchanged'}: role={old_profile}→{new_profile}, module={old_module_profile}→{new_module_profile}"
+                if changed
+                else f"Profiles correct: role={new_profile}, module={new_module_profile}"
+            ),
         }
 
     except Exception as e:

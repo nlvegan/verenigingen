@@ -246,8 +246,6 @@ class SEPAMandateManager:
             >>> result.valid
             True
         """
-        errors = []
-
         # Step 1: Validate member exists
         if not frappe.db.exists("Member", member):
             return ValidationResult.failure(_("Member {0} does not exist").format(member))
@@ -564,9 +562,9 @@ class SEPAMandateManager:
                         "status": mandate_doc.status,
                         "is_current": 0,  # Will be set to 1 when mandate is activated
                         "valid_from": mandate_doc.sign_date,
-                        "valid_until": mandate_doc.expiry_date
-                        if hasattr(mandate_doc, "expiry_date")
-                        else None,
+                        "valid_until": (
+                            mandate_doc.expiry_date if hasattr(mandate_doc, "expiry_date") else None
+                        ),
                     },
                 )
 

@@ -483,7 +483,7 @@ class PaymentProcessingService:
             result = secure_document_operation(
                 operation="save",
                 doc=customer_doc,
-                justification=f"Fix customer-donor link for payment processing",
+                justification="Fix customer-donor link for payment processing",
                 required_permissions=["Customer:write"],
             )
 

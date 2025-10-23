@@ -417,9 +417,11 @@ class HealthMonitor:
                 "total_services": len(health_reports),
                 "service_reports": health_reports,
             },
-            "errors": []
-            if overall_status == "healthy"
-            else [f"System degraded: {unhealthy_count} unhealthy services"],
+            "errors": (
+                []
+                if overall_status == "healthy"
+                else [f"System degraded: {unhealthy_count} unhealthy services"]
+            ),
             "timestamp": time.time(),
         }
 

@@ -622,9 +622,9 @@ class SEPAService:
             )
             return {
                 "success": False,
-                "error": mandate_result.errors[0]
-                if mandate_result.errors
-                else "Failed to create SEPA mandate",
+                "error": (
+                    mandate_result.errors[0] if mandate_result.errors else "Failed to create SEPA mandate"
+                ),
             }
 
         # Get the created mandate from result
@@ -704,9 +704,9 @@ class SEPAService:
             )
             return {
                 "success": False,
-                "error": member_result.errors[0]
-                if member_result.errors
-                else "Failed to link mandate to member",
+                "error": (
+                    member_result.errors[0] if member_result.errors else "Failed to link mandate to member"
+                ),
             }
 
         return {"success": True}
@@ -875,9 +875,9 @@ class SEPAService:
                 )
                 return {
                     "success": False,
-                    "message": mandate_result.errors[0]
-                    if mandate_result.errors
-                    else "Failed to cancel mandate",
+                    "message": (
+                        mandate_result.errors[0] if mandate_result.errors else "Failed to cancel mandate"
+                    ),
                 }
 
             # Log the cancellation

@@ -242,9 +242,7 @@ class APIValidator:
         return round(amount, 2)
 
     @classmethod
-    def validate_date(
-        cls, date_value: Union[str, datetime], required: bool = True
-    ) -> Optional[str]:
+    def validate_date(cls, date_value: Union[str, datetime], required: bool = True) -> Optional[str]:
         """
         Validate date format
 

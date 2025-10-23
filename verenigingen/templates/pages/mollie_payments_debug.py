@@ -645,3 +645,171 @@ def get_balance_processing_statistics(days=30):
     except Exception as e:
         frappe.log_error(f"Get balance processing statistics error: {str(e)}")
         return {"error": str(e)}
+
+
+# Bulk Payment Checker API Endpoints
+
+
+@frappe.whitelist(allow_guest=False, methods=["POST"])
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def check_all_customers_for_new_payments(days_back=7, all_history=False, limit_per_customer=250):
+    """
+    Stage 1: Discovery - Check all Member Mollie customers for new payments.
+
+    This is the discovery phase that identifies which payments exist but haven't
+    been processed yet. Results should be reviewed before processing.
+
+    Args:
+        days_back: Number of days back to check (default: 7 for this week)
+        all_history: If True, retrieve all historical payments (ignores days_back)
+        limit_per_customer: Maximum payments to retrieve per customer (default: 250)
+
+    Returns:
+        Dict containing:
+            - total_members: Total members with Mollie customer IDs
+            - members_checked: Number of members successfully checked
+            - total_payments_found: Total payments discovered
+            - total_new_payments: Total unprocessed payments
+            - customers: List of customer results
+            - errors: Number of errors encountered
+            - summary: Human-readable summary
+
+    Security: POST-only to prevent CSRF attacks on financial operations
+    """
+    try:
+        if not has_mollie_debug_access():
+            frappe.throw(_("Access denied"))
+
+        # Rate limiting: 1 minute cooldown for discovery operations
+        # Prevents DoS via repeated API calls to Mollie
+        cache_key = f"bulk_payment_discovery_limit:{frappe.session.user}"
+        rate_limit_seconds = 60
+
+        lock_acquired = frappe.cache().set(cache_key, "1", ex=rate_limit_seconds, nx=True)
+        if not lock_acquired:
+            remaining_ttl = frappe.cache().ttl(cache_key)
+            frappe.throw(
+                _("Please wait {0} seconds before next discovery operation").format(
+                    remaining_ttl or rate_limit_seconds
+                )
+            )
+
+        # Validate and convert parameters
+        try:
+            days_back = int(days_back)
+            if days_back < 1 or days_back > 365:
+                days_back = 7
+        except (ValueError, TypeError):
+            days_back = 7
+
+        # Convert string boolean from form data
+        if isinstance(all_history, str):
+            all_history = all_history.lower() in ("true", "1", "yes")
+
+        try:
+            limit_per_customer = int(limit_per_customer)
+            if limit_per_customer < 1 or limit_per_customer > 250:
+                limit_per_customer = 250
+        except (ValueError, TypeError):
+            limit_per_customer = 250
+
+        from verenigingen.integrations.mollie.services.bulk_payment_checker import BulkPaymentChecker
+
+        checker = BulkPaymentChecker()
+        return checker.check_all_customers_for_new_payments(
+            days_back=days_back, all_history=all_history, limit_per_customer=limit_per_customer
+        )
+
+    except Exception as e:
+        frappe.log_error(f"Bulk payment check error: {str(e)}")
+        return {"error": str(e)}
+
+
+@frappe.whitelist(allow_guest=False, methods=["POST"])
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def process_discovered_payments(payment_ids, dry_run=False):
+    """
+    Stage 2: Processing - Process selected payments through dues payment processor.
+
+    Takes the payment IDs discovered in Stage 1 and processes them through
+    the dues payment processor to create Payment Entries or Bank Transactions.
+
+    Args:
+        payment_ids: JSON string or list of Mollie payment IDs to process
+        dry_run: If True, don't actually create Payment Entries (for testing)
+
+    Returns:
+        Dict with processing results:
+            - total_requested: Number of payments requested to process
+            - processed: Successfully processed payments
+            - skipped: Payments skipped (already processed, wrong status, etc.)
+            - errors: Number of errors
+            - results: Detailed results for each payment
+
+    Security: POST-only to prevent CSRF attacks on financial operations
+    """
+    try:
+        if not has_mollie_debug_access():
+            frappe.throw(_("Access denied"))
+
+        # Parse payment_ids if it's a JSON string - use Frappe's secure parser
+        if isinstance(payment_ids, str):
+            import html
+
+            try:
+                # Decode HTML entities first (form data may be HTML-escaped)
+                payment_ids_decoded = html.unescape(payment_ids)
+                payment_ids = frappe.parse_json(payment_ids_decoded)
+            except (ValueError, TypeError) as e:
+                frappe.throw(_("Invalid JSON format for payment_ids: {0}").format(str(e)))
+
+        if not payment_ids or not isinstance(payment_ids, list):
+            frappe.throw(_("Invalid payment_ids - must be a list"))
+
+        # Validate each payment ID format to prevent injection attacks
+        # Mollie payment IDs follow pattern: tr_[alphanumeric 10+ chars]
+        import re
+
+        mollie_payment_pattern = re.compile(r"^tr_[a-zA-Z0-9]{10,}$")
+        for pid in payment_ids:
+            if not isinstance(pid, str):
+                frappe.throw(_("Payment ID must be a string: {0}").format(pid))
+            if not mollie_payment_pattern.match(pid):
+                frappe.throw(_("Invalid Mollie payment ID format: {0}").format(pid))
+
+        # Enforce maximum batch size
+        MAX_BATCH_SIZE = 100
+        if len(payment_ids) > MAX_BATCH_SIZE:
+            frappe.throw(
+                _("Cannot process more than {0} payments at once. Please process in smaller batches.").format(
+                    MAX_BATCH_SIZE
+                )
+            )
+
+        # Convert string boolean from form data
+        if isinstance(dry_run, str):
+            dry_run = dry_run.lower() in ("true", "1", "yes")
+
+        # Rate limiting: ALWAYS enforce, even for dry runs (prevents API abuse)
+        # Different rate limits for dry run vs actual processing
+        cache_key = f"bulk_payment_process_limit:{frappe.session.user}"
+        rate_limit_seconds = 30 if dry_run else 120  # 30s for dry run, 2min for processing
+
+        lock_acquired = frappe.cache().set(cache_key, "1", ex=rate_limit_seconds, nx=True)
+        if not lock_acquired:
+            remaining_ttl = frappe.cache().ttl(cache_key)
+            operation_type = "dry run" if dry_run else "batch processing"
+            frappe.throw(
+                _("Please wait {0} seconds before next {1} operation").format(
+                    remaining_ttl or rate_limit_seconds, operation_type
+                )
+            )
+
+        from verenigingen.integrations.mollie.services.bulk_payment_checker import BulkPaymentChecker
+
+        checker = BulkPaymentChecker()
+        return checker.process_discovered_payments(payment_ids=payment_ids, dry_run=dry_run)
+
+    except Exception as e:
+        frappe.log_error(f"Bulk payment processing error: {str(e)}")
+        return {"error": str(e), "payment_ids": payment_ids if isinstance(payment_ids, list) else []}

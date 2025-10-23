@@ -455,12 +455,16 @@ class MollieClient:
                         "interval": getattr(sub, "interval", "Unknown"),
                         "description": getattr(sub, "description", "Unknown"),
                         "created_at": str(getattr(sub, "created_at", "Unknown")),
-                        "next_payment_date": str(getattr(sub, "next_payment_date", None))
-                        if getattr(sub, "next_payment_date", None)
-                        else None,
-                        "canceled_at": str(getattr(sub, "canceled_at", None))
-                        if getattr(sub, "canceled_at", None)
-                        else None,
+                        "next_payment_date": (
+                            str(getattr(sub, "next_payment_date", None))
+                            if getattr(sub, "next_payment_date", None)
+                            else None
+                        ),
+                        "canceled_at": (
+                            str(getattr(sub, "canceled_at", None))
+                            if getattr(sub, "canceled_at", None)
+                            else None
+                        ),
                     }
                 )
 
@@ -474,9 +478,11 @@ class MollieClient:
                         "method": getattr(mandate, "method", "Unknown"),
                         "created_at": str(getattr(mandate, "created_at", "Unknown")),
                         "mandate_reference": getattr(mandate, "mandate_reference", None),
-                        "signature_date": str(getattr(mandate, "signature_date", None))
-                        if getattr(mandate, "signature_date", None)
-                        else None,
+                        "signature_date": (
+                            str(getattr(mandate, "signature_date", None))
+                            if getattr(mandate, "signature_date", None)
+                            else None
+                        ),
                     }
                 )
 

@@ -1306,9 +1306,11 @@ def _process_payment_refunds(payment_id, payment):
             result = {
                 "status": "success" if refund_pe else "error",
                 "payment_entry_id": refund_pe.name if refund_pe else None,
-                "message": f"Refund Payment Entry created: {refund_pe.name}"
-                if refund_pe
-                else "Failed to create refund Payment Entry",
+                "message": (
+                    f"Refund Payment Entry created: {refund_pe.name}"
+                    if refund_pe
+                    else "Failed to create refund Payment Entry"
+                ),
             }
 
             if result.get("status") == "success":

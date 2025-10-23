@@ -4260,9 +4260,11 @@ def refresh_fee_change_history(member_name):
                     "dues_rate": amendment.requested_amount,
                     "old_dues_rate": amendment.current_amount or 0,
                     "change_type": "Fee Adjustment",
-                    "reason": f"Amendment: {amendment.reason}"
-                    if amendment.reason
-                    else f"Amendment {amendment_name}",
+                    "reason": (
+                        f"Amendment: {amendment.reason}"
+                        if amendment.reason
+                        else f"Amendment {amendment_name}"
+                    ),
                     "change_date": amendment.applied_date or amendment.effective_date,
                     "changed_by": amendment.applied_by or "Administrator",
                 }

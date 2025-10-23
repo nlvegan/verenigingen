@@ -460,9 +460,11 @@ class ContributionAmendmentRequest(Document):
                         "amendment_type": self.amendment_type,
                         "member_name": member.full_name,
                         "member_id": member.name,
-                        "requested_amount": frappe.format_value(self.requested_amount, "Currency")
-                        if self.requested_amount
-                        else None,
+                        "requested_amount": (
+                            frappe.format_value(self.requested_amount, "Currency")
+                            if self.requested_amount
+                            else None
+                        ),
                         "error_message": error_message,
                         "amendment_link": frappe.utils.get_url()
                         + "/app/contribution-amendment-request/"
@@ -1061,9 +1063,11 @@ class ContributionAmendmentRequest(Document):
                     "member_name": member.full_name,
                     "amendment_id": self.name,
                     "amendment_type": self.amendment_type or "N/A",
-                    "requested_amount": frappe.format_value(self.requested_amount, "Currency")
-                    if self.requested_amount
-                    else None,
+                    "requested_amount": (
+                        frappe.format_value(self.requested_amount, "Currency")
+                        if self.requested_amount
+                        else None
+                    ),
                     "rejection_reason": self.rejection_reason or "No reason provided",
                     "portal_link": frappe.utils.get_url()
                     + "/app/contribution-amendment-request/"

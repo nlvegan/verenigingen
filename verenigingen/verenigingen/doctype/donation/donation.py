@@ -517,9 +517,11 @@ def send_donation_confirmation_email(donation_id):
             "donation_amount": "{:,.2f}".format(flt(donation.amount)),
             "donation_date": frappe.utils.formatdate(donation.donation_date),
             "donation_status": donation.status,
-            "earmarking": donation.get_earmarking_summary()
-            if hasattr(donation, "get_earmarking_summary")
-            else "General Fund",
+            "earmarking": (
+                donation.get_earmarking_summary()
+                if hasattr(donation, "get_earmarking_summary")
+                else "General Fund"
+            ),
             "donation_notes": donation.donation_notes or "",
             "donor_name": donor.donor_name,
             "donor_email": donor_email,
@@ -576,9 +578,11 @@ def send_payment_confirmation_email(donation_id):
             "payment_date": frappe.utils.formatdate(donation.modified),
             "payment_method": getattr(donation, "payment_method", donation.mode_of_payment),
             "payment_reference": donation.payment_id or donation.name,
-            "earmarking": donation.get_earmarking_summary()
-            if hasattr(donation, "get_earmarking_summary")
-            else "General Fund",
+            "earmarking": (
+                donation.get_earmarking_summary()
+                if hasattr(donation, "get_earmarking_summary")
+                else "General Fund"
+            ),
             "donor_name": donor.donor_name,
             "donor_email": donor_email,
             "organization_name": frappe.defaults.get_global_default("company"),

@@ -296,7 +296,7 @@ def check_transaction_status(transaction_id: str, include_mollie_data: bool = Fa
                         transaction = tx
                         break
 
-                if not transaction:
+                if transaction is None:
                     result[
                         "mollie_api_error"
                     ] = f"Transaction {transaction_id} not found in recent transactions (checked last 100). Try processing it first."
@@ -305,55 +305,83 @@ def check_transaction_status(transaction_id: str, include_mollie_data: bool = Fa
                     result["mollie_api_data"] = {
                         "id": transaction.id,
                         "type": transaction.type,
-                        "result_amount": {
-                            "value": transaction.result_amount.value if transaction.result_amount else None,
-                            "currency": transaction.result_amount.currency
-                            if transaction.result_amount
-                            else None,
-                        }
-                        if transaction.result_amount
-                        else None,
-                        "initial_amount": {
-                            "value": transaction.initial_amount.value if transaction.initial_amount else None,
-                            "currency": transaction.initial_amount.currency
-                            if transaction.initial_amount
-                            else None,
-                        }
-                        if transaction.initial_amount
-                        else None,
-                        "deductions": {
-                            "amount": {
-                                "value": transaction.deductions.amount.value
-                                if transaction.deductions and transaction.deductions.amount
-                                else None,
-                                "currency": transaction.deductions.amount.currency
-                                if transaction.deductions and transaction.deductions.amount
-                                else None,
+                        "result_amount": (
+                            {
+                                "value": (
+                                    transaction.result_amount.value if transaction.result_amount else None
+                                ),
+                                "currency": (
+                                    transaction.result_amount.currency if transaction.result_amount else None
+                                ),
                             }
-                            if transaction.deductions and hasattr(transaction.deductions, "amount")
-                            else None,
-                            "count": transaction.deductions.count
-                            if transaction.deductions and hasattr(transaction.deductions, "count")
-                            else 0,
-                            "period_id": transaction.deductions.period_id
-                            if transaction.deductions and hasattr(transaction.deductions, "period_id")
-                            else None,
-                        }
-                        if transaction.deductions
-                        else None,
+                            if transaction.result_amount
+                            else None
+                        ),
+                        "initial_amount": (
+                            {
+                                "value": (
+                                    transaction.initial_amount.value if transaction.initial_amount else None
+                                ),
+                                "currency": (
+                                    transaction.initial_amount.currency
+                                    if transaction.initial_amount
+                                    else None
+                                ),
+                            }
+                            if transaction.initial_amount
+                            else None
+                        ),
+                        "deductions": (
+                            {
+                                "amount": (
+                                    {
+                                        "value": (
+                                            transaction.deductions.amount.value
+                                            if transaction.deductions and transaction.deductions.amount
+                                            else None
+                                        ),
+                                        "currency": (
+                                            transaction.deductions.amount.currency
+                                            if transaction.deductions and transaction.deductions.amount
+                                            else None
+                                        ),
+                                    }
+                                    if transaction.deductions and hasattr(transaction.deductions, "amount")
+                                    else None
+                                ),
+                                "count": (
+                                    transaction.deductions.count
+                                    if transaction.deductions and hasattr(transaction.deductions, "count")
+                                    else 0
+                                ),
+                                "period_id": (
+                                    transaction.deductions.period_id
+                                    if transaction.deductions and hasattr(transaction.deductions, "period_id")
+                                    else None
+                                ),
+                            }
+                            if transaction.deductions
+                            else None
+                        ),
                         "created_at": str(transaction.created_at) if transaction.created_at else None,
                         "context": transaction.context if hasattr(transaction, "context") else None,
                         "resource": transaction.resource if hasattr(transaction, "resource") else None,
-                        "_links": {
-                            "self": transaction._links.get("self", {}).get("href")
+                        "_links": (
+                            {
+                                "self": (
+                                    transaction._links.get("self", {}).get("href")
+                                    if hasattr(transaction, "_links") and transaction._links
+                                    else None
+                                ),
+                                "balance": (
+                                    transaction._links.get("balance", {}).get("href")
+                                    if hasattr(transaction, "_links") and transaction._links
+                                    else None
+                                ),
+                            }
                             if hasattr(transaction, "_links") and transaction._links
-                            else None,
-                            "balance": transaction._links.get("balance", {}).get("href")
-                            if hasattr(transaction, "_links") and transaction._links
-                            else None,
-                        }
-                        if hasattr(transaction, "_links") and transaction._links
-                        else None,
+                            else None
+                        ),
                     }
 
             except Exception as api_error:

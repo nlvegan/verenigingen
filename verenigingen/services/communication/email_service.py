@@ -166,14 +166,18 @@ class EmailService:
 
             return create_service_result(
                 success=result["success"],
-                data={
-                    "template": template_name,
-                    "recipients_count": len(recipients),
-                    "queued": result.get("queued", False),
-                    "message": "Email queued successfully" if result["success"] else "Email queueing failed",
-                }
-                if result["success"]
-                else None,
+                data=(
+                    {
+                        "template": template_name,
+                        "recipients_count": len(recipients),
+                        "queued": result.get("queued", False),
+                        "message": (
+                            "Email queued successfully" if result["success"] else "Email queueing failed"
+                        ),
+                    }
+                    if result["success"]
+                    else None
+                ),
                 error="; ".join(result.get("errors", [])) if not result["success"] else None,
                 service_name="EmailService",
                 operation="send_templated_email",

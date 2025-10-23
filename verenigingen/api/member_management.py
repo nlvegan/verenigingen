@@ -1730,71 +1730,75 @@ def extract_transaction_data_improved(transaction):
 
 
 def create_bank_transaction_improved(transaction_data, bank_account, company):
-    """Create ERPNext Bank Transaction from extracted data"""
+    """
+    Create ERPNext Bank Transaction from extracted data.
+
+    Uses centralized BankTransactionCreator for consistent creation logic.
+    """
     try:
         import hashlib
+
+        from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+            get_bank_transaction_creator,
+        )
 
         # Validate required data
         if not transaction_data.get("date") or transaction_data.get("amount") is None:
             return "missing_required_data"
 
+        # Validate bank account exists
+        if not frappe.db.exists("Bank Account", bank_account):
+            return f"bank_account_not_found: {bank_account}"
+
         # Generate unique transaction ID with more specific components
         id_components = [
             str(transaction_data["date"]),
             str(transaction_data["amount"]),
-            str(transaction_data.get("description") or "")[:100],  # Use more of description
+            str(transaction_data.get("description") or "")[:100],
             str(transaction_data.get("counterparty_name") or ""),
             str(transaction_data.get("counterparty_account") or ""),
             str(transaction_data.get("reference") or ""),
             str(transaction_data.get("bank_reference") or ""),
-            bank_account,  # Include bank account in hash to prevent cross-account collisions
+            bank_account,
         ]
 
-        # Create a more robust hash using all components
-        hash_input = "|".join(id_components)  # Use separator to prevent concatenation issues
+        hash_input = "|".join(id_components)
         transaction_id = hashlib.sha256(hash_input.encode()).hexdigest()[:16]
 
-        # Check if transaction already exists
+        # Check if transaction already exists (idempotency)
         if frappe.db.exists(
             "Bank Transaction", {"transaction_id": transaction_id, "bank_account": bank_account}
         ):
             return "exists"
 
-        # Validate bank account exists
-        if not frappe.db.exists("Bank Account", bank_account):
-            return f"bank_account_not_found: {bank_account}"
+        # Prepare transaction data for BankTransactionCreator
+        # Map counterparty fields to bank_party fields
+        creator_data = {
+            "date": transaction_data["date"],
+            "amount": transaction_data["amount"],
+            "currency": transaction_data.get("currency", "EUR"),
+            "description": transaction_data["description"],
+            "reference_number": transaction_data.get("reference", ""),
+            "transaction_id": transaction_id,
+            "bank_party_name": transaction_data.get("counterparty_name"),
+            "bank_party_iban": transaction_data.get("counterparty_account"),
+        }
 
-        # Create new Bank Transaction
-        bt = frappe.new_doc("Bank Transaction")
-        bt.date = transaction_data["date"]
-        bt.bank_account = bank_account
-        bt.company = company
-        bt.currency = transaction_data.get("currency", "EUR")
+        # Create Bank Transaction using centralized service
+        creator = get_bank_transaction_creator()
+        bank_transaction_name = creator.create_from_dict(
+            transaction_data=creator_data,
+            bank_account=bank_account,
+            company=company,
+            source_type="Member Payment Import",
+        )
 
-        # Handle amount and direction
-        amount = transaction_data["amount"]
-        if amount >= 0:
-            bt.deposit = amount
-            bt.withdrawal = 0
+        if bank_transaction_name:
+            frappe.logger().info(f"Created Bank Transaction from member payment: {bank_transaction_name}")
+            return "created"
         else:
-            bt.deposit = 0
-            bt.withdrawal = abs(amount)
-
-        bt.description = transaction_data["description"]
-        bt.reference_number = transaction_data.get("reference", "")
-        bt.transaction_id = transaction_id
-
-        # Set counterparty information
-        if transaction_data.get("counterparty_name"):
-            bt.bank_party_name = transaction_data["counterparty_name"]
-        if transaction_data.get("counterparty_account"):
-            bt.bank_party_iban = transaction_data["counterparty_account"]
-
-        # Insert transaction
-        bt.insert()
-        bt.submit()
-
-        return "created"
+            frappe.logger().error("Failed to create Bank Transaction from member payment")
+            return "error: Failed to create Bank Transaction"
 
     except Exception as e:
         error_msg = str(e)

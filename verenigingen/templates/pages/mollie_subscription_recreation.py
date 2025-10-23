@@ -793,9 +793,9 @@ def export_subscriptions_from_customers(customer_ids_csv: str) -> Dict:
             "subscription_count": len(output_rows),
             "customer_count": len(set(row["customer_id"] for row in output_rows)),
             "failed_customers": failed_customers,
-            "warnings": f"{len(failed_customers)} customers could not be processed"
-            if failed_customers
-            else None,
+            "warnings": (
+                f"{len(failed_customers)} customers could not be processed" if failed_customers else None
+            ),
         }
 
         return result

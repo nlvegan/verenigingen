@@ -1,4 +1,5 @@
 """Debug list view permissions for Member DocType"""
+
 import json
 
 import frappe

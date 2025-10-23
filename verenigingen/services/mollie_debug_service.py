@@ -69,12 +69,16 @@ class MollieDebugService:
                         "interval": sub.interval,
                         "description": sub.description,
                         "created_at": str(sub.created_at),
-                        "next_payment_date": str(getattr(sub, "next_payment_date", None))
-                        if getattr(sub, "next_payment_date", None)
-                        else None,
-                        "canceled_at": str(getattr(sub, "canceled_at", None))
-                        if getattr(sub, "canceled_at", None)
-                        else None,
+                        "next_payment_date": (
+                            str(getattr(sub, "next_payment_date", None))
+                            if getattr(sub, "next_payment_date", None)
+                            else None
+                        ),
+                        "canceled_at": (
+                            str(getattr(sub, "canceled_at", None))
+                            if getattr(sub, "canceled_at", None)
+                            else None
+                        ),
                         "mandate_id": getattr(sub, "mandateId", None),
                     }
                 )
@@ -89,9 +93,11 @@ class MollieDebugService:
                         "method": mandate.method,
                         "created_at": str(mandate.created_at),
                         "mandate_reference": getattr(mandate, "mandate_reference", None),
-                        "signature_date": str(getattr(mandate, "signature_date", None))
-                        if getattr(mandate, "signature_date", None)
-                        else None,
+                        "signature_date": (
+                            str(getattr(mandate, "signature_date", None))
+                            if getattr(mandate, "signature_date", None)
+                            else None
+                        ),
                     }
                 )
 
@@ -156,12 +162,16 @@ class MollieDebugService:
                 "interval": subscription.interval,
                 "description": subscription.description,
                 "created_at": str(subscription.created_at),
-                "next_payment_date": str(getattr(subscription, "next_payment_date", None))
-                if getattr(subscription, "next_payment_date", None)
-                else None,
-                "canceled_at": str(getattr(subscription, "canceled_at", None))
-                if getattr(subscription, "canceled_at", None)
-                else None,
+                "next_payment_date": (
+                    str(getattr(subscription, "next_payment_date", None))
+                    if getattr(subscription, "next_payment_date", None)
+                    else None
+                ),
+                "canceled_at": (
+                    str(getattr(subscription, "canceled_at", None))
+                    if getattr(subscription, "canceled_at", None)
+                    else None
+                ),
                 "mandate_id": getattr(subscription, "mandateId", None),
                 "metadata": getattr(subscription, "metadata", {}),
             }
@@ -200,9 +210,11 @@ class MollieDebugService:
                 "method": mandate.method,
                 "created_at": str(mandate.created_at),
                 "mandate_reference": getattr(mandate, "mandate_reference", None),
-                "signature_date": str(getattr(mandate, "signature_date", None))
-                if getattr(mandate, "signature_date", None)
-                else None,
+                "signature_date": (
+                    str(getattr(mandate, "signature_date", None))
+                    if getattr(mandate, "signature_date", None)
+                    else None
+                ),
                 "consumer_name": getattr(mandate, "consumer_name", None),
                 "consumer_account": getattr(mandate, "consumer_account", None),
             }
@@ -499,27 +511,33 @@ class MollieDebugService:
             result["payment_data"] = {
                 "id": payment.id,
                 "status": payment.status,
-                "amount": f"{payment.amount['value']} {payment.amount['currency']}"
-                if payment.amount
-                else "Unknown",
+                "amount": (
+                    f"{payment.amount['value']} {payment.amount['currency']}" if payment.amount else "Unknown"
+                ),
                 "description": payment.description,
                 "method": getattr(payment, "method", None),
                 "created_at": str(payment.created_at),
-                "authorized_at": str(getattr(payment, "authorized_at", None))
-                if getattr(payment, "authorized_at", None)
-                else None,
-                "paid_at": str(getattr(payment, "paid_at", None))
-                if getattr(payment, "paid_at", None)
-                else None,
-                "canceled_at": str(getattr(payment, "canceled_at", None))
-                if getattr(payment, "canceled_at", None)
-                else None,
-                "expired_at": str(getattr(payment, "expired_at", None))
-                if getattr(payment, "expired_at", None)
-                else None,
-                "failed_at": str(getattr(payment, "failed_at", None))
-                if getattr(payment, "failed_at", None)
-                else None,
+                "authorized_at": (
+                    str(getattr(payment, "authorized_at", None))
+                    if getattr(payment, "authorized_at", None)
+                    else None
+                ),
+                "paid_at": (
+                    str(getattr(payment, "paid_at", None)) if getattr(payment, "paid_at", None) else None
+                ),
+                "canceled_at": (
+                    str(getattr(payment, "canceled_at", None))
+                    if getattr(payment, "canceled_at", None)
+                    else None
+                ),
+                "expired_at": (
+                    str(getattr(payment, "expired_at", None))
+                    if getattr(payment, "expired_at", None)
+                    else None
+                ),
+                "failed_at": (
+                    str(getattr(payment, "failed_at", None)) if getattr(payment, "failed_at", None) else None
+                ),
                 "customer_id": getattr(payment, "customer_id", None),
                 "subscription_id": getattr(payment, "subscription_id", None),
                 "mandate_id": getattr(payment, "mandate_id", None),
@@ -542,14 +560,18 @@ class MollieDebugService:
                         {
                             "id": refund.id,
                             "status": refund.status,
-                            "amount": f"{refund.amount['value']} {refund.amount['currency']}"
-                            if refund.amount
-                            else "Unknown",
+                            "amount": (
+                                f"{refund.amount['value']} {refund.amount['currency']}"
+                                if refund.amount
+                                else "Unknown"
+                            ),
                             "description": getattr(refund, "description", None),
                             "created_at": str(refund.created_at),
-                            "settled_at": str(getattr(refund, "settled_at", None))
-                            if getattr(refund, "settled_at", None)
-                            else None,
+                            "settled_at": (
+                                str(getattr(refund, "settled_at", None))
+                                if getattr(refund, "settled_at", None)
+                                else None
+                            ),
                         }
                     )
             except Exception:
@@ -563,14 +585,18 @@ class MollieDebugService:
                     result["chargebacks"].append(
                         {
                             "id": chargeback.id,
-                            "amount": f"{chargeback.amount['value']} {chargeback.amount['currency']}"
-                            if chargeback.amount
-                            else "Unknown",
+                            "amount": (
+                                f"{chargeback.amount['value']} {chargeback.amount['currency']}"
+                                if chargeback.amount
+                                else "Unknown"
+                            ),
                             "created_at": str(chargeback.created_at),
                             "reason": getattr(chargeback, "reason", None),
-                            "reversed_at": str(getattr(chargeback, "reversed_at", None))
-                            if getattr(chargeback, "reversed_at", None)
-                            else None,
+                            "reversed_at": (
+                                str(getattr(chargeback, "reversed_at", None))
+                                if getattr(chargeback, "reversed_at", None)
+                                else None
+                            ),
                         }
                     )
             except Exception:
@@ -623,9 +649,11 @@ class MollieDebugService:
                     {
                         "id": payment.id,
                         "status": payment.status,
-                        "amount": f"{payment.amount['value']} {payment.amount['currency']}"
-                        if payment.amount
-                        else "Unknown",
+                        "amount": (
+                            f"{payment.amount['value']} {payment.amount['currency']}"
+                            if payment.amount
+                            else "Unknown"
+                        ),
                         "description": payment.description,
                         "method": getattr(payment, "method", None),
                         "created_at": str(payment.created_at),
@@ -670,14 +698,14 @@ class MollieDebugService:
                 "id": refund.id,
                 "payment_id": refund.payment_id,
                 "status": refund.status,
-                "amount": f"{refund.amount['value']} {refund.amount['currency']}"
-                if refund.amount
-                else "Unknown",
+                "amount": (
+                    f"{refund.amount['value']} {refund.amount['currency']}" if refund.amount else "Unknown"
+                ),
                 "description": getattr(refund, "description", None),
                 "created_at": str(refund.created_at),
-                "settled_at": str(getattr(refund, "settled_at", None))
-                if getattr(refund, "settled_at", None)
-                else None,
+                "settled_at": (
+                    str(getattr(refund, "settled_at", None)) if getattr(refund, "settled_at", None) else None
+                ),
                 "metadata": getattr(refund, "metadata", {}),
                 "settlement_id": getattr(refund, "settlement_id", None),
             }
@@ -720,14 +748,18 @@ class MollieDebugService:
                                 {
                                     "id": chargeback.id,
                                     "payment_id": payment.id,
-                                    "amount": f"{chargeback.amount['value']} {chargeback.amount['currency']}"
-                                    if chargeback.amount
-                                    else "Unknown",
+                                    "amount": (
+                                        f"{chargeback.amount['value']} {chargeback.amount['currency']}"
+                                        if chargeback.amount
+                                        else "Unknown"
+                                    ),
                                     "created_at": str(chargeback.created_at),
                                     "reason": getattr(chargeback, "reason", None),
-                                    "reversed_at": str(getattr(chargeback, "reversed_at", None))
-                                    if getattr(chargeback, "reversed_at", None)
-                                    else None,
+                                    "reversed_at": (
+                                        str(getattr(chargeback, "reversed_at", None))
+                                        if getattr(chargeback, "reversed_at", None)
+                                        else None
+                                    ),
                                     "settlement_id": getattr(chargeback, "settlement_id", None),
                                 }
                             )
@@ -742,14 +774,18 @@ class MollieDebugService:
                             {
                                 "id": chargeback.id,
                                 "payment_id": getattr(chargeback, "payment_id", None),
-                                "amount": f"{chargeback.amount['value']} {chargeback.amount['currency']}"
-                                if chargeback.amount
-                                else "Unknown",
+                                "amount": (
+                                    f"{chargeback.amount['value']} {chargeback.amount['currency']}"
+                                    if chargeback.amount
+                                    else "Unknown"
+                                ),
                                 "created_at": str(chargeback.created_at),
                                 "reason": getattr(chargeback, "reason", None),
-                                "reversed_at": str(getattr(chargeback, "reversed_at", None))
-                                if getattr(chargeback, "reversed_at", None)
-                                else None,
+                                "reversed_at": (
+                                    str(getattr(chargeback, "reversed_at", None))
+                                    if getattr(chargeback, "reversed_at", None)
+                                    else None
+                                ),
                                 "settlement_id": getattr(chargeback, "settlement_id", None),
                             }
                         )
@@ -1290,23 +1326,26 @@ class MollieDebugService:
                 result["subscriptions"].append(
                     {
                         "id": sub.id,
-                        "customer_id": getattr(sub, "_links", {})
-                        .get("customer", {})
-                        .get("href", "")
-                        .split("/")[-1]
-                        if hasattr(sub, "_links")
-                        else customer_id,
+                        "customer_id": (
+                            getattr(sub, "_links", {}).get("customer", {}).get("href", "").split("/")[-1]
+                            if hasattr(sub, "_links")
+                            else customer_id
+                        ),
                         "status": sub.status,
                         "amount": amount_str,
                         "interval": sub.interval,
                         "description": sub.description,
                         "created_at": str(sub.created_at),
-                        "next_payment_date": str(getattr(sub, "next_payment_date", None))
-                        if getattr(sub, "next_payment_date", None)
-                        else None,
-                        "canceled_at": str(getattr(sub, "canceled_at", None))
-                        if getattr(sub, "canceled_at", None)
-                        else None,
+                        "next_payment_date": (
+                            str(getattr(sub, "next_payment_date", None))
+                            if getattr(sub, "next_payment_date", None)
+                            else None
+                        ),
+                        "canceled_at": (
+                            str(getattr(sub, "canceled_at", None))
+                            if getattr(sub, "canceled_at", None)
+                            else None
+                        ),
                     }
                 )
 
@@ -1394,14 +1433,16 @@ class MollieDebugService:
                 payment_info = {
                     "id": payment.id,
                     "status": payment.status,
-                    "amount": f"{payment.amount['value']} {payment.amount['currency']}"
-                    if payment.amount
-                    else "Unknown",
+                    "amount": (
+                        f"{payment.amount['value']} {payment.amount['currency']}"
+                        if payment.amount
+                        else "Unknown"
+                    ),
                     "description": getattr(payment, "description", ""),
                     "created_at": str(payment.created_at),
-                    "paid_at": str(getattr(payment, "paid_at", None))
-                    if getattr(payment, "paid_at", None)
-                    else None,
+                    "paid_at": (
+                        str(getattr(payment, "paid_at", None)) if getattr(payment, "paid_at", None) else None
+                    ),
                     "subscription_id": getattr(payment, "subscription_id", None),
                     "payment_type": payment_type,
                     "member": member_name,

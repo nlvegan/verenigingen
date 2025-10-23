@@ -468,29 +468,46 @@ def import_bank_statement(file_path: str, format_type: str) -> Dict:
 
 def create_bank_transaction(transaction_data: Dict) -> str:
     """
-    Create bank transaction record
+    Create bank transaction record.
+
+    Uses centralized BankTransactionCreator for consistent creation logic.
 
     Args:
-        transaction_data: Transaction information
+        transaction_data: Transaction information (must include bank_account, company, amount, date)
 
     Returns:
         Name of created bank transaction
     """
-    bank_transaction = frappe.new_doc("Bank Transaction")
-    bank_transaction.update(
-        {
-            "date": transaction_data.get("date", today()),
-            "description": transaction_data.get("description", ""),
-            "deposit": transaction_data.get("amount", 0) if transaction_data.get("amount", 0) > 0 else 0,
-            "withdrawal": (
-                abs(transaction_data.get("amount", 0)) if transaction_data.get("amount", 0) < 0 else 0
-            ),
-            "currency": "EUR",
-            "bank_account": transaction_data.get("bank_account"),
-            "company": transaction_data.get("company"),
-            "status": "Unreconciled",
-        }
+    from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+        get_bank_transaction_creator,
     )
 
-    bank_transaction.insert()
-    return bank_transaction.name
+    # Extract required fields
+    bank_account = transaction_data.get("bank_account")
+    company = transaction_data.get("company")
+
+    if not bank_account or not company:
+        frappe.throw("bank_account and company are required for Bank Transaction creation")
+
+    # Prepare transaction data for BankTransactionCreator
+    creator_data = {
+        "date": transaction_data.get("date", today()),
+        "amount": transaction_data.get("amount", 0),
+        "currency": transaction_data.get("currency", "EUR"),
+        "description": transaction_data.get("description", "Bank integration transaction"),
+        "reference_number": transaction_data.get("reference_number", ""),
+    }
+
+    # Create Bank Transaction using centralized service
+    creator = get_bank_transaction_creator()
+    bank_transaction_name = creator.create_from_dict(
+        transaction_data=creator_data,
+        bank_account=bank_account,
+        company=company,
+        source_type="Bank Integration",
+    )
+
+    if not bank_transaction_name:
+        frappe.throw("Failed to create Bank Transaction")
+
+    return bank_transaction_name
