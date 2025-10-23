@@ -9,6 +9,7 @@ import time
 
 import frappe
 from frappe import _
+from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 
 def handle_assignment_history_updates(event_name, event_data, **kwargs):
@@ -396,7 +397,7 @@ def _send_team_member_added_notification(team, volunteer_doc, role):
                 "new_role": role,
                 "effective_date": frappe.utils.today(),
                 "additional_message": "Welcome to the team!",
-                "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+                "company": get_mollie_config().get_default_company(),
             }
 
             email_service.send_templated_email(
@@ -425,7 +426,7 @@ def _send_team_member_removed_notification(team, volunteer_doc, role):
                 "new_role": role,
                 "effective_date": frappe.utils.today(),
                 "additional_message": "Thank you for your contribution!",
-                "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+                "company": get_mollie_config().get_default_company(),
             }
 
             email_service.send_templated_email(
@@ -454,7 +455,7 @@ def _send_team_role_changed_notification(team, volunteer_doc, old_role, new_role
                 "new_role": new_role,
                 "effective_date": frappe.utils.today(),
                 "additional_message": f"Your role has been updated from {old_role} to {new_role}.",
-                "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+                "company": get_mollie_config().get_default_company(),
             }
 
             email_service.send_templated_email(
@@ -519,7 +520,7 @@ def _send_team_settings_notification(team, changed_fields):
                         "change_type": "Team Settings Update",
                         "effective_date": frappe.utils.today(),
                         "additional_message": f"Changed settings: {', '.join(changed_fields)}",
-                        "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+                        "company": get_mollie_config().get_default_company(),
                     }
 
                     email_service.send_templated_email(
@@ -595,7 +596,7 @@ def _send_leadership_change_notification(team, old_lead, new_lead):
                             "change_type": "Leadership Change",
                             "effective_date": frappe.utils.today(),
                             "additional_message": f"Previous leader: {old_lead_name}\nNew leader: {new_lead_name}",
-                            "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+                            "company": get_mollie_config().get_default_company(),
                         }
 
                         email_service.send_templated_email(

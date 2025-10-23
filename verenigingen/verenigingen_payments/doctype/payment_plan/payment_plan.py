@@ -10,6 +10,7 @@ from frappe.utils import add_days, add_months, flt, getdate, today
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 
 class PaymentPlan(Document):
@@ -314,7 +315,7 @@ class PaymentPlan(Document):
                 "payment_date": str(frappe.utils.today()),
                 "payment_method": "Payment Plan Installment",
                 "next_steps": f"Remaining Balance: €{self.remaining_balance:.2f}. Next Payment Due: {self.next_payment_date or 'N/A'}",
-                "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+                "company": get_mollie_config().get_default_company(),
             }
 
             email_service.send_templated_email(
@@ -362,7 +363,7 @@ class PaymentPlan(Document):
                 "payment_method": "Payment Plan Installment",
                 "action_required": f"Outstanding Amount: €{self.remaining_balance:.2f}. Consecutive Missed Payments: {self.consecutive_missed_payments}. Please make your payment as soon as possible to avoid suspension of your payment plan.",
                 "next_steps": "If you are experiencing financial difficulties, please contact us to discuss options.",
-                "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+                "company": get_mollie_config().get_default_company(),
             }
 
             email_service.send_templated_email(

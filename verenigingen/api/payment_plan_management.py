@@ -11,6 +11,7 @@ from frappe.utils import add_months, flt, getdate, today
 
 # Import security framework
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 
 @frappe.whitelist()
@@ -394,7 +395,7 @@ def send_payment_plan_request_notification(payment_plan):
             "payment_method": f"Payment Plan - {payment_plan.frequency}",
             "action_required": f"Total Amount: €{payment_plan.total_amount:.2f}. Installments: {payment_plan.number_of_installments} x €{payment_plan.installment_amount:.2f}. Reason: {payment_plan.reason}",
             "next_steps": "Please review and approve/reject this request in the system.",
-            "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+            "company": get_mollie_config().get_default_company(),
         }
 
         email_service.send_templated_email(
@@ -429,7 +430,7 @@ def send_payment_plan_approval_notification(payment_plan, approved=True, reason=
                 "payment_date": str(payment_plan.start_date),
                 "payment_method": f"Payment Plan - {payment_plan.frequency}",
                 "next_steps": f"Installments: {payment_plan.number_of_installments} x €{payment_plan.installment_amount:.2f}. Your first payment is due on {payment_plan.next_payment_date}. Thank you for choosing a payment plan option.",
-                "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+                "company": get_mollie_config().get_default_company(),
             }
             subject = f"Payment Plan Approved - {payment_plan.name}"
         else:
@@ -442,7 +443,7 @@ def send_payment_plan_approval_notification(payment_plan, approved=True, reason=
                 "payment_method": f"Payment Plan - {payment_plan.frequency}",
                 "action_required": f"Reason: {reason}" if reason else "Request not approved",
                 "next_steps": "Please contact us if you would like to discuss other payment options.",
-                "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+                "company": get_mollie_config().get_default_company(),
             }
             subject = f"Payment Plan Request - {payment_plan.name}"
 

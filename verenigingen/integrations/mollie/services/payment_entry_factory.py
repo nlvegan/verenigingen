@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 import frappe
 
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 from .payment_context_resolver import PaymentContext
 
@@ -200,12 +201,13 @@ class PaymentEntryFactory:
             return None
 
     def _get_company(self) -> str:
-        """Get the company for payment entries"""
-        try:
-            settings = frappe.get_single("Verenigingen Settings")
-            return settings.donation_company or frappe.defaults.get_global_default("company")
-        except:
-            return frappe.defaults.get_global_default("company") or "Verenigingen"
+        """
+        Get the company for payment entries using centralized configuration service.
+
+        Uses MollieConfigurationService for consistent company resolution with
+        proper priority chain (Verenigingen Settings → Global Defaults → User defaults).
+        """
+        return get_mollie_config().get_default_company()
 
     def _get_accounts(self, company: str, payment_type: str) -> Dict[str, str]:
         """Get appropriate accounts based on payment type"""

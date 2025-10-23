@@ -9,6 +9,7 @@ import time
 
 import frappe
 from frappe import _
+from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 
 def handle_board_role_assignments(event_name, event_data, **kwargs):
@@ -342,7 +343,7 @@ def _send_board_member_added_notification(chapter, volunteer, role):
                 "board_position": role,
                 "effective_date": frappe.utils.today(),
                 "additional_message": "Congratulations! Welcome to the board!",
-                "company": frappe.defaults.get_global_default("company") or "Chapter Management",
+                "company": get_mollie_config().get_default_company(),
             }
 
             email_service.send_templated_email(
@@ -373,7 +374,7 @@ def _send_board_member_removed_notification(chapter, volunteer, role):
                 "board_position": role,
                 "effective_date": frappe.utils.today(),
                 "additional_message": "Thank you for your service!",
-                "company": frappe.defaults.get_global_default("company") or "Chapter Management",
+                "company": get_mollie_config().get_default_company(),
             }
 
             email_service.send_templated_email(
@@ -404,7 +405,7 @@ def _send_board_role_changed_notification(chapter, volunteer, old_role, new_role
                 "board_position": new_role,
                 "effective_date": frappe.utils.today(),
                 "additional_message": f"Your role has been updated from {old_role} to {new_role}.",
-                "company": frappe.defaults.get_global_default("company") or "Chapter Management",
+                "company": get_mollie_config().get_default_company(),
             }
 
             email_service.send_templated_email(
@@ -430,7 +431,7 @@ def _send_member_welcome_notification(chapter, member_doc):
             "change_type": "Chapter Welcome",
             "effective_date": frappe.utils.today(),
             "additional_message": f"Welcome to {chapter.name}! We're excited to have you as part of our chapter.\n\n{chapter.introduction or ''}",
-            "company": frappe.defaults.get_global_default("company") or "Chapter Management",
+            "company": get_mollie_config().get_default_company(),
         }
 
         email_service.send_templated_email(
@@ -463,7 +464,7 @@ def _send_member_farewell_notification(chapter, member_doc, reason):
             "change_type": "Chapter Departure",
             "effective_date": frappe.utils.today(),
             "additional_message": farewell_message,
-            "company": frappe.defaults.get_global_default("company") or "Chapter Management",
+            "company": get_mollie_config().get_default_company(),
         }
 
         email_service.send_templated_email(
@@ -557,7 +558,7 @@ def _send_settings_change_notification(chapter, changed_fields):
                 "chapter_name": chapter.name,
                 "change_type": "Settings Update",
                 "additional_message": f"The following settings have been updated: {', '.join(changed_fields)}. Please review the changes in the chapter administration panel.",
-                "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+                "company": get_mollie_config().get_default_company(),
             }
 
             email_service.send_templated_email(

@@ -7,13 +7,14 @@ import frappe
 from frappe.utils import add_days, flt, get_url, getdate, today
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 
 class ExpenseNotificationManager:
     """Centralized expense notification management"""
 
     def __init__(self):
-        self.company = frappe.defaults.get_global_default("company") or "Verenigingen"
+        self.company = get_mollie_config().get_default_company()
         self.base_url = get_url()
 
     def send_approval_request_notification(self, expense_doc):

@@ -7,6 +7,7 @@ from frappe.utils import add_days, getdate, now_datetime, today
 
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.utils.validation.iban_validator import derive_bic_from_iban
+from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 
 class PaymentRetryManager:
@@ -215,7 +216,7 @@ class PaymentRetryManager:
                 "payment_method": "Failed Payment Retry",
                 "action_required": f"Member: {member.full_name} (ID: {member.name}). Last Failure Reason: {retry_record.last_failure_reason}. Total Attempts: {retry_record.retry_count}.",
                 "next_steps": "Please review and take manual action to resolve the payment failure.",
-                "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+                "company": get_mollie_config().get_default_company(),
             }
 
             email_service.send_templated_email(

@@ -9,6 +9,7 @@ from frappe.utils import now, today
 
 from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 from .base_manager import BaseManager
 
@@ -466,7 +467,7 @@ class MemberManager(BaseManager):
                     "member_name": member_doc.full_name,
                     "chapter": self.chapter_doc,
                     "chapter_name": self.chapter_name,
-                    "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+                    "company": get_mollie_config().get_default_company(),
                 }
 
                 # Send using chapter-specific notification type

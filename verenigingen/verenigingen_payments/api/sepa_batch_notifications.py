@@ -13,6 +13,7 @@ from verenigingen.utils.security.authorization import (
     SEPAPermissionLevel,
     require_sepa_permission,
 )
+from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 
 def get_financial_admin_emails():
@@ -75,7 +76,7 @@ def send_critical_batch_notification(batch, errors):
             "payment_method": "SEPA Direct Debit",
             "action_required": f"Review and correct sequence types in batch {batch.name}. Critical errors: {'; '.join(error_details[:3])}{'...' if len(error_details) > 3 else ''}",
             "next_steps": "Re-run batch creation after corrections. Monitor submission deadlines: FRST transactions must be submitted 5 business days before target date, RCUR transactions must be submitted 2 business days before target date.",
-            "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+            "company": get_mollie_config().get_default_company(),
         }
 
         email_service.send_templated_email(
@@ -125,7 +126,7 @@ def send_batch_warning_notification(batch, warnings):
             "payment_date": str(batch.batch_date),
             "payment_method": "SEPA Direct Debit",
             "next_steps": f"The batch can be submitted as-is, but please review these warnings: {'; '.join(warning_details[:3])}{'...' if len(warning_details) > 3 else ''}",
-            "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+            "company": get_mollie_config().get_default_company(),
         }
 
         email_service.send_templated_email(
@@ -178,7 +179,7 @@ def send_daily_batch_summary(validation_summary, batch_result):
                 if validation_summary.get("blocked", 0) > 0
                 else None
             ),
-            "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+            "company": get_mollie_config().get_default_company(),
         }
 
         email_service.send_templated_email(
@@ -217,7 +218,7 @@ def send_system_error_notification(error_message):
             "payment_method": "SEPA System",
             "action_required": f"Critical system error: {error_message[:200]}{'...' if len(error_message) > 200 else ''}",
             "next_steps": "Check system logs for detailed error information. Verify SEPA system configuration and dependencies. Run manual batch creation if needed. Contact system administrator if error persists.",
-            "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+            "company": get_mollie_config().get_default_company(),
         }
 
         email_service.send_templated_email(
@@ -306,7 +307,7 @@ def test_notification_system():
             "payment_date": str(frappe.utils.now()),
             "payment_method": "SEPA Notification Test",
             "next_steps": f"System Information: Site: {frappe.local.site}, Recipients Found: {len(recipients)}. If you receive this message, the notification system is configured correctly.",
-            "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+            "company": get_mollie_config().get_default_company(),
         }
 
         email_service.send_templated_email(

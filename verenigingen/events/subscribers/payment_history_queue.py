@@ -13,6 +13,7 @@ from frappe.utils import cint
 
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 
 def process_payment_history_update_queue():
@@ -343,7 +344,7 @@ def _alert_payment_history_failures(failed_count, processed_count):
                 "payment_method": "Payment History Queue",
                 "action_required": f"Failed Updates: {failed_count}, Successful Updates: {processed_count}, Failure Rate: {failure_rate:.1f}%",
                 "next_steps": "Check Error Log for specific failure causes. Review Payment History Update Queue for failed entries. Verify Member documents and Sales Invoice references.",
-                "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+                "company": get_mollie_config().get_default_company(),
             }
 
             email_service.send_templated_email(
@@ -385,7 +386,7 @@ def _alert_payment_history_critical_error(error_msg):
                 "payment_method": "Payment History Queue",
                 "action_required": f"Critical error occurred: {error_msg[:200]}{'...' if len(error_msg) > 200 else ''}. Impact: Payment history updates are not being processed, which may affect member financial records.",
                 "next_steps": "Immediate investigation and resolution needed.",
-                "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+                "company": get_mollie_config().get_default_company(),
             }
 
             email_service.send_templated_email(

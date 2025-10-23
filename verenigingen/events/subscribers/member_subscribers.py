@@ -9,6 +9,7 @@ import time
 
 import frappe
 from frappe import _
+from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 
 def handle_status_change_notifications(event_name, event_data, **kwargs):
@@ -250,7 +251,7 @@ def _send_lifecycle_notification(member, old_status, new_status):
         "old_status": old_status,
         "new_status": new_status,
         "membership_number": member.name,
-        "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+        "company": get_mollie_config().get_default_company(),
     }
 
     email_service.send_templated_email(

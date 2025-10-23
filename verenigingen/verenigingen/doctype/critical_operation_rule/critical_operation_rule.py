@@ -4,6 +4,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
+from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 
 class CriticalOperationRule(Document):
@@ -200,7 +201,7 @@ class CriticalOperationRule(Document):
                 "changed_by": frappe.session.user,
                 "changed_at": frappe.utils.now(),
                 "enabled_status": "Yes" if self.enabled else "No",
-                "company": frappe.defaults.get_global_default("company") or "Security Team",
+                "company": get_mollie_config().get_default_company(),
             }
 
             email_service.send_templated_email(
