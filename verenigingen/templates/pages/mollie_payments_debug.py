@@ -12,6 +12,7 @@ from verenigingen.utils.security.api_security_framework import (
     development_only_api,
     high_security_api,
 )
+from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 
 def get_context(context):
@@ -36,10 +37,13 @@ def get_context(context):
 
     # Get Mollie settings info
     try:
+        # Use config service for test_mode
+        context.test_mode = get_mollie_config().is_test_mode()
+        context.api_key_type = "test" if context.test_mode else "live"
+
+        # Check if API keys configured (requires password field access)
         mollie_settings = frappe.get_single("Mollie Settings")
         context.mollie_configured = bool(mollie_settings.test_secret_key or mollie_settings.live_secret_key)
-        context.test_mode = mollie_settings.test_mode
-        context.api_key_type = "test" if mollie_settings.test_mode else "live"
     except Exception:
         context.mollie_configured = False
         context.test_mode = True

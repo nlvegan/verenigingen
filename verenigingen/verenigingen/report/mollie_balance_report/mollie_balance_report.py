@@ -9,6 +9,7 @@ from frappe import _
 from frappe.utils import flt, formatdate, getdate
 
 from verenigingen.verenigingen_payments.dashboards.financial_dashboard import FinancialDashboard
+from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 
 def execute(filters=None):
@@ -41,12 +42,27 @@ def get_data(filters=None):
     data = []
 
     try:
-        # Check if Mollie is configured
-        settings = frappe.get_single("Mollie Settings")
-        if not settings.enable_backend_api:
+        # SECURITY: Validate user has permission to access financial configuration
+        if not frappe.has_permission("Mollie Settings", "read"):
+            frappe.msgprint(_("Insufficient permissions to access Mollie configuration"))
+            frappe.logger().warning(
+                f"Unauthorized Mollie configuration access attempt by {frappe.session.user} in balance report"
+            )
+            return data
+
+        # Check if Mollie Backend API is enabled
+        if not get_mollie_config().is_backend_api_enabled():
             frappe.msgprint(_("Mollie Backend API is not enabled. Please enable it in Mollie Settings."))
             return data
 
+        # AUDIT: Log configuration access for financial compliance
+        frappe.logger().info(
+            f"Mollie Balance Report: Configuration accessed by {frappe.session.user} "
+            f"from {frappe.local.request_ip or 'unknown IP'}"
+        )
+
+        # Get password field (requires direct settings access)
+        settings = frappe.get_single("Mollie Settings")
         oat = settings.get_password("organization_access_token", raise_exception=False)
         if not oat:
             frappe.msgprint(

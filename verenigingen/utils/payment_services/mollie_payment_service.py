@@ -93,11 +93,38 @@ class MolliePaymentService:
 
 def get_mollie_gateway_settings():
     """
+    DEPRECATED - DO NOT USE. This function has zero production callers.
+
     Get Mollie gateway settings for backward compatibility.
+
+    Deprecation Notice:
+        This function is deprecated and will be removed in the next major release.
+        Use MollieConfigurationService via get_mollie_config() instead for non-password fields,
+        or access the DocType controller directly for password field access.
 
     Returns:
         Mollie Settings document or None
+
+    Raises:
+        DeprecationWarning: Always raised to alert about deprecated usage
     """
+    import warnings
+
+    # Log security alert for dead code access
+    frappe.log_error(
+        f"SECURITY ALERT: Deprecated get_mollie_gateway_settings() called by {frappe.session.user}. "
+        f"This function has zero production callers and should not be used.",
+        "Deprecated Function Access",
+    )
+
+    # Raise deprecation warning
+    warnings.warn(
+        "get_mollie_gateway_settings() is deprecated and will be removed in v2.0. "
+        "Use MollieConfigurationService.get_mollie_config() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
     try:
         return frappe.get_single("Mollie Settings")
     except Exception as e:

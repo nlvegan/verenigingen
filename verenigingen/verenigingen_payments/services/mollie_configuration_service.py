@@ -70,12 +70,21 @@ class MollieConfigurationService:
     @classmethod
     def get_settings(cls) -> Dict[str, Any]:
         """
-        Get cached Mollie settings (thread-safe).
+        Get cached Mollie settings (thread-safe with security validation).
 
         Uses Frappe's cache system which is safe across multiple workers.
+        Validates permissions and logs access for financial compliance.
+
+        Security:
+            - Validates user permissions before cache access
+            - Logs all configuration access for audit trails
+            - Returns immutable copy to prevent cache poisoning
 
         Returns:
             Dict with Mollie Settings fields (immutable copy)
+
+        Raises:
+            frappe.PermissionError: If user lacks read permission
 
         Note: Returns a copy to prevent cache mutation. If you only need
               a single field, use specific getters (get_clearing_account(), etc.)
@@ -85,13 +94,28 @@ class MollieConfigurationService:
             settings = MollieConfigurationService.get_settings()
             test_mode = settings.get("test_mode")
         """
+        # SECURITY: Validate user has permission to access financial configuration
+        if not frappe.has_permission("Mollie Settings", "read"):
+            frappe.logger().warning(
+                f"Unauthorized Mollie configuration access attempt by {frappe.session.user}"
+            )
+            frappe.throw(_("Insufficient permissions to access Mollie configuration"), frappe.PermissionError)
+
         cache = frappe.cache()
         settings = cache.get_value(cls.CACHE_KEY)
 
         if not settings:
             settings = cls._load_settings_from_db()
             cache.set_value(cls.CACHE_KEY, settings, expires_in_sec=cls.CACHE_TTL_SECONDS)
-            frappe.logger().debug(f"Loaded Mollie settings into cache (TTL: {cls.CACHE_TTL_SECONDS}s)")
+
+            # AUDIT: Log cache miss for security monitoring
+            frappe.logger().info(
+                f"Mollie configuration loaded by {frappe.session.user} "
+                f"(cache miss, TTL: {cls.CACHE_TTL_SECONDS}s)"
+            )
+        else:
+            # AUDIT: Log cache access for compliance tracking (debug level to avoid log spam)
+            frappe.logger().debug(f"Mollie configuration accessed by {frappe.session.user} (cache hit)")
 
         return settings.copy()
 

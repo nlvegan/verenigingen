@@ -629,8 +629,20 @@ def main():
         violations = []
         for file_path in args.files:
             file_path = Path(file_path)
-            if file_path.exists() and file_path.suffix == '.py':
-                violations.extend(validator.validate_file(file_path))
+            # Convert to absolute path if relative
+            if not file_path.is_absolute():
+                file_path = Path(args.app_path) / file_path
+
+            # Validate file exists
+            try:
+                if file_path.exists() and file_path.suffix == '.py':
+                    violations.extend(validator.validate_file(file_path))
+                else:
+                    print(f"⚠️  Skipping non-existent or non-Python file: {file_path}")
+            except ValueError as e:
+                # Handle path resolution errors gracefully
+                print(f"Error validating {file_path}: {e}")
+                continue
     elif args.stats:
         stats = validator.get_validation_stats()
         print(f"\n📈 Validation Statistics:")
