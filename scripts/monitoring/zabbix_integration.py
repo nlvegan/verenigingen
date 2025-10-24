@@ -68,7 +68,10 @@ def get_metrics_for_zabbix():
     
     # Dues Schedule and Invoice Metrics (updated for new system)
     metrics.update(get_dues_schedule_metrics())  # Renamed for clarity
-    
+
+    # Mollie Payment Integration Metrics
+    metrics.update(get_mollie_payment_metrics())
+
     # Performance Metrics (from advanced implementation)
     if frappe.conf.get("enable_advanced_metrics", False):
         metrics.update(get_performance_percentiles())
@@ -378,6 +381,191 @@ def get_dues_schedule_metrics():
         metrics["frappe.invoices.outstanding_amount"] = 0
         metrics["frappe.invoices.payment_success_rate"] = 0
     
+    return metrics
+
+
+def get_mollie_payment_metrics():
+    """
+    Get Mollie API performance and payment metrics
+    Tracks API health, cache performance, and payment processing
+    """
+    metrics = {}
+
+    try:
+        # Import Mollie clients
+        from verenigingen.verenigingen_payments.clients.balances_client import BalancesClient
+        from verenigingen.verenigingen_payments.clients.settlements_client import SettlementsClient
+
+        # Initialize clients
+        balances_client = BalancesClient()
+        settlements_client = SettlementsClient()
+
+        # === Cache Performance Metrics ===
+        if balances_client.enable_cache and hasattr(balances_client, 'cache'):
+            cache_stats = balances_client.cache.get_stats()
+            metrics["frappe.mollie.cache.hits"] = cache_stats.get("hits", 0)
+            metrics["frappe.mollie.cache.misses"] = cache_stats.get("misses", 0)
+            metrics["frappe.mollie.cache.hit_rate"] = cache_stats.get("hit_rate_percent", 0)
+            metrics["frappe.mollie.cache.size"] = cache_stats.get("size", 0)
+            metrics["frappe.mollie.cache.evictions"] = cache_stats.get("evictions", 0)
+
+            # Alert if hit rate is low
+            if cache_stats.get("hit_rate_percent", 0) < 50:
+                metrics["frappe.mollie.cache.status"] = 0  # 0 = problem
+            else:
+                metrics["frappe.mollie.cache.status"] = 1  # 1 = healthy
+        else:
+            metrics["frappe.mollie.cache.status"] = -1  # -1 = disabled
+
+        # === Balance Metrics ===
+        try:
+            # Get primary balance
+            primary_balance = balances_client.get_primary_balance(use_cache=True)
+
+            # Extract amounts using PaymentDataExtractor
+            from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
+            extractor = get_payment_data_extractor()
+            amounts = extractor.extract_balance_amounts(primary_balance)
+
+            metrics["frappe.mollie.balance.available"] = amounts.get("available", 0)
+            metrics["frappe.mollie.balance.pending"] = amounts.get("pending", 0)
+            metrics["frappe.mollie.balance.currency"] = primary_balance.currency or "EUR"
+
+            # Balance health check
+            available = amounts.get("available", 0)
+            if available < 100:  # Less than €100 available
+                metrics["frappe.mollie.balance.health"] = 0  # 0 = low balance warning
+            elif available < 500:  # Less than €500 available
+                metrics["frappe.mollie.balance.health"] = 1  # 1 = attention needed
+            else:
+                metrics["frappe.mollie.balance.health"] = 2  # 2 = healthy
+
+        except Exception as e:
+            frappe.log_error(f"Error getting Mollie balance metrics: {str(e)}", "Zabbix Mollie Balance Error")
+            metrics["frappe.mollie.balance.available"] = -1
+            metrics["frappe.mollie.balance.pending"] = -1
+            metrics["frappe.mollie.balance.health"] = -1  # -1 = error
+
+        # === Settlement Metrics (Last 24 Hours) ===
+        try:
+            from datetime import datetime, timedelta
+            yesterday = datetime.now() - timedelta(days=1)
+
+            # Get recent settlements
+            recent_settlements = settlements_client.list_settlements(
+                from_date=yesterday,
+                limit=100,
+                use_cache=True
+            )
+
+            metrics["frappe.mollie.settlements.count_24h"] = len(recent_settlements)
+
+            # Calculate total settled amount
+            total_settled = 0
+            for settlement in recent_settlements:
+                amounts = extractor.extract_settlement_amounts(settlement)
+                total_settled += amounts.get("amount", 0)
+
+            metrics["frappe.mollie.settlements.amount_24h"] = total_settled
+
+        except Exception as e:
+            frappe.log_error(f"Error getting Mollie settlement metrics: {str(e)}", "Zabbix Mollie Settlement Error")
+            metrics["frappe.mollie.settlements.count_24h"] = -1
+            metrics["frappe.mollie.settlements.amount_24h"] = -1
+
+        # === Bank Transaction Processing Metrics ===
+        try:
+            # Count balance transactions processed in last 24 hours
+            yesterday_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+            balance_transactions_24h = frappe.db.count("Bank Transaction", {
+                "reference_number": ["like", "baltr_%"],
+                "creation": [">=", yesterday_str]
+            })
+
+            metrics["frappe.mollie.bank_transactions.count_24h"] = balance_transactions_24h
+
+            # Count unreconciled balance transactions
+            unreconciled = frappe.db.count("Bank Transaction", {
+                "reference_number": ["like", "baltr_%"],
+                "status": "Unreconciled"
+            })
+
+            metrics["frappe.mollie.bank_transactions.unreconciled"] = unreconciled
+
+            # Reconciliation health check
+            if balance_transactions_24h > 0:
+                reconciliation_rate = ((balance_transactions_24h - unreconciled) / balance_transactions_24h) * 100
+                metrics["frappe.mollie.bank_transactions.reconciliation_rate"] = round(reconciliation_rate, 2)
+
+                if reconciliation_rate < 80:
+                    metrics["frappe.mollie.bank_transactions.health"] = 0  # 0 = problem
+                elif reconciliation_rate < 95:
+                    metrics["frappe.mollie.bank_transactions.health"] = 1  # 1 = attention
+                else:
+                    metrics["frappe.mollie.bank_transactions.health"] = 2  # 2 = healthy
+            else:
+                metrics["frappe.mollie.bank_transactions.reconciliation_rate"] = 100
+                metrics["frappe.mollie.bank_transactions.health"] = 2  # No transactions = healthy
+
+        except Exception as e:
+            frappe.log_error(f"Error getting Mollie bank transaction metrics: {str(e)}", "Zabbix Mollie Bank Transaction Error")
+            metrics["frappe.mollie.bank_transactions.count_24h"] = -1
+            metrics["frappe.mollie.bank_transactions.unreconciled"] = -1
+            metrics["frappe.mollie.bank_transactions.health"] = -1
+
+        # === API Health Check ===
+        try:
+            # Test API connectivity by fetching primary balance
+            import time
+            start_time = time.time()
+            balances_client.get_primary_balance(use_cache=False)  # Force fresh API call
+            api_latency = (time.time() - start_time) * 1000  # Convert to milliseconds
+
+            metrics["frappe.mollie.api.latency_ms"] = round(api_latency, 2)
+            metrics["frappe.mollie.api.status"] = 1  # 1 = up
+
+            # Latency health check
+            if api_latency > 2000:  # > 2 seconds
+                metrics["frappe.mollie.api.health"] = 0  # 0 = slow/problem
+            elif api_latency > 1000:  # > 1 second
+                metrics["frappe.mollie.api.health"] = 1  # 1 = attention
+            else:
+                metrics["frappe.mollie.api.health"] = 2  # 2 = healthy
+
+        except Exception as e:
+            frappe.log_error(f"Error checking Mollie API health: {str(e)}", "Zabbix Mollie API Health Error")
+            metrics["frappe.mollie.api.status"] = 0  # 0 = down
+            metrics["frappe.mollie.api.latency_ms"] = -1
+            metrics["frappe.mollie.api.health"] = -1  # -1 = error
+
+        # === Overall Mollie Integration Health ===
+        # Aggregate health check (0=critical, 1=warning, 2=healthy, -1=error)
+        health_scores = [
+            metrics.get("frappe.mollie.cache.status", -1),
+            metrics.get("frappe.mollie.balance.health", -1),
+            metrics.get("frappe.mollie.bank_transactions.health", -1),
+            metrics.get("frappe.mollie.api.health", -1)
+        ]
+
+        # Remove error states (-1) from health calculation
+        valid_scores = [s for s in health_scores if s >= 0]
+
+        if not valid_scores:
+            metrics["frappe.mollie.overall_health"] = -1  # All checks failed
+        elif any(s == 0 for s in valid_scores):
+            metrics["frappe.mollie.overall_health"] = 0  # Critical issues
+        elif any(s == 1 for s in valid_scores):
+            metrics["frappe.mollie.overall_health"] = 1  # Warnings
+        else:
+            metrics["frappe.mollie.overall_health"] = 2  # All healthy
+
+    except Exception as e:
+        frappe.log_error(f"Error getting Mollie payment metrics: {str(e)}", "Zabbix Mollie Metrics Error")
+        # Return safe defaults
+        metrics["frappe.mollie.overall_health"] = -1
+        metrics["frappe.mollie.api.status"] = -1
+
     return metrics
 
 
