@@ -59,12 +59,14 @@ class BalancesClient(MollieBaseClient):
             )
             raise frappe.ValidationError(_("BalancesClient requires Backend API configuration. ") + str(e))
 
-    def get_balance(self, balance_id: str) -> Balance:
+    def get_balance(self, balance_id: str, use_cache: bool = True, cache_ttl: int = 60) -> Balance:
         """
         Get a specific balance
 
         Args:
             balance_id: Balance identifier
+            use_cache: Whether to use cache (default: True, 60 second TTL)
+            cache_ttl: Cache TTL in seconds (default: 60)
 
         Returns:
             Balance object
@@ -74,16 +76,23 @@ class BalancesClient(MollieBaseClient):
         #     AuditEventType.BALANCE_CHECKED, AuditSeverity.INFO, f"Retrieving balance: {balance_id}"
         # )
 
-        response = self.get(f"balances/{balance_id}")
+        if use_cache and self.enable_cache:
+            response = self.get_cached(f"balances/{balance_id}", cache_ttl=cache_ttl)
+        else:
+            response = self.get(f"balances/{balance_id}")
         return self._parse_response(response, Balance)
 
-    def list_balances(self, currency: Optional[str] = None, limit: int = 10) -> List[Balance]:
+    def list_balances(
+        self, currency: Optional[str] = None, limit: int = 10, use_cache: bool = True, cache_ttl: int = 180
+    ) -> List[Balance]:
         """
         List all balances
 
         Args:
             currency: Filter by currency code
             limit: Maximum number of balances to return (default: 10)
+            use_cache: Whether to use cache (default: True, 180 second TTL)
+            cache_ttl: Cache TTL in seconds (default: 180 = 3 minutes)
 
         Returns:
             List of Balance objects
@@ -100,13 +109,20 @@ class BalancesClient(MollieBaseClient):
         #     details={"currency_filter": currency},
         # )
 
-        response = self.get("balances", params=params, paginated=True)
+        if use_cache and self.enable_cache:
+            response = self.get_cached("balances", params=params, paginated=True, cache_ttl=cache_ttl)
+        else:
+            response = self.get("balances", params=params, paginated=True)
 
         return self._parse_response(response, Balance)
 
-    def get_primary_balance(self) -> Balance:
+    def get_primary_balance(self, use_cache: bool = True, cache_ttl: int = 30) -> Balance:
         """
         Get the primary balance
+
+        Args:
+            use_cache: Whether to use cache (default: True, 30 second TTL)
+            cache_ttl: Cache TTL in seconds (default: 30 - frequently changing)
 
         Returns:
             Primary Balance object
@@ -115,7 +131,10 @@ class BalancesClient(MollieBaseClient):
             AuditEventType.BALANCE_CHECKED, AuditSeverity.INFO, "Retrieving primary balance"
         )
 
-        response = self.get("balances/primary")
+        if use_cache and self.enable_cache:
+            response = self.get_cached("balances/primary", cache_ttl=cache_ttl)
+        else:
+            response = self.get("balances/primary")
         return self._parse_response(response, Balance)
 
     def list_balance_transactions(
@@ -124,6 +143,8 @@ class BalancesClient(MollieBaseClient):
         from_date: Optional[datetime] = None,
         until_date: Optional[datetime] = None,
         limit: int = 250,
+        use_cache: bool = True,
+        cache_ttl: int = 120,
     ) -> List[BalanceTransaction]:
         """
         List transactions for a balance
@@ -133,6 +154,8 @@ class BalancesClient(MollieBaseClient):
             from_date: Start date filter (memory-based, Mollie API doesn't support date params)
             until_date: End date filter (memory-based, Mollie API doesn't support date params)
             limit: Maximum number of results to fetch before filtering (default: 250)
+            use_cache: Whether to use cache (default: True, 120 second TTL)
+            cache_ttl: Cache TTL in seconds (default: 120 = 2 minutes)
 
         Returns:
             List of BalanceTransaction objects
@@ -160,7 +183,12 @@ class BalancesClient(MollieBaseClient):
         )
 
         # Fetch transactions without date parameters (API doesn't support them)
-        response = self.get(f"balances/{balance_id}/transactions", params=params, paginated=True)
+        if use_cache and self.enable_cache:
+            response = self.get_cached(
+                f"balances/{balance_id}/transactions", params=params, paginated=True, cache_ttl=cache_ttl
+            )
+        else:
+            response = self.get(f"balances/{balance_id}/transactions", params=params, paginated=True)
         transactions = self._parse_response(response, BalanceTransaction)
 
         # Apply memory-based date filtering using centralized method
@@ -172,6 +200,8 @@ class BalancesClient(MollieBaseClient):
         from_date: datetime,
         until_date: datetime,
         grouping: str = "transaction-categories",
+        use_cache: bool = True,
+        cache_ttl: int = 600,
     ) -> BalanceReport:
         """
         Get balance report for a period
@@ -181,6 +211,8 @@ class BalancesClient(MollieBaseClient):
             from_date: Report start date
             until_date: Report end date
             grouping: Report grouping type
+            use_cache: Whether to use cache (default: True, 600 second TTL)
+            cache_ttl: Cache TTL in seconds (default: 600 = 10 minutes, semi-static data)
 
         Returns:
             BalanceReport object
@@ -198,7 +230,10 @@ class BalancesClient(MollieBaseClient):
             details=params,
         )
 
-        response = self.get(f"balances/{balance_id}/report", params=params)
+        if use_cache and self.enable_cache:
+            response = self.get_cached(f"balances/{balance_id}/report", params=params, cache_ttl=cache_ttl)
+        else:
+            response = self.get(f"balances/{balance_id}/report", params=params)
         return BalanceReport(response)
 
     def get_all_balances_summary(self) -> Dict:
@@ -247,7 +282,7 @@ class BalancesClient(MollieBaseClient):
         return summary
 
     def monitor_balance_changes(
-        self, balance_id: str, threshold_amount: float, currency: str = "EUR"
+        self, balance_id: str, threshold_amount: float, currency: str = "EUR", real_time: bool = False
     ) -> Dict:
         """
         Monitor balance for significant changes
@@ -256,16 +291,17 @@ class BalancesClient(MollieBaseClient):
             balance_id: Balance to monitor
             threshold_amount: Alert threshold
             currency: Currency code
+            real_time: If True, bypass cache for critical monitoring (default: False)
 
         Returns:
             Dict with monitoring results
         """
-        # Get current balance
-        balance = self.get_balance(balance_id)
+        # Get current balance (bypass cache if real_time)
+        balance = self.get_balance(balance_id, use_cache=not real_time)
 
-        # Get recent transactions
+        # Get recent transactions (bypass cache if real_time)
         recent_transactions = self.list_balance_transactions(
-            balance_id, from_date=datetime.now() - timedelta(days=1), limit=50
+            balance_id, from_date=datetime.now() - timedelta(days=1), limit=50, use_cache=not real_time
         )
 
         # Check for threshold breach using PaymentDataExtractor
@@ -302,6 +338,14 @@ class BalancesClient(MollieBaseClient):
                 details=monitoring_result,
             )
 
+            # Invalidate all related caches to ensure consistency
+            self.invalidate_cache(f"balances/{balance_id}")  # Specific balance
+            self.invalidate_cache(f"balances/{balance_id}/transactions")  # Balance transactions
+            self.invalidate_cache(f"balances/{balance_id}/report")  # Balance reports
+            self.invalidate_cache("balances")  # Balance list (includes this balance)
+            self.invalidate_cache("balances/primary")  # Primary balance (if this is it)
+            # Note: get_all_balances_summary() calls list_balances() which is now invalidated
+
             # Send notification
             frappe.publish_realtime(
                 "balance_alert",
@@ -317,7 +361,7 @@ class BalancesClient(MollieBaseClient):
         return monitoring_result
 
     def reconcile_balance_transactions(
-        self, balance_id: str, start_date: datetime, end_date: datetime
+        self, balance_id: str, start_date: datetime, end_date: datetime, use_cache: bool = False
     ) -> Dict:
         """
         Reconcile balance transactions for a period
@@ -326,18 +370,21 @@ class BalancesClient(MollieBaseClient):
             balance_id: Balance to reconcile
             start_date: Period start
             end_date: Period end
+            use_cache: Whether to use cache (default: False - reconciliation needs accurate data)
 
         Returns:
             Dict with reconciliation results
         """
-        # Get balance at start
-        balance_start = self.get_balance(balance_id)
+        # Get balance at start (bypass cache for accurate reconciliation)
+        balance_start = self.get_balance(balance_id, use_cache=use_cache)
 
-        # Get all transactions for period
-        transactions = self.list_balance_transactions(balance_id, from_date=start_date, until_date=end_date)
+        # Get all transactions for period (bypass cache)
+        transactions = self.list_balance_transactions(
+            balance_id, from_date=start_date, until_date=end_date, use_cache=use_cache
+        )
 
-        # Get balance at end
-        balance_end = self.get_balance(balance_id)
+        # Get balance at end (bypass cache)
+        balance_end = self.get_balance(balance_id, use_cache=use_cache)
 
         # Calculate expected vs actual using PaymentDataExtractor
         extractor = get_payment_data_extractor()

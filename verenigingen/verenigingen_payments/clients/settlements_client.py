@@ -32,12 +32,14 @@ class SettlementsClient(MollieBaseClient):
     - Financial reporting
     """
 
-    def get_settlement(self, settlement_id: str) -> Settlement:
+    def get_settlement(self, settlement_id: str, use_cache: bool = True, cache_ttl: int = 180) -> Settlement:
         """
         Get a specific settlement
 
         Args:
             settlement_id: Settlement identifier
+            use_cache: Whether to use cache (default: True, 180 second TTL)
+            cache_ttl: Cache TTL in seconds (default: 180 = 3 minutes)
 
         Returns:
             Settlement object
@@ -47,7 +49,10 @@ class SettlementsClient(MollieBaseClient):
         #     AuditEventType.SETTLEMENT_PROCESSED, AuditSeverity.INFO, f"Retrieving settlement: {settlement_id}"
         # )
 
-        response = self.get(f"/settlements/{settlement_id}")
+        if use_cache and self.enable_cache:
+            response = self.get_cached(f"settlements/{settlement_id}", cache_ttl=cache_ttl)
+        else:
+            response = self.get(f"settlements/{settlement_id}")
         return self._parse_response(response, Settlement)
 
     def list_settlements(
@@ -56,6 +61,8 @@ class SettlementsClient(MollieBaseClient):
         from_date: Optional[datetime] = None,
         until_date: Optional[datetime] = None,
         limit: int = 250,
+        use_cache: bool = True,
+        cache_ttl: int = 300,
     ) -> List[Settlement]:
         """
         List settlements with optional filters
@@ -65,6 +72,8 @@ class SettlementsClient(MollieBaseClient):
             from_date: Start date filter (applied in memory, not API)
             until_date: End date filter (applied in memory, not API)
             limit: Maximum number of results
+            use_cache: Whether to use cache (default: True, 300 second TTL)
+            cache_ttl: Cache TTL in seconds (default: 300 = 5 minutes)
 
         Returns:
             List of Settlement objects
@@ -86,7 +95,10 @@ class SettlementsClient(MollieBaseClient):
             AuditEventType.SETTLEMENT_PROCESSED, AuditSeverity.INFO, "Listing settlements", details=params
         )
 
-        response = self.get("settlements", params=params, paginated=True)
+        if use_cache and self.enable_cache:
+            response = self.get_cached("settlements", params=params, paginated=True, cache_ttl=cache_ttl)
+        else:
+            response = self.get("settlements", params=params, paginated=True)
         settlements = self._parse_response(response, Settlement)
 
         # Apply memory-based date filtering
@@ -350,18 +362,19 @@ class SettlementsClient(MollieBaseClient):
 
         return self._parse_response(response, SettlementCapture)
 
-    def reconcile_settlement(self, settlement_id: str) -> Dict:
+    def reconcile_settlement(self, settlement_id: str, use_cache: bool = False) -> Dict:
         """
         Reconcile a settlement with all its components
 
         Args:
             settlement_id: Settlement to reconcile
+            use_cache: Whether to use cache (default: False - reconciliation needs accurate data)
 
         Returns:
             Dict with reconciliation results
         """
-        # Get settlement details
-        settlement = self.get_settlement(settlement_id)
+        # Get settlement details (bypass cache for accurate reconciliation)
+        settlement = self.get_settlement(settlement_id, use_cache=use_cache)
 
         # Get all components
         payments = self.list_settlement_payments(settlement_id)
@@ -426,8 +439,16 @@ class SettlementsClient(MollieBaseClient):
             details=reconciliation,
         )
 
-        # Alert if discrepancy
+        # Alert if discrepancy and invalidate cache
         if not reconciliation["reconciled"]:
+            # Invalidate all related caches to ensure consistency
+            self.invalidate_cache(f"settlements/{settlement_id}")  # Specific settlement
+            self.invalidate_cache(f"settlements/{settlement_id}/payments")  # Settlement payments
+            self.invalidate_cache(f"settlements/{settlement_id}/refunds")  # Settlement refunds
+            self.invalidate_cache(f"settlements/{settlement_id}/chargebacks")  # Settlement chargebacks
+            self.invalidate_cache(f"settlements/{settlement_id}/captures")  # Settlement captures
+            self.invalidate_cache("settlements")  # Settlement list (includes this settlement)
+
             frappe.publish_realtime(
                 "settlement_discrepancy",
                 {

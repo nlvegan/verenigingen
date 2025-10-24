@@ -376,5 +376,117 @@ class TestBalancesClient(EnhancedTestCase):
             self.assertIn("GBP", currencies)
 
 
+class TestBalancesClientCacheBehavior(unittest.TestCase):
+    """Test cache behavior in BalancesClient operations"""
+
+    def setUp(self):
+        """Set up test client with caching enabled"""
+        frappe.set_user("Administrator")
+        if not frappe.db.exists("Mollie Settings", "Mollie Settings"):
+            make_test_records("Mollie Settings")
+
+        # Initialize client with cache enabled
+        self.client = BalancesClient()
+        # Clear any existing cache
+        if self.client.cache:
+            self.client.clear_cache()
+
+    def test_use_cache_false_bypasses_cache(self):
+        """Verify use_cache=False makes fresh API call"""
+        balance_id = "bal_test123"
+
+        with patch.object(self.client, 'get') as mock_get, \
+             patch.object(self.client, 'get_cached') as mock_get_cached:
+
+            # Configure mocks
+            mock_response = {
+                "id": balance_id,
+                "status": "active",
+                "currency": "EUR",
+                "availableAmount": {"value": "1000.00", "currency": "EUR"}
+            }
+            mock_get.return_value = mock_response
+            mock_get_cached.return_value = mock_response
+
+            # Call with use_cache=False
+            self.client.get_balance(balance_id, use_cache=False)
+
+            # Verify get() was called (not get_cached)
+            mock_get.assert_called_once()
+            mock_get_cached.assert_not_called()
+
+    def test_cache_invalidation_on_alert(self):
+        """Verify alert invalidates all related caches"""
+        balance_id = "bal_test123"
+
+        with patch.object(self.client, 'get_balance') as mock_get_balance, \
+             patch.object(self.client, 'list_balance_transactions') as mock_list_tx, \
+             patch.object(self.client, 'invalidate_cache') as mock_invalidate, \
+             patch('frappe.publish_realtime'):
+
+            # Configure mocks
+            mock_balance = MagicMock()
+            mock_balance.available_amount.value = "500.00"  # Below threshold
+            mock_get_balance.return_value = mock_balance
+            mock_list_tx.return_value = []
+
+            # Trigger alert
+            self.client.monitor_balance_changes(balance_id, threshold_amount=1000.0)
+
+            # Verify invalidation calls
+            invalidate_calls = [call[0][0] for call in mock_invalidate.call_args_list]
+            self.assertIn(f"balances/{balance_id}", invalidate_calls)
+            self.assertIn(f"balances/{balance_id}/transactions", invalidate_calls)
+            self.assertIn(f"balances/{balance_id}/report", invalidate_calls)
+            self.assertIn("balances", invalidate_calls)
+            self.assertIn("balances/primary", invalidate_calls)
+
+    def test_reconciliation_bypasses_cache_by_default(self):
+        """Verify reconciliation uses fresh data by default"""
+        balance_id = "bal_test123"
+        start_date = datetime(2025, 1, 1)
+        end_date = datetime(2025, 1, 31)
+
+        with patch.object(self.client, 'get_balance') as mock_get_balance, \
+             patch.object(self.client, 'list_balance_transactions') as mock_list_tx:
+
+            # Configure mocks
+            mock_balance = MagicMock()
+            mock_balance.available_amount.value = "1000.00"
+            mock_get_balance.return_value = mock_balance
+            mock_list_tx.return_value = []
+
+            # Call reconciliation (default use_cache=False)
+            self.client.reconcile_balance_transactions(balance_id, start_date, end_date)
+
+            # Verify get_balance was called with use_cache=False
+            # (called twice: start and end)
+            self.assertEqual(mock_get_balance.call_count, 2)
+            for call in mock_get_balance.call_args_list:
+                _, kwargs = call
+                self.assertEqual(kwargs.get('use_cache', True), False)
+
+    def test_real_time_monitoring_bypasses_cache(self):
+        """Verify real_time=True bypasses cache in monitoring"""
+        balance_id = "bal_test123"
+
+        with patch.object(self.client, 'get_balance') as mock_get_balance, \
+             patch.object(self.client, 'list_balance_transactions') as mock_list_tx:
+
+            # Configure mocks
+            mock_balance = MagicMock()
+            mock_balance.available_amount.value = "1500.00"  # Above threshold
+            mock_get_balance.return_value = mock_balance
+            mock_list_tx.return_value = []
+
+            # Call with real_time=True
+            self.client.monitor_balance_changes(balance_id, threshold_amount=1000.0, real_time=True)
+
+            # Verify get_balance was called with use_cache=False
+            mock_get_balance.assert_called_once()
+            _, kwargs = mock_get_balance.call_args
+            self.assertEqual(kwargs.get('use_cache', True), False)
+
+
 if __name__ == "__main__":
     unittest.main()
