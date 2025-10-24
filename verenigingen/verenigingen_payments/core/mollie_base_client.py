@@ -25,6 +25,7 @@ from .compliance.financial_validator import FinancialValidator
 from .error_handler import MollieErrorHandler
 from .http_client import ResilientHTTPClient
 from .models.base import BaseModel
+from .response_cache import ResponseCache
 from .security.mollie_security_manager import MollieSecurityManager
 
 # TypeVar for generic model parsing
@@ -85,6 +86,9 @@ class MollieBaseClient:
         test_mode: bool = False,
         use_backend_api: bool = True,
         strict_financial_validation: bool = True,
+        enable_cache: bool = True,
+        cache_max_size: int = 100,
+        cache_default_ttl: int = 300,
     ):
         """
         Initialize Mollie base client
@@ -95,6 +99,9 @@ class MollieBaseClient:
             use_backend_api: If True, use Organization Access Token for backend features
             strict_financial_validation: If True, raise errors on malformed financial data (default: True)
                                         If False, log warnings only (useful for development/testing)
+            enable_cache: Enable response caching (default: True)
+            cache_max_size: Maximum number of cached responses (default: 100)
+            cache_default_ttl: Default cache TTL in seconds (default: 300 = 5 minutes)
         """
         # Get settings (singleton)
         self.mollie_settings = frappe.get_single("Mollie Settings")
@@ -103,6 +110,7 @@ class MollieBaseClient:
         self.test_mode = test_mode
         self.use_backend_api = use_backend_api
         self.strict_financial_validation = strict_financial_validation
+        self.enable_cache = enable_cache
 
         # Get API key from settings if not provided
         if not api_key:
@@ -126,6 +134,12 @@ class MollieBaseClient:
         self.financial_validator = FinancialValidator()
         self.audit_trail = get_audit_trail()
         self.error_handler = MollieErrorHandler()
+
+        # Initialize response cache
+        if self.enable_cache:
+            self.cache = ResponseCache(max_size=cache_max_size, default_ttl_seconds=cache_default_ttl)
+        else:
+            self.cache = None
 
         # Set authentication header
         self.http_client.session.headers.update({"Authorization": f"Bearer {self.api_key}"})
@@ -559,7 +573,107 @@ class MollieBaseClient:
 
     def get_metrics(self) -> Dict[str, Any]:
         """Get client performance metrics"""
-        return self.http_client.get_metrics()
+        metrics = self.http_client.get_metrics()
+
+        # Add cache metrics if caching is enabled
+        if self.cache:
+            metrics["cache"] = self.cache.get_stats()
+
+        return metrics
+
+    def get_cached(
+        self,
+        endpoint: str,
+        params: Optional[Dict[str, Any]] = None,
+        paginated: bool = False,
+        cache_ttl: Optional[int] = None,
+        force_refresh: bool = False,
+    ) -> Any:
+        """
+        Make GET request with caching support
+
+        Args:
+            endpoint: API endpoint
+            params: Query parameters
+            paginated: Whether to handle pagination automatically
+            cache_ttl: Custom TTL in seconds (default: use cache's default_ttl_seconds)
+            force_refresh: If True, bypass cache and fetch fresh data
+
+        Returns:
+            API response (from cache or fresh API call)
+
+        Example:
+            # Use cache with default TTL (5 minutes)
+            settlement = client.get_cached("settlements/stl_123")
+
+            # Custom TTL (1 hour)
+            balance = client.get_cached("balances/primary", cache_ttl=3600)
+
+            # Force fresh data (bypass cache)
+            fresh_data = client.get_cached("settlements/stl_123", force_refresh=True)
+        """
+        # If caching disabled, just make regular request
+        if not self.enable_cache or not self.cache:
+            return self.get(endpoint, params=params, paginated=paginated)
+
+        # Generate cache key (use "GET" as model class name for raw responses)
+        cache_key_model = "Response"
+
+        # Check cache first (unless force_refresh)
+        if not force_refresh:
+            cached_response = self.cache.get(endpoint, params, cache_key_model)
+            if cached_response is not None:
+                frappe.logger().debug(f"Cache hit for endpoint: {endpoint}")
+                return cached_response
+
+        # Cache miss or force refresh - make API call
+        frappe.logger().debug(f"Cache miss for endpoint: {endpoint}, fetching from API")
+        response = self.get(endpoint, params=params, paginated=paginated)
+
+        # Cache the response
+        self.cache.set(endpoint, params, cache_key_model, response, ttl_seconds=cache_ttl)
+
+        return response
+
+    def invalidate_cache(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> int:
+        """
+        Invalidate cache entries for endpoint
+
+        Args:
+            endpoint: API endpoint to invalidate
+            params: If provided, only invalidate exact match. If None, invalidate all matching endpoint.
+
+        Returns:
+            Number of entries invalidated
+
+        Example:
+            # Invalidate all settlement cache entries
+            client.invalidate_cache("settlements")
+
+            # Invalidate specific settlement
+            client.invalidate_cache("settlements/stl_123")
+        """
+        if not self.cache:
+            return 0
+
+        return self.cache.invalidate(endpoint, params)
+
+    def clear_cache(self) -> None:
+        """Clear all cache entries"""
+        if self.cache:
+            self.cache.clear()
+
+    def cleanup_expired_cache(self) -> int:
+        """
+        Remove expired cache entries
+
+        Returns:
+            Number of entries removed
+        """
+        if not self.cache:
+            return 0
+
+        return self.cache.cleanup_expired()
 
     def _filter_by_date(
         self,
