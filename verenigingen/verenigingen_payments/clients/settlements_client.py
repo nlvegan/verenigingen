@@ -48,7 +48,7 @@ class SettlementsClient(MollieBaseClient):
         # )
 
         response = self.get(f"/settlements/{settlement_id}")
-        return Settlement(response)
+        return self._parse_response(response, Settlement)
 
     def list_settlements(
         self,
@@ -87,7 +87,7 @@ class SettlementsClient(MollieBaseClient):
         )
 
         response = self.get("settlements", params=params, paginated=True)
-        settlements = [Settlement(item) for item in response]
+        settlements = self._parse_response(response, Settlement)
 
         # Apply memory-based date filtering
         # Settlement objects prefer settled_at_datetime, fall back to created_at_datetime
@@ -124,17 +124,17 @@ class SettlementsClient(MollieBaseClient):
             Settlement object or None if no pending settlement
         """
         response = self.get("settlements/next")
+        settlement = self._parse_response(response, Settlement, allow_none=True)
 
-        if response:
+        if settlement:
             self.audit_trail.log_event(
                 AuditEventType.SETTLEMENT_PROCESSED,
                 AuditSeverity.INFO,
                 "Retrieved next settlement",
-                details={"settlement_id": response.get("id")},
+                details={"settlement_id": settlement.id},
             )
-            return Settlement(response)
 
-        return None
+        return settlement
 
     def get_settlements_by_date_range(self, from_date: str, to_date: str) -> List[Dict]:
         """
@@ -246,17 +246,17 @@ class SettlementsClient(MollieBaseClient):
             Settlement object or None if no open settlement
         """
         response = self.get("settlements/open")
+        settlement = self._parse_response(response, Settlement, allow_none=True)
 
-        if response:
+        if settlement:
             self.audit_trail.log_event(
                 AuditEventType.SETTLEMENT_PROCESSED,
                 AuditSeverity.INFO,
                 "Retrieved open settlement",
-                details={"settlement_id": response.get("id")},
+                details={"settlement_id": settlement.id},
             )
-            return Settlement(response)
 
-        return None
+        return settlement
 
     def list_settlement_payments(self, settlement_id: str, limit: int = 250) -> List[Dict]:
         """
@@ -348,7 +348,7 @@ class SettlementsClient(MollieBaseClient):
 
         response = self.get(f"settlements/{settlement_id}/captures", params=params, paginated=True)
 
-        return [SettlementCapture(item) for item in response]
+        return self._parse_response(response, SettlementCapture)
 
     def reconcile_settlement(self, settlement_id: str) -> Dict:
         """

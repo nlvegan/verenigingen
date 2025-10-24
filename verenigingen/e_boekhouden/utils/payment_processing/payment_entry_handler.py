@@ -202,19 +202,43 @@ class PaymentEntryHandler:
 
             # CRITICAL: Create Bank Transaction BEFORE submitting Payment Entry
             # This ensures both operations happen within the same atomic transaction
-            self._log(
-                f"ATOMIC TRANSACTION START: Creating Bank Transaction for Payment Entry {pe.name} "
-                f"(Mutation #{mutation_id}, Amount: {pe.paid_amount or pe.received_amount})"
+            # Check if Bank Transaction already exists (idempotency for re-imports)
+            existing_bt = frappe.db.get_value(
+                "Bank Transaction", {"reference_number": f"EB-{mutation_id}"}, "name"
             )
 
-            bank_transaction_name = self._create_bank_transaction_for_payment(mutation, pe, bank_account)
-            if bank_transaction_name:
-                self._log(f"✓ Bank Transaction created: {bank_transaction_name}")
+            if existing_bt:
+                self._log(
+                    f"Bank Transaction {existing_bt} already exists for mutation {mutation_id}, skipping creation"
+                )
+                bank_transaction_name = existing_bt
+            else:
+                self._log(
+                    f"ATOMIC TRANSACTION START: Creating Bank Transaction for Payment Entry {pe.name} "
+                    f"(Mutation #{mutation_id}, Amount: {pe.paid_amount or pe.received_amount})"
+                )
 
-                # Link the bank transaction to payment entry immediately
-                self._log(f"Linking Bank Transaction {bank_transaction_name} to Payment Entry {pe.name}...")
-                self._link_bank_transaction_to_payment(bank_transaction_name, pe.name)
-                self._log("✓ Bank Transaction linked successfully")
+                bank_transaction_name = self._create_bank_transaction_for_payment(mutation, pe, bank_account)
+            if bank_transaction_name:
+                if not existing_bt:
+                    self._log(f"✓ Bank Transaction created: {bank_transaction_name}")
+
+                # Link the bank transaction to payment entry immediately (only if it's not already linked)
+                # Check if already linked to avoid "Cannot edit cancelled document" error
+                already_linked = frappe.db.exists(
+                    "Bank Transaction Payments", {"parent": bank_transaction_name, "payment_entry": pe.name}
+                )
+
+                if not already_linked:
+                    self._log(
+                        f"Linking Bank Transaction {bank_transaction_name} to Payment Entry {pe.name}..."
+                    )
+                    self._link_bank_transaction_to_payment(bank_transaction_name, pe.name)
+                    self._log("✓ Bank Transaction linked successfully")
+                else:
+                    self._log(
+                        f"Bank Transaction {bank_transaction_name} already linked to Payment Entry {pe.name}"
+                    )
             else:
                 self._log("WARNING: Failed to create Bank Transaction - proceeding with Payment Entry only")
 
@@ -1078,37 +1102,38 @@ class PaymentEntryHandler:
             # The sign will be handled by BankTransactionCreator based on payment_type
             bank_transaction_amount = amount if payment_entry.payment_type == "Receive" else -amount
 
-            # Build comprehensive description preserving all SEPA/bank data
-            # This is where the rich bank transaction data belongs
-            description_parts = []
+            # Use raw bank description (SEPA data) - this is what the user sees on bank statements
+            # Keep it clean without import metadata
+            bt_description = mutation.get("description", "")
 
-            # Primary description from mutation (e.g., "TRTP SEPA OVERBOEKING IBAN...")
-            if mutation.get("description"):
-                description_parts.append(mutation.get("description"))
-
-            # Add mutation context
+            # Extract reference number from end of description
+            # Common patterns: "Bestelling 50019 tr_ABC123" or "Invoice 12345" or just "50019"
+            # We take the last meaningful token as the reference
             mutation_id = mutation.get("id")
-            if mutation_id:
-                description_parts.append(f"[eBoekhouden Mutation #{mutation_id}]")
+            bt_reference = f"EB-{mutation_id}"  # Fallback
 
-            # Add payment entry reference for linkage
-            if payment_entry.name:
-                description_parts.append(f"[Payment Entry: {payment_entry.name}]")
-
-            # Add invoice references if available
-            invoice_number = mutation.get("invoiceNumber")
-            if invoice_number:
-                description_parts.append(f"[Invoice(s): {invoice_number}]")
-
-            bt_description = " ".join(description_parts)
+            if bt_description:
+                # Split by whitespace and get last 3 tokens (common reference location)
+                tokens = bt_description.strip().split()
+                if tokens:
+                    # Take last token as reference (e.g., "tr_WDyL7bgZmU" or "50019")
+                    # Filter out very short tokens (like "A" or single digits)
+                    candidate = tokens[-1]
+                    if len(candidate) >= 3 and not candidate.startswith("("):
+                        bt_reference = candidate
+                    elif len(tokens) >= 2:
+                        # Try second-to-last if last token is too short
+                        candidate = tokens[-2]
+                        if len(candidate) >= 3:
+                            bt_reference = candidate
 
             # Create Bank Transaction using service
             transaction_data = {
                 "date": payment_entry.posting_date,
                 "amount": bank_transaction_amount,  # Signed amount based on payment_type
                 "currency": "EUR",  # E-Boekhouden is always EUR
-                "description": bt_description,
-                "reference_number": f"EB-{mutation_id}",  # Unique reference for idempotency
+                "description": bt_description,  # Raw SEPA description
+                "reference_number": bt_reference,  # Transaction reference for matching
                 "party_type": payment_entry.party_type if payment_entry.party else None,
                 "party": payment_entry.party if payment_entry.party else None,
             }

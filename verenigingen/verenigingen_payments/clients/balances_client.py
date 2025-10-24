@@ -75,7 +75,7 @@ class BalancesClient(MollieBaseClient):
         # )
 
         response = self.get(f"balances/{balance_id}")
-        return Balance(response)
+        return self._parse_response(response, Balance)
 
     def list_balances(self, currency: Optional[str] = None, limit: int = 10) -> List[Balance]:
         """
@@ -102,12 +102,7 @@ class BalancesClient(MollieBaseClient):
 
         response = self.get("balances", params=params, paginated=True)
 
-        balances = []
-        for item in response:
-            balance = Balance(item)
-            balances.append(balance)
-
-        return balances
+        return self._parse_response(response, Balance)
 
     def get_primary_balance(self) -> Balance:
         """
@@ -121,7 +116,7 @@ class BalancesClient(MollieBaseClient):
         )
 
         response = self.get("balances/primary")
-        return Balance(response)
+        return self._parse_response(response, Balance)
 
     def list_balance_transactions(
         self,
@@ -149,9 +144,8 @@ class BalancesClient(MollieBaseClient):
         """
         params = {"limit": limit}
 
-        # Mollie API doesn't support date filtering for balance transactions
-        # We always use memory-based filtering
-        api_date_filtering = False
+        # NOTE: Mollie API doesn't support date filtering for balance transactions
+        # We always use memory-based filtering after fetching
 
         self.audit_trail.log_event(
             AuditEventType.BALANCE_CHECKED,
@@ -167,7 +161,7 @@ class BalancesClient(MollieBaseClient):
 
         # Fetch transactions without date parameters (API doesn't support them)
         response = self.get(f"balances/{balance_id}/transactions", params=params, paginated=True)
-        transactions = [BalanceTransaction(item) for item in response]
+        transactions = self._parse_response(response, BalanceTransaction)
 
         # Apply memory-based date filtering using centralized method
         return self._filter_by_date(transactions, from_date=from_date, until_date=until_date)

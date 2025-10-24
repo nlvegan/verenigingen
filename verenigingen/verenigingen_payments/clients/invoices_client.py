@@ -83,7 +83,7 @@ class InvoicesClient(MollieBaseClient):
         )
 
         response = self.get("/invoices", params=params, paginated=True)
-        return [Invoice(item) for item in response]
+        return self._parse_response(response, Invoice)
 
     def get_overdue_invoices(self) -> List[Invoice]:
         """

@@ -92,7 +92,7 @@ class ChargebacksClient(MollieBaseClient):
         )
 
         response = self.get(f"payments/{payment_id}/chargebacks", paginated=True)
-        return [Chargeback(item) for item in response]
+        return self._parse_response(response, Chargeback)
 
     def list_all_chargebacks(
         self, from_date: Optional[datetime] = None, until_date: Optional[datetime] = None, limit: int = 250
@@ -124,7 +124,7 @@ class ChargebacksClient(MollieBaseClient):
         )
 
         response = self.get("chargebacks", params=params, paginated=True)
-        chargebacks = [Chargeback(item) for item in response]
+        chargebacks = self._parse_response(response, Chargeback)
 
         # Apply memory-based date filtering using centralized method
         return self._filter_by_date(chargebacks, from_date=from_date, until_date=until_date)
