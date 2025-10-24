@@ -481,6 +481,243 @@ class TestResponseParsing(unittest.TestCase):
         self.assertIsNone(result.value)
 
 
+class TestResponseParsingIntegration(unittest.TestCase):
+    """
+    Integration Tests for Response Parsing with Real Mollie Models
+
+    Tests parsing of actual Mollie API response fixtures with real model classes.
+    These tests verify end-to-end parsing works with production models.
+    """
+
+    def setUp(self):
+        """Set up test client"""
+        self.client = MollieBaseClient()
+
+    def test_parse_real_settlement_response(self):
+        """Test parsing real Settlement response from Mollie API"""
+        # Real settlement response from Mollie API documentation
+        real_mollie_response = {
+            "resource": "settlement",
+            "id": "stl_jDk30akdN",
+            "reference": "1234567.1804.03",
+            "createdAt": "2018-04-06T06:00:01.0Z",
+            "settledAt": "2018-04-06T09:41:44.0Z",
+            "status": "paidout",
+            "amount": {"value": "39.75", "currency": "EUR"},
+            "periods": {
+                "2018": {
+                    "04": {
+                        "revenue": [
+                            {
+                                "description": "iDEAL",
+                                "method": "ideal",
+                                "count": 6,
+                                "amountNet": {"value": "86.1000", "currency": "EUR"},
+                                "amountVat": {"value": "18.0810", "currency": "EUR"},
+                                "amountGross": {"value": "104.1810", "currency": "EUR"},
+                            }
+                        ],
+                        "costs": [
+                            {
+                                "description": "iDEAL",
+                                "method": "ideal",
+                                "count": 6,
+                                "rate": {"fixed": {"value": "0.3500", "currency": "EUR"}, "percentage": None},
+                                "amountNet": {"value": "2.1000", "currency": "EUR"},
+                                "amountVat": {"value": "0.4410", "currency": "EUR"},
+                                "amountGross": {"value": "2.5410", "currency": "EUR"},
+                            }
+                        ],
+                    }
+                }
+            },
+            "_links": {"self": {"href": "...", "type": "application/hal+json"}},
+        }
+
+        # Parse with real Settlement model
+        result = self.client._parse_response(real_mollie_response, Settlement)
+
+        # Verify critical fields
+        self.assertIsInstance(result, Settlement)
+        self.assertEqual(result.id, "stl_jDk30akdN")
+        self.assertEqual(result.reference, "1234567.1804.03")
+        self.assertEqual(result.status, "paidout")
+        self.assertIsNotNone(result.amount)
+        self.assertEqual(result.amount.value, "39.75")
+        self.assertEqual(result.amount.currency, "EUR")
+
+    def test_parse_real_balance_response(self):
+        """Test parsing real Balance response from Mollie API"""
+        # Real balance response from Mollie API documentation
+        real_mollie_response = {
+            "resource": "balance",
+            "id": "bal_gVMhHKqSSRYJyPsuoPNFH",
+            "mode": "live",
+            "createdAt": "2019-01-10T10:23:41+00:00",
+            "currency": "EUR",
+            "status": "active",
+            "availableAmount": {"value": "905.25", "currency": "EUR"},
+            "pendingAmount": {"value": "0.00", "currency": "EUR"},
+            "transferFrequency": "twice-a-month",
+            "transferThreshold": {"value": "40.00", "currency": "EUR"},
+            "transferReference": "Mollie payout",
+            "transferDestination": {
+                "type": "bank-account",
+                "beneficiaryName": "Jack Bauer",
+                "bankAccount": "NL53INGB0000000000",
+                "bankAccountId": "bnk_jrty3f",
+            },
+            "_links": {"self": {"href": "...", "type": "application/hal+json"}},
+        }
+
+        # Parse with real Balance model
+        result = self.client._parse_response(real_mollie_response, Balance)
+
+        # Verify critical fields
+        self.assertIsInstance(result, Balance)
+        self.assertEqual(result.id, "bal_gVMhHKqSSRYJyPsuoPNFH")
+        self.assertEqual(result.currency, "EUR")
+        self.assertEqual(result.status, "active")
+        self.assertIsNotNone(result.available_amount)
+        self.assertEqual(result.available_amount.value, "905.25")
+
+    def test_parse_real_settlement_list_response(self):
+        """Test parsing list of real Settlement responses"""
+        # Real list response (truncated for testing)
+        real_mollie_response = [
+            {
+                "resource": "settlement",
+                "id": "stl_jDk30akdN",
+                "reference": "1234567.1804.03",
+                "createdAt": "2018-04-06T06:00:01.0Z",
+                "settledAt": "2018-04-06T09:41:44.0Z",
+                "status": "paidout",
+                "amount": {"value": "39.75", "currency": "EUR"},
+                "_links": {"self": {"href": "...", "type": "application/hal+json"}},
+            },
+            {
+                "resource": "settlement",
+                "id": "stl_QM24OAv0UL",
+                "reference": "1234567.1803.03",
+                "createdAt": "2018-03-20T06:00:01.0Z",
+                "settledAt": "2018-03-20T09:41:44.0Z",
+                "status": "paidout",
+                "amount": {"value": "50.00", "currency": "EUR"},
+                "_links": {"self": {"href": "...", "type": "application/hal+json"}},
+            },
+        ]
+
+        # Parse with real Settlement model
+        result = self.client._parse_response(real_mollie_response, Settlement)
+
+        # Verify list parsing
+        self.assertIsInstance(result, list)
+        self.assertEqual(len(result), 2)
+        self.assertIsInstance(result[0], Settlement)
+        self.assertIsInstance(result[1], Settlement)
+        self.assertEqual(result[0].id, "stl_jDk30akdN")
+        self.assertEqual(result[1].id, "stl_QM24OAv0UL")
+
+    def test_parse_real_balance_list_response(self):
+        """Test parsing list of real Balance responses"""
+        # Real list response
+        real_mollie_response = [
+            {
+                "resource": "balance",
+                "id": "bal_test1",
+                "currency": "EUR",
+                "availableAmount": {"value": "100.00", "currency": "EUR"},
+                "status": "active",
+            },
+            {
+                "resource": "balance",
+                "id": "bal_test2",
+                "currency": "USD",
+                "availableAmount": {"value": "50.00", "currency": "USD"},
+                "status": "active",
+            },
+        ]
+
+        # Parse with real Balance model
+        result = self.client._parse_response(real_mollie_response, Balance)
+
+        # Verify list parsing
+        self.assertIsInstance(result, list)
+        self.assertEqual(len(result), 2)
+        self.assertIsInstance(result[0], Balance)
+        self.assertIsInstance(result[1], Balance)
+        self.assertEqual(result[0].id, "bal_test1")
+        self.assertEqual(result[1].currency, "USD")
+
+    def test_parse_with_nested_amount_objects(self):
+        """Test parsing responses with nested amount objects"""
+        # Balance with nested availableAmount and pendingAmount
+        real_mollie_response = {
+            "resource": "balance",
+            "id": "bal_nested",
+            "currency": "EUR",
+            "availableAmount": {"value": "1500.75", "currency": "EUR"},
+            "pendingAmount": {"value": "250.25", "currency": "EUR"},
+            "status": "active",
+        }
+
+        # Parse with real Balance model
+        result = self.client._parse_response(real_mollie_response, Balance)
+
+        # Verify nested objects parsed correctly
+        self.assertIsNotNone(result.available_amount)
+        self.assertEqual(result.available_amount.value, "1500.75")
+        # Note: pending_amount might not be set if model doesn't handle it
+
+    def test_parse_settlement_with_complex_periods(self):
+        """Test parsing Settlement with complex nested periods structure"""
+        # Settlement with nested period data
+        real_mollie_response = {
+            "resource": "settlement",
+            "id": "stl_complex",
+            "reference": "2024.10.1",
+            "status": "pending",
+            "amount": {"value": "250.00", "currency": "EUR"},
+            "periods": {"2024": {"10": {"revenue": [], "costs": []}}},
+        }
+
+        # Parse with real Settlement model
+        result = self.client._parse_response(real_mollie_response, Settlement)
+
+        # Verify complex structure handled
+        self.assertIsInstance(result, Settlement)
+        self.assertEqual(result.id, "stl_complex")
+        self.assertEqual(result.reference, "2024.10.1")
+        self.assertIsNotNone(result.periods)
+
+    def test_client_initialization_with_strict_mode(self):
+        """Test that client can be initialized with strict=False"""
+        # Create client with non-strict validation
+        client = MollieBaseClient(strict_financial_validation=False)
+
+        # Verify attribute is set
+        self.assertFalse(client.strict_financial_validation)
+
+        # Verify it can still parse valid responses
+        response = {
+            "resource": "settlement",
+            "id": "stl_test",
+            "amount": {"value": "10.00", "currency": "EUR"},
+            "status": "paidout",
+        }
+
+        result = client._parse_response(response, Settlement)
+        self.assertEqual(result.id, "stl_test")
+
+    def test_parse_optional_settlement_response_none(self):
+        """Test parsing optional Settlement when response is None"""
+        # None response with allow_none=True
+        result = self.client._parse_response(None, Settlement, allow_none=True)
+
+        # Should return None, not raise
+        self.assertIsNone(result)
+
+
 # Test suite execution
 def run_tests():
     """Run all response parsing tests"""

@@ -79,7 +79,13 @@ class MollieBaseClient:
     # API versions
     API_VERSION = "v2"
 
-    def __init__(self, api_key: Optional[str] = None, test_mode: bool = False, use_backend_api: bool = True):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        test_mode: bool = False,
+        use_backend_api: bool = True,
+        strict_financial_validation: bool = True,
+    ):
         """
         Initialize Mollie base client
 
@@ -87,6 +93,8 @@ class MollieBaseClient:
             api_key: Mollie API key (if not provided, fetched from settings)
             test_mode: Whether to use test mode (only applies to payment API, not backend API)
             use_backend_api: If True, use Organization Access Token for backend features
+            strict_financial_validation: If True, raise errors on malformed financial data (default: True)
+                                        If False, log warnings only (useful for development/testing)
         """
         # Get settings (singleton)
         self.mollie_settings = frappe.get_single("Mollie Settings")
@@ -94,6 +102,7 @@ class MollieBaseClient:
         # Set attributes BEFORE calling methods that reference them
         self.test_mode = test_mode
         self.use_backend_api = use_backend_api
+        self.strict_financial_validation = strict_financial_validation
 
         # Get API key from settings if not provided
         if not api_key:
@@ -741,25 +750,21 @@ class MollieBaseClient:
         # Handle list response
         if isinstance(response, list):
             try:
-                return [model_class(item) for item in response]
+                # Validate and parse each item using single item parser
+                return [self._parse_single_item(item, model_class) for item in response]
+            except MollieAPIError:
+                # Re-raise API errors without wrapping
+                raise
             except Exception as e:
                 self._handle_parsing_error(e, response, model_class, is_list=True)
 
         # Handle single object response
         if isinstance(response, dict):
-            # Validate response structure before parsing
             try:
-                self._validate_response_structure(response, model_class)
+                return self._parse_single_item(response, model_class)
             except MollieAPIError:
-                # Re-raise API errors (error response from Mollie)
+                # Re-raise API errors without wrapping
                 raise
-            except Exception as e:
-                # Log validation errors but continue (BaseModel handles gracefully)
-                frappe.logger().warning(f"Response validation warning for {model_class.__name__}: {e}")
-
-            # Parse response into model
-            try:
-                return model_class(response)
             except Exception as e:
                 self._handle_parsing_error(e, response, model_class, is_list=False)
 
@@ -770,6 +775,37 @@ class MollieBaseClient:
         )
         frappe.logger().error(error_msg)
         raise ResponseParsingError(error_msg, original_response=response)
+
+    def _parse_single_item(self, item: Dict, model_class: Type[T]) -> T:
+        """
+        Parse and validate a single response item
+
+        Handles validation and parsing for a single object, used by both
+        single object responses and each item in list responses.
+
+        Args:
+            item: Single response dict to parse
+            model_class: Model class to instantiate
+
+        Returns:
+            Parsed model instance
+
+        Raises:
+            MollieAPIError: If item contains Mollie API error
+            ResponseParsingError: If parsing fails
+        """
+        # Validate response structure before parsing
+        try:
+            self._validate_response_structure(item, model_class)
+        except MollieAPIError:
+            # Re-raise API errors (error response from Mollie)
+            raise
+        except Exception as e:
+            # Log validation errors but continue (BaseModel handles gracefully)
+            frappe.logger().warning(f"Response validation warning for {model_class.__name__}: {e}")
+
+        # Parse response into model
+        return model_class(item)
 
     def _validate_response_structure(self, response: Dict, model_class: Type[BaseModel]) -> bool:
         """
@@ -844,16 +880,23 @@ class MollieBaseClient:
             response: API response dict
             model_class: Model class being validated
 
+        Raises:
+            ResponseValidationError: If strict_financial_validation=True and validation fails
+
         Note:
-            Logs warnings but doesn't raise exceptions - BaseModel handles gracefully
+            Behavior depends on self.strict_financial_validation:
+            - True (default): Raises ResponseValidationError on malformed financial data (production mode)
+            - False: Logs warnings only (development/testing mode)
         """
-        # Common financial field names in Mollie responses
+        # Common financial field names in Mollie responses (both camelCase and snake_case)
         financial_fields = [
             "amount",
             "settlementAmount",
             "chargebackAmount",
             "refundedAmount",
             "remainingAmount",
+            "availableAmount",
+            "pendingAmount",
         ]
 
         for field_name in financial_fields:
@@ -868,33 +911,46 @@ class MollieBaseClient:
 
             # Validate it's a dict
             if not isinstance(amount_obj, dict):
-                frappe.logger().warning(
-                    f"{model_class.__name__}.{field_name}: Expected dict, got {type(amount_obj).__name__}"
-                )
+                msg = f"{model_class.__name__}.{field_name}: Expected dict, got {type(amount_obj).__name__}"
+                if self.strict_financial_validation:
+                    raise ResponseValidationError(msg, original_response=response)
+                frappe.logger().warning(msg)
                 continue
 
             # Validate required amount structure
             if "value" not in amount_obj:
-                frappe.logger().warning(f"{model_class.__name__}.{field_name}: Missing 'value' key")
+                msg = f"{model_class.__name__}.{field_name}: Missing 'value' key"
+                if self.strict_financial_validation:
+                    raise ResponseValidationError(msg, original_response=response)
+                frappe.logger().warning(msg)
 
             if "currency" not in amount_obj:
-                frappe.logger().warning(f"{model_class.__name__}.{field_name}: Missing 'currency' key")
+                msg = f"{model_class.__name__}.{field_name}: Missing 'currency' key"
+                if self.strict_financial_validation:
+                    raise ResponseValidationError(msg, original_response=response)
+                frappe.logger().warning(msg)
 
             # Validate currency format (3-letter ISO code)
             currency = amount_obj.get("currency")
             if currency and (not isinstance(currency, str) or len(currency) != 3):
-                frappe.logger().warning(
+                msg = (
                     f"{model_class.__name__}.{field_name}.currency: "
                     f"Invalid format '{currency}', expected 3-letter ISO code"
                 )
+                if self.strict_financial_validation:
+                    raise ResponseValidationError(msg, original_response=response)
+                frappe.logger().warning(msg)
 
             # Validate value is numeric string
             value = amount_obj.get("value")
             if value is not None and not isinstance(value, str):
-                frappe.logger().warning(
+                msg = (
                     f"{model_class.__name__}.{field_name}.value: "
                     f"Expected string, got {type(value).__name__}"
                 )
+                if self.strict_financial_validation:
+                    raise ResponseValidationError(msg, original_response=response)
+                frappe.logger().warning(msg)
 
     def _handle_parsing_error(
         self,
