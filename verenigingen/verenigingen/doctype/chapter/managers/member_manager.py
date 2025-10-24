@@ -110,33 +110,36 @@ class MemberManager(BaseManager):
             # This prevents FK validation errors when members from previous imports were deleted
             self._remove_stale_member_links()
 
-            # Save chapter with concurrency handling
-            try:
-                self.chapter_doc.save()
-            except frappe.TimestampMismatchError:
-                # Reload chapter and retry save once
-                self.chapter_doc.reload()
-                # Re-add the member to the reloaded document if not exists
-                if not any(m.member == member_id for m in self.chapter_doc.members):
-                    self.chapter_doc.append(
-                        "members",
-                        {
-                            "member": member_id,
-                            "chapter_join_date": today(),
-                            "enabled": enabled,
-                        },
-                    )
-
-                    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-                    save_result = secure_document_operation(
-                        operation="save",
-                        doc=self.chapter_doc,
-                        justification=f"Retry member addition for {member_id} after concurrency error",
-                        required_permissions=["Chapter:write"],
-                    )
-
-                    if not save_result.success:
-                        frappe.throw(_("Unable to save chapter after retry. Please check permissions."))
+            # Save chapter - let Frappe's connection pool handle connection issues
+            # Retry logic for timestamp mismatches (concurrent modifications)
+            max_retries = 2
+            for attempt in range(max_retries):
+                try:
+                    self.chapter_doc.save()
+                    break  # Success
+                except frappe.TimestampMismatchError:
+                    if attempt < max_retries - 1:
+                        # Reload and retry once for concurrency conflicts
+                        frappe.logger().warning(
+                            f"Timestamp mismatch adding member {member_id} to chapter {self.chapter_name}, "
+                            f"retrying... (attempt {attempt + 1}/{max_retries})"
+                        )
+                        self.chapter_doc.reload()
+                        # Re-add the member to the reloaded document if not exists
+                        if not any(m.member == member_id for m in self.chapter_doc.members):
+                            self.chapter_doc.append(
+                                "members",
+                                {
+                                    "member": member_id,
+                                    "enabled": enabled,
+                                    "status": "Active",
+                                },
+                            )
+                    else:
+                        # Max retries exceeded
+                        frappe.throw(
+                            _("Unable to add member due to concurrent modifications. Please try again.")
+                        )
 
             # Add membership history tracking
             ChapterMembershipHistoryManager.add_membership_history(

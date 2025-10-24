@@ -377,7 +377,7 @@ class TestAccountCreationManagerFunctionality(EnhancedTestCase):
             last_name="User",
             email="existing.user@test.invalid"
         )
-        
+
         # Create user manually first
         existing_user = frappe.get_doc({
             "doctype": "User",
@@ -388,7 +388,7 @@ class TestAccountCreationManagerFunctionality(EnhancedTestCase):
             "user_type": "System User"
         })
         existing_user.insert()
-        
+
         # Create account request for same email
         request = frappe.get_doc({
             "doctype": "Account Creation Request",
@@ -399,15 +399,69 @@ class TestAccountCreationManagerFunctionality(EnhancedTestCase):
             "requested_roles": [{"role": "Verenigingen Member"}]
         })
         request.insert()
-        
+
         # Already running as Administrator from setUp
         manager = AccountCreationManager(request.name)
         manager.process_complete_pipeline()
-        
+
         # Should complete successfully using existing user
         request.reload()
         self.assertEqual(request.status, "Completed")
         self.assertEqual(request.created_user, existing_user.name)
+
+        # Verify member.user field is populated with existing user
+        member.reload()
+        self.assertEqual(member.user, existing_user.name,
+                        "Member.user field should be linked to existing user")
+
+    def test_existing_user_linking_via_queue_function(self):
+        """Test that queue_account_creation_for_member links existing users"""
+        # Create member without user link
+        member = self.create_test_member(
+            first_name="Queue",
+            last_name="Linking",
+            email="queue.linking@test.invalid"
+        )
+
+        # Verify member.user is initially empty
+        self.assertFalse(member.user, "Member.user should be empty initially")
+
+        # Create pre-existing user account
+        existing_user = frappe.get_doc({
+            "doctype": "User",
+            "email": member.email,
+            "first_name": member.first_name,
+            "last_name": member.last_name,
+            "enabled": 1,
+            "user_type": "System User"
+        })
+        existing_user.insert()
+
+        # Queue account creation - should create request even for existing user
+        result = queue_account_creation_for_member(
+            member.name,
+            roles=["Verenigingen Member"]
+        )
+
+        # Verify request was created (not skipped due to existing user)
+        self.assertTrue(result.get("request_name"),
+                       "Request should be created even when user exists")
+
+        request = frappe.get_doc("Account Creation Request", result["request_name"])
+
+        # Process the request
+        manager = AccountCreationManager(request.name)
+        manager.process_complete_pipeline()
+
+        # Verify request completed successfully
+        request.reload()
+        self.assertEqual(request.status, "Completed")
+        self.assertEqual(request.created_user, existing_user.name)
+
+        # CRITICAL: Verify member.user field is now linked to existing user
+        member.reload()
+        self.assertEqual(member.user, existing_user.name,
+                        "Member.user field must be linked to existing user after pipeline completion")
 
 
 class TestAccountCreationManagerErrorHandling(EnhancedTestCase):

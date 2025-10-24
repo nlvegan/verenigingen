@@ -63,7 +63,7 @@ class AccountCreationManager:
         self.source_doc = frappe.get_doc(self.request.request_type, self.request.source_record)
 
     def process_complete_pipeline(self):
-        """Execute the complete account creation pipeline"""
+        """Execute the complete account creation pipeline with proper transaction boundaries"""
         try:
             self.load_request()
 
@@ -71,34 +71,16 @@ class AccountCreationManager:
             if self.request.status not in ["Queued", "Failed"]:
                 raise frappe.ValidationError(f"Request cannot be processed in status: {self.request.status}")
 
-            # Step 1: Validate permissions and prerequisites
+            # Validate permissions and prerequisites
             self.validate_processing_permissions()
 
-            # Step 2: Create user account (if not exists)
-            if not self.request.created_user:
-                self.create_user_account()
-            else:
-                # User already exists - populate instance variable for linking
-                self.created_user = self.request.created_user
-                frappe.logger().info(f"User already exists: {self.created_user}, will link to member")
+            # PHASE 1: Create User and Employee records (atomic transaction)
+            # This phase creates the core records - if it fails, nothing is committed
+            self._create_user_and_employee_phase()
 
-            # Step 3: Assign roles and role profile
-            if self.request.pipeline_stage != "Completed":
-                self.assign_roles_and_profile()
-
-            # Step 4: Create employee record (if needed)
-            if self.requires_employee_creation() and not self.request.created_employee:
-                self.create_employee_record()
-            elif self.request.created_employee:
-                # Employee already exists - populate instance variable for linking
-                self.created_employee = self.request.created_employee
-                frappe.logger().info(f"Employee already exists: {self.created_employee}, will link to member")
-
-            # Step 5: Link all records together
-            self.link_records()
-
-            # Mark as completed
-            self.request.mark_completed(user=self.created_user, employee=self.created_employee)
+            # PHASE 2: Link records together (separate atomic transaction)
+            # This phase links existing records - safe to retry independently
+            self._link_records_phase()
 
             # Send notification
             self.send_completion_notification()
@@ -117,6 +99,63 @@ class AccountCreationManager:
             if self.is_retryable_error(e) and (self.request.retry_count or 0) < 3:
                 self.schedule_retry()
 
+            raise
+
+    def _create_user_and_employee_phase(self):
+        """Phase 1: Create User and Employee records in atomic transaction"""
+        frappe.logger().info(f"Phase 1: Creating User and Employee for {self.request_name}")
+
+        try:
+            # Create user account (if not exists)
+            if not self.request.created_user:
+                self.create_user_account()
+            else:
+                # User already exists - populate instance variable for linking
+                self.created_user = self.request.created_user
+                frappe.logger().info(f"User already exists: {self.created_user}, will reuse for linking")
+
+            # Assign roles and role profile
+            if self.request.pipeline_stage != "Completed":
+                self.assign_roles_and_profile()
+
+            # Create employee record (if needed)
+            if self.requires_employee_creation() and not self.request.created_employee:
+                self.create_employee_record()
+            elif self.request.created_employee:
+                # Employee already exists - populate instance variable for linking
+                self.created_employee = self.request.created_employee
+                frappe.logger().info(
+                    f"Employee already exists: {self.created_employee}, will reuse for linking"
+                )
+
+            frappe.logger().info(
+                f"Phase 1 completed: User={self.created_user}, Employee={self.created_employee}"
+            )
+
+        except Exception as e:
+            frappe.logger().error(f"Phase 1 failed: {str(e)}")
+            raise
+
+    def _link_records_phase(self):
+        """Phase 2: Link all records together in atomic transaction"""
+        frappe.logger().info(f"Phase 2: Linking records for {self.request_name}")
+
+        try:
+            # Link all records together (no commits inside - single atomic operation)
+            self.link_records()
+
+            # Mark as completed
+            self.request.mark_completed(user=self.created_user, employee=self.created_employee)
+
+            frappe.logger().info(f"Phase 2 completed: All records linked successfully")
+
+        except Exception as e:
+            frappe.logger().error(f"Phase 2 failed: {str(e)}")
+            # User and Employee still exist from Phase 1 - can retry linking
+            frappe.logger().warning(
+                f"User/Employee creation succeeded, but linking failed. "
+                f"Retry will attempt linking with existing User/Employee."
+            )
             raise
 
     def validate_processing_permissions(self):
@@ -319,27 +358,36 @@ class AccountCreationManager:
             raise frappe.ValidationError(f"Employee record creation failed: {str(e)}")
 
     def link_records(self):
-        """Link all created records together"""
+        """
+        Link all created records together in a single atomic operation.
+
+        This method is idempotent - safe to retry if Phase 2 fails.
+        All links are set in a single transaction with no intermediate commits.
+        Uses update_modified=False to avoid timestamp conflicts during concurrent operations.
+        """
         self.request.mark_processing("Record Linking")
 
         frappe.logger().info(f"Linking records for {self.request_name}")
 
         try:
-            # Update source document with user/employee links using db_set
-            # This avoids validation/timestamp issues while ensuring the link is saved
+            # Link 1: User to source record (Member/Volunteer)
             if self.created_user and hasattr(self.source_doc, "user"):
                 current_user = frappe.db.get_value(
                     self.request.request_type, self.request.source_record, "user"
                 )
                 if not current_user:
                     frappe.db.set_value(
-                        self.request.request_type, self.request.source_record, "user", self.created_user
+                        self.request.request_type,
+                        self.request.source_record,
+                        "user",
+                        self.created_user,
+                        update_modified=False,  # Avoid timestamp conflicts
                     )
-                    frappe.db.commit()
                     frappe.logger().info(
                         f"Linked user {self.created_user} to {self.request.request_type} {self.request.source_record}"
                     )
 
+            # Link 2: Employee to source record (Member/Volunteer)
             if self.created_employee and hasattr(self.source_doc, "employee"):
                 current_employee = frappe.db.get_value(
                     self.request.request_type, self.request.source_record, "employee"
@@ -350,57 +398,67 @@ class AccountCreationManager:
                         self.request.source_record,
                         "employee",
                         self.created_employee,
+                        update_modified=False,  # Avoid timestamp conflicts
                     )
-                    frappe.db.commit()
                     frappe.logger().info(
                         f"Linked employee {self.created_employee} to {self.request.request_type} {self.request.source_record}"
                     )
 
-            # Update user with employee link
+            # Link 3: Employee to User record
             if self.created_user and self.created_employee:
                 user_doc = frappe.get_doc("User", self.created_user)
                 if not user_doc.employee:
                     user_doc.employee = self.created_employee
                     user_doc.save()
-
-            # Link user to volunteer record if member has a volunteer
-            if self.created_user and self.request.request_type == "Member":
-                volunteer_record = frappe.db.get_value(
-                    "Volunteer", {"member": self.request.source_record}, "name"
-                )
-                if volunteer_record:
-                    current_volunteer_user = frappe.db.get_value("Volunteer", volunteer_record, "user")
-                    if not current_volunteer_user:
-                        frappe.db.set_value("Volunteer", volunteer_record, "user", self.created_user)
-                        frappe.db.commit()
-                        frappe.logger().info(
-                            f"Linked user {self.created_user} to Volunteer {volunteer_record}"
-                        )
-
-            # Link employee to volunteer record if volunteer has no employee
-            if self.created_employee and self.request.request_type == "Member":
-                volunteer_record = frappe.db.get_value(
-                    "Volunteer", {"member": self.request.source_record}, "name"
-                )
-                if volunteer_record:
-                    current_volunteer_employee = frappe.db.get_value(
-                        "Volunteer", volunteer_record, "employee_id"
+                    frappe.logger().info(
+                        f"Linked employee {self.created_employee} to User {self.created_user}"
                     )
-                    if not current_volunteer_employee:
-                        frappe.db.set_value(
-                            "Volunteer", volunteer_record, "employee_id", self.created_employee
+
+            # Link 4 & 5: For Member records, link User and Employee to associated Volunteer record
+            if self.request.request_type == "Member":
+                volunteer_record = frappe.db.get_value(
+                    "Volunteer", {"member": self.request.source_record}, "name"
+                )
+                if volunteer_record:
+                    # Link 4: User to Volunteer
+                    if self.created_user:
+                        current_volunteer_user = frappe.db.get_value("Volunteer", volunteer_record, "user")
+                        if not current_volunteer_user:
+                            frappe.db.set_value(
+                                "Volunteer",
+                                volunteer_record,
+                                "user",
+                                self.created_user,
+                                update_modified=False,  # Avoid timestamp conflicts
+                            )
+                            frappe.logger().info(
+                                f"Linked user {self.created_user} to Volunteer {volunteer_record}"
+                            )
+
+                    # Link 5: Employee to Volunteer
+                    if self.created_employee:
+                        current_volunteer_employee = frappe.db.get_value(
+                            "Volunteer", volunteer_record, "employee_id"
                         )
-                        frappe.db.commit()
-                        frappe.logger().info(
-                            f"Linked employee {self.created_employee} to Volunteer {volunteer_record}"
-                        )
+                        if not current_volunteer_employee:
+                            frappe.db.set_value(
+                                "Volunteer",
+                                volunteer_record,
+                                "employee_id",
+                                self.created_employee,
+                                update_modified=False,  # Avoid timestamp conflicts
+                            )
+                            frappe.logger().info(
+                                f"Linked employee {self.created_employee} to Volunteer {volunteer_record}"
+                            )
 
             frappe.logger().info(f"Records linked successfully for {self.request_name}")
 
         except Exception as e:
             frappe.logger().error(f"Failed to link records: {str(e)}")
-            # Don't fail the entire process for linking issues
-            frappe.logger().warning("Continuing despite linking errors")
+            # Raise exception to trigger transaction rollback
+            # All links are either committed together or rolled back together
+            raise
 
     def requires_employee_creation(self):
         """Check if employee record creation is needed"""

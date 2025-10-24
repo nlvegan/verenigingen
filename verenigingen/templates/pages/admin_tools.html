@@ -159,6 +159,50 @@ if (typeof frappe !== 'undefined' && frappe.ready) {
         </div>
     </div>
 
+    <!-- Data Integrity Tools -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-warning text-dark">
+                    <h4 class="mb-0">
+                        <i class="fa fa-database"></i> Data Integrity Management
+                    </h4>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted mb-3">Tools for detecting and cleaning up orphaned child table records and data integrity issues.</p>
+                    <div class="row">
+                        {% for tool in data_integrity_tools %}
+                        <div class="col-md-6 mb-3">
+                            <div class="card tool-card h-100" data-method="{{ tool.method }}">
+                                <div class="card-body">
+                                    <h5 class="card-title">
+                                        <i class="fa {{ tool.icon }} text-{{ tool.color }}"></i>
+                                        {{ tool.title }}
+                                    </h5>
+                                    <p class="card-text">{{ tool.description }}</p>
+                                    {% if tool.warning %}
+                                        <div class="alert alert-warning alert-sm mb-2">
+                                            <i class="fa fa-warning"></i> {{ tool.warning }}
+                                        </div>
+                                    {% endif %}
+                                    <button class="btn btn-sm btn-{{ tool.color }} execute-tool"
+                                            data-method="{{ tool.method }}"
+                                            data-title="{{ tool.title }}"
+                                            {% if tool.args %}data-args='{{ tool.args|tojson|safe }}'{% endif %}
+                                            {% if tool.warning %}data-warning="{{ tool.warning }}"{% endif %}
+                                            data-formatter="{{ tool.formatter or 'generic' }}">
+                                        <i class="fa fa-play"></i> Execute
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- System Administration Tools -->
     <div class="row mb-4">
         <div class="col-12">

@@ -149,6 +149,11 @@ class AccountCreationRequest(Document):
 
     def validate_source_record(self):
         """Validate that source record exists and is valid"""
+        # Only validate source record on creation - status updates shouldn't re-validate
+        # This prevents validation errors when source records are rolled back during error handling
+        if not self.is_new():
+            return
+
         if not frappe.db.exists(self.request_type, self.source_record):
             frappe.throw(_("{0} {1} does not exist").format(self.request_type, self.source_record))
 
@@ -233,82 +238,91 @@ class AccountCreationRequest(Document):
 
     def mark_processing(self, stage=None):
         """Mark request as processing and update stage"""
-        self.status = "Processing"
-        if stage:
-            self.pipeline_stage = stage
-        if not self.processing_started_at:
-            self.processing_started_at = now()
-        self.processed_by = frappe.session.user
-        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-        from verenigingen.utils.secure_operations import secure_document_operation
+        # Use db_set to avoid validation and timestamp issues
+        try:
+            updates = {
+                "status": "Processing",
+                "processed_by": frappe.session.user,
+            }
+            if stage:
+                updates["pipeline_stage"] = stage
+            if not self.processing_started_at:
+                updates["processing_started_at"] = now()
 
-        processing_result = secure_document_operation(
-            operation="save",
-            doc=self,
-            justification=f"Mark account creation request {self.name} as processing",
-            required_permissions=["Account Creation Request:write"],
-        )
+            # Update database directly to avoid validation race conditions
+            for field, value in updates.items():
+                frappe.db.set_value(self.doctype, self.name, field, value, update_modified=True)
 
-        if not processing_result.success:
-            frappe.logger().error(
-                f"Failed to mark request as processing: {'; '.join(processing_result.errors)}"
+            # Reload to get updated values
+            self.reload()
+
+            frappe.logger().info(
+                f"Account creation request marked as processing: {self.name} (stage: {stage or 'unknown'})"
             )
-            frappe.throw(
-                _("Failed to mark request as processing: {0}").format("; ".join(processing_result.errors))
-            )
+
+        except Exception as e:
+            frappe.logger().error(f"Failed to mark request as processing: {str(e)}")
+            frappe.throw(_("Failed to mark request as processing: {0}").format(str(e)))
 
     def mark_completed(self, user=None, employee=None):
         """Mark request as completed successfully"""
-        self.status = "Completed"
-        self.pipeline_stage = "Completed"
-        self.completed_at = now()
-        if user:
-            self.created_user = user
-        if employee:
-            self.created_employee = employee
-        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-        from verenigingen.utils.secure_operations import secure_document_operation
+        # Use db_set to avoid validation and timestamp issues during completion
+        # This is safe because we're only updating status fields, not business logic
+        try:
+            updates = {
+                "status": "Completed",
+                "pipeline_stage": "Completed",
+                "completed_at": now(),
+            }
+            if user:
+                updates["created_user"] = user
+            if employee:
+                updates["created_employee"] = employee
 
-        completion_result = secure_document_operation(
-            operation="save",
-            doc=self,
-            justification=f"Mark account creation request {self.name} as completed",
-            required_permissions=["Account Creation Request:write"],
-        )
+            # Update database directly to avoid validation race conditions
+            for field, value in updates.items():
+                frappe.db.set_value(self.doctype, self.name, field, value, update_modified=True)
 
-        if not completion_result.success:
-            frappe.logger().error(
-                f"Failed to mark request as completed: {'; '.join(completion_result.errors)}"
-            )
-            frappe.throw(
-                _("Failed to mark request as completed: {0}").format("; ".join(completion_result.errors))
-            )
+            # Reload to get updated values
+            self.reload()
 
-        frappe.logger().info(f"Account creation request completed: {self.name}")
+            frappe.logger().info(f"Account creation request completed: {self.name}")
+
+        except Exception as e:
+            frappe.logger().error(f"Failed to mark request as completed: {str(e)}")
+            frappe.throw(_("Failed to mark request as completed: {0}").format(str(e)))
 
     def mark_failed(self, error_message, stage=None):
         """Mark request as failed with error details"""
-        self.status = "Failed"
-        self.failure_reason = str(error_message)
-        if stage:
-            self.pipeline_stage = stage
+        # Use db_set to avoid validation and timestamp issues during failure marking
+        # This is critical for error handling - we must succeed even if source record is gone
+        try:
+            updates = {
+                "status": "Failed",
+                "failure_reason": str(error_message)[:1000],  # Truncate to avoid DB field limits
+            }
+            if stage:
+                updates["pipeline_stage"] = stage
 
-        # Don't auto-increment retry count here - let retry_processing handle it
-        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-        from verenigingen.utils.secure_operations import secure_document_operation
+            # Update database directly to avoid validation race conditions
+            for field, value in updates.items():
+                frappe.db.set_value(self.doctype, self.name, field, value, update_modified=True)
 
-        failure_result = secure_document_operation(
-            operation="save",
-            doc=self,
-            justification=f"Mark account creation request {self.name} as failed",
-            required_permissions=["Account Creation Request:write"],
-        )
+            # Reload to get updated values
+            self.reload()
 
-        if not failure_result.success:
-            frappe.logger().error(f"Failed to mark request as failed: {'; '.join(failure_result.errors)}")
-            # Don't throw here as this is already error handling, just log it
+            frappe.logger().error(f"Account creation request failed: {self.name} - {error_message}")
 
-        frappe.logger().error(f"Account creation request failed: {self.name} - {error_message}")
+        except Exception as e:
+            # Critical: If we can't even mark as failed, log to error log
+            frappe.logger().critical(
+                f"CRITICAL: Failed to mark request {self.name} as failed: {str(e)}. "
+                f"Original error: {error_message}"
+            )
+            frappe.log_error(
+                f"Failed to mark ACR as failed: {str(e)}\nOriginal error: {error_message}",
+                "Critical ACR Failure Marking Error",
+            )
 
     @frappe.whitelist()
     @critical_api(operation_type=OperationType.ADMIN)

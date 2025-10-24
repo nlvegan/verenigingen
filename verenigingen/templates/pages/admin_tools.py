@@ -201,6 +201,56 @@ def get_context(context):
         },
     ]
 
+    # Data integrity tools
+    context.data_integrity_tools = [
+        {
+            "title": "Detect Orphaned Child Tables",
+            "description": "Scan all child tables for orphaned records (where parent has been deleted)",
+            "method": "verenigingen.utils.orphaned_child_table_cleanup.detect_orphaned_child_tables",
+            "icon": "fa fa-search",
+            "color": "brand-accent",
+            "formatter": "orphan",
+        },
+        {
+            "title": "Cleanup All Orphaned Child Tables (DRY RUN)",
+            "description": "Preview cleanup of all orphaned child table records across entire system",
+            "method": "verenigingen.utils.orphaned_child_table_cleanup.cleanup_orphaned_child_tables",
+            "icon": "fa fa-eye",
+            "color": "brand-accent",
+            "args": {"dry_run": True},
+            "formatter": "orphan",
+        },
+        {
+            "title": "Cleanup All Orphaned Child Tables (LIVE)",
+            "description": "Delete all orphaned child table records system-wide",
+            "method": "verenigingen.utils.orphaned_child_table_cleanup.cleanup_orphaned_child_tables",
+            "icon": "fa fa-eraser",
+            "color": "brand-secondary",
+            "warning": "This will permanently delete orphaned child table records across all DocTypes!",
+            "args": {"dry_run": False},
+            "formatter": "orphan",
+        },
+        {
+            "title": "Cleanup Member Child Tables Only (DRY RUN)",
+            "description": "Preview cleanup of orphaned Member child table records only",
+            "method": "verenigingen.utils.orphaned_child_table_cleanup.cleanup_member_child_tables_only",
+            "icon": "fa fa-user",
+            "color": "brand-accent",
+            "args": {"dry_run": True},
+            "formatter": "orphan",
+        },
+        {
+            "title": "Cleanup Member Child Tables Only (LIVE)",
+            "description": "Delete orphaned Member child table records (Payment History, Volunteer Expenses, etc.)",
+            "method": "verenigingen.utils.orphaned_child_table_cleanup.cleanup_member_child_tables_only",
+            "icon": "fa fa-user-times",
+            "color": "brand-secondary",
+            "warning": "This will permanently delete orphaned Member child table records!",
+            "args": {"dry_run": False},
+            "formatter": "orphan",
+        },
+    ]
+
     # System administration tools
     context.system_tools = [
         {
@@ -436,6 +486,10 @@ ALLOWED_ADMIN_METHODS = {
     "verenigingen.utils.dues_schedule_health_manager.comprehensive_dues_schedule_health_check",
     "verenigingen.utils.dues_schedule_health_manager.comprehensive_dues_health_maintenance",
     "verenigingen.utils.dues_schedule_health_manager.sync_all_member_fields",
+    # Data integrity management
+    "verenigingen.utils.orphaned_child_table_cleanup.detect_orphaned_child_tables",
+    "verenigingen.utils.orphaned_child_table_cleanup.cleanup_orphaned_child_tables",
+    "verenigingen.utils.orphaned_child_table_cleanup.cleanup_member_child_tables_only",
     # System administration
     "verenigingen.utils.performance_dashboard.get_system_health",
     "verenigingen.utils.performance_dashboard.get_performance_dashboard",

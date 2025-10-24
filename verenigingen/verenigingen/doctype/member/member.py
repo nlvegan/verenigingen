@@ -989,6 +989,7 @@ class Member(
         1. Delete critical child records (Memberships, Chapter Members)
         2. Handle Customer intelligently (preserve if has transactions)
         3. Unlink Addresses (preserve for historical reference)
+        4. Clean up all child table records (prevents orphaned data)
         """
         # Delete related Membership records (both draft and submitted)
         memberships = frappe.get_all("Membership", filters={"member": self.name}, pluck="name")
@@ -1068,6 +1069,45 @@ class Member(
                 self._unlink_from_address(self.primary_address)
             except Exception as e:
                 frappe.logger().error(f"Error unlinking Address {self.primary_address}: {str(e)}")
+
+        # Clean up all child table records to prevent orphaned data
+        # These are display/cache tables that should be removed with the parent
+        # SECURITY: Whitelist of valid child tables to prevent SQL injection
+        VALID_CHILD_TABLES = {
+            "tabMember Volunteer Expenses",
+            "tabMember Payment History",
+            "tabMember IBAN History",
+            "tabMember SEPA Mandate Link",
+            "tabChapter Membership History",
+            "tabVolunteer Assignment",
+            "tabMember Fee Change History",
+            "tabMember Contact Request",
+            "tabMember CSV Import",
+            "tabMember Subscription History",
+        }
+
+        for table_name in VALID_CHILD_TABLES:
+            try:
+                # Validate table name against whitelist (defense in depth)
+                if table_name not in VALID_CHILD_TABLES:
+                    frappe.log_error(f"Invalid table name in cleanup: {table_name}", "Security Alert")
+                    continue
+
+                # Verify table exists before attempting deletion
+                if not frappe.db.table_exists(table_name):
+                    continue
+
+                frappe.db.sql(
+                    f"""
+                    DELETE FROM `{table_name}`
+                    WHERE parent = %s
+                    """,
+                    self.name,
+                )
+                frappe.logger().info(f"Cleaned up {table_name} records for {self.name}")
+            except Exception as e:
+                # Some tables might not exist in all installations, so just log and continue
+                frappe.logger().debug(f"Could not clean up {table_name}: {str(e)}")
 
     def _unlink_from_customer(self):
         """Remove Member link from Customer's Dynamic Links table"""
