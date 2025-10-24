@@ -91,6 +91,10 @@ class MollieBaseClient:
         # Get settings (singleton)
         self.mollie_settings = frappe.get_single("Mollie Settings")
 
+        # Set attributes BEFORE calling methods that reference them
+        self.test_mode = test_mode
+        self.use_backend_api = use_backend_api
+
         # Get API key from settings if not provided
         if not api_key:
             if use_backend_api:
@@ -99,8 +103,6 @@ class MollieBaseClient:
                 api_key = self._get_api_key_from_settings(test_mode)
 
         self.api_key = api_key
-        self.test_mode = test_mode
-        self.use_backend_api = use_backend_api
 
         # Initialize components
         self.http_client = ResilientHTTPClient(
@@ -732,10 +734,8 @@ class MollieBaseClient:
         if not response:
             if allow_none:
                 return None
-            frappe.logger().warning(f"Empty response for {model_class.__name__}, treating as None")
-            if allow_none:
-                return None
             error_msg = f"Empty response for {model_class.__name__}"
+            frappe.logger().error(error_msg)
             raise ResponseParsingError(error_msg, original_response=response)
 
         # Handle list response
@@ -827,7 +827,74 @@ class MollieBaseClient:
                 )
                 # Don't raise - BaseModel sets missing fields to None
 
+        # Validate financial fields (amount structures)
+        self._validate_financial_fields(response, model_class)
+
         return True
+
+    def _validate_financial_fields(self, response: Dict, model_class: Type[BaseModel]) -> None:
+        """
+        Validate financial amount fields have proper structure
+
+        Checks for common financial fields and validates they have:
+        - 'value' key with numeric value
+        - 'currency' key with valid ISO currency code
+
+        Args:
+            response: API response dict
+            model_class: Model class being validated
+
+        Note:
+            Logs warnings but doesn't raise exceptions - BaseModel handles gracefully
+        """
+        # Common financial field names in Mollie responses
+        financial_fields = [
+            "amount",
+            "settlementAmount",
+            "chargebackAmount",
+            "refundedAmount",
+            "remainingAmount",
+        ]
+
+        for field_name in financial_fields:
+            if field_name not in response:
+                continue
+
+            amount_obj = response[field_name]
+
+            # Skip if None (valid for optional amounts)
+            if amount_obj is None:
+                continue
+
+            # Validate it's a dict
+            if not isinstance(amount_obj, dict):
+                frappe.logger().warning(
+                    f"{model_class.__name__}.{field_name}: Expected dict, got {type(amount_obj).__name__}"
+                )
+                continue
+
+            # Validate required amount structure
+            if "value" not in amount_obj:
+                frappe.logger().warning(f"{model_class.__name__}.{field_name}: Missing 'value' key")
+
+            if "currency" not in amount_obj:
+                frappe.logger().warning(f"{model_class.__name__}.{field_name}: Missing 'currency' key")
+
+            # Validate currency format (3-letter ISO code)
+            currency = amount_obj.get("currency")
+            if currency and (not isinstance(currency, str) or len(currency) != 3):
+                frappe.logger().warning(
+                    f"{model_class.__name__}.{field_name}.currency: "
+                    f"Invalid format '{currency}', expected 3-letter ISO code"
+                )
+
+            # Validate value is numeric string
+            value = amount_obj.get("value")
+            if value is not None and not isinstance(value, str):
+                frappe.logger().warning(
+                    f"{model_class.__name__}.{field_name}.value: "
+                    f"Expected string, got {type(value).__name__}"
+                )
 
     def _handle_parsing_error(
         self,
@@ -865,7 +932,7 @@ class MollieBaseClient:
             "is_list": is_list,
             "response_type": type(response).__name__,
             "response_preview": response_preview,
-            "error": str(error),
+            "error_message": str(error),
             "error_type": type(error).__name__,
         }
 
@@ -875,15 +942,23 @@ class MollieBaseClient:
             "Mollie Response Parsing Error",
         )
 
-        # Use error handler for consistent error handling
-        self.error_handler.handle_error(
-            error_type="response_parsing",
-            error=error,
-            context=error_context,
-            audit_trail=self.audit_trail,
-        )
+        # Log to audit trail manually (don't use error_handler which re-raises)
+        try:
+            from verenigingen.verenigingen_payments.core.compliance.audit_trail import (
+                AuditEventType,
+                AuditSeverity,
+            )
 
-        # Re-raise with context for caller
+            self.audit_trail.log_event(
+                AuditEventType.ERROR_OCCURRED,
+                AuditSeverity.ERROR,
+                f"Failed to parse {model_class.__name__} from response",
+                details=error_context,
+            )
+        except Exception as audit_error:
+            frappe.logger().warning(f"Failed to log parsing error to audit trail: {audit_error}")
+
+        # Raise ResponseParsingError with context for caller
         error_msg = f"Failed to parse {model_class.__name__} from response: {error}"
         raise ResponseParsingError(error_msg, original_response=response) from error
 

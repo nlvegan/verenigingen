@@ -421,7 +421,7 @@ class TestResponseParsing(unittest.TestCase):
     # ====================
 
     def test_parse_error_calls_error_handler(self):
-        """Test that parse errors integrate with MollieErrorHandler"""
+        """Test that parse errors log to audit trail"""
 
         class BrokenModel(BaseModel):
             def __init__(self, data):
@@ -429,15 +429,19 @@ class TestResponseParsing(unittest.TestCase):
 
         response = {"id": "test_123"}
 
-        with patch.object(self.client.error_handler, "handle_error") as mock_handle:
+        with patch.object(self.client.audit_trail, "log_event") as mock_log:
             with self.assertRaises(ResponseParsingError):
                 self.client._parse_response(response, BrokenModel)
 
-            # Verify error handler was called
-            mock_handle.assert_called_once()
-            call_args = mock_handle.call_args
-            self.assertEqual(call_args[1]["error_type"], "response_parsing")
-            self.assertIn("BrokenModel", str(call_args[1]["context"]))
+            # Verify audit trail was called
+            mock_log.assert_called_once()
+            call_args = mock_log.call_args
+            # First arg is event type, second is severity, third is message
+            self.assertIn("Failed to parse BrokenModel", call_args[0][2])
+            # Details should contain error context
+            details = call_args[1]["details"]
+            self.assertEqual(details["model_class"], "BrokenModel")
+            self.assertIn("Test error", details["error_message"])
 
     # ====================
     # Edge Cases
