@@ -418,9 +418,15 @@ def get_mollie_payment_metrics():
             metrics["frappe.mollie.cache.status"] = -1  # -1 = disabled
 
         # === Balance Metrics ===
+        # Measure API latency on the balance fetch (user-experienced latency)
+        import time
+        balance_start_time = time.time()
+        primary_balance = None
+
         try:
-            # Get primary balance
+            # Get primary balance (measures real-world latency: cache hit = fast, miss = slow)
             primary_balance = balances_client.get_primary_balance(use_cache=True)
+            balance_fetch_latency = (time.time() - balance_start_time) * 1000  # milliseconds
 
             # Extract amounts using PaymentDataExtractor
             from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
@@ -461,10 +467,15 @@ def get_mollie_payment_metrics():
             metrics["frappe.mollie.settlements.count_24h"] = len(recent_settlements)
 
             # Calculate total settled amount
+            from verenigingen.verenigingen_payments.utils.payment_data_extractor import MollieObjectType
             total_settled = 0
             for settlement in recent_settlements:
-                amounts = extractor.extract_settlement_amounts(settlement)
-                total_settled += amounts.get("amount", 0)
+                amount = extractor.extract_amount(
+                    settlement,
+                    source_type=MollieObjectType.SETTLEMENT,
+                    allow_zero=True
+                )
+                total_settled += amount
 
             metrics["frappe.mollie.settlements.amount_24h"] = total_settled
 
@@ -505,8 +516,9 @@ def get_mollie_payment_metrics():
                 else:
                     metrics["frappe.mollie.bank_transactions.health"] = 2  # 2 = healthy
             else:
-                metrics["frappe.mollie.bank_transactions.reconciliation_rate"] = 100
-                metrics["frappe.mollie.bank_transactions.health"] = 2  # No transactions = healthy
+                # No transactions in 24h - cannot determine health
+                metrics["frappe.mollie.bank_transactions.reconciliation_rate"] = -1  # Unknown
+                metrics["frappe.mollie.bank_transactions.health"] = -1  # Unknown state
 
         except Exception as e:
             frappe.log_error(f"Error getting Mollie bank transaction metrics: {str(e)}", "Zabbix Mollie Bank Transaction Error")
@@ -515,26 +527,22 @@ def get_mollie_payment_metrics():
             metrics["frappe.mollie.bank_transactions.health"] = -1
 
         # === API Health Check ===
-        try:
-            # Test API connectivity by fetching primary balance
-            import time
-            start_time = time.time()
-            balances_client.get_primary_balance(use_cache=False)  # Force fresh API call
-            api_latency = (time.time() - start_time) * 1000  # Convert to milliseconds
-
-            metrics["frappe.mollie.api.latency_ms"] = round(api_latency, 2)
+        # Use latency measured during balance fetch (no duplicate API call)
+        # This measures user-experienced latency (cache hit = fast, miss = API call)
+        if primary_balance is not None:
+            # Balance fetch succeeded - use measured latency
+            metrics["frappe.mollie.api.latency_ms"] = round(balance_fetch_latency, 2)
             metrics["frappe.mollie.api.status"] = 1  # 1 = up
 
             # Latency health check
-            if api_latency > 2000:  # > 2 seconds
+            if balance_fetch_latency > 2000:  # > 2 seconds
                 metrics["frappe.mollie.api.health"] = 0  # 0 = slow/problem
-            elif api_latency > 1000:  # > 1 second
+            elif balance_fetch_latency > 1000:  # > 1 second
                 metrics["frappe.mollie.api.health"] = 1  # 1 = attention
             else:
                 metrics["frappe.mollie.api.health"] = 2  # 2 = healthy
-
-        except Exception as e:
-            frappe.log_error(f"Error checking Mollie API health: {str(e)}", "Zabbix Mollie API Health Error")
+        else:
+            # Balance fetch failed - API is down
             metrics["frappe.mollie.api.status"] = 0  # 0 = down
             metrics["frappe.mollie.api.latency_ms"] = -1
             metrics["frappe.mollie.api.health"] = -1  # -1 = error
