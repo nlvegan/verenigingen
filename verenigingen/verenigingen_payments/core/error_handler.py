@@ -124,6 +124,13 @@ class MollieErrorHandler:
             "log_to_error_log": True,
             "notify_user": True,
         },
+        "response_parsing": {
+            "message": "Failed to parse {model_class} from API response: {error}",
+            "user_message": "Er is een fout opgetreden bij het verwerken van de API-respons",
+            "severity": "error",
+            "log_to_error_log": True,
+            "notify_user": False,  # Internal error, don't spam user
+        },
     }
 
     @classmethod

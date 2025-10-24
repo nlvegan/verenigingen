@@ -214,7 +214,7 @@ class PaymentEntryHandler:
                 # Link the bank transaction to payment entry immediately
                 self._log(f"Linking Bank Transaction {bank_transaction_name} to Payment Entry {pe.name}...")
                 self._link_bank_transaction_to_payment(bank_transaction_name, pe.name)
-                self._log(f"✓ Bank Transaction linked successfully")
+                self._log("✓ Bank Transaction linked successfully")
             else:
                 self._log("WARNING: Failed to create Bank Transaction - proceeding with Payment Entry only")
 
@@ -1064,7 +1064,7 @@ class PaymentEntryHandler:
         try:
             creator = get_bank_transaction_creator()
 
-            # Get amount from Payment Entry
+            # Get amount from Payment Entry (already calculated correctly from rows or mutation amount)
             amount = payment_entry.paid_amount or payment_entry.received_amount
 
             # Validate non-zero amount
@@ -1072,10 +1072,11 @@ class PaymentEntryHandler:
                 self._log(f"Skipping Bank Transaction creation for zero/near-zero amount: {amount}")
                 return None
 
-            # CRITICAL: Use RAW mutation amount for correct sign
-            # The Payment Entry payment_type may be reversed for refunds,
-            # so we must use the original mutation amount to determine deposit/withdrawal
-            raw_amount = flt(mutation.get("amount", 0))
+            # Determine sign from Payment Entry payment_type
+            # For "Receive" (Type 3), amount is positive (deposit)
+            # For "Pay" (Type 4), amount is negative (withdrawal)
+            # The sign will be handled by BankTransactionCreator based on payment_type
+            bank_transaction_amount = amount if payment_entry.payment_type == "Receive" else -amount
 
             # Build comprehensive description preserving all SEPA/bank data
             # This is where the rich bank transaction data belongs
@@ -1104,7 +1105,7 @@ class PaymentEntryHandler:
             # Create Bank Transaction using service
             transaction_data = {
                 "date": payment_entry.posting_date,
-                "amount": raw_amount,  # Use raw amount - BankTransactionCreator handles sign correctly
+                "amount": bank_transaction_amount,  # Signed amount based on payment_type
                 "currency": "EUR",  # E-Boekhouden is always EUR
                 "description": bt_description,
                 "reference_number": f"EB-{mutation_id}",  # Unique reference for idempotency
@@ -1199,7 +1200,10 @@ class PaymentEntryHandler:
                         )
 
                     # Check for validation errors
-                    elif any("validation" in str(err).lower() or "invalid" in str(err).lower() for err in error_details):
+                    elif any(
+                        "validation" in str(err).lower() or "invalid" in str(err).lower()
+                        for err in error_details
+                    ):
                         raise frappe.ValidationError(
                             f"Validation failed while linking Bank Transaction {bank_transaction_name} "
                             f"to Payment Entry {payment_entry_name}. Details: {', '.join(str(e) for e in error_details)}"
@@ -1219,7 +1223,9 @@ class PaymentEntryHandler:
                         f"This may indicate a framework issue - check logs for details."
                     )
 
-            self._log(f"Linked Bank Transaction {bank_transaction_name} to Payment Entry {payment_entry_name}")
+            self._log(
+                f"Linked Bank Transaction {bank_transaction_name} to Payment Entry {payment_entry_name}"
+            )
 
         except (frappe.DoesNotExistError, frappe.ValidationError, frappe.PermissionError):
             # Re-raise known errors without modification

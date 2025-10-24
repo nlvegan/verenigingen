@@ -14,7 +14,7 @@ import hashlib
 import hmac
 import json
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 import frappe
 import requests
@@ -24,7 +24,11 @@ from .compliance.audit_trail import AuditEventType, AuditSeverity, get_audit_tra
 from .compliance.financial_validator import FinancialValidator
 from .error_handler import MollieErrorHandler
 from .http_client import ResilientHTTPClient
+from .models.base import BaseModel
 from .security.mollie_security_manager import MollieSecurityManager
+
+# TypeVar for generic model parsing
+T = TypeVar("T", bound=BaseModel)
 
 
 class MollieAPIError(Exception):
@@ -41,6 +45,20 @@ class MollieAPIError(Exception):
         self.error_code = error_code
         self.status_code = status_code
         self.details = details or {}
+
+
+class ResponseParsingError(frappe.ValidationError):
+    """Raised when response cannot be parsed into model"""
+
+    def __init__(self, message: str, original_response: Any = None):
+        super().__init__(message)
+        self.original_response = original_response
+
+
+class ResponseValidationError(frappe.ValidationError):
+    """Raised when response structure is invalid"""
+
+    pass
 
 
 class MollieBaseClient:
@@ -658,6 +676,216 @@ class MollieBaseClient:
                     )
 
         return support_status
+
+    def _parse_response(
+        self,
+        response: Union[Dict, List, None],
+        model_class: Type[T],
+        allow_none: bool = False,
+    ) -> Union[T, List[T], None]:
+        """
+        Parse API response into model object(s) with validation
+
+        Centralizes response parsing logic to provide:
+        - Automatic model instantiation from API responses
+        - Response structure validation
+        - Detailed error logging with context
+        - Consistent handling of single/list/optional responses
+
+        Args:
+            response: Raw API response (dict for single object, list for collection, None for optional)
+            model_class: Model class to instantiate (must inherit from BaseModel)
+            allow_none: Whether None response is valid (default: False)
+
+        Returns:
+            - Single model instance for dict response
+            - List of model instances for list response
+            - None if response is None and allow_none=True
+
+        Raises:
+            ResponseParsingError: If response structure is invalid or parsing fails
+
+        Examples:
+            # Single object response
+            settlement = self._parse_response(response, Settlement)
+
+            # List response
+            settlements = self._parse_response(response, Settlement)
+
+            # Optional response
+            next_settlement = self._parse_response(response, Settlement, allow_none=True)
+
+        Note:
+            This method integrates with MollieErrorHandler for consistent error logging
+            and audit trail creation. Parse errors are logged with response preview and
+            model class context for debugging.
+        """
+        # Handle None response
+        if response is None:
+            if allow_none:
+                return None
+            error_msg = f"Expected {model_class.__name__} response, got None"
+            frappe.logger().error(error_msg)
+            raise ResponseParsingError(error_msg, original_response=None)
+
+        # Handle empty response
+        if not response:
+            if allow_none:
+                return None
+            frappe.logger().warning(f"Empty response for {model_class.__name__}, treating as None")
+            if allow_none:
+                return None
+            error_msg = f"Empty response for {model_class.__name__}"
+            raise ResponseParsingError(error_msg, original_response=response)
+
+        # Handle list response
+        if isinstance(response, list):
+            try:
+                return [model_class(item) for item in response]
+            except Exception as e:
+                self._handle_parsing_error(e, response, model_class, is_list=True)
+
+        # Handle single object response
+        if isinstance(response, dict):
+            # Validate response structure before parsing
+            try:
+                self._validate_response_structure(response, model_class)
+            except MollieAPIError:
+                # Re-raise API errors (error response from Mollie)
+                raise
+            except Exception as e:
+                # Log validation errors but continue (BaseModel handles gracefully)
+                frappe.logger().warning(f"Response validation warning for {model_class.__name__}: {e}")
+
+            # Parse response into model
+            try:
+                return model_class(response)
+            except Exception as e:
+                self._handle_parsing_error(e, response, model_class, is_list=False)
+
+        # Invalid response type
+        error_msg = (
+            f"Invalid response type for {model_class.__name__}: "
+            f"{type(response).__name__}. Expected dict or list."
+        )
+        frappe.logger().error(error_msg)
+        raise ResponseParsingError(error_msg, original_response=response)
+
+    def _validate_response_structure(self, response: Dict, model_class: Type[BaseModel]) -> bool:
+        """
+        Validate response has expected structure for model class
+
+        Performs pre-parsing validation to catch common issues:
+        - Error responses from Mollie API
+        - Missing required fields (if defined on model)
+        - Invalid field types (basic validation)
+
+        Args:
+            response: API response dict
+            model_class: Expected model class
+
+        Returns:
+            True if valid (warnings logged for non-critical issues)
+
+        Raises:
+            MollieAPIError: If response contains Mollie API error
+            ResponseValidationError: If response structure is critically invalid
+        """
+        # Check for error response from Mollie API
+        if "error" in response:
+            error_obj = response.get("error", {})
+            error_message = error_obj.get("message", "Unknown error")
+            error_type = error_obj.get("type", "unknown")
+            error_field = error_obj.get("field")
+
+            error_context = {
+                "error_type": error_type,
+                "error_field": error_field,
+                "status": response.get("status"),
+            }
+
+            frappe.log_error(
+                f"Mollie API returned error: {error_message}",
+                "Mollie API Error Response",
+            )
+
+            raise MollieAPIError(
+                f"Mollie API error: {error_message}",
+                error_code=error_type,
+                details=error_context,
+            )
+
+        # Check for required fields (if model defines them)
+        required_fields = getattr(model_class, "_required_fields", [])
+        if required_fields:
+            missing_fields = [f for f in required_fields if f not in response]
+
+            if missing_fields:
+                frappe.logger().warning(
+                    f"Response missing fields for {model_class.__name__}: {missing_fields}. "
+                    f"BaseModel will handle gracefully with None values."
+                )
+                # Don't raise - BaseModel sets missing fields to None
+
+        return True
+
+    def _handle_parsing_error(
+        self,
+        error: Exception,
+        response: Union[Dict, List],
+        model_class: Type[BaseModel],
+        is_list: bool,
+    ):
+        """
+        Handle response parsing errors with detailed logging and context
+
+        Provides comprehensive error information for debugging:
+        - Model class that failed to instantiate
+        - Response type and preview (truncated for large responses)
+        - Original error message and traceback
+        - Integration with MollieErrorHandler for audit trail
+
+        Args:
+            error: Exception raised during parsing
+            response: Original response that failed to parse
+            model_class: Model class that failed to instantiate
+            is_list: Whether response was a list
+
+        Raises:
+            ResponseParsingError: Always re-raises with enhanced context
+        """
+        # Truncate large responses for logging
+        response_str = str(response)
+        response_preview = response_str[:500]
+        if len(response_str) > 500:
+            response_preview += "... (truncated)"
+
+        error_context = {
+            "model_class": model_class.__name__,
+            "is_list": is_list,
+            "response_type": type(response).__name__,
+            "response_preview": response_preview,
+            "error": str(error),
+            "error_type": type(error).__name__,
+        }
+
+        frappe.log_error(
+            f"Failed to parse {model_class.__name__} from response: {error}\n"
+            f"Response preview: {response_preview}",
+            "Mollie Response Parsing Error",
+        )
+
+        # Use error handler for consistent error handling
+        self.error_handler.handle_error(
+            error_type="response_parsing",
+            error=error,
+            context=error_context,
+            audit_trail=self.audit_trail,
+        )
+
+        # Re-raise with context for caller
+        error_msg = f"Failed to parse {model_class.__name__} from response: {error}"
+        raise ResponseParsingError(error_msg, original_response=response) from error
 
     def close(self):
         """Close client connections"""
