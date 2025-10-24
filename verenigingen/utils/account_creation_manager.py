@@ -146,10 +146,14 @@ class AccountCreationManager:
 
         # Validate email uniqueness again
         if frappe.db.exists("User", self.request.email):
-            # If user already exists, use existing user
+            # If user already exists, use existing user and continue with pipeline
+            # to ensure proper linking to member record
             self.created_user = self.request.email
             self.request.created_user = self.created_user
-            frappe.logger().info(f"User account already exists: {self.request.email}")
+            frappe.logger().info(
+                f"User account already exists: {self.request.email}, will proceed to role assignment and linking"
+            )
+            # Exit user creation, but pipeline will continue with role assignment and linking
             return
 
         try:
@@ -552,17 +556,8 @@ def queue_account_creation_for_member(member_name, roles=None, role_profile=None
     if not member.email:
         frappe.throw(_("Member must have an email address for account creation"))
 
-    # Check if user already exists for this email
-    if frappe.db.exists("User", member.email):
-        frappe.logger().info(
-            f"User account already exists for member {member_name} with email {member.email}"
-        )
-        # Return a successful result indicating existing account was found
-        return {
-            "request_name": None,
-            "result": "existing_user",
-            "message": f"User account already exists for {member.email}",
-        }
+    # Note: Even if user exists, we still create a request to ensure proper linking
+    # The AccountCreationManager will detect the existing user and link it to the member
 
     # Check if request already exists
     existing_request = frappe.db.exists(

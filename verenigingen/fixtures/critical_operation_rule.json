@@ -40572,5 +40572,21 @@
     "rate_limit_scope": "per_user",
     "audit_level": "standard",
     "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "search_balance_transactions",
+    "operation_name": "search_balance_transactions",
+    "operation_type": "financial",
+    "description": "Mollie debug page endpoint for searching balance transactions by description",
+    "enabled": 1,
+    "security_level": "high",
+    "business_context": "Debug page search functionality for balance transaction descriptions",
+    "required_roles": "System Manager\nVerenigingen Administrator",
+    "rate_limit_calls": 100,
+    "rate_limit_period_seconds": 3600,
+    "rate_limit_scope": "per_user",
+    "audit_level": "standard",
+    "alert_on_execution": 0
   }
 ]

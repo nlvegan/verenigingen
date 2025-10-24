@@ -297,9 +297,10 @@ def check_transaction_status(transaction_id: str, include_mollie_data: bool = Fa
                         break
 
                 if transaction is None:
-                    result[
-                        "mollie_api_error"
-                    ] = f"Transaction {transaction_id} not found in recent transactions (checked last 100). Try processing it first."
+                    result["mollie_api_error"] = (
+                        f"Transaction {transaction_id} not found in recent transactions "
+                        "(checked last 100). Try processing it first."
+                    )
                 else:
                     # Convert Mollie object to dict for JSON serialization
                     result["mollie_api_data"] = {
@@ -431,6 +432,8 @@ def search_transactions_by_description(search_term: str, limit: int = 50) -> Dic
             return {"status": "error", "error": f"Invalid limit value: {limit}"}
 
         # Search Bank Transactions with balance transaction IDs
+        # Use parameterized query to avoid SQL injection and string formatting issues
+        search_pattern = f"%{search_term}%"
         results = frappe.db.sql(
             """
             SELECT
@@ -445,12 +448,12 @@ def search_transactions_by_description(search_term: str, limit: int = 50) -> Dic
                 transaction_id,
                 bank_account
             FROM `tabBank Transaction`
-            WHERE (reference_number LIKE 'baltr_%' OR transaction_id LIKE 'tr_%')
+            WHERE (reference_number LIKE 'baltr_%%' OR transaction_id LIKE 'tr_%%')
                 AND description LIKE %s
             ORDER BY date DESC, creation DESC
             LIMIT %s
         """,
-            (f"%{search_term}%", limit),
+            (search_pattern, limit),
             as_dict=True,
         )
 
