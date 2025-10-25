@@ -396,10 +396,18 @@ class MijnroodCSVImport(Document):
             )
 
             # Use the secure AccountCreationManager bulk processing system
+            # Set role profile based on whether volunteer records are being created
+            if self.create_volunteer_records:
+                roles = ["Verenigingen Member", "Verenigingen Volunteer"]
+                role_profile = "Verenigingen Volunteer"
+            else:
+                roles = ["Verenigingen Member"]
+                role_profile = "Verenigingen Member"
+
             result = queue_bulk_account_creation_for_members(
                 member_names=active_members,  # Only create accounts for active members
-                roles=["Verenigingen Member"],
-                role_profile="Verenigingen Member",
+                roles=roles,
+                role_profile=role_profile,
                 batch_size=50,  # Process in batches of 50
                 priority="Low",  # Don't block individual member approvals
             )
@@ -902,6 +910,18 @@ class MijnroodCSVImport(Document):
 
         # Set member_since date (status was already set at the beginning of _update_member_fields)
         member_doc.member_since = row_data.get("member_since") or today()
+
+        # Add import tracking to review_notes
+        import_note = f"Imported from Mijnrood CSV (Import: {self.name})"
+        if member_doc.review_notes:
+            # Append to existing notes if they exist
+            member_doc.review_notes = f"{member_doc.review_notes}\n{import_note}"
+        else:
+            member_doc.review_notes = import_note
+
+        # Set interested_in_volunteering if create_volunteer_records is enabled
+        if self.create_volunteer_records:
+            member_doc.interested_in_volunteering = 1
 
     def _create_or_update_address(self, member_doc: Document, row_data: Dict):
         """Create or update address for member."""

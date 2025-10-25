@@ -64,6 +64,14 @@ def verify_child_table_indexes():
     Returns:
         dict: Index verification results with recommendations
     """
+    # SECURITY: Explicit permission validation for database schema introspection
+    # Defense-in-depth: verify user has System Settings read permission beyond @critical_api
+    if not frappe.has_permission("System Settings", "read"):
+        frappe.throw(
+            "Insufficient permissions to verify database indexes",
+            frappe.PermissionError
+        )
+
     results = {
         "success": True,
         "indexes_verified": 0,

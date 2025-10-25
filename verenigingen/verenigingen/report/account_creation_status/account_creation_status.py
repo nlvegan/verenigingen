@@ -46,27 +46,75 @@ def get_columns():
         },
         {
             "fieldname": "email",
-            "label": _("Email"),
             "fieldtype": "Data",
+            "label": _("Email"),
             "width": 200,
         },
         {
+            "fieldname": "interested_in_volunteering",
+            "label": _("Vol/Emp Expected"),
+            "fieldtype": "Check",
+            "width": 110,
+        },
+        {
             "fieldname": "has_user",
-            "label": _("User Account"),
+            "label": _("User Exists"),
+            "fieldtype": "Check",
+            "width": 90,
+        },
+        {
+            "fieldname": "user_linked",
+            "label": _("User Linked"),
+            "fieldtype": "Check",
+            "width": 90,
+        },
+        {
+            "fieldname": "has_volunteer",
+            "label": _("Vol Exists"),
+            "fieldtype": "Check",
+            "width": 85,
+        },
+        {
+            "fieldname": "volunteer_linked",
+            "label": _("Vol Linked"),
+            "fieldtype": "Check",
+            "width": 85,
+        },
+        {
+            "fieldname": "has_employee",
+            "label": _("Emp Exists"),
+            "fieldtype": "Check",
+            "width": 85,
+        },
+        {
+            "fieldname": "employee_linked",
+            "label": _("Emp Linked"),
+            "fieldtype": "Check",
+            "width": 85,
+        },
+        {
+            "fieldname": "has_customer",
+            "label": _("Customer Exists"),
             "fieldtype": "Check",
             "width": 100,
         },
         {
-            "fieldname": "has_volunteer",
-            "label": _("Volunteer"),
+            "fieldname": "customer_linked",
+            "label": _("Customer Linked"),
             "fieldtype": "Check",
-            "width": 90,
+            "width": 100,
         },
         {
-            "fieldname": "has_employee",
-            "label": _("Employee"),
+            "fieldname": "has_address",
+            "label": _("Address Exists"),
             "fieldtype": "Check",
-            "width": 90,
+            "width": 100,
+        },
+        {
+            "fieldname": "address_linked",
+            "label": _("Address Linked"),
+            "fieldtype": "Check",
+            "width": 100,
         },
         {
             "fieldname": "account_request_status",
@@ -120,22 +168,64 @@ def get_data(filters):
         where_clause = "WHERE " + " AND ".join(conditions)
 
     # Get comprehensive member and account creation data
+    # Check for actual record existence first, then linking status
     data = frappe.db.sql(
         f"""
         SELECT
             m.name as member_name,
             m.full_name,
             m.email,
-            CASE WHEN m.user IS NOT NULL AND m.user != '' THEN 1 ELSE 0 END as has_user,
-            CASE WHEN vol.name IS NOT NULL THEN 1 ELSE 0 END as has_volunteer,
-            CASE WHEN emp.name IS NOT NULL THEN 1 ELSE 0 END as has_employee,
+            m.interested_in_volunteering,
+            CASE
+                WHEN u.name IS NOT NULL THEN 1
+                ELSE 0
+            END as has_user,
+            CASE
+                WHEN m.user IS NOT NULL AND m.user != '' AND u.name IS NOT NULL THEN 1
+                ELSE 0
+            END as user_linked,
+            CASE
+                WHEN vol.name IS NOT NULL THEN 1
+                ELSE 0
+            END as has_volunteer,
+            CASE
+                WHEN vol.user IS NOT NULL AND vol.user != '' THEN 1
+                ELSE 0
+            END as volunteer_linked,
+            CASE
+                WHEN emp.name IS NOT NULL THEN 1
+                ELSE 0
+            END as has_employee,
+            CASE
+                WHEN emp.user_id IS NOT NULL AND emp.user_id != '' THEN 1
+                ELSE 0
+            END as employee_linked,
+            CASE
+                WHEN cust.name IS NOT NULL THEN 1
+                ELSE 0
+            END as has_customer,
+            CASE
+                WHEN m.customer IS NOT NULL AND m.customer != '' AND cust.name IS NOT NULL THEN 1
+                ELSE 0
+            END as customer_linked,
+            CASE
+                WHEN addr.name IS NOT NULL THEN 1
+                ELSE 0
+            END as has_address,
+            CASE
+                WHEN m.primary_address IS NOT NULL AND m.primary_address != '' AND addr.name IS NOT NULL THEN 1
+                ELSE 0
+            END as address_linked,
             acr.status as account_request_status,
             acr.failure_reason,
             acr.retry_count,
             acr.name as account_request_name
         FROM `tabMember` m
+        LEFT JOIN `tabUser` u ON u.name = m.email OR u.name = m.user
         LEFT JOIN `tabVolunteer` vol ON vol.member = m.name
-        LEFT JOIN `tabEmployee` emp ON emp.user_id = m.user
+        LEFT JOIN `tabEmployee` emp ON emp.user_id = m.user OR emp.user_id = m.email
+        LEFT JOIN `tabCustomer` cust ON cust.name = m.customer
+        LEFT JOIN `tabAddress` addr ON addr.name = m.primary_address
         LEFT JOIN (
             SELECT *
             FROM `tabAccount Creation Request`
@@ -149,10 +239,12 @@ def get_data(filters):
         ORDER BY
             CASE
                 WHEN acr.status = 'Failed' THEN 1
-                WHEN m.user IS NULL OR m.user = '' THEN 2
+                WHEN u.name IS NULL THEN 2
                 WHEN vol.name IS NULL THEN 3
                 WHEN emp.name IS NULL THEN 4
-                ELSE 5
+                WHEN cust.name IS NULL THEN 5
+                WHEN addr.name IS NULL THEN 6
+                ELSE 7
             END,
             m.modified DESC
         LIMIT 1000
@@ -173,7 +265,9 @@ def get_summary_data():
             COUNT(*) as total_members,
             SUM(CASE WHEN user IS NOT NULL AND user != '' THEN 1 ELSE 0 END) as members_with_user,
             SUM(CASE WHEN EXISTS (SELECT 1 FROM `tabVolunteer` v WHERE v.member = `tabMember`.name) THEN 1 ELSE 0 END) as members_with_volunteer,
-            SUM(CASE WHEN EXISTS (SELECT 1 FROM `tabEmployee` e WHERE e.user_id = `tabMember`.user) THEN 1 ELSE 0 END) as members_with_employee
+            SUM(CASE WHEN EXISTS (SELECT 1 FROM `tabEmployee` e WHERE e.user_id = `tabMember`.user) THEN 1 ELSE 0 END) as members_with_employee,
+            SUM(CASE WHEN customer IS NOT NULL AND customer != '' THEN 1 ELSE 0 END) as members_with_customer,
+            SUM(CASE WHEN primary_address IS NOT NULL AND primary_address != '' THEN 1 ELSE 0 END) as members_with_address
         FROM `tabMember`
         """,
         as_dict=1,
@@ -238,6 +332,22 @@ def get_summary_data():
             "value": member_stats["members_with_employee"],
             "indicator": "green"
             if member_stats["members_with_employee"] == member_stats["total_members"]
+            else "orange",
+            "datatype": "Int",
+        },
+        {
+            "label": _("Members with Customer Record"),
+            "value": member_stats["members_with_customer"],
+            "indicator": "green"
+            if member_stats["members_with_customer"] == member_stats["total_members"]
+            else "orange",
+            "datatype": "Int",
+        },
+        {
+            "label": _("Members with Address"),
+            "value": member_stats["members_with_address"],
+            "indicator": "green"
+            if member_stats["members_with_address"] == member_stats["total_members"]
             else "orange",
             "datatype": "Int",
         },
