@@ -1163,11 +1163,17 @@ class MijnroodCSVImport(Document):
                 self._create_or_update_address(member_doc, member_doc._pending_address_data)
                 # Update primary_address field on member if address was created
                 if member_doc.primary_address:
-                    # Reload to avoid timestamp mismatch from concurrent operations
-                    member_doc.reload()
-                    # Mark as system update to skip fee override validation during CSV import
-                    member_doc._system_update = True
-                    member_doc.save()
+                    # Save primary_address directly to DB to avoid reload overwriting it
+                    frappe.db.set_value(
+                        "Member",
+                        member_doc.name,
+                        "primary_address",
+                        member_doc.primary_address,
+                        update_modified=False,
+                    )
+                    frappe.logger().info(
+                        f"Set primary_address {member_doc.primary_address} for member {member_doc.name}"
+                    )
 
             # Create membership termination record if needed
             if hasattr(member_doc, "_pending_termination_data"):

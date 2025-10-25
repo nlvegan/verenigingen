@@ -188,13 +188,24 @@ class AccountCreationRequest(Document):
     @critical_api(operation_type=OperationType.ADMIN)
     def queue_processing(self):
         """Queue this request for background processing"""
-        if self.status not in ["Requested", "Failed"]:
-            frappe.throw(_("Request cannot be queued in current status: {0}").format(self.status))
+        # Get fresh status from database to avoid stale data
+        current_status = frappe.db.get_value(self.doctype, self.name, "status")
+        if current_status not in ["Requested", "Failed"]:
+            frappe.throw(_("Request cannot be processed in status: {0}").format(current_status))
 
-        # Update status
-        self.status = "Queued"
-        self.processing_started_at = now()
-        self.save()
+        # Update status using direct DB operation to avoid timestamp conflicts
+        updates = {
+            "status": "Queued",
+        }
+        # Only set processing_started_at if not already set
+        if not self.processing_started_at:
+            updates["processing_started_at"] = now()
+
+        frappe.db.set_value(self.doctype, self.name, updates, update_modified=True)
+        frappe.db.commit()
+
+        # Reload to get updated values
+        self.reload()
 
         # Queue background job
         frappe.enqueue(
@@ -212,20 +223,34 @@ class AccountCreationRequest(Document):
     @critical_api(operation_type=OperationType.ADMIN)
     def retry_processing(self):
         """Retry a failed account creation request"""
-        if self.status != "Failed":
+        # Get fresh data from database to avoid timestamp conflicts
+        current_status = frappe.db.get_value(self.doctype, self.name, "status")
+        if current_status != "Failed":
             frappe.throw(_("Only failed requests can be retried"))
 
-        # Validate retry limits (constant - no need for settings field)
+        # Validate retry limits
         MAX_RETRIES = 3
-        if self.retry_count >= MAX_RETRIES:
+        current_retry_count = frappe.db.get_value(self.doctype, self.name, "retry_count") or 0
+        if current_retry_count >= MAX_RETRIES:
             frappe.throw(_("Maximum retry attempts exceeded ({0})").format(MAX_RETRIES))
 
-        # Reset for retry
-        self.status = "Requested"
-        self.failure_reason = None
-        self.last_retry_at = now()
-        self.retry_count = (self.retry_count or 0) + 1
-        self.save()
+        # Reset for retry using direct database updates to avoid timestamp conflicts
+        # This bypasses the ORM .save() which checks modified timestamps
+        frappe.db.set_value(
+            self.doctype,
+            self.name,
+            {
+                "status": "Requested",
+                "failure_reason": None,
+                "last_retry_at": now(),
+                "retry_count": current_retry_count + 1,
+            },
+            update_modified=True,
+        )
+        frappe.db.commit()
+
+        # Reload the document with fresh data
+        self.reload()
 
         # Queue for processing
         return self.queue_processing()

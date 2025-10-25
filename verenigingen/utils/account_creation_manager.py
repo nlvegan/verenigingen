@@ -221,7 +221,18 @@ class AccountCreationManager:
                 pass
 
             # Insert with proper permissions - NO ignore_permissions=True
-            user_doc.insert()
+            # For bulk operations (CSV imports), bypass rate limiting by setting in_import flag
+            # This is the intended use of frappe.flags.in_import as per Frappe core throttle_user_creation()
+            is_bulk_operation = getattr(frappe.flags, "bulk_account_creation", False)
+            if is_bulk_operation:
+                frappe.flags.in_import = True
+
+            try:
+                user_doc.insert()
+            finally:
+                # Always clean up the import flag
+                if is_bulk_operation:
+                    frappe.flags.in_import = False
 
             self.created_user = user_doc.name
             self.request.created_user = self.created_user
@@ -309,6 +320,17 @@ class AccountCreationManager:
         self.request.mark_processing("Employee Creation")
 
         frappe.logger().info(f"Creating employee record for user: {self.created_user}")
+
+        # Check if employee already exists for this user
+        existing_employee = frappe.db.get_value("Employee", {"user_id": self.created_user}, "name")
+        if existing_employee:
+            # Employee already exists, use it and continue with pipeline
+            self.created_employee = existing_employee
+            self.request.created_employee = self.created_employee
+            frappe.logger().info(
+                f"Employee record already exists: {existing_employee} for user {self.created_user}, will proceed to linking"
+            )
+            return
 
         try:
             # Get company from Verenigingen Settings
@@ -589,6 +611,15 @@ def process_account_creation_request(request_name, at_time=None):
     """
     # Mark as background job to exempt from rate limits
     frappe.flags.in_background_job = True
+
+    # Check if this is a retry (has retry_count > 0) and set bulk operation flag
+    # to bypass rate limiting on retries
+    retry_count = frappe.db.get_value("Account Creation Request", request_name, "retry_count") or 0
+    if retry_count > 0:
+        frappe.flags.bulk_account_creation = True
+        frappe.logger().info(
+            f"Retry detected for {request_name} (attempt {retry_count + 1}), bypassing rate limiting"
+        )
 
     try:
         manager = AccountCreationManager(request_name)
@@ -1220,3 +1251,79 @@ def retry_failed_request(request_name):
 
     request = frappe.get_doc("Account Creation Request", request_name)
     return request.retry_processing()
+
+
+@frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
+def retry_all_failed_requests(failure_type=None):
+    """
+    Retry all failed Account Creation Requests.
+
+    Args:
+        failure_type: Optional filter - "rate_limit", "employee_exists", or None for all
+
+    Returns:
+        dict: Summary of retry operation including success/failure counts
+    """
+    if not frappe.has_permission("Account Creation Request", "write"):
+        frappe.throw(_("Insufficient permissions to retry account creation requests"))
+
+    # Get all failed requests
+    filters = {"status": "Failed", "retry_count": ["<", 3]}  # Only retry if under max retries
+
+    failed_requests = frappe.get_all(
+        "Account Creation Request",
+        filters=filters,
+        fields=["name", "email", "full_name", "failure_reason", "retry_count"],
+    )
+
+    if not failed_requests:
+        return {"success": True, "message": "No failed requests found that can be retried", "total": 0}
+
+    # Filter by failure type if specified
+    if failure_type:
+        if failure_type == "rate_limit":
+            failed_requests = [
+                r
+                for r in failed_requests
+                if "throttled" in (r.failure_reason or "").lower()
+                or "rate limit" in (r.failure_reason or "").lower()
+            ]
+        elif failure_type == "employee_exists":
+            failed_requests = [
+                r for r in failed_requests if "already assigned to Employee" in (r.failure_reason or "")
+            ]
+
+    # Set bulk operation flag to bypass rate limiting during retries
+    frappe.flags.bulk_account_creation = True
+
+    retried = []
+    errors = []
+
+    frappe.logger().info(f"Starting retry of {len(failed_requests)} failed account creation requests")
+
+    for req_data in failed_requests:
+        try:
+            request = frappe.get_doc("Account Creation Request", req_data.name)
+
+            # Use the existing retry_processing method
+            result = request.retry_processing()
+
+            retried.append({"name": req_data.name, "email": req_data.email, "full_name": req_data.full_name})
+
+        except Exception as e:
+            error_msg = str(e)
+            errors.append({"name": req_data.name, "email": req_data.email, "error": error_msg})
+            frappe.logger().error(f"Failed to retry {req_data.name}: {error_msg}")
+
+    frappe.db.commit()
+
+    return {
+        "success": True,
+        "total_failed": len(failed_requests),
+        "retried": len(retried),
+        "errors": len(errors),
+        "retried_requests": retried[:20],  # Return first 20 for display
+        "error_details": errors[:10],  # Return first 10 errors
+        "message": f"Successfully queued {len(retried)} requests for retry. {len(errors)} errors encountered.",
+    }
