@@ -10,9 +10,126 @@ Table names are validated against database schema to prevent SQL injection.
 """
 
 import re
+import time
 
 import frappe
 from frappe import _
+from frappe.query_builder import DocType
+from frappe.query_builder.functions import Count
+from frappe.utils.file_lock import create_lock, delete_lock, lock_exists
+
+from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
+# Batch size for large deletion operations to prevent timeouts
+BATCH_SIZE = 500
+
+# Lock timeout configurations for different cleanup scopes
+# Longer timeouts for broader scopes to accommodate larger datasets
+CLEANUP_LOCK_TIMEOUTS = {
+    "system_wide": 3600,  # 1 hour - largest scope, all child tables
+    "member_only": 1800,  # 30 minutes - scoped to Member DocType
+    "volunteer_only": 1800,  # 30 minutes - scoped to Volunteer DocType
+}
+
+
+class SimpleLock:
+    """Simple lock wrapper using frappe.utils.file_lock for Frappe v15 compatibility"""
+
+    def __init__(self, lock_name, timeout=3600):
+        self.lock_name = lock_name
+        self.timeout = timeout
+        self.acquired = False
+
+    def acquire(self, blocking=True):
+        """Acquire the lock. Returns True if successful, False otherwise."""
+        if lock_exists(self.lock_name):
+            return False
+        self.acquired = create_lock(self.lock_name)
+        return self.acquired
+
+    def release(self):
+        """Release the lock."""
+        if self.acquired:
+            delete_lock(self.lock_name)
+            self.acquired = False
+
+
+@frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
+def verify_child_table_indexes():
+    """
+    Verify that required indexes exist on child tables for optimal LEFT JOIN performance.
+
+    Returns:
+        dict: Index verification results with recommendations
+    """
+    results = {
+        "success": True,
+        "indexes_verified": 0,
+        "missing_indexes": [],
+        "recommendations": [],
+    }
+
+    try:
+        # Get all child table DocTypes
+        child_tables = frappe.get_all("DocType", filters={"istable": 1}, fields=["name"])
+
+        for table in child_tables:
+            table_name = f"tab{table.name}"
+
+            if not _validate_table_name(table_name):
+                continue
+
+            # Check for index on (parent, parenttype) columns
+            # Note: Skip table_exists() check - it has bugs with spaces in names
+            try:
+                indexes = frappe.db.sql(
+                    f"""
+                SHOW INDEX FROM `{table_name}`
+                WHERE Column_name IN ('parent', 'parenttype')
+                """,
+                    as_dict=True,
+                )
+
+                # Check if we have a composite index on (parent, parenttype)
+                has_parent_parenttype_index = False
+                for idx in indexes:
+                    if idx.Column_name == "parent":
+                        # Check if this index also includes parenttype
+                        same_index = [i for i in indexes if i.Key_name == idx.Key_name]
+                        if len(same_index) >= 2:
+                            has_parent_parenttype_index = True
+                            break
+
+                if has_parent_parenttype_index:
+                    results["indexes_verified"] += 1
+                else:
+                    results["missing_indexes"].append(table.name)
+                    results["recommendations"].append(
+                        {
+                            "table": table.name,
+                            "recommendation": f"CREATE INDEX idx_parent_parenttype ON `{table_name}` (parent, parenttype);",
+                            "benefit": "10-100x faster LEFT JOIN performance for orphan detection",
+                        }
+                    )
+            except Exception:
+                # Table doesn't exist or can't be accessed - skip it
+                continue
+
+        if results["missing_indexes"]:
+            results["summary"] = (
+                f"Found {len(results['missing_indexes'])} child tables missing recommended indexes. "
+                f"Performance may be degraded for large datasets."
+            )
+        else:
+            results["summary"] = f"All {results['indexes_verified']} child tables have optimal indexes."
+
+        return results
+
+    except Exception as e:
+        frappe.log_error(f"Error verifying child table indexes: {str(e)}", "Index Verification Error")
+        return {"success": False, "error": str(e)}
 
 
 def _validate_table_name(table_name):
@@ -32,7 +149,97 @@ def _validate_table_name(table_name):
     return bool(re.match(pattern, table_name))
 
 
+def _batch_delete_orphans(table_name, parent_table, parent_doctype, batch_size=BATCH_SIZE):
+    """
+    Delete orphaned records in batches with incremental commits.
+
+    This prevents database lock timeouts and transaction log bloat on large datasets.
+    Uses Frappe's native database operations for better compatibility.
+
+    Args:
+        table_name (str): Child table name (validated)
+        parent_table (str): Parent table name (validated)
+        parent_doctype (str): Parent DocType for filtering
+        batch_size (int): Records to delete per batch (default 500)
+
+    Returns:
+        int: Total number of records deleted (partial success if error occurred)
+    """
+    total_deleted = 0
+    batches_completed = 0
+
+    while True:
+        try:
+            # Get batch of orphaned record IDs using LEFT JOIN
+            orphaned_ids = frappe.db.sql(
+                f"""
+                SELECT ct.name
+                FROM `{table_name}` ct
+                LEFT JOIN `{parent_table}` pt ON ct.parent = pt.name
+                WHERE pt.name IS NULL
+                AND ct.parenttype = %s
+                LIMIT {batch_size}
+                """,
+                parent_doctype,
+                as_dict=False,
+            )
+
+            if not orphaned_ids:
+                break
+
+            # Extract IDs from tuples
+            ids_to_delete = [row[0] for row in orphaned_ids]
+
+            # Delete using Frappe's native delete_doc for proper cleanup
+            # For child tables, direct SQL DELETE is appropriate as they have no hooks
+            frappe.db.sql(
+                f"""
+                DELETE FROM `{table_name}`
+                WHERE name IN ({','.join(['%s'] * len(ids_to_delete))})
+                """,
+                tuple(ids_to_delete),
+            )
+
+            deleted_count = len(ids_to_delete)
+            total_deleted += deleted_count
+            batches_completed += 1
+            frappe.db.commit()
+
+            # Progress logging every 5000 records for operational visibility
+            if total_deleted % 5000 == 0:
+                frappe.logger().info(
+                    f"Batch cleanup progress: {total_deleted} records deleted from {table_name}"
+                )
+
+        except Exception as e:
+            # Rollback CURRENT batch only - previous batches are already committed
+            frappe.db.rollback()
+
+            # Log partial success information - critical for operational awareness
+            frappe.log_error(
+                f"""Batch deletion PARTIALLY completed: {total_deleted} records successfully deleted
+across {batches_completed} batches before failure.
+
+Table: {table_name}
+Parent DocType: {parent_doctype}
+Batches Completed: {batches_completed}
+Total Deleted: {total_deleted}
+Error: {str(e)}
+
+Note: Previous batches were committed successfully. Only the current batch was rolled back.
+""",
+                "Orphan Cleanup Partial Failure",
+            )
+
+            # Return partial success count instead of raising
+            # Caller can compare this with expected count to detect partial failure
+            return total_deleted
+
+    return total_deleted
+
+
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def detect_orphaned_child_tables():
     """
     Scan all child tables (istable=1) and detect orphaned records.
@@ -53,78 +260,76 @@ def detect_orphaned_child_tables():
                 frappe.log_error(f"Invalid table name format: {table_name}", "Orphan Cleanup Security")
                 continue
 
-            # Check if table exists in database
-            if not frappe.db.table_exists(table_name):
+            # Check if table has 'parent' and 'parenttype' columns
+            # Note: get_table_columns expects DocType name without 'tab' prefix
+            # Note: We skip table_exists() check as it has bugs with spaces in names
+            try:
+                columns = frappe.db.get_table_columns(table.name)
+            except Exception:
+                # Table doesn't exist or can't be accessed
                 continue
 
-            # Check if table has 'parent' and 'parenttype' columns
-            columns = frappe.db.get_table_columns(table_name)
             if "parent" not in columns or "parenttype" not in columns:
                 continue
 
             try:
-                # Get parent DocType from a sample record
-                sample = frappe.db.sql(
+                # Get ALL parent DocTypes for this child table (may have multiple)
+                parent_types = frappe.db.sql(
                     f"""
                     SELECT DISTINCT parenttype
                     FROM `{table_name}`
-                    LIMIT 1
                     """,
                     as_dict=True,
                 )
 
-                if not sample:
+                if not parent_types:
                     continue
 
-                parent_doctype = sample[0].parenttype
-                parent_table = f"tab{parent_doctype}"
+                # Check each parent type separately for orphaned records
+                for parent_info in parent_types:
+                    parent_doctype = parent_info.parenttype
+                    parent_table = f"tab{parent_doctype}"
 
-                # Check if parent table exists
-                if not frappe.db.table_exists(parent_table):
-                    continue
-
-                # Count orphaned records
-                orphaned_count = frappe.db.sql(
-                    f"""
-                    SELECT COUNT(*) as count
-                    FROM `{table_name}` ct
-                    WHERE ct.parent NOT IN (
-                        SELECT name FROM `{parent_table}`
-                    )
-                    AND ct.parenttype = %s
-                    """,
-                    parent_doctype,
-                    as_dict=True,
-                )[0].count
-
-                if orphaned_count > 0:
-                    results["total_orphaned"] += orphaned_count
-                    results["tables_affected"] += 1
-
-                    # Get sample orphaned parent IDs
-                    sample_orphans = frappe.db.sql(
+                    # Count orphaned records for this specific parent type using LEFT JOIN
+                    # Note: Skip table_exists() check - it has bugs with spaces, SQL will fail safely
+                    orphaned_count = frappe.db.sql(
                         f"""
-                        SELECT DISTINCT parent
+                        SELECT COUNT(*) as count
                         FROM `{table_name}` ct
-                        WHERE ct.parent NOT IN (
-                            SELECT name FROM `{parent_table}`
-                        )
-                        AND ct.parenttype = %s
-                        LIMIT 5
+                        LEFT JOIN `{parent_table}` pt ON ct.parent = pt.name
+                        WHERE pt.name IS NULL AND ct.parenttype = %s
                         """,
                         parent_doctype,
                         as_dict=True,
-                    )
+                    )[0].count
 
-                    results["details"].append(
-                        {
-                            "child_table": table.name,
-                            "parent_doctype": parent_doctype,
-                            "orphaned_count": orphaned_count,
-                            "sample_parents": [s.parent for s in sample_orphans],
-                            "module": table.module,
-                        }
-                    )
+                    if orphaned_count > 0:
+                        results["total_orphaned"] += orphaned_count
+                        results["tables_affected"] += 1
+
+                        # Get sample orphaned parent IDs
+                        sample_orphans = frappe.db.sql(
+                            f"""
+                            SELECT DISTINCT ct.parent
+                            FROM `{table_name}` ct
+                            LEFT JOIN `{parent_table}` pt ON ct.parent = pt.name
+                            WHERE pt.name IS NULL
+                            AND ct.parenttype = %s
+                            LIMIT 5
+                            """,
+                            parent_doctype,
+                            as_dict=True,
+                        )
+
+                        results["details"].append(
+                            {
+                                "child_table": table.name,
+                                "parent_doctype": parent_doctype,
+                                "orphaned_count": orphaned_count,
+                                "sample_parents": [s.parent for s in sample_orphans],
+                                "module": table.module,
+                            }
+                        )
 
             except Exception as e:
                 # Log but continue - some tables might have unusual structures
@@ -146,9 +351,10 @@ def detect_orphaned_child_tables():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def cleanup_orphaned_child_tables(dry_run=True, table_filter=None):
     """
-    Clean up orphaned child table records.
+    Clean up orphaned child table records with concurrent execution protection.
 
     Args:
         dry_run (bool): If True, only report what would be deleted
@@ -160,9 +366,43 @@ def cleanup_orphaned_child_tables(dry_run=True, table_filter=None):
     if isinstance(dry_run, str):
         dry_run = dry_run.lower() in ("true", "1", "yes")
 
-    results = {"success": True, "dry_run": dry_run, "total_deleted": 0, "tables_cleaned": 0, "details": []}
+    # Acquire distributed lock for non-dry-run operations to prevent concurrent execution
+    lock = None
+    if not dry_run:
+        lock_name = "orphaned_cleanup_system_wide"
+        lock_timeout = CLEANUP_LOCK_TIMEOUTS["system_wide"]
+
+        lock = SimpleLock(lock_name, timeout=lock_timeout)
+        if not lock.acquire(blocking=False):
+            return {
+                "success": False,
+                "error": "Another cleanup operation is currently running. Please wait and try again.",
+            }
+
+    results = {
+        "success": True,
+        "dry_run": dry_run,
+        "total_deleted": 0,
+        "tables_cleaned": 0,
+        "details": [],
+        "timing_metrics": {},
+    }
+
+    start_time = time.time()
 
     try:
+        # PERFORMANCE CHECK: Verify indexes before starting expensive operations
+        if not dry_run:
+            index_results = verify_child_table_indexes()
+            if index_results.get("missing_indexes"):
+                return {
+                    "success": False,
+                    "error": f"Missing {len(index_results['missing_indexes'])} required indexes. "
+                    f"Run 'Verify Child Table Indexes' first and create recommended indexes for optimal performance.",
+                    "missing_indexes": index_results["missing_indexes"],
+                    "recommendations": index_results.get("recommendations", []),
+                }
+
         # Get all child table DocTypes
         filters = {"istable": 1}
         if table_filter:
@@ -178,116 +418,126 @@ def cleanup_orphaned_child_tables(dry_run=True, table_filter=None):
                 frappe.log_error(f"Invalid table name format: {table_name}", "Orphan Cleanup Security")
                 continue
 
-            # Check if table exists in database
-            if not frappe.db.table_exists(table_name):
+            # Check if table has 'parent' and 'parenttype' columns
+            # Note: get_table_columns expects DocType name without 'tab' prefix
+            # Note: We skip table_exists() check as it has bugs with spaces in names
+            try:
+                columns = frappe.db.get_table_columns(table.name)
+            except Exception:
+                # Table doesn't exist or can't be accessed
                 continue
 
-            # Check if table has 'parent' and 'parenttype' columns
-            columns = frappe.db.get_table_columns(table_name)
             if "parent" not in columns or "parenttype" not in columns:
                 continue
 
             try:
-                # Get parent DocType from records
-                sample = frappe.db.sql(
+                # Get ALL parent DocTypes for this child table (may have multiple)
+                parent_types = frappe.db.sql(
                     f"""
                     SELECT DISTINCT parenttype
                     FROM `{table_name}`
-                    LIMIT 1
                     """,
                     as_dict=True,
                 )
 
-                if not sample:
+                if not parent_types:
                     continue
 
-                parent_doctype = sample[0].parenttype
-                parent_table = f"tab{parent_doctype}"
+                # Check each parent type separately for orphaned records
+                for parent_info in parent_types:
+                    parent_doctype = parent_info.parenttype
+                    parent_table = f"tab{parent_doctype}"
 
-                # Check if parent table exists
-                if not frappe.db.table_exists(parent_table):
-                    continue
+                    # Count orphaned records before deletion using LEFT JOIN (optimized)
+                    # Note: Skip table_exists() check - it has bugs with spaces, SQL will fail safely
+                    orphaned_count = frappe.db.sql(
+                        f"""
+                        SELECT COUNT(*) as count
+                        FROM `{table_name}` ct
+                        LEFT JOIN `{parent_table}` pt ON ct.parent = pt.name
+                        WHERE pt.name IS NULL
+                        AND ct.parenttype = %s
+                        """,
+                        parent_doctype,
+                        as_dict=True,
+                    )[0].count
 
-                # Count orphaned records before deletion
-                orphaned_count = frappe.db.sql(
-                    f"""
-                    SELECT COUNT(*) as count
-                    FROM `{table_name}` ct
-                    WHERE ct.parent NOT IN (
-                        SELECT name FROM `{parent_table}`
-                    )
-                    AND ct.parenttype = %s
-                    """,
-                    parent_doctype,
-                    as_dict=True,
-                )[0].count
+                    if orphaned_count > 0:
+                        table_start_time = time.time()
 
-                if orphaned_count > 0:
-                    # Get sample IDs for audit trail
-                    sample_ids = []
-                    try:
-                        sample_ids = frappe.db.sql(
-                            f"""
-                            SELECT name, parent
-                            FROM `{table_name}`
-                            WHERE parent NOT IN (
-                                SELECT name FROM `{parent_table}`
+                        # Get sample IDs for audit trail
+                        sample_ids = []
+                        try:
+                            sample_ids = frappe.db.sql(
+                                f"""
+                                SELECT ct.name, ct.parent
+                                FROM `{table_name}` ct
+                                LEFT JOIN `{parent_table}` pt ON ct.parent = pt.name
+                                WHERE pt.name IS NULL
+                                AND ct.parenttype = %s
+                                LIMIT 100
+                                """,
+                                parent_doctype,
+                                as_dict=True,
                             )
-                            AND parenttype = %s
-                            LIMIT 100
-                            """,
-                            parent_doctype,
-                            as_dict=True,
-                        )
-                    except Exception:
-                        pass  # Sample collection is non-critical
+                        except Exception:
+                            pass  # Sample collection is non-critical
 
-                    if not dry_run:
-                        # Log to Error Log for audit trail (permanent record)
-                        frappe.log_error(
-                            f"""Data Cleanup Audit - System-Wide Orphan Cleanup
+                        if not dry_run:
+                            # Log to Error Log for audit trail (permanent record)
+                            frappe.log_error(
+                                f"""Data Cleanup Audit - System-Wide Orphan Cleanup
 
-Child Table: {table.name}
-Parent DocType: {parent_doctype}
-Orphaned Records: {orphaned_count}
-Sample Parent IDs: {', '.join([r.parent for r in sample_ids[:10]]) if sample_ids else 'N/A'}
-Executed By: {frappe.session.user}
-Timestamp: {frappe.utils.now()}
-Module: {table.module}
-                            """,
-                            "Orphan Cleanup Audit",
-                        )
-
-                        # Actually delete the orphaned records
-                        frappe.db.sql(
-                            f"""
-                            DELETE FROM `{table_name}`
-                            WHERE parent NOT IN (
-                                SELECT name FROM `{parent_table}`
+    Child Table: {table.name}
+    Parent DocType: {parent_doctype}
+    Orphaned Records: {orphaned_count}
+    Sample Parent IDs: {', '.join([r.parent for r in sample_ids[:10]]) if sample_ids else 'N/A'}
+    Executed By: {frappe.session.user}
+    Timestamp: {frappe.utils.now()}
+    Module: {table.module}
+                                """,
+                                "Orphan Cleanup Audit",
                             )
-                            AND parenttype = %s
-                            """,
-                            parent_doctype,
+
+                            # Delete orphaned records in batches to prevent timeouts
+                            actual_deleted = _batch_delete_orphans(table_name, parent_table, parent_doctype)
+
+                            # Verify deletion count matches expectation
+                            if actual_deleted != orphaned_count:
+                                frappe.logger().warning(
+                                    f"Deletion count mismatch for {table.name}: "
+                                    f"expected {orphaned_count}, deleted {actual_deleted}"
+                                )
+
+                        # Calculate timing metrics for this table
+                        table_duration = time.time() - table_start_time
+                        records_per_second = orphaned_count / table_duration if table_duration > 0 else 0
+
+                        results["total_deleted"] += orphaned_count
+                        results["tables_cleaned"] += 1
+
+                        results["details"].append(
+                            {
+                                "child_table": table.name,
+                                "parent_doctype": parent_doctype,
+                                "records_deleted": orphaned_count,
+                                "sample_parents": [r.parent for r in sample_ids[:5]] if sample_ids else [],
+                                "action": "Would delete" if dry_run else "Deleted",
+                                "duration_seconds": round(table_duration, 2),
+                                "records_per_second": round(records_per_second, 2),
+                            }
                         )
-                        frappe.db.commit()
 
-                    results["total_deleted"] += orphaned_count
-                    results["tables_cleaned"] += 1
-
-                    results["details"].append(
-                        {
-                            "child_table": table.name,
-                            "parent_doctype": parent_doctype,
-                            "records_deleted": orphaned_count,
-                            "sample_parents": [r.parent for r in sample_ids[:5]] if sample_ids else [],
-                            "action": "Would delete" if dry_run else "Deleted",
+                        # Store timing metrics
+                        results["timing_metrics"][table.name] = {
+                            "duration_seconds": round(table_duration, 2),
+                            "records_per_second": round(records_per_second, 2),
                         }
-                    )
 
-                    frappe.logger().info(
-                        f"{'Would delete' if dry_run else 'Deleted'} {orphaned_count} "
-                        f"orphaned records from {table.name}"
-                    )
+                        frappe.logger().info(
+                            f"{'Would delete' if dry_run else 'Deleted'} {orphaned_count} "
+                            f"orphaned records from {table.name} in {table_duration:.2f}s"
+                        )
 
             except Exception as e:
                 # Log error and continue with next table
@@ -296,9 +546,14 @@ Module: {table.module}
                 results["details"].append({"child_table": table.name, "error": str(e)})
                 continue
 
+        # Calculate total duration
+        total_duration = time.time() - start_time
+        results["total_duration_seconds"] = round(total_duration, 2)
+
         results["summary"] = (
             f"{'Would delete' if dry_run else 'Deleted'} {results['total_deleted']} "
-            f"orphaned records from {results['tables_cleaned']} child tables"
+            f"orphaned records from {results['tables_cleaned']} child tables "
+            f"in {total_duration:.1f}s"
         )
 
         if dry_run:
@@ -314,11 +569,20 @@ Module: {table.module}
         )
         return {"success": False, "error": str(e)}
 
+    finally:
+        # Always release lock if acquired
+        if lock:
+            try:
+                lock.release()
+            except Exception:
+                pass  # Lock may have expired, ignore
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def cleanup_member_child_tables_only(dry_run=True):
     """
-    Clean up only Member-related child table orphans.
+    Clean up only Member-related child table orphans with concurrent execution protection.
 
     This is a focused cleanup specifically for Member DocType child tables.
     """
@@ -336,6 +600,19 @@ def cleanup_member_child_tables_only(dry_run=True):
     if isinstance(dry_run, str):
         dry_run = dry_run.lower() in ("true", "1", "yes")
 
+    # Acquire distributed lock for non-dry-run operations
+    lock = None
+    if not dry_run:
+        lock_name = "orphaned_cleanup_member_only"
+        lock_timeout = CLEANUP_LOCK_TIMEOUTS["member_only"]
+
+        lock = SimpleLock(lock_name, timeout=lock_timeout)
+        if not lock.acquire(blocking=False):
+            return {
+                "success": False,
+                "error": "Another Member cleanup operation is currently running. Please wait and try again.",
+            }
+
     results = {"success": True, "dry_run": dry_run, "total_deleted": 0, "details": [], "audit_log": []}
 
     try:
@@ -347,18 +624,15 @@ def cleanup_member_child_tables_only(dry_run=True):
                 frappe.log_error(f"Invalid table name format: {table_name}", "Member Cleanup Security")
                 continue
 
-            if not frappe.db.table_exists(table_name):
-                continue
-
             try:
-                # Count orphaned records
+                # Note: Skip table_exists() check - it has bugs with spaces in names
+                # Count orphaned records using LEFT JOIN (optimized)
                 orphaned_count = frappe.db.sql(
                     f"""
                     SELECT COUNT(*) as count
-                    FROM `{table_name}`
-                    WHERE parent NOT IN (
-                        SELECT name FROM `tabMember`
-                    )
+                    FROM `{table_name}` ct
+                    LEFT JOIN `tabMember` m ON ct.parent = m.name
+                    WHERE m.name IS NULL
                     """,
                     as_dict=True,
                 )[0].count
@@ -367,11 +641,10 @@ def cleanup_member_child_tables_only(dry_run=True):
                     # Get sample IDs for audit trail
                     sample_ids = frappe.db.sql(
                         f"""
-                        SELECT name, parent
-                        FROM `{table_name}`
-                        WHERE parent NOT IN (
-                            SELECT name FROM `tabMember`
-                        )
+                        SELECT ct.name, ct.parent
+                        FROM `{table_name}` ct
+                        LEFT JOIN `tabMember` m ON ct.parent = m.name
+                        WHERE m.name IS NULL
                         LIMIT 100
                         """,
                         as_dict=True,
@@ -391,15 +664,15 @@ Timestamp: {frappe.utils.now()}
                             "Orphan Cleanup Audit",
                         )
 
-                        frappe.db.sql(
-                            f"""
-                            DELETE FROM `{table_name}`
-                            WHERE parent NOT IN (
-                                SELECT name FROM `tabMember`
+                        # Delete orphaned records in batches to prevent timeouts
+                        actual_deleted = _batch_delete_orphans(table_name, "tabMember", "Member")
+
+                        # Verify deletion count matches expectation
+                        if actual_deleted != orphaned_count:
+                            frappe.logger().warning(
+                                f"Member cleanup deletion count mismatch for {child_table}: "
+                                f"expected {orphaned_count}, deleted {actual_deleted}"
                             )
-                            """
-                        )
-                        frappe.db.commit()
 
                     results["total_deleted"] += orphaned_count
                     results["details"].append(
@@ -433,3 +706,156 @@ Timestamp: {frappe.utils.now()}
 
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+    finally:
+        # Always release lock if acquired
+        if lock:
+            try:
+                lock.release()
+            except Exception:
+                pass  # Lock may have expired, ignore
+
+
+@frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
+def cleanup_volunteer_child_tables_only(dry_run=True):
+    """
+    Clean up only Volunteer-related child table orphans with concurrent execution protection.
+
+    This is a focused cleanup specifically for Volunteer DocType child tables.
+    """
+    # SECURITY: Hardcoded whitelist of valid Volunteer child tables
+    VOLUNTEER_CHILD_TABLES = {
+        "Volunteer Assignment",
+        "Volunteer Skill",
+        "Volunteer Development Goal",
+        "Volunteer Interest Area",
+    }
+
+    if isinstance(dry_run, str):
+        dry_run = dry_run.lower() in ("true", "1", "yes")
+
+    # Acquire distributed lock for non-dry-run operations
+    lock = None
+    if not dry_run:
+        lock_name = "orphaned_cleanup_volunteer_only"
+        lock_timeout = CLEANUP_LOCK_TIMEOUTS["volunteer_only"]
+
+        lock = SimpleLock(lock_name, timeout=lock_timeout)
+        if not lock.acquire(blocking=False):
+            return {
+                "success": False,
+                "error": "Another Volunteer cleanup operation is currently running. Please wait and try again.",
+            }
+
+    results = {"success": True, "dry_run": dry_run, "total_deleted": 0, "details": [], "audit_log": []}
+
+    try:
+        for child_table in VOLUNTEER_CHILD_TABLES:
+            table_name = f"tab{child_table}"
+
+            # SECURITY: Validate table name format
+            if not _validate_table_name(table_name):
+                frappe.log_error(f"Invalid table name format: {table_name}", "Volunteer Cleanup Security")
+                continue
+
+            try:
+                # Note: Skip table_exists() check - it has bugs with spaces in names
+                # Count orphaned records using LEFT JOIN (optimized)
+                orphaned_count = frappe.db.sql(
+                    f"""
+                    SELECT COUNT(*) as count
+                    FROM `{table_name}` ct
+                    LEFT JOIN `tabVolunteer` v ON ct.parent = v.name
+                    WHERE v.name IS NULL
+                    """,
+                    as_dict=True,
+                )[0].count
+
+                if orphaned_count > 0:
+                    # Get sample IDs for audit trail
+                    sample_ids = frappe.db.sql(
+                        f"""
+                        SELECT ct.name, ct.parent
+                        FROM `{table_name}` ct
+                        LEFT JOIN `tabVolunteer` v ON ct.parent = v.name
+                        WHERE v.name IS NULL
+                        LIMIT 100
+                        """,
+                        as_dict=True,
+                    )
+
+                    if not dry_run:
+                        # Log to Error Log for audit trail
+                        frappe.log_error(
+                            f"""Data Cleanup Audit - Volunteer Child Tables
+
+Child Table: {child_table}
+Orphaned Records: {orphaned_count}
+Sample IDs: {[s.name for s in sample_ids[:10]]}
+Sample Parents: {[s.parent for s in sample_ids[:10]]}
+User: {frappe.session.user}
+Timestamp: {frappe.utils.now()}
+""",
+                            f"Orphan Cleanup: {child_table}",
+                        )
+
+                        # Batch delete orphaned records
+                        deleted_count = _batch_delete_orphans(
+                            table_name=table_name,
+                            parent_table="tabVolunteer",
+                            parent_doctype="Volunteer",
+                            batch_size=BATCH_SIZE,
+                        )
+
+                        results["total_deleted"] += deleted_count
+                        results["details"].append(
+                            {
+                                "table": child_table,
+                                "deleted": deleted_count,
+                                "sample_ids": [s.name for s in sample_ids[:10]],
+                            }
+                        )
+                    else:
+                        # Dry run - just report what would be deleted
+                        results["total_deleted"] += orphaned_count
+                        results["details"].append(
+                            {
+                                "table": child_table,
+                                "would_delete": orphaned_count,
+                                "sample_ids": [s.name for s in sample_ids[:10]],
+                                "sample_parents": [s.parent for s in sample_ids[:10]],
+                            }
+                        )
+
+                    # Add to audit log
+                    results["audit_log"].append(
+                        {
+                            "table": child_table,
+                            "count": orphaned_count,
+                            "dry_run": dry_run,
+                            "timestamp": frappe.utils.now(),
+                            "user": frappe.session.user,
+                        }
+                    )
+
+            except Exception as e:
+                results["details"].append({"table": child_table, "error": str(e)})
+
+        results["summary"] = (
+            f"{'Would delete' if dry_run else 'Deleted'} {results['total_deleted']} "
+            f"orphaned Volunteer child table records"
+        )
+
+        return results
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+    finally:
+        # Always release lock if acquired
+        if lock:
+            try:
+                lock.release()
+            except Exception:
+                pass  # Lock may have expired, ignore

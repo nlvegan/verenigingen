@@ -6,6 +6,7 @@ import frappe
 from frappe.model.document import Document
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
 class APIAuditLog(Document):
@@ -149,3 +150,90 @@ class APIAuditLog(Document):
 
         except Exception as e:
             frappe.log_error(f"Failed to cleanup old API audit entries: {str(e)}", "API Audit Cleanup Error")
+
+
+@frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
+def clear_all_audit_logs():
+    """
+    Clear all API Audit Log entries using efficient bulk deletion.
+
+    This function is restricted to users with the 'Verenigingen Administrator' role.
+    It deletes ALL audit log entries from the system using direct SQL for performance.
+
+    Returns:
+        dict: Result with success status and deleted count
+    """
+    # Check if user has Verenigingen Administrator role
+    if not frappe.has_permission("API Audit Log", "delete"):
+        return {
+            "success": False,
+            "message": "Insufficient permissions. Verenigingen Administrator role required.",
+            "deleted_count": 0,
+        }
+
+    # Additional check for Verenigingen Administrator role
+    user_roles = frappe.get_roles()
+    if "Verenigingen Administrator" not in user_roles and frappe.session.user != "Administrator":
+        return {
+            "success": False,
+            "message": "This operation requires Verenigingen Administrator role.",
+            "deleted_count": 0,
+        }
+
+    try:
+        # Get count before deletion for reporting
+        count_before = frappe.db.count("API Audit Log")
+
+        # CRITICAL: Create permanent audit trail BEFORE truncation
+        # This creates an immutable record in Error Log that survives TRUNCATE
+        frappe.log_error(
+            f"""CRITICAL SECURITY EVENT: API Audit Log Cleared
+
+User: {frappe.session.user}
+IP Address: {frappe.local.request_ip if hasattr(frappe.local, 'request_ip') else 'Unknown'}
+Timestamp: {frappe.utils.now()}
+Records Deleted: {count_before}
+User Roles: {', '.join(frappe.get_roles())}
+Justification: System maintenance - audit log hygiene
+
+This operation deleted ALL audit log entries. This permanent record
+ensures compliance and forensic traceability of the clearing operation.
+""",
+            "API Audit Log Cleared",
+        )
+
+        # Begin transaction
+        frappe.db.begin()
+
+        try:
+            # Use TRUNCATE TABLE for maximum performance
+            # TRUNCATE is faster than DELETE as it doesn't generate undo logs
+            # and doesn't fire triggers (which is fine for audit log cleanup)
+            frappe.db.sql("TRUNCATE TABLE `tabAPI Audit Log`")
+
+            # Commit transaction
+            frappe.db.commit()
+
+            # Log the clearing action (in addition to Error Log above)
+            frappe.logger().warning(
+                f"API Audit Logs cleared by {frappe.session.user}: {count_before} entries deleted"
+            )
+
+            return {
+                "success": True,
+                "message": f"Successfully deleted {count_before} audit log entries",
+                "deleted_count": count_before,
+            }
+
+        except Exception as e:
+            # Rollback on error
+            frappe.db.rollback()
+            frappe.log_error(
+                f"Failed to clear audit logs (rolled back): {str(e)}", "API Audit Log Clear Error"
+            )
+            return {"success": False, "message": f"Failed to clear audit logs: {str(e)}", "deleted_count": 0}
+
+    except Exception as e:
+        frappe.log_error(f"Error in clear_all_audit_logs: {str(e)}", "API Audit Log Clear Error")
+        return {"success": False, "message": f"Error: {str(e)}", "deleted_count": 0}

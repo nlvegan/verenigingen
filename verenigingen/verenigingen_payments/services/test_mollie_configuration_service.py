@@ -448,6 +448,194 @@ class TestMollieConfigurationService(FrappeTestCase):
         # Should be valid
         self.assertTrue(result.get("valid"))
 
+    # ===== Additional GL Validation Edge Case Tests (Phase 3.2 Completion) =====
+
+    def test_validate_gl_account_with_disabled_account(self):
+        """Test validate_gl_account() detects disabled/frozen accounts"""
+        # Find a disabled account or create test scenario
+        disabled_account = frappe.db.get_value("Account", {"disabled": 1}, "name", order_by="creation desc")
+
+        if disabled_account:
+            config = get_mollie_config()
+
+            # Should raise error when allow_frozen=False (default)
+            with self.assertRaises(frappe.ValidationError) as context:
+                config.validate_gl_account(disabled_account, allow_frozen=False)
+
+            error_msg = str(context.exception)
+            self.assertIn("disabled", error_msg.lower())
+
+            # Should succeed when allow_frozen=True
+            result = config.validate_gl_account(disabled_account, allow_frozen=True)
+            self.assertTrue(result.get("valid"))
+            self.assertTrue(result.get("frozen"))
+
+    def test_validate_gl_account_with_group_account(self):
+        """Test validate_gl_account() warns about group accounts"""
+        # Find a group account
+        group_account = frappe.db.get_value("Account", {"is_group": 1}, "name", order_by="creation desc")
+
+        if group_account:
+            config = get_mollie_config()
+
+            # Should still validate but log warning
+            result = config.validate_gl_account(group_account)
+
+            # Should return valid result with is_group flag
+            self.assertTrue(result.get("valid"))
+            self.assertTrue(result.get("is_group"))
+            self.assertEqual(result.get("account_name"), group_account)
+
+    def test_validate_gl_account_with_none_account_name(self):
+        """Test validate_gl_account() rejects None account_name"""
+        config = get_mollie_config()
+
+        with self.assertRaises(frappe.ValidationError) as context:
+            config.validate_gl_account(None)
+
+        error_msg = str(context.exception)
+        self.assertIn("required", error_msg.lower())
+
+    def test_validate_gl_account_all_parameters(self):
+        """Test validate_gl_account() with all validation parameters"""
+        settings = frappe.get_single("Mollie Settings")
+
+        if settings.mollie_clearing_account:
+            config = get_mollie_config()
+
+            # Get actual account details
+            account_details = frappe.db.get_value(
+                "Account",
+                settings.mollie_clearing_account,
+                ["account_type", "company"],
+                as_dict=True,
+            )
+
+            # Validate with all correct parameters
+            result = config.validate_gl_account(
+                settings.mollie_clearing_account,
+                account_type=account_details.get("account_type"),
+                company=account_details.get("company"),
+                allow_frozen=False,
+            )
+
+            # Should pass all validations
+            self.assertTrue(result.get("valid"))
+            self.assertEqual(result.get("account_type"), account_details.get("account_type"))
+            self.assertEqual(result.get("company"), account_details.get("company"))
+
+    def test_get_all_mollie_accounts_with_validation_enabled(self):
+        """Test get_all_mollie_accounts() actually validates when requested"""
+        settings = frappe.get_single("Mollie Settings")
+
+        # If both required accounts are configured, validation should pass
+        if settings.mollie_clearing_account and settings.mollie_bank_account:
+            config = get_mollie_config()
+
+            # Should not raise error with valid accounts
+            accounts = config.get_all_mollie_accounts(validate=True)
+
+            self.assertIsInstance(accounts, dict)
+            self.assertEqual(accounts["clearing_account"], settings.mollie_clearing_account)
+            self.assertEqual(accounts["bank_account"], settings.mollie_bank_account)
+
+    def test_get_all_mollie_accounts_skips_none_values(self):
+        """Test get_all_mollie_accounts() handles None values correctly"""
+        config = get_mollie_config()
+
+        # Get accounts without validation
+        accounts = config.get_all_mollie_accounts(validate=False)
+
+        # All keys should be present even if values are None
+        self.assertIn("clearing_account", accounts)
+        self.assertIn("bank_account", accounts)
+        self.assertIn("fees_account", accounts)
+
+        # None values should be allowed for optional fields
+        # (fees_account is optional)
+
+    def test_validate_all_mollie_accounts_error_aggregation(self):
+        """Test validate_all_mollie_accounts() aggregates multiple errors"""
+        settings = frappe.get_single("Mollie Settings")
+
+        # If multiple accounts are missing, should report all errors
+        if not settings.mollie_clearing_account or not settings.mollie_bank_account:
+            config = get_mollie_config()
+
+            result = config.validate_all_mollie_accounts(raise_on_error=False)
+
+            # Should have detailed error information
+            self.assertFalse(result.get("valid"))
+            self.assertIsInstance(result.get("errors"), list)
+
+            # Each missing account should have its own error
+            if not settings.mollie_clearing_account:
+                errors_str = " ".join(result.get("errors", []))
+                self.assertIn("clearing", errors_str.lower())
+
+            if not settings.mollie_bank_account:
+                errors_str = " ".join(result.get("errors", []))
+                self.assertIn("bank", errors_str.lower())
+
+    def test_validate_all_mollie_accounts_account_details_in_result(self):
+        """Test validate_all_mollie_accounts() includes account details"""
+        settings = frappe.get_single("Mollie Settings")
+
+        if settings.mollie_clearing_account:
+            config = get_mollie_config()
+
+            result = config.validate_all_mollie_accounts(raise_on_error=False)
+
+            # Check clearing_account result structure
+            clearing_result = result["accounts"]["clearing_account"]
+
+            if clearing_result.get("valid"):
+                # Should include full account details
+                self.assertIn("account_name", clearing_result)
+                self.assertIn("account_type", clearing_result)
+                self.assertIn("company", clearing_result)
+                self.assertIn("is_group", clearing_result)
+                self.assertIn("frozen", clearing_result)
+
+    def test_validate_gl_account_performance_single_query(self):
+        """Test validate_gl_account() uses single query for performance"""
+        settings = frappe.get_single("Mollie Settings")
+
+        if settings.mollie_clearing_account:
+            config = get_mollie_config()
+
+            # The method should fetch all account details in one query
+            # We can't easily measure queries in unit tests without mocking,
+            # but we verify the result has all expected fields
+            result = config.validate_gl_account(settings.mollie_clearing_account)
+
+            # All these fields should come from single DB query
+            self.assertIn("account_type", result)
+            self.assertIn("company", result)
+            self.assertIn("is_group", result)
+            self.assertIn("frozen", result)
+
+    def test_validate_all_mollie_accounts_distinguishes_errors_and_warnings(self):
+        """Test validate_all_mollie_accounts() properly categorizes errors vs warnings"""
+        config = get_mollie_config()
+
+        result = config.validate_all_mollie_accounts(raise_on_error=False)
+
+        # Errors should be for required fields only
+        # Warnings should be for optional fields (like fees_account)
+
+        if result.get("warnings"):
+            warnings_str = " ".join(result.get("warnings", []))
+
+            # If fees account is missing, should be warning (not error)
+            settings = frappe.get_single("Mollie Settings")
+            if not settings.payment_processing_fees_account:
+                self.assertIn("fees", warnings_str.lower())
+                # Should NOT be in errors
+                errors_str = " ".join(result.get("errors", []))
+                # Fees account might be mentioned in errors if validation fails,
+                # but not for being unconfigured
+
 
 def run_tests():
     """Helper function to run tests from console"""

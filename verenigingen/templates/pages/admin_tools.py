@@ -204,6 +204,14 @@ def get_context(context):
     # Data integrity tools
     context.data_integrity_tools = [
         {
+            "title": "Verify Child Table Indexes",
+            "description": "Check if required database indexes exist for optimal performance",
+            "method": "verenigingen.utils.orphaned_child_table_cleanup.verify_child_table_indexes",
+            "icon": "fa fa-tachometer",
+            "color": "brand-primary",
+            "formatter": "generic",
+        },
+        {
             "title": "Detect Orphaned Child Tables",
             "description": "Scan all child tables for orphaned records (where parent has been deleted)",
             "method": "verenigingen.utils.orphaned_child_table_cleanup.detect_orphaned_child_tables",
@@ -246,6 +254,25 @@ def get_context(context):
             "icon": "fa fa-user-times",
             "color": "brand-secondary",
             "warning": "This will permanently delete orphaned Member child table records!",
+            "args": {"dry_run": False},
+            "formatter": "orphan",
+        },
+        {
+            "title": "Cleanup Volunteer Child Tables Only (DRY RUN)",
+            "description": "Preview cleanup of orphaned Volunteer child table records only",
+            "method": "verenigingen.utils.orphaned_child_table_cleanup.cleanup_volunteer_child_tables_only",
+            "icon": "fa fa-heart",
+            "color": "brand-accent",
+            "args": {"dry_run": True},
+            "formatter": "orphan",
+        },
+        {
+            "title": "Cleanup Volunteer Child Tables Only (LIVE)",
+            "description": "Delete orphaned Volunteer child table records (Assignments, Skills, etc.)",
+            "method": "verenigingen.utils.orphaned_child_table_cleanup.cleanup_volunteer_child_tables_only",
+            "icon": "fa fa-heart-broken",
+            "color": "brand-secondary",
+            "warning": "This will permanently delete orphaned Volunteer child table records!",
             "args": {"dry_run": False},
             "formatter": "orphan",
         },
@@ -487,9 +514,11 @@ ALLOWED_ADMIN_METHODS = {
     "verenigingen.utils.dues_schedule_health_manager.comprehensive_dues_health_maintenance",
     "verenigingen.utils.dues_schedule_health_manager.sync_all_member_fields",
     # Data integrity management
+    "verenigingen.utils.orphaned_child_table_cleanup.verify_child_table_indexes",
     "verenigingen.utils.orphaned_child_table_cleanup.detect_orphaned_child_tables",
     "verenigingen.utils.orphaned_child_table_cleanup.cleanup_orphaned_child_tables",
     "verenigingen.utils.orphaned_child_table_cleanup.cleanup_member_child_tables_only",
+    "verenigingen.utils.orphaned_child_table_cleanup.cleanup_volunteer_child_tables_only",
     # System administration
     "verenigingen.utils.performance_dashboard.get_system_health",
     "verenigingen.utils.performance_dashboard.get_performance_dashboard",
@@ -512,6 +541,8 @@ ALLOWED_ADMIN_METHODS = {
     "verenigingen.utils.member_import_cleanup.cleanup_test_members_only",
     "verenigingen.utils.member_import_cleanup.nuclear_cleanup_all_members",
     "verenigingen.utils.member_import_cleanup.force_cleanup_orphaned_schedules_and_invoices",
+    # API Audit Log management
+    "verenigingen.verenigingen.doctype.api_audit_log.api_audit_log.clear_all_audit_logs",
 }
 
 

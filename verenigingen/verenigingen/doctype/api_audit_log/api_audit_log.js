@@ -113,17 +113,19 @@ frappe.ui.form.on('API Audit Log', {
 			}
 		}
 
-		// Add severity-based styling
+		// Add severity-based styling with indicator
 		if (frm.doc.severity) {
-			const severityColors = {
-				info: '#17a2b8',
-				warning: '#ffc107',
-				error: '#dc3545',
-				critical: '#6f42c1'
+			const severityIndicators = {
+				info: 'blue',
+				warning: 'orange',
+				error: 'red',
+				critical: 'purple'
 			};
 
-			const color = severityColors[frm.doc.severity] || '#6c757d';
-			frm.set_indicator(frm.doc.severity.toUpperCase(), color);
+			const indicator = severityIndicators[frm.doc.severity] || 'gray';
+			// Use frm.page.set_indicator (correct Frappe API) not frm.set_indicator
+			// This sets the indicator in the page header for visibility
+			frm.page.set_indicator(frm.doc.severity.toUpperCase(), indicator);
 		}
 	},
 

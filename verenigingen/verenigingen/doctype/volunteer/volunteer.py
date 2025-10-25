@@ -231,6 +231,31 @@ class Volunteer(Document):
             else:
                 self.status = "New"
 
+    def on_trash(self):
+        """Clean up child table records before deletion to prevent orphaned data"""
+        # Clean up volunteer assignment history child table
+        # SECURITY: Whitelist of valid child tables to prevent SQL injection
+        VALID_CHILD_TABLES = {
+            "tabVolunteer Assignment",
+        }
+
+        for table_name in VALID_CHILD_TABLES:
+            try:
+                # Verify table exists before attempting deletion
+                if not frappe.db.table_exists(table_name):
+                    continue
+
+                frappe.db.sql(
+                    f"""
+                    DELETE FROM `{table_name}`
+                    WHERE parent = %s
+                    """,
+                    self.name,
+                )
+                frappe.logger().info(f"Cleaned up {table_name} records for {self.name}")
+            except Exception as e:
+                frappe.logger().debug(f"Could not clean up {table_name}: {str(e)}")
+
     def get_contact_link_doctype(self):
         """Override to link contacts to member if available"""
         if self.member:

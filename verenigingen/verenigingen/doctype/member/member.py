@@ -1088,11 +1088,6 @@ class Member(
 
         for table_name in VALID_CHILD_TABLES:
             try:
-                # Validate table name against whitelist (defense in depth)
-                if table_name not in VALID_CHILD_TABLES:
-                    frappe.log_error(f"Invalid table name in cleanup: {table_name}", "Security Alert")
-                    continue
-
                 # Verify table exists before attempting deletion
                 if not frappe.db.table_exists(table_name):
                     continue

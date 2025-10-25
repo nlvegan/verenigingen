@@ -80,23 +80,34 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
     """
     Nuclear cleanup: Delete ALL members and their related records.
 
-    This function will delete:
-    - Members
-    - Memberships
-    - Membership Dues Schedules
-    - Sales Invoices (membership invoices AND application invoices):
-      * Invoices linked via Customer records
-      * Application invoices using email as temporary customer
-      * Invoices referenced in remarks/descriptions
-      * All found invoices are canceled (if submitted) then deleted
-    - Volunteers
-    - SEPA Mandates (member-linked)
-    - Member Payment History
-    - Chapter Members
-    - User accounts (where member is linked)
-    - Customer records (where member is linked)
-    - Donors (where member is linked)
-    - Member-related audit logs and history records
+    This function will delete records in the following order:
+
+    EARLY CLEANUP (tracking/administrative records):
+    1. Notification Settings (for member emails)
+    2. API Audit Log entries (for member emails)
+    3. Account Creation Requests (for these members)
+    4. Chapter Members (child table links)
+
+    DEPENDENCY CLEANUP (financial/operational records):
+    5. Sales Invoices (membership invoices AND application invoices):
+       * Invoices linked via Customer records
+       * Application invoices using email as temporary customer
+       * Invoices referenced in remarks/descriptions
+       * All found invoices are canceled (if submitted) then deleted
+    6. Member Payment History
+    7. SEPA Mandates (member-linked)
+    8. Contribution Amendment Requests
+    9. Membership Dues Schedules
+    10. Memberships
+    11. Volunteers
+    12. Donors (where member is linked)
+    13. Addresses (linked to members)
+    14. Contacts (linked to members)
+    15. Customer records (where member is linked)
+    16. User accounts (where member is linked)
+
+    FINAL CLEANUP:
+    17. Members (core records deleted last)
 
     Args:
         confirm_nuclear_cleanup (bool): Must be True to proceed
@@ -118,6 +129,8 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
         "dues_schedules": {"count": 0, "deleted": 0, "errors": []},
         "amendment_requests": {"count": 0, "deleted": 0, "errors": []},
         "account_creation_requests": {"count": 0, "deleted": 0, "errors": []},
+        "notification_settings": {"count": 0, "deleted": 0, "errors": []},
+        "api_audit_logs": {"count": 0, "deleted": 0, "errors": []},
         "sales_invoices": {"count": 0, "deleted": 0, "errors": []},
         "volunteers": {"count": 0, "deleted": 0, "errors": []},
         "sepa_mandates": {"count": 0, "deleted": 0, "errors": []},
@@ -205,6 +218,46 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
             frappe.logger().error(f"Error querying Account Creation Request: {str(e)}")
             account_creation_requests = []
             results["account_creation_requests"]["count"] = 0
+
+        # Notification Settings (by member email - name field is the email)
+        notification_settings = []
+        try:
+            member_emails = [m["email"] for m in members if m.get("email")]
+            if member_emails:
+                placeholders = ", ".join(["%s"] * len(member_emails))
+                notification_settings = frappe.db.sql(
+                    f"""
+                    SELECT name FROM `tabNotification Settings`
+                    WHERE name IN ({placeholders})
+                """,
+                    member_emails,
+                    as_dict=True,
+                )
+            results["notification_settings"]["count"] = len(notification_settings)
+        except Exception as e:
+            frappe.logger().error(f"Error querying Notification Settings: {str(e)}")
+            notification_settings = []
+            results["notification_settings"]["count"] = 0
+
+        # API Audit Log entries (by member email in user field)
+        api_audit_logs = []
+        try:
+            member_emails = [m["email"] for m in members if m.get("email")]
+            if member_emails:
+                placeholders = ", ".join(["%s"] * len(member_emails))
+                api_audit_logs = frappe.db.sql(
+                    f"""
+                    SELECT name FROM `tabAPI Audit Log`
+                    WHERE user IN ({placeholders})
+                """,
+                    member_emails,
+                    as_dict=True,
+                )
+            results["api_audit_logs"]["count"] = len(api_audit_logs)
+        except Exception as e:
+            frappe.logger().error(f"Error querying API Audit Log: {str(e)}")
+            api_audit_logs = []
+            results["api_audit_logs"]["count"] = 0
 
         # Sales Invoices - comprehensive cleanup including application invoices
         try:
@@ -431,6 +484,8 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
             + results["dues_schedules"]["count"]
             + results["amendment_requests"]["count"]
             + results["account_creation_requests"]["count"]
+            + results["notification_settings"]["count"]
+            + results["api_audit_logs"]["count"]
             + results["sales_invoices"]["count"]
             + results["volunteers"]["count"]
             + results["sepa_mandates"]["count"]
@@ -456,7 +511,40 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
         frappe.db.begin()
 
         try:
-            # Delete child table records first (Chapter Members)
+            # EARLY CLEANUP: Delete tracking/administrative records first
+            # These don't have dependencies and should be cleaned up early
+
+            # Delete Notification Settings (by member email)
+            frappe.logger().info(f"Cleaning up {len(notification_settings)} Notification Settings...")
+            for ns in notification_settings:
+                try:
+                    frappe.delete_doc("Notification Settings", ns.name, ignore_permissions=True, force=True)
+                    results["notification_settings"]["deleted"] += 1
+                except Exception as e:
+                    results["notification_settings"]["errors"].append(f"{ns.name}: {str(e)}")
+
+            # Delete API Audit Log entries (by member email)
+            frappe.logger().info(f"Cleaning up {len(api_audit_logs)} API Audit Log entries...")
+            for audit_log in api_audit_logs:
+                try:
+                    frappe.delete_doc("API Audit Log", audit_log.name, ignore_permissions=True, force=True)
+                    results["api_audit_logs"]["deleted"] += 1
+                except Exception as e:
+                    results["api_audit_logs"]["errors"].append(f"{audit_log.name}: {str(e)}")
+
+            # Delete Account Creation Requests (tracking records - delete early)
+            frappe.logger().info(f"Cleaning up {len(account_creation_requests)} Account Creation Requests...")
+            for acr in account_creation_requests:
+                try:
+                    frappe.delete_doc(
+                        "Account Creation Request", acr.name, ignore_permissions=True, force=True
+                    )
+                    results["account_creation_requests"]["deleted"] += 1
+                except Exception as e:
+                    results["account_creation_requests"]["errors"].append(f"{acr.name}: {str(e)}")
+
+            # Delete child table records (Chapter Members)
+            frappe.logger().info(f"Cleaning up {len(chapter_members)} Chapter Member links...")
             for cm in chapter_members:
                 try:
                     # Remove from chapter's members child table
@@ -470,7 +558,8 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
                 except Exception as e:
                     results["chapter_members"]["errors"].append(f"Chapter {cm.chapter_name}: {str(e)}")
 
-            # Delete Sales Invoices first (they depend on dues schedules and memberships)
+            # Delete Sales Invoices (they depend on dues schedules and memberships)
+            frappe.logger().info(f"Cleaning up {len(sales_invoices)} Sales Invoices...")
             for invoice in sales_invoices:
                 try:
                     doc = frappe.get_doc("Sales Invoice", invoice.name)
@@ -550,6 +639,7 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
                     results["customers"]["errors"].append(f"{customer.name}: {str(e)}")
 
             # Delete User accounts (be very careful here)
+            frappe.logger().info(f"Cleaning up {len(users_with_member_links)} User accounts...")
             for user in users_with_member_links:
                 try:
                     # Extra safety check - don't delete Administrator or system users
@@ -561,17 +651,8 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
                 except Exception as e:
                     results["users"]["errors"].append(f"{user.name}: {str(e)}")
 
-            # Delete Account Creation Requests (must be before Members due to link validation)
-            for acr in account_creation_requests:
-                try:
-                    frappe.delete_doc(
-                        "Account Creation Request", acr.name, ignore_permissions=True, force=True
-                    )
-                    results["account_creation_requests"]["deleted"] += 1
-                except Exception as e:
-                    results["account_creation_requests"]["errors"].append(f"{acr.name}: {str(e)}")
-
             # Finally delete Members
+            frappe.logger().info(f"Cleaning up {len(members)} Member records...")
             for member in members:
                 try:
                     frappe.delete_doc("Member", member.name, ignore_permissions=True, force=True)
@@ -588,6 +669,8 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
                 + results["dues_schedules"]["deleted"]
                 + results["amendment_requests"]["deleted"]
                 + results["account_creation_requests"]["deleted"]
+                + results["notification_settings"]["deleted"]
+                + results["api_audit_logs"]["deleted"]
                 + results["sales_invoices"]["deleted"]
                 + results["volunteers"]["deleted"]
                 + results["sepa_mandates"]["deleted"]
