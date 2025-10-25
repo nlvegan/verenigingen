@@ -27,7 +27,7 @@ import frappe
 from faker import Faker
 from frappe.utils import add_days, add_months, flt, getdate, now_datetime, random_string
 
-from .enhanced_test_factory import EnhancedTestCase, EnhancedTestDataFactory
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, EnhancedTestDataFactory
 
 
 class MollieTestDataFactory(EnhancedTestDataFactory):

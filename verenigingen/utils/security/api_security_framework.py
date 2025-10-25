@@ -305,21 +305,41 @@ class APISecurityFramework:
         if getattr(frappe.flags, "in_background_job", False):
             return ExecutionContext.BACKGROUND_JOB
 
+        # Check for bulk operations flag (set during bulk imports/processing)
+        if getattr(frappe.flags, "bulk_account_creation", False):
+            return ExecutionContext.BACKGROUND_JOB
+
         # Check for scheduled task context (cron jobs)
         if getattr(frappe.flags, "in_scheduler", False):
             return ExecutionContext.SCHEDULED_TASK
 
-        # Check if there's an active HTTP request
-        # If no request, we're likely in CLI or test context
-        try:
-            if hasattr(frappe.local, "request") and frappe.local.request:
-                return ExecutionContext.INTERACTIVE
-        except (AttributeError, RuntimeError):
-            pass
-
         # If we're in test mode, treat as CLI
         if frappe.flags.in_test:
             return ExecutionContext.CLI
+
+        # Check if there's an active HTTP request
+        # Background jobs don't have HTTP requests - they're called via RQ workers
+        has_http_request = False
+        try:
+            has_http_request = (
+                hasattr(frappe.local, "request")
+                and frappe.local.request is not None
+                and hasattr(frappe.local.request, "method")
+            )
+        except (AttributeError, RuntimeError):
+            has_http_request = False
+
+        if has_http_request:
+            return ExecutionContext.INTERACTIVE
+
+        # No HTTP request - could be background job or CLI
+        # If this function was called with @frappe.whitelist() but has no HTTP request,
+        # it's almost certainly a background job (enqueued via frappe.enqueue)
+        # Check if we're running in an RQ worker context
+        import sys
+
+        if "rq.worker" in sys.modules or "rq" in str(sys.argv):
+            return ExecutionContext.BACKGROUND_JOB
 
         # Default to CLI for all other contexts (bench commands, console, etc.)
         return ExecutionContext.CLI
@@ -943,6 +963,9 @@ class APISecurityFramework:
             max_length = 2000  # Allow larger data for reports
         elif operation_type == OperationType.FINANCIAL:
             max_length = 100000  # Allow large JSON payloads for batch financial operations
+        elif operation_type == OperationType.ADMIN:
+            # Admin operations may include bulk operations with large arrays
+            max_length = 50000  # Allow larger payloads for bulk admin operations
 
         for key, value in kwargs.items():
             # Skip None values
@@ -956,7 +979,24 @@ class APISecurityFramework:
                 import html
 
                 decoded_value = html.unescape(value)
-                validated_data[key] = APIValidator.sanitize_text(decoded_value, max_length=max_length)
+
+                # Check if this looks like a JSON array or object - if so, use higher limit
+                # This handles bulk operations that pass arrays as JSON strings
+                is_json_payload = False
+                if decoded_value.strip().startswith(("[", "{")):
+                    try:
+                        import json
+
+                        json.loads(decoded_value)
+                        is_json_payload = True
+                    except (json.JSONDecodeError, ValueError):
+                        pass
+
+                # Use higher limit for JSON payloads in bulk operations
+                effective_max_length = 100000 if is_json_payload else max_length
+                validated_data[key] = APIValidator.sanitize_text(
+                    decoded_value, max_length=effective_max_length
+                )
             elif isinstance(value, dict):
                 # Recursively validate dict inputs
                 validated_data[key] = self._validate_dict_input(value, max_length)

@@ -54,10 +54,17 @@ class BalancesClient(MollieBaseClient):
             # This will raise appropriate errors if backend API is not configured
             self._get_backend_api_key()
         except frappe.ValidationError as e:
-            frappe.log_error(
-                f"BalancesClient initialization failed: {str(e)}", "Mollie Backend API Configuration Error"
+            # Use centralized error handler for consistent messaging and logging
+            self.error_handler.handle_error(
+                error_type="configuration_missing",
+                error=e,
+                context={
+                    "client": "BalancesClient",
+                    "requirement": "Backend API (Organization Access Token)",
+                    "configuration_location": "Mollie Settings",
+                },
+                audit_trail=self.audit_trail,
             )
-            raise frappe.ValidationError(_("BalancesClient requires Backend API configuration. ") + str(e))
 
     def get_balance(self, balance_id: str, use_cache: bool = True, cache_ttl: int = 60) -> Balance:
         """

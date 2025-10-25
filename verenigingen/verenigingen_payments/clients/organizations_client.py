@@ -138,11 +138,13 @@ class OrganizationsClient(MollieBaseClient):
         Returns:
             Dict with sync results
         """
-        org = self.get_current_organization()
 
-        sync_result = {"organization_id": org.id, "synced_fields": [], "status": "success"}
+        def _perform_sync():
+            """Internal sync operation wrapped by error handler"""
+            org = self.get_current_organization()
 
-        try:
+            sync_result = {"organization_id": org.id, "synced_fields": [], "status": "success"}
+
             # Update or create Company record
             company_name = org.name or "Default Company"
 
@@ -191,18 +193,15 @@ class OrganizationsClient(MollieBaseClient):
                 details=sync_result,
             )
 
-        except Exception as e:
-            sync_result["status"] = "failed"
-            sync_result["error"] = str(e)
+            return sync_result
 
-            # Log error
-            self.audit_trail.log_event(
-                AuditEventType.ERROR_OCCURRED,
-                AuditSeverity.ERROR,
-                f"Organization sync failed: {str(e)}",
-                details=sync_result,
-            )
-
-            frappe.log_error(f"Organization sync error: {str(e)}", "Mollie Organization Sync")
-
-        return sync_result
+        # Use centralized error handler with graceful failure
+        return self.error_handler.wrap_operation(
+            operation_name="sync_organization_to_frappe",
+            operation_callable=_perform_sync,
+            error_type="operation_failed",
+            context={"operation": "organization_sync", "target": "Frappe Company"},
+            audit_trail=self.audit_trail,
+            fallback_value={"status": "failed", "error": "Sync operation failed"},
+            suppress_errors=True,
+        )

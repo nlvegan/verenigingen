@@ -65,14 +65,39 @@ function bulk_queue_account_creation_requests(listview) {
 							__('Successfully queued {0} request(s) for processing', [r.message.queued_count])
 						);
 						listview.refresh();
+					} else if (r.message) {
+						// Show detailed error information
+						let error_msg = r.message.error || 'Unknown error';
+						if (r.message.errors && r.message.errors.length > 0) {
+							error_msg += '<br><br>First errors:<br>' + r.message.errors.slice(0, 5).join('<br>');
+						}
+						frappe.msgprint({
+							title: __('Error Queueing Requests'),
+							indicator: 'red',
+							message: error_msg
+						});
 					} else {
-						frappe.msgprint(
-							__('Error queueing requests: {0}', [r.message.error || 'Unknown error'])
-						);
+						frappe.msgprint(__('Error queueing requests: No response from server'));
 					}
 				},
 				error(r) {
-					frappe.msgprint(__('Failed to queue requests. Please check the error log.'));
+					// Enhanced error reporting
+					let error_detail = 'Please check the error log.';
+					if (r && r.message) {
+						error_detail = r.message;
+					} else if (r && r._server_messages) {
+						try {
+							const messages = JSON.parse(r._server_messages);
+							error_detail = messages.map(m => JSON.parse(m).message).join('; ');
+						} catch(e) {
+							error_detail = r._server_messages;
+						}
+					}
+					frappe.msgprint({
+						title: __('Failed to Queue Requests'),
+						indicator: 'red',
+						message: error_detail
+					});
 				}
 			});
 		}

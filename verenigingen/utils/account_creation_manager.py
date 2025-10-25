@@ -405,14 +405,13 @@ class AccountCreationManager:
                     )
 
             # Link 3: Employee to User record
+            # NOTE: Employee.user_id links to User, not User.employee to Employee
+            # The link was already established during employee creation (line 340: user_id)
+            # No additional linking needed here - Employee.user_id is set during create_employee_record()
             if self.created_user and self.created_employee:
-                user_doc = frappe.get_doc("User", self.created_user)
-                if not user_doc.employee:
-                    user_doc.employee = self.created_employee
-                    user_doc.save()
-                    frappe.logger().info(
-                        f"Linked employee {self.created_employee} to User {self.created_user}"
-                    )
+                frappe.logger().info(
+                    f"Employee {self.created_employee} already linked to User {self.created_user} via Employee.user_id"
+                )
 
             # Link 4 & 5: For Member records, link User and Employee to associated Volunteer record
             if self.request.request_type == "Member":

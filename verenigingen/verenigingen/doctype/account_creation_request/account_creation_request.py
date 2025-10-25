@@ -215,16 +215,10 @@ class AccountCreationRequest(Document):
         if self.status != "Failed":
             frappe.throw(_("Only failed requests can be retried"))
 
-        # Validate retry limits
-        try:
-            max_retries = (
-                frappe.db.get_single_value("Verenigingen Settings", "max_account_creation_retries") or 3
-            )
-        except frappe.ValidationError:
-            # Fallback if field doesn't exist yet
-            max_retries = 3
-        if self.retry_count >= max_retries:
-            frappe.throw(_("Maximum retry attempts exceeded ({0})").format(max_retries))
+        # Validate retry limits (constant - no need for settings field)
+        MAX_RETRIES = 3
+        if self.retry_count >= MAX_RETRIES:
+            frappe.throw(_("Maximum retry attempts exceeded ({0})").format(MAX_RETRIES))
 
         # Reset for retry
         self.status = "Requested"
@@ -387,22 +381,30 @@ def bulk_queue_requests(request_names):
             except json.JSONDecodeError:
                 frappe.throw(_("Invalid request_names format"))
 
+    # Set flag to indicate we're in a bulk operation
+    # This prevents nested queue_processing() calls from being rate limited individually
+    frappe.flags.bulk_account_creation = True
+
     queued_count = 0
     errors = []
 
-    for name in request_names:
-        try:
-            doc = frappe.get_doc("Account Creation Request", name)
+    try:
+        for name in request_names:
+            try:
+                doc = frappe.get_doc("Account Creation Request", name)
 
-            # Validate status
-            if doc.status != "Requested":
-                errors.append(f"{name}: Cannot queue (status: {doc.status})")
-                continue
+                # Validate status
+                if doc.status != "Requested":
+                    errors.append(f"{name}: Cannot queue (status: {doc.status})")
+                    continue
 
-            doc.queue_processing()
-            queued_count += 1
-        except Exception as e:
-            errors.append(f"{name}: {str(e)}")
+                doc.queue_processing()
+                queued_count += 1
+            except Exception as e:
+                errors.append(f"{name}: {str(e)}")
+    finally:
+        # Always clear the flag when done
+        frappe.flags.bulk_account_creation = False
 
     return {
         "success": len(errors) == 0,
