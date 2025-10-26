@@ -1106,26 +1106,14 @@ class PaymentEntryHandler:
             # Keep it clean without import metadata
             bt_description = mutation.get("description", "")
 
-            # Extract reference number from end of description
-            # Common patterns: "Bestelling 50019 tr_ABC123" or "Invoice 12345" or just "50019"
-            # We take the last meaningful token as the reference
+            # CRITICAL: Always use EB-{mutation_id} as reference for uniqueness
+            # Previously tried to extract from description (last token), but this caused
+            # collisions when common words like "vertraging" appeared at end of descriptions
+            # Example collision: mutation 7949 description ending with "vertraging" matched
+            # an existing 2020 Bank Transaction with reference "vertraging", causing
+            # "over-allocated" errors when trying to add a second payment entry
             mutation_id = mutation.get("id")
-            bt_reference = f"EB-{mutation_id}"  # Fallback
-
-            if bt_description:
-                # Split by whitespace and get last 3 tokens (common reference location)
-                tokens = bt_description.strip().split()
-                if tokens:
-                    # Take last token as reference (e.g., "tr_WDyL7bgZmU" or "50019")
-                    # Filter out very short tokens (like "A" or single digits)
-                    candidate = tokens[-1]
-                    if len(candidate) >= 3 and not candidate.startswith("("):
-                        bt_reference = candidate
-                    elif len(tokens) >= 2:
-                        # Try second-to-last if last token is too short
-                        candidate = tokens[-2]
-                        if len(candidate) >= 3:
-                            bt_reference = candidate
+            bt_reference = f"EB-{mutation_id}"  # Guaranteed unique per mutation
 
             # Create Bank Transaction using service
             transaction_data = {

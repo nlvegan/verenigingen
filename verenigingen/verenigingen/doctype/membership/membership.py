@@ -3,6 +3,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import add_months, add_to_date, flt, getdate, nowdate, today
 
+from verenigingen.repositories.dues_schedule_repository import DuesScheduleRepository
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -93,9 +94,9 @@ class Membership(Document):
         ) or (None, None)
 
         # Check if member already has a dues schedule
-        existing_schedule = frappe.db.get_value(
-            "Membership Dues Schedule", {"member": self.member, "is_template": 0}, "name"
-        )
+        repo = DuesScheduleRepository()
+        existing_schedule_info = repo.get_active_schedule(self.member, fields=["name", "membership_type"])
+        existing_schedule = existing_schedule_info.name if existing_schedule_info else None
 
         if existing_schedule:
             # Update existing schedule with new membership type if changed
@@ -222,8 +223,8 @@ class Membership(Document):
                 elif result.retry_job_id:
                     # Retry enqueued - show user-friendly message
                     frappe.msgprint(
-                        f"Dues schedule creation will be retried automatically in the background. "
-                        f"You can continue working - the system will handle this.",
+                        "Dues schedule creation will be retried automatically in the background. "
+                        "You can continue working - the system will handle this.",
                         title="Dues Schedule Queued",
                         indicator="orange",
                         alert=True,
@@ -280,12 +281,11 @@ class Membership(Document):
         if not self.member:
             return
 
-        existing_schedule = frappe.db.get_value(
-            "Membership Dues Schedule", {"member": self.member, "is_template": 0}, "name"
-        )
+        repo = DuesScheduleRepository()
+        existing_schedule_info = repo.get_active_schedule(self.member, fields=["name"])
 
-        if existing_schedule:
-            schedule = frappe.get_doc("Membership Dues Schedule", existing_schedule)
+        if existing_schedule_info:
+            schedule = frappe.get_doc("Membership Dues Schedule", existing_schedule_info.name)
             schedule.pause_schedule(f"Membership {self.name} cancelled on {today()}")
 
     def get_dues_schedule(self):
@@ -293,9 +293,9 @@ class Membership(Document):
         if not self.member:
             return None
 
-        return frappe.db.get_value(
-            "Membership Dues Schedule", {"member": self.member, "is_template": 0}, "name"
-        )
+        repo = DuesScheduleRepository()
+        schedule_info = repo.get_active_schedule(self.member, fields=["name"])
+        return schedule_info.name if schedule_info else None
 
     def validate_existing_memberships(self):
         """Check if there are any existing active memberships for this member"""
@@ -631,11 +631,10 @@ class Membership(Document):
         """Get the billing amount for this membership"""
         # Get amount from member's dues schedule if exists
         if self.member:
-            dues_schedule = frappe.db.get_value(
-                "Membership Dues Schedule", {"member": self.member, "is_template": 0}, "dues_rate"
-            )
-            if dues_schedule:
-                return dues_schedule
+            repo = DuesScheduleRepository()
+            dues_schedule_info = repo.get_active_schedule(self.member, fields=["dues_rate"])
+            if dues_schedule_info:
+                return dues_schedule_info.dues_rate
 
         # Fallback to membership type template amount
         if self.membership_type:
@@ -823,11 +822,10 @@ class Membership(Document):
             member_doc._system_update = True
 
             # Also update current_dues_schedule to match the member's dues schedule
-            dues_schedule = frappe.db.get_value(
-                "Membership Dues Schedule", {"member": self.member, "is_template": 0}, "name"
-            )
-            if dues_schedule:
-                member_doc.current_dues_schedule = dues_schedule
+            repo = DuesScheduleRepository()
+            dues_schedule_info = repo.get_active_schedule(self.member, fields=["name"])
+            if dues_schedule_info:
+                member_doc.current_dues_schedule = dues_schedule_info.name
 
             member_doc.save()
             frappe.logger().info(

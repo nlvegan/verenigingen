@@ -180,13 +180,13 @@ def process_line_items(invoice, regels, invoice_type, cost_center, debug_info):
         )
 
         # Handle quantities and prices with correction line item support
-        # For Sales Returns, quantities should remain negative (ERPNext requirement)
-        # For Purchase Returns and normal invoices, quantities should be positive
-        if invoice_type == "sales" and getattr(invoice, "is_return", False):
-            # Sales Return: keep negative quantities as they are (already processed by conversion function)
-            debug_info.append(f"Sales Return: preserving quantity {quantity} (negative required)")
+        # For ALL Returns (both Sales and Purchase), quantities MUST remain negative (ERPNext requirement)
+        # ERPNext validates: if is_return and qty > 0 → throw error (status_updater.py:243-244)
+        if getattr(invoice, "is_return", False):
+            # Return invoice: keep negative quantities as they are (already processed by conversion function)
+            debug_info.append(f"{invoice_type.title()} Return: preserving negative quantity {quantity} (ERPNext requirement)")
         else:
-            # Normal invoices or Purchase Returns: quantities should be positive
+            # Normal invoices: quantities should be positive
             quantity = abs(quantity)
 
         # For prices/amounts: preserve negatives for correction entries, unless already processed for credit notes

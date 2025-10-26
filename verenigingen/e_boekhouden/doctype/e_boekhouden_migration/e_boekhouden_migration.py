@@ -3323,7 +3323,7 @@ def start_transaction_import(migration_name, import_type="recent"):
 
         # Always use REST API import
         frappe.enqueue(
-            "verenigingen.e_boekhouden.utils_rest_full_migration.start_full_rest_import",
+            "verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration.start_full_rest_import",
             migration_name=migration_name,
             queue="long",
             timeout=7200 if import_type == "all" else 3600,  # 2 hours for full, 1 hour for recent

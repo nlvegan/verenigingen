@@ -3,6 +3,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import add_days, getdate, now_datetime, today
 
+from verenigingen.repositories.dues_schedule_repository import DuesScheduleRepository
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
@@ -203,12 +204,8 @@ class ContributionAmendmentRequest(Document):
         self.current_membership_type = membership.membership_type
 
         # PRIORITY 1: Get current amount from active dues schedule
-        active_dues_schedule = frappe.db.get_value(
-            "Membership Dues Schedule",
-            {"member": self.member, "status": "Active"},
-            ["name", "dues_rate", "billing_frequency"],
-            as_dict=True,
-        )
+        repo = DuesScheduleRepository()
+        active_dues_schedule = repo.get_active_schedule(self.member)
 
         if active_dues_schedule:
             self.current_amount = active_dues_schedule.dues_rate
@@ -241,11 +238,9 @@ class ContributionAmendmentRequest(Document):
             self.effective_date = None
             try:
                 # Check if there's an active dues schedule
-                active_dues_schedule = frappe.db.get_value(
-                    "Membership Dues Schedule",
-                    {"member": self.member, "status": "Active"},
-                    ["name", "next_invoice_date"],
-                    as_dict=True,
+                repo = DuesScheduleRepository()
+                active_dues_schedule = repo.get_active_schedule(
+                    self.member, fields=["name", "next_invoice_date"]
                 )
 
                 if active_dues_schedule and active_dues_schedule.next_invoice_date:
@@ -637,13 +632,11 @@ class ContributionAmendmentRequest(Document):
             if is_pure_fee_change:
                 # For pure fee changes, just update the existing dues schedule
                 # Look for Active or Paused schedules (Paused schedules can still be amended)
-                existing_schedule = frappe.db.get_value(
-                    "Membership Dues Schedule",
-                    {"member": self.member, "status": ["in", ["Active", "Paused"]]},
-                    "name",
-                )
+                repo = DuesScheduleRepository()
+                existing_schedule_info = repo.get_active_or_paused_schedule(self.member, fields=["name"])
 
-                if existing_schedule:
+                if existing_schedule_info:
+                    existing_schedule = existing_schedule_info.name
                     # Update the existing schedule
                     schedule_doc = frappe.get_doc("Membership Dues Schedule", existing_schedule)
                     schedule_doc.dues_rate = self.requested_amount
@@ -764,29 +757,19 @@ class ContributionAmendmentRequest(Document):
                 frappe.throw(_("No active membership found for creating dues schedule"))
 
             # Deactivate existing active or paused dues schedule
-            existing_schedule = frappe.db.get_value(
-                "Membership Dues Schedule",
-                {"member": self.member, "status": ["in", ["Active", "Paused"]]},
-                "name",
-            )
+            repo = DuesScheduleRepository()
+            existing_schedule_info = repo.get_active_or_paused_schedule(self.member, fields=["name"])
 
-            if existing_schedule:
-                existing_doc = frappe.get_doc("Membership Dues Schedule", existing_schedule)
-                existing_doc.status = "Cancelled"
-                existing_doc.add_comment(
-                    text=f"Cancelled and replaced by amendment {self.name}: €{self.requested_amount:.2f}"
-                )
-                cancel_result = secure_document_operation(
-                    operation="save",
-                    doc=existing_doc,
-                    justification=f"Cancel existing dues schedule {existing_schedule} for amendment {self.name}",
-                    required_permissions=["Membership Dues Schedule:write"],
+            if existing_schedule_info:
+                cancel_result = repo.cancel_schedule(
+                    existing_schedule_info.name,
+                    f"Cancelled and replaced by amendment {self.name}: €{self.requested_amount:.2f}",
                 )
                 if not cancel_result.success:
                     error_details = "; ".join(cancel_result.errors)
                     frappe.throw(
                         _("Failed to cancel dues schedule {0} during amendment {1}: {2}").format(
-                            existing_schedule, self.name, error_details
+                            existing_schedule_info.name, self.name, error_details
                         )
                     )
 
@@ -902,23 +885,13 @@ class ContributionAmendmentRequest(Document):
             membership.save()
 
             # Cancel existing dues schedule and create new one with proper billing frequency
-            existing_schedule = frappe.db.get_value(
-                "Membership Dues Schedule",
-                {"member": self.member, "status": ["in", ["Active", "Paused"]]},
-                "name",
-            )
+            repo = DuesScheduleRepository()
+            existing_schedule_info = repo.get_active_or_paused_schedule(self.member, fields=["name"])
 
-            if existing_schedule:
-                existing_doc = frappe.get_doc("Membership Dues Schedule", existing_schedule)
-                existing_doc.status = "Cancelled"
-                existing_doc.add_comment(
-                    text=f"Cancelled due to membership type change via amendment {self.name}"
-                )
-                cancel_result = secure_document_operation(
-                    operation="save",
-                    doc=existing_doc,
-                    justification=f"Cancel existing dues schedule for membership type change via amendment {self.name}",
-                    required_permissions=["Membership Dues Schedule:write"],
+            if existing_schedule_info:
+                cancel_result = repo.cancel_schedule(
+                    existing_schedule_info.name,
+                    f"Cancelled due to membership type change via amendment {self.name}",
                 )
                 if not cancel_result.success:
                     frappe.throw(
@@ -1364,12 +1337,8 @@ def create_fee_change_amendment(member_name, new_amount, reason, effective_date=
         # Default to next billing period or next month
         try:
             # Check if there's an active dues schedule
-            active_dues_schedule = frappe.db.get_value(
-                "Membership Dues Schedule",
-                {"member": member.name, "status": "Active"},
-                ["next_invoice_date"],
-                as_dict=True,
-            )
+            repo = DuesScheduleRepository()
+            active_dues_schedule = repo.get_active_schedule(member.name, fields=["next_invoice_date"])
 
             if active_dues_schedule and active_dues_schedule.next_invoice_date:
                 effective_date = active_dues_schedule.next_invoice_date

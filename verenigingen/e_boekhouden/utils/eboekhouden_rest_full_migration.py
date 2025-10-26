@@ -2517,13 +2517,13 @@ def _convert_regels_for_credit_note(regels, invoice_type, debug_info):
     """
     Convert line items for credit notes with proper quantity/amount handling.
 
-    For Sales Returns (Sales Invoices with is_return=True):
+    For ALL Returns (both Sales and Purchase Invoices with is_return=True):
     - Amounts: Convert to positive (ERPNext handles the math)
-    - Quantities: Keep negative (ERPNext requirement)
+    - Quantities: MUST be negative (ERPNext validation requirement)
 
-    For Purchase Returns (Purchase Invoices with is_return=True):
-    - Amounts: Convert to positive
-    - Quantities: Convert to positive
+    ERPNext validates in status_updater.py:243-244:
+    if d.qty > 0 and self.get("is_return"):
+        throw("quantity must be negative number")
     """
     if not regels:
         return regels
@@ -2554,27 +2554,17 @@ def _convert_regels_for_credit_note(regels, invoice_type, debug_info):
             original_quantity = 1.0
 
         if original_quantity != 0:
-            if invoice_type == "sales":
-                # For Sales Returns, quantities must be negative
-                if original_quantity > 0:
-                    converted_regel[quantity_field] = -abs(original_quantity)
-                    debug_info.append(
-                        f"Sales credit note: converted positive quantity {original_quantity} to negative {-abs(original_quantity)}"
-                    )
-                else:
-                    # Already negative, keep it
-                    converted_regel[quantity_field] = original_quantity
-                    debug_info.append(f"Sales credit note: kept negative quantity {original_quantity}")
+            # For ALL Returns (both Sales and Purchase), quantities MUST be negative
+            # ERPNext validation: if is_return and qty > 0 → error
+            if original_quantity > 0:
+                converted_regel[quantity_field] = -abs(original_quantity)
+                debug_info.append(
+                    f"{invoice_type.title()} credit note: converted positive quantity {original_quantity} to negative {-abs(original_quantity)}"
+                )
             else:
-                # For Purchase Returns, quantities should be positive
-                if original_quantity < 0:
-                    converted_regel[quantity_field] = abs(original_quantity)
-                    debug_info.append(
-                        f"Purchase credit note: converted negative quantity {original_quantity} to positive {abs(original_quantity)}"
-                    )
-                else:
-                    # Set positive quantity
-                    converted_regel[quantity_field] = abs(original_quantity)
+                # Already negative, keep it
+                converted_regel[quantity_field] = original_quantity
+                debug_info.append(f"{invoice_type.title()} credit note: kept negative quantity {original_quantity}")
 
         converted_regels.append(converted_regel)
 
