@@ -457,15 +457,15 @@ def get_context(context):
         },
         {
             "description": "Bulk generate invoices (dry run)",
-            "command": 'bench --site dev.veganisme.net execute verenigingen.utils.invoice_management.bulk_generate_dues_invoices --kwargs=\'{"dry_run": true, "max_invoices": 20}\'',
+            "command": 'bench --site dev.veganisme.net execute verenigingen.utils.invoice_management.bulk_generate_dues_invoices --kwargs=\'{"dry_run": True, "max_invoices": 20}\'',
         },
         {
             "description": "Generate invoices for real (max 50)",
-            "command": 'bench --site dev.veganisme.net execute verenigingen.utils.invoice_management.bulk_generate_dues_invoices --kwargs=\'{"dry_run": false, "max_invoices": 50}\'',
+            "command": 'bench --site dev.veganisme.net execute verenigingen.utils.invoice_management.bulk_generate_dues_invoices --kwargs=\'{"dry_run": False, "max_invoices": 50}\'',
         },
         {
             "description": "Cleanup orphaned schedules (dry run)",
-            "command": "bench --site dev.veganisme.net execute verenigingen.utils.invoice_management.cleanup_orphaned_schedules --kwargs='{\"dry_run\": true}'",
+            "command": "bench --site dev.veganisme.net execute verenigingen.utils.invoice_management.cleanup_orphaned_schedules --kwargs='{\"dry_run\": True}'",
         },
         {
             "description": "Enhanced membership cleanup (dry run)",
@@ -485,11 +485,11 @@ def get_context(context):
         },
         {
             "description": "Nuclear cleanup ALL members (DRY RUN)",
-            "command": 'bench --site dev.veganisme.net execute verenigingen.utils.member_import_cleanup.nuclear_cleanup_all_members --kwargs=\'{"confirm_nuclear_cleanup": true, "dry_run": true}\'',
+            "command": 'bench --site dev.veganisme.net execute verenigingen.utils.member_import_cleanup.nuclear_cleanup_all_members --kwargs=\'{"confirm_nuclear_cleanup": True, "dry_run": True}\'',
         },
         {
             "description": "⚠️ DANGER: Nuclear cleanup ALL members (LIVE)",
-            "command": 'bench --site dev.veganisme.net execute verenigingen.utils.member_import_cleanup.nuclear_cleanup_all_members --kwargs=\'{"confirm_nuclear_cleanup": true, "dry_run": false}\'',
+            "command": 'bench --site dev.veganisme.net execute verenigingen.utils.member_import_cleanup.nuclear_cleanup_all_members --kwargs=\'{"confirm_nuclear_cleanup": True, "dry_run": False}\'',
         },
     ]
 

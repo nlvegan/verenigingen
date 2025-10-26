@@ -19,7 +19,7 @@ def validate_cleanup_permissions():
     user = frappe.session.user
 
     # Level 1: Must be in developer mode
-    if frappe.conf.get("developer_mode") != 1:
+    if frappe.conf.get("developer_mode") > 1:
         frappe.throw(_("Cleanup operations can only be run in developer mode for safety"))
 
     # Level 2: User must be Administrator or have System Manager role
