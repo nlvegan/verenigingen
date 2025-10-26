@@ -16,6 +16,18 @@ from verenigingen.utils.security.api_security_framework import OperationType, cr
 
 
 class EBoekhoudenMigration(Document):
+    def onload(self):
+        """Set default values when loading a new document"""
+        if self.is_new() and not self.company:
+            # Get default company from E-Boekhouden Settings
+            try:
+                settings = frappe.get_single("E-Boekhouden Settings")
+                if settings.default_company:
+                    self.company = settings.default_company
+            except Exception:
+                # If settings don't exist or have no default, try global default
+                pass
+
     def validate(self):
         """Validate migration settings"""
         # Debug logging

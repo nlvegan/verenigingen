@@ -75,7 +75,7 @@ def update_member_current_dues_schedule(doc, method=None):
             should_be_current = True
 
         # Case 3: This is a newer active schedule (check by creation date)
-        elif doc.creation > current_data.current_creation:
+        elif current_data.current_creation and getdate(doc.creation) > getdate(current_data.current_creation):
             should_be_current = True
 
         # Update if needed

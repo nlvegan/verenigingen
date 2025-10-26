@@ -47,10 +47,12 @@ class TestDuesScheduleRepository(EnhancedTestCase):
             "status": status,
             "next_invoice_date": kwargs.get("next_invoice_date", add_months(today(), 1)) if status == "Active" else None,
             "contribution_mode": kwargs.get("contribution_mode", "Tier"),
-            **{k: v for k, v in kwargs.items() if k not in ["schedule_name", "billing_frequency", "next_invoice_date", "contribution_mode", "membership_type"]}
+            "docstatus": 0,  # Draft status to ensure it's not filtered out
+            **{k: v for k, v in kwargs.items() if k not in ["schedule_name", "billing_frequency", "next_invoice_date", "contribution_mode", "membership_type", "docstatus"]}
         })
         schedule.flags.ignore_validate = True  # Skip business rule validation for tests
         schedule.insert(ignore_permissions=True)
+        frappe.db.commit()  # Commit immediately so other queries can see it
         return schedule
 
     def test_repository_initialization(self):
@@ -119,21 +121,21 @@ class TestDuesScheduleRepository(EnhancedTestCase):
         schedule = self.repo.get_active_schedule(self.test_member.name)
         self.assertIsNone(schedule)
 
-    def test_get_all_schedules_for_member(self):
-        """Test retrieving all schedules (any status) for a member"""
+    def test_get_schedules_filters_by_status(self):
+        """Test get_schedules_for_members only returns active schedules"""
         # Create schedules with different statuses
-        self._create_simple_schedule(self.test_member.name, status="Active", schedule_name="Active Schedule")
+        self._create_simple_schedule(self.test_member.name, status="Active", schedule_name="Active Schedule 1")
+        self._create_simple_schedule(self.test_member.name, status="Active", schedule_name="Active Schedule 2")
         self._create_simple_schedule(self.test_member.name, status="Paused", schedule_name="Paused Schedule")
         self._create_simple_schedule(self.test_member.name, status="Cancelled", schedule_name="Cancelled Schedule")
 
-        # Get all schedules
-        schedules = self.repo.get_all_schedules_for_member(self.test_member.name)
+        # Get schedules using batch method - should only return Active ones
+        schedules = self.repo.get_schedules_for_members([self.test_member.name])
 
-        self.assertGreaterEqual(len(schedules), 3)
-        schedule_statuses = {s.status for s in schedules}
-        self.assertIn("Active", schedule_statuses)
-        self.assertIn("Paused", schedule_statuses)
-        self.assertIn("Cancelled", schedule_statuses)
+        # Should only get the 2 active schedules
+        self.assertEqual(len(schedules), 2)
+        for schedule in schedules:
+            self.assertEqual(schedule.status, "Active")
 
     def test_cancel_schedule_updates_correct_fields(self):
         """Test cancel_schedule updates status and reason"""
@@ -151,7 +153,20 @@ class TestDuesScheduleRepository(EnhancedTestCase):
         # Verify database state
         schedule_doc.reload()
         self.assertEqual(schedule_doc.status, "Cancelled")
-        self.assertEqual(schedule_doc.cancellation_reason, reason)
+
+        # Verify comment was added (repository uses comments for audit trail, not fields)
+        comments = frappe.get_all("Comment",
+            filters={
+                "reference_doctype": "Membership Dues Schedule",
+                "reference_name": schedule_doc.name,
+                "comment_type": "Comment"
+            },
+            fields=["content"],
+            order_by="creation desc",
+            limit=1
+        )
+        self.assertEqual(len(comments), 1)
+        self.assertIn(reason, comments[0].content)
 
     def test_cancel_schedule_idempotency(self):
         """Test cancelling an already cancelled schedule is idempotent"""
@@ -181,7 +196,20 @@ class TestDuesScheduleRepository(EnhancedTestCase):
         # Verify database state
         schedule_doc.reload()
         self.assertEqual(schedule_doc.status, "Paused")
-        self.assertIsNotNone(schedule_doc.pause_reason)
+
+        # Verify comment was added (repository uses comments for audit trail)
+        comments = frappe.get_all("Comment",
+            filters={
+                "reference_doctype": "Membership Dues Schedule",
+                "reference_name": schedule_doc.name,
+                "comment_type": "Comment"
+            },
+            fields=["content"],
+            order_by="creation desc",
+            limit=1
+        )
+        self.assertEqual(len(comments), 1)
+        self.assertIn(reason, comments[0].content)
 
     def test_update_next_invoice_date(self):
         """Test updating next invoice date"""
@@ -212,16 +240,19 @@ class TestDuesScheduleRepository(EnhancedTestCase):
         self._create_simple_schedule(self.test_member.name)
         self._create_simple_schedule(member2.name)
 
-        # Batch retrieve
+        # Batch retrieve active schedules
         schedules = self.repo.get_schedules_for_members(
             [self.test_member.name, member2.name]
         )
 
-        # Should get both schedules in single query
-        self.assertGreaterEqual(len(schedules), 2)
+        # Should get both active schedules in single query
+        self.assertEqual(len(schedules), 2)
         member_names = {s.member for s in schedules}
         self.assertIn(self.test_member.name, member_names)
         self.assertIn(member2.name, member_names)
+        # All should be active
+        for schedule in schedules:
+            self.assertEqual(schedule.status, "Active")
 
     def test_batch_cancel_multiple_schedules(self):
         """Test batch cancellation of multiple schedules"""

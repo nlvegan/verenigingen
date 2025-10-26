@@ -142,6 +142,12 @@ class DuesScheduleRepository:
         """Initialize repository"""
         self.doctype = "Membership Dues Schedule"
 
+    # ===== HELPER METHODS =====
+
+    def _create_schedule_info(self, data: Dict) -> ScheduleInfo:
+        """Convert dict to type-safe ScheduleInfo"""
+        return ScheduleInfo.from_dict(data)
+
     # ===== QUERY METHODS =====
 
     def get_active_schedule(
@@ -655,7 +661,7 @@ class DuesScheduleRepository:
         if not member_names:
             return []
 
-        query_fields = fields or self.BASIC_FIELDS
+        query_fields = fields or self.FINANCIAL_FIELDS
 
         try:
             schedules = frappe.get_all(

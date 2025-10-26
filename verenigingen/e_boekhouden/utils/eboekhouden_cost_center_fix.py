@@ -272,8 +272,13 @@ def ensure_root_cost_center(company):
 
             if result.success:
                 cc = result.doc
-            frappe.logger().info(f"Created root cost center for company: {company}")
-            return cc.name
+                frappe.logger().info(f"Created root cost center for company: {company}")
+                return cc.name
+            else:
+                # Creation failed - log error and return None
+                error_msg = f"Failed to create root cost center: {'; '.join(result.errors)}"
+                frappe.log_error(error_msg, "Cost Center Creation Failed")
+                return None
         except frappe.DuplicateEntryError:
             # If duplicate, find the existing one
             existing = frappe.db.get_value(

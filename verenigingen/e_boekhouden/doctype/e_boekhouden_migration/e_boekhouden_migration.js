@@ -907,11 +907,13 @@ function set_migration_defaults(frm) {
 	const today = frappe.datetime.get_today();
 	frm.set_value('migration_name', `E-Boekhouden Import ${today}`);
 
-	// Get default company from settings
+	// Get default company from settings - ALWAYS override with E-Boekhouden Settings value
 	frappe.db
 		.get_single_value('E-Boekhouden Settings', 'default_company')
 		.then((company) => {
-			if (company && !frm.doc.company) {
+			if (company) {
+				// Always set from settings, even if company field has a value
+				// This ensures E-Boekhouden Settings takes priority over user defaults
 				frm.set_value('company', company);
 			}
 		});
