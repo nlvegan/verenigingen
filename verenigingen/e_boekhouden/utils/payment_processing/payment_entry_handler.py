@@ -503,14 +503,11 @@ class PaymentEntryHandler:
             self._log("Zero amount payment detected")
             # Let ERPNext handle the validation - if it requires non-zero amounts, it will fail properly
 
-        if payment_type == "Receive":
-            pe.received_amount = amount
-            pe.paid_amount = amount
-        else:
-            pe.paid_amount = amount
-            pe.received_amount = amount
+        # CRITICAL: For same-currency transactions, we must let ERPNext calculate amounts
+        # to avoid duplicate GL entries. Set paid_amount, then call set_amounts()
+        pe.paid_amount = amount
 
-        # Set party details
+        # Set party details first (needed before set_amounts)
         if party:
             pe.party_type = party_type
             pe.party = party
@@ -548,6 +545,12 @@ class PaymentEntryHandler:
 
         # Add detailed remarks
         pe.remarks = self._generate_remarks(mutation, bank_account, party)
+
+        # CRITICAL: Manually set received_amount = paid_amount for same-currency transactions
+        # We CANNOT call set_amounts() here because validate() will call it again (causing doubling)
+        # But we MUST set received_amount to satisfy mandatory field validation
+        pe.received_amount = pe.paid_amount
+        self._log(f"Set amounts: paid_amount={pe.paid_amount}, received_amount={pe.received_amount}")
 
         return pe
 

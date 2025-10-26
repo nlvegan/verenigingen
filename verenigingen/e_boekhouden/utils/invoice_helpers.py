@@ -31,6 +31,46 @@ def resolve_supplier(relation_id, debug_info=None):
     return resolver.resolve_supplier(relation_id, debug_info)
 
 
+def resolve_ledger_code(ledger_id, debug_info=None):
+    """
+    Resolve E-Boekhouden ledger_id to actual ledger_code using Ledger Mapping.
+
+    E-Boekhouden REST API returns ledgerId (internal database ID like '13201916'),
+    but ERPNext Accounts are indexed by ledger_code (actual account code like '42902').
+
+    Args:
+        ledger_id: E-Boekhouden's internal ledger ID from REST API
+        debug_info: Optional list to append debug messages
+
+    Returns:
+        ledger_code if mapping found, otherwise returns ledger_id unchanged
+    """
+    if not ledger_id:
+        return ledger_id
+
+    try:
+        # Look up the ledger_code from Ledger Mapping
+        ledger_code = frappe.db.get_value(
+            "E-Boekhouden Ledger Mapping", {"ledger_id": str(ledger_id)}, "ledger_code"
+        )
+
+        if ledger_code:
+            if debug_info is not None:
+                debug_info.append(f"Resolved ledger_id {ledger_id} to ledger_code {ledger_code}")
+            return ledger_code
+        else:
+            # No mapping found - ledger_id might already be a ledger_code
+            if debug_info is not None:
+                debug_info.append(f"No mapping found for ledger_id {ledger_id}, using as-is")
+            return ledger_id
+
+    except Exception as e:
+        # If lookup fails, return original value
+        if debug_info is not None:
+            debug_info.append(f"Ledger resolution failed for {ledger_id}: {str(e)}")
+        return ledger_id
+
+
 def get_default_customer():
     """
     REMOVED: Generic customer creation disabled to prevent data corruption.
@@ -168,7 +208,9 @@ def process_line_items(invoice, regels, invoice_type, cost_center, debug_info):
 
         unit = regel.get("unit") or regel.get("Eenheid", "Nos")
         btw_code = regel.get("vatCode") or regel.get("BTWCode")
-        account_code = regel.get("ledgerId") or regel.get("GrootboekNummer")
+        # CRITICAL: ledgerId is E-Boekhouden's internal ID, must resolve to ledger_code
+        raw_account_code = regel.get("ledgerId") or regel.get("GrootboekNummer")
+        account_code = resolve_ledger_code(raw_account_code, debug_info)
         # Handle quantity properly - preserve negative values for credit notes
         raw_quantity = regel.get("quantity") or regel.get("Aantal", 1)
         quantity = flt(raw_quantity) if isinstance(raw_quantity, (int, float)) else flt(raw_quantity)
@@ -184,7 +226,9 @@ def process_line_items(invoice, regels, invoice_type, cost_center, debug_info):
         # ERPNext validates: if is_return and qty > 0 → throw error (status_updater.py:243-244)
         if getattr(invoice, "is_return", False):
             # Return invoice: keep negative quantities as they are (already processed by conversion function)
-            debug_info.append(f"{invoice_type.title()} Return: preserving negative quantity {quantity} (ERPNext requirement)")
+            debug_info.append(
+                f"{invoice_type.title()} Return: preserving negative quantity {quantity} (ERPNext requirement)"
+            )
         else:
             # Normal invoices: quantities should be positive
             quantity = abs(quantity)

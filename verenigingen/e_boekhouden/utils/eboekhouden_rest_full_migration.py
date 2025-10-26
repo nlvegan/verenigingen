@@ -2163,7 +2163,20 @@ def _process_single_mutation(mutation, company, cost_center, debug_info):
         elif mutation_type == 2:  # Sales Invoice (Invoice sent)
             return _create_sales_invoice(mutation_detail, company, cost_center, debug_info)
         elif mutation_type in [3, 4]:  # Customer/Supplier Payment types
-            return _create_payment_entry(mutation_detail, company, cost_center, debug_info)
+            # Check if this is a credit note refund (negative amount with invoice reference)
+            raw_amount = mutation_detail.get("amount", 0) or 0
+            has_rows = bool(mutation_detail.get("rows"))
+            row_amount = mutation_detail["rows"][0].get("amount", 0) if has_rows else 0
+            is_negative = (raw_amount < 0) or (row_amount < 0)
+            has_invoice_ref = bool(mutation_detail.get("invoiceNumber"))
+
+            if is_negative and has_invoice_ref:
+                debug_info.append(
+                    f"Type {mutation_type} with negative amount and invoice ref - creating Journal Entry for credit note refund"
+                )
+                return _create_journal_entry(mutation_detail, company, cost_center, debug_info)
+            else:
+                return _create_payment_entry(mutation_detail, company, cost_center, debug_info)
         elif mutation_type in [5, 6]:  # Money Received/Money Paid - better as Payment Entries
             return _create_money_transfer_payment_entry(mutation_detail, company, cost_center, debug_info)
         else:
@@ -2564,7 +2577,9 @@ def _convert_regels_for_credit_note(regels, invoice_type, debug_info):
             else:
                 # Already negative, keep it
                 converted_regel[quantity_field] = original_quantity
-                debug_info.append(f"{invoice_type.title()} credit note: kept negative quantity {original_quantity}")
+                debug_info.append(
+                    f"{invoice_type.title()} credit note: kept negative quantity {original_quantity}"
+                )
 
         converted_regels.append(converted_regel)
 
@@ -3244,6 +3259,87 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
             je.append("accounts", entry_line)
             total_debit += entry_line["debit_in_account_currency"]
             total_credit += entry_line["credit_in_account_currency"]
+
+        # For Type 3/4 payment mutations, add offsetting main ledger entry (usually bank account)
+        # This balances the Journal Entry by adding the bank side of the transaction
+        #
+        # NOTE: This creates a Journal Entry instead of a Payment Entry for credit note refunds.
+        # TRADEOFF: Journal Entries do NOT automatically update invoice outstanding amounts.
+        # - Purchase Invoice will still show outstanding = -540.4 (supplier owes us money)
+        # - Journal Entry correctly records bank transaction (debit bank, credit payables)
+        # - Manual reconciliation needed via Payment Reconciliation Tool
+        #
+        # WHY NOT Payment Entry with automatic linking?
+        # - Payment Entry has amount doubling issues when both paid_amount and received_amount are set
+        # - ERPNext's validation requires both fields for same-currency transactions
+        # - set_amounts() gets called twice (explicit + during validate) causing duplicate GL entries
+        # - Journal Entry avoids this complexity while maintaining correct GL accounting
+        #
+        # FUTURE: Could add reference_type="Purchase Invoice" and reference_name to the Payables
+        # line to enable automatic reconciliation, but that adds complexity for edge cases
+        # (partial refunds, adjustments, timing differences between credit note and refund).
+        if mutation_type in [3, 4] and ledger_id and not is_memorial_booking:
+            main_mapping_result = frappe.db.sql(
+                """SELECT erpnext_account FROM `tabE-Boekhouden Ledger Mapping` WHERE ledger_id = %s LIMIT 1""",
+                ledger_id,
+            )
+
+            main_account = None
+            if main_mapping_result:
+                main_account = main_mapping_result[0][0]
+            else:
+                # Try to fetch and create missing ledger mapping
+                debug_info.append(
+                    f"Missing ledger mapping for main ledger {ledger_id}, attempting to fetch from API"
+                )
+                main_account = _fetch_and_create_missing_ledger_mapping(ledger_id, debug_info)
+
+            if main_account:
+                # Calculate the offsetting amount (opposite of row totals)
+                # If rows had net credit, main ledger needs debit (and vice versa)
+                net_row_amount = total_credit - total_debit
+                abs_amount = abs(net_row_amount)
+
+                if net_row_amount > 0:
+                    # Rows were net credit, main ledger should be debit
+                    main_debit, main_credit = abs_amount, 0
+                    debug_info.append(f"Payment: €{abs_amount} debited to {main_account} (bank/cash account)")
+                else:
+                    # Rows were net debit, main ledger should be credit
+                    main_debit, main_credit = 0, abs_amount
+                    debug_info.append(
+                        f"Payment: €{abs_amount} credited to {main_account} (bank/cash account)"
+                    )
+
+                # Add main ledger entry to balance the transaction
+                main_line = {
+                    "account": main_account,
+                    "debit_in_account_currency": frappe.utils.flt(main_debit, 2),
+                    "credit_in_account_currency": frappe.utils.flt(main_credit, 2),
+                    "cost_center": cost_center,
+                    "user_remark": f"Payment transaction: {description}",
+                }
+
+                # Add party for main account if needed (unlikely for bank accounts, but check anyway)
+                main_account_type = frappe.db.get_value("Account", main_account, "account_type")
+                if main_account_type == "Receivable":
+                    main_line["party_type"] = "Customer"
+                    main_line["party"] = _get_or_create_company_as_customer(company, debug_info)
+                elif main_account_type == "Payable":
+                    main_line["party_type"] = "Supplier"
+                    main_line["party"] = _get_or_create_company_as_supplier(company, debug_info)
+
+                je.append("accounts", main_line)
+                total_debit += main_line["debit_in_account_currency"]
+                total_credit += main_line["credit_in_account_currency"]
+
+                debug_info.append(
+                    f"Added main ledger entry: {main_account} - Debit: {main_debit}, Credit: {main_credit}"
+                )
+            else:
+                raise ValueError(
+                    f"Payment mutation {mutation.get('ID', 'unknown')}: No mapping found for main ledger {ledger_id} (bank account)"
+                )
 
     else:
         # Simple journal entry with main amount

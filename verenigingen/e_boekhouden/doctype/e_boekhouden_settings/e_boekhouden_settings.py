@@ -334,8 +334,22 @@ def create_cost_centers_from_mappings():
         # First pass: collect all mappings that should create cost centers
         mappings_to_create = []
         for mapping in settings.cost_center_mappings:
+            # Debug logging to show why rows are included/excluded
+            frappe.logger().info(
+                f"Cost Center Mapping Row: code={mapping.group_code}, name={mapping.group_name}, "
+                f"create_cc={mapping.create_cost_center}, cc_name={mapping.cost_center_name}"
+            )
+
             if mapping.create_cost_center and mapping.cost_center_name:
                 mappings_to_create.append(mapping)
+                frappe.logger().info(f"  → INCLUDED for creation")
+            else:
+                skip_reason = []
+                if not mapping.create_cost_center:
+                    skip_reason.append("create_cost_center checkbox not checked")
+                if not mapping.cost_center_name:
+                    skip_reason.append("cost_center_name is empty")
+                frappe.logger().warning(f"  → SKIPPED: {', '.join(skip_reason)}")
 
         if not mappings_to_create:
             return {"success": False, "error": "No cost center mappings are configured for creation"}

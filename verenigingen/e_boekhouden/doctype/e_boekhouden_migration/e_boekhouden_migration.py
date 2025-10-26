@@ -3214,10 +3214,10 @@ def import_single_mutation(migration_name, mutation_id, overwrite_existing=True)
                                         linked_payments.append({"name": payment_entry})
 
                                 for payment in linked_payments:
-                                    payment_doc = frappe.get_doc("Payment Entry", payment.name)
+                                    payment_doc = frappe.get_doc("Payment Entry", payment["name"])
                                     payment_doc.cancel()
                                     frappe.logger().info(
-                                        f"Cancelled linked Payment Entry {payment.name} before deleting {doctype} {docname}"
+                                        f"Cancelled linked Payment Entry {payment['name']} before deleting {doctype} {docname}"
                                     )
 
                             doc.cancel()

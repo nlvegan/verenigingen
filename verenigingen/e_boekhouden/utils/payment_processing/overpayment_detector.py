@@ -159,8 +159,8 @@ def create_unallocated_payment_entry(
             if row_amounts:
                 amount = sum(row_amounts)
 
+        # CRITICAL: Set paid_amount, then call set_amounts() to populate received_amount
         pe.paid_amount = amount
-        pe.received_amount = amount
 
         # Set accounts
         pe.paid_from = "13900 - Te ontvangen bedragen - NVV"  # Debtors account
@@ -178,6 +178,9 @@ def create_unallocated_payment_entry(
             pe.remarks = f"Overpayment correction for invoice(s): {', '.join(invoice_nums)}. Manual reconciliation required."
         else:
             pe.remarks = "Unallocated payment - possible overpayment correction"
+
+        # Call set_amounts() to populate received_amount before save/submit
+        pe.set_amounts()
 
         # Save without allocating to any invoices
         pe.save()
