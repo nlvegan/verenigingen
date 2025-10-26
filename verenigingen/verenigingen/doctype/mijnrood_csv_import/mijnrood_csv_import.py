@@ -908,8 +908,22 @@ class MijnroodCSVImport(Document):
                 # Store chapter information for later creation (after member is saved and has a name)
                 member_doc._pending_chapter_assignment = chapter_name
 
-        # Set member_since date (status was already set at the beginning of _update_member_fields)
-        member_doc.member_since = row_data.get("member_since") or today()
+        # Set member_since date - preserve oldest date when updating existing members
+        new_member_since = row_data.get("member_since")
+        if new_member_since:
+            # For existing members, keep the earlier date (oldest join date)
+            if member_doc.member_since:
+                # Compare dates and keep the earlier one
+                from frappe.utils import getdate
+                existing_date = getdate(member_doc.member_since)
+                new_date = getdate(new_member_since)
+                member_doc.member_since = min(existing_date, new_date)
+            else:
+                # No existing date, use the one from CSV
+                member_doc.member_since = new_member_since
+        elif not member_doc.member_since:
+            # No date in CSV and no existing date - use today
+            member_doc.member_since = today()
 
         # Add import tracking to review_notes
         import_note = f"Imported from Mijnrood CSV (Import: {self.name})"
