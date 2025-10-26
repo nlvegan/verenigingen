@@ -67,9 +67,9 @@ class AccountCreationManager:
         try:
             self.load_request()
 
-            # Validate request can be processed
-            if self.request.status not in ["Queued", "Failed"]:
-                raise frappe.ValidationError(f"Request cannot be processed in status: {self.request.status}")
+            # Don't validate status here - the background job was queued for a reason
+            # Status checks belong in queue_processing(), not in the processing pipeline itself
+            # This allows automatic retries to work without status gymnastics
 
             # Validate permissions and prerequisites
             self.validate_processing_permissions()
@@ -612,14 +612,11 @@ def process_account_creation_request(request_name, at_time=None):
     # Mark as background job to exempt from rate limits
     frappe.flags.in_background_job = True
 
-    # Check if this is a retry (has retry_count > 0) and set bulk operation flag
-    # to bypass rate limiting on retries
-    retry_count = frappe.db.get_value("Account Creation Request", request_name, "retry_count") or 0
-    if retry_count > 0:
-        frappe.flags.bulk_account_creation = True
-        frappe.logger().info(
-            f"Retry detected for {request_name} (attempt {retry_count + 1}), bypassing rate limiting"
-        )
+    # Mark as bulk operation to bypass Frappe's core throttle_user_creation()
+    # This is necessary because background jobs creating users in parallel will hit
+    # Frappe's hardcoded throttle limit (60 users/minute by default)
+    frappe.flags.bulk_account_creation = True
+    frappe.flags.in_import = True  # Tells Frappe core to skip throttle_user_creation()
 
     try:
         manager = AccountCreationManager(request_name)

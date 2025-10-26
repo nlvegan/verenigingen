@@ -403,6 +403,43 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
             frappe.logger().warning(f"Could not query User records: {str(e)}")
         results["users"]["count"] = len(users_with_member_links)
 
+        # Employee records linked to these users
+        employees = []
+        if users_with_member_links:
+            try:
+                user_ids = [u.name for u in users_with_member_links]
+                placeholders = ", ".join(["%s"] * len(user_ids))
+                employees = frappe.db.sql(
+                    f"""
+                    SELECT name FROM `tabEmployee`
+                    WHERE user_id IN ({placeholders})
+                """,
+                    user_ids,
+                    as_dict=True,
+                )
+            except Exception as e:
+                frappe.logger().warning(f"Could not query Employee records: {str(e)}")
+        results["employees"] = {"count": len(employees), "deleted": 0, "errors": []}
+
+        # User Permission records for these employees
+        user_permissions = []
+        if employees:
+            try:
+                employee_ids = [e.name for e in employees]
+                placeholders = ", ".join(["%s"] * len(employee_ids))
+                user_permissions = frappe.db.sql(
+                    f"""
+                    SELECT name FROM `tabUser Permission`
+                    WHERE allow IN ({placeholders})
+                    AND for_value IN ({placeholders})
+                """,
+                    employee_ids + employee_ids,
+                    as_dict=True,
+                )
+            except Exception as e:
+                frappe.logger().warning(f"Could not query User Permission records: {str(e)}")
+        results["user_permissions"] = {"count": len(user_permissions), "deleted": 0, "errors": []}
+
         # Customer records where member is linked - SECURE VERSION
         # Only query if the custom field exists
         customers_with_member_links = []
@@ -492,6 +529,8 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
             + results["payment_history"]["count"]
             + results["chapter_members"]["count"]
             + results["users"]["count"]
+            + results["employees"]["count"]
+            + results["user_permissions"]["count"]
             + results["customers"]["count"]
             + results["donors"]["count"]
             + results["addresses"]["count"]
@@ -638,13 +677,31 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
                 except Exception as e:
                     results["customers"]["errors"].append(f"{customer.name}: {str(e)}")
 
-            # Delete User accounts (be very careful here)
+            # Delete User Permissions first (they reference employees)
+            frappe.logger().info(f"Cleaning up {len(user_permissions)} User Permission records...")
+            for perm in user_permissions:
+                try:
+                    frappe.delete_doc("User Permission", perm.name, ignore_permissions=True, force=True)
+                    results["user_permissions"]["deleted"] += 1
+                except Exception as e:
+                    results["user_permissions"]["errors"].append(f"{perm.name}: {str(e)}")
+
+            # Delete Employee records (they reference users)
+            frappe.logger().info(f"Cleaning up {len(employees)} Employee records...")
+            for employee in employees:
+                try:
+                    frappe.delete_doc("Employee", employee.name, ignore_permissions=True, force=True)
+                    results["employees"]["deleted"] += 1
+                except Exception as e:
+                    results["employees"]["errors"].append(f"{employee.name}: {str(e)}")
+
+            # Delete User accounts last (be very careful here)
             frappe.logger().info(f"Cleaning up {len(users_with_member_links)} User accounts...")
             for user in users_with_member_links:
                 try:
                     # Extra safety check - don't delete Administrator or system users
                     if user.name not in ["Administrator", "Guest"]:
-                        frappe.delete_doc("User", user.name, ignore_permissions=True)
+                        frappe.delete_doc("User", user.name, ignore_permissions=True, force=True)
                         results["users"]["deleted"] += 1
                     else:
                         results["users"]["errors"].append(f"Skipped system user: {user.name}")
@@ -676,6 +733,8 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
                 + results["sepa_mandates"]["deleted"]
                 + results["payment_history"]["deleted"]
                 + results["chapter_members"]["deleted"]
+                + results["user_permissions"]["deleted"]
+                + results["employees"]["deleted"]
                 + results["users"]["deleted"]
                 + results["customers"]["deleted"]
                 + results["donors"]["deleted"]
