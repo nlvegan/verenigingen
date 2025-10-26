@@ -35,6 +35,24 @@ class TestDuesScheduleRepository(EnhancedTestCase):
             birth_date="1990-01-01",
         )
 
+    def _create_simple_schedule(self, member_name, amount=25.0, status="Active", **kwargs):
+        """Helper to create a simple dues schedule bypassing complex validations"""
+        schedule = frappe.get_doc({
+            "doctype": "Membership Dues Schedule",
+            "member": member_name,
+            "schedule_name": kwargs.get("schedule_name", f"Test Schedule {frappe.generate_hash(length=8)}"),
+            "dues_rate": amount,
+            "billing_frequency": kwargs.get("billing_frequency", "Monthly"),
+            "membership_type": kwargs.get("membership_type", "Regular"),  # Required field
+            "status": status,
+            "next_invoice_date": kwargs.get("next_invoice_date", add_months(today(), 1)) if status == "Active" else None,
+            "contribution_mode": kwargs.get("contribution_mode", "Tier"),
+            **{k: v for k, v in kwargs.items() if k not in ["schedule_name", "billing_frequency", "next_invoice_date", "contribution_mode", "membership_type"]}
+        })
+        schedule.flags.ignore_validate = True  # Skip business rule validation for tests
+        schedule.insert(ignore_permissions=True)
+        return schedule
+
     def test_repository_initialization(self):
         """Test repository initializes correctly"""
         self.assertEqual(self.repo.doctype, "Membership Dues Schedule")
@@ -67,12 +85,8 @@ class TestDuesScheduleRepository(EnhancedTestCase):
 
     def test_schedule_info_dataclass_field_mapping(self):
         """Test ScheduleInfo dataclass correctly maps to DocType fields"""
-        # Create a test schedule using test factory
-        schedule_doc = self.create_test_dues_schedule(
-            member=self.test_member.name,
-            amount=25.0,
-            frequency="monthly"
-        )
+        # Create a test schedule
+        schedule_doc = self._create_simple_schedule(self.test_member.name, amount=25.0)
 
         # Retrieve via repository
         schedule_info = self.repo.get_active_schedule(self.test_member.name)
@@ -86,11 +100,7 @@ class TestDuesScheduleRepository(EnhancedTestCase):
     def test_get_active_schedule_for_member(self):
         """Test retrieving active schedule for a member"""
         # Create active schedule
-        schedule_doc = self.create_test_dues_schedule(
-            member=self.test_member.name,
-            amount=30.0,
-            frequency="monthly"
-        )
+        schedule_doc = self._create_simple_schedule(self.test_member.name, amount=30.0)
 
         # Retrieve via repository
         schedule = self.repo.get_active_schedule(self.test_member.name)
@@ -103,14 +113,7 @@ class TestDuesScheduleRepository(EnhancedTestCase):
     def test_get_active_schedule_returns_none_when_no_active(self):
         """Test get_active_schedule returns None when no active schedule exists"""
         # Create cancelled schedule
-        schedule_doc = self.create_test_dues_schedule(
-            member=self.test_member.name,
-            amount=25.0,
-            frequency="monthly"
-        )
-        # Cancel it
-        schedule_doc.status = "Cancelled"
-        schedule_doc.save()
+        schedule_doc = self._create_simple_schedule(self.test_member.name, status="Cancelled")
 
         # Should return None
         schedule = self.repo.get_active_schedule(self.test_member.name)
@@ -118,38 +121,24 @@ class TestDuesScheduleRepository(EnhancedTestCase):
 
     def test_get_all_schedules_for_member(self):
         """Test retrieving all schedules (any status) for a member"""
-        # Create active schedule
-        schedule1 = self.create_test_dues_schedule(
-            member=self.test_member.name,
-            amount=25.0,
-            frequency="monthly"
-        )
-
-        # Create paused schedule
-        schedule2 = self.create_test_dues_schedule(
-            member=self.test_member.name,
-            amount=30.0,
-            frequency="yearly"
-        )
-        schedule2.status = "Paused"
-        schedule2.save()
+        # Create schedules with different statuses
+        self._create_simple_schedule(self.test_member.name, status="Active", schedule_name="Active Schedule")
+        self._create_simple_schedule(self.test_member.name, status="Paused", schedule_name="Paused Schedule")
+        self._create_simple_schedule(self.test_member.name, status="Cancelled", schedule_name="Cancelled Schedule")
 
         # Get all schedules
         schedules = self.repo.get_all_schedules_for_member(self.test_member.name)
 
-        self.assertGreaterEqual(len(schedules), 2)
+        self.assertGreaterEqual(len(schedules), 3)
         schedule_statuses = {s.status for s in schedules}
         self.assertIn("Active", schedule_statuses)
         self.assertIn("Paused", schedule_statuses)
+        self.assertIn("Cancelled", schedule_statuses)
 
     def test_cancel_schedule_updates_correct_fields(self):
         """Test cancel_schedule updates status and reason"""
         # Create active schedule
-        schedule_doc = self.create_test_dues_schedule(
-            member=self.test_member.name,
-            amount=25.0,
-            frequency="monthly"
-        )
+        schedule_doc = self._create_simple_schedule(self.test_member.name)
 
         # Cancel via repository
         reason = "Test cancellation"
@@ -167,11 +156,7 @@ class TestDuesScheduleRepository(EnhancedTestCase):
     def test_cancel_schedule_idempotency(self):
         """Test cancelling an already cancelled schedule is idempotent"""
         # Create and cancel schedule
-        schedule_doc = self.create_test_dues_schedule(
-            member=self.test_member.name,
-            amount=25.0,
-            frequency="monthly"
-        )
+        schedule_doc = self._create_simple_schedule(self.test_member.name)
         self.repo.cancel_schedule(schedule_doc.name, "Original reason")
 
         # Cancel again
@@ -184,11 +169,7 @@ class TestDuesScheduleRepository(EnhancedTestCase):
     def test_pause_schedule_updates_status(self):
         """Test pause_schedule changes status to Paused"""
         # Create active schedule
-        schedule_doc = self.create_test_dues_schedule(
-            member=self.test_member.name,
-            amount=25.0,
-            frequency="monthly"
-        )
+        schedule_doc = self._create_simple_schedule(self.test_member.name)
 
         # Pause via repository
         reason = "Test pause"
@@ -205,11 +186,7 @@ class TestDuesScheduleRepository(EnhancedTestCase):
     def test_update_next_invoice_date(self):
         """Test updating next invoice date"""
         # Create active schedule
-        schedule_doc = self.create_test_dues_schedule(
-            member=self.test_member.name,
-            amount=25.0,
-            frequency="monthly"
-        )
+        schedule_doc = self._create_simple_schedule(self.test_member.name)
 
         # Update date via repository
         new_date = add_months(today(), 2)
@@ -232,16 +209,8 @@ class TestDuesScheduleRepository(EnhancedTestCase):
         )
 
         # Create schedules for both members
-        self.create_test_dues_schedule(
-            member=self.test_member.name,
-            amount=25.0,
-            frequency="monthly"
-        )
-        self.create_test_dues_schedule(
-            member=member2.name,
-            amount=30.0,
-            frequency="monthly"
-        )
+        self._create_simple_schedule(self.test_member.name)
+        self._create_simple_schedule(member2.name)
 
         # Batch retrieve
         schedules = self.repo.get_schedules_for_members(
@@ -259,10 +228,9 @@ class TestDuesScheduleRepository(EnhancedTestCase):
         # Create multiple schedules
         schedule_names = []
         for i in range(3):
-            schedule_doc = self.create_test_dues_schedule(
-                member=self.test_member.name,
-                amount=25.0,
-                frequency="monthly"
+            schedule_doc = self._create_simple_schedule(
+                self.test_member.name,
+                schedule_name=f"Batch Cancel {i}"
             )
             schedule_names.append(schedule_doc.name)
 
@@ -281,14 +249,13 @@ class TestDuesScheduleRepository(EnhancedTestCase):
 
     def test_permission_check_on_cancel(self):
         """Test cancel_schedule enforces permission checks"""
-        # Create schedule
-        schedule_doc = self.create_test_dues_schedule(
-            member=self.test_member.name,
-            amount=25.0,
-            frequency="monthly"
-        )
+        # Create schedule as admin
+        schedule_doc = self._create_simple_schedule(self.test_member.name)
 
-        # Set as Guest user (no permissions)
+        # Save current user
+        current_user = frappe.session.user
+
+        # Switch to Guest user (no permissions) to test permission validation
         frappe.set_user("Guest")
 
         try:
@@ -297,8 +264,8 @@ class TestDuesScheduleRepository(EnhancedTestCase):
             self.assertFalse(result.success)
             self.assertIn("permission", result.message.lower())
         finally:
-            # Restore admin user
-            frappe.set_user("Administrator")
+            # Restore original user in teardown
+            frappe.set_user(current_user)
 
     def test_empty_member_name_returns_none(self):
         """Test repository handles empty member name gracefully"""

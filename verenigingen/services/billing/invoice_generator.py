@@ -719,22 +719,54 @@ class InvoiceGenerator:
 
         # Submit invoice if configured
         if auto_submit:
-            try:
-                invoice.flags.ignore_version = True
-                invoice.flags.ignore_links = True
-                invoice.submit()
-                submitted = True
-                frappe.logger().info(f"Invoice {invoice.name} auto-submitted")
-            except Exception as submit_error:
-                # Submission failure is a critical error - return failure result
-                error_msg = f"Invoice created but submission failed: {str(submit_error)}"
-                frappe.log_error(
-                    f"{error_msg}\\nInvoice: {invoice.name}\\nTraceback: {frappe.get_traceback()}",
-                    "Invoice Auto-Submit Failed",
-                )
-                return InvoiceGenerationResult(
-                    success=False, error=error_msg, invoice=invoice, submitted=False
-                )
+            # Retry logic for database deadlocks
+            max_retries = 3
+            retry_delay = 0.1  # Start with 100ms
+
+            for attempt in range(max_retries):
+                try:
+                    invoice.flags.ignore_version = True
+                    invoice.flags.ignore_links = True
+                    invoice.submit()
+                    submitted = True
+                    if attempt > 0:
+                        frappe.logger().info(f"Invoice {invoice.name} auto-submitted after {attempt} retries")
+                    else:
+                        frappe.logger().info(f"Invoice {invoice.name} auto-submitted")
+                    break  # Success - exit retry loop
+
+                except frappe.QueryDeadlockError as deadlock_error:
+                    if attempt < max_retries - 1:
+                        # Retry with exponential backoff
+                        import time
+
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                        frappe.logger().warning(
+                            f"Deadlock on invoice {invoice.name} submission (attempt {attempt + 1}/{max_retries}), retrying..."
+                        )
+                        continue
+                    else:
+                        # Final attempt failed - return error
+                        error_msg = f"Invoice created but submission failed after {max_retries} retries: {str(deadlock_error)}"
+                        frappe.log_error(
+                            f"{error_msg}\\nInvoice: {invoice.name}\\nTraceback: {frappe.get_traceback()}",
+                            "Invoice Auto-Submit Failed - Deadlock",
+                        )
+                        return InvoiceGenerationResult(
+                            success=False, error=error_msg, invoice=invoice, submitted=False
+                        )
+
+                except Exception as submit_error:
+                    # Non-deadlock submission failure is a critical error - don't retry
+                    error_msg = f"Invoice created but submission failed: {str(submit_error)}"
+                    frappe.log_error(
+                        f"{error_msg}\\nInvoice: {invoice.name}\\nTraceback: {frappe.get_traceback()}",
+                        "Invoice Auto-Submit Failed",
+                    )
+                    return InvoiceGenerationResult(
+                        success=False, error=error_msg, invoice=invoice, submitted=False
+                    )
         else:
             # Auto-submit disabled - keep as draft
             frappe.logger().info(f"Invoice {invoice.name} kept as draft per settings")

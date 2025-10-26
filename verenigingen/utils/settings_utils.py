@@ -209,7 +209,7 @@ def get_default_company() -> Optional[str]:
     """
     settings = get_verenigingen_settings()
     if settings:
-        return settings.get("default_company")
+        return settings.get("company")
     return None
 
 

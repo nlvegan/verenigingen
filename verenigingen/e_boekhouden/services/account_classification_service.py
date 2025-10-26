@@ -67,6 +67,10 @@ class AccountClassificationService(StatelessService):
         super().__init__()
 
         # E-Boekhouden category to ERPNext type mapping
+        # NOTE: DEB/CRED mapped to Current Asset/Liability instead of Receivable/Payable
+        # REASON: ERPNext requires "party" linking for Receivable/Payable types
+        # This avoids ERPNext validation errors during account creation
+        # Actual receivable/payable classification happens via code patterns (130x, 440x)
         self.category_mapping = {
             # Tax-related categories
             "BTWRC": ("Tax", "Liability"),  # VAT current account
@@ -81,9 +85,9 @@ class AccountClassificationService(StatelessService):
             # Financial accounts
             "FIN": ("Bank", "Asset"),  # Financial/Liquid Assets
             "KAS": ("Cash", "Asset"),  # Cash accounts
-            # Debtors/Creditors - use Current Asset/Liability to avoid party requirements
-            "DEB": ("Current Asset", "Asset"),  # Debtors (trade receivables)
-            "CRED": ("Current Liability", "Liability"),  # Creditors (trade payables)
+            # Debtors/Creditors - mapped to generic types to avoid ERPNext party requirements
+            "DEB": ("Current Asset", "Asset"),  # Debtors → Current Asset (not Receivable)
+            "CRED": ("Current Liability", "Liability"),  # Creditors → Current Liability (not Payable)
             # Equity
             "EIG": ("Equity", "Equity"),  # Eigen vermogen (equity)
             # Balance sheet - requires further analysis
@@ -155,30 +159,67 @@ class AccountClassificationService(StatelessService):
         Raises:
             ValueError: If required fields are missing
         """
-        code = str(account_data.get("code", "")).strip()
-        description = str(account_data.get("description", "")).strip()
-        category = str(account_data.get("category", "")).strip().upper()
-        group = str(account_data.get("group", "")).strip()
+        # Input validation: Prevent malicious/malformed data
+        raw_code = account_data.get("code", "")
+        raw_description = account_data.get("description", "")
+        raw_category = account_data.get("category", "")
+        raw_group = account_data.get("group", "")
 
+        # Length validation to prevent DoS attacks
+        if len(str(raw_code)) > 20:
+            raise ValueError(f"Account code exceeds maximum length (20 chars): {len(str(raw_code))}")
+        if len(str(raw_description)) > 500:
+            raise ValueError(
+                f"Account description exceeds maximum length (500 chars): {len(str(raw_description))}"
+            )
+        if len(str(raw_category)) > 20:
+            raise ValueError(f"Account category exceeds maximum length (20 chars): {len(str(raw_category))}")
+        if len(str(raw_group)) > 10:
+            raise ValueError(f"Account group exceeds maximum length (10 chars): {len(str(raw_group))}")
+
+        # Sanitize and normalize input
+        code = str(raw_code).strip()
+        description = str(raw_description).strip()
+        category = str(raw_category).strip().upper()
+        group = str(raw_group).strip()
+
+        # Validate required fields
         if not description:
             raise ValueError(f"Account description is required. Got description={description}")
+
+        # Validate code format if provided (should be alphanumeric for Dutch RGS)
+        if code and not code.replace(" ", "").replace("-", "").isalnum():
+            raise ValueError(f"Account code contains invalid characters: {code}")
 
         # Strategy 1: Category-based classification (highest confidence)
         result = self._classify_by_category(code, description, category, group)
         if result:
             return result
 
-        # Strategy 2: Keyword-based classification (high confidence for specific terms)
-        result = self._classify_by_keywords(code, description)
-        if result:
-            return result
+        # Strategy 2: Dutch RGS code patterns for P&L accounts (4xxx-9xxx)
+        # For profit/loss accounts, code patterns are MORE reliable than keywords
+        # Example: "6100 - Kosten debiteuren" should be Expense (6xxx), not Receivable (keyword)
+        if code and code[0] in ["4", "5", "6", "7", "8", "9"]:
+            result = self._classify_by_code_pattern(code, description, group)
+            if result:
+                return result
+            # If code pattern didn't match P&L ranges, try keywords as fallback
+            result = self._classify_by_keywords(code, description)
+            if result:
+                return result
+        else:
+            # Strategy 3: For balance sheet accounts (0xxx-3xxx), keywords first
+            # Keyword-based classification (high confidence for specific terms)
+            result = self._classify_by_keywords(code, description)
+            if result:
+                return result
 
-        # Strategy 3: Dutch RGS code patterns (medium confidence)
-        result = self._classify_by_code_pattern(code, description, group)
-        if result:
-            return result
+            # Strategy 4: Dutch RGS code patterns (medium confidence)
+            result = self._classify_by_code_pattern(code, description, group)
+            if result:
+                return result
 
-        # Strategy 4: Ultimate fallback (low confidence)
+        # Strategy 5: Ultimate fallback (low confidence)
         return self._fallback_classification(code, description)
 
     def _classify_by_category(
@@ -424,7 +465,9 @@ class AccountClassificationService(StatelessService):
             notes="VW category defaults to Expense",
         )
 
-    def _classify_by_code_pattern(self, code: str, description: str, group: str) -> Optional[AccountClassification]:
+    def _classify_by_code_pattern(
+        self, code: str, description: str, group: str
+    ) -> Optional[AccountClassification]:
         """
         Classify using Dutch RGS (Reference Code System) code patterns.
 
@@ -648,7 +691,9 @@ class AccountClassificationService(StatelessService):
 
         # Financial income/costs (7xxx)
         if code.startswith("7"):
-            if "rente" in description_lower and ("ontvangen" in description_lower or "baten" in description_lower):
+            if "rente" in description_lower and (
+                "ontvangen" in description_lower or "baten" in description_lower
+            ):
                 return AccountClassification(
                     account_type="Income Account",
                     root_type="Income",
@@ -765,24 +810,25 @@ class AccountClassificationService(StatelessService):
                 notes=f"Stock keyword found in: {description}",
             )
 
-        # Check for bank/cash keywords
-        if "bank" in description_lower or "giro" in description_lower:
-            return AccountClassification(
-                account_type="Bank",
-                root_type="Asset",
-                confidence=ClassificationConfidence.MEDIUM,
-                strategy_used="keyword_bank",
-                notes=f"Bank keyword found in: {description}",
-            )
+        # Check for bank/cash keywords (only for asset range codes to avoid false positives like "Bankkosten")
+        if code.startswith(("10", "11", "12", "1")):
+            if "bank" in description_lower or "giro" in description_lower:
+                return AccountClassification(
+                    account_type="Bank",
+                    root_type="Asset",
+                    confidence=ClassificationConfidence.MEDIUM,
+                    strategy_used="keyword_bank",
+                    notes=f"Bank keyword found in asset range: {description}",
+                )
 
-        if "kas" in description_lower:
-            return AccountClassification(
-                account_type="Cash",
-                root_type="Asset",
-                confidence=ClassificationConfidence.MEDIUM,
-                strategy_used="keyword_cash",
-                notes=f"Cash keyword found in: {description}",
-            )
+            if "kas" in description_lower:
+                return AccountClassification(
+                    account_type="Cash",
+                    root_type="Asset",
+                    confidence=ClassificationConfidence.MEDIUM,
+                    strategy_used="keyword_cash",
+                    notes=f"Cash keyword found in asset range: {description}",
+                )
 
         return None
 

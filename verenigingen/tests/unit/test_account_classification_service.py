@@ -336,9 +336,10 @@ class TestAccountClassificationService(unittest.TestCase):
         self.assertEqual(result.root_type, "Income")
 
     def test_keyword_receivable(self):
-        """Test keyword-based receivable classification"""
+        """Test keyword-based receivable classification for balance sheet accounts"""
+        # Use 1xxx code (balance sheet) where keywords take priority
         result = self.service.classify_account(
-            {"code": "9999", "description": "Vordering op derden", "category": "", "group": ""}
+            {"code": "1399", "description": "Vordering op derden", "category": "", "group": ""}
         )
 
         self.assertEqual(result.account_type, "Receivable")
@@ -346,9 +347,10 @@ class TestAccountClassificationService(unittest.TestCase):
         self.assertEqual(result.confidence, ClassificationConfidence.MEDIUM)
 
     def test_keyword_payable(self):
-        """Test keyword-based payable classification"""
+        """Test keyword-based payable classification for balance sheet accounts"""
+        # Use 4xxx code (balance sheet liabilities) where keywords take priority
         result = self.service.classify_account(
-            {"code": "9999", "description": "Schuld aan leveranciers", "category": "", "group": ""}
+            {"code": "4599", "description": "Schuld aan leveranciers", "category": "", "group": ""}
         )
 
         self.assertEqual(result.account_type, "Payable")
@@ -365,9 +367,10 @@ class TestAccountClassificationService(unittest.TestCase):
         self.assertEqual(result.root_type, "Income")
 
     def test_keyword_tax(self):
-        """Test keyword-based tax classification"""
+        """Test keyword-based tax classification for balance sheet accounts"""
+        # Use 1xxx code (balance sheet) where keywords take priority
         result = self.service.classify_account(
-            {"code": "9999", "description": "BTW hoog tarief", "category": "", "group": ""}
+            {"code": "1599", "description": "BTW hoog tarief", "category": "", "group": ""}
         )
 
         self.assertEqual(result.account_type, "Tax")
@@ -376,7 +379,7 @@ class TestAccountClassificationService(unittest.TestCase):
     def test_keyword_stock(self):
         """Test keyword-based stock classification"""
         result = self.service.classify_account(
-            {"code": "9999", "description": "Voorraad handelsgoederen", "category": "", "group": ""}
+            {"code": "1499", "description": "Voorraad handelsgoederen", "category": "", "group": ""}
         )
 
         self.assertEqual(result.account_type, "Stock")
@@ -474,6 +477,137 @@ class TestAccountClassificationService(unittest.TestCase):
         )
         self.assertEqual(result.account_type, "Expense Account")
         self.assertEqual(result.root_type, "Expense")
+
+
+    def test_conflicting_signals_expense_with_receivable_keyword(self):
+        """Test that expense code (6xxx) overrides receivable keyword"""
+        result = self.service.classify_account(
+            {"code": "6100", "description": "Kosten debiteuren administratie", "category": "", "group": ""}
+        )
+
+        # Code 6xxx should classify as Expense, NOT Receivable (despite "debiteuren" keyword)
+        self.assertEqual(result.account_type, "Expense Account")
+        self.assertEqual(result.root_type, "Expense")
+        self.assertIn("code_pattern", result.strategy_used)
+
+    def test_conflicting_signals_income_with_expense_keyword(self):
+        """Test that income code (8xxx) overrides expense-like keywords"""
+        result = self.service.classify_account(
+            {"code": "8000", "description": "Opbrengst kosten doorberekend", "category": "", "group": ""}
+        )
+
+        # Code 8xxx should classify as Income, NOT Expense (despite "kosten" keyword)
+        self.assertEqual(result.account_type, "Income Account")
+        self.assertEqual(result.root_type, "Income")
+
+    def test_conflicting_signals_payable_expense_code(self):
+        """Test expense account with payable keyword"""
+        result = self.service.classify_account(
+            {"code": "6200", "description": "Te betalen kosten", "category": "", "group": ""}
+        )
+
+        # Code 6xxx = Expense should override "te betalen" (payable keyword)
+        self.assertEqual(result.account_type, "Expense Account")
+        self.assertEqual(result.root_type, "Expense")
+
+    def test_malicious_input_long_code(self):
+        """Test handling of excessively long account code"""
+        with self.assertRaises(ValueError) as context:
+            self.service.classify_account({"code": "A" * 100, "description": "Test", "category": "", "group": ""})
+
+        self.assertIn("exceeds maximum length", str(context.exception))
+
+    def test_malicious_input_long_description(self):
+        """Test handling of excessively long description"""
+        with self.assertRaises(ValueError) as context:
+            self.service.classify_account({"code": "1000", "description": "Evil" * 200, "category": "", "group": ""})
+
+        self.assertIn("exceeds maximum length", str(context.exception))
+
+    def test_malicious_input_invalid_characters(self):
+        """Test handling of invalid characters in code"""
+        with self.assertRaises(ValueError) as context:
+            self.service.classify_account(
+                {"code": "1000'; DROP TABLE--", "description": "SQL Injection", "category": "", "group": ""}
+            )
+
+        self.assertIn("invalid characters", str(context.exception))
+
+    def test_edge_case_empty_dict(self):
+        """Test handling of empty account data"""
+        with self.assertRaises(ValueError):
+            self.service.classify_account({})
+
+    def test_edge_case_none_values(self):
+        """Test handling of None values in account data"""
+        # Should handle None gracefully by converting to empty string
+        result = self.service.classify_account(
+            {"code": None, "description": "Test Account", "category": None, "group": None}
+        )
+
+        self.assertIsNotNone(result.account_type)
+        self.assertIsNotNone(result.root_type)
+
+    def test_edge_case_unicode_dutch_characters(self):
+        """Test handling of Dutch special characters"""
+        result = self.service.classify_account(
+            {"code": "8000", "description": "Contributies België en Curaçao", "category": "VW", "group": "055"}
+        )
+
+        self.assertEqual(result.account_type, "Income Account")
+        self.assertEqual(result.root_type, "Income")
+
+    def test_edge_case_compound_word_no_spaces(self):
+        """Test Dutch compound words without spaces"""
+        result = self.service.classify_account(
+            {"code": "1300", "description": "Debiteurenadministratie", "category": "", "group": ""}
+        )
+
+        # Should still detect "debiteuren" within compound word
+        self.assertEqual(result.account_type, "Receivable")
+        self.assertEqual(result.root_type, "Asset")
+
+    def test_edge_case_code_boundary_1999(self):
+        """Test boundary at 19xx (Current Liabilities in RGS)"""
+        result = self.service.classify_account(
+            {"code": "1999", "description": "Overige kortlopende schulden", "category": "", "group": ""}
+        )
+
+        # 19xx is Current Liabilities in Dutch RGS, not Asset
+        self.assertEqual(result.root_type, "Liability")
+
+    def test_edge_case_code_boundary_3999(self):
+        """Test boundary between liability and COGS (3999)"""
+        result = self.service.classify_account(
+            {"code": "3999", "description": "Overige kortlopende schulden", "category": "", "group": ""}
+        )
+
+        self.assertEqual(result.root_type, "Liability")
+
+    def test_edge_case_code_boundary_4000(self):
+        """Test start of COGS range (4000)"""
+        result = self.service.classify_account(
+            {"code": "4000", "description": "Inkoopwaarde omzet", "category": "", "group": ""}
+        )
+
+        self.assertEqual(result.account_type, "Cost of Goods Sold")
+        self.assertEqual(result.root_type, "Expense")
+
+    def test_balance_sheet_vs_profit_loss_strategy_difference(self):
+        """Test that balance sheet accounts use keyword-first, P&L uses code-first"""
+        # Balance sheet account (13xx) with receivable keyword - keyword should win
+        bs_result = self.service.classify_account(
+            {"code": "1350", "description": "Vordering op derden", "category": "", "group": ""}
+        )
+        self.assertEqual(bs_result.account_type, "Receivable")
+        self.assertIn("keyword", bs_result.strategy_used.lower())
+
+        # P&L account (6xxx) with receivable keyword - code should win
+        pl_result = self.service.classify_account(
+            {"code": "6100", "description": "Kosten vordering", "category": "", "group": ""}
+        )
+        self.assertEqual(pl_result.account_type, "Expense Account")
+        self.assertIn("code_pattern", pl_result.strategy_used.lower())
 
 
 if __name__ == "__main__":

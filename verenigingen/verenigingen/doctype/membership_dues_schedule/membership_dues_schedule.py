@@ -2535,25 +2535,23 @@ def generate_dues_invoices(test_mode=False):
                 # Continue without lock rather than failing completely
 
         # ✅ CRITICAL: Validate accounting configuration before generating invoices
-        # Check that all companies have required accounting fields configured
-        companies_to_check = frappe.get_all(
-            "Membership Dues Schedule",
-            filters={"status": "Active", "auto_generate": 1},
-            pluck="company",
-            distinct=True,
-        )
+        # Check that the default company has required accounting fields configured
+        from verenigingen.utils.settings_utils import get_default_company
+
+        company = get_default_company()
+        if not company:
+            frappe.throw("No default company configured in Verenigingen Settings")
 
         missing_configs = []
-        for company in companies_to_check:
-            company_doc = frappe.get_cached_doc("Company", company)
+        company_doc = frappe.get_cached_doc("Company", company)
 
-            # Check critical accounting fields
-            if not company_doc.round_off_account:
-                missing_configs.append(f"{company}: Missing Round Off Account")
-            if not company_doc.default_receivable_account:
-                missing_configs.append(f"{company}: Missing Default Receivable Account")
-            if not company_doc.default_income_account:
-                missing_configs.append(f"{company}: Missing Default Income Account")
+        # Check critical accounting fields
+        if not company_doc.round_off_account:
+            missing_configs.append(f"{company}: Missing Round Off Account")
+        if not company_doc.default_receivable_account:
+            missing_configs.append(f"{company}: Missing Default Receivable Account")
+        if not company_doc.default_income_account:
+            missing_configs.append(f"{company}: Missing Default Income Account")
 
         if missing_configs:
             error_msg = (
@@ -2602,7 +2600,64 @@ def generate_dues_invoices(test_mode=False):
         members_to_update = set()
         successful_invoices = []
 
-        for schedule_name in schedules:
+        # ✅ PARALLEL PROCESSING: Split work into chunks for concurrent execution
+        # Determine optimal chunk size based on total schedules
+        total_schedules = len(schedules)
+
+        # Use parallel processing for large batches (>50 schedules)
+        use_parallel = total_schedules > 50 and not test_mode
+
+        if use_parallel:
+            # Calculate chunk size: aim for 4-8 concurrent workers
+            # Each chunk should have 50-100 schedules for efficiency
+            num_workers = min(8, max(4, total_schedules // 100))
+            chunk_size = (total_schedules + num_workers - 1) // num_workers  # Ceiling division
+
+            frappe.logger().info(
+                f"Using parallel processing: {total_schedules} schedules split into {num_workers} chunks "
+                f"of ~{chunk_size} schedules each"
+            )
+
+            # Split schedules into chunks
+            chunks = []
+            for i in range(0, total_schedules, chunk_size):
+                chunks.append(schedules[i : i + chunk_size])
+
+            # Enqueue background jobs for each chunk
+            job_ids = []
+            for idx, chunk in enumerate(chunks, 1):
+                job = frappe.enqueue(
+                    "verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule._process_invoice_chunk",
+                    queue="long",
+                    timeout=1800,  # 30 minutes per chunk
+                    now=False,  # Queue for background processing
+                    schedule_names=chunk,
+                    chunk_id=idx,
+                    total_chunks=len(chunks),
+                    cutoff_date=cutoff_date,
+                    test_mode=test_mode,
+                )
+                job_ids.append(job)
+
+            frappe.logger().info(f"Queued {len(chunks)} background jobs for parallel invoice generation")
+
+            # Return early with job tracking info
+            return {
+                "processed": 0,
+                "generated": 0,
+                "errors": [],
+                "invoices": [],
+                "payment_history_updates": 0,
+                "parallel_mode": True,
+                "job_count": len(job_ids),
+                "total_schedules": total_schedules,
+                "message": f"Processing {total_schedules} invoices in {len(chunks)} parallel jobs. Check background jobs for progress.",
+            }
+
+        # SEQUENTIAL PROCESSING (for small batches or test mode)
+        frappe.logger().info(f"Using sequential processing for {total_schedules} schedules")
+
+        for idx, schedule_name in enumerate(schedules, 1):
             try:
                 schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
 
@@ -2698,6 +2753,10 @@ def generate_dues_invoices(test_mode=False):
                     print(f"Critical: Failed to log membership dues generation error: {str(log_error)}")
                     print(f"Original error was: {error_msg}")
                 results["errors"].append(error_msg)
+
+        # Commit all sequential changes at end
+        frappe.db.commit()
+        frappe.logger().info(f"Sequential processing complete: {len(schedules)} schedules processed")
 
         # HYBRID ARCHITECTURE: Bulk update payment history for all affected members
         if members_to_update:
@@ -2795,6 +2854,123 @@ def generate_dues_invoices(test_mode=False):
                     f"Error releasing bulk invoice generation lock: {str(e)}",
                     "Bulk Invoice Generation Lock Cleanup",
                 )
+
+
+@frappe.whitelist()
+def get_parallel_invoice_generation_status():
+    """
+    Check the status of parallel invoice generation background jobs.
+
+    Returns:
+        dict: Status information about queued and running jobs
+    """
+    from frappe.utils.background_jobs import get_jobs
+
+    # Get all jobs in the long queue
+    jobs = get_jobs(site=frappe.local.site, queue="long")
+
+    invoice_jobs = []
+    for job_id, job_info in jobs.items():
+        if "_process_invoice_chunk" in str(job_info.get("method", "")):
+            invoice_jobs.append(
+                {
+                    "job_id": job_id,
+                    "status": job_info.get("status"),
+                    "method": job_info.get("method"),
+                    "created": job_info.get("creation"),
+                }
+            )
+
+    return {
+        "total_jobs": len(invoice_jobs),
+        "jobs": invoice_jobs,
+        "message": f"Found {len(invoice_jobs)} invoice generation jobs in queue",
+    }
+
+
+def _process_invoice_chunk(schedule_names, chunk_id, total_chunks, cutoff_date, test_mode=False):
+    """
+    Worker function to process a chunk of invoices in parallel.
+
+    Args:
+        schedule_names: List of schedule names to process in this chunk
+        chunk_id: Identifier for this chunk (for logging)
+        total_chunks: Total number of chunks being processed
+        cutoff_date: Cutoff date for invoice generation
+        test_mode: Whether to run in test mode
+
+    Returns:
+        dict: Results containing generated invoices, errors, and members to update
+    """
+    frappe.set_user("Administrator")
+
+    results = {
+        "chunk_id": chunk_id,
+        "processed": 0,
+        "generated": 0,
+        "errors": [],
+        "invoices": [],
+        "members_to_update": set(),
+    }
+
+    frappe.logger().info(f"Chunk {chunk_id}/{total_chunks}: Processing {len(schedule_names)} schedules")
+
+    # Process each schedule in this chunk
+    for schedule_name in schedule_names:
+        try:
+            schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
+            results["processed"] += 1
+
+            try:
+                invoice = schedule.generate_invoice()
+                if invoice:
+                    results["generated"] += 1
+                    invoice_data = {
+                        "schedule": schedule_name,
+                        "member": schedule.member_name,
+                        "member_id": schedule.member,
+                        "invoice": invoice,
+                    }
+                    results["invoices"].append(invoice_data)
+
+                    if schedule.member:
+                        results["members_to_update"].add(schedule.member)
+
+                    schedule._clear_retry_tracking()
+                else:
+                    error_msg = f"Schedule {schedule_name} returned None from generate_invoice()"
+                    frappe.log_error(error_msg, f"Chunk {chunk_id} - Invoice Generation Failed")
+                    results["errors"].append(error_msg)
+
+            except frappe.ValidationError as ve:
+                recovery_result = schedule._handle_invoice_generation_failure(str(ve))
+                error_msg = (
+                    f"Schedule {schedule_name} validation failed (retry {recovery_result['retry_count']}/3): "
+                    f"{str(ve)[:100]}"
+                )
+                frappe.log_error(error_msg, f"Chunk {chunk_id} - Validation Error")
+                results["errors"].append(error_msg)
+
+            except Exception as e:
+                error_msg = f"Unexpected error for {schedule_name}: {str(e)[:100]}"
+                frappe.log_error(
+                    f"{error_msg}\n{frappe.get_traceback()}", f"Chunk {chunk_id} - Unexpected Error"
+                )
+                results["errors"].append(error_msg)
+
+        except Exception as outer_e:
+            error_msg = f"Error loading schedule {schedule_name}: {str(outer_e)[:100]}"
+            frappe.log_error(error_msg, f"Chunk {chunk_id} - Schedule Load Error")
+            results["errors"].append(error_msg)
+
+    # Commit this chunk's work
+    frappe.db.commit()
+
+    frappe.logger().info(
+        f"Chunk {chunk_id}/{total_chunks} complete: {results['generated']}/{results['processed']} invoices generated"
+    )
+
+    return results
 
 
 def _bulk_update_payment_history(member_names, successful_invoices):

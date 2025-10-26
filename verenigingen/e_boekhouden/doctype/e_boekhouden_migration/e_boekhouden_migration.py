@@ -1060,6 +1060,28 @@ class EBoekhoudenMigration(Document):
                 )
                 return False
 
+            # PHASE 1: NEW CLASSIFICATION SERVICE (Parallel execution for validation)
+            # Run new service in parallel to compare with existing logic
+            new_service_result = None
+            if frappe.conf.get("enable_account_classification_service_comparison", False):
+                try:
+                    from verenigingen.e_boekhouden.services.account_classification_service import (
+                        AccountClassificationService,
+                    )
+
+                    service = AccountClassificationService()
+                    new_service_result = service.classify_account(account_data)
+
+                    frappe.logger().info(
+                        f"NEW SERVICE - {account_code}: {new_service_result.account_type}/{new_service_result.root_type} "
+                        f"(Confidence: {new_service_result.confidence.value}, Strategy: {new_service_result.strategy_used})"
+                    )
+                except Exception as e:
+                    frappe.log_error(
+                        f"Account classification service failed for {account_code}: {str(e)}",
+                        "AccountClassificationService Error",
+                    )
+
             # Map e-Boekhouden categories to ERPNext account types and root types
             # Based on e-Boekhouden REST API specification
             category_mapping = {
@@ -1357,6 +1379,34 @@ class EBoekhoudenMigration(Document):
                         frappe.logger().warning(
                             f"Unknown account {account_code} (category {category}, group {group_code}) defaulted to Current Asset"
                         )
+
+            # PHASE 1: COMPARE NEW SERVICE RESULT WITH OLD LOGIC (if enabled)
+            if new_service_result and frappe.conf.get(
+                "enable_account_classification_service_comparison", False
+            ):
+                old_classification = f"{account_type}/{root_type}"
+                new_classification = f"{new_service_result.account_type}/{new_service_result.root_type}"
+
+                if old_classification != new_classification:
+                    # Log mismatch for review
+                    mismatch_msg = (
+                        f"CLASSIFICATION MISMATCH - {account_code} ({account_name})\n"
+                        f"  Old: {old_classification}\n"
+                        f"  New: {new_classification}\n"
+                        f"  Confidence: {new_service_result.confidence.value}\n"
+                        f"  Strategy: {new_service_result.strategy_used}\n"
+                        f"  Notes: {new_service_result.notes}\n"
+                        f"  Category: {category}, Group: {group_code}"
+                    )
+                    frappe.logger().warning(mismatch_msg)
+
+                    # Log to Error Log for easy review
+                    frappe.log_error(mismatch_msg, "Account Classification Mismatch")
+                else:
+                    frappe.logger().info(
+                        f"CLASSIFICATION MATCH - {account_code}: {old_classification} "
+                        f"(Confidence: {new_service_result.confidence.value})"
+                    )
 
             # Check if this should be a root account
             # With our Dutch root account structure in place, very few accounts should be truly root
