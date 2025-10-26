@@ -12,6 +12,7 @@ from typing import Dict, List
 import frappe
 from frappe.utils import nowdate
 
+from verenigingen.repositories import SEPAMandateRepository
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -319,10 +320,13 @@ def test_member_creation_queries():
 
 def test_sepa_mandate_queries():
     """Test SEPA mandate lookup queries"""
-    mandates = frappe.get_all("SEPA Mandate", limit=1, fields=["name", "member", "status"])
+    sepa_repo = SEPAMandateRepository()
+    # Get any mandate for testing
+    mandates = frappe.get_all("SEPA Mandate", limit=1, fields=["name"])
     if mandates:
-        mandate = frappe.get_doc("SEPA Mandate", mandates[0].name)
-        return {"mandate": mandate.name, "member": mandate.member, "found": True}
+        mandate = sepa_repo.get_mandate_by_name(mandates[0].name, fields=sepa_repo.FULL_FIELDS)
+        if mandate:
+            return {"mandate": mandate.name, "member": mandate.member, "found": True}
     return {"found": False}
 
 

@@ -21,6 +21,7 @@ import frappe
 from frappe import _
 from frappe.utils import date_diff, today
 
+from verenigingen.repositories import SEPAMandateRepository
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
@@ -626,7 +627,9 @@ def compare_payment_mixin_performance(member_name):
                         )
                         mandate_names = [m["sepa_mandate"] for m in mandates if m.get("sepa_mandate")]
                         if mandate_names:
-                            frappe.get_all("SEPA Mandate", filters={"name": ["in", mandate_names]})
+                            sepa_repo = SEPAMandateRepository()
+                            # Just fetching for query count measurement
+                            [sepa_repo.get_mandate_by_name(name) for name in mandate_names]
 
         results["optimized_queries"] = query_count
         results["optimized_time"] = (time.time() - start_time) * 1000

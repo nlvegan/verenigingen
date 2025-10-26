@@ -29,6 +29,8 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
+from verenigingen.repositories import DuesScheduleRepository
+
 
 class MemberMergeService:
     """Service for merging duplicate Member records with field-level control."""
@@ -241,7 +243,7 @@ class MemberMergeService:
 
         # Check for linked User account
         if source.user and target.user and source.user != target.user:
-            warnings.append(f"Both members have different User accounts. Target's User account will be kept.")
+            warnings.append("Both members have different User accounts. Target's User account will be kept.")
         elif source.user and not target.user:
             warnings.append(
                 f"Source has User account: {source.user}. This will NOT be transferred for security reasons. "
@@ -251,7 +253,7 @@ class MemberMergeService:
         # Check for ERPNext Customer
         if source.customer and target.customer and source.customer != target.customer:
             warnings.append(
-                f"Both members have different Customer records. Invoices will remain on their respective Customers."
+                "Both members have different Customer records. Invoices will remain on their respective Customers."
             )
 
         return warnings
@@ -359,7 +361,8 @@ class MemberMergeService:
         Note: Does NOT delete User, Employee, Volunteer, Contact records
         """
         # Delete Membership Dues Schedules first
-        dues_schedules = frappe.get_all("Membership Dues Schedule", filters={"member": source.name})
+        dues_repo = DuesScheduleRepository()
+        dues_schedules = dues_repo.get_all_schedules_for_member(source.name, fields=["name"])
         for schedule in dues_schedules:
             try:
                 frappe.delete_doc(
