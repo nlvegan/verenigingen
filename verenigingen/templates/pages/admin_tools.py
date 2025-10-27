@@ -281,6 +281,14 @@ def get_context(context):
     # System administration tools
     context.system_tools = [
         {
+            "title": "Delete All Payment Entries",
+            "description": "Delete all payment entries from the system (development only)",
+            "method": "verenigingen.e_boekhouden.utils.cleanup_utils.delete_all_payment_entries",
+            "icon": "fa fa-trash-o",
+            "color": "danger",
+            "warning": "⚠️ This will permanently delete ALL payment entries in the system! Only use on development servers!",
+        },
+        {
             "title": "Security Configuration",
             "description": "Check and configure security settings including CSRF protection",
             "method": "verenigingen.setup.security_setup.check_current_security_status",
@@ -532,6 +540,7 @@ ALLOWED_ADMIN_METHODS = {
     "verenigingen.e_boekhouden.utils.cleanup_utils.test_cleanup_small_batch",
     "verenigingen.e_boekhouden.utils.cleanup_utils.cleanup_orphaned_gl_entries",
     "verenigingen.e_boekhouden.utils.cleanup_utils.nuclear_cleanup_all_imported_data",
+    "verenigingen.e_boekhouden.utils.cleanup_utils.delete_all_payment_entries",
     # Security management
     "verenigingen.setup.security_setup.check_current_security_status",
     "verenigingen.setup.security_setup.apply_production_security",

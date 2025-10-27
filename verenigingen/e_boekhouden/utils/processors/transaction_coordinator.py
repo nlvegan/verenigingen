@@ -16,6 +16,7 @@ from .invoice_processor import InvoiceProcessor
 from .journal_processor import JournalProcessor
 from .opening_balance_processor import OpeningBalanceProcessor
 from .payment_processor import PaymentProcessor
+from .stock_processor import StockProcessor
 
 
 class TransactionCoordinator:
@@ -26,33 +27,96 @@ class TransactionCoordinator:
     eboekhouden_rest_full_migration.py file by providing a clean interface.
     """
 
-    def __init__(self, company: str, cost_center: Optional[str] = None):
+    def __init__(self, company: str, cost_center: Optional[str] = None, mutation_type: Optional[int] = None):
         """
         Initialize the coordinator with company context.
 
         Args:
             company: The ERPNext company name
             cost_center: Optional default cost center
+            mutation_type: Optional mutation type to filter processors (for batch imports)
         """
         self.company = company
         self.cost_center = cost_center or self._get_default_cost_center()
+        self.mutation_type = mutation_type
 
-        # Initialize all processors
-        self.processors = [
-            InvoiceProcessor(company, self.cost_center),
-            PaymentProcessor(company, self.cost_center),
-            JournalProcessor(company, self.cost_center),
-            OpeningBalanceProcessor(company, self.cost_center),
-        ]
+        # Define which processor classes handle which mutation types
+        # This allows filtering processors when processing type-specific batches
+        self.processor_type_map = {
+            0: [
+                OpeningBalanceProcessor,
+                StockProcessor,
+                JournalProcessor,
+            ],  # Opening balances (can include stock)
+            1: [InvoiceProcessor],  # Purchase invoices
+            2: [InvoiceProcessor],  # Sales invoices
+            3: [PaymentProcessor, JournalProcessor],  # Customer payments (normal + refunds)
+            4: [PaymentProcessor, JournalProcessor],  # Supplier payments (normal + refunds)
+            5: [PaymentProcessor],  # Money received (transfers)
+            6: [PaymentProcessor],  # Money paid (transfers)
+            7: [StockProcessor, JournalProcessor],  # Memorial bookings (stock adjustments or regular)
+            8: [JournalProcessor],  # Bank import
+            9: [JournalProcessor],  # Manual entry
+            10: [StockProcessor, JournalProcessor],  # Stock mutations
+        }
+
+        # Initialize processors (filtered by mutation_type if provided)
+        self.processors = self._initialize_processors()
 
         # Track processing statistics
         self.stats = {"processed": 0, "created": 0, "skipped": 0, "failed": 0, "errors": []}
+
+        # Store debug info from last processed mutation for caller access
+        self.last_processor_debug_info = []
 
     def _get_default_cost_center(self) -> Optional[str]:
         """Get the default cost center for the company"""
         from ..eboekhouden_rest_full_migration import get_default_cost_center
 
         return get_default_cost_center(self.company)
+
+    def _initialize_processors(self) -> List[BaseTransactionProcessor]:
+        """
+        Initialize processors, optionally filtered by mutation type.
+
+        When mutation_type is specified, only processors relevant to that type
+        are initialized, improving performance and clarity for batch imports.
+
+        Returns:
+            List of initialized processors
+        """
+        # Create all possible processors
+        all_processors = [
+            InvoiceProcessor(self.company, self.cost_center),
+            PaymentProcessor(self.company, self.cost_center),
+            StockProcessor(self.company, self.cost_center),
+            JournalProcessor(self.company, self.cost_center),
+            OpeningBalanceProcessor(self.company, self.cost_center),
+        ]
+
+        # If mutation_type specified, filter to relevant processors only
+        if self.mutation_type is not None:
+            allowed_classes = self.processor_type_map.get(self.mutation_type, [])
+
+            # Filter processors based on allowed classes
+            filtered = [p for p in all_processors if type(p) in allowed_classes]
+
+            # If we have a mapping but no processors matched, log a warning
+            if self.mutation_type in self.processor_type_map and not filtered:
+                frappe.logger().warning(
+                    f"No processors found for mutation type {self.mutation_type}, "
+                    f"expected: {[c.__name__ for c in allowed_classes]}"
+                )
+
+            # If mutation type has no mapping, use all processors as fallback
+            if self.mutation_type not in self.processor_type_map:
+                frappe.logger().warning(f"Unknown mutation type {self.mutation_type}, using all processors")
+                return all_processors
+
+            return filtered
+
+        # No mutation_type specified, return all processors
+        return all_processors
 
     def process_mutation(self, mutation: Dict[str, Any]) -> Optional[frappe.model.document.Document]:
         """
@@ -65,6 +129,7 @@ class TransactionCoordinator:
             The created document or None if skipped/failed
         """
         self.stats["processed"] += 1
+        self.last_processor_debug_info = []  # Reset for this mutation
 
         # Find the appropriate processor
         for processor in self.processors:
@@ -76,12 +141,14 @@ class TransactionCoordinator:
                     # Process the mutation
                     result = processor.process(mutation)
 
+                    # Capture debug info from processor for caller access
+                    self.last_processor_debug_info = processor.get_debug_info()
+
                     if result:
                         self.stats["created"] += 1
                         # Log debug info if available
-                        debug_info = processor.get_debug_info()
-                        if debug_info:
-                            self._log_debug_info(mutation, debug_info)
+                        if self.last_processor_debug_info:
+                            self._log_debug_info(mutation, self.last_processor_debug_info)
                     else:
                         self.stats["skipped"] += 1
 
@@ -91,6 +158,9 @@ class TransactionCoordinator:
                     self.stats["failed"] += 1
                     error_info = processor.format_error(mutation, e)
                     self.stats["errors"].append(error_info)
+
+                    # Capture debug info from error for caller access
+                    self.last_processor_debug_info = error_info.get("debug_info", [])
 
                     # Log the error
                     frappe.log_error(
@@ -183,6 +253,7 @@ class TransactionCoordinator:
             "Purchase Invoice": ["eboekhouden_mutation_nr"],
             "Payment Entry": ["eboekhouden_mutation_nr"],
             "Journal Entry": ["eboekhouden_mutation_nr"],
+            "Stock Reconciliation": ["eboekhouden_mutation_nr"],
         }
 
         for doctype, fields in required_fields.items():

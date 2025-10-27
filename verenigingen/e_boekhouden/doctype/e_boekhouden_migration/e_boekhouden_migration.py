@@ -3267,6 +3267,7 @@ def import_single_mutation(migration_name, mutation_id, overwrite_existing=True)
 
         # Import the mutation
         from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import _process_single_mutation
+        from verenigingen.e_boekhouden.utils.processors.transaction_coordinator import TransactionCoordinator
 
         debug_info = []
 
@@ -3277,10 +3278,47 @@ def import_single_mutation(migration_name, mutation_id, overwrite_existing=True)
         if not cost_center:
             return {"success": False, "error": f"No cost center found for company {company}"}
 
-        # Process the mutation
-        created_doc = _process_single_mutation(
-            mutation=mutation_data, company=company, cost_center=cost_center, debug_info=debug_info
-        )
+        # PHASE 2: Parallel validation of new processor architecture
+        # Try new processor-based approach first, fallback to legacy if it fails
+        use_new_processors = frappe.conf.get("eboekhouden_use_new_processors", True)
+
+        created_doc = None
+        processing_method = "legacy"
+
+        if use_new_processors:
+            try:
+                # Try new processor approach
+                coordinator = TransactionCoordinator(company, cost_center)
+                created_doc = coordinator.process_mutation(mutation_data)
+
+                if created_doc:
+                    processing_method = "new_processors"
+
+                    # Get debug info from the processor that actually processed this mutation
+                    processor_debug = coordinator.last_processor_debug_info
+                    if processor_debug:
+                        debug_info.extend(processor_debug)
+
+                    debug_info.append(
+                        f"✅ Successfully processed as {created_doc.doctype} {created_doc.name} (via new processors)"
+                    )
+                else:
+                    debug_info.append(f"⚠️ New processors returned None, falling back to legacy")
+
+            except Exception as e:
+                # Log processor failure but don't fail the import
+                frappe.log_error(
+                    title=f"New Processor Failed - Mutation {mutation_id}",
+                    message=f"Error: {str(e)}\nFalling back to legacy processing",
+                )
+                debug_info.append(f"⚠️ New processor failed: {str(e)}, using legacy")
+
+        # Fallback to legacy processing if new processors didn't work
+        if not created_doc:
+            created_doc = _process_single_mutation(
+                mutation=mutation_data, company=company, cost_center=cost_center, debug_info=debug_info
+            )
+            processing_method = "legacy"
 
         if created_doc:
             # Get document type and name from the document object
@@ -3294,8 +3332,9 @@ def import_single_mutation(migration_name, mutation_id, overwrite_existing=True)
                 "mutation_id": mutation_id,
                 "document_type": doc_type,
                 "document_name": doc_name,
+                "processing_method": processing_method,
                 "debug_info": debug_info,
-                "message": f"Successfully imported mutation {mutation_id} as {doc_type} {doc_name}",
+                "message": f"Successfully imported mutation {mutation_id} as {doc_type} {doc_name} (via {processing_method})",
             }
         else:
             return {

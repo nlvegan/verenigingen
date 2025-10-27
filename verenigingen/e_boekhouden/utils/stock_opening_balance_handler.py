@@ -49,6 +49,22 @@ def create_stock_reconciliation_for_opening_balance(stock_accounts_data, company
                 debug_info.append(f"Skipping stock account {account} - zero balance")
                 continue
 
+            # Check if Stock Reconciliation already exists for this account (idempotency)
+            existing = frappe.db.exists(
+                "Stock Reconciliation",
+                {
+                    "company": company,
+                    "purpose": "Opening Stock",
+                    "expense_account": account,
+                    "docstatus": ["in", [0, 1]],  # Draft or Submitted
+                },
+            )
+
+            if existing:
+                debug_info.append(f"Stock Reconciliation already exists for {account}: {existing}, skipping")
+                created_reconciliations.append(existing)
+                continue
+
             # Create or find a default item for this stock account
             item_code = _get_or_create_stock_item_for_account(account, company, debug_info)
 

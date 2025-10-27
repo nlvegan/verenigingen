@@ -21,19 +21,43 @@ class JournalProcessor(BaseTransactionProcessor):
 
         # Journal entry types:
         # 0 = Opening balance
-        # 5 = Money transfer (could be journal)
-        # 6 = Money transfer (could be journal)
         # 7 = Memorial booking
         # 8 = Bank import
         # 9 = Manual entry
         # 10 = Stock mutation
-        journal_types = [0, 5, 6, 7, 8, 9, 10]
+        # Note: Type 5/6 (Money Received/Paid) are handled by PaymentProcessor
+        journal_types = [0, 7, 8, 9, 10]
 
-        # Also check if it's not already handled by invoice or payment processors
-        has_invoice = bool(mutation.get("invoiceNumber"))
-        is_payment = mutation_type in [3, 4]
+        # Check for Type 3/4 payments in opposite direction (refunds/returns)
+        # Type 3 (Customer Payment) normally positive - if negative = refund to customer → Journal Entry
+        # Type 4 (Supplier Payment) normally negative - if positive = refund from supplier → Journal Entry
+        # Note: Type 3/4 in E-Boekhouden always have invoice references by design
+        if mutation_type == 3:
+            raw_amount = mutation.get("amount", 0) or 0
+            has_rows = bool(mutation.get("rows"))
+            row_amount = mutation["rows"][0].get("amount", 0) if has_rows else 0
+            is_negative = (raw_amount < 0) or (row_amount < 0)
 
-        return mutation_type in journal_types and not has_invoice and not is_payment
+            # Type 3 with negative amount = refund to customer
+            if is_negative:
+                return True
+
+        elif mutation_type == 4:
+            raw_amount = mutation.get("amount", 0) or 0
+            has_rows = bool(mutation.get("rows"))
+            row_amount = mutation["rows"][0].get("amount", 0) if has_rows else 0
+            is_positive = (raw_amount > 0) or (row_amount > 0)
+
+            # Type 4 with positive amount = refund from supplier
+            if is_positive:
+                return True
+
+        # Standard journal types
+        # Note: We don't check for invoiceNumber here because:
+        # - Type 1/2 (actual invoices) are handled by InvoiceProcessor
+        # - Type 7 (memorial bookings) can have invoice references and still need Journal Entry
+        # - Type 3/4 (payments) are handled above with special refund logic
+        return mutation_type in journal_types
 
     def process(self, mutation: Dict[str, Any]) -> Optional[frappe.model.document.Document]:
         """Process the mutation and create journal entry"""

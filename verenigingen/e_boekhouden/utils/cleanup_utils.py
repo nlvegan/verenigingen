@@ -520,3 +520,76 @@ def cleanup_purchase_invoices(pi_list, method_name):
             results["errors"].append(f"Failed to delete PI {pi_name}: {str(e)}")
 
     return results
+
+
+@frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
+def delete_all_payment_entries():
+    """Delete all payment entries from the system"""
+    try:
+        # Check for Verenigingen Administrator role
+        user_roles = frappe.get_roles()
+        if "Verenigingen Administrator" not in user_roles and frappe.session.user != "Administrator":
+            frappe.throw("Only Verenigingen Administrators can delete all payment entries")
+
+        # Count payment entries before deletion
+        count_before = frappe.db.count("Payment Entry")
+
+        frappe.logger().info(f"Starting deletion of {count_before} payment entries")
+
+        results = {"success": True, "count_before": count_before, "deleted": 0, "errors": []}
+
+        # Get all payment entries
+        payment_entries = frappe.get_all(
+            "Payment Entry", fields=["name", "docstatus"], limit=10000  # Safety limit
+        )
+
+        # Process in batches
+        batch_size = 100
+        for i in range(0, len(payment_entries), batch_size):
+            batch = payment_entries[i : i + batch_size]
+            frappe.logger().info(
+                f"Processing batch {i // batch_size + 1}/{(len(payment_entries) + batch_size - 1) // batch_size}"
+            )
+
+            for pe in batch:
+                try:
+                    # Load the document
+                    pe_doc = frappe.get_doc("Payment Entry", pe.name)
+
+                    # Cancel if submitted
+                    if pe_doc.docstatus == 1:
+                        pe_doc.cancel()
+
+                    # Delete the document
+                    frappe.delete_doc("Payment Entry", pe.name, force=True, ignore_permissions=True)
+                    results["deleted"] += 1
+
+                except Exception as e:
+                    error_msg = f"Failed to delete Payment Entry {pe.name}: {str(e)}"
+                    results["errors"].append(error_msg)
+                    frappe.logger().error(error_msg)
+
+            # Commit after each batch
+            if i % (batch_size * 4) == 0:  # Commit every 400 records
+                frappe.db.commit()
+
+        # Final commit
+        frappe.db.commit()
+
+        # Count remaining payment entries
+        count_after = frappe.db.count("Payment Entry")
+        results["count_after"] = count_after
+
+        message = f"Deleted {results['deleted']} payment entries"
+        if results["errors"]:
+            message += f" ({len(results['errors'])} errors)"
+
+        frappe.logger().info(message)
+
+        return {"success": True, "message": message, "results": results}
+
+    except Exception as e:
+        frappe.db.rollback()
+        frappe.logger().error(f"Failed to delete payment entries: {str(e)}")
+        return {"success": False, "error": str(e)}

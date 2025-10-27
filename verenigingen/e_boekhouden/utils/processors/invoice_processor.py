@@ -18,10 +18,11 @@ class InvoiceProcessor(BaseTransactionProcessor):
     def can_process(self, mutation: Dict[str, Any]) -> bool:
         """Check if this is an invoice mutation"""
         mutation_type = mutation.get("type", 0)
-        invoice_nr = mutation.get("invoiceNumber", "")
 
-        # Process if it has an invoice number or is type 1 (sales) or 2 (purchase)
-        return bool(invoice_nr) or mutation_type in [1, 2]
+        # ONLY process Type 1 (Purchase Invoice) and Type 2 (Sales Invoice)
+        # Note: Type 3/4 payments may have invoice numbers (references to invoices being paid),
+        # but they should NOT be processed as invoices - they create Payment Entries instead
+        return mutation_type in [1, 2]
 
     def process(self, mutation: Dict[str, Any]) -> Optional[frappe.model.document.Document]:
         """Process the mutation and create appropriate invoice"""

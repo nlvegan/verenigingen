@@ -3106,6 +3106,10 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
     je.eboekhouden_main_ledger_id = str(ledger_id) if ledger_id else ""
     je.user_remark = description
 
+    # Store invoice number for manual reconciliation (Type 3/4 refunds)
+    if invoice_number:
+        je.eboekhouden_invoice_number = invoice_number
+
     # Set descriptive name and title using enhanced naming functions
     if invoice_number:
         clean_invoice = str(invoice_number).replace("/", "-").replace("\\", "-").replace(" ", "-")
@@ -3818,12 +3822,18 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
 
     This version includes better error handling for newly added fields like payment_terms
     that might not exist in all mutations or might cause processing issues.
+
+    PHASE 2: Now uses new processor architecture with legacy fallback for validation.
     """
     imported = 0
     failed = 0
     skipped = 0
     errors = []
     debug_info = []
+
+    # Phase 2 metrics
+    processed_with_new = 0
+    processed_with_legacy = 0
 
     # Get descriptive mutation type name
     mutation_type_names = {
@@ -3868,6 +3878,27 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
         )
         return {"imported": 0, "failed": len(mutations), "skipped": 0, "errors": errors}
 
+    # PHASE 2: Initialize TransactionCoordinator for new processor architecture
+    use_new_processors = frappe.conf.get("eboekhouden_use_new_processors", True)
+    coordinator = None
+
+    if use_new_processors:
+        try:
+            from verenigingen.e_boekhouden.utils.processors.transaction_coordinator import (
+                TransactionCoordinator,
+            )
+
+            # Pass mutation_type to filter relevant processors for this batch
+            coordinator = TransactionCoordinator(company, cost_center, mutation_type=mutation_type)
+            debug_info.append(
+                f"✅ Phase 2: TransactionCoordinator initialized for {type_name} "
+                f"(filtered to {len(coordinator.processors)} relevant processor(s))"
+            )
+        except Exception as coord_error:
+            debug_info.append(f"⚠️ Failed to initialize TransactionCoordinator: {str(coord_error)}")
+            debug_info.append("Falling back to legacy processing for entire batch")
+            coordinator = None
+
     for i, mutation in enumerate(mutations):
         try:
             # Skip if already imported
@@ -3898,12 +3929,41 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
             # Process the mutation with enhanced error handling
             try:
                 debug_info.append(f"Processing mutation {mutation_id}")
-                doc = _process_single_mutation(mutation, company, cost_center, debug_info)
+                doc = None
+                processing_method = "legacy"
+
+                # PHASE 2: Try new processor architecture first
+                if coordinator:
+                    try:
+                        doc = coordinator.process_mutation(mutation)
+                        if doc:
+                            processing_method = "new_processors"
+                            processed_with_new += 1
+                            # Collect detailed debug info from processor
+                            processor_debug = coordinator.last_processor_debug_info
+                            if processor_debug:
+                                debug_info.extend(processor_debug)
+                    except Exception as proc_error:
+                        # Log processor failure but don't fail the import
+                        debug_info.append(
+                            f"⚠️ New processor failed for mutation {mutation_id}: {str(proc_error)}, using legacy"
+                        )
+                        # Collect any debug info generated before the error
+                        processor_debug = coordinator.last_processor_debug_info
+                        if processor_debug:
+                            debug_info.extend(processor_debug)
+                        doc = None
+
+                # Fallback to legacy if new processors didn't work
+                if not doc:
+                    doc = _process_single_mutation(mutation, company, cost_center, debug_info)
+                    processing_method = "legacy"
+                    processed_with_legacy += 1
 
                 if doc:
                     imported += 1
                     debug_info.append(
-                        f"Successfully imported mutation {mutation_id} as {doc.doctype} {doc.name}"
+                        f"Successfully imported mutation {mutation_id} as {doc.doctype} {doc.name} (via {processing_method})"
                     )
                 else:
                     # doc is False or None means it failed
@@ -3962,6 +4022,12 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
     summary_content += f"• Skipped: {skipped}\n"
     summary_content += f"• Total Errors: {len(errors)}\n\n"
 
+    # PHASE 2: Add processor statistics
+    if processed_with_new > 0 or processed_with_legacy > 0:
+        summary_content += f"PROCESSING METHOD BREAKDOWN:\n"
+        summary_content += f"• New Processors: {processed_with_new} ({processed_with_new * 100 / (processed_with_new + processed_with_legacy):.1f}%)\n"
+        summary_content += f"• Legacy Processing: {processed_with_legacy} ({processed_with_legacy * 100 / (processed_with_new + processed_with_legacy):.1f}%)\n\n"
+
     if error_categories:
         summary_content += "ERROR CATEGORIES:\n"
         for category, category_errors in error_categories.items():
@@ -3997,5 +4063,75 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
         # Log detailed errors separately for easy access
         detailed_title = f"eBoekhouden REST Import - {type_name} - Detailed Errors"
         frappe.log_error(detailed_error_content, detailed_title)
+
+    # RETRY LOGIC: Retry failed mutations that might have transient errors
+    # Transient errors include: document modified, deadlocks, timeouts, connection issues
+    transient_error_patterns = [
+        "has been modified after you have opened it",
+        "Deadlock found",
+        "Lock wait timeout exceeded",
+        "Connection reset",
+        "Connection timed out",
+        "Lost connection to MySQL server",
+    ]
+
+    if failed > 0 and errors:
+        # Extract mutation IDs from failed mutations
+        failed_mutation_ids = []
+        for error in errors:
+            # Check if error is transient
+            is_transient = any(pattern in error for pattern in transient_error_patterns)
+            if is_transient:
+                # Extract mutation ID from error message
+                import re
+
+                mutation_match = re.search(r"mutation (\d+)", error)
+                if mutation_match:
+                    failed_mutation_ids.append(mutation_match.group(1))
+
+        if failed_mutation_ids:
+            debug_info.append(
+                f"\n🔄 RETRY PHASE: Retrying {len(failed_mutation_ids)} mutations with transient errors"
+            )
+
+            # Import the single mutation import function
+            from verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration import (
+                import_single_mutation,
+            )
+
+            retry_success = 0
+            retry_failed = 0
+
+            for mutation_id in failed_mutation_ids:
+                try:
+                    debug_info.append(f"  Retrying mutation {mutation_id}...")
+                    result = import_single_mutation(migration_name, mutation_id, overwrite_existing=False)
+
+                    if result.get("success"):
+                        retry_success += 1
+                        # Remove from errors list
+                        errors = [e for e in errors if f"mutation {mutation_id}" not in e]
+                        imported += 1
+                        failed -= 1
+                        debug_info.append(f"  ✅ Retry successful for mutation {mutation_id}")
+                    else:
+                        retry_failed += 1
+                        debug_info.append(
+                            f"  ❌ Retry failed for mutation {mutation_id}: {result.get('error', 'Unknown error')}"
+                        )
+
+                except Exception as retry_error:
+                    retry_failed += 1
+                    debug_info.append(f"  ❌ Retry exception for mutation {mutation_id}: {str(retry_error)}")
+
+            # Log retry summary
+            retry_summary = f"\n🔄 RETRY SUMMARY:\n"
+            retry_summary += f"• Attempted: {len(failed_mutation_ids)} mutations\n"
+            retry_summary += f"• Successful: {retry_success}\n"
+            retry_summary += f"• Failed: {retry_failed}\n"
+            debug_info.append(retry_summary)
+
+            # Update summary with retry results
+            frappe.log_error(summary_content + retry_summary, f"{summary_title} (with retries)")
 
     return {"imported": imported, "failed": failed, "skipped": skipped, "errors": errors}

@@ -58,7 +58,13 @@ def nuke_financial_data_fast(confirm="NO"):
         print("\n4. Cancelling submitted documents...")
 
         # Cancel in reverse order of dependencies
-        for doctype in ["Payment Entry", "Sales Invoice", "Purchase Invoice", "Journal Entry"]:
+        for doctype in [
+            "Payment Entry",
+            "Sales Invoice",
+            "Purchase Invoice",
+            "Journal Entry",
+            "Stock Reconciliation",
+        ]:
             print(f"\n   Processing {doctype}...")
 
             # Get submitted docs
