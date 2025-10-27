@@ -103,7 +103,26 @@ def _execute_document_operation(
     elif operation in ["save", "update"]:
         # Flags like ignore_version should already be set by caller if needed
         # Just call save() and let Frappe respect the flags
-        doc.save()
+        try:
+            doc.save()
+        except frappe.TimestampMismatchError as e:
+            # Handle concurrent updates gracefully for monitoring/tracking DocTypes
+            # These are non-critical updates that can tolerate stale data
+            if doc.doctype in ["Bulk Operation Tracker", "API Audit Log"]:
+                # Reload and retry once for monitoring documents
+                frappe.logger().warning(
+                    f"Timestamp mismatch on {doc.doctype} {doc.name} during concurrent updates, "
+                    f"reloading and retrying (this is expected for bulk operations)"
+                )
+                doc.reload()
+                doc.save()
+            else:
+                # For critical documents, re-raise with more context
+                raise frappe.ValidationError(
+                    f"Document {doc.doctype} {doc.name} was modified by another process. "
+                    f"Original timestamp: {e.args[0] if e.args else 'unknown'}. "
+                    f"Please reload and try again."
+                ) from e
     elif operation == "update_child_table":
         # Specialized operation for child table updates that need to bypass
         # specific problematic validations while maintaining security
