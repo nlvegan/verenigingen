@@ -71,7 +71,7 @@
     "whatwg-fetch": "^3.6.20"
   },
   "author": "Verenigingen Team",
-  "license": "AGPL-3",
+  "license": "AGPL-3.0-or-later",
   "dependencies": {
     "@anthropic-ai/claude-code": "^1.0.128",
     "frappe-ui": "^0.1.205"

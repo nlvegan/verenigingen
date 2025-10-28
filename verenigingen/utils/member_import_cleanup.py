@@ -776,12 +776,15 @@ def preview_member_cleanup():
 @critical_api(operation_type=OperationType.ADMIN)
 def force_cleanup_orphaned_schedules_and_invoices(dry_run=True):
     """
-    Force cleanup of orphaned dues schedules and ALL sales invoices
+    Force cleanup of orphaned dues schedules and membership sales invoices
     after members have already been deleted.
 
-    This is more aggressive than the standard cleanup - it doesn't validate
-    membership/member existence, just force deletes schedules and invoices
-    that reference non-existent customers.
+    Detects orphaned invoices by checking:
+    - Membership invoices (is_membership_invoice = 1 OR membership_dues_schedule_display IS NOT NULL)
+    - Where the member no longer exists OR the customer no longer exists
+
+    Also cleans up related GL Entries, Payment Ledger Entries, and Payment Entry References
+    to prevent foreign key constraint violations.
 
     Args:
         dry_run (bool): If True, only shows what would be deleted
@@ -795,6 +798,9 @@ def force_cleanup_orphaned_schedules_and_invoices(dry_run=True):
         "dry_run": dry_run,
         "orphaned_schedules": {"count": 0, "deleted": 0, "errors": []},
         "orphaned_invoices": {"count": 0, "deleted": 0, "errors": []},
+        "gl_entries_deleted": 0,
+        "payment_ledger_deleted": 0,
+        "payment_references_deleted": 0,
         "summary": "",
     }
 
@@ -822,35 +828,90 @@ def force_cleanup_orphaned_schedules_and_invoices(dry_run=True):
 
         results["orphaned_schedules"]["count"] = len(orphaned_schedules)
 
-        # Find ALL sales invoices with non-existent customers (not just membership invoices)
-        # This prevents orphaned invoices from accumulating over time
-        all_invoices = frappe.db.sql(
+        # Find MEMBERSHIP invoices where member was deleted OR customer was deleted
+        # Only considers invoices marked as membership invoices or linked to dues schedules
+        orphaned_invoices = frappe.db.sql(
             """
-            SELECT si.name, si.customer, si.docstatus
+            SELECT si.name, si.customer, si.docstatus, si.member, si.is_membership_invoice
             FROM `tabSales Invoice` si
+            LEFT JOIN `tabMember` m ON si.member = m.name
             LEFT JOIN `tabCustomer` c ON si.customer = c.name
-            WHERE c.name IS NULL
+            WHERE (si.is_membership_invoice = 1 OR si.membership_dues_schedule_display IS NOT NULL)
+              AND (
+                  (si.member IS NOT NULL AND m.name IS NULL)  -- Member deleted
+                  OR c.name IS NULL  -- Customer deleted (rare, requires force delete)
+              )
         """,
             as_dict=True,
         )
 
-        orphaned_invoices = all_invoices
         results["orphaned_invoices"]["count"] = len(orphaned_invoices)
 
         if dry_run:
-            results[
-                "summary"
-            ] = f"DRY RUN: Would delete {len(orphaned_schedules)} orphaned schedules and {len(orphaned_invoices)} orphaned invoices"
+            # Show sample of what would be deleted
+            summary_lines = [
+                f"DRY RUN: Would delete {len(orphaned_schedules)} orphaned schedules and {len(orphaned_invoices)} orphaned membership invoices"
+            ]
+            if orphaned_invoices:
+                sample = orphaned_invoices[:5]
+                summary_lines.append(f"\nSample invoices to delete:")
+                for inv in sample:
+                    summary_lines.append(
+                        f"  - {inv.name}: customer={inv.customer}, member={inv.member}, status={inv.docstatus}"
+                    )
+                if len(orphaned_invoices) > 5:
+                    summary_lines.append(f"  ... and {len(orphaned_invoices) - 5} more")
+            results["summary"] = "\n".join(summary_lines)
             return results
 
         # ACTUAL DELETION
         frappe.db.begin()
 
         try:
-            # Delete orphaned invoices first
+            # Delete orphaned invoices first (with proper GL cleanup)
+            # Note: We manually delete GL entries instead of using doc.cancel() because:
+            # 1. The member/customer may already be deleted, causing cancel() to fail
+            # 2. Direct SQL deletion is more reliable for cleanup after force deletions
+            # 3. We can track exactly what gets cleaned up for audit purposes
+            #
+            # Strategy: Continue on individual invoice errors (not fail-fast) because:
+            # - We want to clean up as many orphaned invoices as possible in one run
+            # - Some invoices may have unique constraint issues that shouldn't block others
+            # - Errors are tracked in results["orphaned_invoices"]["errors"] for review
             for invoice in orphaned_invoices:
                 try:
-                    # Cancel if submitted
+                    # Step 1: Delete GL Entries (must be done before cancelling/deleting invoice)
+                    # frappe.db.sql returns affected row count as integer
+                    gl_count = frappe.db.sql(
+                        """
+                        DELETE FROM `tabGL Entry`
+                        WHERE voucher_type = 'Sales Invoice' AND voucher_no = %s
+                    """,
+                        invoice.name,
+                    )
+                    results["gl_entries_deleted"] += (gl_count or 0)
+
+                    # Step 2: Delete Payment Ledger Entries
+                    pl_count = frappe.db.sql(
+                        """
+                        DELETE FROM `tabPayment Ledger Entry`
+                        WHERE voucher_type = 'Sales Invoice' AND voucher_no = %s
+                    """,
+                        invoice.name,
+                    )
+                    results["payment_ledger_deleted"] += (pl_count or 0)
+
+                    # Step 3: Delete Payment Entry References
+                    pr_count = frappe.db.sql(
+                        """
+                        DELETE FROM `tabPayment Entry Reference`
+                        WHERE reference_doctype = 'Sales Invoice' AND reference_name = %s
+                    """,
+                        invoice.name,
+                    )
+                    results["payment_references_deleted"] += (pr_count or 0)
+
+                    # Step 4: Cancel if submitted (now safe since GL entries are gone)
                     if invoice.docstatus == 1:
                         frappe.db.sql(
                             """
@@ -861,7 +922,7 @@ def force_cleanup_orphaned_schedules_and_invoices(dry_run=True):
                             invoice.name,
                         )
 
-                    # Force delete
+                    # Step 5: Force delete the invoice
                     frappe.delete_doc("Sales Invoice", invoice.name, ignore_permissions=True, force=True)
                     results["orphaned_invoices"]["deleted"] += 1
                 except Exception as e:
@@ -880,7 +941,7 @@ def force_cleanup_orphaned_schedules_and_invoices(dry_run=True):
             frappe.db.commit()
             results[
                 "summary"
-            ] = f"Successfully deleted {results['orphaned_schedules']['deleted']} schedules and {results['orphaned_invoices']['deleted']} invoices"
+            ] = f"Successfully deleted {results['orphaned_schedules']['deleted']} schedules and {results['orphaned_invoices']['deleted']} invoices (with {results['gl_entries_deleted']} GL entries, {results['payment_ledger_deleted']} payment ledger entries, {results['payment_references_deleted']} payment references)"
 
         except Exception as e:
             frappe.db.rollback()
