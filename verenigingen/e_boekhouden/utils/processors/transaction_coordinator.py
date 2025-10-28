@@ -132,17 +132,28 @@ class TransactionCoordinator:
         self.last_processor_debug_info = []  # Reset for this mutation
 
         # Find the appropriate processor
-        for processor in self.processors:
-            if processor.can_process(mutation):
-                try:
-                    # Clear debug info for fresh processing
-                    processor.clear_debug_info()
+        # Accumulate debug info from all processors that were checked
+        accumulated_debug_info = []
 
+        for processor in self.processors:
+            # Clear debug info before checking can_process
+            processor.clear_debug_info()
+
+            can_process = processor.can_process(mutation)
+
+            # Capture debug info from can_process() check
+            processor_debug = processor.get_debug_info()
+            if processor_debug:
+                accumulated_debug_info.extend(processor_debug)
+
+            if can_process:
+                try:
                     # Process the mutation
                     result = processor.process(mutation)
 
-                    # Capture debug info from processor for caller access
-                    self.last_processor_debug_info = processor.get_debug_info()
+                    # Capture updated debug info from processor for caller access
+                    accumulated_debug_info.extend(processor.get_debug_info())
+                    self.last_processor_debug_info = accumulated_debug_info
 
                     if result:
                         self.stats["created"] += 1
@@ -160,7 +171,8 @@ class TransactionCoordinator:
                     self.stats["errors"].append(error_info)
 
                     # Capture debug info from error for caller access
-                    self.last_processor_debug_info = error_info.get("debug_info", [])
+                    accumulated_debug_info.extend(error_info.get("debug_info", []))
+                    self.last_processor_debug_info = accumulated_debug_info
 
                     # Log the error
                     frappe.log_error(
@@ -170,8 +182,11 @@ class TransactionCoordinator:
 
                     return None
 
+            # Processor cannot handle this mutation, continue to next processor
+
         # No processor found for this mutation type
         self.stats["skipped"] += 1
+        self.last_processor_debug_info = accumulated_debug_info  # Capture all checks
         self._log_unhandled_mutation(mutation)
         return None
 

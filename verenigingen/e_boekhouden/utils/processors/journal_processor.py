@@ -28,18 +28,19 @@ class JournalProcessor(BaseTransactionProcessor):
         # Note: Type 5/6 (Money Received/Paid) are handled by PaymentProcessor
         journal_types = [0, 7, 8, 9, 10]
 
-        # Check for Type 3/4 payments in opposite direction (refunds/returns)
-        # Type 3 (Customer Payment) normally positive - if negative = refund to customer → Journal Entry
-        # Type 4 (Supplier Payment) normally negative - if positive = refund from supplier → Journal Entry
-        # Note: Type 3/4 in E-Boekhouden always have invoice references by design
+        # Check for Type 3/4 payments in opposite direction WITHOUT invoice references
+        # Type 3 (Customer Payment) normally positive - if negative WITHOUT invoice = generic refund → Journal Entry
+        # Type 4 (Supplier Payment) normally negative - if positive WITHOUT invoice = generic refund → Journal Entry
+        # Note: If they HAVE invoice references, they go to PaymentProcessor for proper reconciliation
         if mutation_type == 3:
             raw_amount = mutation.get("amount", 0) or 0
             has_rows = bool(mutation.get("rows"))
             row_amount = mutation["rows"][0].get("amount", 0) if has_rows else 0
             is_negative = (raw_amount < 0) or (row_amount < 0)
+            has_invoice_ref = bool(mutation.get("invoiceNumber"))
 
-            # Type 3 with negative amount = refund to customer
-            if is_negative:
+            # Type 3 with negative amount AND no invoice ref = generic refund to customer
+            if is_negative and not has_invoice_ref:
                 return True
 
         elif mutation_type == 4:
@@ -48,7 +49,9 @@ class JournalProcessor(BaseTransactionProcessor):
             row_amount = mutation["rows"][0].get("amount", 0) if has_rows else 0
             is_positive = (raw_amount > 0) or (row_amount > 0)
 
-            # Type 4 with positive amount = refund from supplier
+            # Type 4 with positive amount = refund from supplier → Journal Entry
+            # Examples: Mollie compensation, deposit returns, supplier credits
+            # Note: These often reference invoices that are already paid, so Payment Entry would fail
             if is_positive:
                 return True
 

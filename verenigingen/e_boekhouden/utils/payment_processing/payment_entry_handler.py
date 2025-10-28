@@ -112,24 +112,58 @@ class PaymentEntryHandler:
             # Determine payment type and party based on mutation type AND amount sign
             # For negative amounts, payment direction is reversed (refunds)
             raw_amount = flt(mutation.get("amount", 0))
-            is_refund = raw_amount < 0
 
             # Base payment type from mutation type
             base_payment_type = "Receive" if mutation_type == 3 else "Pay"
 
-            # Reverse payment type for refunds (negative amounts)
-            if is_refund:
+            # Check if this is a gateway payment with adjusted amount
+            # Gateway payments shouldn't have payment type reversed
+            is_gateway_adjustment = bool(mutation.get("_original_amount"))
+
+            # Determine if this is a refund based on mutation type and amount sign
+            # Type 3 (Customer Payment): normally positive (money IN), negative = refund TO customer
+            # Type 4 (Supplier Payment): normally negative (money OUT), positive = refund FROM supplier
+            is_refund = False
+            if mutation_type == 3 and raw_amount < 0:
+                is_refund = True  # Refund TO customer
+            elif mutation_type == 4 and raw_amount > 0:
+                is_refund = True  # Refund FROM supplier
+
+            # Reverse payment type for refunds
+            # EXCEPT for gateway adjustments where amount is intentionally adjusted
+            if is_refund and not is_gateway_adjustment:
                 payment_type = "Pay" if base_payment_type == "Receive" else "Receive"
                 self._log(
-                    f"Negative amount detected ({raw_amount}) - reversing payment type from {base_payment_type} to {payment_type}"
+                    f"Refund detected (Type {mutation_type}, amount={raw_amount}) - reversing payment type from {base_payment_type} to {payment_type}"
                 )
             else:
                 payment_type = base_payment_type
+                if is_gateway_adjustment:
+                    self._log(
+                        f"Gateway payment detected - keeping payment type as {payment_type} (amount: {raw_amount})"
+                    )
 
             party_type = "Customer" if mutation_type == 3 else "Supplier"
 
             # Validate payment direction consistency
-            self._validate_payment_direction(mutation_type, raw_amount, payment_type, party_type)
+            # For gateway adjustments, validate against adjusted amount to ensure correctness
+            if is_gateway_adjustment:
+                # Gateway adjustments should result in Type 4 with negative amount (payment OUT)
+                if mutation_type == 4 and raw_amount >= 0:
+                    self._log(
+                        f"⚠️ WARNING: Gateway adjustment resulted in non-negative Type 4 amount ({raw_amount}). "
+                        f"Expected negative for supplier payment."
+                    )
+                    frappe.log_error(
+                        title=f"Invalid Gateway Adjustment - Mutation {mutation_id}",
+                        message=f"Gateway adjustment for Type 4 resulted in non-negative amount: {raw_amount}\n"
+                        f"Original amount: {mutation.get('_original_amount')}\n"
+                        f"Adjustment reason: {mutation.get('_adjustment_reason')}\n"
+                        f"This indicates a logic error in amount adjustment."
+                    )
+            else:
+                # Normal validation for non-gateway mutations
+                self._validate_payment_direction(mutation_type, raw_amount, payment_type, party_type)
 
             # Get or create party
             party = self._get_or_create_party(
@@ -202,6 +236,7 @@ class PaymentEntryHandler:
 
             # CRITICAL: Create Bank Transaction BEFORE submitting Payment Entry
             # This ensures both operations happen within the same atomic transaction
+            # For gateway adjustments, the Bank Transaction will use the adjusted amount
             # Check if Bank Transaction already exists (idempotency for re-imports)
             existing_bt = frappe.db.get_value(
                 "Bank Transaction", {"reference_number": f"EB-{mutation_id}"}, "name"
@@ -213,12 +248,23 @@ class PaymentEntryHandler:
                 )
                 bank_transaction_name = existing_bt
             else:
+                # Check if this is a gateway adjustment (for audit trail logging)
+                is_gateway_adjustment = bool(mutation.get("_original_amount"))
+                if is_gateway_adjustment:
+                    self._log(
+                        f"Gateway adjustment: Creating Bank Transaction with adjusted amount "
+                        f"€{pe.paid_amount or pe.received_amount} (original: €{mutation.get('_original_amount')})"
+                    )
+
                 self._log(
                     f"ATOMIC TRANSACTION START: Creating Bank Transaction for Payment Entry {pe.name} "
                     f"(Mutation #{mutation_id}, Amount: {pe.paid_amount or pe.received_amount})"
                 )
 
-                bank_transaction_name = self._create_bank_transaction_for_payment(mutation, pe, bank_account)
+                bank_transaction_name = self._create_bank_transaction_for_payment(
+                    mutation, pe, bank_account
+                )
+
             if bank_transaction_name:
                 if not existing_bt:
                     self._log(f"✓ Bank Transaction created: {bank_transaction_name}")

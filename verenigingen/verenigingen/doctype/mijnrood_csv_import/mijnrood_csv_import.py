@@ -410,6 +410,7 @@ class MijnroodCSVImport(Document):
                 role_profile=role_profile,
                 batch_size=50,  # Process in batches of 50
                 priority="Low",  # Don't block individual member approvals
+                create_employee=bool(getattr(self, "create_employee_records", False)),
             )
 
             if not result.get("success"):
@@ -913,8 +914,7 @@ class MijnroodCSVImport(Document):
         if new_member_since:
             # For existing members, keep the earlier date (oldest join date)
             if member_doc.member_since:
-                # Compare dates and keep the earlier one
-                from frappe.utils import getdate
+                # Compare dates and keep the earlier one (getdate imported at top)
                 existing_date = getdate(member_doc.member_since)
                 new_date = getdate(new_member_since)
                 member_doc.member_since = min(existing_date, new_date)

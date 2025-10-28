@@ -3178,6 +3178,38 @@ def import_single_mutation(migration_name, mutation_id, overwrite_existing=True)
 
         # Delete existing document if overwrite is enabled
         if existing_doc and overwrite_existing:
+            # First, check for orphaned Bank Transactions (not linked to any Payment Entry)
+            # These can be left over from failed imports or legacy processing
+            bt_reference = f"EB-{mutation_id}"
+            orphaned_bt = frappe.db.get_value(
+                "Bank Transaction",
+                {"reference_number": bt_reference},
+                "name"
+            )
+
+            if orphaned_bt:
+                # Check if it's actually orphaned (no linked payments)
+                linked_payments = frappe.get_all(
+                    "Bank Transaction Payments",
+                    filters={"parent": orphaned_bt},
+                    limit=1
+                )
+
+                if not linked_payments:
+                    # Orphaned - safe to delete
+                    try:
+                        bt_doc = frappe.get_doc("Bank Transaction", orphaned_bt)
+                        if bt_doc.docstatus == 1:
+                            bt_doc.cancel()
+                        frappe.delete_doc("Bank Transaction", orphaned_bt, force=True)
+                        frappe.logger().info(
+                            f"Deleted orphaned Bank Transaction {orphaned_bt} for mutation {mutation_id}"
+                        )
+                    except Exception as e:
+                        frappe.logger().warning(
+                            f"Failed to delete orphaned Bank Transaction {orphaned_bt}: {str(e)}"
+                        )
+
             docs_to_delete = [
                 ("Journal Entry", existing_je),
                 ("Sales Invoice", existing_si),
@@ -3215,10 +3247,55 @@ def import_single_mutation(migration_name, mutation_id, overwrite_existing=True)
 
                                 for payment in linked_payments:
                                     payment_doc = frappe.get_doc("Payment Entry", payment["name"])
+
+                                    # Check for linked Bank Transactions
+                                    linked_bt_refs = frappe.get_all(
+                                        "Bank Transaction Payments",
+                                        filters={"payment_entry": payment["name"]},
+                                        fields=["parent"],
+                                    )
+
                                     payment_doc.cancel()
                                     frappe.logger().info(
                                         f"Cancelled linked Payment Entry {payment['name']} before deleting {doctype} {docname}"
                                     )
+
+                                    # Cancel and delete linked Bank Transactions
+                                    for bt_ref in linked_bt_refs:
+                                        try:
+                                            bt_doc = frappe.get_doc("Bank Transaction", bt_ref.parent)
+                                            if bt_doc.docstatus == 1:
+                                                bt_doc.cancel()
+                                            frappe.delete_doc("Bank Transaction", bt_ref.parent, force=True)
+                                            frappe.logger().info(
+                                                f"Deleted linked Bank Transaction {bt_ref.parent} for Payment Entry {payment['name']}"
+                                            )
+                                        except Exception as bt_error:
+                                            frappe.logger().warning(
+                                                f"Failed to delete Bank Transaction {bt_ref.parent}: {str(bt_error)}"
+                                            )
+
+                            # For Payment Entries being deleted directly, check for Bank Transactions
+                            if doctype == "Payment Entry":
+                                linked_bt_refs = frappe.get_all(
+                                    "Bank Transaction Payments",
+                                    filters={"payment_entry": docname},
+                                    fields=["parent"],
+                                )
+
+                                for bt_ref in linked_bt_refs:
+                                    try:
+                                        bt_doc = frappe.get_doc("Bank Transaction", bt_ref.parent)
+                                        if bt_doc.docstatus == 1:
+                                            bt_doc.cancel()
+                                        frappe.delete_doc("Bank Transaction", bt_ref.parent, force=True)
+                                        frappe.logger().info(
+                                            f"Deleted linked Bank Transaction {bt_ref.parent} for Payment Entry {docname}"
+                                        )
+                                    except Exception as bt_error:
+                                        frappe.logger().warning(
+                                            f"Failed to delete Bank Transaction {bt_ref.parent}: {str(bt_error)}"
+                                        )
 
                             doc.cancel()
                             frappe.logger().info(f"Cancelled {doctype} {docname} before deletion")
@@ -3291,19 +3368,49 @@ def import_single_mutation(migration_name, mutation_id, overwrite_existing=True)
                 coordinator = TransactionCoordinator(company, cost_center)
                 created_doc = coordinator.process_mutation(mutation_data)
 
+                # ALWAYS capture debug info from coordinator, regardless of result
+                processor_debug = coordinator.last_processor_debug_info
+                if processor_debug:
+                    debug_info.extend(processor_debug)
+
                 if created_doc:
                     processing_method = "new_processors"
-
-                    # Get debug info from the processor that actually processed this mutation
-                    processor_debug = coordinator.last_processor_debug_info
-                    if processor_debug:
-                        debug_info.extend(processor_debug)
-
                     debug_info.append(
                         f"✅ Successfully processed as {created_doc.doctype} {created_doc.name} (via new processors)"
                     )
                 else:
-                    debug_info.append(f"⚠️ New processors returned None, falling back to legacy")
+                    # Check if this was an intentional skip (e.g., payment gateway adjustment)
+                    # Look for skip indicators in debug info
+                    skip_indicators = [
+                        "CLAIMING payment gateway adjustment",
+                        "Skipping payment gateway adjustment",
+                        "DETECTED as adjustment",
+                    ]
+                    was_intentionally_skipped = any(
+                        any(indicator in line for indicator in skip_indicators) for line in processor_debug
+                    )
+
+                    if was_intentionally_skipped:
+                        debug_info.append(
+                            f"✅ Mutation {mutation_id} intentionally skipped by new processors "
+                            f"(payment gateway adjustment - not a real transaction)"
+                        )
+                        processing_method = "new_processors"
+                        # Don't fall back to legacy - this was intentional
+                        # Return success with no document created
+                        frappe.db.commit()
+                        return {
+                            "success": True,
+                            "mutation_id": mutation_id,
+                            "document_type": None,
+                            "document_name": None,
+                            "processing_method": processing_method,
+                            "debug_info": debug_info,
+                            "skipped": True,
+                            "message": f"Mutation {mutation_id} intentionally skipped (payment gateway adjustment)",
+                        }
+                    else:
+                        debug_info.append(f"⚠️ New processors returned None, falling back to legacy")
 
             except Exception as e:
                 # Log processor failure but don't fail the import
@@ -3353,7 +3460,7 @@ def import_single_mutation(migration_name, mutation_id, overwrite_existing=True)
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def start_transaction_import(migration_name, import_type="recent"):
+def start_transaction_import(migration_name, import_type="recent", mutation_types=None):
     """Start importing transactions using REST API only
 
     DEPRECATED: The 'recent' option previously used SOAP API which was limited to 500 transactions.
@@ -3362,6 +3469,8 @@ def start_transaction_import(migration_name, import_type="recent"):
     Args:
         migration_name: Name of the migration document
         import_type: 'recent' for last 90 days, 'all' for full history via REST
+        mutation_types: Optional list of mutation type integers to import (e.g., [1, 2, 4])
+                       If None, imports all types
     """
     try:
         # Debug: Log the migration name we're looking for
@@ -3422,10 +3531,20 @@ def start_transaction_import(migration_name, import_type="recent"):
 
         frappe.db.commit()
 
+        # Parse mutation_types if it's a string (from JSON)
+        if mutation_types and isinstance(mutation_types, str):
+            import json
+
+            try:
+                mutation_types = json.loads(mutation_types)
+            except (json.JSONDecodeError, ValueError):
+                mutation_types = None
+
         # Always use REST API import
         frappe.enqueue(
             "verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration.start_full_rest_import",
             migration_name=migration_name,
+            mutation_types=mutation_types,
             queue="long",
             timeout=7200 if import_type == "all" else 3600,  # 2 hours for full, 1 hour for recent
         )

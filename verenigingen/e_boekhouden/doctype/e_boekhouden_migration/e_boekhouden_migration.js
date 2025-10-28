@@ -1468,6 +1468,70 @@ function show_transaction_import_dialog(frm) {
 				description: 'Leave empty to use auto-detected range'
 			},
 			{
+				fieldname: 'mutation_types_section',
+				fieldtype: 'Section Break',
+				label: 'Mutation Types to Import'
+			},
+			{
+				fieldname: 'mutation_types_html',
+				fieldtype: 'HTML',
+				options: `
+					<div class="mutation-types-selector">
+						<p style="margin-bottom: 10px; color: #666;">Select which transaction types to import:</p>
+						<div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">
+							<label style="display: flex; align-items: center; padding: 8px; background: #f8f9fa; border-radius: 4px;">
+								<input type="checkbox" name="mutation_type" value="0" checked style="margin-right: 8px;">
+								<span>Type 0: Opening Balances</span>
+							</label>
+							<label style="display: flex; align-items: center; padding: 8px; background: #f8f9fa; border-radius: 4px;">
+								<input type="checkbox" name="mutation_type" value="1" checked style="margin-right: 8px;">
+								<span>Type 1: Purchase Invoices</span>
+							</label>
+							<label style="display: flex; align-items: center; padding: 8px; background: #f8f9fa; border-radius: 4px;">
+								<input type="checkbox" name="mutation_type" value="2" checked style="margin-right: 8px;">
+								<span>Type 2: Sales Invoices</span>
+							</label>
+							<label style="display: flex; align-items: center; padding: 8px; background: #f8f9fa; border-radius: 4px;">
+								<input type="checkbox" name="mutation_type" value="3" checked style="margin-right: 8px;">
+								<span>Type 3: Customer Payments</span>
+							</label>
+							<label style="display: flex; align-items: center; padding: 8px; background: #f8f9fa; border-radius: 4px;">
+								<input type="checkbox" name="mutation_type" value="4" checked style="margin-right: 8px;">
+								<span>Type 4: Supplier Payments</span>
+							</label>
+							<label style="display: flex; align-items: center; padding: 8px; background: #f8f9fa; border-radius: 4px;">
+								<input type="checkbox" name="mutation_type" value="5" checked style="margin-right: 8px;">
+								<span>Type 5: Money Received</span>
+							</label>
+							<label style="display: flex; align-items: center; padding: 8px; background: #f8f9fa; border-radius: 4px;">
+								<input type="checkbox" name="mutation_type" value="6" checked style="margin-right: 8px;">
+								<span>Type 6: Money Paid</span>
+							</label>
+							<label style="display: flex; align-items: center; padding: 8px; background: #f8f9fa; border-radius: 4px;">
+								<input type="checkbox" name="mutation_type" value="7" checked style="margin-right: 8px;">
+								<span>Type 7: Memorial Bookings</span>
+							</label>
+							<label style="display: flex; align-items: center; padding: 8px; background: #f8f9fa; border-radius: 4px;">
+								<input type="checkbox" name="mutation_type" value="8" checked style="margin-right: 8px;">
+								<span>Type 8: Bank Import</span>
+							</label>
+							<label style="display: flex; align-items: center; padding: 8px; background: #f8f9fa; border-radius: 4px;">
+								<input type="checkbox" name="mutation_type" value="9" checked style="margin-right: 8px;">
+								<span>Type 9: Manual Entry</span>
+							</label>
+							<label style="display: flex; align-items: center; padding: 8px; background: #f8f9fa; border-radius: 4px;">
+								<input type="checkbox" name="mutation_type" value="10" checked style="margin-right: 8px;">
+								<span>Type 10: Stock Mutations</span>
+							</label>
+						</div>
+						<div style="margin-top: 10px;">
+							<button class="btn btn-xs btn-default" onclick="document.querySelectorAll('.mutation-types-selector input[type=checkbox]').forEach(cb => cb.checked = true)">Select All</button>
+							<button class="btn btn-xs btn-default" onclick="document.querySelectorAll('.mutation-types-selector input[type=checkbox]').forEach(cb => cb.checked = false)">Deselect All</button>
+						</div>
+					</div>
+				`
+			},
+			{
 				fieldname: 'options_section',
 				fieldtype: 'Section Break',
 				label: 'Options'
@@ -1483,6 +1547,24 @@ function show_transaction_import_dialog(frm) {
 		],
 		primary_action_label: 'Start Import',
 		primary_action(values) {
+			// Collect selected mutation types
+			const selected_types = [];
+			dialog.$wrapper.find('input[name="mutation_type"]:checked').each(function() {
+				selected_types.push(parseInt($(this).val()));
+			});
+
+			if (selected_types.length === 0) {
+				frappe.msgprint({
+					title: __('No Types Selected'),
+					message: __('Please select at least one mutation type to import'),
+					indicator: 'orange'
+				});
+				return;
+			}
+
+			// Add selected types to values
+			values.mutation_types = selected_types;
+
 			dialog.hide();
 
 			// Always use REST API now - determine type based on method
@@ -1601,8 +1683,9 @@ function import_transactions_rest(frm, options, import_type = 'all') {
 			function continue_rest_import() {
 				if (options.date_to) {
 					frm.set_value('date_to', options.date_to);
-				} else {
-					// Always use today as end date for complete import
+				} else if (import_type !== 'all') {
+					// Use today as end date for recent/partial imports
+					// For 'all' imports, leave date_to empty (already cleared above)
 					frm.set_value('date_to', frappe.datetime.get_today());
 				}
 
@@ -1611,7 +1694,11 @@ function import_transactions_rest(frm, options, import_type = 'all') {
 			}
 
 			// For non-'all' imports, continue immediately
+			// For 'all' imports, the continue_rest_import() call happens after user confirmation
 			if (import_type !== 'all') {
+				continue_rest_import();
+			} else {
+				// For 'all' imports, proceed immediately (user already confirmed via dialog)
 				continue_rest_import();
 			}
 
@@ -1639,7 +1726,8 @@ function import_transactions_rest(frm, options, import_type = 'all') {
                   'verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration.start_transaction_import',
 								args: {
 									migration_name: frm.doc.name,
-									import_type
+									import_type,
+									mutation_types: options.mutation_types || null
 								},
 								callback(r) {
 									if (r.message && r.message.success) {
@@ -2225,33 +2313,79 @@ function handle_import_single_mutation(frm) {
 					overwrite_existing: values.overwrite_existing
 				},
 				callback(r) {
+					// Debug logging to understand what's being returned
+					console.log('Import response:', r.message);
+
 					if (r.message && r.message.success) {
-						frappe.show_alert({
-							message: __('Successfully imported mutation {0}', [
-								values.mutation_id
-							]),
-							indicator: 'green'
-						});
-
-						// Show results
 						const result = r.message;
-						let message = '<strong>Import Results:</strong><br>';
-						message += `Mutation ID: ${result.mutation_id}<br>`;
-						message += `Document Type: ${result.document_type}<br>`;
-						message += `Document Name: ${result.document_name}<br>`;
 
-						if (result.debug_info && result.debug_info.length > 0) {
-							message += '<br><strong>Debug Info:</strong><br>';
-							result.debug_info.forEach((info) => {
-								message += `• ${info}<br>`;
+						// Check if mutation was intentionally skipped
+						if (result.skipped) {
+							frappe.show_alert({
+								message: __('Mutation {0} was skipped (not a real transaction)', [
+									values.mutation_id
+								]),
+								indicator: 'blue'
 							});
-						}
 
-						frappe.msgprint({
-							title: __('Import Complete'),
-							message,
-							indicator: 'green'
-						});
+							let message = '<strong>Import Results:</strong><br>';
+							message += `Mutation ID: ${result.mutation_id}<br>`;
+							message += '<strong>Status:</strong> Skipped (payment gateway adjustment)<br>';
+
+							if (result.debug_info && result.debug_info.length > 0) {
+								message += '<br><strong>Debug Info:</strong><br>';
+								result.debug_info.forEach((info) => {
+									message += `• ${info}<br>`;
+								});
+							}
+
+							console.log('[Skipped branch] Final message to display:', message);
+							console.log('[Skipped branch] Message length:', message.length);
+
+							const msgData = {
+								title: __('Import Complete'),
+								message: message,
+								indicator: 'blue'
+							};
+							console.log('[Skipped branch] Data being passed to frappe.msgprint:', msgData);
+
+							frappe.msgprint(msgData);
+						} else {
+							frappe.show_alert({
+								message: __('Successfully imported mutation {0}', [
+									values.mutation_id
+								]),
+								indicator: 'green'
+							});
+
+							let message = '<strong>Import Results:</strong><br>';
+							message += `Mutation ID: ${result.mutation_id || 'Unknown'}<br>`;
+							message += `Document Type: ${result.document_type || 'None'}<br>`;
+							message += `Document Name: ${result.document_name || 'None'}<br>`;
+
+							// Always show debug info if available
+							if (result.debug_info && result.debug_info.length > 0) {
+								message += '<br><strong>Debug Info:</strong><br>';
+								result.debug_info.forEach((info) => {
+									message += `• ${info}<br>`;
+								});
+							} else {
+								message += '<br><em>No debug information available</em><br>';
+							}
+
+							console.log('Final message to display:', message);
+							console.log('Message type:', typeof message);
+							console.log('Message length:', message.length);
+
+							const msgData = {
+								title: __('Import Complete'),
+								message: message,
+								indicator: 'green'
+							};
+							console.log('Data being passed to frappe.msgprint:', msgData);
+
+							frappe.msgprint(msgData);
+						}
 					} else {
 						frappe.show_alert({
 							message: __('Failed to import mutation {0}', [

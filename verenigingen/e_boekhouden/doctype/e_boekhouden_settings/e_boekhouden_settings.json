@@ -25,6 +25,9 @@
     "column_break_11",
     "default_currency",
     "fiscal_year_start_month",
+    "payment_gateway_section",
+    "payment_gateway_virtual_account",
+    "payment_gateway_invoice_prefix",
     "account_groups_section",
     "account_group_mappings",
     "cost_center_section",
@@ -144,6 +147,27 @@
       "fieldtype": "Select",
       "label": "Fiscal Year Start Month",
       "options": "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12"
+    },
+    {
+      "fieldname": "payment_gateway_section",
+      "fieldtype": "Section Break",
+      "label": "Payment Gateway Adjustment Detection",
+      "description": "Configure detection of internal payment gateway adjustments (e.g., Mollie fee corrections) that should be skipped during import",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "payment_gateway_virtual_account",
+      "fieldtype": "Link",
+      "label": "Virtual Account",
+      "options": "Account",
+      "description": "Select the ERPNext account for the payment gateway's virtual account (e.g., '10460 - Mollie - NVV'). Leave empty to disable adjustment detection."
+    },
+    {
+      "fieldname": "payment_gateway_invoice_prefix",
+      "fieldtype": "Data",
+      "label": "Gateway Invoice Prefix",
+      "description": "Invoice number prefix for gateway invoices (e.g., 'MOL-NL-R' for Mollie). Adjustments for invoices with this prefix will be skipped.",
+      "depends_on": "eval:doc.payment_gateway_virtual_account"
     },
     {
       "fieldname": "account_groups_section",

@@ -3585,7 +3585,7 @@ def _should_debit_increase(eboekhouden_category, ledger_id=None):
     return True
 
 
-def start_full_rest_import(migration_name):
+def start_full_rest_import(migration_name, mutation_types=None):
     """
     Start full REST import for a migration document.
 
@@ -3594,6 +3594,8 @@ def start_full_rest_import(migration_name):
 
     Args:
         migration_name: Name of the E-Boekhouden Migration document
+        mutation_types: Optional list of mutation type integers to import (e.g., [1, 2, 4])
+                       If None, imports all types (1-7) plus type 0 for full migrations
 
     Returns:
         dict: Migration result with success status and stats
@@ -3629,10 +3631,26 @@ def start_full_rest_import(migration_name):
 
         iterator = EBoekhoudenRESTIterator()
 
-        # Import all mutation types (Sales, Purchase, Payments, Money Transfers, Memorial)
-        mutation_types = [1, 2, 3, 4, 5, 6, 7]
+        # Determine which mutation types to import
+        if mutation_types is None:
+            # Default: Import all mutation types (Sales, Purchase, Payments, Money Transfers, Memorial)
+            mutation_types = [1, 2, 3, 4, 5, 6, 7]
+        elif not isinstance(mutation_types, list):
+            # If mutation_types is not a list, convert to list or use default
+            frappe.log_error(
+                f"Invalid mutation_types parameter: {mutation_types}. Using default types.",
+                "eBoekhouden Import - Invalid Parameter",
+            )
+            mutation_types = [1, 2, 3, 4, 5, 6, 7]
+        else:
+            # User provided specific types - use them
+            # Filter to valid types (0-10) and ensure unique
+            mutation_types = sorted(list(set([t for t in mutation_types if 0 <= t <= 10])))
+            frappe.log_error(
+                f"Using user-specified mutation types: {mutation_types}", "eBoekhouden Import - Custom Types"
+            )
 
-        # Add opening balances (type 0) if this is a full migration
+        # Add opening balances (type 0) if not already included and this is a full migration
         # Opening balances should be imported when:
         # 1. No date_from is specified (import all transactions)
         # 2. date_from is set to 2019-01-01 or earlier (includes 2018-12-31 opening balances)
@@ -3645,7 +3663,9 @@ def start_full_rest_import(migration_name):
             )  # Cutoff for "full" import (includes 2018-12-31 opening balances)
         )
 
-        if is_full_import:
+        # Only auto-add type 0 if user didn't explicitly specify types
+        # (mutation_types parameter was None)
+        if is_full_import and 0 not in mutation_types and mutation_types == [1, 2, 3, 4, 5, 6, 7]:
             mutation_types.insert(0, 0)  # Add type 0 at the beginning
             frappe.log_error(
                 f"Including opening balances (type 0) in migration. Date from: {date_from}",
@@ -3675,6 +3695,9 @@ def start_full_rest_import(migration_name):
                     5: "Money Received",
                     6: "Money Paid",
                     7: "Memorial Bookings",
+                    8: "Bank Import",
+                    9: "Manual Entry",
+                    10: "Stock Mutations",
                 }
                 type_name = type_names.get(mutation_type, f"Type {mutation_type}")
 
@@ -3769,6 +3792,9 @@ def start_full_rest_import(migration_name):
                         5: "Money Received",
                         6: "Money Paid",
                         7: "Memorial Bookings",
+                        8: "Bank Import",
+                        9: "Manual Entry",
+                        10: "Stock Mutations",
                     }
                     type_name = type_names.get(mutation_type, f"Type {mutation_type}")
 
@@ -3943,10 +3969,26 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
                             processor_debug = coordinator.last_processor_debug_info
                             if processor_debug:
                                 debug_info.extend(processor_debug)
+                        else:
+                            # New processors returned None - log why
+                            debug_info.append(
+                                f"⚠️ New processors returned None for mutation {mutation_id} (Type {mutation_type}), falling back to legacy"
+                            )
+                            # Collect any debug info that might explain why
+                            processor_debug = coordinator.last_processor_debug_info
+                            if processor_debug:
+                                debug_info.extend(processor_debug)
+
+                            # Log to Error Log for tracking
+                            frappe.log_error(
+                                title=f"New Processor Returned None - Mutation {mutation_id} (Type {mutation_type})",
+                                message=f"Mutation ID: {mutation_id}\nType: {mutation_type}\nDescription: {mutation.get('description', 'N/A')}\n\nDebug Info:\n"
+                                + "\n".join(processor_debug if processor_debug else ["No debug info"]),
+                            )
                     except Exception as proc_error:
                         # Log processor failure but don't fail the import
                         debug_info.append(
-                            f"⚠️ New processor failed for mutation {mutation_id}: {str(proc_error)}, using legacy"
+                            f"⚠️ New processor failed for mutation {mutation_id} (Type {mutation_type}): {str(proc_error)}, using legacy"
                         )
                         # Collect any debug info generated before the error
                         processor_debug = coordinator.last_processor_debug_info

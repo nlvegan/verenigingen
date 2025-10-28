@@ -224,15 +224,17 @@ class AccountCreationManager:
             # For bulk operations (CSV imports), bypass rate limiting by setting in_import flag
             # This is the intended use of frappe.flags.in_import as per Frappe core throttle_user_creation()
             is_bulk_operation = getattr(frappe.flags, "bulk_account_creation", False)
-            if is_bulk_operation:
-                frappe.flags.in_import = True
+
+            # Save original flag state for restoration
+            original_in_import = getattr(frappe.flags, "in_import", False)
 
             try:
+                if is_bulk_operation:
+                    frappe.flags.in_import = True
                 user_doc.insert()
             finally:
-                # Always clean up the import flag
-                if is_bulk_operation:
-                    frappe.flags.in_import = False
+                # Always restore original flag state
+                frappe.flags.in_import = original_in_import
 
             self.created_user = user_doc.name
             self.request.created_user = self.created_user
@@ -483,17 +485,19 @@ class AccountCreationManager:
 
     def requires_employee_creation(self):
         """Check if employee record creation is needed"""
-        # Create employee for volunteers who need expense functionality
+        # ALWAYS create employee for volunteers who need expense functionality
         if self.request.request_type in ["Volunteer", "Both"]:
             return True
 
-        # For Member requests, check if source member has a volunteer record
+        # For Member requests, check if explicitly requested via import flag
         if self.request.request_type == "Member":
-            volunteer_record = frappe.db.get_value(
-                "Volunteer", {"member": self.request.source_record}, "name"
-            )
-            if volunteer_record:
+            # Check if the request has a flag indicating employee should be created
+            # This is set by CSV import when create_employee_records is checked
+            if getattr(self.request, "_create_employee", False):
                 return True
+
+            # Legacy behavior: Don't auto-create employees just because a volunteer record exists
+            # This caused unwanted employee creation during CSV imports
 
         # Check if any requested roles require employee record
         employee_roles = ["Employee", "Employee Self Service"]
@@ -768,7 +772,7 @@ def queue_account_creation_for_volunteer(volunteer_name, priority="Normal"):
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def queue_bulk_account_creation_for_members(
-    member_names, roles=None, role_profile=None, batch_size=50, priority="Low"
+    member_names, roles=None, role_profile=None, batch_size=50, priority="Low", create_employee=False
 ):
     """
     Queue bulk account creation for multiple members with efficient batch processing.
@@ -804,9 +808,10 @@ def queue_bulk_account_creation_for_members(
     if not role_profile:
         role_profile = "Verenigingen Member"
 
-    # Validate all members exist and have email addresses
+    # Phase 1: Validate all members and identify existing users that need linking
     validation_errors = []
     valid_members = []
+    users_to_link = []  # (user_name, member_name, member_email) tuples for linking phase
 
     for member_name in member_names:
         try:
@@ -817,6 +822,59 @@ def queue_bulk_account_creation_for_members(
             member = frappe.get_doc("Member", member_name)
             if not member.email:
                 validation_errors.append(f"Member {member_name} has no email address")
+                continue
+
+            # Check if user already exists with this email
+            existing_user_data = frappe.db.get_value(
+                "User",
+                {"email": member.email},
+                ["name", "first_name", "last_name", "custom_member"],
+                as_dict=True,
+            )
+
+            if existing_user_data:
+                existing_user = existing_user_data.name
+                current_member_link = existing_user_data.custom_member
+
+                # Security validation: Only link if names match
+                names_match = (
+                    existing_user_data.first_name == member.first_name
+                    and existing_user_data.last_name == member.last_name
+                )
+
+                if current_member_link and current_member_link != member_name:
+                    # User already linked to a DIFFERENT member - security violation
+                    validation_errors.append(
+                        f"Security: User {member.email} already linked to different member {current_member_link}"
+                    )
+                    frappe.logger().warning(
+                        f"Security: Attempted to link user {existing_user} (linked to {current_member_link}) "
+                        f"to different member {member_name}"
+                    )
+                    continue
+                elif not current_member_link:
+                    # User exists but not linked - validate names match
+                    if names_match:
+                        # Queue for linking in separate phase
+                        users_to_link.append((existing_user, member_name, member.email))
+                        validation_errors.append(
+                            f"User account exists for {member_name} ({member.email}), will be linked"
+                        )
+                    else:
+                        # Names don't match - possible email collision
+                        validation_errors.append(
+                            f"User {member.email} exists but name mismatch: "
+                            f"User({existing_user_data.first_name} {existing_user_data.last_name}) != "
+                            f"Member({member.first_name} {member.last_name})"
+                        )
+                        frappe.logger().warning(
+                            f"Name mismatch prevents linking user {existing_user} to member {member_name}"
+                        )
+                else:
+                    # Already linked to this member
+                    validation_errors.append(
+                        f"User account already linked for {member_name} ({member.email})"
+                    )
                 continue
 
             # Check for existing requests
@@ -841,14 +899,49 @@ def queue_bulk_account_creation_for_members(
         for error in validation_errors[:10]:  # Log first 10 errors
             frappe.logger().warning(f"Validation error: {error}")
 
-    if not valid_members:
-        return {
-            "success": False,
-            "error": "No valid members found for processing",
-            "validation_errors": validation_errors[:50],  # Return first 50 errors
-        }
+    # Phase 2: Link existing users to members in a single transaction
+    linked_count = 0
+    if users_to_link:
+        frappe.logger().info(f"Linking {len(users_to_link)} existing users to members")
+        try:
+            for user_name, member_name, member_email in users_to_link:
+                frappe.db.set_value("User", user_name, "custom_member", member_name, update_modified=False)
+                linked_count += 1
+                frappe.logger().info(
+                    f"Linked existing user {user_name} to member {member_name} (validated: {member_email})"
+                )
 
-    # Create account creation requests for all valid members with chunked processing
+            # Commit all links in one transaction
+            frappe.db.commit()
+            frappe.logger().info(f"Successfully linked {linked_count} existing users")
+        except Exception as e:
+            frappe.db.rollback()
+            frappe.logger().error(f"Failed to link existing users: {str(e)}")
+            return {
+                "success": False,
+                "error": f"Failed to link existing users: {str(e)}",
+                "validation_errors": validation_errors[:50],
+            }
+
+    if not valid_members:
+        # If we linked users but have no new accounts to create, that's still success
+        if linked_count > 0:
+            return {
+                "success": True,
+                "requests_created": 0,
+                "validation_errors_count": len(validation_errors),
+                "validation_errors": validation_errors[:50],
+                "linked_users_count": linked_count,
+                "message": f"Linked {linked_count} existing user accounts, no new accounts to create",
+            }
+        else:
+            return {
+                "success": False,
+                "error": "No valid members found for processing",
+                "validation_errors": validation_errors[:50],
+            }
+
+    # Phase 3: Create account creation requests for all valid members with chunked processing
     created_requests = []
     creation_errors = []
 
@@ -889,6 +982,10 @@ def queue_bulk_account_creation_for_members(
                         # Add requested roles
                         for role in roles:
                             request.append("requested_roles", {"role": role})
+
+                        # Set flag for employee creation if requested
+                        if create_employee:
+                            request._create_employee = True
 
                         request.insert()
                         created_requests.append(request.name)

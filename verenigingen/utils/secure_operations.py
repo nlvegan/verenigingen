@@ -103,26 +103,52 @@ def _execute_document_operation(
     elif operation in ["save", "update"]:
         # Flags like ignore_version should already be set by caller if needed
         # Just call save() and let Frappe respect the flags
-        try:
-            doc.save()
-        except frappe.TimestampMismatchError as e:
-            # Handle concurrent updates gracefully for monitoring/tracking DocTypes
-            # These are non-critical updates that can tolerate stale data
-            if doc.doctype in ["Bulk Operation Tracker", "API Audit Log"]:
-                # Reload and retry once for monitoring documents
-                frappe.logger().warning(
-                    f"Timestamp mismatch on {doc.doctype} {doc.name} during concurrent updates, "
-                    f"reloading and retrying (this is expected for bulk operations)"
-                )
-                doc.reload()
+        max_retries = 3
+        retry_count = 0
+
+        while retry_count <= max_retries:
+            try:
                 doc.save()
-            else:
-                # For critical documents, re-raise with more context
-                raise frappe.ValidationError(
-                    f"Document {doc.doctype} {doc.name} was modified by another process. "
-                    f"Original timestamp: {e.args[0] if e.args else 'unknown'}. "
-                    f"Please reload and try again."
-                ) from e
+                break  # Success - exit retry loop
+            except frappe.TimestampMismatchError as e:
+                retry_count += 1
+
+                # Handle concurrent updates gracefully for monitoring/tracking DocTypes
+                # These are non-critical updates that can tolerate stale data
+                if doc.doctype in ["Bulk Operation Tracker", "API Audit Log"]:
+                    if retry_count <= max_retries:
+                        frappe.logger().warning(
+                            f"Timestamp mismatch on {doc.doctype} {doc.name} (attempt {retry_count}/{max_retries}) "
+                            f"during concurrent updates, reloading and retrying"
+                        )
+                        try:
+                            doc.reload()
+                        except Exception as reload_error:
+                            frappe.logger().error(
+                                f"Failed to reload {doc.doctype} {doc.name} after timestamp mismatch: {reload_error}"
+                            )
+                            raise frappe.ValidationError(
+                                f"Document {doc.doctype} {doc.name} could not be reloaded after concurrent update"
+                            ) from reload_error
+
+                        import time
+
+                        time.sleep(0.1 * retry_count)  # Exponential backoff
+                    else:
+                        # Max retries exceeded - log and fail
+                        frappe.logger().error(
+                            f"Max retries ({max_retries}) exceeded for {doc.doctype} {doc.name} due to persistent timestamp conflicts"
+                        )
+                        raise frappe.ValidationError(
+                            f"Document {doc.doctype} {doc.name} has persistent concurrent update conflicts. "
+                            f"Failed after {max_retries} retry attempts."
+                        ) from e
+                else:
+                    # For critical documents, re-raise immediately with context
+                    raise frappe.ValidationError(
+                        f"Document {doc.doctype} {doc.name} was modified by another process. "
+                        f"Please reload and try again."
+                    ) from e
     elif operation == "update_child_table":
         # Specialized operation for child table updates that need to bypass
         # specific problematic validations while maintaining security

@@ -37,6 +37,11 @@ def safe_log_error(message, title=None):
 
 
 class AccountCreationRequest(Document):
+    """Account Creation Request DocType Controller"""
+
+    # Class constants
+    MAX_RETRIES = 3  # Maximum number of retry attempts for failed requests
+
     def validate(self):
         """Validate account creation request"""
         self.validate_permissions()
@@ -228,11 +233,10 @@ class AccountCreationRequest(Document):
         if current_status != "Failed":
             frappe.throw(_("Only failed requests can be retried"))
 
-        # Validate retry limits
-        MAX_RETRIES = 3
+        # Validate retry limits using class constant
         current_retry_count = frappe.db.get_value(self.doctype, self.name, "retry_count") or 0
-        if current_retry_count >= MAX_RETRIES:
-            frappe.throw(_("Maximum retry attempts exceeded ({0})").format(MAX_RETRIES))
+        if current_retry_count >= self.MAX_RETRIES:
+            frappe.throw(_("Maximum retry attempts exceeded ({0})").format(self.MAX_RETRIES))
 
         # Reset for retry using direct database updates to avoid timestamp conflicts
         # This bypasses the ORM .save() which checks modified timestamps
