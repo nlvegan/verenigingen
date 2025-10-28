@@ -72,7 +72,7 @@ class PaymentProcessor(BaseTransactionProcessor):
                     f"Expected: positive (unsigned) amounts\n"
                     f"Raw amount: {raw_amount}\n"
                     f"This may indicate E-Boekhouden API behavior change.\n"
-                    f"Full mutation: {frappe.as_json(mutation, indent=2)}"
+                    f"Full mutation: {frappe.as_json(mutation, indent=2)}",
                 )
 
             # Type 3: Exclude negative amounts WITHOUT invoice ref (generic refunds → Journal Entry)
@@ -90,19 +90,20 @@ class PaymentProcessor(BaseTransactionProcessor):
                     )
                     return False
 
-            # Type 4: Exclude negative raw_amount (refunds from supplier → Journal Entry)
-            # Type 4 row amounts are positive by convention (magnitude of payment OUT)
-            # Negative raw_amount = opposite direction = refund FROM supplier (money IN)
-            # If raw_amount=0 and row_amount > 0, it's a NORMAL payment (accept)
+            # Type 4: Exclude positive raw_amount (refunds from supplier → Journal Entry)
+            # For Type 4 (Supplier Payment):
+            # - raw_amount = 0 with positive row_amount = NORMAL payment (accept)
+            # - raw_amount > 0 (positive) = REFUND from supplier, money IN (reject)
+            # - raw_amount < 0 (negative) = would be unusual, but would indicate payment OUT
             elif mutation_type == 4:
-                is_refund = raw_amount < 0  # Negative = refund FROM supplier
+                is_refund = raw_amount > 0  # Positive = refund FROM supplier (money IN)
                 self.debug_info.append(
                     f"Type 4 refund check for mutation {mutation_id}: "
                     f"raw_amount={raw_amount}, row_amount={row_amount}, is_refund={is_refund}"
                 )
                 if is_refund:
                     self.debug_info.append(
-                        f"⚠️ Excluding Type 4 negative raw_amount (supplier refund/credit) - forwarding to JournalProcessor"
+                        f"⚠️ Excluding Type 4 positive raw_amount (supplier refund/credit) - forwarding to JournalProcessor"
                     )
                     return False
 
@@ -443,6 +444,7 @@ class PaymentProcessor(BaseTransactionProcessor):
 
                 # Create a DEEP copy to avoid mutating original mutation data
                 import copy
+
                 adjusted = copy.deepcopy(mutation)
                 invoice_total = invoice["grand_total"]
 

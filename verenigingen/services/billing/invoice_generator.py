@@ -658,6 +658,9 @@ class InvoiceGenerator:
         if payment_config["sepa_mandate_id"]:
             invoice.sepa_mandate_id = payment_config["sepa_mandate_id"]
 
+        # Use company default cost center for rounding adjustments
+        invoice.use_company_roundoff_cost_center = 1
+
         # Add invoice item
         invoice.append(
             "items",

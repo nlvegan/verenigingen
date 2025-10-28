@@ -67,17 +67,42 @@ class PaymentEntryHandler:
             )
             return existing_payment[0]  # Return early without entering atomic operation
 
-        # Use atomic operation only for new payment entries
-        try:
-            with atomic_migration_operation("payment_processing"):
-                return self._process_payment_mutation_internal(mutation)
-        except Exception as e:
-            self._log(f"ERROR processing mutation {mutation_id}: {str(e)}")
-            frappe.log_error(
-                f"Payment mutation processing failed: {str(e)}\\nMutation: {json.dumps(mutation, indent=2)}",
-                "E-Boekhouden Payment Import",
-            )
-            return None
+        # Use atomic operation only for new payment entries with retry logic for lock timeouts
+        max_retries = 3
+        retry_delay = 0.5  # seconds
+
+        for attempt in range(max_retries):
+            try:
+                with atomic_migration_operation("payment_processing"):
+                    return self._process_payment_mutation_internal(mutation)
+            except Exception as e:
+                error_str = str(e)
+
+                # Check if this is a database lock timeout that we should retry
+                is_lock_timeout = "Lock wait timeout exceeded" in error_str or "1205" in error_str
+                is_deadlock = "Deadlock found" in error_str or "1213" in error_str
+                should_retry = (is_lock_timeout or is_deadlock) and attempt < max_retries - 1
+
+                if should_retry:
+                    import time
+
+                    wait_time = retry_delay * (attempt + 1)  # Exponential backoff
+                    self._log(
+                        f"Database lock detected for mutation {mutation_id}, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})"
+                    )
+                    time.sleep(wait_time)
+                    continue
+
+                # Final attempt failed or non-retryable error
+                self._log(f"ERROR processing mutation {mutation_id}: {error_str}")
+                frappe.log_error(
+                    f"Payment mutation processing failed: {error_str}\\nMutation: {json.dumps(mutation, indent=2)}",
+                    "E-Boekhouden Payment Import",
+                )
+                return None
+
+        # Should never reach here, but return None as safety
+        return None
 
     def _process_payment_mutation_internal(self, mutation: Dict) -> Optional[str]:
         """
@@ -123,15 +148,26 @@ class PaymentEntryHandler:
             # Determine if this is a refund based on mutation type and amount sign
             # Type 3 (Customer Payment): normally positive (money IN), negative = refund TO customer
             # Type 4 (Supplier Payment): normally negative (money OUT), positive = refund FROM supplier
+            #   - raw_amount < 0 (or 0 with negative rows) = normal payment OUT to supplier (keep as 'Pay')
+            #   - raw_amount > 0 = unusual, refund FROM supplier (reverse to 'Receive')
+            #   - BUT: E-Boekhouden also uses NEGATIVE for refunds FROM supplier (deposit returns)
+            #         These show as negative Type 4 mutations (opposite of normal payment)
             is_refund = False
+            has_invoice_ref = bool(mutation.get("invoiceNumber"))
+
             if mutation_type == 3 and raw_amount < 0:
-                is_refund = True  # Refund TO customer
-            elif mutation_type == 4 and raw_amount > 0:
-                is_refund = True  # Refund FROM supplier
+                is_refund = True  # Refund TO customer (money OUT)
+            elif mutation_type == 4 and not is_gateway_adjustment:
+                # For Type 4, check the absolute value and context
+                # Negative amount = refund FROM supplier (money IN) - reverse to 'Receive'
+                # Positive amount would also be refund, but rarely seen
+                # Zero amount with invoice = normal payment (from rows)
+                if raw_amount != 0:
+                    # Non-zero Type 4 = refund FROM supplier (deposit return, money IN)
+                    is_refund = True
 
             # Reverse payment type for refunds
-            # EXCEPT for gateway adjustments where amount is intentionally adjusted
-            if is_refund and not is_gateway_adjustment:
+            if is_refund:
                 payment_type = "Pay" if base_payment_type == "Receive" else "Receive"
                 self._log(
                     f"Refund detected (Type {mutation_type}, amount={raw_amount}) - reversing payment type from {base_payment_type} to {payment_type}"
@@ -142,6 +178,9 @@ class PaymentEntryHandler:
                     self._log(
                         f"Gateway payment detected - keeping payment type as {payment_type} (amount: {raw_amount})"
                     )
+
+            # Store initial payment_type for later adjustment based on invoice outstanding
+            initial_payment_type = payment_type
 
             party_type = "Customer" if mutation_type == 3 else "Supplier"
 
@@ -159,7 +198,7 @@ class PaymentEntryHandler:
                         message=f"Gateway adjustment for Type 4 resulted in non-negative amount: {raw_amount}\n"
                         f"Original amount: {mutation.get('_original_amount')}\n"
                         f"Adjustment reason: {mutation.get('_adjustment_reason')}\n"
-                        f"This indicates a logic error in amount adjustment."
+                        f"This indicates a logic error in amount adjustment.",
                     )
             else:
                 # Normal validation for non-gateway mutations
@@ -261,9 +300,7 @@ class PaymentEntryHandler:
                     f"(Mutation #{mutation_id}, Amount: {pe.paid_amount or pe.received_amount})"
                 )
 
-                bank_transaction_name = self._create_bank_transaction_for_payment(
-                    mutation, pe, bank_account
-                )
+                bank_transaction_name = self._create_bank_transaction_for_payment(mutation, pe, bank_account)
 
             if bank_transaction_name:
                 if not existing_bt:
@@ -627,11 +664,32 @@ class PaymentEntryHandler:
             self._log("WARNING: No matching invoices found for allocation")
             return
 
-        # Log invoice status for debugging
+        # Log invoice status for debugging and check for debit notes
+        has_negative_outstanding = False
         for inv in invoices:
             outstanding = flt(inv.get("outstanding_amount", 0))
             grand_total = flt(inv.get("grand_total", 0))
             self._log(f"Found invoice {inv['name']}: grand_total={grand_total}, outstanding={outstanding}")
+
+            # Check if any invoice has negative outstanding (debit note)
+            if outstanding < 0:
+                has_negative_outstanding = True
+                self._log(f"⚠️ Debit note detected: {inv['name']} has negative outstanding ({outstanding})")
+
+        # CRITICAL: Adjust payment type if dealing with debit notes (negative outstanding)
+        # For debit notes, the supplier owes us money, so payment direction must be reversed
+        if has_negative_outstanding and payment_entry.payment_type == "Pay":
+            self._log(
+                f"Reversing payment type from 'Pay' to 'Receive' due to debit note with negative outstanding"
+            )
+            payment_entry.payment_type = "Receive"
+            # Swap paid_from and paid_to accounts
+            paid_from, paid_to = payment_entry.paid_from, payment_entry.paid_to
+            payment_entry.paid_from = paid_to
+            payment_entry.paid_to = paid_from
+            self._log(
+                f"Swapped accounts: paid_from={payment_entry.paid_from}, paid_to={payment_entry.paid_to}"
+            )
 
         # Validate payment amount vs invoice amounts (informational only)
         total_payment = payment_entry.paid_amount or payment_entry.received_amount
@@ -668,20 +726,24 @@ class PaymentEntryHandler:
         """
         for invoice, amount in zip(invoices, row_amounts):
             # For Type 3/4 payments, use E-Boekhouden amount directly
-            # Don't limit by outstanding_amount due to race conditions
-            allocation = amount
+            invoice_total = invoice["grand_total"]
+            is_debit_note = invoice_total < 0
+
+            # For debit notes, allocation amount must be NEGATIVE
+            allocation = -amount if is_debit_note else amount
 
             # For E-Boekhouden Type 3/4 payments, bypass outstanding amount validation
-            # since E-Boekhouden is the authoritative source for payment-invoice relationships
+            # For debit notes: set outstanding_amount to 0 (ERPNext convention)
+            # For normal invoices: set to grand_total to allow any allocation
+            outstanding_for_ref = 0 if is_debit_note else invoice["grand_total"]
+
             payment_entry.append(
                 "references",
                 {
                     "reference_doctype": invoice["doctype"],
                     "reference_name": invoice["name"],
                     "total_amount": invoice["grand_total"],
-                    "outstanding_amount": invoice[
-                        "grand_total"
-                    ],  # Set to grand_total to allow any allocation
+                    "outstanding_amount": outstanding_for_ref,
                     "allocated_amount": allocation,
                 },
             )
@@ -705,26 +767,34 @@ class PaymentEntryHandler:
                 break
 
             # For Type 3/4 payments, allocate what E-Boekhouden specifies
-            # Use grand_total as maximum to prevent extreme overpayments
-            max_allocation = min(total_to_allocate, invoice["grand_total"])
-            allocation = max_allocation
+            invoice_total = invoice["grand_total"]
+            is_debit_note = invoice_total < 0
+
+            # Calculate allocation amount
+            max_invoice_amount = abs(invoice_total)
+            max_allocation = min(total_to_allocate, max_invoice_amount)
+
+            # For debit notes, allocation amount must be NEGATIVE to match the invoice
+            # For normal invoices, allocation is positive
+            allocation = -max_allocation if is_debit_note else max_allocation
 
             # For E-Boekhouden Type 3/4 payments, bypass outstanding amount validation
-            # since E-Boekhouden is the authoritative source for payment-invoice relationships
+            # For debit notes: set outstanding_amount to 0 (ERPNext convention)
+            # For normal invoices: set to grand_total to allow any allocation
+            outstanding_for_ref = 0 if is_debit_note else invoice["grand_total"]
+
             payment_entry.append(
                 "references",
                 {
                     "reference_doctype": invoice["doctype"],
                     "reference_name": invoice["name"],
                     "total_amount": invoice["grand_total"],
-                    "outstanding_amount": invoice[
-                        "grand_total"
-                    ],  # Set to grand_total to allow any allocation
+                    "outstanding_amount": outstanding_for_ref,
                     "allocated_amount": allocation,
                 },
             )
 
-            total_to_allocate -= allocation
+            total_to_allocate -= max_allocation  # Use absolute amount for tracking
             self._log(f"Allocated {allocation} to {invoice['name']} (FIFO, E-Boekhouden authoritative)")
 
         if total_to_allocate > 0:

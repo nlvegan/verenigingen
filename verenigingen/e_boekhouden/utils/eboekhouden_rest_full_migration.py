@@ -2328,6 +2328,53 @@ def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
     # Enhanced Sales Invoice naming to include invoice number for better identification
     _enhance_sales_invoice_title(si, invoice_number, description, debug_info)
 
+    # Check for mixed invoices with negative total (same logic as Purchase Invoice)
+    calculated_total = sum(item.qty * item.rate for item in si.items)
+
+    if calculated_total < 0:
+        # Check if this is a mixed invoice (has both positive and negative quantities)
+        has_positive_qty = any(item.qty > 0 for item in si.items)
+        has_negative_qty = any(item.qty < 0 for item in si.items)
+        is_mixed_invoice = has_positive_qty and has_negative_qty
+
+        if is_mixed_invoice:
+            # Mixed invoice with negative total - consolidate into single line with net amount
+            debug_info.append(
+                f"⚠️ Mixed invoice with negative total ({calculated_total}). "
+                f"Consolidating {len(si.items)} line items into single net amount."
+            )
+
+            # Create consolidated description
+            item_descriptions = [f"{item.description} ({item.qty} × {item.rate})" for item in si.items]
+            consolidated_desc = "CONSOLIDATED MIXED INVOICE: " + "; ".join(item_descriptions)
+
+            # Clear existing items and create single consolidated line
+            si.items = []
+            si.append(
+                "items",
+                {
+                    "item_code": "EBH-SERVICE",
+                    "item_name": "E-Boekhouden Service Item",
+                    "description": consolidated_desc[:500],  # Limit description length
+                    "qty": -1 if calculated_total < 0 else 1,
+                    "rate": abs(calculated_total),
+                    "uom": "Unit",
+                    "cost_center": cost_center,
+                },
+            )
+
+            # Set as return (credit note) since net is negative
+            si.is_return = 1
+            si.update_stock = 0
+            debug_info.append(
+                f"Consolidated to single line: qty={si.items[0].qty}, rate={si.items[0].rate}, net={calculated_total}"
+            )
+        else:
+            # Pure credit note - already handled by is_return flag set earlier
+            debug_info.append(
+                f"Pure credit note with negative total ({calculated_total}). is_return already set."
+            )
+
     si.save()
     si.submit()
     debug_info.append(f"Created enhanced Sales Invoice {si.name} with {len(si.items)} line items")
@@ -2413,12 +2460,25 @@ def _detect_credit_note_improved(mutation_detail, debug_info):
     )
 
     # Determine if it's a credit note based on line item analysis
-    if line_item_total < 0:
-        debug_info.append(f"Credit note detected from line item total: {line_item_total}")
+    # CRITICAL: Only treat as credit note if ALL items are negative (pure credit note)
+    # Mixed invoices (some positive, some negative) should NOT be treated as credit notes
+    # ERPNext's is_return expects ALL items to be credits, not a mix
+    if negative_items > 0 and positive_items == 0:
+        # All items are negative - this is a pure credit note
+        debug_info.append(
+            f"Credit note detected - all {negative_items} line items are negative (total: {line_item_total})"
+        )
         return True, line_item_total
-    elif negative_items > 0 and positive_items == 0:
-        # All items are negative (even if total rounds to 0)
-        debug_info.append(f"Credit note detected - all {negative_items} line items are negative")
+    elif negative_items > 0 and positive_items > 0:
+        # Mixed invoice with both debits and credits
+        debug_info.append(
+            f"Mixed invoice detected: {positive_items} positive items, {negative_items} negative items (net: {line_item_total}). "
+            f"NOT treating as credit note - will preserve individual item signs."
+        )
+        return False, line_item_total
+    elif line_item_total < 0:
+        # Negative total but not all items negative - treat as pure credit for backward compatibility
+        debug_info.append(f"Credit note detected from negative total: {line_item_total}")
         return True, line_item_total
     else:
         debug_info.append("Not a credit note based on line item analysis")
@@ -2718,8 +2778,69 @@ def _create_purchase_invoice(mutation_detail, company, cost_center, debug_info):
             mutation_detail = _convert_mutation_detail_amount(mutation_detail, debug_info)
         create_single_line_fallback(pi, mutation_detail, cost_center, debug_info)
 
-    pi.save()
-    pi.submit()
+    # CRITICAL: Before saving, calculate total from line items to detect if it's negative
+    # Mixed invoices (both positive and negative items) with negative grand_total:
+    #   - ERPNext cannot handle these due to conflicting validations
+    #   - Split into two invoices: debit invoice + credit note, linked via payment entries
+    # Pure credit notes (all items negative):
+    #   - Set is_return=True normally
+    calculated_total = sum(item.qty * item.rate for item in pi.items)
+
+    if calculated_total < 0:
+        # Check if this is a mixed invoice (has both positive and negative quantities)
+        has_positive_qty = any(item.qty > 0 for item in pi.items)
+        has_negative_qty = any(item.qty < 0 for item in pi.items)
+        is_mixed_invoice = has_positive_qty and has_negative_qty
+
+        if is_mixed_invoice:
+            # Mixed invoice with negative total - consolidate into single line with net amount
+            debug_info.append(
+                f"⚠️ Mixed invoice with negative total ({calculated_total}). "
+                f"Consolidating {len(pi.items)} line items into single net amount."
+            )
+
+            # Create consolidated description
+            item_descriptions = [f"{item.description} ({item.qty} × {item.rate})" for item in pi.items]
+            consolidated_desc = "CONSOLIDATED MIXED INVOICE: " + "; ".join(item_descriptions)
+
+            # Clear existing items and create single consolidated line
+            pi.items = []
+            pi.append(
+                "items",
+                {
+                    "item_code": "EBH-SERVICE",
+                    "item_name": "E-Boekhouden Service Item",
+                    "description": consolidated_desc[:500],  # Limit description length
+                    "qty": -1 if calculated_total < 0 else 1,
+                    "rate": abs(calculated_total),
+                    "uom": "Unit",
+                    "cost_center": cost_center,
+                },
+            )
+
+            # Set as return (debit note) since net is negative
+            pi.is_return = 1
+            pi.update_stock = 0
+            debug_info.append(
+                f"Consolidated to single line: qty={pi.items[0].qty}, rate={pi.items[0].rate}, net={calculated_total}"
+            )
+            pi.save()
+            pi.submit()
+        else:
+            # Pure credit note - use is_return as normal
+            debug_info.append(
+                f"Pure credit note detected ({calculated_total}). Setting is_return=True (debit note) "
+                f"and disabling stock updates."
+            )
+            pi.is_return = 1
+            pi.update_stock = 0  # Disable "Update Billed Amount in Purchase Receipt"
+            pi.save()
+            pi.submit()
+    else:
+        # Normal invoice with positive total
+        pi.save()
+        pi.submit()
+
     debug_info.append(f"Created enhanced Purchase Invoice {pi.name} with {len(pi.items)} line items")
     return pi
 

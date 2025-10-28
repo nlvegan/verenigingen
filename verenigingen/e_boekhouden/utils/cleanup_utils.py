@@ -161,6 +161,7 @@ def nuclear_cleanup_all_imported_data():
             "purchase_invoices": 0,
             "payment_entries": 0,
             "journal_entries": 0,
+            "bank_transactions": 0,
             "customers": 0,
             "suppliers": 0,
             "accounts": 0,
@@ -193,6 +194,12 @@ def nuclear_cleanup_all_imported_data():
 
                     for record in batch:
                         try:
+                            # For Payment Entries, check and delete linked Bank Transactions first
+                            if doctype == "Payment Entry":
+                                bt_cleanup = _cleanup_linked_bank_transactions(record.name)
+                                results["bank_transactions"] += bt_cleanup["deleted"]
+                                results["errors"].extend(bt_cleanup["errors"])
+
                             # Load the document to check its state
                             doc = frappe.get_doc(doctype, record.name)
 
@@ -217,6 +224,12 @@ def nuclear_cleanup_all_imported_data():
                 error_msg = f"Failed to clean {doctype}: {str(e)}"
                 results["errors"].append(error_msg)
                 frappe.logger().error(error_msg)
+
+        # Clean up orphaned Bank Transactions (those with EB- reference prefix)
+        frappe.logger().info("Cleaning up orphaned Bank Transactions...")
+        orphaned_bt_cleanup = _cleanup_orphaned_bank_transactions()
+        results["bank_transactions"] += orphaned_bt_cleanup["deleted"]
+        results["errors"].extend(orphaned_bt_cleanup["errors"])
 
         # Delete provisional parties
         provisional_customers = frappe.get_all(
@@ -525,7 +538,7 @@ def cleanup_purchase_invoices(pi_list, method_name):
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def delete_all_payment_entries():
-    """Delete all payment entries from the system"""
+    """Delete all payment entries from the system, including linked Bank Transactions"""
     try:
         # Check for Verenigingen Administrator role
         user_roles = frappe.get_roles()
@@ -537,7 +550,13 @@ def delete_all_payment_entries():
 
         frappe.logger().info(f"Starting deletion of {count_before} payment entries")
 
-        results = {"success": True, "count_before": count_before, "deleted": 0, "errors": []}
+        results = {
+            "success": True,
+            "count_before": count_before,
+            "deleted": 0,
+            "bank_transactions_deleted": 0,
+            "errors": [],
+        }
 
         # Get all payment entries
         payment_entries = frappe.get_all(
@@ -554,6 +573,11 @@ def delete_all_payment_entries():
 
             for pe in batch:
                 try:
+                    # First, cleanup any linked Bank Transactions
+                    bt_cleanup = _cleanup_linked_bank_transactions(pe.name)
+                    results["bank_transactions_deleted"] += bt_cleanup["deleted"]
+                    results["errors"].extend(bt_cleanup["errors"])
+
                     # Load the document
                     pe_doc = frappe.get_doc("Payment Entry", pe.name)
 
@@ -581,7 +605,7 @@ def delete_all_payment_entries():
         count_after = frappe.db.count("Payment Entry")
         results["count_after"] = count_after
 
-        message = f"Deleted {results['deleted']} payment entries"
+        message = f"Deleted {results['deleted']} payment entries and {results['bank_transactions_deleted']} bank transactions"
         if results["errors"]:
             message += f" ({len(results['errors'])} errors)"
 
@@ -593,3 +617,132 @@ def delete_all_payment_entries():
         frappe.db.rollback()
         frappe.logger().error(f"Failed to delete payment entries: {str(e)}")
         return {"success": False, "error": str(e)}
+
+
+def _cleanup_linked_bank_transactions(payment_entry_name):
+    """
+    Clean up Bank Transactions linked to a specific Payment Entry.
+
+    Args:
+        payment_entry_name: Name of the Payment Entry
+
+    Returns:
+        dict: Results with deleted count and errors
+    """
+    results = {"deleted": 0, "errors": []}
+
+    try:
+        # Find all Bank Transactions linked to this Payment Entry
+        linked_bt_refs = frappe.get_all(
+            "Bank Transaction Payments",
+            filters={"payment_entry": payment_entry_name},
+            fields=["parent"],
+        )
+
+        for bt_ref in linked_bt_refs:
+            try:
+                bt_doc = frappe.get_doc("Bank Transaction", bt_ref.parent)
+
+                # Cancel if submitted
+                if bt_doc.docstatus == 1:
+                    bt_doc.cancel()
+
+                # Delete the Bank Transaction
+                frappe.delete_doc("Bank Transaction", bt_ref.parent, force=True)
+                results["deleted"] += 1
+                frappe.logger().info(
+                    f"Deleted linked Bank Transaction {bt_ref.parent} for Payment Entry {payment_entry_name}"
+                )
+
+            except Exception as bt_error:
+                error_msg = f"Failed to delete Bank Transaction {bt_ref.parent}: {str(bt_error)}"
+                results["errors"].append(error_msg)
+                frappe.logger().error(error_msg)
+
+    except Exception as e:
+        error_msg = f"Failed to cleanup Bank Transactions for Payment Entry {payment_entry_name}: {str(e)}"
+        results["errors"].append(error_msg)
+        frappe.logger().error(error_msg)
+
+    return results
+
+
+def _cleanup_orphaned_bank_transactions():
+    """
+    Clean up orphaned Bank Transactions from E-Boekhouden import.
+
+    Identifies and deletes Bank Transactions with EB- reference prefix that are either:
+    - Not linked to any Payment Entry
+    - Linked to Payment Entries that no longer exist
+
+    Returns:
+        dict: Results with deleted count and errors
+    """
+    results = {"deleted": 0, "errors": []}
+
+    try:
+        # Find Bank Transactions with EB- reference prefix (E-Boekhouden imports)
+        bank_transactions = frappe.get_all(
+            "Bank Transaction",
+            filters={"reference_number": ["like", "EB-%"]},
+            fields=["name", "reference_number", "docstatus"],
+        )
+
+        frappe.logger().info(f"Found {len(bank_transactions)} Bank Transactions with EB- reference")
+
+        for bt in bank_transactions:
+            try:
+                # Check if it has any linked payments
+                linked_payments = frappe.get_all(
+                    "Bank Transaction Payments",
+                    filters={"parent": bt.name},
+                    fields=["payment_entry"],
+                )
+
+                is_orphaned = False
+
+                if not linked_payments:
+                    # No linked payments at all - orphaned
+                    is_orphaned = True
+                    frappe.logger().info(f"Bank Transaction {bt.name} has no linked payments")
+                else:
+                    # Check if any linked Payment Entries still exist
+                    has_valid_payment = False
+                    for link in linked_payments:
+                        if frappe.db.exists("Payment Entry", link.payment_entry):
+                            has_valid_payment = True
+                            break
+
+                    if not has_valid_payment:
+                        # All linked Payment Entries are gone - orphaned
+                        is_orphaned = True
+                        frappe.logger().info(f"Bank Transaction {bt.name} linked to deleted Payment Entries")
+
+                if is_orphaned:
+                    # Delete the orphaned Bank Transaction
+                    bt_doc = frappe.get_doc("Bank Transaction", bt.name)
+
+                    # Cancel if submitted
+                    if bt_doc.docstatus == 1:
+                        bt_doc.cancel()
+
+                    # Delete
+                    frappe.delete_doc("Bank Transaction", bt.name, force=True)
+                    results["deleted"] += 1
+                    frappe.logger().info(
+                        f"Deleted orphaned Bank Transaction {bt.name} ({bt.reference_number})"
+                    )
+
+            except Exception as bt_error:
+                error_msg = f"Failed to process Bank Transaction {bt.name}: {str(bt_error)}"
+                results["errors"].append(error_msg)
+                frappe.logger().error(error_msg)
+
+        frappe.logger().info(f"Orphaned Bank Transaction cleanup: {results['deleted']} deleted")
+
+    except Exception as e:
+        error_msg = f"Failed to cleanup orphaned Bank Transactions: {str(e)}"
+        results["errors"].append(error_msg)
+        frappe.logger().error(error_msg)
+
+    return results

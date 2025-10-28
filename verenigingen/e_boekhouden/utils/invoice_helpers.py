@@ -211,34 +211,39 @@ def process_line_items(invoice, regels, invoice_type, cost_center, debug_info):
         # CRITICAL: ledgerId is E-Boekhouden's internal ID, must resolve to ledger_code
         raw_account_code = regel.get("ledgerId") or regel.get("GrootboekNummer")
         account_code = resolve_ledger_code(raw_account_code, debug_info)
-        # Handle quantity properly - preserve negative values for credit notes
-        raw_quantity = regel.get("quantity") or regel.get("Aantal", 1)
-        quantity = flt(raw_quantity) if isinstance(raw_quantity, (int, float)) else flt(raw_quantity)
-        price = flt(regel.get("amount") or regel.get("Prijs", 0))
+        # Handle quantity and amount properly
+        # E-Boekhouden stores: amount field (can be positive or negative)
+        # ERPNext expects: rate (always positive) × quantity (sign determines debit/credit)
+        raw_quantity = regel.get("quantity") or regel.get("Aantal")
+        raw_amount = flt(regel.get("amount") or regel.get("Prijs", 0))
 
-        # Debug: Log the amounts we're processing
-        debug_info.append(
-            f"Processing regel: qty={quantity}, price={price}, amount_field={'amount' if 'amount' in regel else 'Prijs'}"
-        )
-
-        # Handle quantities and prices with correction line item support
-        # For ALL Returns (both Sales and Purchase), quantities MUST remain negative (ERPNext requirement)
-        # ERPNext validates: if is_return and qty > 0 → throw error (status_updater.py:243-244)
+        # CRITICAL: Determine quantity sign based on amount sign
+        # Positive amount = debit (positive qty), Negative amount = credit (negative qty)
         if getattr(invoice, "is_return", False):
-            # Return invoice: keep negative quantities as they are (already processed by conversion function)
+            # Credit note: quantities must be negative (ERPNext requirement)
+            # Amounts have been converted to positive by preprocessing
+            # So we set qty based on the provided quantity or default to -1
+            quantity = flt(raw_quantity) if raw_quantity else -1
+            rate = abs(raw_amount)
             debug_info.append(
-                f"{invoice_type.title()} Return: preserving negative quantity {quantity} (ERPNext requirement)"
+                f"Credit note item: rate={rate}, qty={quantity} (ERPNext is_return requirement)"
             )
         else:
-            # Normal invoices: quantities should be positive
-            quantity = abs(quantity)
+            # Normal invoice or mixed invoice
+            # Use amount sign to determine quantity sign
+            if raw_amount < 0:
+                # Negative amount = credit line item (qty = -1)
+                quantity = -1 if not raw_quantity else -abs(flt(raw_quantity))
+                rate = abs(raw_amount)
+                debug_info.append(f"Credit line item: amount={raw_amount} → rate={rate}, qty={quantity}")
+            else:
+                # Positive amount = debit line item (qty = +1)
+                quantity = 1 if not raw_quantity else abs(flt(raw_quantity))
+                rate = abs(raw_amount)
+                debug_info.append(f"Debit line item: amount={raw_amount} → rate={rate}, qty={quantity}")
 
-        # For prices/amounts: preserve negatives for correction entries, unless already processed for credit notes
-        # The regels will have been preprocessed by _convert_negative_amounts_to_positive() if it's a credit note
-        # If negative amounts still exist here, they're correction line items and should be preserved
-        if price < 0:
-            debug_info.append(f"Preserving negative amount {price} as correction line item")
-        # Don't apply abs() to price - let ERPNext handle negative line amounts
+        # Use rate instead of price (which was the old variable name)
+        price = rate
 
         # Get or create item using proper Item Mapping DocType integration
         from verenigingen.e_boekhouden.utils.eboekhouden_improved_item_naming import (
