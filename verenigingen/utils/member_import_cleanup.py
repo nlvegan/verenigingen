@@ -385,16 +385,18 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
             chapter_members = []
         results["chapter_members"]["count"] = len(chapter_members)
 
-        # User accounts where custom fields link to member - SECURE VERSION
-        # Only query if the custom field exists
+        # User accounts linked to members - query via Member.user field
         users_with_member_links = []
         try:
-            if frappe.db.has_column("User", "custom_member") and member_names:
+            if member_names:
                 placeholders = ", ".join(["%s"] * len(member_names))
                 users_with_member_links = frappe.db.sql(
                     f"""
-                    SELECT name FROM `tabUser`
-                    WHERE custom_member IN ({placeholders})
+                    SELECT DISTINCT m.user as name
+                    FROM `tabMember` m
+                    WHERE m.name IN ({placeholders})
+                    AND m.user IS NOT NULL
+                    AND m.user != ''
                 """,
                     member_names,
                     as_dict=True,
@@ -889,7 +891,7 @@ def force_cleanup_orphaned_schedules_and_invoices(dry_run=True):
                     """,
                         invoice.name,
                     )
-                    results["gl_entries_deleted"] += (gl_count or 0)
+                    results["gl_entries_deleted"] += gl_count or 0
 
                     # Step 2: Delete Payment Ledger Entries
                     pl_count = frappe.db.sql(
@@ -899,7 +901,7 @@ def force_cleanup_orphaned_schedules_and_invoices(dry_run=True):
                     """,
                         invoice.name,
                     )
-                    results["payment_ledger_deleted"] += (pl_count or 0)
+                    results["payment_ledger_deleted"] += pl_count or 0
 
                     # Step 3: Delete Payment Entry References
                     pr_count = frappe.db.sql(
@@ -909,7 +911,7 @@ def force_cleanup_orphaned_schedules_and_invoices(dry_run=True):
                     """,
                         invoice.name,
                     )
-                    results["payment_references_deleted"] += (pr_count or 0)
+                    results["payment_references_deleted"] += pr_count or 0
 
                     # Step 4: Cancel if submitted (now safe since GL entries are gone)
                     if invoice.docstatus == 1:

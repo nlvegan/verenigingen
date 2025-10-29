@@ -206,6 +206,9 @@ class AccountCreationManager:
             # Volunteers get System User for full system access
             user_type = "System User" if self.request.request_type == "Volunteer" else "Website User"
 
+            # Skip welcome emails during bulk imports
+            send_welcome = 0 if (frappe.flags.in_import or frappe.flags.in_bulk_import) else 1
+
             # Create user document
             user_doc = frappe.get_doc(
                 {
@@ -216,7 +219,7 @@ class AccountCreationManager:
                     "full_name": self.request.full_name,
                     "enabled": 1,
                     "user_type": user_type,
-                    "send_welcome_email": 1,  # Proper welcome email with password setup
+                    "send_welcome_email": send_welcome,  # Skip during bulk imports
                 }
             )
 
@@ -237,6 +240,40 @@ class AccountCreationManager:
                 if is_bulk_operation:
                     frappe.flags.in_import = True
                 user_doc.insert()
+            except frappe.exceptions.UniqueValidationError as e:
+                # Handle duplicate username - Frappe auto-generates username from first name
+                error_msg = str(e)
+                if "Duplicate entry" in error_msg and "for key 'username'" in error_msg:
+                    # Username conflict - let Frappe handle this by trying with email as username
+                    frappe.logger().info(
+                        f"Username conflict for {first_name}, retrying with email as username"
+                    )
+                    user_doc.username = self.request.email.split("@")[0]  # Use email prefix
+                    try:
+                        user_doc.insert()
+                    except:
+                        # If still fails, this is a real duplicate - check if user exists
+                        if frappe.db.exists("User", self.request.email):
+                            self.created_user = self.request.email
+                            self.request.created_user = self.created_user
+                            frappe.logger().info(
+                                f"User {self.request.email} already exists, will skip creation and continue"
+                            )
+                            return  # Exit early, user exists
+                        else:
+                            raise
+                else:
+                    raise
+            except frappe.exceptions.OutgoingEmailError:
+                # Suppress email errors during bulk imports - missing email account is expected
+                if frappe.flags.in_import or frappe.flags.in_bulk_import:
+                    frappe.logger().debug(
+                        f"Suppressed email notification error for {self.request.email} during bulk import"
+                    )
+                    # User was still created, just email failed - that's fine for bulk imports
+                    pass
+                else:
+                    raise
             finally:
                 # Always restore original flag state
                 frappe.flags.in_import = original_in_import
@@ -961,8 +998,9 @@ def process_bulk_account_creation_batch(request_names, batch_id, batch_number, t
     import threading
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    # Mark this as a background job for rate limiting purposes
+    # Mark this as a background job and bulk operation for rate limiting bypass
     frappe.flags.in_background_job = True
+    frappe.flags.bulk_account_creation = True
 
     frappe.logger().info(
         f"Starting parallel batch processing for {batch_id} with {len(request_names)} requests"
@@ -993,6 +1031,10 @@ def process_bulk_account_creation_batch(request_names, batch_id, batch_number, t
         try:
             # Each thread needs its own database connection with site context
             frappe.connect(site=site_name)
+
+            # Set bulk operation flags in this thread's context (flags don't propagate across threads)
+            frappe.flags.in_background_job = True
+            frappe.flags.bulk_account_creation = True
 
             # Start transaction for this request
             frappe.db.begin()

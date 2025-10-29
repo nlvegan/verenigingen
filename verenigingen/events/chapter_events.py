@@ -117,9 +117,6 @@ def _emit_chapter_event(event_name, event_data):
     # Get subscribers for this event
     subscribers = _get_chapter_event_subscribers(event_name)
 
-    # Use longer delay during bulk imports to allow for batched commits
-    event_delay = 60 if (frappe.flags.in_import or frappe.flags.in_bulk_import) else 1
-
     for subscriber in subscribers:
         frappe.enqueue(
             method=subscriber,
@@ -127,7 +124,7 @@ def _emit_chapter_event(event_name, event_data):
             job_name=f"chapter_{event_name}_{chapter_name}",
             dedupe=True,  # Prevent duplicate events for same chapter
             timeout=300,
-            delay=event_delay,  # Longer delay during bulk imports
+            delay=1,  # Skip checks in subscribers handle bulk imports
             **{"event_name": event_name, "event_data": event_data},
         )
 
