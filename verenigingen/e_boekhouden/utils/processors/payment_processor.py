@@ -90,22 +90,22 @@ class PaymentProcessor(BaseTransactionProcessor):
                     )
                     return False
 
-            # Type 4: Exclude positive raw_amount (refunds from supplier → Journal Entry)
-            # For Type 4 (Supplier Payment):
-            # - raw_amount = 0 with positive row_amount = NORMAL payment (accept)
-            # - raw_amount > 0 (positive) = REFUND from supplier, money IN (reject)
-            # - raw_amount < 0 (negative) = would be unusual, but would indicate payment OUT
+            # Type 4: Accept all Type 4 (both normal payments and refunds)
+            # For Type 4 (Supplier Payment) in E-Boekhouden:
+            # - raw_amount > 0 (positive) = NORMAL payment OUT to supplier → payment_type="Pay"
+            # - raw_amount = 0 with positive row_amount = NORMAL payment → payment_type="Pay"
+            # - raw_amount < 0 (negative) = REFUND/CREDIT from supplier, money IN → payment_type="Receive"
+            #
+            # NOTE: E-Boekhouden stores Type 4 payments with POSITIVE amounts (money leaving bank account)
+            # PaymentEntryHandler will reverse the payment_type for negative amounts
             elif mutation_type == 4:
-                is_refund = raw_amount > 0  # Positive = refund FROM supplier (money IN)
+                is_refund = raw_amount < 0  # Negative = refund FROM supplier (money IN)
                 self.debug_info.append(
-                    f"Type 4 refund check for mutation {mutation_id}: "
+                    f"Type 4 check for mutation {mutation_id}: "
                     f"raw_amount={raw_amount}, row_amount={row_amount}, is_refund={is_refund}"
                 )
-                if is_refund:
-                    self.debug_info.append(
-                        f"⚠️ Excluding Type 4 positive raw_amount (supplier refund/credit) - forwarding to JournalProcessor"
-                    )
-                    return False
+                # Accept both normal payments and refunds - let PaymentEntryHandler handle direction
+                # No exclusion needed
 
         # Type 5/6 always go to Payment Entry (money transfers, bank fees, etc.)
         return True
@@ -255,6 +255,20 @@ class PaymentProcessor(BaseTransactionProcessor):
 
             # Save and submit
             pe.insert(ignore_permissions=False)
+
+            # Create Bank Transaction before submitting (same pattern as Type 3/4)
+            bank_transaction_name = self._create_bank_transaction_for_money_transfer(
+                mutation, pe, bank_account
+            )
+
+            if bank_transaction_name:
+                # Link Bank Transaction to Payment Entry
+                self._link_bank_transaction_to_payment(bank_transaction_name, pe.name)
+                self.debug_info.append(f"✅ Created and linked Bank Transaction: {bank_transaction_name}")
+            else:
+                self.debug_info.append(f"⚠️ Bank Transaction creation failed/skipped")
+
+            # Submit Payment Entry (commits both PE and BT atomically)
             pe.submit()
 
             self.debug_info.append(f"✅ Created Payment Entry: {pe.name}")
@@ -481,3 +495,129 @@ class PaymentProcessor(BaseTransactionProcessor):
 
         # If adjustment failed, return original
         return mutation
+
+    def _create_bank_transaction_for_money_transfer(
+        self, mutation: Dict[str, Any], payment_entry: frappe._dict, bank_account: str
+    ) -> Optional[str]:
+        """
+        Create Bank Transaction for Type 5/6 money transfer mutations.
+
+        Args:
+            mutation: E-Boekhouden mutation data
+            payment_entry: Created Payment Entry document (draft state)
+            bank_account: Bank account used in Payment Entry
+
+        Returns:
+            Bank Transaction name if created, None on failure
+        """
+        from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+            get_bank_transaction_creator,
+        )
+
+        try:
+            mutation_id = mutation.get("id")
+
+            # Check if Bank Transaction already exists (idempotency)
+            existing_bt = frappe.db.get_value(
+                "Bank Transaction", {"reference_number": f"EB-{mutation_id}"}, "name"
+            )
+
+            if existing_bt:
+                self.debug_info.append(f"Bank Transaction {existing_bt} already exists, skipping")
+                return existing_bt
+
+            creator = get_bank_transaction_creator()
+
+            # Get amount from Payment Entry
+            amount = payment_entry.paid_amount or payment_entry.received_amount
+
+            # Validate non-zero amount
+            if not amount or amount < 0.01:
+                self.debug_info.append(f"Skipping Bank Transaction for zero/near-zero amount: {amount}")
+                return None
+
+            # Determine sign from payment type
+            bank_transaction_amount = amount if payment_entry.payment_type == "Receive" else -amount
+
+            # Use bank description
+            bt_description = mutation.get("description", "")
+            bt_reference = f"EB-{mutation_id}"
+
+            # Create Bank Transaction
+            transaction_data = {
+                "date": payment_entry.posting_date,
+                "amount": bank_transaction_amount,
+                "currency": "EUR",
+                "description": bt_description,
+                "reference_number": bt_reference,
+                "party_type": payment_entry.party_type if payment_entry.party else None,
+                "party": payment_entry.party if payment_entry.party else None,
+            }
+
+            bank_transaction_name = creator.create_from_dict(
+                transaction_data=transaction_data,
+                bank_account=bank_account,
+                company=self.company,
+                source_type="E-Boekhouden Import",
+            )
+
+            return bank_transaction_name
+
+        except Exception as e:
+            self.debug_info.append(f"ERROR creating Bank Transaction: {str(e)}")
+            frappe.log_error(
+                f"Failed to create Bank Transaction for Type 5/6 mutation {mutation.get('id')}: {str(e)}",
+                "E-Boekhouden Type 5/6 Bank Transaction Creation",
+            )
+            return None
+
+    def _link_bank_transaction_to_payment(self, bank_transaction_name: str, payment_entry_name: str):
+        """
+        Link Bank Transaction to Payment Entry for proper reconciliation.
+
+        Args:
+            bank_transaction_name: Bank Transaction name
+            payment_entry_name: Payment Entry name (draft state)
+        """
+        try:
+            # Get documents
+            bt = frappe.get_doc("Bank Transaction", bank_transaction_name)
+            pe = frappe.get_doc("Payment Entry", payment_entry_name)
+
+            # Check if already linked
+            already_linked = frappe.db.exists(
+                "Bank Transaction Payments", {"parent": bank_transaction_name, "payment_entry": payment_entry_name}
+            )
+
+            if already_linked:
+                self.debug_info.append(f"Bank Transaction {bank_transaction_name} already linked")
+                return
+
+            # Add to Bank Transaction Payments child table
+            bt.append(
+                "payment_entries",
+                {
+                    "payment_document": "Payment Entry",
+                    "payment_entry": payment_entry_name,
+                    "allocated_amount": pe.paid_amount or pe.received_amount,
+                },
+            )
+
+            # Update Bank Transaction status and amounts
+            bt.status = "Reconciled"
+            bt.allocated_amount = pe.paid_amount or pe.received_amount
+            bt.unallocated_amount = 0.0
+
+            # Save the Bank Transaction
+            bt.save(ignore_permissions=False)
+
+            self.debug_info.append(f"Linked Bank Transaction {bank_transaction_name} to Payment Entry {payment_entry_name}")
+
+        except Exception as e:
+            error_msg = f"Failed to link Bank Transaction to Payment Entry: {str(e)}"
+            self.debug_info.append(f"ERROR: {error_msg}")
+            frappe.log_error(
+                f"Bank Transaction linking failed: {error_msg}",
+                "E-Boekhouden Bank Transaction Linking",
+            )
+            raise

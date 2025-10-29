@@ -34,6 +34,16 @@ class PaymentEntryHandler:
         self.debug_log = []
         self._ledger_cache = {}  # Cache for ledger mappings
 
+        # Bank Transaction creation tracking
+        self._bank_tx_stats = {
+            "total_processed": 0,
+            "bank_tx_created": 0,
+            "bank_tx_failed": 0,
+            "bank_tx_skipped_zero_amount": 0,
+            "bank_tx_already_existed": 0,
+            "failures": []  # List of {mutation_nr, reason, payment_entry}
+        }
+
     def process_payment_mutation(self, mutation: Dict) -> Optional[str]:
         """
         Process a payment mutation (types 3 & 4) and create Payment Entry.
@@ -147,23 +157,23 @@ class PaymentEntryHandler:
 
             # Determine if this is a refund based on mutation type and amount sign
             # Type 3 (Customer Payment): normally positive (money IN), negative = refund TO customer
-            # Type 4 (Supplier Payment): normally negative (money OUT), positive = refund FROM supplier
-            #   - raw_amount < 0 (or 0 with negative rows) = normal payment OUT to supplier (keep as 'Pay')
-            #   - raw_amount > 0 = unusual, refund FROM supplier (reverse to 'Receive')
-            #   - BUT: E-Boekhouden also uses NEGATIVE for refunds FROM supplier (deposit returns)
-            #         These show as negative Type 4 mutations (opposite of normal payment)
+            # Type 4 (Supplier Payment) in E-Boekhouden convention:
+            #   - raw_amount > 0 (positive) = NORMAL payment OUT to supplier (keep as 'Pay')
+            #   - raw_amount = 0 with positive rows = NORMAL payment (keep as 'Pay')
+            #   - raw_amount < 0 (negative) = REFUND from supplier, money IN (reverse to 'Receive')
+            #
+            # NOTE: E-Boekhouden stores Type 4 with POSITIVE amounts (money leaving bank)
+            # This matches bank statement convention, opposite of ERPNext internal convention
             is_refund = False
             has_invoice_ref = bool(mutation.get("invoiceNumber"))
 
             if mutation_type == 3 and raw_amount < 0:
                 is_refund = True  # Refund TO customer (money OUT)
             elif mutation_type == 4 and not is_gateway_adjustment:
-                # For Type 4, check the absolute value and context
-                # Negative amount = refund FROM supplier (money IN) - reverse to 'Receive'
-                # Positive amount would also be refund, but rarely seen
-                # Zero amount with invoice = normal payment (from rows)
-                if raw_amount != 0:
-                    # Non-zero Type 4 = refund FROM supplier (deposit return, money IN)
+                # For Type 4: Only NEGATIVE raw_amount indicates refund from supplier
+                # Positive or zero = normal supplier payment
+                if raw_amount < 0:
+                    # Negative Type 4 = refund FROM supplier (deposit return, money IN)
                     is_refund = True
 
             # Reverse payment type for refunds
@@ -333,9 +343,25 @@ class PaymentEntryHandler:
                 f"{f'with linked Bank Transaction {bank_transaction_name}' if bank_transaction_name else 'without Bank Transaction'}"
             )
 
+            # Track successful Bank Transaction creation
+            self._bank_tx_stats["total_processed"] += 1
+            if bank_transaction_name:
+                if existing_bt:
+                    self._bank_tx_stats["bank_tx_already_existed"] += 1
+                else:
+                    self._bank_tx_stats["bank_tx_created"] += 1
+
             return pe.name
 
-        except Exception:
+        except Exception as e:
+            # Track failure before re-raising
+            self._bank_tx_stats["total_processed"] += 1
+            self._bank_tx_stats["bank_tx_failed"] += 1
+            self._bank_tx_stats["failures"].append({
+                "mutation_nr": mutation.get("id"),
+                "payment_entry": pe.name if 'pe' in locals() else "Not created",
+                "reason": str(e)[:200]
+            })
             # Re-raise to let atomic_migration_operation handle rollback
             raise
 
@@ -1213,6 +1239,7 @@ class PaymentEntryHandler:
             # Validate non-zero amount
             if not amount or amount < 0.01:
                 self._log(f"Skipping Bank Transaction creation for zero/near-zero amount: {amount}")
+                self._bank_tx_stats["bank_tx_skipped_zero_amount"] += 1
                 return None
 
             # Determine sign from Payment Entry payment_type
@@ -1377,3 +1404,60 @@ class PaymentEntryHandler:
     def get_debug_log(self) -> List[str]:
         """Get the debug log for inspection."""
         return self.debug_log
+
+    def log_bank_transaction_summary(self):
+        """
+        Log Bank Transaction creation summary to Error Log.
+
+        Should be called at the end of migration batch to provide visibility
+        into Bank Transaction creation success/failure rates.
+        """
+        stats = self._bank_tx_stats
+
+        summary_lines = [
+            "=" * 80,
+            "BANK TRANSACTION CREATION SUMMARY (Type 3/4 Payments)",
+            "=" * 80,
+            "",
+            f"Total Payment Entries Processed: {stats['total_processed']}",
+            f"  ✓ Bank Transactions Created: {stats['bank_tx_created']}",
+            f"  ⟳ Bank Transactions Already Existed: {stats['bank_tx_already_existed']}",
+            f"  ⊘ Skipped (Zero Amount): {stats['bank_tx_skipped_zero_amount']}",
+            f"  ✗ Failed: {stats['bank_tx_failed']}",
+            ""
+        ]
+
+        # Calculate success rate
+        if stats['total_processed'] > 0:
+            success_count = stats['bank_tx_created'] + stats['bank_tx_already_existed']
+            success_rate = (success_count / stats['total_processed']) * 100
+            summary_lines.append(f"Success Rate: {success_rate:.1f}%")
+            summary_lines.append("")
+
+        # Log failures if any
+        if stats['failures']:
+            summary_lines.append("FAILURES:")
+            summary_lines.append("-" * 80)
+            for i, failure in enumerate(stats['failures'][:20], 1):  # Show first 20
+                summary_lines.append(
+                    f"{i}. Mutation {failure['mutation_nr']} → {failure['payment_entry']}"
+                )
+                summary_lines.append(f"   Reason: {failure['reason']}")
+
+            if len(stats['failures']) > 20:
+                summary_lines.append(f"... and {len(stats['failures']) - 20} more failures")
+
+        summary_lines.append("=" * 80)
+
+        summary = "\n".join(summary_lines)
+
+        # Log to Error Log for persistence
+        frappe.log_error(
+            title="Bank Transaction Summary - Type 3/4 Payments",
+            message=summary
+        )
+
+        # Also print to console
+        print(summary)
+
+        return summary

@@ -4091,21 +4091,47 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
                             if processor_debug:
                                 debug_info.extend(processor_debug)
                         else:
-                            # New processors returned None - log why
-                            debug_info.append(
-                                f"⚠️ New processors returned None for mutation {mutation_id} (Type {mutation_type}), falling back to legacy"
-                            )
-                            # Collect any debug info that might explain why
+                            # New processors returned None - check if it was intentionally skipped
                             processor_debug = coordinator.last_processor_debug_info
-                            if processor_debug:
-                                debug_info.extend(processor_debug)
 
-                            # Log to Error Log for tracking
-                            frappe.log_error(
-                                title=f"New Processor Returned None - Mutation {mutation_id} (Type {mutation_type})",
-                                message=f"Mutation ID: {mutation_id}\nType: {mutation_type}\nDescription: {mutation.get('description', 'N/A')}\n\nDebug Info:\n"
-                                + "\n".join(processor_debug if processor_debug else ["No debug info"]),
-                            )
+                            # Check if this was a legitimate skip (gateway adjustment, etc.)
+                            is_legitimate_skip = False
+                            if processor_debug:
+                                skip_indicators = [
+                                    "Skipping payment gateway adjustment",
+                                    "already detected in can_process",
+                                    "SKIPPING"
+                                ]
+                                for debug_line in processor_debug:
+                                    if any(indicator in debug_line for indicator in skip_indicators):
+                                        is_legitimate_skip = True
+                                        break
+
+                            if is_legitimate_skip:
+                                # Legitimate skip - just log debug info, don't create error log
+                                debug_info.append(
+                                    f"✓ New processors intentionally skipped mutation {mutation_id} (Type {mutation_type})"
+                                )
+                                if processor_debug:
+                                    debug_info.extend(processor_debug)
+                                # Mark as skipped, don't fall back to legacy
+                                skipped += 1
+                                continue  # Skip to next mutation
+                            else:
+                                # Unexpected None - log why
+                                debug_info.append(
+                                    f"⚠️ New processors returned None for mutation {mutation_id} (Type {mutation_type}), falling back to legacy"
+                                )
+                                # Collect any debug info that might explain why
+                                if processor_debug:
+                                    debug_info.extend(processor_debug)
+
+                                # Log to Error Log for tracking
+                                frappe.log_error(
+                                    title=f"New Processor Returned None - Mutation {mutation_id} (Type {mutation_type})",
+                                    message=f"Mutation ID: {mutation_id}\nType: {mutation_type}\nDescription: {mutation.get('description', 'N/A')}\n\nDebug Info:\n"
+                                    + "\n".join(processor_debug if processor_debug else ["No debug info"]),
+                                )
                     except Exception as proc_error:
                         # Log processor failure but don't fail the import
                         debug_info.append(
@@ -4190,6 +4216,46 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
         summary_content += f"PROCESSING METHOD BREAKDOWN:\n"
         summary_content += f"• New Processors: {processed_with_new} ({processed_with_new * 100 / (processed_with_new + processed_with_legacy):.1f}%)\n"
         summary_content += f"• Legacy Processing: {processed_with_legacy} ({processed_with_legacy * 100 / (processed_with_new + processed_with_legacy):.1f}%)\n\n"
+
+    # PHASE 3: Add Bank Transaction statistics for payment types
+    if type_name in ["Customer Payments", "Supplier Payments", "Money Received", "Money Paid"]:
+        try:
+            # Query Payment Entries created in this batch and check for Bank Transactions
+            mutation_ids = [str(m.get("id")) for m in mutations] if mutations else []
+            if mutation_ids and len(mutation_ids) > 0:
+                # Use parameterized query to avoid SQL injection
+                placeholders = ', '.join(['%s'] * len(mutation_ids))
+
+                bank_tx_stats = frappe.db.sql(f"""
+                    SELECT
+                        COUNT(DISTINCT pe.name) as total_pes,
+                        COUNT(DISTINCT btp.parent) as with_bank_tx
+                    FROM `tabPayment Entry` pe
+                    LEFT JOIN `tabBank Transaction Payments` btp ON btp.payment_entry = pe.name
+                    WHERE pe.eboekhouden_mutation_nr IN ({placeholders})
+                """, tuple(mutation_ids), as_dict=True)
+
+                if bank_tx_stats and bank_tx_stats[0]:
+                    stats = bank_tx_stats[0]
+                    total = stats.total_pes
+                    with_bt = stats.with_bank_tx
+                    without_bt = total - with_bt
+                    success_rate = (with_bt / total * 100) if total > 0 else 0
+
+                    summary_content += f"BANK TRANSACTION CREATION:\n"
+                    summary_content += f"• Payment Entries Created: {total}\n"
+                    summary_content += f"• With Bank Transactions: {with_bt} ({success_rate:.1f}%)\n"
+                    summary_content += f"• WITHOUT Bank Transactions: {without_bt}\n"
+
+                    if without_bt > 0:
+                        summary_content += f"  ⚠️  WARNING: {without_bt} Payment Entries missing Bank Transactions!\n"
+                    else:
+                        summary_content += f"  ✓ All Payment Entries have Bank Transactions\n"
+
+                    summary_content += "\n"
+        except Exception as bt_stats_error:
+            # Don't fail the summary if Bank Transaction stats fail
+            summary_content += f"BANK TRANSACTION STATISTICS: Error collecting stats - {str(bt_stats_error)}\n\n"
 
     if error_categories:
         summary_content += "ERROR CATEGORIES:\n"

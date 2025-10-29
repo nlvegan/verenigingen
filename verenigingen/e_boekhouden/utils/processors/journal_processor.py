@@ -44,16 +44,11 @@ class JournalProcessor(BaseTransactionProcessor):
                 return True
 
         elif mutation_type == 4:
-            raw_amount = mutation.get("amount", 0) or 0
-            has_rows = bool(mutation.get("rows"))
-            row_amount = mutation["rows"][0].get("amount", 0) if has_rows else 0
-            is_positive = (raw_amount > 0) or (row_amount > 0)
-
-            # Type 4 with positive amount = refund from supplier → Journal Entry
-            # Examples: Mollie compensation, deposit returns, supplier credits
-            # Note: These often reference invoices that are already paid, so Payment Entry would fail
-            if is_positive:
-                return True
+            # ALL Type 4 (normal payments and refunds) should go to PaymentProcessor
+            # PaymentEntryHandler will create Payment Entries with correct direction:
+            # - Positive amount → payment_type="Pay" (normal supplier payment)
+            # - Negative amount → payment_type="Receive" (supplier refund/credit)
+            return False
 
         # Standard journal types
         # Note: We don't check for invoiceNumber here because:
