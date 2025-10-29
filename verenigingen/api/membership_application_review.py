@@ -649,6 +649,24 @@ def activate_volunteer_record(member):
             volunteer.save()
             frappe.logger().info(f"Activated volunteer record {volunteer_name} for member {member.name}")
 
+            # Upgrade user account from Website User to System User for volunteer access
+            if member.user:
+                try:
+                    from verenigingen.utils.account_creation_manager import upgrade_member_to_volunteer_user
+
+                    upgrade_result = upgrade_member_to_volunteer_user(member.name)
+                    if upgrade_result.get("success"):
+                        frappe.logger().info(
+                            f"User account upgrade for volunteer: {upgrade_result.get('message')}"
+                        )
+                    else:
+                        frappe.logger().warning(
+                            f"Could not upgrade user account for volunteer: {upgrade_result.get('error')}"
+                        )
+                except Exception as e:
+                    frappe.logger().error(f"Error upgrading user account to System User: {str(e)}")
+                    # Non-critical - continue with volunteer activation
+
             # Employee creation is now handled by AccountCreationManager
             # The account creation request will handle employee creation properly
             # with full security compliance and audit trail
@@ -666,6 +684,26 @@ def activate_volunteer_record(member):
                 frappe.logger().info(
                     f"Created and activated volunteer record {volunteer.name} for member {member.name}"
                 )
+
+                # Upgrade user account from Website User to System User for volunteer access
+                if member.user:
+                    try:
+                        from verenigingen.utils.account_creation_manager import (
+                            upgrade_member_to_volunteer_user,
+                        )
+
+                        upgrade_result = upgrade_member_to_volunteer_user(member.name)
+                        if upgrade_result.get("success"):
+                            frappe.logger().info(
+                                f"User account upgrade for new volunteer: {upgrade_result.get('message')}"
+                            )
+                        else:
+                            frappe.logger().warning(
+                                f"Could not upgrade user account for new volunteer: {upgrade_result.get('error')}"
+                            )
+                    except Exception as e:
+                        frappe.logger().error(f"Error upgrading user account to System User: {str(e)}")
+                        # Non-critical - continue with volunteer activation
     except Exception as e:
         safe_log_error(f"Error activating volunteer record for member {member.name}: {str(e)}")
 

@@ -14,10 +14,11 @@
     "column_break_4",
     "import_status",
     "test_mode",
-    "auto_create_chapters",
     "user_account_section",
+    "auto_create_chapters",
     "create_user_accounts",
     "create_volunteer_records",
+    "create_employee_records",
     "send_welcome_emails",
     "section_break_mapping",
     "field_mapping_instructions",
@@ -89,17 +90,17 @@
       "label": "Test Mode"
     },
     {
+      "collapsible": 1,
+      "fieldname": "user_account_section",
+      "fieldtype": "Section Break",
+      "label": "User Account Creation"
+    },
+    {
       "default": "0",
       "description": "Import members from Mijnrood CSV files. Automatically creates chapters with 'nl' region if they don't exist. Middle_name field maps to Tussenvoegsel for Dutch name particles.",
       "fieldname": "auto_create_chapters",
       "fieldtype": "Check",
       "label": "Auto-create Chapters"
-    },
-    {
-      "collapsible": 1,
-      "fieldname": "user_account_section",
-      "fieldtype": "Section Break",
-      "label": "User Account Creation"
     },
     {
       "default": "0",
@@ -114,6 +115,13 @@
       "fieldname": "create_volunteer_records",
       "fieldtype": "Check",
       "label": "Create Volunteer Records"
+    },
+    {
+      "default": "0",
+      "description": "Create Employee records for members to enable expense claim functionality. Only applies to Member imports (Volunteers automatically get Employees).",
+      "fieldname": "create_employee_records",
+      "fieldtype": "Check",
+      "label": "Create Employee Records (for expense claiming)"
     },
     {
       "default": "1",

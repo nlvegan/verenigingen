@@ -20,6 +20,7 @@
     "requested_roles",
     "role_profile",
     "business_justification",
+    "create_employee_record",
     "column_break_processing",
     "created_user",
     "created_employee",
@@ -115,6 +116,13 @@
       "fieldname": "business_justification",
       "fieldtype": "Text",
       "label": "Business Justification"
+    },
+    {
+      "fieldname": "create_employee_record",
+      "fieldtype": "Check",
+      "label": "Create Employee Record",
+      "default": 0,
+      "description": "If checked, an Employee record will be created along with the user account"
     },
     {
       "fieldname": "column_break_processing",

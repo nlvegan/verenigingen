@@ -166,14 +166,22 @@ class ChapterMembershipManager:
             if not member_id or not member_id.strip():
                 return {"success": False, "error": _("Invalid member ID provided")}
             if not frappe.db.exists("Member", member_id):
+                # Member doesn't exist - log info (not error) as this is expected for deleted members
+                frappe.logger().info(f"Skipping chapter assignment: Member {member_id} no longer exists")
                 return {"success": False, "error": _("Member {0} not found").format(member_id)}
 
             # Check if chapter exists
             if not frappe.db.exists("Chapter", chapter_name):
                 return {"success": False, "error": _("Chapter {0} not found").format(chapter_name)}
 
-            # Get member details for introduction
-            frappe.get_doc("Member", member_id)
+            # Get member details for introduction (may fail if member deleted between checks)
+            try:
+                frappe.get_doc("Member", member_id)
+            except frappe.DoesNotExistError:
+                frappe.logger().info(
+                    f"Skipping chapter assignment: Member {member_id} was deleted during processing"
+                )
+                return {"success": False, "error": _("Member {0} not found").format(member_id)}
 
             # Get chapter document and use its member manager
             chapter_doc = frappe.get_doc("Chapter", chapter_name)
@@ -212,8 +220,21 @@ class ChapterMembershipManager:
 
             return result
 
+        except frappe.DoesNotExistError as e:
+            # Member was deleted during processing - expected scenario, log as info
+            frappe.logger().info(f"Member {member_id} no longer exists, skipping chapter assignment")
+            return {"success": False, "error": _("Member {0} not found").format(member_id)}
         except Exception as e:
-            frappe.log_error(f"Error in assign_member_to_chapter: {str(e)}", "ChapterMembershipManager")
+            # Only log as error if it's NOT a "Broken pipe" error (which happens when trying to
+            # message a user from background job after member deletion)
+            error_str = str(e).lower()
+            if "broken pipe" in error_str or "errno 32" in error_str:
+                frappe.logger().info(
+                    f"Skipping chapter assignment notification for {member_id}: "
+                    f"member likely deleted (broken pipe in background job)"
+                )
+            else:
+                frappe.log_error(f"Error in assign_member_to_chapter: {str(e)}", "ChapterMembershipManager")
             return {"success": False, "error": str(e)}
 
     @staticmethod

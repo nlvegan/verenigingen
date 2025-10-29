@@ -103,7 +103,7 @@ def _execute_document_operation(
     elif operation in ["save", "update"]:
         # Flags like ignore_version should already be set by caller if needed
         # Just call save() and let Frappe respect the flags
-        max_retries = 3
+        max_retries = 5  # Increased from 3 for heavy concurrent access
         retry_count = 0
 
         while retry_count <= max_retries:
@@ -131,9 +131,19 @@ def _execute_document_operation(
                                 f"Document {doc.doctype} {doc.name} could not be reloaded after concurrent update"
                             ) from reload_error
 
+                        # Exponential backoff with jitter for bulk operations
+                        # Retry 1: ~1s, Retry 2: ~2s, Retry 3: ~4s, Retry 4: ~8s, Retry 5: ~16s
+                        import random
                         import time
 
-                        time.sleep(0.1 * retry_count)  # Exponential backoff
+                        base_delay = 2 ** (retry_count - 1)  # 1, 2, 4, 8, 16 seconds
+                        jitter = random.uniform(0, 0.5 * base_delay)  # Add up to 50% jitter
+                        sleep_time = base_delay + jitter
+
+                        frappe.logger().info(
+                            f"Waiting {sleep_time:.1f}s before retry {retry_count}/{max_retries} for {doc.doctype} {doc.name}"
+                        )
+                        time.sleep(sleep_time)
                     else:
                         # Max retries exceeded - log and fail
                         frappe.logger().error(

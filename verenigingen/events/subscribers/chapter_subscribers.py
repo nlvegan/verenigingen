@@ -118,6 +118,10 @@ def handle_membership_notifications(event_name, event_data, **kwargs):
     Sends welcome/farewell messages to members and chapter administrators.
     """
     try:
+        # Skip notifications during bulk imports
+        if frappe.flags.in_import or frappe.flags.in_bulk_import:
+            return
+
         chapter_name = event_data.get("chapter")
         member = event_data.get("member")
         action = event_data.get("action")  # joined, left
@@ -138,9 +142,8 @@ def handle_membership_notifications(event_name, event_data, **kwargs):
         frappe.logger("events").info(f"Sent membership notifications for {member} in {chapter_name}")
 
     except Exception as e:
-        frappe.log_error(
-            f"Failed to send membership notifications: {str(e)}", "Chapter Membership Notification Error"
-        )
+        # Log as warning instead of error - timing issues during bulk imports are expected
+        frappe.logger("events").warning(f"Failed to send membership notifications: {str(e)}")
 
 
 def handle_member_role_updates(event_name, event_data, **kwargs):
@@ -162,6 +165,14 @@ def handle_member_role_updates(event_name, event_data, **kwargs):
         if not chapter_name or not member:
             return
 
+        # Check if member still exists before trying to update roles
+        # (member may have been deleted between event queuing and processing)
+        if not frappe.db.exists("Member", member):
+            frappe.logger("events").info(
+                f"Skipping chapter member role update: Member {member} no longer exists"
+            )
+            return
+
         member_doc = frappe.get_doc("Member", member)
 
         # Update member's chapter-related permissions
@@ -172,6 +183,11 @@ def handle_member_role_updates(event_name, event_data, **kwargs):
 
         frappe.logger("events").info(f"Updated member roles for {member} in {chapter_name}")
 
+    except frappe.DoesNotExistError:
+        # Member was deleted between existence check and get_doc call
+        frappe.logger("events").info(
+            f"Skipping chapter member role update: Member {member} was deleted during processing"
+        )
     except Exception as e:
         frappe.log_error(f"Failed to update member roles: {str(e)}", "Chapter Member Role Update Error")
 

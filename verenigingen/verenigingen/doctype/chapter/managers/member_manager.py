@@ -150,12 +150,20 @@ class MemberManager(BaseManager):
                 reason=f"Added to {self.chapter_name} chapter",
             )
 
-            # Create audit comment
-            self.create_comment("Info", _("Added member {0} to chapter").format(member_doc.full_name))
+            # Create audit comment - don't fail member addition if this fails
+            try:
+                self.create_comment("Info", _("Added member {0} to chapter").format(member_doc.full_name))
+            except Exception as e:
+                # Log but don't fail - broken pipe errors during bulk imports shouldn't prevent member addition
+                frappe.logger().warning(f"Failed to create audit comment for member {member_id}: {str(e)}")
 
-            # Send notification
+            # Send notification - don't fail member addition if this fails
             if notify:
-                self._notify_member_added(member_id)
+                try:
+                    self._notify_member_added(member_id)
+                except Exception as e:
+                    # Log but don't fail - notification failures shouldn't prevent member addition
+                    frappe.logger().warning(f"Failed to send notification for member {member_id}: {str(e)}")
 
             self.log_action(
                 "Member added", {"member": member_id, "member_name": member_doc.full_name, "enabled": enabled}
@@ -586,16 +594,28 @@ class MemberManager(BaseManager):
                     reason=leave_reason or f"Disabled in {self.chapter_name}",
                 )
 
-            # Create audit comment
-            self.create_comment(
-                "Info",
-                _("{0} member {1}").format(action.title(), member_name)
-                + (f". Reason: {leave_reason}" if leave_reason else ""),
-            )
+            # Create audit comment - don't fail member removal if this fails
+            try:
+                self.create_comment(
+                    "Info",
+                    _("{0} member {1}").format(action.title(), member_name)
+                    + (f". Reason: {leave_reason}" if leave_reason else ""),
+                )
+            except Exception as e:
+                # Log but don't fail - broken pipe errors during bulk operations shouldn't prevent removal
+                frappe.logger().warning(
+                    f"Failed to create audit comment for member removal {member_id}: {str(e)}"
+                )
 
-            # Send notification
+            # Send notification - don't fail member removal if this fails
             if notify:
-                self._notify_member_removed(member_id, leave_reason)
+                try:
+                    self._notify_member_removed(member_id, leave_reason)
+                except Exception as e:
+                    # Log but don't fail - notification failures shouldn't prevent removal
+                    frappe.logger().warning(
+                        f"Failed to send removal notification for member {member_id}: {str(e)}"
+                    )
 
             self.log_action(
                 f"Member {action}",

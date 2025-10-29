@@ -87,6 +87,10 @@ def _emit_member_event(event_name, event_data):
     # Get subscribers for this event
     subscribers = _get_member_event_subscribers(event_name)
 
+    # Use longer delay during bulk imports to allow for batched commits
+    # Import processes commit every 20 records, so 30-60s delay ensures record is committed
+    event_delay = 60 if (frappe.flags.in_import or frappe.flags.in_bulk_import) else 1
+
     for subscriber in subscribers:
         frappe.enqueue(
             method=subscriber,
@@ -94,7 +98,7 @@ def _emit_member_event(event_name, event_data):
             job_name=f"member_{event_name}_{member_name}",
             dedupe=True,  # Prevent duplicate events for same member
             timeout=300,
-            delay=1,  # Small delay to ensure member save is committed
+            delay=event_delay,  # Longer delay during bulk imports
             **{"event_name": event_name, "event_data": event_data},
         )
 

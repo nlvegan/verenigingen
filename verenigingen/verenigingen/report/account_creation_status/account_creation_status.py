@@ -51,6 +51,13 @@ def get_columns():
             "width": 200,
         },
         {
+            "fieldname": "active_chapter",
+            "label": _("Active Chapter"),
+            "fieldtype": "Link",
+            "options": "Chapter",
+            "width": 150,
+        },
+        {
             "fieldname": "interested_in_volunteering",
             "label": _("Vol/Emp Expected"),
             "fieldtype": "Check",
@@ -117,6 +124,30 @@ def get_columns():
             "width": 100,
         },
         {
+            "fieldname": "has_membership",
+            "label": _("Membership Exists"),
+            "fieldtype": "Check",
+            "width": 120,
+        },
+        {
+            "fieldname": "membership_status",
+            "label": _("Membership Status"),
+            "fieldtype": "Data",
+            "width": 120,
+        },
+        {
+            "fieldname": "has_dues_schedule",
+            "label": _("Dues Schedule"),
+            "fieldtype": "Check",
+            "width": 100,
+        },
+        {
+            "fieldname": "dues_schedule_status",
+            "label": _("Schedule Status"),
+            "fieldtype": "Data",
+            "width": 120,
+        },
+        {
             "fieldname": "account_request_status",
             "label": _("Request Status"),
             "fieldtype": "Data",
@@ -175,6 +206,15 @@ def get_data(filters):
             m.name as member_name,
             m.full_name,
             m.email,
+            (
+                SELECT cm.parent
+                FROM `tabChapter Member` cm
+                WHERE cm.member = m.name
+                    AND cm.enabled = 1
+                    AND cm.status = 'Active'
+                ORDER BY cm.chapter_join_date DESC
+                LIMIT 1
+            ) as active_chapter,
             m.interested_in_volunteering,
             CASE
                 WHEN u.name IS NOT NULL THEN 1
@@ -216,6 +256,16 @@ def get_data(filters):
                 WHEN m.primary_address IS NOT NULL AND m.primary_address != '' AND addr.name IS NOT NULL THEN 1
                 ELSE 0
             END as address_linked,
+            CASE
+                WHEN mem.name IS NOT NULL THEN 1
+                ELSE 0
+            END as has_membership,
+            mem.status as membership_status,
+            CASE
+                WHEN mds.name IS NOT NULL THEN 1
+                ELSE 0
+            END as has_dues_schedule,
+            mds.status as dues_schedule_status,
             acr.status as account_request_status,
             acr.failure_reason,
             acr.retry_count,
@@ -226,6 +276,8 @@ def get_data(filters):
         LEFT JOIN `tabEmployee` emp ON emp.user_id = m.user OR emp.user_id = m.email
         LEFT JOIN `tabCustomer` cust ON cust.name = m.customer
         LEFT JOIN `tabAddress` addr ON addr.name = m.primary_address
+        LEFT JOIN `tabMembership` mem ON mem.member = m.name AND mem.docstatus = 1
+        LEFT JOIN `tabMembership Dues Schedule` mds ON mds.member = m.name
         LEFT JOIN (
             SELECT *
             FROM `tabAccount Creation Request`
@@ -240,11 +292,13 @@ def get_data(filters):
             CASE
                 WHEN acr.status = 'Failed' THEN 1
                 WHEN u.name IS NULL THEN 2
-                WHEN vol.name IS NULL THEN 3
-                WHEN emp.name IS NULL THEN 4
-                WHEN cust.name IS NULL THEN 5
-                WHEN addr.name IS NULL THEN 6
-                ELSE 7
+                WHEN mem.name IS NULL THEN 3
+                WHEN mds.name IS NULL THEN 4
+                WHEN vol.name IS NULL THEN 5
+                WHEN emp.name IS NULL THEN 6
+                WHEN cust.name IS NULL THEN 7
+                WHEN addr.name IS NULL THEN 8
+                ELSE 9
             END,
             m.modified DESC
         LIMIT 1000
@@ -267,7 +321,9 @@ def get_summary_data():
             SUM(CASE WHEN EXISTS (SELECT 1 FROM `tabVolunteer` v WHERE v.member = `tabMember`.name) THEN 1 ELSE 0 END) as members_with_volunteer,
             SUM(CASE WHEN EXISTS (SELECT 1 FROM `tabEmployee` e WHERE e.user_id = `tabMember`.user) THEN 1 ELSE 0 END) as members_with_employee,
             SUM(CASE WHEN customer IS NOT NULL AND customer != '' THEN 1 ELSE 0 END) as members_with_customer,
-            SUM(CASE WHEN primary_address IS NOT NULL AND primary_address != '' THEN 1 ELSE 0 END) as members_with_address
+            SUM(CASE WHEN primary_address IS NOT NULL AND primary_address != '' THEN 1 ELSE 0 END) as members_with_address,
+            SUM(CASE WHEN EXISTS (SELECT 1 FROM `tabMembership` mem WHERE mem.member = `tabMember`.name AND mem.docstatus = 1) THEN 1 ELSE 0 END) as members_with_membership,
+            SUM(CASE WHEN EXISTS (SELECT 1 FROM `tabMembership Dues Schedule` mds WHERE mds.member = `tabMember`.name) THEN 1 ELSE 0 END) as members_with_dues_schedule
         FROM `tabMember`
         """,
         as_dict=1,
@@ -348,6 +404,22 @@ def get_summary_data():
             "value": member_stats["members_with_address"],
             "indicator": "green"
             if member_stats["members_with_address"] == member_stats["total_members"]
+            else "orange",
+            "datatype": "Int",
+        },
+        {
+            "label": _("Members with Membership"),
+            "value": member_stats["members_with_membership"],
+            "indicator": "green"
+            if member_stats["members_with_membership"] == member_stats["total_members"]
+            else "orange",
+            "datatype": "Int",
+        },
+        {
+            "label": _("Members with Dues Schedule"),
+            "value": member_stats["members_with_dues_schedule"],
+            "indicator": "green"
+            if member_stats["members_with_dues_schedule"] == member_stats["total_members"]
             else "orange",
             "datatype": "Int",
         },

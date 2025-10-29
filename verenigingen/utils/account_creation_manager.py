@@ -201,6 +201,11 @@ class AccountCreationManager:
             first_name = name_parts[0] if name_parts else "User"
             last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
 
+            # Determine user type based on request type
+            # Members get Website User for portal access
+            # Volunteers get System User for full system access
+            user_type = "System User" if self.request.request_type == "Volunteer" else "Website User"
+
             # Create user document
             user_doc = frappe.get_doc(
                 {
@@ -210,7 +215,7 @@ class AccountCreationManager:
                     "last_name": last_name,
                     "full_name": self.request.full_name,
                     "enabled": 1,
-                    "user_type": "System User",
+                    "user_type": user_type,
                     "send_welcome_email": 1,  # Proper welcome email with password setup
                 }
             )
@@ -491,9 +496,9 @@ class AccountCreationManager:
 
         # For Member requests, check if explicitly requested via import flag
         if self.request.request_type == "Member":
-            # Check if the request has a flag indicating employee should be created
+            # Check if the request has the create_employee_record field set
             # This is set by CSV import when create_employee_records is checked
-            if getattr(self.request, "_create_employee", False):
+            if self.request.create_employee_record:
                 return True
 
             # Legacy behavior: Don't auto-create employees just because a volunteer record exists
@@ -775,10 +780,10 @@ def queue_bulk_account_creation_for_members(
     member_names, roles=None, role_profile=None, batch_size=50, priority="Low", create_employee=False
 ):
     """
-    Queue bulk account creation for multiple members with efficient batch processing.
+    Queue bulk account creation for multiple members using AccountCreationService.
 
-    This function implements the bulk processing path for large imports (500-4700+ members)
-    while maintaining individual accountability and retry capability.
+    This is now a thin wrapper around AccountCreationService.queue_bulk_requests()
+    which consolidates all validation, linking, and request creation logic.
 
     Args:
         member_names: List of member names to process
@@ -786,9 +791,10 @@ def queue_bulk_account_creation_for_members(
         role_profile: Role profile to assign (defaults to "Verenigingen Member")
         batch_size: Number of members to process in each batch (default 50)
         priority: Processing priority ("Low", "Normal", "High")
+        create_employee: Whether to create Employee records (default False)
 
     Returns:
-        dict: Summary with batch info, request names, and processing details
+        dict: Summary with request names, linked users, and validation errors
     """
     if not frappe.has_permission("User", "create"):
         frappe.throw(_("Insufficient permissions to create user accounts"))
@@ -796,7 +802,9 @@ def queue_bulk_account_creation_for_members(
     if not member_names:
         return {"success": False, "error": "No member names provided"}
 
-    frappe.logger().info(f"Starting bulk account creation for {len(member_names)} members")
+    frappe.logger().info(
+        f"Starting bulk account creation for {len(member_names)} members using AccountCreationService"
+    )
 
     # Set bulk operations flag for COR rate limiting exemption
     frappe.flags.bulk_account_creation = True
@@ -808,231 +816,44 @@ def queue_bulk_account_creation_for_members(
     if not role_profile:
         role_profile = "Verenigingen Member"
 
-    # Phase 1: Validate all members and identify existing users that need linking
-    validation_errors = []
-    valid_members = []
-    users_to_link = []  # (user_name, member_name, member_email) tuples for linking phase
+    # Use AccountCreationService for all validation, linking, and request creation
+    from verenigingen.services.account.account_creation_service import get_account_creation_service
 
-    for member_name in member_names:
-        try:
-            if not frappe.db.exists("Member", member_name):
-                validation_errors.append(f"Member {member_name} does not exist")
-                continue
+    service = get_account_creation_service()
+    result = service.queue_bulk_requests(
+        member_names=member_names,
+        roles=roles,
+        role_profile=role_profile,
+        batch_size=batch_size,
+        priority=priority,
+        create_employee=create_employee,
+        filter_by_status=True,  # Only process Active/Pending members
+    )
 
-            member = frappe.get_doc("Member", member_name)
-            if not member.email:
-                validation_errors.append(f"Member {member_name} has no email address")
-                continue
+    # Extract results from service
+    created_requests = result.get("request_names", [])
+    validation_errors = result.get("validation_errors", [])
+    linked_count = result.get("users_linked", 0)
 
-            # Check if user already exists with this email
-            existing_user_data = frappe.db.get_value(
-                "User",
-                {"email": member.email},
-                ["name", "first_name", "last_name", "custom_member"],
-                as_dict=True,
-            )
-
-            if existing_user_data:
-                existing_user = existing_user_data.name
-                current_member_link = existing_user_data.custom_member
-
-                # Security validation: Only link if names match
-                names_match = (
-                    existing_user_data.first_name == member.first_name
-                    and existing_user_data.last_name == member.last_name
-                )
-
-                if current_member_link and current_member_link != member_name:
-                    # User already linked to a DIFFERENT member - security violation
-                    validation_errors.append(
-                        f"Security: User {member.email} already linked to different member {current_member_link}"
-                    )
-                    frappe.logger().warning(
-                        f"Security: Attempted to link user {existing_user} (linked to {current_member_link}) "
-                        f"to different member {member_name}"
-                    )
-                    continue
-                elif not current_member_link:
-                    # User exists but not linked - validate names match
-                    if names_match:
-                        # Queue for linking in separate phase
-                        users_to_link.append((existing_user, member_name, member.email))
-                        validation_errors.append(
-                            f"User account exists for {member_name} ({member.email}), will be linked"
-                        )
-                    else:
-                        # Names don't match - possible email collision
-                        validation_errors.append(
-                            f"User {member.email} exists but name mismatch: "
-                            f"User({existing_user_data.first_name} {existing_user_data.last_name}) != "
-                            f"Member({member.first_name} {member.last_name})"
-                        )
-                        frappe.logger().warning(
-                            f"Name mismatch prevents linking user {existing_user} to member {member_name}"
-                        )
-                else:
-                    # Already linked to this member
-                    validation_errors.append(
-                        f"User account already linked for {member_name} ({member.email})"
-                    )
-                continue
-
-            # Check for existing requests
-            existing_request = frappe.db.exists(
-                "Account Creation Request",
-                {"source_record": member_name, "status": ["not in", ["Completed", "Cancelled"]]},
-            )
-
-            if existing_request:
-                validation_errors.append(
-                    f"Account creation request already exists for {member_name}: {existing_request}"
-                )
-                continue
-
-            valid_members.append(member)
-
-        except Exception as e:
-            validation_errors.append(f"Error validating member {member_name}: {str(e)}")
-
-    if validation_errors:
-        frappe.logger().warning(f"Bulk validation found {len(validation_errors)} errors")
-        for error in validation_errors[:10]:  # Log first 10 errors
-            frappe.logger().warning(f"Validation error: {error}")
-
-    # Phase 2: Link existing users to members in a single transaction
-    linked_count = 0
-    if users_to_link:
-        frappe.logger().info(f"Linking {len(users_to_link)} existing users to members")
-        try:
-            for user_name, member_name, member_email in users_to_link:
-                frappe.db.set_value("User", user_name, "custom_member", member_name, update_modified=False)
-                linked_count += 1
-                frappe.logger().info(
-                    f"Linked existing user {user_name} to member {member_name} (validated: {member_email})"
-                )
-
-            # Commit all links in one transaction
-            frappe.db.commit()
-            frappe.logger().info(f"Successfully linked {linked_count} existing users")
-        except Exception as e:
-            frappe.db.rollback()
-            frappe.logger().error(f"Failed to link existing users: {str(e)}")
-            return {
-                "success": False,
-                "error": f"Failed to link existing users: {str(e)}",
-                "validation_errors": validation_errors[:50],
-            }
-
-    if not valid_members:
-        # If we linked users but have no new accounts to create, that's still success
+    # If no requests were created, handle appropriately
+    if not created_requests:
+        # Check if we linked any existing users
         if linked_count > 0:
             return {
                 "success": True,
                 "requests_created": 0,
-                "validation_errors_count": len(validation_errors),
+                "users_linked": linked_count,
+                "validation_errors_count": result.get("validation_errors_count", 0),
                 "validation_errors": validation_errors[:50],
-                "linked_users_count": linked_count,
                 "message": f"Linked {linked_count} existing user accounts, no new accounts to create",
             }
         else:
             return {
                 "success": False,
                 "error": "No valid members found for processing",
+                "validation_errors_count": result.get("validation_errors_count", 0),
                 "validation_errors": validation_errors[:50],
             }
-
-    # Phase 3: Create account creation requests for all valid members with chunked processing
-    created_requests = []
-    creation_errors = []
-
-    # Process in chunks to avoid memory exhaustion and database locks
-    chunk_size = 100
-    for chunk_start in range(0, len(valid_members), chunk_size):
-        chunk_end = min(chunk_start + chunk_size, len(valid_members))
-        chunk_members = valid_members[chunk_start:chunk_end]
-
-        # Start transaction for this chunk
-        frappe.db.begin()
-
-        try:
-            for member in chunk_members:
-                # Retry logic for COR rate limit errors
-                max_retries = 3
-                retry_delay = 0.5  # Start with 500ms delay
-
-                for attempt in range(max_retries):
-                    try:
-                        # All member account requests use "Member" type
-                        # Employee creation is determined by requires_employee_creation() method
-                        request_type = "Member"
-
-                        request = frappe.get_doc(
-                            {
-                                "doctype": "Account Creation Request",
-                                "request_type": request_type,
-                                "source_record": member.name,
-                                "email": member.email,
-                                "full_name": member.full_name,
-                                "priority": priority,
-                                "role_profile": role_profile,
-                                "business_justification": "Bulk member import - account creation for portal access",
-                            }
-                        )
-
-                        # Add requested roles
-                        for role in roles:
-                            request.append("requested_roles", {"role": role})
-
-                        # Set flag for employee creation if requested
-                        if create_employee:
-                            request._create_employee = True
-
-                        request.insert()
-                        created_requests.append(request.name)
-                        break  # Success - exit retry loop
-
-                    except Exception as e:
-                        error_str = str(e).lower()
-                        # Check if this is a rate limit error
-                        if "rate limit" in error_str and attempt < max_retries - 1:
-                            import time
-
-                            frappe.logger().warning(
-                                f"Rate limit hit creating request for {member.name}, "
-                                f"retrying after {retry_delay}s (attempt {attempt + 1}/{max_retries})"
-                            )
-                            time.sleep(retry_delay)
-                            retry_delay *= 2  # Exponential backoff
-                            continue
-                        else:
-                            # Not a rate limit error, or final attempt failed
-                            creation_errors.append(f"Failed to create request for {member.name}: {str(e)}")
-                            break  # Exit retry loop and continue with next member
-
-            # Commit this chunk if successful
-            frappe.db.commit()
-            frappe.logger().info(
-                f"Created requests for chunk {chunk_start // chunk_size + 1}: {len(chunk_members)} members"
-            )
-
-        except Exception as e:
-            # Rollback this chunk on any unexpected error
-            frappe.db.rollback()
-            frappe.logger().error(f"Failed to process chunk {chunk_start // chunk_size + 1}: {str(e)}")
-            for member in chunk_members:
-                creation_errors.append(f"Failed to create request for {member.name}: Chunk processing error")
-
-    if creation_errors:
-        frappe.logger().error(f"Bulk request creation had {len(creation_errors)} errors")
-        for error in creation_errors[:10]:  # Log first 10 errors
-            frappe.logger().error(f"Creation error: {error}")
-
-    if not created_requests:
-        return {
-            "success": False,
-            "error": "No account creation requests could be created",
-            "creation_errors": creation_errors[:50],
-        }
 
     # Create progress tracker for this bulk operation
     from verenigingen.verenigingen.doctype.bulk_operation_tracker.bulk_operation_tracker import (
@@ -1095,26 +916,27 @@ def queue_bulk_account_creation_for_members(
     tracker.start_operation()
 
     # Return comprehensive summary
-    result = {
+    return_result = {
         "success": True,
         "total_members_provided": len(member_names),
-        "validation_errors_count": len(validation_errors),
-        "valid_members_count": len(valid_members),
+        "validation_errors_count": result.get("validation_errors_count", 0),
+        "users_linked": linked_count,
         "requests_created": len(created_requests),
-        "creation_errors_count": len(creation_errors),
         "batch_count": len(batch_results),
         "batch_size": batch_size,
         "batches": batch_results,
         "request_names": created_requests,
         "tracker_name": tracker.name,
         "tracker_url": f"/app/bulk-operation-tracker/{tracker.name}",
+        "validation_errors": validation_errors[:50],
     }
 
     frappe.logger().info(
-        f"Bulk account creation queued: {len(created_requests)} requests in {len(batch_results)} batches"
+        f"Bulk account creation queued: {len(created_requests)} requests in {len(batch_results)} batches, "
+        f"{linked_count} users linked"
     )
 
-    return result
+    return return_result
 
 
 @frappe.whitelist()
@@ -1345,6 +1167,91 @@ def retry_failed_request(request_name):
 
     request = frappe.get_doc("Account Creation Request", request_name)
     return request.retry_processing()
+
+
+@frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
+def upgrade_member_to_volunteer_user(member_name):
+    """
+    Upgrade a member's user account from Website User to System User when they become a volunteer.
+
+    This is called when a member who already has a Website User account expresses interest
+    in volunteering and has their volunteer record activated.
+
+    Args:
+        member_name: Name of the Member record
+
+    Returns:
+        dict: Result of the upgrade operation
+    """
+    if not frappe.has_permission("User", "write"):
+        frappe.throw(_("Insufficient permissions to upgrade user accounts"))
+
+    try:
+        # Get member record
+        member = frappe.get_doc("Member", member_name)
+
+        if not member.user:
+            return {"success": False, "error": "No user account linked to this member"}
+
+        # Get user record
+        user_doc = frappe.get_doc("User", member.user)
+
+        # Check if already System User
+        if user_doc.user_type == "System User":
+            frappe.logger().info(f"User {member.user} is already a System User, no upgrade needed")
+            return {"success": True, "message": "User is already a System User", "already_upgraded": True}
+
+        # Upgrade to System User
+        frappe.logger().info(f"Upgrading user {member.user} from {user_doc.user_type} to System User")
+        user_doc.user_type = "System User"
+
+        # Expand module access for volunteers
+        # Volunteers need access to HRMS for expense claims
+        try:
+            # Get current blocked modules
+            current_blocks = [row.module for row in user_doc.block_modules]
+
+            # Modules volunteers should have access to
+            volunteer_modules = ["HRMS", "HR"]  # For expense claims
+
+            # Remove HRMS/HR from blocked modules
+            user_doc.set("block_modules", [])
+            all_modules = frappe.get_all("Module Def", fields=["name"])
+
+            # Member modules (already allowed)
+            allowed_modules = ["Verenigingen", "Core", "Desk", "Home"]
+
+            # Add volunteer modules to allowed list
+            allowed_modules.extend(volunteer_modules)
+
+            # Block everything else
+            for module in all_modules:
+                if module.name not in allowed_modules:
+                    user_doc.append("block_modules", {"module": module.name})
+
+            frappe.logger().info(
+                f"Expanded module access for volunteer - added: {', '.join(volunteer_modules)}"
+            )
+
+        except Exception as e:
+            frappe.logger().warning(f"Could not expand module access for volunteer: {str(e)}")
+            # Non-critical - continue with user type upgrade
+
+        user_doc.save()
+
+        frappe.logger().info(f"Successfully upgraded user {member.user} to System User for volunteer access")
+
+        return {
+            "success": True,
+            "message": f"User account upgraded to System User for volunteer access",
+            "user": member.user,
+            "previous_type": "Website User",
+        }
+
+    except Exception as e:
+        frappe.logger().error(f"Failed to upgrade user for member {member_name}: {str(e)}")
+        return {"success": False, "error": str(e)}
 
 
 @frappe.whitelist()

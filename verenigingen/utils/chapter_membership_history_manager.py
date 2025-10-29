@@ -49,7 +49,10 @@ class ChapterMembershipHistoryManager:
                     and membership.status == status
                     and str(membership.start_date) == str(start_date)
                 ):
-                    print(f"Membership already exists in history for member {member_id}")
+                    # Duplicate detected - this is expected when both explicit calls and hooks try to add history
+                    frappe.logger().debug(
+                        f"Skipping duplicate membership history for member {member_id} at {chapter_name}"
+                    )
                     return True  # This exact membership already exists
 
             # ENHANCED: Check if we're trying to add an "Active" record when a "Pending" one exists

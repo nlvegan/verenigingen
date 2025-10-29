@@ -141,16 +141,15 @@ class AccountCreationRequest(Document):
             if not self.name or not DocumentExistenceValidator.validate_document_exists(
                 "Account Creation Request", self.name, throw_on_error=False
             ):
-                # Instead of throwing error, mark request as completed with existing user
+                # User already exists - record it on the request but DON'T mark as completed
+                # The pipeline needs to run to handle linking, role assignment, and employee creation
                 existing_user = frappe.get_doc("User", self.email)
-                self.status = "Completed"
                 self.created_user = existing_user.name
-                self.completion_date = frappe.utils.now_datetime()
                 self.processing_notes = (
-                    f"User account already exists for {self.email}. Linked existing account."
+                    f"User account already exists for {self.email}. Will link during processing."
                 )
-                frappe.logger().info(f"Account creation request linked to existing user: {self.email}")
-                # Don't throw error - allow the request to be saved as completed
+                frappe.logger().info(f"Account creation request will link to existing user: {self.email}")
+                # Don't set status='Completed' - let the pipeline run to complete linking/employee creation
 
     def validate_source_record(self):
         """Validate that source record exists and is valid"""

@@ -41,7 +41,7 @@ class PaymentEntryHandler:
             "bank_tx_failed": 0,
             "bank_tx_skipped_zero_amount": 0,
             "bank_tx_already_existed": 0,
-            "failures": []  # List of {mutation_nr, reason, payment_entry}
+            "failures": [],  # List of {mutation_nr, reason, payment_entry}
         }
 
     def process_payment_mutation(self, mutation: Dict) -> Optional[str]:
@@ -357,11 +357,13 @@ class PaymentEntryHandler:
             # Track failure before re-raising
             self._bank_tx_stats["total_processed"] += 1
             self._bank_tx_stats["bank_tx_failed"] += 1
-            self._bank_tx_stats["failures"].append({
-                "mutation_nr": mutation.get("id"),
-                "payment_entry": pe.name if 'pe' in locals() else "Not created",
-                "reason": str(e)[:200]
-            })
+            self._bank_tx_stats["failures"].append(
+                {
+                    "mutation_nr": mutation.get("id"),
+                    "payment_entry": pe.name if "pe" in locals() else "Not created",
+                    "reason": str(e)[:200],
+                }
+            )
             # Re-raise to let atomic_migration_operation handle rollback
             raise
 
@@ -702,11 +704,16 @@ class PaymentEntryHandler:
                 has_negative_outstanding = True
                 self._log(f"⚠️ Debit note detected: {inv['name']} has negative outstanding ({outstanding})")
 
-        # CRITICAL: Adjust payment type if dealing with debit notes (negative outstanding)
-        # For debit notes, the supplier owes us money, so payment direction must be reversed
-        if has_negative_outstanding and payment_entry.payment_type == "Pay":
+        # CRITICAL: Adjust payment type if dealing with SUPPLIER debit notes (negative outstanding)
+        # For SUPPLIER debit notes: supplier owes us money, so reverse Pay→Receive
+        # For CUSTOMER credit notes: we owe customer, keep as Pay (don't reverse)
+        if (
+            has_negative_outstanding
+            and payment_entry.payment_type == "Pay"
+            and payment_entry.party_type == "Supplier"
+        ):
             self._log(
-                f"Reversing payment type from 'Pay' to 'Receive' due to debit note with negative outstanding"
+                f"Supplier debit note detected - reversing payment type from 'Pay' to 'Receive' (supplier owes us)"
             )
             payment_entry.payment_type = "Receive"
             # Swap paid_from and paid_to accounts
@@ -715,6 +722,10 @@ class PaymentEntryHandler:
             payment_entry.paid_to = paid_from
             self._log(
                 f"Swapped accounts: paid_from={payment_entry.paid_from}, paid_to={payment_entry.paid_to}"
+            )
+        elif has_negative_outstanding and payment_entry.party_type == "Customer":
+            self._log(
+                f"Customer credit note detected with negative outstanding - keeping payment_type='Pay' (we owe customer)"
             )
 
         # Validate payment amount vs invoice amounts (informational only)
@@ -1424,27 +1435,25 @@ class PaymentEntryHandler:
             f"  ⟳ Bank Transactions Already Existed: {stats['bank_tx_already_existed']}",
             f"  ⊘ Skipped (Zero Amount): {stats['bank_tx_skipped_zero_amount']}",
             f"  ✗ Failed: {stats['bank_tx_failed']}",
-            ""
+            "",
         ]
 
         # Calculate success rate
-        if stats['total_processed'] > 0:
-            success_count = stats['bank_tx_created'] + stats['bank_tx_already_existed']
-            success_rate = (success_count / stats['total_processed']) * 100
+        if stats["total_processed"] > 0:
+            success_count = stats["bank_tx_created"] + stats["bank_tx_already_existed"]
+            success_rate = (success_count / stats["total_processed"]) * 100
             summary_lines.append(f"Success Rate: {success_rate:.1f}%")
             summary_lines.append("")
 
         # Log failures if any
-        if stats['failures']:
+        if stats["failures"]:
             summary_lines.append("FAILURES:")
             summary_lines.append("-" * 80)
-            for i, failure in enumerate(stats['failures'][:20], 1):  # Show first 20
-                summary_lines.append(
-                    f"{i}. Mutation {failure['mutation_nr']} → {failure['payment_entry']}"
-                )
+            for i, failure in enumerate(stats["failures"][:20], 1):  # Show first 20
+                summary_lines.append(f"{i}. Mutation {failure['mutation_nr']} → {failure['payment_entry']}")
                 summary_lines.append(f"   Reason: {failure['reason']}")
 
-            if len(stats['failures']) > 20:
+            if len(stats["failures"]) > 20:
                 summary_lines.append(f"... and {len(stats['failures']) - 20} more failures")
 
         summary_lines.append("=" * 80)
@@ -1452,10 +1461,7 @@ class PaymentEntryHandler:
         summary = "\n".join(summary_lines)
 
         # Log to Error Log for persistence
-        frappe.log_error(
-            title="Bank Transaction Summary - Type 3/4 Payments",
-            message=summary
-        )
+        frappe.log_error(title="Bank Transaction Summary - Type 3/4 Payments", message=summary)
 
         # Also print to console
         print(summary)

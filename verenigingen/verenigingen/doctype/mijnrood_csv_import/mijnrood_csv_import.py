@@ -315,17 +315,38 @@ class MijnroodCSVImport(Document):
             # Process bulk operations if enabled
             user_account_summary = ""
             if self.create_user_accounts and processed_members:
+                frappe.logger().info(
+                    f"[CSV IMPORT] Starting user account creation for {len(processed_members)} members"
+                )
                 user_account_summary = self._process_user_account_creation(processed_members)
+                frappe.logger().info(f"[CSV IMPORT] User account creation result: {user_account_summary}")
+            else:
+                frappe.logger().info(
+                    f"[CSV IMPORT] Skipping user account creation: create_user_accounts={self.create_user_accounts}, "
+                    f"processed_members={len(processed_members) if processed_members else 0}"
+                )
 
             volunteer_summary = ""
             if self.create_volunteer_records and processed_members:
+                frappe.logger().info(
+                    f"[CSV IMPORT] Starting volunteer creation for {len(processed_members)} members"
+                )
                 volunteer_summary = self._process_bulk_volunteer_creation(processed_members)
+                frappe.logger().info(f"[CSV IMPORT] Volunteer creation result: {volunteer_summary}")
+        except Exception as e:
+            frappe.logger().error(
+                f"[CSV IMPORT] ERROR during finalization bulk operations: {str(e)}", exc_info=True
+            )
+            frappe.log_error(
+                message=f"Finalization error: {str(e)}\n{frappe.get_traceback()}",
+                title=f"CSV Import Finalization Error: {self.name}",
+            )
+            # Re-raise to ensure import status shows failure
+            raise
         finally:
             # Always clear the bulk operations flag
             frappe.flags.bulk_member_operations = False
-            frappe.logger().info(
-                "[CSV IMPORT DEBUG] Cleared bulk_member_operations flag at end of finalization"
-            )
+            frappe.logger().info("[CSV IMPORT] Cleared bulk_member_operations flag at end of finalization")
 
         # Validate Mollie subscription data preservation
         mollie_validation_summary = ""
@@ -374,28 +395,22 @@ class MijnroodCSVImport(Document):
         self.save()
 
     def _process_user_account_creation(self, processed_members: List[str]) -> str:
-        """Queue bulk user account creation for successfully imported members using AccountCreationManager"""
-        try:
-            # Filter to only include active members - skip inactive, terminated, or rejected members
-            active_members = [
-                member_name
-                for member_name in processed_members
-                if frappe.db.get_value("Member", member_name, "status") == "Active"
-            ]
+        """
+        Queue bulk user account creation for successfully imported members.
 
-            if not active_members:
-                frappe.logger().info(
-                    "No active members to create accounts for (all are inactive/rejected/terminated)"
-                )
-                return ". No user accounts created (no active members)"
+        This is now a thin wrapper that delegates all logic to AccountCreationService
+        via queue_bulk_account_creation_for_members().
+        """
+        try:
+            if not processed_members:
+                frappe.logger().info("No members to create accounts for")
+                return ". No user accounts created (no members processed)"
 
             frappe.logger().info(
-                "Queuing bulk account creation for %d active members (filtered from %d total)",
-                len(active_members),
+                "Queuing bulk account creation for %d members (AccountCreationService will filter by status)",
                 len(processed_members),
             )
 
-            # Use the secure AccountCreationManager bulk processing system
             # Set role profile based on whether volunteer records are being created
             if self.create_volunteer_records:
                 roles = ["Verenigingen Member", "Verenigingen Volunteer"]
@@ -404,12 +419,14 @@ class MijnroodCSVImport(Document):
                 roles = ["Verenigingen Member"]
                 role_profile = "Verenigingen Member"
 
+            # Use AccountCreationManager which now delegates to AccountCreationService
+            # The service handles all filtering, validation, linking, and request creation
             result = queue_bulk_account_creation_for_members(
-                member_names=active_members,  # Only create accounts for active members
+                member_names=processed_members,  # Service will filter by status
                 roles=roles,
                 role_profile=role_profile,
-                batch_size=50,  # Process in batches of 50
-                priority="Low",  # Don't block individual member approvals
+                batch_size=50,
+                priority="Low",
                 create_employee=bool(getattr(self, "create_employee_records", False)),
             )
 
@@ -423,20 +440,20 @@ class MijnroodCSVImport(Document):
             # Create summary based on queue results
             summary_parts = []
 
+            # Users linked to existing accounts
+            users_linked = result.get("users_linked", 0)
+            if users_linked > 0:
+                summary_parts.append(f"{users_linked} users linked to existing accounts")
+
             # Requests successfully created and queued
             requests_created = result.get("requests_created", 0)
             if requests_created > 0:
-                summary_parts.append(f"{requests_created} user account requests queued")
+                summary_parts.append(f"{requests_created} new account requests queued")
 
-            # Validation errors (members that couldn't be queued)
+            # Validation errors (members that couldn't be processed)
             validation_errors = result.get("validation_errors_count", 0)
             if validation_errors > 0:
                 summary_parts.append(f"{validation_errors} members skipped (validation errors)")
-
-            # Creation errors (request creation failures)
-            creation_errors = result.get("creation_errors_count", 0)
-            if creation_errors > 0:
-                summary_parts.append(f"{creation_errors} request creation failures")
 
             # Batch information
             batch_count = result.get("batch_count", 0)
@@ -446,14 +463,13 @@ class MijnroodCSVImport(Document):
             if summary_parts:
                 summary = f". User Accounts: {', '.join(summary_parts)}"
             else:
-                summary = ". No user account requests created"
+                summary = ". No user accounts created or linked"
 
             # Log detailed queue results for monitoring
             tracker_info = f"Tracker: {result.get('tracker_name', 'Unknown')}"
             frappe.logger().info(
-                f"Bulk account creation queued: {requests_created} requests, "
-                f"{batch_count} batches, {validation_errors} validation errors, "
-                f"{creation_errors} creation errors, {tracker_info}"
+                f"Bulk account creation queued: {requests_created} requests, {users_linked} linked, "
+                f"{batch_count} batches, {validation_errors} validation errors, {tracker_info}"
             )
 
             # Store request tracking information for follow-up monitoring
@@ -1894,6 +1910,8 @@ def process_import_background(import_doc_name: str):
     """
     # Mark this as a background job for scope-based rate limiting
     frappe.flags.in_background_job = True
+    # Disable notifications during bulk import
+    frappe.flags.in_bulk_import = True
 
     frappe.logger().info(f"Starting background import processing for {import_doc_name}")
 
@@ -1956,8 +1974,18 @@ def process_import_background(import_doc_name: str):
         frappe.logger().info(f"Background import completed for {import_doc_name}: {result}")
 
     except Exception as e:
-        frappe.logger().error(f"Background import failed for {import_doc_name}: {str(e)}")
+        frappe.logger().error(f"Background import failed for {import_doc_name}: {str(e)}", exc_info=True)
         frappe.log_error(
             message=f"Background import failed: {str(e)}\n{traceback.format_exc()}",
             title=f"CSV Import Background Job Failed: {import_doc_name}",
         )
+
+        # Update import status to show failure
+        try:
+            import_doc = frappe.get_doc("Mijnrood CSV Import", import_doc_name)
+            import_doc.import_status = "Failed"
+            import_doc.error_log = f"Background job failed: {str(e)}\n\nSee Error Log for full traceback"
+            import_doc.save(ignore_permissions=True)
+            frappe.db.commit()
+        except Exception as status_error:
+            frappe.logger().error(f"Failed to update import status: {str(status_error)}")

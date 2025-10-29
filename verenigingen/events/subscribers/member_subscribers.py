@@ -25,6 +25,10 @@ def handle_status_change_notifications(event_name, event_data, **kwargs):
         **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
     """
     try:
+        # Skip notifications during bulk imports
+        if frappe.flags.in_import or frappe.flags.in_bulk_import:
+            return
+
         member_name = event_data.get("member")
         old_status = event_data.get("old_status")
         new_status = event_data.get("new_status")
@@ -49,9 +53,8 @@ def handle_status_change_notifications(event_name, event_data, **kwargs):
         )
 
     except Exception as e:
-        frappe.log_error(
-            f"Failed to send status change notification: {str(e)}", "Member Status Notification Error"
-        )
+        # Log as warning instead of error - timing issues during bulk imports are expected
+        frappe.logger("events").warning(f"Failed to send status change notification: {str(e)}")
 
 
 def handle_chapter_assignment_updates(event_name, event_data, **kwargs):
@@ -66,6 +69,10 @@ def handle_chapter_assignment_updates(event_name, event_data, **kwargs):
         **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
     """
     try:
+        # Skip during bulk imports
+        if frappe.flags.in_import or frappe.flags.in_bulk_import:
+            return
+
         # Skip during bulk operations - chapter assignment is handled in bulk
         if getattr(frappe.flags, "bulk_member_operations", False):
             frappe.logger("events").info("Skipping chapter assignment update - bulk operation in progress")
@@ -88,7 +95,8 @@ def handle_chapter_assignment_updates(event_name, event_data, **kwargs):
         frappe.logger("events").info(f"Updated chapter assignments for {member_name}")
 
     except Exception as e:
-        frappe.log_error(f"Failed to update chapter assignments: {str(e)}", "Chapter Assignment Update Error")
+        # Log as warning instead of error - member records may not exist during failed imports
+        frappe.logger("events").warning(f"Failed to update chapter assignments: {str(e)}")
 
 
 def handle_lifecycle_notifications(event_name, event_data, **kwargs):
@@ -343,6 +351,44 @@ def _send_reactivation_notification(member):
         frappe.logger("events").error(f"Failed to send reactivation notification: {str(e)}")
 
 
+def _add_member_to_chapter_with_retry(chapter_doc, member_name, chapter_name):
+    """
+    Add a member to a chapter's members table with retry logic for concurrent modifications.
+
+    Handles race conditions when multiple background jobs try to add members to the same
+    chapter simultaneously by reloading the document and checking for duplicates on each retry.
+
+    Args:
+        chapter_doc: Initial chapter document (may be stale)
+        member_name: Name of the member to add
+        chapter_name: Name of the chapter (for reloading)
+    """
+    from verenigingen.utils.retry_utilities import retry_with_backoff
+
+    @retry_with_backoff(
+        max_retries=3,
+        base_delay=0.5,
+        max_delay=5.0,
+    )
+    def save_chapter_member():
+        # Reload to get the latest version and avoid timestamp mismatch
+        fresh_chapter = frappe.get_doc("Chapter", chapter_name)
+
+        # Double-check if member was already added by another concurrent job
+        member_exists = any(cm.member == member_name for cm in fresh_chapter.members or [])
+
+        if not member_exists:
+            fresh_chapter.append("members", {"member": member_name, "status": "Active"})
+            fresh_chapter.save(ignore_permissions=True)
+            frappe.logger("events").info(f"Assigned member {member_name} to chapter {chapter_name}")
+        else:
+            frappe.logger("events").info(
+                f"Member {member_name} already in chapter {chapter_name} (added by concurrent job)"
+            )
+
+    save_chapter_member()
+
+
 def _assign_member_to_chapter(member):
     """Assign approved member to appropriate chapter using centralized lookup"""
     # Get postal code from linked address
@@ -377,10 +423,17 @@ def _assign_member_to_chapter(member):
                 break
 
         if not member_exists:
-            # Add member to chapter's members child table
-            chapter_doc.append("members", {"member": member.name, "status": "Active"})
-            chapter_doc.save(ignore_permissions=True)
-            frappe.logger("events").info(f"Assigned member {member.name} to chapter {best_chapter}")
+            # Add member to chapter's members child table with retry logic
+            # to handle concurrent modifications during bulk processing
+            try:
+                _add_member_to_chapter_with_retry(chapter_doc, member.name, best_chapter)
+            except Exception as e:
+                # Log the error properly without triggering broken pipe
+                frappe.logger("events").error(
+                    f"Failed to assign member {member.name} to chapter {best_chapter} "
+                    f"after retries: {str(e)}"
+                )
+                # Don't raise - this is a background job, failure shouldn't block member creation
 
 
 def _update_chapter_membership_status(member, status):
