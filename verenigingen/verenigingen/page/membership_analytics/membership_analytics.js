@@ -453,7 +453,7 @@ class MembershipAnalytics {
 
 	render_dashboard(data) {
 		// Update summary cards
-		this.update_summary_cards(data.summary, data.previous_period);
+		this.update_summary_cards(data.summary, data.previous_period, data.current_year_revenue);
 
 		// Update charts
 		this.render_growth_chart(data.growth_trend);
@@ -480,7 +480,7 @@ class MembershipAnalytics {
 		$('#last-updated').text(frappe.datetime.str_to_user(data.last_updated));
 	}
 
-	update_summary_cards(summary, previous) {
+	update_summary_cards(summary, previous, current_year_revenue) {
 		// Total Members
 		$('#total-members').text(this.format_number(summary.total_members));
 
@@ -489,6 +489,30 @@ class MembershipAnalytics {
 
 		// Growth Rate
 		$('#growth-rate').text(`${summary.growth_rate.toFixed(1)}%`);
+
+		// Current Year Revenue
+		if (current_year_revenue) {
+			if (current_year_revenue.error) {
+				$('#current-year-revenue').html('<span class="text-danger">Error</span>');
+				$('#current-year-estimated').html(
+					`<span class="text-muted small">${__('Click for details')}</span>`
+				);
+				$('#current-year-revenue').parent().css('cursor', 'pointer').on('click', () => {
+					frappe.msgprint({
+						title: __('Revenue Calculation Error'),
+						message: __('Error loading current year revenue: {0}', [current_year_revenue.error]),
+						indicator: 'red'
+					});
+				});
+			} else {
+				$('#current-year-revenue').text(
+					this.format_currency(current_year_revenue.actual_revenue)
+				);
+				$('#current-year-estimated').html(
+					`(+ ${this.format_currency(current_year_revenue.estimated_remaining)} ${__('for uncovered periods')})`
+				);
+			}
+		}
 
 		// Projected Revenue
 		$('#projected-revenue').text(

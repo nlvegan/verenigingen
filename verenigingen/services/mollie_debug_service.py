@@ -1617,3 +1617,167 @@ class MollieDebugService:
             frappe.log_error(f"Mollie test payment creation error for user {frappe.session.user}: {str(e)}")
 
         return result
+
+    def sync_membership_end_dates_from_mollie(self, dry_run: bool = True):
+        """
+        Sync membership end dates from Mollie subscription cancellation dates
+        for terminated/banned members.
+
+        This function:
+        1. Finds all members with status in ('Terminated', 'Banned', 'Suspended')
+        2. For each member with a mollie_customer_id:
+           a. Queries Mollie for customer data
+           b. Retrieves subscription information
+           c. Uses the subscription cancellation date
+           d. Updates the Membership.cancellation_date field
+
+        Args:
+            dry_run: If True, only report what would be updated without making changes
+
+        Returns:
+            Dict containing:
+                - total_checked: Number of members checked
+                - updates_needed: Number of members needing updates
+                - updates_applied: Number of updates actually applied (0 if dry_run)
+                - members: List of member details with update info
+                - error: Error message if failed
+        """
+        result = {
+            "test_mode": self.mollie_client.is_test_mode(),
+            "timestamp": frappe.utils.now(),
+            "dry_run": dry_run,
+            "total_checked": 0,
+            "updates_needed": 0,
+            "updates_applied": 0,
+            "members": [],
+            "error": None,
+        }
+
+        try:
+            # Find all terminated/banned/suspended members with Mollie customer IDs
+            members = frappe.get_all(
+                "Member",
+                filters={
+                    "status": ["in", ["Terminated", "Banned", "Suspended"]],
+                    "mollie_customer_id": ["!=", ""],
+                },
+                fields=["name", "full_name", "status", "mollie_customer_id", "mollie_subscription_id"],
+            )
+
+            result["total_checked"] = len(members)
+            frappe.logger().info(
+                f"Mollie membership end date sync: Found {len(members)} terminated/banned/suspended members "
+                f"with Mollie customer IDs (dry_run={dry_run})"
+            )
+
+            for member in members:
+                member_result = {
+                    "member": member.name,
+                    "full_name": member.full_name,
+                    "status": member.status,
+                    "customer_id": member.mollie_customer_id,
+                    "subscription_id": member.mollie_subscription_id,
+                    "canceled_at": None,
+                    "current_cancellation_date": None,
+                    "needs_update": False,
+                    "updated": False,
+                    "error": None,
+                }
+
+                try:
+                    # Get customer data from Mollie
+                    client = self.mollie_client.sdk_client
+                    customer_obj = client.customers.get(member.mollie_customer_id)
+
+                    # Get subscriptions
+                    subscriptions = customer_obj.subscriptions.list()
+
+                    # Find the most recent canceled subscription
+                    latest_canceled_at = None
+                    for sub in subscriptions:
+                        if hasattr(sub, "canceled_at") and sub.canceled_at:
+                            # Compare datetime objects
+                            if latest_canceled_at is None or sub.canceled_at > latest_canceled_at:
+                                latest_canceled_at = sub.canceled_at
+                                member_result["subscription_id"] = sub.id
+
+                    if latest_canceled_at:
+                        # Convert to date string for Frappe
+                        from datetime import datetime
+
+                        if isinstance(latest_canceled_at, str):
+                            # Parse ISO string
+                            canceled_date = datetime.fromisoformat(
+                                latest_canceled_at.replace("Z", "+00:00")
+                            ).date()
+                        else:
+                            # Already datetime object
+                            canceled_date = latest_canceled_at.date()
+
+                        member_result["canceled_at"] = str(canceled_date)
+
+                        # Get current membership cancellation date
+                        membership = frappe.get_all(
+                            "Membership",
+                            filters={"member": member.name, "docstatus": 1},
+                            fields=["name", "cancellation_date"],
+                            order_by="creation desc",
+                            limit=1,
+                        )
+
+                        if membership:
+                            current_cancellation_date = membership[0].get("cancellation_date")
+                            member_result["current_cancellation_date"] = (
+                                str(current_cancellation_date) if current_cancellation_date else None
+                            )
+                            member_result["membership"] = membership[0].name
+
+                            # Check if update is needed
+                            if not current_cancellation_date or str(current_cancellation_date) != str(
+                                canceled_date
+                            ):
+                                member_result["needs_update"] = True
+                                result["updates_needed"] += 1
+
+                                # Apply update if not dry run
+                                if not dry_run:
+                                    membership_doc = frappe.get_doc("Membership", membership[0].name)
+                                    membership_doc.cancellation_date = canceled_date
+                                    membership_doc.flags.ignore_validate_update_after_submit = True
+                                    membership_doc.save(ignore_permissions=True)
+                                    member_result["updated"] = True
+                                    result["updates_applied"] += 1
+
+                                    frappe.logger().info(
+                                        f"Updated membership {membership[0].name} cancellation_date "
+                                        f"from {current_cancellation_date} to {canceled_date} "
+                                        f"for member {member.name}"
+                                    )
+                        else:
+                            member_result["error"] = "No submitted membership found"
+
+                except Exception as member_error:
+                    member_result["error"] = str(member_error)
+                    frappe.log_error(
+                        f"Error processing member {member.name} for Mollie sync: {str(member_error)}"
+                    )
+
+                result["members"].append(member_result)
+
+            # Summary logging
+            if dry_run:
+                frappe.logger().info(
+                    f"Mollie sync DRY RUN complete: {result['total_checked']} members checked, "
+                    f"{result['updates_needed']} would be updated"
+                )
+            else:
+                frappe.logger().info(
+                    f"Mollie sync complete: {result['total_checked']} members checked, "
+                    f"{result['updates_applied']} updated"
+                )
+
+        except Exception as e:
+            result["error"] = str(e)
+            frappe.log_error(f"Mollie membership end date sync error: {str(e)}")
+
+        return result

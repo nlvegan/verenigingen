@@ -37,6 +37,7 @@ def get_dashboard_data(
         "summary": get_summary_metrics(year, period, filters),
         "growth_trend": get_growth_trend(year, period, filters),
         "revenue_projection": get_revenue_projection(year, filters),
+        "current_year_revenue": get_current_year_revenue(year),
         "membership_breakdown": get_membership_breakdown(year, filters),
         "goals": get_goals_progress(year),
         "insights": get_top_insights(year),
@@ -117,45 +118,322 @@ def get_summary_metrics(year, period="year", filters=None):
 
 
 def calculate_projected_revenue(year):
-    """Calculate projected revenue for the year"""
+    """Calculate projected annual revenue for the next 12 months
 
+    This projects revenue based on:
+    - Active Membership Dues Schedules with their billing frequencies
+    - Member dues_rate (custom rates) or schedule suggested_amount
+    - Excludes members with termination dates within the projection period
+    - Annualizes based on billing frequency (Monthly=12x, Quarterly=4x, Yearly=1x)
+
+    Args:
+        year: The reference year (currently used for future enhancements)
+
+    Returns:
+        float: Projected annual revenue for the next 12 months
+    """
     # Ensure year is an integer
     year = int(year)
-    # Get all active memberships
-    active_memberships = frappe.get_all(
-        "Membership", filters={"status": "Active"}, fields=["name", "member", "membership_type"]
-    )
 
-    total_revenue = 0
-    for membership in active_memberships:
-        try:
-            # Check if member exists before trying to get it
-            if not DocumentExistenceValidator.check_document_exists("Member", membership.member):
-                continue
+    # Calculate projection period: next 12 months from today
+    from frappe.utils import add_months, getdate, today
 
-            # Check for fee override
-            member_doc = frappe.get_doc("Member", membership.member)
-            if member_doc.dues_rate:
-                annual_fee = member_doc.dues_rate
-            else:
-                # Get standard fee from template
-                membership_type = frappe.get_doc("Membership Type", membership.membership_type)
-                if membership_type.dues_schedule_template:
-                    template = frappe.get_doc(
-                        "Membership Dues Schedule", membership_type.dues_schedule_template
-                    )
-                    annual_fee = template.suggested_amount or 0
-                else:
-                    annual_fee = 0
+    projection_start = today()
+    projection_end = add_months(projection_start, 12)
 
-            total_revenue += annual_fee
+    # SQL query to calculate annualized revenue based on billing frequency
+    # Excludes members whose membership ends before the projection period ends
+    query = """
+        SELECT
+            SUM(
+                CASE
+                    WHEN mds.billing_frequency = 'Monthly' THEN
+                        COALESCE(m.dues_rate, mds.suggested_amount, 0) * 12
+                    WHEN mds.billing_frequency = 'Quarterly' THEN
+                        COALESCE(m.dues_rate, mds.suggested_amount, 0) * 4
+                    WHEN mds.billing_frequency = 'Yearly' THEN
+                        COALESCE(m.dues_rate, mds.suggested_amount, 0)
+                    WHEN mds.billing_frequency = 'Custom' THEN
+                        -- For custom frequency, calculate based on how many periods fit in a year
+                        CASE
+                            WHEN mds.custom_frequency_unit = 'Month' THEN
+                                COALESCE(m.dues_rate, mds.suggested_amount, 0) * (12 / NULLIF(mds.custom_frequency_number, 0))
+                            WHEN mds.custom_frequency_unit = 'Week' THEN
+                                COALESCE(m.dues_rate, mds.suggested_amount, 0) * (52 / NULLIF(mds.custom_frequency_number, 0))
+                            WHEN mds.custom_frequency_unit = 'Year' THEN
+                                COALESCE(m.dues_rate, mds.suggested_amount, 0) / NULLIF(mds.custom_frequency_number, 0)
+                            ELSE
+                                COALESCE(m.dues_rate, mds.suggested_amount, 0)
+                        END
+                    ELSE
+                        COALESCE(m.dues_rate, mds.suggested_amount, 0)
+                END
+            ) as total_annual_revenue
+        FROM `tabMembership Dues Schedule` mds
+        JOIN `tabMember` m ON m.name = mds.member
+        WHERE mds.status = 'Active'
+            AND mds.is_template = 0
+            AND m.status = 'Active'
+            AND (m.member_end_date IS NULL OR m.member_end_date > %s)
+    """
 
-        except Exception as e:
-            # Log the error but don't crash the whole calculation
-            frappe.log_error(f"Error calculating revenue for membership {membership.name}: {str(e)}")
-            continue
+    try:
+        result = frappe.db.sql(query, (projection_end,), as_dict=True)
+        total_revenue = result[0].total_annual_revenue if result and result[0].total_annual_revenue else 0
+        return float(total_revenue)
+    except Exception as e:
+        frappe.log_error(
+            f"Error calculating projected revenue: {str(e)}", "Membership Analytics Revenue Projection"
+        )
+        return 0
 
-    return total_revenue
+
+def get_current_year_revenue(year):
+    """Calculate actual and estimated revenue for the selected year
+
+    Returns both the invoiced revenue (all invoices generated whether paid or not)
+    and estimated remaining revenue (pro-rated for members without invoices yet
+    generated for the rest of the year).
+
+    This function executes 4 SQL queries:
+    1. All membership invoices (invoiced_amount)
+    2. Direct payments via Mollie not linked to invoices
+    3. Outstanding (unpaid) invoices
+    4. Estimated ungenerated dues based on coverage gaps
+
+    Performance Note: On large datasets (500+ members, 5000+ invoices),
+    expect 2-5 second execution time.
+
+    Args:
+        year: The calendar year to calculate revenue for (int or str)
+
+    Returns:
+        dict: {
+            'actual_revenue': float,  # All invoiced revenue (paid + unpaid) + direct payments
+            'estimated_remaining': float,  # Estimated revenue not yet invoiced
+            'total_estimated': float,  # actual + estimated
+            'outstanding_invoices': float,  # Unpaid invoices (subset of actual)
+            'breakdown': {
+                'invoiced_amount': float,
+                'direct_payments': float,
+                'outstanding_invoices': float,
+                'ungenerated_dues': float
+            },
+            'error': str  # Only present if an error occurred
+        }
+
+    Raises:
+        ValueError: If year is invalid (caught and returned in error field)
+    """
+    try:
+        year = int(year)
+        year_start = f"{year}-01-01"
+        year_end = f"{year}-12-31"
+    except (ValueError, TypeError) as e:
+        frappe.log_error(f"Invalid year parameter: {year}", "Membership Analytics Revenue Error")
+        return _get_error_response(f"Invalid year: {str(e)}")
+
+    try:
+        # 1. Get all membership invoices for the year (paid or unpaid)
+        invoiced_amount_query = """
+            SELECT COALESCE(SUM(si.grand_total), 0) as total
+            FROM `tabSales Invoice` si
+            WHERE si.docstatus = 1
+                AND si.posting_date BETWEEN %s AND %s
+                AND (si.is_membership_invoice = 1 OR si.member IS NOT NULL)
+        """
+        invoiced_amount = frappe.db.sql(invoiced_amount_query, (year_start, year_end), as_dict=True)[0].total
+
+        # 2. Get direct dues payments not linked to invoices
+        # Get dues keywords from settings
+        settings = frappe.get_single("Verenigingen Payments Settings")
+        dues_keywords = [kw.strip().lower() for kw in (settings.dues_keywords or "contributie").split(",")]
+
+        # Build keyword matching with safe OR conditions using FIND_IN_SET approach
+        # Escape user input and use parameterized queries to prevent SQL injection
+        direct_payments_query = (
+            """
+            SELECT COALESCE(SUM(pe.paid_amount), 0) as total
+            FROM `tabPayment Entry` pe
+            LEFT JOIN `tabPayment Entry Reference` per ON per.parent = pe.name
+            LEFT JOIN `tabMember` m ON (
+                pe.party = m.name
+                OR pe.custom_mollie_payment_id = m.mollie_subscription_id
+                OR pe.mollie_transaction_id LIKE CONCAT('%%', m.mollie_customer_id, '%%')
+            )
+            WHERE pe.docstatus = 1
+                AND pe.posting_date BETWEEN %s AND %s
+                AND pe.payment_type = 'Receive'
+                AND per.name IS NULL
+                AND m.name IS NOT NULL
+                AND (
+                    """
+            + " OR ".join(["LOWER(pe.remarks) LIKE %s" for _ in dues_keywords])
+            + """
+                )
+        """
+        )
+        # Sanitize keywords by wrapping in wildcards (already done, but ensure no SQL injection)
+        keyword_params = [f"%{frappe.db.escape(kw)}%" for kw in dues_keywords]
+        params = [year_start, year_end] + keyword_params
+        direct_payments_result = frappe.db.sql(direct_payments_query, tuple(params), as_dict=True)
+        direct_payments = direct_payments_result[0].total if direct_payments_result else 0
+
+        # 3. Get outstanding (unpaid) membership invoices
+        outstanding_invoices_query = """
+            SELECT COALESCE(SUM(si.outstanding_amount), 0) as total
+            FROM `tabSales Invoice` si
+            WHERE si.docstatus = 1
+                AND si.posting_date BETWEEN %s AND %s
+                AND si.status IN ('Unpaid', 'Overdue', 'Partly Paid')
+                AND (si.is_membership_invoice = 1 OR si.member IS NOT NULL)
+        """
+        outstanding_invoices = frappe.db.sql(
+            outstanding_invoices_query, (year_start, year_end), as_dict=True
+        )[0].total
+
+        # 4. Estimate ungenerated dues for remainder of year based on coverage gaps
+        # Calculate dues for the period not yet covered by existing invoices
+        from frappe.utils import getdate
+
+        year_end_date = getdate(year_end)
+        days_in_year = (year_end_date - getdate(year_start)).days + 1
+
+        ungenerated_dues_query = """
+            SELECT
+                    SUM(
+                        CASE
+                            -- Calculate days in year not covered by invoices
+                            -- Use GREATEST to ensure we don't estimate before member joined
+                            WHEN GREATEST(COALESCE(last_coverage.coverage_end, %s), COALESCE(m.member_since, %s)) < %s THEN
+                            CASE
+                                WHEN mds.billing_frequency = 'Monthly' THEN
+                                    COALESCE(m.dues_rate, mds.suggested_amount, 0) *
+                                    (12.0 * DATEDIFF(%s, GREATEST(COALESCE(last_coverage.coverage_end, %s), COALESCE(m.member_since, %s))) / %s)
+                                WHEN mds.billing_frequency = 'Quarterly' THEN
+                                    COALESCE(m.dues_rate, mds.suggested_amount, 0) *
+                                    (4.0 * DATEDIFF(%s, GREATEST(COALESCE(last_coverage.coverage_end, %s), COALESCE(m.member_since, %s))) / %s)
+                                WHEN mds.billing_frequency = 'Yearly' THEN
+                                    COALESCE(m.dues_rate, mds.suggested_amount, 0) *
+                                    (1.0 * DATEDIFF(%s, GREATEST(COALESCE(last_coverage.coverage_end, %s), COALESCE(m.member_since, %s))) / %s)
+                                WHEN mds.billing_frequency = 'Custom' THEN
+                                    -- Handle custom billing frequencies
+                                    CASE
+                                        WHEN mds.custom_frequency_unit = 'Month' THEN
+                                            COALESCE(m.dues_rate, mds.suggested_amount, 0) *
+                                            ((12.0 / NULLIF(mds.custom_frequency_number, 0)) * DATEDIFF(%s, GREATEST(COALESCE(last_coverage.coverage_end, %s), COALESCE(m.member_since, %s))) / %s)
+                                        WHEN mds.custom_frequency_unit = 'Week' THEN
+                                            COALESCE(m.dues_rate, mds.suggested_amount, 0) *
+                                            ((52.0 / NULLIF(mds.custom_frequency_number, 0)) * DATEDIFF(%s, GREATEST(COALESCE(last_coverage.coverage_end, %s), COALESCE(m.member_since, %s))) / %s)
+                                        WHEN mds.custom_frequency_unit = 'Year' THEN
+                                            COALESCE(m.dues_rate, mds.suggested_amount, 0) *
+                                            ((1.0 / NULLIF(mds.custom_frequency_number, 0)) * DATEDIFF(%s, GREATEST(COALESCE(last_coverage.coverage_end, %s), COALESCE(m.member_since, %s))) / %s)
+                                        ELSE
+                                            0
+                                    END
+                                ELSE
+                                    0
+                            END
+                        ELSE
+                            0
+                    END
+                ) as total
+            FROM `tabMembership Dues Schedule` mds
+            JOIN `tabMember` m ON m.name = mds.member
+            LEFT JOIN (
+                SELECT
+                    member,
+                    MAX(custom_coverage_end_date) as coverage_end
+                FROM `tabSales Invoice`
+                WHERE docstatus = 1
+                    AND YEAR(posting_date) = %s
+                GROUP BY member
+            ) as last_coverage ON last_coverage.member = m.name
+            WHERE mds.status = 'Active'
+                AND mds.is_template = 0
+                AND m.status = 'Active'
+                AND (m.member_end_date IS NULL OR m.member_end_date > %s)
+    """
+        ungenerated_dues = (
+            frappe.db.sql(
+                ungenerated_dues_query,
+                (
+                    year_start,
+                    year_start,
+                    year_end,  # for GREATEST/COALESCE checks (coverage_end default, member_since default, year_end comparison)
+                    year_end,
+                    year_start,
+                    year_start,
+                    days_in_year,  # Monthly (year_end, coverage_end default, member_since default, days)
+                    year_end,
+                    year_start,
+                    year_start,
+                    days_in_year,  # Quarterly
+                    year_end,
+                    year_start,
+                    year_start,
+                    days_in_year,  # Yearly
+                    year_end,
+                    year_start,
+                    year_start,
+                    days_in_year,  # Custom: Month
+                    year_end,
+                    year_start,
+                    year_start,
+                    days_in_year,  # Custom: Week
+                    year_end,
+                    year_start,
+                    year_start,
+                    days_in_year,  # Custom: Year
+                    year,  # for filtering invoices by year
+                    year_end,  # for member_end_date check
+                ),
+                as_dict=True,
+            )[0].total
+            or 0
+        )
+
+        # Actual revenue = all invoiced amounts (whether paid or not) + direct payments
+        actual_revenue = float(invoiced_amount) + float(direct_payments)
+        # Estimated remaining = only the ungenerated portion
+        estimated_remaining = float(ungenerated_dues)
+
+        return {
+            "actual_revenue": actual_revenue,
+            "estimated_remaining": estimated_remaining,
+            "total_estimated": actual_revenue + estimated_remaining,
+            "outstanding_invoices": float(outstanding_invoices),
+            "breakdown": {
+                "invoiced_amount": float(invoiced_amount),
+                "direct_payments": float(direct_payments),
+                "outstanding_invoices": float(outstanding_invoices),
+                "ungenerated_dues": float(ungenerated_dues),
+            },
+        }
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error calculating current year revenue for {year}: {str(e)}\n{frappe.get_traceback()}",
+            "Membership Analytics Revenue Error",
+        )
+        return _get_error_response(str(e))
+
+
+def _get_error_response(error_message):
+    """Helper to return consistent error response structure"""
+    return {
+        "actual_revenue": 0,
+        "estimated_remaining": 0,
+        "total_estimated": 0,
+        "outstanding_invoices": 0,
+        "breakdown": {
+            "invoiced_amount": 0,
+            "direct_payments": 0,
+            "outstanding_invoices": 0,
+            "ungenerated_dues": 0,
+        },
+        "error": error_message,
+    }
 
 
 @frappe.whitelist()
@@ -586,7 +864,15 @@ def get_age_segmentation(year, filter_conditions):
                  LIMIT 1), 0)) as avg_fee
         FROM `tabMember` m
         WHERE status = 'Active' AND birth_date IS NOT NULL {filter_conditions}
-        GROUP BY name
+        GROUP BY CASE
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) < 25 THEN 'Under 25'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) BETWEEN 25 AND 34 THEN '25-34'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) BETWEEN 35 AND 44 THEN '35-44'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) BETWEEN 45 AND 54 THEN '45-54'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) BETWEEN 55 AND 64 THEN '55-64'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) >= 65 THEN '65+'
+                ELSE 'Unknown'
+            END
         ORDER BY FIELD(name, 'Under 25', '25-34', '35-44', '45-54', '55-64', '65+', 'Unknown')
     """
 

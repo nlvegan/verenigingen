@@ -651,6 +651,40 @@ def get_balance_processing_statistics(days=30):
         return {"error": str(e)}
 
 
+@frappe.whitelist(allow_guest=False, methods=["POST"])
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def sync_membership_end_dates_from_mollie(dry_run=True):
+    """
+    Sync membership end dates from Mollie subscription cancellation dates.
+
+    This function retrieves Mollie subscription cancellation dates for
+    terminated/banned/suspended members and updates their Membership
+    cancellation_date field accordingly.
+
+    Args:
+        dry_run: If True (default), only report what would be updated
+
+    Returns:
+        Dict with sync results including members checked and updates applied
+
+    Security: POST-only to prevent accidental data modifications
+    """
+    try:
+        if not has_mollie_debug_access():
+            frappe.throw(_("Access denied"))
+
+        # Convert string boolean from form data
+        if isinstance(dry_run, str):
+            dry_run = dry_run.lower() in ("true", "1", "yes")
+
+        service = MollieDebugService()
+        return service.sync_membership_end_dates_from_mollie(dry_run=dry_run)
+
+    except Exception as e:
+        frappe.log_error(f"Sync membership end dates error: {str(e)}")
+        return {"error": str(e)}
+
+
 # Bulk Payment Checker API Endpoints
 
 
