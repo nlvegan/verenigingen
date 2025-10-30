@@ -38,6 +38,13 @@ def handle_status_change_notifications(event_name, event_data, **kwargs):
             frappe.logger("events").warning("No member name in status change notification event")
             return
 
+        # Check if member still exists before attempting to send notifications
+        if not frappe.db.exists("Member", member_name):
+            frappe.logger("events").warning(
+                f"Cannot send status change notification - Member {member_name} no longer exists"
+            )
+            return
+
         member = frappe.get_doc("Member", member_name)
 
         # Send approval notification for application status changes
@@ -53,8 +60,12 @@ def handle_status_change_notifications(event_name, event_data, **kwargs):
         )
 
     except Exception as e:
-        # Log as warning instead of error - timing issues during bulk imports are expected
-        frappe.logger("events").warning(f"Failed to send status change notification: {str(e)}")
+        # Log production errors with full traceback for audit trail
+        # Bulk import skip already handled above, so this is a real error
+        frappe.log_error(
+            title=f"Member Status Notification Error: {event_data.get('member')}",
+            message=frappe.get_traceback()
+        )
 
 
 def handle_chapter_assignment_updates(event_name, event_data, **kwargs):
@@ -84,6 +95,13 @@ def handle_chapter_assignment_updates(event_name, event_data, **kwargs):
         if not member_name:
             return
 
+        # Check if member still exists before attempting to update chapter assignments
+        if not frappe.db.exists("Member", member_name):
+            frappe.logger("events").warning(
+                f"Cannot update chapter assignments - Member {member_name} no longer exists"
+            )
+            return
+
         member = frappe.get_doc("Member", member_name)
 
         # Update chapter assignments based on new status
@@ -95,8 +113,12 @@ def handle_chapter_assignment_updates(event_name, event_data, **kwargs):
         frappe.logger("events").info(f"Updated chapter assignments for {member_name}")
 
     except Exception as e:
-        # Log as warning instead of error - member records may not exist during failed imports
-        frappe.logger("events").warning(f"Failed to update chapter assignments: {str(e)}")
+        # Log production errors with full traceback for audit trail
+        # Bulk import skip already handled above, so this is a real error
+        frappe.log_error(
+            title=f"Chapter Assignment Error: {event_data.get('member')}",
+            message=frappe.get_traceback()
+        )
 
 
 def handle_lifecycle_notifications(event_name, event_data, **kwargs):
@@ -116,6 +138,13 @@ def handle_lifecycle_notifications(event_name, event_data, **kwargs):
         new_status = event_data.get("new_status")
 
         if not member_name:
+            return
+
+        # Check if member still exists before attempting to send lifecycle notifications
+        if not frappe.db.exists("Member", member_name):
+            frappe.logger("events").warning(
+                f"Cannot send lifecycle notification - Member {member_name} no longer exists"
+            )
             return
 
         member = frappe.get_doc("Member", member_name)
@@ -164,6 +193,13 @@ def handle_user_account_updates(event_name, event_data, **kwargs):
             )
             return
 
+        # Check if member still exists before attempting to update user account
+        if not frappe.db.exists("Member", member_name):
+            frappe.logger("events").warning(
+                f"Cannot update user account - Member {member_name} no longer exists"
+            )
+            return
+
         member = frappe.get_doc("Member", member_name)
 
         # Update user account based on member status
@@ -202,6 +238,13 @@ def handle_cache_invalidation(event_name, event_data, **kwargs):
 
         if not member_name:
             return
+
+        # Check if member still exists before invalidating caches
+        # Note: We still clear caches even if member is deleted, as stale cache entries should be removed
+        if not frappe.db.exists("Member", member_name):
+            frappe.logger("events").info(
+                f"Member {member_name} no longer exists - clearing caches anyway"
+            )
 
         # Clear member-specific caches
         frappe.cache().delete_keys("member_dashboard_*")

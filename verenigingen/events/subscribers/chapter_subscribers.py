@@ -142,8 +142,12 @@ def handle_membership_notifications(event_name, event_data, **kwargs):
         frappe.logger("events").info(f"Sent membership notifications for {member} in {chapter_name}")
 
     except Exception as e:
-        # Log as warning instead of error - timing issues during bulk imports are expected
-        frappe.logger("events").warning(f"Failed to send membership notifications: {str(e)}")
+        # Log production errors with full traceback for audit trail
+        # Bulk import skip already handled above, so this is a real error
+        frappe.log_error(
+            title=f"Chapter Membership Notification Error: {event_data.get('chapter')}",
+            message=frappe.get_traceback()
+        )
 
 
 def handle_member_role_updates(event_name, event_data, **kwargs):

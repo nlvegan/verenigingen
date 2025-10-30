@@ -39,6 +39,13 @@ class ChapterMembershipHistoryManager:
             bool: Success status
         """
         try:
+            # Check if member still exists before attempting to update
+            if not frappe.db.exists("Member", member_id):
+                frappe.logger().warning(
+                    f"Cannot add chapter membership history - Member {member_id} no longer exists"
+                )
+                return False
+
             member = frappe.get_doc("Member", member_id)
 
             # Check if this exact membership already exists with the same status
@@ -133,6 +140,13 @@ class ChapterMembershipHistoryManager:
             bool: Success status
         """
         try:
+            # Check if member still exists before attempting to update
+            if not frappe.db.exists("Member", member_id):
+                frappe.logger().warning(
+                    f"Cannot end chapter membership - Member {member_id} no longer exists"
+                )
+                return False
+
             member = frappe.get_doc("Member", member_id)
 
             # Look for the specific membership that matches all criteria
@@ -237,6 +251,13 @@ class ChapterMembershipHistoryManager:
             list: List of active memberships
         """
         try:
+            # Check if member still exists before attempting to query
+            if not frappe.db.exists("Member", member_id):
+                frappe.logger().warning(
+                    f"Cannot get active memberships - Member {member_id} no longer exists"
+                )
+                return []
+
             member = frappe.get_doc("Member", member_id)
             active_memberships = []
 
@@ -274,6 +295,13 @@ class ChapterMembershipHistoryManager:
             bool: Success status
         """
         try:
+            # Check if member still exists before attempting to update
+            if not frappe.db.exists("Member", member_id):
+                frappe.logger().warning(
+                    f"Cannot cancel chapter membership - Member {member_id} no longer exists"
+                )
+                return False
+
             member = frappe.get_doc("Member", member_id)
 
             # Find and remove the specific membership
@@ -341,6 +369,13 @@ class ChapterMembershipHistoryManager:
             bool: Success status
         """
         try:
+            # Check if member still exists before attempting to update
+            if not frappe.db.exists("Member", member_id):
+                frappe.logger().warning(
+                    f"Cannot terminate chapter membership - Member {member_id} no longer exists"
+                )
+                return False
+
             member = frappe.get_doc("Member", member_id)
 
             # Find the active membership to terminate
@@ -403,6 +438,20 @@ class ChapterMembershipHistoryManager:
             Dict: Summary information
         """
         try:
+            # Check if member still exists before attempting to query
+            if not frappe.db.exists("Member", member_id):
+                frappe.logger().warning(
+                    f"Cannot get membership history summary - Member {member_id} no longer exists"
+                )
+                return {
+                    "total_memberships": 0,
+                    "active_memberships": 0,
+                    "completed_memberships": 0,
+                    "terminated_memberships": 0,
+                    "chapters_associated": [],
+                    "error": "Member does not exist",
+                }
+
             member = frappe.get_doc("Member", member_id)
 
             # Safe handling of chapter membership history
@@ -465,6 +514,13 @@ class ChapterMembershipHistoryManager:
             bool: Success status
         """
         try:
+            # Check if member still exists before attempting to update
+            if not frappe.db.exists("Member", member_id):
+                frappe.logger().warning(
+                    f"Cannot update membership status - Member {member_id} no longer exists"
+                )
+                return False
+
             member = frappe.get_doc("Member", member_id)
 
             # Look for existing pending membership to update

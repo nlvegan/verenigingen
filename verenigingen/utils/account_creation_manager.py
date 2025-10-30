@@ -235,19 +235,16 @@ class AccountCreationManager:
 
             # Save original flag state for restoration
             original_in_import = getattr(frappe.flags, "in_import", False)
+            original_mute_emails = getattr(frappe.flags, "mute_emails", False)
 
             try:
+                # Use Frappe's native email muting for bulk operations
                 if is_bulk_operation:
                     frappe.flags.in_import = True
-                    # Temporarily disable password notification emails during bulk import
-                    original_send_password_notification = user_doc.send_password_notification
-                    user_doc.send_password_notification = lambda *args, **kwargs: None
+                    frappe.flags.mute_emails = True  # Frappe-native email suppression
 
                 user_doc.insert()
 
-                # Restore original method if it was patched
-                if is_bulk_operation:
-                    user_doc.send_password_notification = original_send_password_notification
             except frappe.exceptions.UniqueValidationError as e:
                 # Handle duplicate username - Frappe auto-generates username from first name
                 error_msg = str(e)
@@ -258,9 +255,7 @@ class AccountCreationManager:
                     )
                     user_doc.username = self.request.email.split("@")[0]  # Use email prefix
                     try:
-                        # Re-patch the method for retry if in bulk operation
-                        if is_bulk_operation:
-                            user_doc.send_password_notification = lambda *args, **kwargs: None
+                        # Email suppression already set via frappe.flags.mute_emails above
                         user_doc.insert()
                     except:
                         # If still fails, this is a real duplicate - check if user exists
@@ -288,6 +283,7 @@ class AccountCreationManager:
             finally:
                 # Always restore original flag state
                 frappe.flags.in_import = original_in_import
+                frappe.flags.mute_emails = original_mute_emails
 
             self.created_user = user_doc.name
             self.request.created_user = self.created_user
