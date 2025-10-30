@@ -715,6 +715,49 @@ function setAmount(amount) {
 	clearFieldError(document.getElementById('amount'));
 }
 
+function selectGiveFrequency(frequency, button) {
+	// Update button states
+	document.querySelectorAll('.give-frequency-btn').forEach((btn) => {
+		btn.classList.remove('active', 'btn-primary');
+		btn.classList.add('btn-secondary');
+	});
+	button.classList.remove('btn-secondary');
+	button.classList.add('btn-primary', 'active');
+
+	// Update hidden field
+	const donationStatusField = document.getElementById('donation_status');
+	if (frequency === 'once') {
+		donationStatusField.value = 'One-time';
+		document.getElementById('recurring-frequency-options').style.display = 'none';
+		document.getElementById('recurring-benefits').style.display = 'none';
+	} else {
+		donationStatusField.value = 'Recurring';
+		document.getElementById('recurring-frequency-options').style.display = 'block';
+		document.getElementById('recurring-benefits').style.display = 'block';
+		// Auto-select first frequency option if none selected
+		const selectedFrequency = document.querySelector('.frequency-option-btn.active');
+		if (!selectedFrequency) {
+			const firstFrequencyBtn = document.querySelector('.frequency-option-btn');
+			if (firstFrequencyBtn) {
+				selectFrequencyOption(firstFrequencyBtn.getAttribute('data-interval'), firstFrequencyBtn);
+			}
+		}
+	}
+}
+
+function selectFrequencyOption(interval, button) {
+	// Update button states
+	document.querySelectorAll('.frequency-option-btn').forEach((btn) => {
+		btn.classList.remove('active', 'btn-primary');
+		btn.classList.add('btn-secondary');
+	});
+	button.classList.remove('btn-secondary');
+	button.classList.add('btn-primary', 'active');
+
+	// Update hidden field
+	document.getElementById('subscription_interval').value = interval;
+}
+
 function togglePurposeFields() {
 	const purposeType = document.getElementById('donation_purpose_type').value;
 
@@ -737,90 +780,17 @@ function togglePurposeFields() {
 	}
 }
 
+// Note: toggleRecurringOptions has been replaced by selectGiveFrequency
+// Keeping a stub for backwards compatibility if called from elsewhere
 function toggleRecurringOptions() {
 	const donationStatus = document.getElementById('donation_status').value;
-	const recurringOptions = document.getElementById('recurring-options');
-
 	if (donationStatus === 'Recurring') {
-		recurringOptions.style.display = 'block';
-		// Update the payment method restrictions for recurring donations
-		updatePaymentMethodsForRecurring();
+		document.getElementById('recurring-frequency-options').style.display = 'block';
+		document.getElementById('recurring-benefits').style.display = 'block';
 	} else {
-		recurringOptions.style.display = 'none';
-		// Reset payment method restrictions
-		resetPaymentMethods();
+		document.getElementById('recurring-frequency-options').style.display = 'none';
+		document.getElementById('recurring-benefits').style.display = 'none';
 	}
-}
-
-function updatePaymentMethodsForRecurring() {
-	// For recurring donations, show all methods but add helpful guidance
-	const paymentMethods = document.querySelectorAll('.payment-method');
-	paymentMethods.forEach((method) => {
-		const methodValue = method.getAttribute('data-method');
-		method.style.display = 'block'; // Show all payment methods
-
-		// Add helpful notes for recurring donations
-		const description = method.querySelector('p');
-		if (description) {
-			// Remove any existing recurring notes first
-			description.textContent = description.textContent.replace(
-				/ \([^)]*recurring[^)]*\)/gi,
-				''
-			);
-			description.textContent = description.textContent.replace(
-				/ \([^)]*subscription[^)]*\)/gi,
-				''
-			);
-			description.textContent = description.textContent.replace(
-				/ \([^)]*automatic[^)]*\)/gi,
-				''
-			);
-			description.textContent = description.textContent.replace(
-				/ \([^)]*Set up[^)]*\)/gi,
-				''
-			);
-			description.textContent = description.textContent.replace(
-				/ \([^)]*commitment[^)]*\)/gi,
-				''
-			);
-
-			// Add appropriate guidance for each method
-			if (methodValue === 'Mollie') {
-				description.textContent
-          += ' (Automatic subscriptions - we handle everything)';
-			} else if (methodValue === 'Bank Transfer') {
-				description.textContent
-          += ' (Set up recurring transfer in your online banking)';
-			} else if (methodValue === 'SEPA Direct Debit') {
-				description.textContent
-          += ' (We collect automatically with your authorization)';
-			} else if (methodValue === 'Cash') {
-				description.textContent
-          += ' (Requires regular commitment to pay at events)';
-			}
-		}
-	});
-
-	// Don't auto-select any method - let donors choose what works best for them
-}
-
-function resetPaymentMethods() {
-	// Show all payment methods
-	const paymentMethods = document.querySelectorAll('.payment-method');
-	paymentMethods.forEach((method) => {
-		method.style.display = 'block';
-		// Remove subscription note
-		const description = method.querySelector('p');
-		if (
-			description
-      && description.textContent.includes('(Supports monthly subscriptions)')
-		) {
-			description.textContent = description.textContent.replace(
-				' (Supports monthly subscriptions)',
-				''
-			);
-		}
-	});
 }
 
 function toggleAnbiFields() {
@@ -945,9 +915,10 @@ if (document.readyState === 'loading') {
 window.nextStep = nextStep;
 window.prevStep = prevStep;
 window.setAmount = setAmount;
+window.selectGiveFrequency = selectGiveFrequency;
+window.selectFrequencyOption = selectFrequencyOption;
 window.selectPaymentMethod = selectPaymentMethod;
 window.togglePurposeFields = togglePurposeFields;
-window.toggleRecurringOptions = toggleRecurringOptions;
 window.toggleAnbiFields = toggleAnbiFields;
 window.submitDonation = submitDonation;
 window.copyToClipboard = copyToClipboard;

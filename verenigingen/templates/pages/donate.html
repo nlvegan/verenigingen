@@ -111,16 +111,19 @@
 }
 
 .btn-primary {
-    @apply bg-primary-600 hover:bg-primary-700 text-white font-medium py-3 px-6 rounded-lg transition-colors duration-200;
+    @apply bg-primary-600 hover:bg-primary-700 text-primary-contrast font-medium py-3 px-6 rounded-lg transition-colors duration-200;
 }
 
 .btn-secondary {
-    background-color: #6c757d;
-    color: white;
+    @apply bg-secondary-600 hover:bg-secondary-700 text-secondary-contrast font-medium py-3 px-6 rounded-lg transition-colors duration-200;
 }
 
-.btn-secondary:hover {
-    background-color: #5a6268;
+.give-frequency-btn.active {
+    @apply bg-primary-600 text-primary-contrast;
+}
+
+.frequency-option-btn.active {
+    @apply bg-primary-600 text-primary-contrast;
 }
 
 .payment-method {
@@ -372,17 +375,54 @@
         <!-- Step 1: Donation Amount -->
         <div class="form-step active" data-step="1">
             <div class="card">
-                <h3>{{ _("How much would you like to donate?") }}</h3>
-
+                <!-- How do you want to give? -->
                 <div class="form-group">
+                    <h3>{{ _("How do you want to give?") }}</h3>
+                    <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-top: 15px; max-width: 50%;">
+                        <button type="button" class="btn btn-primary give-frequency-btn active" onclick="selectGiveFrequency('once', this)" data-frequency="once" style="flex: 1; min-width: 120px;">
+                            {{ _("Once") }}
+                        </button>
+                        <button type="button" class="btn btn-secondary give-frequency-btn" onclick="selectGiveFrequency('recurring', this)" data-frequency="recurring" style="flex: 1; min-width: 120px;">
+                            {{ _("Recurring") }}
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Recurring frequency options (shown when Recurring is selected) -->
+                <div class="form-group" id="recurring-frequency-options" style="display: none;">
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px;">
+                        <button type="button" class="btn btn-secondary frequency-option-btn" onclick="selectFrequencyOption('1 month', this)" data-interval="1 month" style="flex: 1; min-width: 120px;">
+                            {{ _("Monthly") }}
+                        </button>
+                        <button type="button" class="btn btn-secondary frequency-option-btn" onclick="selectFrequencyOption('3 months', this)" data-interval="3 months" style="flex: 1; min-width: 120px;">
+                            {{ _("Quarterly") }}
+                        </button>
+                        <button type="button" class="btn btn-secondary frequency-option-btn" onclick="selectFrequencyOption('6 months', this)" data-interval="6 months" style="flex: 1; min-width: 120px;">
+                            {{ _("Semi-annually") }}
+                        </button>
+                        <button type="button" class="btn btn-secondary frequency-option-btn" onclick="selectFrequencyOption('1 year', this)" data-interval="1 year" style="flex: 1; min-width: 120px;">
+                            {{ _("Annually") }}
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Hidden fields for form submission -->
+                <input type="hidden" name="donation_status" id="donation_status" value="One-time">
+                <input type="hidden" name="subscription_interval" id="subscription_interval" value="1 month">
+
+                <!-- Amount -->
+                <div class="form-group" style="margin-top: 30px;">
+                    <h3>{{ _("How much would you like to donate?") }}</h3>
                     <label for="amount">{{ _("Amount (€)") }}</label>
                     <input type="number" class="form-control" name="amount" id="amount"
-                           min="1" step="0.01" required placeholder="50.00">
+                           min="1" step="0.01" required placeholder="50.00" style="max-width: 50%;">
                 </div>
 
                 <div class="form-group">
                     <label>{{ _("Quick amounts") }}</label>
                     <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px;">
+                        <button type="button" class="btn btn-secondary" onclick="setAmount(5)">€5</button>
+                        <button type="button" class="btn btn-secondary" onclick="setAmount(10)">€10</button>
                         <button type="button" class="btn btn-secondary" onclick="setAmount(25)">€25</button>
                         <button type="button" class="btn btn-secondary" onclick="setAmount(50)">€50</button>
                         <button type="button" class="btn btn-secondary" onclick="setAmount(100)">€100</button>
@@ -390,37 +430,15 @@
                     </div>
                 </div>
 
-                <div class="form-group">
-                    <label for="donation_status">{{ _("Donation Frequency") }}</label>
-                    <select class="form-control" name="donation_status" id="donation_status" onchange="toggleRecurringOptions()">
-                        <option value="One-time">{{ _("One-time donation") }}</option>
-                        <option value="Recurring">{{ _("Recurring donation") }}</option>
-                    </select>
-                    <small class="text-muted">{{ _("Recurring donations help us plan better and have more impact") }}</small>
-                </div>
-
-                <!-- Recurring donation options -->
-                <div class="form-group" id="recurring-options" style="display: none;">
+                <!-- Recurring donation benefits note -->
+                <div class="form-group" id="recurring-benefits" style="display: none;">
                     <div class="card" style="background-color: #f0f8ff; border: 1px solid #007bff;">
                         <div style="padding: 15px;">
-                            <h5 style="color: #007bff; margin-bottom: 10px;">{{ _("Benefits") }}</h5>
+                            <h5 style="color: #007bff; margin-bottom: 10px;">{{ _("Benefits of Recurring Donations") }}</h5>
                             <ul style="margin: 0; padding-left: 20px; color: #495057;">
                                 <li>{{ _("Greater impact with predictable support") }}</li>
                                 <li>{{ _("Cancel anytime through your member portal") }}</li>
                             </ul>
-
-                            <div style="margin-top: 15px;">
-                                <label for="subscription_interval">{{ _("Donation Frequency") }}</label>
-                                <select class="form-control" name="subscription_interval" id="subscription_interval" style="margin-top: 5px;">
-                                    <option value="1 day">{{ _("Daily") }}</option>
-                                    <option value="7 days">{{ _("Weekly") }}</option>
-                                    <option value="14 days">{{ _("Every 2 weeks") }}</option>
-                                    <option value="1 month" selected>{{ _("Every month") }}</option>
-                                    <option value="3 months">{{ _("Every 3 months") }}</option>
-                                    <option value="6 months">{{ _("Every 6 months") }}</option>
-                                    <option value="1 year">{{ _("Every year") }}</option>
-                                </select>
-                            </div>
                         </div>
                     </div>
                 </div>
