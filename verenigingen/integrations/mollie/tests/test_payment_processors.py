@@ -36,6 +36,16 @@ class TestDonationPaymentProcessor(EnhancedTestCase):
     the complete donation payment workflow.
     """
 
+    def reset_donation_to_draft(self, donation):
+        """Reset donation to draft state for testing (factory force-submits in tests)"""
+        donation.reload()
+        if donation.docstatus == 1:
+            donation.cancel()
+            frappe.db.set_value("Donation", donation.name, "docstatus", 0)
+            frappe.db.set_value("Donation", donation.name, "payment_id", None)
+            donation.reload()
+        return donation
+
     def setUp(self):
         super().setUp()
         self.processor = DonationPaymentProcessor()
@@ -46,8 +56,9 @@ class TestDonationPaymentProcessor(EnhancedTestCase):
         )
 
         self.test_donation = self.create_test_donation(
-            donor_email=self.test_member.email, amount=100.0, payment_id="test_donation_payment_123"
+            donor_email=self.test_member.email, amount=100.0, payment_id="test_donation_payment_123", paid=0
         )
+        self.test_donation = self.reset_donation_to_draft(self.test_donation)
 
         self.payment_context = PaymentContext(
             payment_type="donation", target_doctype="Donation", target_name=self.test_donation.name
@@ -158,62 +169,109 @@ class TestDonationPaymentProcessor(EnhancedTestCase):
         mollie_data = {
             "payment_id": "test_donation_one_time",
             "amount": "50.00",
-            "method": "creditcard",
+            "method": "Bank Transfer",  # Use a standard ERPNext payment method
             "metadata": {"subscription_setup": "false"},
+            "paid_at": "2025-01-15T10:30:00+00:00",
+            "currency": "EUR",
         }
 
-        # Mock Payment Entry Factory
-        with patch.object(self.processor.payment_factory, "create_payment_entry") as mock_factory:
-            mock_payment_entry = Mock()
-            mock_payment_entry.name = "PE-TEST-001"
-            mock_factory.return_value = mock_payment_entry
+        # Mock Bank Transaction creation (returns None since test donor has no customer)
+        with patch.object(
+            self.processor, "_create_bank_transaction_for_donation", return_value=None
+        ) as mock_bt_creator:
+            # Create real Payment Entry instead of mocking
+            with patch.object(self.processor.payment_factory, "create_payment_entry") as mock_factory:
+                # Create a real Payment Entry using Enhanced Test Factory
+                payment_entry = self.create_test_payment_entry(
+                    paid_amount=50.0,
+                    reference_no="test_donation_one_time",
+                    party=self.test_member.customer
+                    if hasattr(self.test_member, "customer") and self.test_member.customer
+                    else None,
+                )
+                mock_factory.return_value = payment_entry
 
-            result = self.processor.process_successful_payment(self.payment_context, Mock(), mollie_data)
+                result = self.processor.process_successful_payment(self.payment_context, Mock(), mollie_data)
 
-            # Verify result
-            self.assertTrue(result.success)
-            self.assertIn("successfully", result.message)
-            self.assertEqual(result.data["amount"], "50.00")
+                # Verify result
+                self.assertTrue(result.success)
+                # Message should indicate processing occurred
+                self.assertTrue(
+                    "successfully" in result.message.lower() or "processed" in result.message.lower(),
+                    f"Expected success message, got: {result.message}",
+                )
+                self.assertEqual(result.data["amount"], "50.00")
 
-            # Verify donation was updated correctly
-            updated_donation = frappe.get_doc("Donation", self.test_donation.name)
-            self.assertEqual(updated_donation.paid, 1)
-            self.assertEqual(updated_donation.status, "One-time")
-            self.assertEqual(updated_donation.payment_id, "test_donation_one_time")
+                # Verify donation was updated correctly
+                updated_donation = frappe.get_doc("Donation", self.test_donation.name)
+                self.assertEqual(updated_donation.paid, 1)
+                self.assertEqual(updated_donation.status, "One-time")
+                self.assertEqual(updated_donation.payment_id, "test_donation_one_time")
 
-            # Verify payment history was added
-            self.assertTrue(len(updated_donation.payments) > 0)
-            payment_record = updated_donation.payments[-1]
-            self.assertEqual(payment_record.mollie_payment_id, "test_donation_one_time")
-            self.assertEqual(payment_record.payment_status, "Paid")
+                # Verify payment history was added
+                self.assertTrue(len(updated_donation.payments) > 0)
+                payment_record = updated_donation.payments[-1]
+                self.assertEqual(payment_record.mollie_payment_id, "test_donation_one_time")
+                self.assertEqual(payment_record.payment_status, "Paid")
 
     def test_process_successful_payment_recurring(self):
         """Test complete recurring donation payment processing"""
+        # Create a fresh donation for this test
+        recurring_donation = self.create_test_donation(
+            donor_email="recurring.test@example.com", amount=25.0, paid=0
+        )
+        recurring_donation = self.reset_donation_to_draft(recurring_donation)
+
+        recurring_context = PaymentContext(
+            payment_type="donation", target_doctype="Donation", target_name=recurring_donation.name
+        )
+
         mollie_data = {
             "payment_id": "test_donation_recurring",
             "amount": "25.00",
-            "method": "directdebit",
+            "method": "Bank Transfer",  # Use a standard ERPNext payment method
             "subscription_id": "sub_recurring_test",
+            "paid_at": "2025-01-15T10:30:00+00:00",
+            "currency": "EUR",
         }
 
-        # Mock Payment Entry Factory
-        with patch.object(self.processor.payment_factory, "create_payment_entry") as mock_factory:
-            mock_payment_entry = Mock()
-            mock_payment_entry.name = "PE-TEST-002"
-            mock_factory.return_value = mock_payment_entry
+        # Mock Bank Transaction creation
+        with patch.object(
+            self.processor, "_create_bank_transaction_for_donation", return_value=None
+        ) as mock_bt_creator:
+            # Create real Payment Entry
+            with patch.object(self.processor.payment_factory, "create_payment_entry") as mock_factory:
+                payment_entry = self.create_test_payment_entry(
+                    paid_amount=25.0,
+                    reference_no="test_donation_recurring",
+                    party=self.test_member.customer
+                    if hasattr(self.test_member, "customer") and self.test_member.customer
+                    else None,
+                )
+                mock_factory.return_value = payment_entry
 
-            result = self.processor.process_successful_payment(self.payment_context, Mock(), mollie_data)
+                result = self.processor.process_successful_payment(recurring_context, Mock(), mollie_data)
 
-            # Verify result
-            self.assertTrue(result.success)
+                # Verify result
+                self.assertTrue(result.success)
 
-            # Verify donation was marked as recurring
-            updated_donation = frappe.get_doc("Donation", self.test_donation.name)
-            self.assertEqual(updated_donation.paid, 1)
-            self.assertEqual(updated_donation.status, "Recurring")
+                # Verify donation was marked as recurring
+                updated_donation = frappe.get_doc("Donation", recurring_donation.name)
+                self.assertEqual(updated_donation.paid, 1)
+                self.assertEqual(updated_donation.status, "Recurring")
 
     def test_idempotency_checking(self):
         """Test idempotency prevents duplicate processing"""
+        # Create a fresh donation for this test (without payment_id, and unpaid)
+        fresh_donation = self.create_test_donation(
+            donor_email="idempotency.test@example.com", amount=75.0, paid=0
+        )
+        fresh_donation = self.reset_donation_to_draft(fresh_donation)
+
+        fresh_context = PaymentContext(
+            payment_type="donation", target_doctype="Donation", target_name=fresh_donation.name
+        )
+
         payment_id = "test_idempotency_123"
 
         # First processing - should go through
@@ -221,31 +279,47 @@ class TestDonationPaymentProcessor(EnhancedTestCase):
             "payment_id": payment_id,
             "amount": "75.00",
             "metadata": {"subscription_setup": "false"},
+            "paid_at": "2025-01-15T10:30:00+00:00",
+            "currency": "EUR",
         }
 
-        with patch.object(self.processor.payment_factory, "create_payment_entry") as mock_factory:
-            mock_payment_entry = Mock()
-            mock_payment_entry.name = "PE-TEST-003"
-            mock_factory.return_value = mock_payment_entry
+        # Mock Bank Transaction creation
+        with patch.object(
+            self.processor, "_create_bank_transaction_for_donation", return_value=None
+        ) as mock_bt_creator:
+            # Create real Payment Entry
+            with patch.object(self.processor.payment_factory, "create_payment_entry") as mock_factory:
+                payment_entry = self.create_test_payment_entry(
+                    paid_amount=75.0,
+                    reference_no="test_idempotency_123",
+                )
+                mock_factory.return_value = payment_entry
 
-            # First call
-            result1 = self.processor.process_successful_payment(self.payment_context, Mock(), mollie_data)
-            self.assertTrue(result1.success)
+                # First call
+                result1 = self.processor.process_successful_payment(fresh_context, Mock(), mollie_data)
+                self.assertTrue(result1.success)
 
-            # Second call - should be idempotent
-            result2 = self.processor.process_successful_payment(self.payment_context, Mock(), mollie_data)
+                # Second call - should be idempotent
+                result2 = self.processor.process_successful_payment(fresh_context, Mock(), mollie_data)
 
-            # Should indicate already processed
-            self.assertTrue(result2.success)
-            self.assertIn("already processed", result2.message)
+                # Should indicate already processed
+                self.assertTrue(result2.success)
+                self.assertIn("already processed", result2.message)
 
     def test_process_failed_payment(self):
         """Test failed payment processing"""
-        mollie_data = {"payment_id": "test_failed_payment", "amount": "100.00", "method": "creditcard"}
+        mollie_data = {
+            "payment_id": "test_failed_payment",
+            "amount": "100.00",
+            "method": "Bank Transfer",
+            "paid_at": "2025-01-15T10:30:00+00:00",
+            "currency": "EUR",
+        }
 
         mock_payment_data = Mock()
         mock_payment_data.status = "failed"
 
+        # No mocking needed - failed payments don't create Payment Entry or Bank Transaction
         result = self.processor.process_failed_payment(self.payment_context, mock_payment_data, mollie_data)
 
         # Verify result

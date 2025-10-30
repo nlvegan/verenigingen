@@ -14,6 +14,24 @@ from .payment_context_resolver import PaymentContext
 from .payment_entry_factory import PaymentEntryFactory
 
 
+# Donation status constants
+class DonationStatus:
+    """Donation status values"""
+
+    ONE_TIME = "One-time"
+    RECURRING = "Recurring"
+    PROMISED = "Promised"
+
+
+# Payment status constants
+class PaymentStatus:
+    """Payment status values"""
+
+    PAID = "Paid"
+    CANCELLED = "Cancelled"
+    FAILED = "Failed"
+
+
 class PaymentProcessingResult:
     """Container for payment processing results"""
 
@@ -91,8 +109,17 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
     Payment processor for donation payments.
 
     Handles all donation-specific logic including Payment Entry creation,
-    donation status updates, and payment history management.
+    Bank Transaction creation, donation status updates, and payment history management.
     """
+
+    def __init__(self):
+        super().__init__()
+        # Import centralized Bank Transaction creator
+        from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+            get_bank_transaction_creator,
+        )
+
+        self.bank_tx_creator = get_bank_transaction_creator()
 
     def supports_context(self, context: PaymentContext) -> bool:
         return context.payment_type == "donation"
@@ -121,8 +148,43 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
             # Track what we actually process
             processed_components = []
             payment_entry = None
+            bank_transaction = None
 
-            # 1. Create Payment Entry only if it doesn't exist
+            # 1. Create Bank Transaction FIRST (matches ERPNext standard flow)
+            if not idempotency_status.get("bank_transaction_created"):
+                self.logger.info(f"Creating Bank Transaction for {mollie_data['payment_id']}")
+                bank_transaction_name = self._create_bank_transaction_for_donation(
+                    donation=donation, mollie_data=mollie_data
+                )
+                if bank_transaction_name:
+                    bank_transaction = frappe.get_doc("Bank Transaction", bank_transaction_name)
+                    processed_components.append("bank_transaction")
+                else:
+                    # Log at ERROR level since Bank Transaction is expected in normal flow
+                    self.logger.error(
+                        f"❌ AUDIT TRAIL GAP: Failed to create Bank Transaction for {mollie_data['payment_id']} "
+                        f"(donation: {donation.name}, donor: {donation.donor}). Payment will be processed but "
+                        f"bank reconciliation will require manual intervention."
+                    )
+                    # Also create error log for monitoring
+                    frappe.log_error(
+                        f"Bank Transaction creation failed for donation {donation.name}\n"
+                        f"Payment ID: {mollie_data['payment_id']}\n"
+                        f"Donor: {donation.donor}\n"
+                        f"Amount: {mollie_data.get('amount', 'N/A')}\n"
+                        f"Requires manual Bank Transaction creation for reconciliation",
+                        "Missing Bank Transaction - Donation Payment",
+                    )
+            else:
+                self.logger.info(f"Bank Transaction already exists for {mollie_data['payment_id']}")
+                # Get existing bank transaction for return data
+                bank_transaction_name = frappe.db.get_value(
+                    "Bank Transaction", {"reference_number": mollie_data["payment_id"]}, "name"
+                )
+                if bank_transaction_name:
+                    bank_transaction = frappe.get_doc("Bank Transaction", bank_transaction_name)
+
+            # 2. Create Payment Entry SECOND and link to Bank Transaction
             if not idempotency_status.get("payment_entry_created"):
                 self.logger.info(f"Creating Payment Entry for {mollie_data['payment_id']}")
                 payment_entry = self.payment_factory.create_payment_entry(
@@ -131,6 +193,16 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
                 if not payment_entry:
                     raise Exception("Failed to create Payment Entry")
                 processed_components.append("payment_entry")
+
+                # Note: Bank Transaction is already submitted by bank_tx_creator.create()
+                # We cannot add child table rows to submitted documents in ERPNext
+                # The Bank Transaction exists for audit/reference - the Payment Entry
+                # already handles the accounting, so linking in child table is optional
+                if bank_transaction:
+                    self.logger.info(
+                        f"Created Payment Entry {payment_entry.name} and Bank Transaction {bank_transaction.name} "
+                        f"for payment {mollie_data['payment_id']}"
+                    )
             else:
                 self.logger.info(f"Payment Entry already exists for {mollie_data['payment_id']}")
                 # Get existing payment entry for return data
@@ -140,29 +212,23 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
                 if payment_entry_name:
                     payment_entry = frappe.get_doc("Payment Entry", payment_entry_name)
 
-            # 2. Update donation status only if not already set
+            # 3. Update donation status only if not already set
             if not idempotency_status.get("payment_recorded"):
                 self.logger.info(f"Updating donation status for {context.target_name}")
                 donation.paid = 1
-                donation.received_amount = float(mollie_data["amount"])
                 donation.payment_id = mollie_data["payment_id"]
-                donation.payment_date = frappe.utils.getdate()
-
-                # Set payment_status if field exists
-                if hasattr(donation, "payment_status"):
-                    donation.payment_status = "Completed"
 
                 # Update subscription ID if present and not already set
-                if mollie_data.get("subscription_id") and not getattr(
-                    donation, "mollie_subscription_id", None
-                ):
+                # (mollie_subscription_id is a confirmed DocType field)
+                if mollie_data.get("subscription_id") and not donation.mollie_subscription_id:
                     donation.mollie_subscription_id = mollie_data["subscription_id"]
                     self.logger.info(
                         f"✅ Updated donation {donation.name} with subscription ID: {mollie_data['subscription_id']}"
                     )
 
                 # Update customer ID if present and not already set
-                if mollie_data.get("customer_id") and not getattr(donation, "mollie_customer_id", None):
+                # (mollie_customer_id is a confirmed DocType field)
+                if mollie_data.get("customer_id") and not donation.mollie_customer_id:
                     donation.mollie_customer_id = mollie_data["customer_id"]
                     self.logger.info(
                         f"✅ Updated donation {donation.name} with customer ID: {mollie_data['customer_id']}"
@@ -172,17 +238,17 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
                 if not idempotency_status.get("donation_status_updated"):
                     is_recurring = self._determine_recurring_status(donation, mollie_data)
                     if is_recurring:
-                        donation.status = "Recurring"
+                        donation.status = DonationStatus.RECURRING
                         self.logger.info(f"✅ Set donation {donation.name} status to Recurring")
                     else:
-                        donation.status = "One-time"
+                        donation.status = DonationStatus.ONE_TIME
                         self.logger.info(f"✅ Set donation {donation.name} status to One-time")
 
                 processed_components.append("donation_status")
             else:
                 self.logger.info(f"Donation status already updated for {context.target_name}")
 
-            # 3. Add payment history only if not already exists
+            # 4. Add payment history only if not already exists
             if not idempotency_status.get("payment_history_exists"):
                 self.logger.info(f"Adding payment history for {mollie_data['payment_id']}")
 
@@ -195,7 +261,7 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
                     ),  # Use actual method (ideal, creditcard, etc.)
                     "payment_id": mollie_data["payment_id"],
                     "payment_reference": mollie_data["payment_id"],
-                    "payment_status": "Paid",
+                    "payment_status": PaymentStatus.PAID,
                     "mollie_payment_id": mollie_data["payment_id"],
                     "remarks": f"Mollie payment {mollie_data['payment_id']}",
                 }
@@ -205,7 +271,7 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
                     payment_history["currency"] = mollie_data["currency"]
 
                 # Add payment_entry link if we created one
-                if payment_entry and hasattr(payment_entry, "name"):
+                if payment_entry and payment_entry.name:
                     payment_history["payment_entry"] = payment_entry.name
 
                 donation.append("payments", payment_history)
@@ -230,6 +296,7 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
                 data={
                     "donation_id": donation.name,
                     "payment_entry": payment_entry.name if payment_entry else None,
+                    "bank_transaction": bank_transaction.name if bank_transaction else None,
                     "amount": mollie_data["amount"],
                     "status": "completed",
                     "processed_components": processed_components,
@@ -261,7 +328,7 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
                     "payment_method": "Mollie",
                     "payment_id": mollie_data["payment_id"],
                     "payment_reference": mollie_data["payment_id"],
-                    "payment_status": "Cancelled",
+                    "payment_status": PaymentStatus.CANCELLED,
                     "mollie_payment_id": mollie_data["payment_id"],
                     "remarks": f"Payment failed: {payment_data.status}",
                 },
@@ -288,14 +355,23 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
             frappe.db.get_value("Payment Entry", {"reference_no": payment_id}, "name")
         )
 
+        # Check if Bank Transaction exists (any docstatus - draft or submitted)
+        bank_transaction_exists = bool(
+            frappe.db.get_value("Bank Transaction", {"reference_number": payment_id}, "name")
+        )
+
         # Check donation status
         donation = frappe.get_doc("Donation", context.target_name)
         payment_recorded = (
             getattr(donation, "paid", 0) == 1 and getattr(donation, "payment_id", None) == payment_id
         )
 
-        # Check donation status is properly set (One-time or Recurring)
-        donation_status_updated = getattr(donation, "status", None) in ["One-time", "Recurring"]
+        # Check donation status is properly set BY THIS PAYMENT
+        # (i.e., paid flag is set AND status is valid - not just status being valid)
+        donation_status_updated = payment_recorded and getattr(donation, "status", None) in [
+            DonationStatus.ONE_TIME,
+            DonationStatus.RECURRING,
+        ]
 
         # Check payment history
         history_exists = False
@@ -305,12 +381,15 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
                     history_exists = True
                     break
 
+        # Bank Transaction is optional - payment processing can succeed without it
+        # This handles cases where Bank Transaction creation fails (e.g., missing donor/customer)
         all_complete = (
             payment_entry_exists and payment_recorded and history_exists and donation_status_updated
         )
 
         return {
             "payment_entry_created": payment_entry_exists,
+            "bank_transaction_created": bank_transaction_exists,
             "payment_recorded": payment_recorded,
             "payment_history_exists": history_exists,
             "donation_status_updated": donation_status_updated,
@@ -369,13 +448,107 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
                 pass
 
         # Priority 6: Existing donation status (for subsequent payments)
-        if hasattr(donation, "status") and donation.get("status") == "Recurring":
+        if hasattr(donation, "status") and donation.get("status") == DonationStatus.RECURRING:
             self.logger.info("🔍 Donation already marked as recurring - preserving status")
             return True
 
         # Default to one-time if no indicators found
         self.logger.info("🔍 No subscription indicators found - marking as one-time")
         return False
+
+    def _create_bank_transaction_for_donation(self, donation, mollie_data: Dict[str, Any]) -> Optional[str]:
+        """
+        Create Bank Transaction for a donation payment from Mollie.
+
+        Creates a submitted Bank Transaction. The Payment Entry will be linked to it
+        after PE creation via the child table.
+
+        Args:
+            donation: Donation document
+            mollie_data: Extracted Mollie payment data dict
+
+        Returns:
+            str: Bank Transaction name if created, None otherwise
+        """
+        try:
+            # Get donor and customer
+            if not hasattr(donation, "donor") or not donation.donor:
+                self.logger.warning(
+                    f"Donation {donation.name} has no linked Donor - skipping Bank Transaction"
+                )
+                return None
+
+            donor = frappe.get_doc("Donor", donation.donor)
+            customer = getattr(donor, "customer", None)
+
+            if not customer:
+                self.logger.warning(
+                    f"Donor {donor.name} has no linked Customer - skipping Bank Transaction creation"
+                )
+                return None
+
+            # Get bank account configuration using centralized helper
+            config = self.bank_tx_creator.get_mollie_bank_account_config()
+
+            if config.get("error"):
+                self.logger.error(f"Mollie configuration error: {config['error']}")
+                return None
+
+            bank_account = config["bank_account"]
+            company = config["company"]
+
+            # Extract payment data from Mollie
+            payment_id = mollie_data["payment_id"]
+
+            # Extract payment data
+            amount = mollie_data["amount"]
+            currency = mollie_data.get("currency") or "EUR"
+
+            # Extract and convert payment date
+            paid_at = mollie_data.get("paid_at")
+            if paid_at:
+                # Convert ISO string to date object
+                from dateutil import parser
+
+                payment_date = parser.parse(paid_at).date()
+            else:
+                # Fallback to today if paid_at is missing
+                payment_date = frappe.utils.getdate()
+
+            # Build description with donation context
+            donor_name = donor.donor_name or "Unknown Donor"
+            description = f"Donation from {donor_name} | {payment_id}"
+
+            # Use centralized create() method with party fields
+            bank_transaction_name = self.bank_tx_creator.create(
+                date=payment_date,
+                bank_account=bank_account,
+                company=company,
+                deposit=float(amount),
+                withdrawal=0.0,
+                currency=currency,
+                reference_number=payment_id,
+                transaction_id=payment_id,
+                description=description,
+                party_type="Customer",
+                party=customer,
+            )
+
+            if bank_transaction_name:
+                self.logger.info(
+                    f"✅ Created Bank Transaction {bank_transaction_name} for donation {donation.name} "
+                    f"(amount: {currency} {amount}, payment: {payment_id}, status: Submitted)"
+                )
+
+            return bank_transaction_name
+
+        except Exception as e:
+            self.logger.error(f"Failed to create Bank Transaction for donation {donation.name}: {e}")
+            frappe.log_error(
+                f"Bank Transaction creation failed for donation {donation.name}: {str(e)}",
+                "Donation Payment Processing",
+            )
+            return None
 
 
 class MembershipPaymentProcessor(AbstractPaymentProcessor):
@@ -423,7 +596,7 @@ class MembershipPaymentProcessor(AbstractPaymentProcessor):
                     "payment_date": frappe.utils.getdate(),
                     "amount": float(mollie_data["amount"]),
                     "payment_method": "Mollie",
-                    "payment_status": "Paid",
+                    "payment_status": PaymentStatus.PAID,
                     "transaction_type": "Membership Payment",
                     "payment_reference": mollie_data["payment_id"],
                     "mollie_payment_id": mollie_data["payment_id"],
@@ -479,7 +652,7 @@ class MembershipPaymentProcessor(AbstractPaymentProcessor):
                     "payment_date": frappe.utils.getdate(),
                     "amount": amount,
                     "payment_method": "Mollie",
-                    "payment_status": "Cancelled",
+                    "payment_status": PaymentStatus.CANCELLED,
                     "transaction_type": "Membership Payment",
                     "payment_reference": mollie_data["payment_id"],
                     "mollie_payment_id": mollie_data["payment_id"],
