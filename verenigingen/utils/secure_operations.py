@@ -103,7 +103,10 @@ def _execute_document_operation(
     elif operation in ["save", "update"]:
         # Flags like ignore_version should already be set by caller if needed
         # Just call save() and let Frappe respect the flags
-        max_retries = 5  # Increased from 3 for heavy concurrent access
+
+        # Higher retry count for high-contention documents during bulk operations
+        # Bulk Operation Tracker sees extreme concurrent access during parallel batch processing
+        max_retries = 10 if doc.doctype == "Bulk Operation Tracker" else 5
         retry_count = 0
 
         while retry_count <= max_retries:
@@ -132,12 +135,20 @@ def _execute_document_operation(
                             ) from reload_error
 
                         # Exponential backoff with jitter for bulk operations
-                        # Retry 1: ~1s, Retry 2: ~2s, Retry 3: ~4s, Retry 4: ~8s, Retry 5: ~16s
+                        # Standard: Retry 1: ~1s, Retry 2: ~2s, Retry 3: ~4s, Retry 4: ~8s, Retry 5: ~16s
+                        # Bulk Operation Tracker gets extended backoff to handle extreme contention
                         import random
                         import time
 
-                        base_delay = 2 ** (retry_count - 1)  # 1, 2, 4, 8, 16 seconds
-                        jitter = random.uniform(0, 0.5 * base_delay)  # Add up to 50% jitter
+                        if doc.doctype == "Bulk Operation Tracker":
+                            # More aggressive backoff with higher jitter for high-contention tracker
+                            # Prevents synchronized retry storms when many batches complete simultaneously
+                            base_delay = min(2 ** (retry_count - 1), 32)  # Cap at 32s
+                            jitter = random.uniform(0, base_delay)  # Full jitter (0-100%)
+                        else:
+                            base_delay = 2 ** (retry_count - 1)  # 1, 2, 4, 8, 16 seconds
+                            jitter = random.uniform(0, 0.5 * base_delay)  # Add up to 50% jitter
+
                         sleep_time = base_delay + jitter
 
                         frappe.logger().info(

@@ -89,7 +89,38 @@ class AccountCreationService:
         if member.user:
             # Verify the linked user actually exists
             if frappe.db.exists("User", member.user):
-                return False, f"Member {member.name} already has user account: {member.user}"
+                # User exists - check if all requested artifacts are also present
+                missing_artifacts = []
+
+                # Check if volunteer record is required and missing
+                if create_employee and "Verenigingen Volunteer" in [r.get("role") for r in roles]:
+                    if not frappe.db.exists("Volunteer", {"member": member.name}):
+                        missing_artifacts.append("Volunteer record")
+
+                # Check if employee record is required and missing
+                if create_employee:
+                    user_has_employee = frappe.db.exists("Employee", {"user_id": member.user})
+                    if not user_has_employee:
+                        missing_artifacts.append("Employee record")
+
+                # Check if required roles are assigned
+                if roles:
+                    user_doc = frappe.get_doc("User", member.user)
+                    current_roles = [r.role for r in user_doc.roles]
+                    missing_roles = [r.get("role") for r in roles if r.get("role") not in current_roles]
+                    if missing_roles:
+                        missing_artifacts.append(f"Roles: {', '.join(missing_roles)}")
+
+                # If artifacts are missing, allow ACR creation to complete the setup
+                if missing_artifacts:
+                    frappe.logger().info(
+                        f"Member {member.name} has user account but missing: {', '.join(missing_artifacts)}. "
+                        "Creating ACR to complete setup."
+                    )
+                    return True, None
+
+                # Everything is complete - skip ACR creation
+                return False, f"Member {member.name} already has complete account setup: {member.user}"
             else:
                 # Stale link - log warning but allow creation
                 frappe.logger().warning(

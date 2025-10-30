@@ -239,7 +239,15 @@ class AccountCreationManager:
             try:
                 if is_bulk_operation:
                     frappe.flags.in_import = True
+                    # Temporarily disable password notification emails during bulk import
+                    original_send_password_notification = user_doc.send_password_notification
+                    user_doc.send_password_notification = lambda *args, **kwargs: None
+
                 user_doc.insert()
+
+                # Restore original method if it was patched
+                if is_bulk_operation:
+                    user_doc.send_password_notification = original_send_password_notification
             except frappe.exceptions.UniqueValidationError as e:
                 # Handle duplicate username - Frappe auto-generates username from first name
                 error_msg = str(e)
@@ -250,6 +258,9 @@ class AccountCreationManager:
                     )
                     user_doc.username = self.request.email.split("@")[0]  # Use email prefix
                     try:
+                        # Re-patch the method for retry if in bulk operation
+                        if is_bulk_operation:
+                            user_doc.send_password_notification = lambda *args, **kwargs: None
                         user_doc.insert()
                     except:
                         # If still fails, this is a real duplicate - check if user exists
@@ -341,9 +352,36 @@ class AccountCreationManager:
                 frappe.logger().info(f"Role profile {self.request.role_profile} assigned")
 
             # Save with proper permissions - NO ignore_permissions=True
+            # Use retry logic for deadlock handling during concurrent role assignments
             if roles_added or self.request.role_profile:
-                user_doc.save()
-                frappe.logger().info(f"Roles assigned successfully: {roles_added}")
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        user_doc.save()
+                        frappe.logger().info(f"Roles assigned successfully: {roles_added}")
+                        break
+                    except Exception as save_error:
+                        error_msg = str(save_error)
+                        # Retry on deadlock errors (MySQL error 1213)
+                        if ("Deadlock" in error_msg or "1213" in error_msg) and attempt < max_retries - 1:
+                            import time
+                            import random
+                            # Exponential backoff: 100ms, 200ms, 400ms + jitter
+                            delay = (0.1 * (2 ** attempt)) + random.uniform(0, 0.05)
+                            frappe.logger().info(
+                                f"Deadlock during role assignment, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})"
+                            )
+                            time.sleep(delay)
+                            # Reload user to avoid timestamp conflicts
+                            user_doc = frappe.get_doc("User", self.created_user)
+                            # Re-apply roles that aren't already present
+                            existing_roles = [r.role for r in user_doc.roles]
+                            for role in roles_added:
+                                if role not in existing_roles:
+                                    user_doc.append("roles", {"role": role})
+                            continue
+                        else:
+                            raise
             else:
                 frappe.logger().info("No new roles to assign")
 

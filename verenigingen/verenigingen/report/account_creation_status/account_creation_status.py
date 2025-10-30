@@ -312,6 +312,40 @@ def get_data(filters):
 def get_summary_data():
     """Get summary statistics for the report header."""
 
+    # Active members (excludes terminated, banned, deceased)
+    active_members = frappe.db.sql(
+        """
+        SELECT
+            COUNT(*) as total,
+            SUM(CASE WHEN EXISTS (SELECT 1 FROM `tabMembership` mem WHERE mem.member = `tabMember`.name AND mem.docstatus = 1) THEN 1 ELSE 0 END) as with_membership,
+            SUM(CASE WHEN EXISTS (SELECT 1 FROM `tabMembership Dues Schedule` mds WHERE mds.member = `tabMember`.name) THEN 1 ELSE 0 END) as with_dues_schedule
+        FROM `tabMember`
+        WHERE status NOT IN ('Terminated', 'Banned', 'Deceased')
+        """,
+        as_dict=1,
+    )[0]
+
+    # Active members with chapter membership (excludes terminated, banned, deceased)
+    active_chapter_members = frappe.db.sql(
+        """
+        SELECT
+            COUNT(*) as total,
+            SUM(CASE WHEN user IS NOT NULL AND user != '' THEN 1 ELSE 0 END) as with_user,
+            SUM(CASE WHEN has_volunteer = 1 THEN 1 ELSE 0 END) as with_volunteer,
+            SUM(CASE WHEN EXISTS (SELECT 1 FROM `tabEmployee` e WHERE e.user_id = user) THEN 1 ELSE 0 END) as with_employee
+        FROM (
+            SELECT DISTINCT m.name, m.user,
+                CASE WHEN EXISTS (SELECT 1 FROM `tabVolunteer` v WHERE v.member = m.name) THEN 1 ELSE 0 END as has_volunteer
+            FROM `tabMember` m
+            INNER JOIN `tabChapter Member` cm ON cm.member = m.name
+            WHERE cm.enabled = 1
+                AND cm.status = 'Active'
+                AND m.status NOT IN ('Terminated', 'Banned', 'Deceased')
+        ) as unique_members
+        """,
+        as_dict=1,
+    )[0]
+
     # Overall member statistics
     member_stats = frappe.db.sql(
         """
@@ -359,12 +393,40 @@ def get_summary_data():
         as_dict=1,
     )
 
-    # Build summary
+    # Build summary - total members first, then active members
     summary = [
         {
-            "label": _("Total Members"),
+            "label": _("Total Members (All)"),
             "value": member_stats["total_members"],
             "indicator": "blue",
+            "datatype": "Int",
+        },
+        {
+            "label": _("Active Members"),
+            "value": active_members["total"],
+            "indicator": "green",
+            "datatype": "Int",
+        },
+        {
+            "label": _("Active Chapter Members"),
+            "value": active_chapter_members["total"],
+            "indicator": "green",
+            "datatype": "Int",
+        },
+        {
+            "label": _("└─ with Membership"),
+            "value": active_members["with_membership"],
+            "indicator": "green"
+            if active_members["with_membership"] == active_members["total"]
+            else "orange",
+            "datatype": "Int",
+        },
+        {
+            "label": _("└─ with Dues Schedule"),
+            "value": active_members["with_dues_schedule"],
+            "indicator": "green"
+            if active_members["with_dues_schedule"] == active_members["total"]
+            else "orange",
             "datatype": "Int",
         },
         {
@@ -372,6 +434,14 @@ def get_summary_data():
             "value": member_stats["members_with_user"],
             "indicator": "green"
             if member_stats["members_with_user"] == member_stats["total_members"]
+            else "orange",
+            "datatype": "Int",
+        },
+        {
+            "label": _("└─ with User Account"),
+            "value": active_chapter_members["with_user"],
+            "indicator": "green"
+            if active_chapter_members["with_user"] == member_stats["members_with_user"]
             else "orange",
             "datatype": "Int",
         },
@@ -384,10 +454,26 @@ def get_summary_data():
             "datatype": "Int",
         },
         {
+            "label": _("└─ with Volunteer Record"),
+            "value": active_chapter_members["with_volunteer"],
+            "indicator": "green"
+            if active_chapter_members["with_volunteer"] == member_stats["members_with_volunteer"]
+            else "orange",
+            "datatype": "Int",
+        },
+        {
             "label": _("Members with Employee Record"),
             "value": member_stats["members_with_employee"],
             "indicator": "green"
             if member_stats["members_with_employee"] == member_stats["total_members"]
+            else "orange",
+            "datatype": "Int",
+        },
+        {
+            "label": _("└─ with Employee Record"),
+            "value": active_chapter_members["with_employee"],
+            "indicator": "green"
+            if active_chapter_members["with_employee"] == member_stats["members_with_employee"]
             else "orange",
             "datatype": "Int",
         },
@@ -404,22 +490,6 @@ def get_summary_data():
             "value": member_stats["members_with_address"],
             "indicator": "green"
             if member_stats["members_with_address"] == member_stats["total_members"]
-            else "orange",
-            "datatype": "Int",
-        },
-        {
-            "label": _("Members with Membership"),
-            "value": member_stats["members_with_membership"],
-            "indicator": "green"
-            if member_stats["members_with_membership"] == member_stats["total_members"]
-            else "orange",
-            "datatype": "Int",
-        },
-        {
-            "label": _("Members with Dues Schedule"),
-            "value": member_stats["members_with_dues_schedule"],
-            "indicator": "green"
-            if member_stats["members_with_dues_schedule"] == member_stats["total_members"]
             else "orange",
             "datatype": "Int",
         },
