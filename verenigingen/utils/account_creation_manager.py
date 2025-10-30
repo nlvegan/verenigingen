@@ -209,19 +209,24 @@ class AccountCreationManager:
             # Skip welcome emails during bulk imports
             send_welcome = 0 if (frappe.flags.in_import or frappe.flags.in_bulk_import) else 1
 
-            # Create user document
-            user_doc = frappe.get_doc(
-                {
-                    "doctype": "User",
-                    "email": self.request.email,
-                    "first_name": first_name,
-                    "last_name": last_name,
-                    "full_name": self.request.full_name,
-                    "enabled": 1,
-                    "user_type": user_type,
-                    "send_welcome_email": send_welcome,  # Skip during bulk imports
-                }
-            )
+            # Create user document with explicit password for bulk operations
+            # This prevents 'NoneType' object has no attribute 'encode' errors
+            user_data = {
+                "doctype": "User",
+                "email": self.request.email,
+                "first_name": first_name,
+                "last_name": last_name,
+                "full_name": self.request.full_name,
+                "enabled": 1,
+                "user_type": user_type,
+                "send_welcome_email": send_welcome,  # Skip during bulk imports
+            }
+
+            # Set random password for bulk operations to avoid encoding errors
+            if not send_welcome:
+                user_data["new_password"] = frappe.generate_hash(length=20)
+
+            user_doc = frappe.get_doc(user_data)
 
             # Add personal email if available
             if hasattr(self.source_doc, "personal_email") and self.source_doc.personal_email:

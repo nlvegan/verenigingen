@@ -470,8 +470,10 @@ class ChapterMembershipHistoryManager:
                 [m for m in membership_history if hasattr(m, "status") and m.status == "Terminated"]
             )
 
-            # Get chapters the member has been associated with
-            # Get unique chapters the member has been associated with\n            chapters = list(set([m.chapter_name for m in membership_history if hasattr(m, 'chapter_name') and m.chapter_name]))
+            # Get unique chapters the member has been associated with
+            chapters = list(
+                set([m.chapter_name for m in membership_history if hasattr(m, "chapter_name") and m.chapter_name])
+            )
 
             return {
                 "total_memberships": total_memberships,

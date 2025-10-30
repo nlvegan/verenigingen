@@ -130,6 +130,13 @@ def handle_membership_notifications(event_name, event_data, **kwargs):
         if not chapter_name or not member:
             return
 
+        # Check if member still exists before sending notifications
+        if not frappe.db.exists("Member", member):
+            frappe.logger("events").warning(
+                f"Cannot send membership notification - Member {member} no longer exists"
+            )
+            return
+
         chapter = frappe.get_doc("Chapter", chapter_name)
         member_doc = frappe.get_doc("Member", member)
 
