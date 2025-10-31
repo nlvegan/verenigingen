@@ -222,9 +222,9 @@ class AccountCreationManager:
                 "send_welcome_email": send_welcome,  # Skip during bulk imports
             }
 
-            # Set random password for bulk operations to avoid encoding errors
-            if not send_welcome:
-                user_data["new_password"] = frappe.generate_hash(length=20)
+            # ALWAYS set a random password to avoid 'NoneType' has no attribute 'encode' errors
+            # This prevents errors even if send_welcome_email=1 but email sending is disabled
+            user_data["new_password"] = frappe.generate_hash(length=20)
 
             user_doc = frappe.get_doc(user_data)
 

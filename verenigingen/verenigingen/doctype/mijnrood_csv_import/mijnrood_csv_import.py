@@ -1631,14 +1631,15 @@ class MijnroodCSVImport(Document):
                 return None
 
             # Create new chapter
-            chapter = frappe.new_doc("Chapter")
-            # Set fields directly, not via update() which can bypass validation
-            chapter.chapter_name = chapter_name  # Set the chapter name field
-            chapter.status = "Active"
-            chapter.region = region_name  # CRITICAL: Set region field
-            chapter.introduction = (
-                f"Auto-created chapter '{chapter_name}' during CSV import. Please update with proper details."
-            )
+            # Chapter uses autoname="prompt", so we must set the name explicitly
+            chapter = frappe.get_doc({
+                "doctype": "Chapter",
+                "name": chapter_name,  # Explicit name for autoname="prompt"
+                "__newname": chapter_name,  # Alternative way to set name
+                "status": "Active",
+                "region": region_name,
+                "introduction": f"Auto-created chapter '{chapter_name}' during CSV import. Please update with proper details."
+            })
 
             # Set CSV import flags
             chapter._csv_import = True
