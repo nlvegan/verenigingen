@@ -146,7 +146,12 @@ class ChapterMembershipManager:
 
     @staticmethod
     def assign_member_to_chapter(
-        member_id: str, chapter_name: str, reason: str = None, assigned_by: str = None, notify: bool = None
+        member_id: str,
+        chapter_name: str,
+        reason: str = None,
+        assigned_by: str = None,
+        notify: bool = None,
+        join_date: str = None,
     ) -> Dict[str, Any]:
         """
         Administrative method to assign a member to a chapter
@@ -157,6 +162,7 @@ class ChapterMembershipManager:
             reason: Reason for assignment
             assigned_by: User making the assignment
             notify: Override for notification sending (None = use global setting)
+            join_date: Chapter join date (defaults to today if not provided)
 
         Returns:
             Dict with operation result
@@ -208,6 +214,7 @@ class ChapterMembershipManager:
                 member_id=member_id,
                 introduction=reason or f"Assigned to {chapter_name} by administrator",
                 notify=send_notifications,
+                join_date=join_date,  # Pass through the join_date parameter
             )
 
             # Update member tracking fields if successful

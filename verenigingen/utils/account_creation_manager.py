@@ -206,11 +206,13 @@ class AccountCreationManager:
             # Volunteers get System User for full system access
             user_type = "System User" if self.request.request_type == "Volunteer" else "Website User"
 
-            # Skip welcome emails during bulk imports
-            send_welcome = 0 if (frappe.flags.in_import or frappe.flags.in_bulk_import) else 1
+            # Check if this is a bulk operation FIRST - we need this for multiple decisions
+            is_bulk_operation = getattr(frappe.flags, "bulk_account_creation", False)
 
-            # Create user document with explicit password for bulk operations
-            # This prevents 'NoneType' object has no attribute 'encode' errors
+            # Skip welcome emails during bulk imports
+            send_welcome = 0 if (is_bulk_operation or frappe.flags.in_import or frappe.flags.in_bulk_import) else 1
+
+            # Create user document
             user_data = {
                 "doctype": "User",
                 "email": self.request.email,
@@ -222,9 +224,12 @@ class AccountCreationManager:
                 "send_welcome_email": send_welcome,  # Skip during bulk imports
             }
 
-            # ALWAYS set a random password to avoid 'NoneType' has no attribute 'encode' errors
-            # This prevents errors even if send_welcome_email=1 but email sending is disabled
-            user_data["new_password"] = frappe.generate_hash(length=20)
+            # CRITICAL: Only set password for non-bulk operations
+            # Setting new_password triggers Frappe's email sending code, which fails during bulk imports
+            # when SMTP is not configured or frappe.flags.mute_emails isn't respected
+            # For bulk operations, users will need to use password reset when they first log in
+            if not is_bulk_operation:
+                user_data["new_password"] = frappe.generate_hash(length=20)
 
             user_doc = frappe.get_doc(user_data)
 
@@ -236,7 +241,6 @@ class AccountCreationManager:
             # Insert with proper permissions - NO ignore_permissions=True
             # For bulk operations (CSV imports), bypass rate limiting by setting in_import flag
             # This is the intended use of frappe.flags.in_import as per Frappe core throttle_user_creation()
-            is_bulk_operation = getattr(frappe.flags, "bulk_account_creation", False)
 
             # Save original flag state for restoration
             original_in_import = getattr(frappe.flags, "in_import", False)
@@ -298,6 +302,7 @@ class AccountCreationManager:
         except Exception as e:
             error_msg = str(e)
             error_type = type(e).__name__
+            full_traceback = frappe.get_traceback()
 
             # Enhanced logging for rate limit and throttling errors
             if "throttle" in error_msg.lower() or "rate limit" in error_msg.lower():
@@ -307,12 +312,27 @@ class AccountCreationManager:
                     f"This typically occurs when creating many users simultaneously. "
                     f"The request will be retried automatically."
                 )
+                frappe.log_error(
+                    title=f"Rate Limit - User Creation: {self.request.email}",
+                    message=full_traceback,
+                )
                 raise frappe.ValidationError(
                     f"User account creation rate limited (will retry automatically): {error_msg}"
                 )
             else:
-                frappe.logger().error(f"Failed to create user account: {error_type}: {error_msg}")
-                raise frappe.ValidationError(f"User account creation failed ({error_type}): {error_msg}")
+                # Log full traceback for debugging
+                frappe.logger().error(
+                    f"Failed to create user account for {self.request.email}: {error_type}: {error_msg}\n"
+                    f"Full traceback:\n{full_traceback}"
+                )
+                frappe.log_error(
+                    title=f"User Creation Failed: {self.request.email}",
+                    message=full_traceback,
+                )
+                raise frappe.ValidationError(
+                    f"User account creation failed ({error_type}): {error_msg}. "
+                    f"Check Error Log for full traceback."
+                )
 
     def assign_roles_and_profile(self):
         """Assign roles and role profile with proper permission validation"""

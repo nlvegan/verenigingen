@@ -30,6 +30,13 @@ def handle_board_role_assignments(event_name, event_data, **kwargs):
             frappe.logger("events").warning("Missing chapter or volunteer in board role assignment event")
             return
 
+        # Check if chapter exists before trying to load it
+        if not frappe.db.exists("Chapter", chapter_name):
+            frappe.logger("events").warning(
+                f"Cannot handle board role assignment - Chapter {chapter_name} not yet committed to database"
+            )
+            return
+
         chapter = frappe.get_doc("Chapter", chapter_name)
 
         # Handle different board change actions
@@ -61,6 +68,13 @@ def handle_board_notifications(event_name, event_data, **kwargs):
         role = event_data.get("role")
 
         if not chapter_name or not volunteer:
+            return
+
+        # Check if chapter exists before trying to load it
+        if not frappe.db.exists("Chapter", chapter_name):
+            frappe.logger("events").warning(
+                f"Cannot send board notifications - Chapter {chapter_name} not yet committed to database"
+            )
             return
 
         chapter = frappe.get_doc("Chapter", chapter_name)
@@ -99,6 +113,13 @@ def handle_volunteer_sync(event_name, event_data, **kwargs):
         if not chapter_name or not volunteer:
             return
 
+        # Check if chapter exists before trying to load it
+        if not frappe.db.exists("Chapter", chapter_name):
+            frappe.logger("events").warning(
+                f"Cannot sync volunteer system - Chapter {chapter_name} not yet committed to database"
+            )
+            return
+
         chapter = frappe.get_doc("Chapter", chapter_name)
 
         # Use the chapter's volunteer integration manager
@@ -134,6 +155,15 @@ def handle_membership_notifications(event_name, event_data, **kwargs):
         if not frappe.db.exists("Member", member):
             frappe.logger("events").warning(
                 f"Cannot send membership notification - Member {member} no longer exists"
+            )
+            return
+
+        # Check if chapter exists before trying to load it
+        # This handles race conditions during chapter auto-creation in CSV imports
+        if not frappe.db.exists("Chapter", chapter_name):
+            frappe.logger("events").warning(
+                f"Cannot send membership notification - Chapter {chapter_name} not yet committed to database. "
+                "This can happen during bulk imports with auto-created chapters."
             )
             return
 
@@ -245,6 +275,13 @@ def handle_settings_notifications(event_name, event_data, **kwargs):
         changed_fields = event_data.get("changed_fields", [])
 
         if not chapter_name or not changed_fields:
+            return
+
+        # Check if chapter exists before trying to load it
+        if not frappe.db.exists("Chapter", chapter_name):
+            frappe.logger("events").warning(
+                f"Cannot send settings notifications - Chapter {chapter_name} not yet committed to database"
+            )
             return
 
         chapter = frappe.get_doc("Chapter", chapter_name)
@@ -602,6 +639,13 @@ def _send_settings_change_notification(chapter, changed_fields):
 def _update_chapter_permissions(chapter_name):
     """Update chapter permissions based on new settings"""
     try:
+        # Check if chapter exists before trying to load it
+        if not frappe.db.exists("Chapter", chapter_name):
+            frappe.logger("events").warning(
+                f"Cannot update chapter permissions - Chapter {chapter_name} not yet committed to database"
+            )
+            return
+
         chapter = frappe.get_doc("Chapter", chapter_name)
 
         # Update board member role profiles based on new settings
@@ -626,6 +670,13 @@ def _update_chapter_website(chapter_name):
         # Clear website cache for this chapter
         frappe.cache().delete_keys(f"website_*{chapter_name}*")
         frappe.cache().delete_keys("chapters_*")
+
+        # Check if chapter exists before trying to load it
+        if not frappe.db.exists("Chapter", chapter_name):
+            frappe.logger("events").warning(
+                f"Cannot update chapter website - Chapter {chapter_name} not yet committed to database"
+            )
+            return
 
         # Trigger website rebuild if needed
         chapter = frappe.get_doc("Chapter", chapter_name)

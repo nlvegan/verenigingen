@@ -1,6 +1,7 @@
 # verenigingen/verenigingen/doctype/chapter/managers/member_manager.py
 
 import json
+import time
 from typing import Dict, List
 
 import frappe
@@ -28,6 +29,7 @@ class MemberManager(BaseManager):
         website_url: str = None,
         enabled: bool = True,
         notify: bool = True,
+        join_date: str = None,
     ) -> Dict:
         """
         Add a member to this chapter
@@ -38,6 +40,7 @@ class MemberManager(BaseManager):
             website_url: Member website URL
             enabled: Whether member is enabled
             notify: Whether to send notification
+            join_date: Chapter join date (defaults to today if not provided)
 
         Returns:
             Dict with operation result
@@ -100,6 +103,7 @@ class MemberManager(BaseManager):
                     "member": member_id,
                     "enabled": enabled,
                     "status": "Active",  # Explicitly set to Active for direct adds
+                    "chapter_join_date": join_date or today(),  # Use provided date or default to today
                 },
             )
 
@@ -111,8 +115,8 @@ class MemberManager(BaseManager):
             self._remove_stale_member_links()
 
             # Save chapter - let Frappe's connection pool handle connection issues
-            # Retry logic for timestamp mismatches (concurrent modifications)
-            max_retries = 2
+            # Retry logic for timestamp mismatches and transient errors (broken pipe, connection resets)
+            max_retries = 3
             for attempt in range(max_retries):
                 try:
                     self.chapter_doc.save()
@@ -133,6 +137,7 @@ class MemberManager(BaseManager):
                                     "member": member_id,
                                     "enabled": enabled,
                                     "status": "Active",
+                                    "chapter_join_date": join_date or today(),
                                 },
                             )
                     else:
@@ -140,6 +145,38 @@ class MemberManager(BaseManager):
                         frappe.throw(
                             _("Unable to add member due to concurrent modifications. Please try again.")
                         )
+                except Exception as e:
+                    # Handle transient errors (broken pipe, connection resets, etc.)
+                    error_str = str(e).lower()
+                    is_transient = any(
+                        indicator in error_str
+                        for indicator in ["broken pipe", "errno 32", "connection reset", "connection refused"]
+                    )
+
+                    if is_transient and attempt < max_retries - 1:
+                        # Log and retry for transient errors
+                        wait_time = (2 ** attempt) * 0.1  # Exponential backoff: 0.1s, 0.2s, 0.4s
+                        frappe.logger().warning(
+                            f"Transient error adding member {member_id} to chapter {self.chapter_name}: {str(e)}, "
+                            f"retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})"
+                        )
+                        time.sleep(wait_time)
+                        # Reload chapter doc to get fresh state
+                        self.chapter_doc.reload()
+                        # Re-add the member to the reloaded document if not exists
+                        if not any(m.member == member_id for m in self.chapter_doc.members):
+                            self.chapter_doc.append(
+                                "members",
+                                {
+                                    "member": member_id,
+                                    "enabled": enabled,
+                                    "status": "Active",
+                                    "chapter_join_date": join_date or today(),
+                                },
+                            )
+                    else:
+                        # Non-transient error or max retries exceeded - re-raise
+                        raise
 
             # Add membership history tracking
             ChapterMembershipHistoryManager.add_membership_history(

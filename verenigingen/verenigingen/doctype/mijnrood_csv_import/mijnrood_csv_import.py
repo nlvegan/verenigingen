@@ -1404,6 +1404,7 @@ class MijnroodCSVImport(Document):
                 reason=f"Imported from Mijnrood CSV (Import: {self.name})",
                 assigned_by=frappe.session.user,
                 notify=False,  # Never send notifications during bulk imports
+                join_date=member_doc.member_since,  # Use membership start date as chapter join date
             )
 
             if result.get("success"):
@@ -1647,8 +1648,13 @@ class MijnroodCSVImport(Document):
 
             chapter.insert()
 
+            # CRITICAL: Commit immediately after chapter creation
+            # Background jobs triggered by member assignment need to see this chapter
+            # Otherwise we get "Chapter X not found" errors in notification handlers
+            frappe.db.commit()
+
             frappe.logger().info(
-                f"Auto-created chapter '{chapter_name}' with region '{region_name}' during CSV import"
+                f"Auto-created chapter '{chapter_name}' with region '{region_name}' during CSV import (committed to DB)"
             )
             return chapter.name
 
