@@ -1741,10 +1741,16 @@ class MollieDebugService:
 
                                 # Apply update if not dry run
                                 if not dry_run:
-                                    membership_doc = frappe.get_doc("Membership", membership[0].name)
-                                    membership_doc.cancellation_date = canceled_date
-                                    membership_doc.flags.ignore_validate_update_after_submit = True
-                                    membership_doc.save(ignore_permissions=True)
+                                    # Use db_set for audit-trailed update without document validation
+                                    # This is appropriate for syncing external data (Mollie) to submitted docs
+                                    frappe.db.set_value(
+                                        "Membership",
+                                        membership[0].name,
+                                        "cancellation_date",
+                                        canceled_date,
+                                        update_modified=False,  # Don't change modified timestamp
+                                    )
+                                    frappe.db.commit()  # Commit immediately for safety
                                     member_result["updated"] = True
                                     result["updates_applied"] += 1
 
@@ -1779,5 +1785,288 @@ class MollieDebugService:
         except Exception as e:
             result["error"] = str(e)
             frappe.log_error(f"Mollie membership end date sync error: {str(e)}")
+
+        return result
+
+    def bulk_retrieve_all_member_payments(
+        self, days_back: int = 30, max_payments: int = 5000, payment_status_filter: str = None
+    ):
+        """
+        Bulk retrieve payments for all members with Mollie customer IDs.
+
+        Uses global payments endpoint with pagination for optimal performance.
+        Makes 1 API call per 250 payments instead of 1 per member (N+1 problem).
+
+        Args:
+            days_back: Number of days back to check (default: 30)
+            max_payments: Maximum total payments to retrieve (default: 5000)
+            payment_status_filter: Optional filter ('paid', 'pending', 'all')
+
+        Returns:
+            Dict containing:
+                - total_members: Number of members with Mollie IDs
+                - members_checked: Number successfully checked
+                - total_payments: Total payments found
+                - unprocessed_payments: Payments not yet processed
+                - members: List of member details with payments
+                - api_calls_made: Number of API calls to Mollie
+        """
+        from datetime import datetime, timedelta
+
+        result = {
+            "test_mode": self.mollie_client.is_test_mode(),
+            "timestamp": frappe.utils.now(),
+            "days_back": days_back,
+            "max_payments": max_payments,
+            "total_members": 0,
+            "members_checked": 0,
+            "total_payments": 0,
+            "unprocessed_payments": 0,
+            "members": [],
+            "api_calls_made": 0,
+            "error": None,
+        }
+
+        try:
+            # Find all active members with Mollie customer IDs
+            members = frappe.get_all(
+                "Member",
+                filters={"mollie_customer_id": ["!=", ""], "status": "Active"},
+                fields=["name", "full_name", "mollie_customer_id", "email"],
+            )
+
+            result["total_members"] = len(members)
+
+            # Build customer ID lookup map for fast filtering
+            customer_id_to_member = {m.mollie_customer_id: m for m in members}
+
+            frappe.logger().info(
+                f"Bulk payment retrieval: Found {len(members)} active members with Mollie IDs. "
+                f"Using global payments endpoint with pagination."
+            )
+
+            # Calculate date range
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=days_back)
+            start_date_str = start_date.strftime("%Y-%m-%d")
+
+            # Get raw Mollie client
+            client = self.mollie_client.sdk_client
+
+            # Initialize member results dict
+            member_results = {}
+            for member in members:
+                member_results[member.mollie_customer_id] = {
+                    "member": member.name,
+                    "full_name": member.full_name,
+                    "customer_id": member.mollie_customer_id,
+                    "payments": [],
+                    "payment_count": 0,
+                    "unprocessed_count": 0,
+                    "error": None,
+                }
+
+            # Fetch ALL payments using global endpoint with pagination
+            has_next = True
+            from_id = None
+            limit = 250
+            total_fetched = 0
+
+            while has_next and total_fetched < max_payments:
+                try:
+                    # Build parameters for global payments endpoint
+                    params = {"limit": limit}
+                    if from_id:
+                        params["from"] = from_id
+
+                    # Fetch payments batch
+                    payment_list = client.payments.list(**params)
+                    batch_payments = list(payment_list)
+                    result["api_calls_made"] += 1
+
+                    frappe.logger().info(
+                        f"Fetched batch of {len(batch_payments)} payments (API call #{result['api_calls_made']})"
+                    )
+
+                    # Process each payment
+                    for payment in batch_payments:
+                        total_fetched += 1
+
+                        # Extract customer ID
+                        customer_id = getattr(payment, "customer_id", None)
+
+                        # Skip if payment doesn't belong to any of our members
+                        if not customer_id or customer_id not in customer_id_to_member:
+                            continue
+
+                        # Parse payment date
+                        if hasattr(payment, "created_at") and payment.created_at:
+                            payment_date_str = payment.created_at[:10]  # YYYY-MM-DD
+
+                            # Skip if outside date range
+                            if payment_date_str < start_date_str:
+                                continue
+
+                            # Filter by status if specified
+                            if payment_status_filter and payment_status_filter != "all":
+                                if payment.status != payment_status_filter:
+                                    continue
+
+                            # Check if already processed
+                            payment_entry_exists = frappe.db.exists(
+                                "Payment Entry", {"reference_no": payment.id, "docstatus": ["in", [0, 1]]}
+                            )
+
+                            bank_transaction_exists = frappe.db.exists(
+                                "Bank Transaction", {"mollie_payment_id": payment.id}
+                            )
+
+                            is_processed = bool(payment_entry_exists or bank_transaction_exists)
+
+                            # Build payment info
+                            payment_info = {
+                                "payment_id": payment.id,
+                                "status": payment.status,
+                                "amount": (
+                                    f"{payment.amount['value']} {payment.amount['currency']}"
+                                    if payment.amount
+                                    else "Unknown"
+                                ),
+                                "description": getattr(payment, "description", ""),
+                                "created_at": str(payment.created_at),
+                                "paid_at": (
+                                    str(getattr(payment, "paid_at", None))
+                                    if getattr(payment, "paid_at", None)
+                                    else None
+                                ),
+                                "is_processed": is_processed,
+                                "payment_entry": payment_entry_exists if is_processed else None,
+                                "bank_transaction": bank_transaction_exists if is_processed else None,
+                            }
+
+                            # Add to member's payment list
+                            member_result = member_results[customer_id]
+                            member_result["payments"].append(payment_info)
+                            member_result["payment_count"] += 1
+                            result["total_payments"] += 1
+
+                            if not is_processed:
+                                member_result["unprocessed_count"] += 1
+                                result["unprocessed_payments"] += 1
+
+                    # Check pagination
+                    has_next = len(batch_payments) == limit
+                    if has_next and batch_payments:
+                        from_id = batch_payments[-1].id
+                    else:
+                        has_next = False
+
+                except Exception as batch_error:
+                    frappe.log_error(f"Error fetching payment batch: {str(batch_error)}")
+                    break
+
+            # Convert member_results dict to list
+            for customer_id, member_result in member_results.items():
+                if member_result["payment_count"] > 0 or member_result["error"]:
+                    result["members"].append(member_result)
+                    result["members_checked"] += 1
+
+            frappe.logger().info(
+                f"Bulk retrieval complete: {result['api_calls_made']} API calls made, "
+                f"{total_fetched} total payments fetched, {result['total_payments']} matched to members, "
+                f"{result['unprocessed_payments']} unprocessed"
+            )
+
+        except Exception as e:
+            result["error"] = str(e)
+            frappe.log_error(f"Bulk payment retrieval error: {str(e)}")
+
+        return result
+
+    def bulk_process_member_payments(
+        self, payment_ids: list, docstatus: int = 0, create_bank_transactions: bool = True
+    ):
+        """
+        Bulk process selected payments to create Payment Entries and/or Bank Transactions.
+
+        Args:
+            payment_ids: List of Mollie payment IDs to process
+            docstatus: 0 for Draft, 1 for Submitted (default: 0)
+            create_bank_transactions: Whether to create Bank Transactions (default: True)
+
+        Returns:
+            Dict with processing results
+        """
+        result = {
+            "total_requested": len(payment_ids),
+            "processed": 0,
+            "skipped": 0,
+            "errors": 0,
+            "results": [],
+            "timestamp": frappe.utils.now(),
+            "docstatus": docstatus,
+            "create_bank_transactions": create_bank_transactions,
+        }
+
+        try:
+            from verenigingen.integrations.mollie.services.dues_payment_processor import DuesPaymentProcessor
+
+            dues_processor = DuesPaymentProcessor()
+
+            for payment_id in payment_ids:
+                # Wrap each payment in explicit transaction for atomic operations
+                try:
+                    frappe.db.begin()  # Start transaction
+
+                    # Process the payment
+                    payment_result = dues_processor.process_dues_payment(payment_id)
+
+                    # If successful and docstatus is specified, update the documents
+                    if payment_result.get("status") == "success":
+                        if docstatus == 1 and payment_result.get("payment_entry"):
+                            # Submit the payment entry with proper permission check
+                            try:
+                                pe_doc = frappe.get_doc("Payment Entry", payment_result["payment_entry"])
+                                if pe_doc.docstatus == 0:
+                                    # Verify user has submit permission
+                                    if not frappe.has_permission("Payment Entry", "submit", pe_doc):
+                                        raise frappe.PermissionError(
+                                            f"User {frappe.session.user} does not have permission "
+                                            f"to submit Payment Entry {pe_doc.name}"
+                                        )
+                                    pe_doc.submit()
+                                    payment_result["payment_entry_submitted"] = True
+                            except Exception as submit_error:
+                                payment_result["submit_error"] = str(submit_error)
+                                frappe.db.rollback()  # Rollback on submission error
+                                result["errors"] += 1
+                                result["results"].append(payment_result)
+                                continue
+
+                        frappe.db.commit()  # Commit successful transaction
+                        result["processed"] += 1
+                    elif payment_result.get("status") in ["skipped", "already_processed"]:
+                        frappe.db.rollback()  # No changes made, rollback
+                        result["skipped"] += 1
+                    else:
+                        frappe.db.rollback()  # Failed processing, rollback
+                        result["errors"] += 1
+
+                    result["results"].append(payment_result)
+
+                except Exception as e:
+                    frappe.db.rollback()  # Ensure rollback on exception
+                    result["errors"] += 1
+                    result["results"].append({"payment_id": payment_id, "status": "error", "error": str(e)})
+                    frappe.log_error(f"Error processing payment {payment_id}: {e}")
+
+            frappe.logger().info(
+                f"Bulk processing complete: {result['processed']} processed, "
+                f"{result['skipped']} skipped, {result['errors']} errors"
+            )
+
+        except Exception as e:
+            result["error"] = str(e)
+            frappe.log_error(f"Bulk processing error: {e}")
 
         return result

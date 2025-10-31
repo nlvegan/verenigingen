@@ -685,6 +685,124 @@ def sync_membership_end_dates_from_mollie(dry_run=True):
         return {"error": str(e)}
 
 
+@frappe.whitelist(allow_guest=False, methods=["POST"])
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def bulk_retrieve_all_member_payments(days_back=30, max_payments=5000, payment_status_filter=None):
+    """
+    Bulk retrieve payments for all members with Mollie customer IDs.
+
+    Uses global payments endpoint for optimal performance - makes ~1 API call
+    per 250 payments instead of 1 API call per member (N+1 problem).
+
+    Args:
+        days_back: Number of days back to check (default: 30)
+        max_payments: Maximum total payments to retrieve (default: 5000)
+        payment_status_filter: Optional filter ('paid', 'pending', 'all')
+
+    Returns:
+        Dict with retrieval results including api_calls_made count
+
+    Security: POST-only to prevent accidental heavy API operations
+    """
+    try:
+        if not has_mollie_debug_access():
+            frappe.throw(_("Access denied"))
+
+        # Validate parameters
+        try:
+            days_back = int(days_back)
+            if days_back < 1 or days_back > 365:
+                days_back = 30
+        except (ValueError, TypeError):
+            days_back = 30
+
+        try:
+            max_payments = int(max_payments)
+            if max_payments < 250 or max_payments > 10000:
+                max_payments = 5000
+        except (ValueError, TypeError):
+            max_payments = 5000
+
+        service = MollieDebugService()
+        return service.bulk_retrieve_all_member_payments(days_back, max_payments, payment_status_filter)
+
+    except Exception as e:
+        frappe.log_error(f"Bulk retrieve member payments error: {str(e)}")
+        return {"error": str(e)}
+
+
+@frappe.whitelist(allow_guest=False, methods=["POST"])
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def bulk_process_member_payments(payment_ids, docstatus=0, create_bank_transactions=True):
+    """
+    Bulk process selected payments to create Payment Entries and/or Bank Transactions.
+
+    Args:
+        payment_ids: JSON string or list of Mollie payment IDs
+        docstatus: 0 for Draft, 1 for Submitted (default: 0)
+        create_bank_transactions: Whether to create Bank Transactions (default: True)
+
+    Returns:
+        Dict with processing results
+
+    Security: POST-only to prevent accidental data creation
+    """
+    try:
+        if not has_mollie_debug_access():
+            frappe.throw(_("Access denied"))
+
+        # Parse payment_ids if it's a JSON string
+        if isinstance(payment_ids, str):
+            import html
+
+            try:
+                payment_ids_decoded = html.unescape(payment_ids)
+                payment_ids = frappe.parse_json(payment_ids_decoded)
+            except (ValueError, TypeError) as e:
+                frappe.throw(_("Invalid JSON format for payment_ids: {0}").format(str(e)))
+
+        if not payment_ids or not isinstance(payment_ids, list):
+            frappe.throw(_("Invalid payment_ids - must be a list"))
+
+        # Validate payment ID format
+        import re
+
+        mollie_payment_pattern = re.compile(r"^tr_[a-zA-Z0-9]{10,}$")
+        for pid in payment_ids:
+            if not isinstance(pid, str):
+                frappe.throw(_("Payment ID must be a string: {0}").format(pid))
+            if not mollie_payment_pattern.match(pid):
+                frappe.throw(_("Invalid Mollie payment ID format: {0}").format(pid))
+
+        # Enforce maximum batch size
+        MAX_BATCH_SIZE = 100
+        if len(payment_ids) > MAX_BATCH_SIZE:
+            frappe.throw(
+                _("Cannot process more than {0} payments at once. Please process in smaller batches.").format(
+                    MAX_BATCH_SIZE
+                )
+            )
+
+        # Convert string boolean from form data
+        if isinstance(create_bank_transactions, str):
+            create_bank_transactions = create_bank_transactions.lower() in ("true", "1", "yes")
+
+        # Validate docstatus
+        try:
+            docstatus = int(docstatus)
+            if docstatus not in [0, 1]:
+                docstatus = 0
+        except (ValueError, TypeError):
+            docstatus = 0
+
+        service = MollieDebugService()
+        return service.bulk_process_member_payments(payment_ids, docstatus, create_bank_transactions)
+
+    except Exception as e:
+        frappe.log_error(f"Bulk process member payments error: {str(e)}")
+        return {"error": str(e), "payment_ids": payment_ids if isinstance(payment_ids, list) else []}
+
+
 # Bulk Payment Checker API Endpoints
 
 

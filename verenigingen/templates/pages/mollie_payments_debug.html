@@ -613,6 +613,139 @@
             <!-- Include Membership Dues Payment Processor -->
             {% include "verenigingen/templates/pages/mollie_dues_payment_processor.html" %}
 
+            <!-- Bulk Member Payment Processor Section -->
+            <div class="bg-white border border-gray-300 rounded-lg p-4 mb-6">
+                <div class="p-4 border border-green-300 rounded-lg bg-green-50">
+                    <h3 class="text-lg font-semibold text-green-800 mb-2">
+                        <i class="fa fa-users mr-2"></i>{{ _("Bulk Member Payment Processor") }}
+                    </h3>
+                    <p class="text-green-700 mb-4">
+                        {{ _("Systematically retrieve payments for ALL members with Mollie customer IDs and process them in bulk") }}
+                    </p>
+
+                    <!-- Configuration Section -->
+                    <div class="bg-green-100 p-4 rounded-lg border border-green-300 mb-4">
+                        <h4 class="font-semibold text-green-800 mb-3">{{ _("Configuration") }}</h4>
+
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                            <div>
+                                <label class="block text-sm font-medium text-green-900 mb-1">{{ _("Days Back") }}</label>
+                                <input type="number" id="bulk-days-back" class="w-full px-3 py-2 border border-green-300 rounded-md bg-white"
+                                       value="30" min="1" max="365">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-green-900 mb-1">{{ _("Max Payments") }}</label>
+                                <input type="number" id="bulk-max-payments" class="w-full px-3 py-2 border border-green-300 rounded-md bg-white"
+                                       value="5000" min="250" max="10000" step="250">
+                                <p class="text-xs text-green-700 mt-1">{{ _("~20 API calls for 5000 payments") }}</p>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-green-900 mb-1">{{ _("Payment Status") }}</label>
+                                <select id="bulk-payment-status" class="w-full px-3 py-2 border border-green-300 rounded-md bg-white">
+                                    <option value="all">All</option>
+                                    <option value="paid" selected>Paid Only</option>
+                                    <option value="pending">Pending Only</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <button type="button" onclick="bulkRetrieveAllMemberPayments()" class="inline-flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-md transition-colors duration-200 shadow-sm">
+                            <i class="fa fa-download mr-2"></i>{{ _("Retrieve All Member Payments") }}
+                        </button>
+                    </div>
+
+                    <!-- Results Section -->
+                    <div id="bulk-payments-list" class="bg-white p-4 rounded-lg border border-green-200" style="display: none;">
+                        <h4 class="font-semibold text-green-700 mb-3">{{ _("Retrieved Payments") }}</h4>
+
+                        <div class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                            <div class="text-sm text-blue-700">
+                                <p class="mb-2"><strong>{{ _("Summary:") }}</strong></p>
+                                <p class="mb-1">Total Members: <span id="bulk-total-members" class="font-semibold">0</span></p>
+                                <p class="mb-1">Members Checked: <span id="bulk-members-checked" class="font-semibold">0</span></p>
+                                <p class="mb-1">Total Payments: <span id="bulk-total-payments" class="font-semibold">0</span></p>
+                                <p class="mb-1">Unprocessed: <span id="bulk-unprocessed-payments" class="font-semibold">0</span></p>
+                                <p class="mb-1 text-green-600">API Calls Made: <span id="bulk-api-calls" class="font-semibold">0</span></p>
+                            </div>
+                        </div>
+
+                        <!-- Processing Options -->
+                        <div class="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                            <h5 class="font-semibold text-yellow-800 mb-2">{{ _("Processing Options") }}</h5>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-yellow-900 mb-1">{{ _("Document Status") }}</label>
+                                    <select id="bulk-docstatus" class="w-full px-3 py-2 border border-yellow-300 rounded-md bg-white">
+                                        <option value="0">Draft (Recommended)</option>
+                                        <option value="1">Submitted</option>
+                                    </select>
+                                </div>
+                                <div class="flex items-center pt-6">
+                                    <input type="checkbox" id="bulk-create-bank-transactions" class="mr-2" checked>
+                                    <label for="bulk-create-bank-transactions" class="text-sm font-medium text-yellow-900">
+                                        {{ _("Create Bank Transactions") }}
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Quick Selection Buttons -->
+                        <div class="mb-4 flex gap-2">
+                            <button type="button" onclick="bulkSelectAllUnprocessed()" class="inline-flex items-center px-3 py-1.5 bg-gray-600 hover:bg-gray-700 text-white text-sm font-medium rounded-md transition-colors duration-200">
+                                <i class="fa fa-check-square mr-2"></i>{{ _("Select All Unprocessed") }}
+                            </button>
+                            <button type="button" onclick="bulkDeselectAll()" class="inline-flex items-center px-3 py-1.5 bg-gray-500 hover:bg-gray-600 text-white text-sm font-medium rounded-md transition-colors duration-200">
+                                <i class="fa fa-square-o mr-2"></i>{{ _("Deselect All") }}
+                            </button>
+                            <span id="bulk-selected-count" class="text-sm font-medium text-gray-700 flex items-center ml-4">
+                                Selected: <span class="ml-1 font-bold">0</span>
+                            </span>
+                        </div>
+
+                        <!-- Member/Payments Table -->
+                        <div class="overflow-x-auto mb-4 max-h-96 overflow-y-auto">
+                            <table class="w-full text-sm">
+                                <thead class="bg-gray-50 sticky top-0">
+                                    <tr>
+                                        <th class="px-2 py-2 text-left">
+                                            <input type="checkbox" id="bulk-select-all-checkbox" onchange="bulkToggleSelectAll()">
+                                        </th>
+                                        <th class="px-2 py-2 text-left">{{ _("Member") }}</th>
+                                        <th class="px-2 py-2 text-left">{{ _("Payment ID") }}</th>
+                                        <th class="px-2 py-2 text-left">{{ _("Status") }}</th>
+                                        <th class="px-2 py-2 text-left">{{ _("Amount") }}</th>
+                                        <th class="px-2 py-2 text-left">{{ _("Date") }}</th>
+                                        <th class="px-2 py-2 text-left">{{ _("Processed?") }}</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="bulk-payments-table-body">
+                                    <!-- Populated by JavaScript -->
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <button type="button" onclick="bulkProcessSelectedPayments()" class="inline-flex items-center px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white font-medium rounded-md transition-colors duration-200">
+                            <i class="fa fa-cogs mr-2"></i>{{ _("Process Selected Payments") }}
+                        </button>
+                    </div>
+
+                    <!-- Processing Results -->
+                    <div id="bulk-processing-results" class="bg-slate-50 border border-gray-300 rounded p-4 mt-4 font-mono whitespace-pre-wrap max-h-96 overflow-y-auto" style="display: none;"></div>
+
+                    <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                        <div class="text-sm text-blue-700">
+                            <p class="mb-2"><strong>{{ _("How it works:") }}</strong></p>
+                            <p class="mb-1">{{ _("1. Configure days back and payment status filter") }}</p>
+                            <p class="mb-1">{{ _("2. Click to retrieve ALL payments for ALL active members with Mollie IDs") }}</p>
+                            <p class="mb-1">{{ _("3. System identifies which payments are already processed") }}</p>
+                            <p class="mb-1">{{ _("4. Choose Draft or Submitted mode") }}</p>
+                            <p class="mb-1">{{ _("5. Select unprocessed payments and process in bulk") }}</p>
+                            <p>{{ _("6. Payment Entries and/or Bank Transactions are created automatically") }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Debug Webhook Delivery Section -->
             <div class="debug-card">
                 <h2 class="text-xl font-semibold mb-4">{{ _("Webhook Debug") }}</h2>
@@ -3137,6 +3270,223 @@ function formatSearchResults(data) {
     }
 
     return html;
+}
+
+// Bulk Member Payment Processing Functions
+let bulkPaymentsData = null;
+
+function bulkRetrieveAllMemberPayments() {
+    const daysBack = document.getElementById('bulk-days-back').value;
+    const maxPayments = document.getElementById('bulk-max-payments').value;
+    const paymentStatus = document.getElementById('bulk-payment-status').value;
+
+    const estimatedApiCalls = Math.ceil(maxPayments / 250);
+    if (!confirm(`This will retrieve payments for ALL active members with Mollie IDs using the global payments endpoint.\n\nDays back: ${daysBack}\nMax payments: ${maxPayments}\nStatus: ${paymentStatus}\nEstimated API calls: ~${estimatedApiCalls}\n\nContinue?`)) {
+        return;
+    }
+
+    // Show loading in results area
+    document.getElementById('bulk-payments-list').style.display = 'block';
+    document.getElementById('bulk-payments-table-body').innerHTML = '<tr><td colspan="7" class="text-center py-4"><i class="fa fa-spinner fa-spin mr-2"></i>Fetching payments via global endpoint (optimized)...</td></tr>';
+
+    const formData = new FormData();
+    formData.append('days_back', daysBack);
+    formData.append('max_payments', maxPayments);
+    formData.append('payment_status_filter', paymentStatus === 'all' ? null : paymentStatus);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.bulk_retrieve_all_member_payments', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        const result = data.message || data;
+        if (result.error) {
+            alert('Error: ' + result.error);
+            document.getElementById('bulk-payments-list').style.display = 'none';
+            return;
+        }
+
+        bulkPaymentsData = result;
+        displayBulkPaymentsResults(result);
+    })
+    .catch(error => {
+        alert('Error: ' + error.message);
+        document.getElementById('bulk-payments-list').style.display = 'none';
+    });
+}
+
+function displayBulkPaymentsResults(data) {
+    // Update summary
+    document.getElementById('bulk-total-members').textContent = data.total_members;
+    document.getElementById('bulk-members-checked').textContent = data.members_checked;
+    document.getElementById('bulk-total-payments').textContent = data.total_payments;
+    document.getElementById('bulk-unprocessed-payments').textContent = data.unprocessed_payments;
+    document.getElementById('bulk-api-calls').textContent = data.api_calls_made || 0;
+
+    // Build table
+    const tbody = document.getElementById('bulk-payments-table-body');
+    tbody.innerHTML = '';
+
+    if (!data.members || data.members.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-gray-500">No members with payments found</td></tr>';
+        return;
+    }
+
+    data.members.forEach(member => {
+        if (!member.payments || member.payments.length === 0) return;
+
+        member.payments.forEach((payment, index) => {
+            const row = document.createElement('tr');
+            row.className = payment.is_processed ? 'bg-gray-50' : 'bg-white hover:bg-gray-50';
+
+            const checkbox = !payment.is_processed ?
+                `<input type="checkbox" class="bulk-payment-checkbox" data-payment-id="${payment.payment_id}" onchange="bulkUpdateSelectedCount()">` :
+                `<span class="text-gray-400">—</span>`;
+
+            const memberDisplay = index === 0 ?
+                `<div class="font-medium">${member.full_name}</div><div class="text-xs text-gray-500">${member.member}</div>` :
+                `<div class="text-xs text-gray-400">↳ same member</div>`;
+
+            const processedBadge = payment.is_processed ?
+                '<span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded">✓ Processed</span>' :
+                '<span class="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded">Unprocessed</span>';
+
+            row.innerHTML = `
+                <td class="px-2 py-2">${checkbox}</td>
+                <td class="px-2 py-2">${memberDisplay}</td>
+                <td class="px-2 py-2"><code class="text-xs">${payment.payment_id}</code></td>
+                <td class="px-2 py-2"><span class="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">${payment.status}</span></td>
+                <td class="px-2 py-2">${payment.amount}</td>
+                <td class="px-2 py-2 text-xs">${payment.created_at ? new Date(payment.created_at).toLocaleDateString() : 'N/A'}</td>
+                <td class="px-2 py-2">${processedBadge}</td>
+            `;
+
+            tbody.appendChild(row);
+        });
+    });
+
+    bulkUpdateSelectedCount();
+}
+
+function bulkSelectAllUnprocessed() {
+    document.querySelectorAll('.bulk-payment-checkbox').forEach(cb => {
+        cb.checked = true;
+    });
+    bulkUpdateSelectedCount();
+}
+
+function bulkDeselectAll() {
+    document.querySelectorAll('.bulk-payment-checkbox').forEach(cb => {
+        cb.checked = false;
+    });
+    document.getElementById('bulk-select-all-checkbox').checked = false;
+    bulkUpdateSelectedCount();
+}
+
+function bulkToggleSelectAll() {
+    const checked = document.getElementById('bulk-select-all-checkbox').checked;
+    document.querySelectorAll('.bulk-payment-checkbox').forEach(cb => {
+        cb.checked = checked;
+    });
+    bulkUpdateSelectedCount();
+}
+
+function bulkUpdateSelectedCount() {
+    const count = document.querySelectorAll('.bulk-payment-checkbox:checked').length;
+    document.getElementById('bulk-selected-count').querySelector('span').textContent = count;
+}
+
+function bulkProcessSelectedPayments() {
+    const checkboxes = document.querySelectorAll('.bulk-payment-checkbox:checked');
+    if (checkboxes.length === 0) {
+        alert('Please select at least one payment to process');
+        return;
+    }
+
+    const paymentIds = Array.from(checkboxes).map(cb => cb.dataset.paymentId);
+    const docstatus = document.getElementById('bulk-docstatus').value;
+    const createBankTransactions = document.getElementById('bulk-create-bank-transactions').checked;
+
+    const docstatusText = docstatus === '0' ? 'DRAFT' : 'SUBMITTED';
+    const message = `Process ${paymentIds.length} payment(s)?\n\nDocument Status: ${docstatusText}\nCreate Bank Transactions: ${createBankTransactions ? 'Yes' : 'No'}\n\nThis will create Payment Entries and/or Bank Transactions for the selected payments.`;
+
+    if (!confirm(message)) {
+        return;
+    }
+
+    // Show loading
+    document.getElementById('bulk-processing-results').style.display = 'block';
+    document.getElementById('bulk-processing-results').textContent = 'Processing payments...';
+
+    const formData = new FormData();
+    formData.append('payment_ids', JSON.stringify(paymentIds));
+    formData.append('docstatus', docstatus);
+    formData.append('create_bank_transactions', createBankTransactions ? 'true' : 'false');
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.bulk_process_member_payments', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        const result = data.message || data;
+        displayBulkProcessingResults(result);
+    })
+    .catch(error => {
+        document.getElementById('bulk-processing-results').textContent = 'Error: ' + error.message;
+    });
+}
+
+function displayBulkProcessingResults(data) {
+    let output = `Bulk Processing Complete\n`;
+    output += `======================\n\n`;
+    output += `Total Requested: ${data.total_requested}\n`;
+    output += `Successfully Processed: ${data.processed}\n`;
+    output += `Skipped (already processed): ${data.skipped}\n`;
+    output += `Errors: ${data.errors}\n`;
+    output += `Document Status: ${data.docstatus === 0 ? 'Draft' : 'Submitted'}\n`;
+    output += `\n`;
+
+    if (data.results && data.results.length > 0) {
+        output += `Detailed Results:\n`;
+        output += `----------------\n`;
+        data.results.forEach((result, index) => {
+            output += `\n${index + 1}. Payment ID: ${result.payment_id}\n`;
+            output += `   Status: ${result.status}\n`;
+            if (result.payment_entry) {
+                output += `   Payment Entry: ${result.payment_entry}\n`;
+                if (result.payment_entry_submitted) {
+                    output += `   ✓ Payment Entry Submitted\n`;
+                }
+            }
+            if (result.bank_transaction) {
+                output += `   Bank Transaction: ${result.bank_transaction}\n`;
+            }
+            if (result.error) {
+                output += `   Error: ${result.error}\n`;
+            }
+            if (result.message) {
+                output += `   Message: ${result.message}\n`;
+            }
+        });
+    }
+
+    document.getElementById('bulk-processing-results').textContent = output;
+
+    // Refresh the data to show updated processed status
+    if (data.processed > 0) {
+        setTimeout(() => {
+            alert(`Processing complete!\n\nProcessed: ${data.processed}\nSkipped: ${data.skipped}\nErrors: ${data.errors}\n\nClick OK to refresh the payment list.`);
+            bulkRetrieveAllMemberPayments();
+        }, 1000);
+    }
 }
 </script>
 {% endblock %}
