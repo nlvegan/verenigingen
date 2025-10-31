@@ -1380,9 +1380,9 @@ class MijnroodCSVImport(Document):
                     # Try to create the chapter automatically
                     created_chapter = self._create_chapter_if_not_exists(chapter_name)
                     if not created_chapter:
-                        frappe.logger().error(
-                            f"Failed to auto-create chapter '{chapter_name}'. Skipping chapter assignment for member {member_doc.name}"
-                        )
+                        error_msg = f"Failed to auto-create chapter '{chapter_name}'. Skipping chapter assignment for member {member_doc.name}"
+                        frappe.logger().error(error_msg)
+                        self._log_error(error_msg, row_data)
                         return
                     frappe.logger().info(
                         f"Auto-created chapter '{chapter_name}' and assigning member {member_doc.name}"
@@ -1531,27 +1531,68 @@ class MijnroodCSVImport(Document):
             return False
 
     def _ensure_nl_region_exists(self) -> str:
-        """Ensure the Netherlands region exists and return its name."""
-        try:
-            # Check if NL region already exists
-            nl_region = frappe.db.get_value("Region", {"region_code": "NL"})
-            if nl_region:
-                return nl_region
+        """
+        Ensure a region exists for chapter creation.
 
-            # Create basic Netherlands region
-            region = frappe.new_doc("Region")
-            region.update(
-                {
-                    "region_name": "Netherlands",
-                    "region_code": "NL",
-                    "country": "Netherlands",
-                    "is_active": 1,
-                    "preferred_language": "Dutch",
-                    "time_zone": "Europe/Amsterdam",
-                    "membership_fee_adjustment": 1.0,
-                    "description": "Auto-created Netherlands region during CSV import",
-                }
+        Priority:
+        1. Use self.default_region if specified
+        2. Try to find existing region with region_code 'NL'
+        3. Create basic Netherlands region as fallback
+
+        Returns:
+            str: Region name if successful, None otherwise
+        """
+        try:
+            # Priority 1: Use explicitly configured default region
+            if self.default_region:
+                if frappe.db.exists("Region", self.default_region):
+                    frappe.logger().info(f"Using configured default region '{self.default_region}' for chapter creation")
+                    return self.default_region
+                else:
+                    frappe.logger().error(
+                        f"Configured default region '{self.default_region}' does not exist. "
+                        "Please create it first or leave the field empty to auto-create Netherlands region."
+                    )
+                    frappe.throw(
+                        _(
+                            "Default region '{0}' does not exist. Please create it first or clear the field to auto-create Netherlands region."
+                        ).format(self.default_region)
+                    )
+
+            # Priority 2: Check if NL region already exists (case-insensitive search)
+            # Search for common Netherlands region codes: NL, nl, nederland, Netherlands
+            from frappe.query_builder import Case
+            from frappe.query_builder.functions import Lower
+
+            Region = frappe.qb.DocType("Region")
+            nl_region = (
+                frappe.qb.from_(Region)
+                .select(Region.name)
+                .where(
+                    (Lower(Region.region_code).isin(["nl", "nederland", "netherlands"]))
+                    | (Lower(Region.region_name).isin(["nl", "nederland", "netherlands"]))
+                )
+                .limit(1)
+                .run()
             )
+
+            if nl_region and nl_region[0]:
+                region_name = nl_region[0][0]
+                frappe.logger().info(f"Found existing Netherlands region '{region_name}'")
+                return region_name
+
+            # Priority 3: Create basic Netherlands region as fallback
+            frappe.logger().info("No default region configured and no NL region found. Creating default Netherlands region...")
+
+            region = frappe.new_doc("Region")
+            region.region_name = "Netherlands"
+            region.region_code = "NL"
+            # Leave country field empty - it's a Link field and might not have Netherlands record
+            region.is_active = 1
+            region.preferred_language = "Dutch"
+            region.time_zone = "Europe/Amsterdam"
+            region.membership_fee_adjustment = 1.0
+            region.description = "Auto-created Netherlands region during CSV import. Please update with proper details."
 
             # Set CSV import flags
             region._csv_import = True
@@ -1559,22 +1600,33 @@ class MijnroodCSVImport(Document):
 
             region.insert()
 
-            frappe.logger().info("Auto-created Netherlands region during CSV import")
+            frappe.logger().info(f"Auto-created Netherlands region '{region.name}' during CSV import")
             return region.name
 
         except Exception as e:
-            frappe.logger().error("Failed to create Netherlands region: %s", str(e))
-            # Return None to indicate failure
+            frappe.logger().error("Failed to ensure region exists: %s", str(e))
+            frappe.log_error(
+                title="Region Creation Failed During CSV Import",
+                message=f"Error: {str(e)}\nImport: {self.name}\nDefault Region: {self.default_region}"
+            )
             return None
 
     def _create_chapter_if_not_exists(self, chapter_name: str) -> str:
-        """Create a new chapter with Netherlands region if it doesn't exist."""
+        """
+        Create a new chapter with configured or default region if it doesn't exist.
+
+        Returns:
+            str: Chapter name if successful, None if failed
+        """
         try:
-            # Ensure Netherlands region exists
-            nl_region = self._ensure_nl_region_exists()
-            if not nl_region:
-                frappe.logger().error(
-                    f"Cannot create chapter '{chapter_name}' - Netherlands region creation failed"
+            # Ensure region exists (uses self.default_region if configured)
+            region_name = self._ensure_nl_region_exists()
+            if not region_name:
+                error_msg = f"Cannot create chapter '{chapter_name}' - region creation/validation failed"
+                frappe.logger().error(error_msg)
+                frappe.log_error(
+                    title="Chapter Auto-Creation Failed - No Region",
+                    message=f"{error_msg}\nImport: {self.name}\nDefault Region: {self.default_region}"
                 )
                 return None
 
@@ -1583,7 +1635,7 @@ class MijnroodCSVImport(Document):
             # Set fields directly, not via update() which can bypass validation
             chapter.chapter_name = chapter_name  # Set the chapter name field
             chapter.status = "Active"
-            chapter.region = nl_region  # CRITICAL: Set region field
+            chapter.region = region_name  # CRITICAL: Set region field
             chapter.introduction = (
                 f"Auto-created chapter '{chapter_name}' during CSV import. Please update with proper details."
             )
@@ -1595,12 +1647,17 @@ class MijnroodCSVImport(Document):
             chapter.insert()
 
             frappe.logger().info(
-                f"Auto-created chapter '{chapter_name}' with Netherlands region '{nl_region}' during CSV import"
+                f"Auto-created chapter '{chapter_name}' with region '{region_name}' during CSV import"
             )
             return chapter.name
 
         except Exception as e:
-            frappe.logger().error("Failed to create chapter '%s': %s", chapter_name, str(e))
+            error_msg = f"Failed to create chapter '{chapter_name}': {str(e)}"
+            frappe.logger().error(error_msg)
+            frappe.log_error(
+                title="Chapter Auto-Creation Failed",
+                message=f"{error_msg}\nImport: {self.name}\nRegion: {region_name if 'region_name' in locals() else 'Unknown'}"
+            )
             return None
 
     def _generate_performance_report(self):

@@ -711,7 +711,8 @@ class Member(
                         "member": self.name,
                         "membership_type": self.selected_membership_type,
                         "start_date": start_date or today(),
-                        "status": "Active",  # Active immediately on approval
+                        # Status is set automatically by set_status() during validate
+                        # Draft on insert, Active on submit
                     }
                 )
 
