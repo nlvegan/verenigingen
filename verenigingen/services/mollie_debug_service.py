@@ -2013,29 +2013,48 @@ class MollieDebugService:
 
             dues_processor = DuesPaymentProcessor()
 
+            # Determine creation mode based on create_bank_transactions flag
+            creation_mode = "Bank Transaction" if create_bank_transactions else "Payment Entry"
+
             for payment_id in payment_ids:
                 # Wrap each payment in explicit transaction for atomic operations
                 try:
                     frappe.db.begin()  # Start transaction
 
-                    # Process the payment
-                    payment_result = dues_processor.process_dues_payment(payment_id)
+                    # Process the payment with explicit creation mode
+                    payment_result = dues_processor.process_dues_payment(
+                        payment_id, creation_mode=creation_mode
+                    )
 
-                    # If successful and docstatus is specified, update the documents
+                    # If successful and docstatus is specified, submit the documents
                     if payment_result.get("status") == "success":
-                        if docstatus == 1 and payment_result.get("payment_entry"):
-                            # Submit the payment entry with proper permission check
+                        if docstatus == 1:
+                            # Submit Payment Entry or Bank Transaction based on what was created
                             try:
-                                pe_doc = frappe.get_doc("Payment Entry", payment_result["payment_entry"])
-                                if pe_doc.docstatus == 0:
-                                    # Verify user has submit permission
-                                    if not frappe.has_permission("Payment Entry", "submit", pe_doc):
-                                        raise frappe.PermissionError(
-                                            f"User {frappe.session.user} does not have permission "
-                                            f"to submit Payment Entry {pe_doc.name}"
-                                        )
-                                    pe_doc.submit()
-                                    payment_result["payment_entry_submitted"] = True
+                                if payment_result.get("payment_entry"):
+                                    pe_doc = frappe.get_doc("Payment Entry", payment_result["payment_entry"])
+                                    if pe_doc.docstatus == 0:
+                                        # Verify user has submit permission
+                                        if not frappe.has_permission("Payment Entry", "submit", pe_doc):
+                                            raise frappe.PermissionError(
+                                                f"User {frappe.session.user} does not have permission "
+                                                f"to submit Payment Entry {pe_doc.name}"
+                                            )
+                                        pe_doc.submit()
+                                        payment_result["payment_entry_submitted"] = True
+                                elif payment_result.get("bank_transaction"):
+                                    bt_doc = frappe.get_doc(
+                                        "Bank Transaction", payment_result["bank_transaction"]
+                                    )
+                                    if bt_doc.docstatus == 0:
+                                        # Verify user has submit permission
+                                        if not frappe.has_permission("Bank Transaction", "submit", bt_doc):
+                                            raise frappe.PermissionError(
+                                                f"User {frappe.session.user} does not have permission "
+                                                f"to submit Bank Transaction {bt_doc.name}"
+                                            )
+                                        bt_doc.submit()
+                                        payment_result["bank_transaction_submitted"] = True
                             except Exception as submit_error:
                                 payment_result["submit_error"] = str(submit_error)
                                 frappe.db.rollback()  # Rollback on submission error

@@ -3468,6 +3468,9 @@ function displayBulkProcessingResults(data) {
             }
             if (result.bank_transaction) {
                 output += `   Bank Transaction: ${result.bank_transaction}\n`;
+                if (result.bank_transaction_submitted) {
+                    output += `   ✓ Bank Transaction Submitted\n`;
+                }
             }
             if (result.error) {
                 output += `   Error: ${result.error}\n`;

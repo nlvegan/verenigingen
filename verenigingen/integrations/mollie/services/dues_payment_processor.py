@@ -96,16 +96,22 @@ class DuesPaymentProcessor:
         frappe.logger().warning(f"⚠️ No member found for payment {payment.id}")
         return None
 
-    def process_dues_payment(self, payment_id: str, payment=None) -> Dict[str, Any]:
+    def process_dues_payment(
+        self, payment_id: str, payment=None, creation_mode: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
         Process a membership dues payment from Mollie.
 
-        Creates a Payment Entry for the member's dues payment.
+        Creates a Payment Entry or Bank Transaction for the member's dues payment.
         Uses proper idempotency checks to prevent duplicate processing.
 
         Args:
             payment_id: Mollie payment ID
             payment: Optional Mollie payment object (if already fetched)
+            creation_mode: Optional override for document creation mode.
+                         "Payment Entry" to create Payment Entry directly
+                         "Bank Transaction" to create Bank Transaction for reconciliation
+                         None (default) to use centralized configuration
 
         Returns:
             dict: Processing result with status, payment_entry, member, etc.
@@ -173,13 +179,14 @@ class DuesPaymentProcessor:
 
             result["member"] = member_name
 
-            # Check payment creation mode from centralized configuration
-            from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
-                get_mollie_config,
-            )
+            # Determine creation mode: use override if provided, otherwise use centralized configuration
+            if creation_mode is None:
+                from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
+                    get_mollie_config,
+                )
 
-            mollie_config = get_mollie_config()
-            creation_mode = mollie_config.get_dues_payment_creation_mode()
+                mollie_config = get_mollie_config()
+                creation_mode = mollie_config.get_dues_payment_creation_mode()
 
             if creation_mode == "Payment Entry":
                 # Legacy mode: Create Payment Entry directly
