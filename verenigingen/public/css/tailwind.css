@@ -178,6 +178,7 @@
     --color-success-800: #014a44;
     --color-danger-100: #fee2e2;
     --color-danger-300: #fca5a5;
+    --color-danger-400: #f87171;
     --color-danger-500: #cf3131;
     --color-danger-600: #b82828;
     --color-danger-700: #a01f1f;
@@ -579,6 +580,9 @@
   }
   .ml-5 {
     margin-left: calc(var(--spacing) * 5);
+  }
+  .ml-6 {
+    margin-left: calc(var(--spacing) * 6);
   }
   .ml-auto {
     margin-left: auto;
@@ -1070,6 +1074,9 @@
   }
   .border-danger-300 {
     border-color: var(--color-danger-300);
+  }
+  .border-danger-400 {
+    border-color: var(--color-danger-400);
   }
   .border-gray-100 {
     border-color: var(--color-gray-100);

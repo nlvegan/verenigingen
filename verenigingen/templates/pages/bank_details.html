@@ -108,7 +108,7 @@
         {% endif %}
 
         {% if current_details %}
-        <div class="bg-gray-50 border-l-4 border-red-400 p-4 rounded-r-lg mb-6">
+        <div class="bg-gray-50 border-l-4 border-primary-400 p-4 rounded-r-lg mb-6">
             <h5 class="font-medium text-gray-800 mb-2">{{ _("Current Bank Details") }}</h5>
             <div class="space-y-1 text-sm text-gray-600">
                 <p><span class="font-medium">{{ _("IBAN:") }}</span> {{ current_details.iban or _("Not set") }}</p>
@@ -128,7 +128,7 @@
                     {{ _("IBAN") }} <span class="text-red-500">*</span>
                 </label>
                 <input type="text"
-                       class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-red-500 focus:border-red-500"
+                       class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
                        id="iban"
                        name="iban"
                        value="{{ current_details.iban if current_details else '' }}"
@@ -143,7 +143,7 @@
                     {{ _("Account Holder Name") }} <span class="text-red-500">*</span>
                 </label>
                 <input type="text"
-                       class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-red-500 focus:border-red-500"
+                       class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
                        id="account_holder_name"
                        name="account_holder_name"
                        value="{{ current_details.bank_account_name if current_details else member.full_name }}"
@@ -156,7 +156,7 @@
             <div>
                 <div class="flex items-start">
                     <input type="checkbox"
-                           class="mt-1 mr-3 h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300 rounded"
+                           class="mt-1 mr-3 h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
                            id="enable_direct_debit"
                            name="enable_direct_debit"
                            {% if member.payment_method == "SEPA Direct Debit" or current_mandate %}checked{% endif %}>
@@ -184,7 +184,7 @@
                 <a href="/member_dashboard" class="inline-flex items-center justify-center px-6 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors duration-200">
                     {{ _("Cancel") }}
                 </a>
-                <button type="submit" class="inline-flex items-center justify-center px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md transition-colors duration-200">
+                <button type="submit" class="inline-flex items-center justify-center px-6 py-2 bg-primary-600 hover:bg-primary-700 text-primary-contrast rounded-md transition-colors duration-200">
                     {{ _("Continue") }}
                 </button>
             </div>
@@ -478,7 +478,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     ${sub.is_active ? `
                         <button type="button"
                                 onclick="cancelSpecificSubscription('${subInfo.customer_id}', '${sub.id}')"
-                                class="inline-flex items-center px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded transition-colors duration-200"
+                                class="inline-flex items-center px-2 py-1 bg-primary-600 hover:bg-primary-700 text-primary-contrast text-xs rounded transition-colors duration-200"
                                 title="{{ _('Cancel this subscription') }}">
                             <i class="fa fa-times mr-1"></i>
                             {{ _("Cancel") }}

@@ -1418,9 +1418,18 @@ class MollieDebugService:
 
             result["total_found"] = len(payments)
 
+            # Get bank transaction creator for idempotency checks
+            from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+                get_bank_transaction_creator,
+            )
+
+            bank_tx_creator = get_bank_transaction_creator()
+
             for payment in payments:
-                # Check if already processed
-                idempotency_check = dues_processor.check_payment_already_processed(payment.id)
+                # Check if already processed using centralized service
+                idempotency_check = bank_tx_creator.check_already_processed(
+                    payment.id, check_payment_entry=True  # Check both Payment Entry and Bank Transaction
+                )
 
                 # Identify payment type
                 payment_type = dues_processor.identify_payment_type(payment)
@@ -1621,7 +1630,7 @@ class MollieDebugService:
     def sync_membership_end_dates_from_mollie(self, dry_run: bool = True):
         """
         Sync membership end dates from Mollie subscription cancellation dates
-        for terminated/banned members.
+        for terminated/banned/suspended members.
 
         This function:
         1. Finds all members with status in ('Terminated', 'Banned', 'Suspended')
@@ -1629,7 +1638,11 @@ class MollieDebugService:
            a. Queries Mollie for customer data
            b. Retrieves subscription information
            c. Uses the subscription cancellation date
-           d. Updates the Membership.cancellation_date field
+           d. Updates the Member.member_end_date field (always)
+           e. Also updates Membership.cancellation_date field (if Membership record exists)
+
+        This is particularly useful for imported terminated members who may lack
+        Membership records but still need their end date populated from Mollie.
 
         Args:
             dry_run: If True, only report what would be updated without making changes
@@ -1687,7 +1700,19 @@ class MollieDebugService:
                 try:
                     # Get customer data from Mollie
                     client = self.mollie_client.sdk_client
-                    customer_obj = client.customers.get(member.mollie_customer_id)
+
+                    try:
+                        customer_obj = client.customers.get(member.mollie_customer_id)
+                    except Exception as api_error:
+                        # Handle deleted customers gracefully (HTTP 410 Gone)
+                        error_msg = str(api_error)
+                        if "no longer available" in error_msg.lower() or "410" in error_msg:
+                            member_result["error"] = "Customer deleted in Mollie (410 Gone)"
+                            member_result["skipped"] = True
+                            result["members"].append(member_result)
+                            continue
+                        else:
+                            raise  # Re-raise if it's a different error
 
                     # Get subscriptions
                     subscriptions = customer_obj.subscriptions.list()
@@ -1716,7 +1741,40 @@ class MollieDebugService:
 
                         member_result["canceled_at"] = str(canceled_date)
 
-                        # Get current membership cancellation date
+                        # Get current member end date from Member DocType
+                        member_doc = frappe.get_doc("Member", member.name)
+                        current_member_end_date = member_doc.get("member_end_date")
+                        member_result["current_member_end_date"] = (
+                            str(current_member_end_date) if current_member_end_date else None
+                        )
+
+                        # Check if update is needed
+                        if not current_member_end_date or str(current_member_end_date) != str(canceled_date):
+                            member_result["needs_update"] = True
+                            result["updates_needed"] += 1
+
+                            # Apply update if not dry run
+                            if not dry_run:
+                                # Use db_set for audit-trailed update
+                                # This updates the member_end_date field on the Member record
+                                frappe.db.set_value(
+                                    "Member",
+                                    member.name,
+                                    "member_end_date",
+                                    canceled_date,
+                                    update_modified=False,  # Don't change modified timestamp
+                                )
+                                frappe.db.commit()  # Commit immediately for safety
+                                member_result["updated"] = True
+                                result["updates_applied"] += 1
+
+                                frappe.logger().info(
+                                    f"Updated member {member.name} member_end_date "
+                                    f"from {current_member_end_date} to {canceled_date} "
+                                    f"based on Mollie subscription cancellation"
+                                )
+
+                        # Also update Membership records if they exist
                         membership = frappe.get_all(
                             "Membership",
                             filters={"member": member.name, "docstatus": 1},
@@ -1732,13 +1790,10 @@ class MollieDebugService:
                             )
                             member_result["membership"] = membership[0].name
 
-                            # Check if update is needed
+                            # Check if Membership update is needed
                             if not current_cancellation_date or str(current_cancellation_date) != str(
                                 canceled_date
                             ):
-                                member_result["needs_update"] = True
-                                result["updates_needed"] += 1
-
                                 # Apply update if not dry run
                                 if not dry_run:
                                     # Use db_set for audit-trailed update without document validation
@@ -1751,8 +1806,6 @@ class MollieDebugService:
                                         update_modified=False,  # Don't change modified timestamp
                                     )
                                     frappe.db.commit()  # Commit immediately for safety
-                                    member_result["updated"] = True
-                                    result["updates_applied"] += 1
 
                                     frappe.logger().info(
                                         f"Updated membership {membership[0].name} cancellation_date "
@@ -1760,7 +1813,9 @@ class MollieDebugService:
                                         f"for member {member.name}"
                                     )
                         else:
-                            member_result["error"] = "No submitted membership found"
+                            member_result[
+                                "membership_note"
+                            ] = "No submitted membership found (member end date still updated)"
 
                 except Exception as member_error:
                     member_result["error"] = str(member_error)
@@ -1866,6 +1921,13 @@ class MollieDebugService:
                     "error": None,
                 }
 
+            # Get bank transaction creator for idempotency checks (outside loop for efficiency)
+            from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+                get_bank_transaction_creator,
+            )
+
+            bank_tx_creator = get_bank_transaction_creator()
+
             # Fetch ALL payments using global endpoint with pagination
             has_next = True
             from_id = None
@@ -1912,16 +1974,14 @@ class MollieDebugService:
                                 if payment.status != payment_status_filter:
                                     continue
 
-                            # Check if already processed
-                            payment_entry_exists = frappe.db.exists(
-                                "Payment Entry", {"reference_no": payment.id, "docstatus": ["in", [0, 1]]}
+                            # Check if already processed using centralized service
+                            idempotency_check = bank_tx_creator.check_already_processed(
+                                payment.id, check_payment_entry=True
                             )
 
-                            bank_transaction_exists = frappe.db.exists(
-                                "Bank Transaction", {"mollie_payment_id": payment.id}
-                            )
-
-                            is_processed = bool(payment_entry_exists or bank_transaction_exists)
+                            is_processed = idempotency_check["already_processed"]
+                            payment_entry_exists = idempotency_check.get("payment_entry")
+                            bank_transaction_exists = idempotency_check.get("bank_transaction")
 
                             # Build payment info
                             payment_info = {
@@ -2013,36 +2073,70 @@ class MollieDebugService:
 
             dues_processor = DuesPaymentProcessor()
 
-            # Determine creation mode based on create_bank_transactions flag
-            creation_mode = "Bank Transaction" if create_bank_transactions else "Payment Entry"
+            # Determine creation strategy:
+            # - create_bank_transactions=True: Create ONLY Bank Transaction (for manual reconciliation)
+            # - create_bank_transactions=False: Create BOTH Bank Transaction AND Payment Entry (full audit trail)
 
             for payment_id in payment_ids:
                 # Wrap each payment in explicit transaction for atomic operations
                 try:
                     frappe.db.begin()  # Start transaction
 
-                    # Process the payment with explicit creation mode
-                    payment_result = dues_processor.process_dues_payment(
-                        payment_id, creation_mode=creation_mode
-                    )
+                    if create_bank_transactions:
+                        # Strategy 1: Bank Transaction only (for later manual reconciliation)
+                        payment_result = dues_processor.process_dues_payment(
+                            payment_id, creation_mode="Bank Transaction"
+                        )
+                    else:
+                        # Strategy 2: Create both BT and PE for complete audit trail
+                        # First create Bank Transaction
+                        bt_result = dues_processor.process_dues_payment(
+                            payment_id, creation_mode="Bank Transaction"
+                        )
+
+                        if bt_result.get("status") == "success" and bt_result.get("bank_transaction"):
+                            # Then create Payment Entry manually (bypassing idempotency check)
+                            # The idempotency check in process_dues_payment would see the BT and skip PE creation
+                            try:
+                                # Fetch payment from Mollie
+                                payment = dues_processor.mollie_client.sdk_client.payments.get(payment_id)
+                                member_name = bt_result.get("member")
+
+                                if member_name:
+                                    # Create PE directly
+                                    pe_name = dues_processor._create_payment_entry_for_dues(
+                                        member_name, payment
+                                    )
+
+                                    # Merge results
+                                    payment_result = {
+                                        "payment_id": payment_id,
+                                        "status": "success",
+                                        "bank_transaction": bt_result.get("bank_transaction"),
+                                        "payment_entry": pe_name,
+                                        "payment_type": bt_result.get("payment_type"),
+                                        "member": member_name,
+                                    }
+                                else:
+                                    payment_result = bt_result
+                            except Exception as pe_error:
+                                # If PE creation fails, still return success for BT
+                                frappe.log_error(
+                                    f"Failed to create PE for payment {payment_id}: {pe_error}",
+                                    "Dual Document Creation Error",
+                                )
+                                payment_result = bt_result
+                                payment_result["pe_creation_error"] = str(pe_error)
+                        else:
+                            payment_result = bt_result
 
                     # If successful and docstatus is specified, submit the documents
                     if payment_result.get("status") == "success":
                         if docstatus == 1:
-                            # Submit Payment Entry or Bank Transaction based on what was created
+                            # Submit both Payment Entry AND Bank Transaction if both were created
                             try:
-                                if payment_result.get("payment_entry"):
-                                    pe_doc = frappe.get_doc("Payment Entry", payment_result["payment_entry"])
-                                    if pe_doc.docstatus == 0:
-                                        # Verify user has submit permission
-                                        if not frappe.has_permission("Payment Entry", "submit", pe_doc):
-                                            raise frappe.PermissionError(
-                                                f"User {frappe.session.user} does not have permission "
-                                                f"to submit Payment Entry {pe_doc.name}"
-                                            )
-                                        pe_doc.submit()
-                                        payment_result["payment_entry_submitted"] = True
-                                elif payment_result.get("bank_transaction"):
+                                # Submit Bank Transaction first (if created)
+                                if payment_result.get("bank_transaction"):
                                     bt_doc = frappe.get_doc(
                                         "Bank Transaction", payment_result["bank_transaction"]
                                     )
@@ -2055,6 +2149,19 @@ class MollieDebugService:
                                             )
                                         bt_doc.submit()
                                         payment_result["bank_transaction_submitted"] = True
+
+                                # Then submit Payment Entry (if created)
+                                if payment_result.get("payment_entry"):
+                                    pe_doc = frappe.get_doc("Payment Entry", payment_result["payment_entry"])
+                                    if pe_doc.docstatus == 0:
+                                        # Verify user has submit permission
+                                        if not frappe.has_permission("Payment Entry", "submit", pe_doc):
+                                            raise frappe.PermissionError(
+                                                f"User {frappe.session.user} does not have permission "
+                                                f"to submit Payment Entry {pe_doc.name}"
+                                            )
+                                        pe_doc.submit()
+                                        payment_result["payment_entry_submitted"] = True
                             except Exception as submit_error:
                                 payment_result["submit_error"] = str(submit_error)
                                 frappe.db.rollback()  # Rollback on submission error
@@ -2089,3 +2196,54 @@ class MollieDebugService:
             frappe.log_error(f"Bulk processing error: {e}")
 
         return result
+
+    def process_payment_batch_background(
+        self, batch_num: int, payment_ids: list, docstatus: int, create_bank_transactions: bool, job_id: str
+    ):
+        """
+        Background job handler for processing a batch of payments.
+
+        This function is called by Frappe's background job queue to process
+        a chunk of payments asynchronously.
+
+        Args:
+            batch_num: Batch number (for logging/tracking)
+            payment_ids: List of payment IDs for this batch
+            docstatus: 0 for Draft, 1 for Submitted
+            create_bank_transactions: Whether to create Bank Transactions
+            job_id: Unique job identifier for tracking
+
+        Returns:
+            Dict with batch processing results
+        """
+        frappe.logger().info(
+            f"Background job {job_id}: Processing batch {batch_num} with {len(payment_ids)} payments"
+        )
+
+        try:
+            # Process the batch using existing method
+            result = self.bulk_process_member_payments(payment_ids, docstatus, create_bank_transactions)
+
+            # Add batch metadata
+            result["batch_num"] = batch_num
+            result["job_id"] = job_id
+
+            frappe.logger().info(
+                f"Background job {job_id}: Batch {batch_num} complete - "
+                f"{result['processed']} processed, {result['skipped']} skipped, {result['errors']} errors"
+            )
+
+            return result
+
+        except Exception as e:
+            error_msg = f"Background job {job_id}: Batch {batch_num} failed - {str(e)}"
+            frappe.log_error(error_msg, "Batch Payment Processing Error")
+            return {
+                "batch_num": batch_num,
+                "job_id": job_id,
+                "error": str(e),
+                "total_requested": len(payment_ids),
+                "processed": 0,
+                "skipped": 0,
+                "errors": len(payment_ids),
+            }

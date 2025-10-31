@@ -35,6 +35,7 @@
     "payment_processing_fees_account",
     "section_break_payment_creation",
     "dues_payment_creation_mode",
+    "payment_retrieval_days_back_limit",
     "section_break_5",
     "header_img",
     "column_break_7",
@@ -238,6 +239,13 @@
       "fieldtype": "Select",
       "label": "Dues Payment Creation Mode",
       "options": "Bank Transaction\nPayment Entry"
+    },
+    {
+      "default": "1825",
+      "description": "Maximum number of days back to allow for bulk payment retrieval (default: 1825 days = 5 years)",
+      "fieldname": "payment_retrieval_days_back_limit",
+      "fieldtype": "Int",
+      "label": "Payment Retrieval Days Back Limit"
     },
     {
       "description": "Internal encryption key for secure data storage",

@@ -44,10 +44,13 @@ def get_context(context):
         # Check if API keys configured (requires password field access)
         mollie_settings = frappe.get_single("Mollie Settings")
         context.mollie_configured = bool(mollie_settings.test_secret_key or mollie_settings.live_secret_key)
+        context.mollie_settings = mollie_settings  # Make settings available to template
     except Exception:
         context.mollie_configured = False
         context.test_mode = True
         context.api_key_type = "unknown"
+        # Provide fallback object for template
+        context.mollie_settings = frappe._dict({"payment_retrieval_days_back_limit": 1825})
 
     return context
 
@@ -658,8 +661,12 @@ def sync_membership_end_dates_from_mollie(dry_run=True):
     Sync membership end dates from Mollie subscription cancellation dates.
 
     This function retrieves Mollie subscription cancellation dates for
-    terminated/banned/suspended members and updates their Membership
-    cancellation_date field accordingly.
+    terminated/banned/suspended members and updates their Member.member_end_date
+    field. If a Membership record exists, it also updates the
+    Membership.cancellation_date field.
+
+    This is particularly useful for imported terminated members who may lack
+    Membership records but still need their end date populated from Mollie.
 
     Args:
         dry_run: If True (default), only report what would be updated
@@ -708,10 +715,16 @@ def bulk_retrieve_all_member_payments(days_back=30, max_payments=5000, payment_s
         if not has_mollie_debug_access():
             frappe.throw(_("Access denied"))
 
-        # Validate parameters
+        # Validate parameters - get max limit from Mollie Settings
+        try:
+            mollie_settings = frappe.get_single("Mollie Settings")
+            max_days_back = mollie_settings.payment_retrieval_days_back_limit or 1825
+        except Exception:
+            max_days_back = 1825  # Default to 5 years if settings not available
+
         try:
             days_back = int(days_back)
-            if days_back < 1 or days_back > 365:
+            if days_back < 1 or days_back > max_days_back:
                 days_back = 30
         except (ValueError, TypeError):
             days_back = 30
@@ -774,15 +787,6 @@ def bulk_process_member_payments(payment_ids, docstatus=0, create_bank_transacti
             if not mollie_payment_pattern.match(pid):
                 frappe.throw(_("Invalid Mollie payment ID format: {0}").format(pid))
 
-        # Enforce maximum batch size
-        MAX_BATCH_SIZE = 100
-        if len(payment_ids) > MAX_BATCH_SIZE:
-            frappe.throw(
-                _("Cannot process more than {0} payments at once. Please process in smaller batches.").format(
-                    MAX_BATCH_SIZE
-                )
-            )
-
         # Convert string boolean from form data
         if isinstance(create_bank_transactions, str):
             create_bank_transactions = create_bank_transactions.lower() in ("true", "1", "yes")
@@ -795,12 +799,96 @@ def bulk_process_member_payments(payment_ids, docstatus=0, create_bank_transacti
         except (ValueError, TypeError):
             docstatus = 0
 
+        # Automatic batching for large requests
+        MAX_BATCH_SIZE = 100
+        if len(payment_ids) > MAX_BATCH_SIZE:
+            # Queue as background jobs in batches of 100
+            import uuid
+            from math import ceil
+
+            job_id = str(uuid.uuid4())[:8]
+            num_batches = ceil(len(payment_ids) / MAX_BATCH_SIZE)
+
+            frappe.logger().info(
+                f"Large batch detected ({len(payment_ids)} payments). "
+                f"Queueing {num_batches} background jobs with ID: {job_id}"
+            )
+
+            # Split into batches and queue each
+            batch_jobs = []
+            for i in range(num_batches):
+                start_idx = i * MAX_BATCH_SIZE
+                end_idx = min((i + 1) * MAX_BATCH_SIZE, len(payment_ids))
+                batch_payment_ids = payment_ids[start_idx:end_idx]
+
+                # Queue background job
+                # Note: job_id is a reserved parameter in frappe.enqueue, so we use tracking_id instead
+                job_name = frappe.enqueue(
+                    "verenigingen.templates.pages.mollie_payments_debug.process_payment_batch_job",
+                    queue="long",
+                    timeout=3600,  # 1 hour timeout per batch
+                    batch_num=i + 1,
+                    payment_ids=batch_payment_ids,
+                    docstatus=docstatus,
+                    create_bank_transactions=create_bank_transactions,
+                    tracking_id=job_id,  # Use tracking_id instead of job_id
+                )
+
+                batch_jobs.append(
+                    {
+                        "batch_num": i + 1,
+                        "payment_count": len(batch_payment_ids),
+                        "job_name": job_name,
+                    }
+                )
+
+            return {
+                "queued": True,
+                "job_id": job_id,
+                "total_payments": len(payment_ids),
+                "num_batches": num_batches,
+                "batch_size": MAX_BATCH_SIZE,
+                "batches": batch_jobs,
+                "message": _(
+                    "Queued {0} batches for background processing. "
+                    "Job ID: {1}. Check background jobs for progress."
+                ).format(num_batches, job_id),
+            }
+
+        # Small batch - process synchronously
         service = MollieDebugService()
         return service.bulk_process_member_payments(payment_ids, docstatus, create_bank_transactions)
 
     except Exception as e:
         frappe.log_error(f"Bulk process member payments error: {str(e)}")
         return {"error": str(e), "payment_ids": payment_ids if isinstance(payment_ids, list) else []}
+
+
+def process_payment_batch_job(batch_num, payment_ids, docstatus, create_bank_transactions, tracking_id):
+    """
+    Background job worker function for processing payment batches.
+
+    This is a module-level function that can be called by frappe.enqueue().
+    It instantiates the service and delegates to the instance method.
+
+    Args:
+        batch_num: Batch number for tracking
+        payment_ids: List of payment IDs to process
+        docstatus: 0 for Draft, 1 for Submitted
+        create_bank_transactions: Whether to create Bank Transactions
+        tracking_id: Unique job identifier (using tracking_id because job_id is reserved by frappe.enqueue)
+
+    Returns:
+        Dict with batch processing results
+    """
+    service = MollieDebugService()
+    return service.process_payment_batch_background(
+        batch_num=batch_num,
+        payment_ids=payment_ids,
+        docstatus=docstatus,
+        create_bank_transactions=create_bank_transactions,
+        job_id=tracking_id,  # Pass as job_id to the service method
+    )
 
 
 # Bulk Payment Checker API Endpoints

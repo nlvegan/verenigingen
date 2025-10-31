@@ -85,10 +85,14 @@ def get_summary_metrics(year, period="year", filters=None):
         "Member", filters={"member_since": ["between", [start_date, end_date]], "status": ["!=", "Rejected"]}
     )
 
-    # Lost members in period
+    # Lost members in period - count by member_end_date on Member DocType
+    # This captures both formal termination requests AND imported terminated members
     lost_members = frappe.db.count(
-        "Membership Termination Request",
-        filters={"termination_date": ["between", [start_date, end_date]], "status": "Completed"},
+        "Member",
+        filters={
+            "member_end_date": ["between", [start_date, end_date]],
+            "status": ["in", ["Terminated", "Banned", "Suspended"]],
+        },
     )
 
     # Net growth
@@ -456,9 +460,13 @@ def get_growth_trend(year, period="year", filters=None):
                 "Member", filters={"member_since": ["between", [start_date, end_date]]}
             )
 
+            # Count lost members by member_end_date to include imported terminated members
             lost_members = frappe.db.count(
-                "Membership Termination Request",
-                filters={"termination_date": ["between", [start_date, end_date]], "status": "Completed"},
+                "Member",
+                filters={
+                    "member_end_date": ["between", [start_date, end_date]],
+                    "status": ["in", ["Terminated", "Banned", "Suspended"]],
+                },
             )
 
             growth_data.append(
@@ -681,9 +689,13 @@ def calculate_retention_rate(year):
     if members_at_start == 0:
         return 0
 
+    # Count terminated members by member_end_date to include all terminations
     terminated = frappe.db.count(
-        "Membership Termination Request",
-        filters={"termination_date": ["between", [start_date, end_date]], "status": "Completed"},
+        "Member",
+        filters={
+            "member_end_date": ["between", [start_date, end_date]],
+            "status": ["in", ["Terminated", "Banned", "Suspended"]],
+        },
     )
 
     return ((members_at_start - terminated) / members_at_start) * 100
