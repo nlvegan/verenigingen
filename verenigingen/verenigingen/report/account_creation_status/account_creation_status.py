@@ -221,7 +221,10 @@ def get_data(filters):
                 ELSE 0
             END as has_user,
             CASE
-                WHEN m.user IS NOT NULL AND m.user != '' AND u.name IS NOT NULL THEN 1
+                WHEN m.user IS NOT NULL AND m.user != ''
+                    AND u.name IS NOT NULL
+                    AND (u.name = m.user OR u.name = m.email)
+                THEN 1
                 ELSE 0
             END as user_linked,
             CASE
@@ -229,7 +232,10 @@ def get_data(filters):
                 ELSE 0
             END as has_volunteer,
             CASE
-                WHEN vol.user IS NOT NULL AND vol.user != '' THEN 1
+                WHEN m.user IS NOT NULL AND m.user != ''
+                    AND vol.user IS NOT NULL AND vol.user != ''
+                    AND vol.member = m.name
+                THEN 1
                 ELSE 0
             END as volunteer_linked,
             CASE
@@ -237,7 +243,10 @@ def get_data(filters):
                 ELSE 0
             END as has_employee,
             CASE
-                WHEN emp.user_id IS NOT NULL AND emp.user_id != '' THEN 1
+                WHEN m.user IS NOT NULL AND m.user != ''
+                    AND emp.user_id IS NOT NULL AND emp.user_id != ''
+                    AND (emp.user_id = m.user OR emp.user_id = m.email)
+                THEN 1
                 ELSE 0
             END as employee_linked,
             CASE
@@ -330,12 +339,40 @@ def get_summary_data():
         """
         SELECT
             COUNT(*) as total,
-            SUM(CASE WHEN user IS NOT NULL AND user != '' THEN 1 ELSE 0 END) as with_user,
-            SUM(CASE WHEN has_volunteer = 1 THEN 1 ELSE 0 END) as with_volunteer,
-            SUM(CASE WHEN EXISTS (SELECT 1 FROM `tabEmployee` e WHERE e.user_id = user) THEN 1 ELSE 0 END) as with_employee
+            SUM(CASE WHEN user_linked = 1 THEN 1 ELSE 0 END) as with_user,
+            SUM(CASE WHEN volunteer_linked = 1 THEN 1 ELSE 0 END) as with_volunteer,
+            SUM(CASE WHEN employee_linked = 1 THEN 1 ELSE 0 END) as with_employee
         FROM (
-            SELECT DISTINCT m.name, m.user,
-                CASE WHEN EXISTS (SELECT 1 FROM `tabVolunteer` v WHERE v.member = m.name) THEN 1 ELSE 0 END as has_volunteer
+            SELECT DISTINCT
+                m.name,
+                m.user,
+                m.email,
+                CASE
+                    WHEN m.user IS NOT NULL AND m.user != ''
+                        AND EXISTS (SELECT 1 FROM `tabUser` u WHERE u.name = m.user OR u.name = m.email)
+                    THEN 1
+                    ELSE 0
+                END as user_linked,
+                CASE
+                    WHEN m.user IS NOT NULL AND m.user != ''
+                        AND EXISTS (
+                            SELECT 1 FROM `tabVolunteer` v
+                            WHERE v.member = m.name
+                                AND v.user IS NOT NULL AND v.user != ''
+                        )
+                    THEN 1
+                    ELSE 0
+                END as volunteer_linked,
+                CASE
+                    WHEN m.user IS NOT NULL AND m.user != ''
+                        AND EXISTS (
+                            SELECT 1 FROM `tabEmployee` e
+                            WHERE (e.user_id = m.user OR e.user_id = m.email)
+                                AND e.user_id IS NOT NULL AND e.user_id != ''
+                        )
+                    THEN 1
+                    ELSE 0
+                END as employee_linked
             FROM `tabMember` m
             INNER JOIN `tabChapter Member` cm ON cm.member = m.name
             WHERE cm.enabled = 1
@@ -351,9 +388,29 @@ def get_summary_data():
         """
         SELECT
             COUNT(*) as total_members,
-            SUM(CASE WHEN user IS NOT NULL AND user != '' THEN 1 ELSE 0 END) as members_with_user,
-            SUM(CASE WHEN EXISTS (SELECT 1 FROM `tabVolunteer` v WHERE v.member = `tabMember`.name) THEN 1 ELSE 0 END) as members_with_volunteer,
-            SUM(CASE WHEN EXISTS (SELECT 1 FROM `tabEmployee` e WHERE e.user_id = `tabMember`.user) THEN 1 ELSE 0 END) as members_with_employee,
+            SUM(CASE
+                WHEN user IS NOT NULL AND user != ''
+                    AND EXISTS (SELECT 1 FROM `tabUser` u WHERE u.name = user OR u.name = email)
+                THEN 1 ELSE 0
+            END) as members_with_user,
+            SUM(CASE
+                WHEN user IS NOT NULL AND user != ''
+                    AND EXISTS (
+                        SELECT 1 FROM `tabVolunteer` v
+                        WHERE v.member = `tabMember`.name
+                            AND v.user IS NOT NULL AND v.user != ''
+                    )
+                THEN 1 ELSE 0
+            END) as members_with_volunteer,
+            SUM(CASE
+                WHEN user IS NOT NULL AND user != ''
+                    AND EXISTS (
+                        SELECT 1 FROM `tabEmployee` e
+                        WHERE (e.user_id = user OR e.user_id = email)
+                            AND e.user_id IS NOT NULL AND e.user_id != ''
+                    )
+                THEN 1 ELSE 0
+            END) as members_with_employee,
             SUM(CASE WHEN customer IS NOT NULL AND customer != '' THEN 1 ELSE 0 END) as members_with_customer,
             SUM(CASE WHEN primary_address IS NOT NULL AND primary_address != '' THEN 1 ELSE 0 END) as members_with_address,
             SUM(CASE WHEN EXISTS (SELECT 1 FROM `tabMembership` mem WHERE mem.member = `tabMember`.name AND mem.docstatus = 1) THEN 1 ELSE 0 END) as members_with_membership,

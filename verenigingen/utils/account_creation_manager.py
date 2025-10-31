@@ -365,10 +365,11 @@ class AccountCreationManager:
                         error_msg = str(save_error)
                         # Retry on deadlock errors (MySQL error 1213)
                         if ("Deadlock" in error_msg or "1213" in error_msg) and attempt < max_retries - 1:
-                            import time
                             import random
+                            import time
+
                             # Exponential backoff: 100ms, 200ms, 400ms + jitter
-                            delay = (0.1 * (2 ** attempt)) + random.uniform(0, 0.05)
+                            delay = (0.1 * (2**attempt)) + random.uniform(0, 0.05)
                             frappe.logger().info(
                                 f"Deadlock during role assignment, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})"
                             )
@@ -1040,6 +1041,7 @@ def process_bulk_account_creation_batch(request_names, batch_id, batch_number, t
     # Mark this as a background job and bulk operation for rate limiting bypass
     frappe.flags.in_background_job = True
     frappe.flags.bulk_account_creation = True
+    frappe.flags.in_import = True  # Skip email sending and rate limiting for batch operations
 
     frappe.logger().info(
         f"Starting parallel batch processing for {batch_id} with {len(request_names)} requests"

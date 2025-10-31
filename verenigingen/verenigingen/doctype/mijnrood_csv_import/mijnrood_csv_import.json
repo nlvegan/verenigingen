@@ -127,7 +127,7 @@
     },
     {
       "default": "0",
-      "description": "Create Employee records for members to enable expense claim functionality. Only applies to Member imports (Volunteers automatically get Employees).",
+      "description": "Create Employee records for members to enable expense claim functionality.",
       "fieldname": "create_employee_records",
       "fieldtype": "Check",
       "label": "Create Employee Records (for expense claiming)"
