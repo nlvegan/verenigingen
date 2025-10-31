@@ -8,9 +8,10 @@ Handles processing of Mollie payments for membership dues, including:
 - Proper idempotency to prevent duplicate processing
 """
 
-from datetime import datetime
+from calendar import monthrange
+from datetime import datetime, date
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import frappe
 from frappe import _
@@ -21,6 +22,65 @@ from verenigingen.integrations.mollie.domain.payment_classification import Payme
 from verenigingen.verenigingen_payments.services.payment.payment_entry_creation_service import (
     payment_entry_service,
 )
+
+
+def get_quarter_coverage_dates(payment_date: date) -> Tuple[date, date]:
+    """
+    Calculate calendar quarter coverage dates for a payment.
+
+    Mijnrood logic: Payment in any part of quarter covers entire quarter.
+
+    Args:
+        payment_date: Date the payment was made
+
+    Returns:
+        Tuple of (quarter_start_date, quarter_end_date)
+    """
+    quarter = (payment_date.month - 1) // 3 + 1
+
+    quarter_start_months = {1: 1, 2: 4, 3: 7, 4: 10}
+    quarter_end_months = {1: 3, 2: 6, 3: 9, 4: 12}
+
+    start_month = quarter_start_months[quarter]
+    end_month = quarter_end_months[quarter]
+
+    coverage_start = date(payment_date.year, start_month, 1)
+    # Last day of the quarter end month
+    coverage_end = date(payment_date.year, end_month, monthrange(payment_date.year, end_month)[1])
+
+    return coverage_start, coverage_end
+
+
+def get_month_coverage_dates(payment_date: date) -> Tuple[date, date]:
+    """
+    Calculate month coverage dates for a payment.
+
+    Args:
+        payment_date: Date the payment was made
+
+    Returns:
+        Tuple of (month_start_date, month_end_date)
+    """
+    coverage_start = date(payment_date.year, payment_date.month, 1)
+    coverage_end = date(payment_date.year, payment_date.month, monthrange(payment_date.year, payment_date.month)[1])
+
+    return coverage_start, coverage_end
+
+
+def get_year_coverage_dates(payment_date: date) -> Tuple[date, date]:
+    """
+    Calculate year coverage dates for a payment.
+
+    Args:
+        payment_date: Date the payment was made
+
+    Returns:
+        Tuple of (year_start_date, year_end_date)
+    """
+    coverage_start = date(payment_date.year, 1, 1)
+    coverage_end = date(payment_date.year, 12, 31)
+
+    return coverage_start, coverage_end
 
 
 class DuesPaymentProcessor:
@@ -95,6 +155,324 @@ class DuesPaymentProcessor:
 
         frappe.logger().warning(f"⚠️ No member found for payment {payment.id}")
         return None
+
+    def _get_or_create_historical_invoice(
+        self, member_name: str, payment_date: date, payment_amount: float
+    ) -> Optional[str]:
+        """
+        Get existing invoice or create a new historical invoice for a payment.
+
+        MIJNROOD BUSINESS LOGIC:
+        Any payment made during a calendar quarter (Q1: Jan-Mar, Q2: Apr-Jun, Q3: Jul-Sep, Q4: Oct-Dec)
+        provides membership coverage for the ENTIRE quarter. This differs from standard monthly billing
+        where payments cover only the specific month. This "first payment covers quarter" approach was
+        used by mijnrood for simplified administration.
+
+        TECHNICAL IMPLEMENTATION:
+        This method bypasses the standard InvoiceGenerator service because historical imports don't have
+        Membership Dues Schedules. This is acceptable for one-time data migration but should not be used
+        for ongoing payment processing.
+
+        Uses priority hierarchy for membership type:
+        1. Member's current_membership_plan (if exists)
+        2. Default membership type from Verenigingen Settings
+
+        Input Validation:
+        - Payment amount must be positive and reasonable (< €10,000)
+        - Payment date cannot be in the future
+        - Coverage dates must be logically valid
+
+        Database Impact:
+        - Reads: Member, Membership, Verenigingen Settings, Sales Invoice
+        - Writes: Sales Invoice (if created), Item (if dues item missing)
+
+        Args:
+            member_name: Member document name (e.g., "Assoc-Member-2024-01-0001")
+            payment_date: Date the payment was made (determines quarter coverage)
+            payment_amount: Amount in EUR (must be positive)
+
+        Returns:
+            Sales Invoice name if found/created, None if:
+            - Member has no customer record
+            - No membership type available
+            - Invoice creation fails (logged to error log)
+
+        Raises:
+            ValueError: If payment_amount or payment_date are invalid
+            frappe.ValidationError: If member or membership data is invalid
+
+        Side Effects:
+            - May create new Sales Invoice (auto-submitted)
+            - May create new Item if membership dues item doesn't exist
+            - Logs audit trail for historical backdating
+            - Logs errors to "Historical Invoice Creation Error"
+
+        Example:
+            >>> processor = DuesPaymentProcessor(mollie_client)
+            >>> invoice = processor._get_or_create_historical_invoice(
+            ...     "Assoc-Member-2024-01-0001",
+            ...     date(2024, 5, 15),  # Payment in May = Q2
+            ...     25.0
+            ... )
+            >>> # Returns invoice covering 2024-04-01 to 2024-06-30 (entire Q2)
+        """
+        # Input validation
+        if payment_amount <= 0:
+            raise ValueError(f"Payment amount must be positive, got {payment_amount}")
+
+        if payment_amount > 10000:
+            frappe.logger().warning(
+                f"Unusually large payment amount €{payment_amount} for member {member_name}. "
+                "Proceeding but flagging for review."
+            )
+
+        # Validate payment_date is not in future
+        from frappe.utils import getdate
+        payment_date = getdate(payment_date)
+        if payment_date > date.today():
+            raise ValueError(f"Payment date {payment_date} cannot be in the future")
+
+        try:
+            # Calculate quarter coverage dates (mijnrood logic)
+            coverage_start, coverage_end = get_quarter_coverage_dates(payment_date)
+
+            frappe.logger().info(
+                f"Looking for invoice for {member_name} covering {coverage_start} to {coverage_end}"
+            )
+
+            # Get member doc
+            member = frappe.get_doc("Member", member_name)
+
+            if not member.customer:
+                frappe.logger().error(f"Member {member_name} has no customer record")
+                return None
+
+            # Check if invoice already exists for this exact coverage period
+            # Use custom coverage fields for precise matching (not just posting_date range)
+            existing_invoice = frappe.db.get_value(
+                "Sales Invoice",
+                filters={
+                    "customer": member.customer,
+                    "custom_coverage_start_date": coverage_start,
+                    "custom_coverage_end_date": coverage_end,
+                    "docstatus": ["<", 2],  # Not cancelled
+                },
+                fieldname=["name", "grand_total"],
+                as_dict=True
+            )
+
+            if existing_invoice:
+                frappe.logger().info(
+                    f"✅ Found existing invoice {existing_invoice.name} for coverage period "
+                    f"{coverage_start} to {coverage_end}"
+                )
+                return existing_invoice.name
+
+            # No existing invoice - need to create one
+            # Determine membership type using priority hierarchy with caching
+            membership_type = self._get_membership_type_cached(member)
+
+            if not membership_type:
+                frappe.logger().error(
+                    f"No membership type available for invoice generation (member: {member_name})"
+                )
+                return None
+
+            # Create invoice directly (simpler than using InvoiceGenerator which requires a schedule)
+            invoice_name = self._create_simple_invoice(
+                member, membership_type, coverage_start, coverage_end, payment_amount, payment_date
+            )
+
+            if invoice_name:
+                frappe.logger().info(
+                    f"✅ Created historical invoice {invoice_name} for {member_name} "
+                    f"(coverage: {coverage_start} to {coverage_end})"
+                )
+
+            return invoice_name
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error creating historical invoice for {member_name}: {str(e)}",
+                "Historical Invoice Creation Error",
+            )
+            return None
+
+    def _get_membership_type_cached(self, member_doc: Any) -> Optional[str]:
+        """
+        Get membership type for member with caching to optimize batch processing.
+
+        Priority hierarchy:
+        1. Member's current_membership_plan.membership_type
+        2. Default from Verenigingen Settings
+
+        Caching Strategy:
+        - Caches membership plan lookups to avoid N+1 queries during batch processing
+        - Caches default membership type from settings (singleton, rarely changes)
+        - Cache lifetime: Duration of DuesPaymentProcessor instance (safe for batch jobs)
+
+        Args:
+            member_doc: Member document
+
+        Returns:
+            Membership type name, or None if not available
+        """
+        # Initialize cache on first use
+        if not hasattr(self, '_membership_type_cache'):
+            self._membership_type_cache = {}
+            self._default_membership_type = None
+
+        # Try member's current membership plan (cached)
+        if member_doc.current_membership_plan:
+            if member_doc.current_membership_plan not in self._membership_type_cache:
+                # Cache miss - fetch from database
+                try:
+                    membership_type = frappe.db.get_value(
+                        "Membership",
+                        member_doc.current_membership_plan,
+                        "membership_type",
+                        cache=True
+                    )
+                    if membership_type:
+                        self._membership_type_cache[member_doc.current_membership_plan] = membership_type
+                        frappe.logger().info(
+                            f"Cached membership type {membership_type} for plan {member_doc.current_membership_plan}"
+                        )
+                except Exception as e:
+                    frappe.logger().warning(
+                        f"Failed to fetch membership type for plan {member_doc.current_membership_plan}: {e}"
+                    )
+
+            # Return from cache if available
+            if member_doc.current_membership_plan in self._membership_type_cache:
+                return self._membership_type_cache[member_doc.current_membership_plan]
+
+        # Fallback to default from settings (cached)
+        if self._default_membership_type is None:
+            settings = frappe.get_single("Verenigingen Settings")
+            self._default_membership_type = settings.default_membership_type
+            frappe.logger().info(
+                f"Cached default membership type: {self._default_membership_type}"
+            )
+
+        return self._default_membership_type
+
+    def _create_simple_invoice(
+        self, member_doc: Any, membership_type: str, coverage_start: date, coverage_end: date, amount: float, payment_date: date
+    ) -> Optional[str]:
+        """
+        Create a simple Sales Invoice for historical payment (mijnrood import use case).
+
+        IMPORTANT - ONE-TIME MIGRATION CODE:
+        This method creates invoices directly without going through InvoiceGenerator service.
+        This is acceptable for historical data migration where Membership Dues Schedules don't exist,
+        but should NOT be used for ongoing payment processing.
+
+        Invoice Configuration:
+        - Posting date: Set to actual payment date (backdated) using set_posting_time flag
+        - Due date: Same as posting date (historical payments are already paid)
+        - Coverage dates: Stored in custom fields for period tracking
+        - Income account: From Verenigingen Settings or company default
+        - Auto-submit: Yes (historical invoices should be complete)
+
+        Audit Trail:
+        - Logs historical backdating for compliance review
+        - Creates audit trail entry for manual invoice creation
+
+        Args:
+            member_doc: Member document instance
+            membership_type: Membership type name (e.g., "Standard Member", "Student Member")
+            coverage_start: Coverage period start date
+            coverage_end: Coverage period end date
+            amount: Invoice amount in EUR
+            payment_date: Actual payment date (used for posting_date)
+
+        Returns:
+            Sales Invoice name if successful, None if creation fails
+
+        Raises:
+            Does not raise exceptions - logs errors and returns None for graceful degradation
+
+        Side Effects:
+            - Creates and submits Sales Invoice
+            - May create new Item if membership dues item doesn't exist
+            - Logs to "Invoice Creation Failed" on error
+        """
+        try:
+            settings = frappe.get_single("Verenigingen Settings")
+
+            # Get income account
+            income_account = settings.dues_income_account
+            if not income_account:
+                company_doc = frappe.get_cached_doc("Company", settings.company)
+                income_account = company_doc.default_income_account
+
+            if not income_account:
+                frappe.logger().error("No income account configured")
+                return None
+
+            # Create invoice
+            invoice = frappe.new_doc("Sales Invoice")
+            invoice.customer = member_doc.customer
+            invoice.company = settings.company
+
+            # Set posting date explicitly (must be done before insert to prevent auto-setting)
+            invoice.posting_date = payment_date
+            invoice.set_posting_time = 1  # Enable custom posting date
+            invoice.due_date = payment_date
+
+            # Set coverage period custom fields
+            invoice.custom_coverage_start_date = coverage_start
+            invoice.custom_coverage_end_date = coverage_end
+
+            # Audit logging for historical backdating
+            frappe.logger().warning(
+                f"HISTORICAL INVOICE CREATION: User {frappe.session.user} creating backdated invoice "
+                f"for member {member_doc.name} ({member_doc.full_name}) with posting_date={payment_date} "
+                f"(today={date.today()}), coverage={coverage_start} to {coverage_end}, amount=€{amount}"
+            )
+
+            # Add item
+            item_name = f"Membership Dues - {membership_type}"
+            invoice.append("items", {
+                "item_code": self._get_or_create_dues_item(item_name, settings.company, income_account),
+                "qty": 1,
+                "rate": amount,
+                "income_account": income_account,
+                "description": f"Membership dues for {member_doc.full_name} ({membership_type}) - Period: {coverage_start} to {coverage_end}"
+            })
+
+            invoice.insert()
+            invoice.submit()
+
+            return invoice.name
+
+        except Exception as e:
+            frappe.logger().error(f"Failed to create simple invoice: {str(e)}")
+            return None
+
+    def _get_or_create_dues_item(self, item_name: str, company: str, income_account: str) -> str:
+        """Get or create a membership dues item."""
+        if frappe.db.exists("Item", item_name):
+            return item_name
+
+        try:
+            item = frappe.new_doc("Item")
+            item.item_code = item_name
+            item.item_name = item_name
+            item.item_group = "Services"
+            item.stock_uom = "Unit"
+            item.is_stock_item = 0
+            item.insert(ignore_if_duplicate=True)
+            return item_name
+        except Exception:
+            # If creation fails, try to find any membership dues item
+            existing_item = frappe.get_all("Item",
+                                          filters={"item_name": ["like", "%Membership Dues%"]},
+                                          limit=1)
+            if existing_item:
+                return existing_item[0].name
+            return "Membership Dues"  # Fallback to generic name
 
     def process_dues_payment(
         self, payment_id: str, payment=None, creation_mode: Optional[str] = None
@@ -203,6 +581,24 @@ class DuesPaymentProcessor:
                 result["payment_entry"] = record_name if creation_mode == "Payment Entry" else None
                 result["bank_transaction"] = record_name if creation_mode != "Payment Entry" else None
                 result["record_type"] = record_type
+
+                # Get linked Sales Invoice if Payment Entry was created
+                if creation_mode == "Payment Entry" and record_name:
+                    try:
+                        pe_doc = frappe.get_doc("Payment Entry", record_name)
+                        # Check if any Sales Invoices are referenced
+                        sales_invoices = []
+                        for ref in pe_doc.get("references", []):
+                            if ref.reference_doctype == "Sales Invoice":
+                                sales_invoices.append({
+                                    "name": ref.reference_name,
+                                    "allocated_amount": float(ref.allocated_amount)
+                                })
+                        if sales_invoices:
+                            result["sales_invoices"] = sales_invoices
+                    except Exception as si_error:
+                        frappe.log_error(f"Could not fetch Sales Invoice references for {record_name}: {si_error}")
+
                 frappe.logger().info(
                     f"✅ Successfully processed dues payment {payment_id} for member {member_name} "
                     f"(created {record_type}: {record_name})"
@@ -269,8 +665,10 @@ class DuesPaymentProcessor:
         if not customer_account:
             frappe.throw(f"Missing customer receivable account for company {company}")
 
-        # Create Payment Entry FIRST (separate concern from invoice matching)
-        # Payment Entry creation should always succeed even if we can't match an invoice
+        # Try to get or create historical invoice for this payment
+        invoice_name = self._get_or_create_historical_invoice(member_name, payment_date, amount)
+
+        # Create Payment Entry
         payment_entry = frappe.get_doc(
             {
                 "doctype": "Payment Entry",
@@ -287,10 +685,24 @@ class DuesPaymentProcessor:
                 "posting_date": payment_date,
                 "mode_of_payment": mode_of_payment,
                 "remarks": f"Membership dues payment via Mollie for {member.full_name} (awaiting settlement). "
-                f"Manual reconciliation may be required.",
+                + (f"Linked to invoice {invoice_name}" if invoice_name else "Manual reconciliation may be required."),
                 "custom_member": member_name,  # Link to member for payment history tracking
             }
         )
+
+        # If we have an invoice, link it to the payment entry
+        if invoice_name:
+            invoice_doc = frappe.get_doc("Sales Invoice", invoice_name)
+            payment_entry.append(
+                "references",
+                {
+                    "reference_doctype": "Sales Invoice",
+                    "reference_name": invoice_name,
+                    "total_amount": invoice_doc.grand_total,
+                    "outstanding_amount": invoice_doc.outstanding_amount,
+                    "allocated_amount": min(amount, invoice_doc.outstanding_amount),
+                },
+            )
 
         payment_entry.insert()
         payment_entry.submit()

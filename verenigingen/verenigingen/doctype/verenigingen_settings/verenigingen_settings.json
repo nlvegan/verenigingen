@@ -65,6 +65,7 @@
   "book_year_end_month",
   "book_year_end_day",
   "enable_sequential_coverage",
+  "default_historical_billing_period",
   "chapter_dues_split_section",
   "default_chapter_split_percentage",
   "column_break_split",

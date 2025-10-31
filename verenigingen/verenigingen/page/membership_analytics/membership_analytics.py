@@ -77,8 +77,33 @@ def get_summary_metrics(year, period="year", filters=None):
         start_date = f"{year}-{current_month:02d}-01"
         end_date = getdate(add_months(start_date, 1)) - timedelta(days=1)
 
-    # Total active members
-    total_members = frappe.db.count("Member", filters={"status": "Active"})
+    # Total members active as of the cutoff date
+    # For current year: use today's date
+    # For past/future years: use December 31st of that year
+    from frappe.utils import getdate, nowdate
+
+    current_year = datetime.now().year
+    if year == current_year:
+        # For current year, count members active as of today
+        cutoff_date = nowdate()
+    else:
+        # For past/future years, count members active as of year-end
+        cutoff_date = f"{year}-12-31"
+
+    # Count members who:
+    # - Joined on or before the cutoff date
+    # - Either never terminated, or terminated after the cutoff date
+    # - Weren't rejected
+    total_members = frappe.db.sql(
+        """
+        SELECT COUNT(*)
+        FROM `tabMember`
+        WHERE member_since <= %s
+            AND status != 'Rejected'
+            AND (member_end_date IS NULL OR member_end_date > %s)
+        """,
+        (cutoff_date, cutoff_date),
+    )[0][0]
 
     # New members in period
     new_members = frappe.db.count(
@@ -249,15 +274,18 @@ def get_current_year_revenue(year):
         invoiced_amount = frappe.db.sql(invoiced_amount_query, (year_start, year_end), as_dict=True)[0].total
 
         # 2. Get direct dues payments not linked to invoices
-        # Get dues keywords from settings
-        settings = frappe.get_single("Verenigingen Payments Settings")
-        dues_keywords = [kw.strip().lower() for kw in (settings.dues_keywords or "contributie").split(",")]
+        # Get dues keywords and income account from settings
+        payment_settings = frappe.get_single("Verenigingen Payments Settings")
+        dues_keywords = [kw.strip().lower() for kw in (payment_settings.dues_keywords or "contributie").split(",")]
 
-        # Build keyword matching with safe OR conditions using FIND_IN_SET approach
-        # Escape user input and use parameterized queries to prevent SQL injection
-        direct_payments_query = (
-            """
-            SELECT COALESCE(SUM(pe.paid_amount), 0) as total
+        verenigingen_settings = frappe.get_single("Verenigingen Settings")
+        dues_income_account = verenigingen_settings.dues_income_account
+
+        # Build direct payment query considering both keywords and GL account allocation
+        # Case 1: Payment Entry with dues keywords in remarks
+        # Case 2: Payment Entry with allocation to dues income account
+        direct_payments_query = """
+            SELECT COALESCE(SUM(DISTINCT pe.paid_amount), 0) as total
             FROM `tabPayment Entry` pe
             LEFT JOIN `tabPayment Entry Reference` per ON per.parent = pe.name
             LEFT JOIN `tabMember` m ON (
@@ -269,17 +297,38 @@ def get_current_year_revenue(year):
                 AND pe.posting_date BETWEEN %s AND %s
                 AND pe.payment_type = 'Receive'
                 AND per.name IS NULL
-                AND m.name IS NOT NULL
                 AND (
-                    """
-            + " OR ".join(["LOWER(pe.remarks) LIKE %s" for _ in dues_keywords])
-            + """
+                    (m.name IS NOT NULL AND ({keyword_conditions}))
+                    {account_condition}
                 )
         """
-        )
-        # Sanitize keywords by wrapping in wildcards (already done, but ensure no SQL injection)
+
+        # Build keyword matching conditions
+        keyword_conditions = " OR ".join(["LOWER(pe.remarks) LIKE %s" for _ in dues_keywords])
+
+        # Build account condition if dues_income_account is configured
+        account_condition = ""
+        params = [year_start, year_end]
+        if dues_income_account:
+            account_condition = """OR EXISTS (
+                SELECT 1 FROM `tabGL Entry` gl
+                WHERE gl.voucher_type = 'Payment Entry'
+                    AND gl.voucher_no = pe.name
+                    AND gl.account = %s
+                    AND gl.is_cancelled = 0
+            )"""
+            params.append(dues_income_account)
+
+        # Add keyword parameters
         keyword_params = [f"%{frappe.db.escape(kw)}%" for kw in dues_keywords]
-        params = [year_start, year_end] + keyword_params
+        params.extend(keyword_params)
+
+        # Format the query with conditions
+        direct_payments_query = direct_payments_query.format(
+            keyword_conditions=keyword_conditions,
+            account_condition=account_condition
+        )
+
         direct_payments_result = frappe.db.sql(direct_payments_query, tuple(params), as_dict=True)
         direct_payments = direct_payments_result[0].total if direct_payments_result else 0
 
@@ -297,13 +346,18 @@ def get_current_year_revenue(year):
         )[0].total
 
         # 4. Estimate ungenerated dues for remainder of year based on coverage gaps
-        # Calculate dues for the period not yet covered by existing invoices
-        from frappe.utils import getdate
+        # Only estimate for current/future years - past years have all invoices already generated
+        from frappe.utils import getdate, now_datetime
 
+        current_year = now_datetime().year
         year_end_date = getdate(year_end)
         days_in_year = (year_end_date - getdate(year_start)).days + 1
 
-        ungenerated_dues_query = """
+        # Skip ungenerated dues estimation for past years
+        if year < current_year:
+            ungenerated_dues = 0
+        else:
+            ungenerated_dues_query = """
             SELECT
                     SUM(
                         CASE
@@ -357,45 +411,45 @@ def get_current_year_revenue(year):
                 AND mds.is_template = 0
                 AND m.status = 'Active'
                 AND (m.member_end_date IS NULL OR m.member_end_date > %s)
-    """
-        ungenerated_dues = (
-            frappe.db.sql(
-                ungenerated_dues_query,
-                (
-                    year_start,
-                    year_start,
-                    year_end,  # for GREATEST/COALESCE checks (coverage_end default, member_since default, year_end comparison)
-                    year_end,
-                    year_start,
-                    year_start,
-                    days_in_year,  # Monthly (year_end, coverage_end default, member_since default, days)
-                    year_end,
-                    year_start,
-                    year_start,
-                    days_in_year,  # Quarterly
-                    year_end,
-                    year_start,
-                    year_start,
-                    days_in_year,  # Yearly
-                    year_end,
-                    year_start,
-                    year_start,
-                    days_in_year,  # Custom: Month
-                    year_end,
-                    year_start,
-                    year_start,
-                    days_in_year,  # Custom: Week
-                    year_end,
-                    year_start,
-                    year_start,
-                    days_in_year,  # Custom: Year
-                    year,  # for filtering invoices by year
-                    year_end,  # for member_end_date check
-                ),
-                as_dict=True,
-            )[0].total
-            or 0
-        )
+        """
+            ungenerated_dues = (
+                frappe.db.sql(
+                    ungenerated_dues_query,
+                    (
+                        year_start,
+                        year_start,
+                        year_end,  # for GREATEST/COALESCE checks (coverage_end default, member_since default, year_end comparison)
+                        year_end,
+                        year_start,
+                        year_start,
+                        days_in_year,  # Monthly (year_end, coverage_end default, member_since default, days)
+                        year_end,
+                        year_start,
+                        year_start,
+                        days_in_year,  # Quarterly
+                        year_end,
+                        year_start,
+                        year_start,
+                        days_in_year,  # Yearly
+                        year_end,
+                        year_start,
+                        year_start,
+                        days_in_year,  # Custom: Month
+                        year_end,
+                        year_start,
+                        year_start,
+                        days_in_year,  # Custom: Week
+                        year_end,
+                        year_start,
+                        year_start,
+                        days_in_year,  # Custom: Year
+                        year,  # for filtering invoices by year
+                        year_end,  # for member_end_date check
+                    ),
+                    as_dict=True,
+                )[0].total
+                or 0
+            )
 
         # Actual revenue = all invoiced amounts (whether paid or not) + direct payments
         actual_revenue = float(invoiced_amount) + float(direct_payments)
@@ -484,11 +538,18 @@ def get_growth_trend(year, period="year", filters=None):
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
 def get_revenue_projection(year, filters=None):
-    """Get revenue projection by membership type"""
+    """Get revenue by membership type for a specific year
+
+    Calculates actual revenue from invoices for the selected year,
+    grouped by membership type.
+    """
     filters = filters or {}
 
     # Ensure year is an integer
     year = int(year)
+    year_start = f"{year}-01-01"
+    year_end = f"{year}-12-31"
+
     membership_types = frappe.get_all(
         "Membership Type", filters={"is_active": 1}, fields=["name", "minimum_amount"]
     )
@@ -496,27 +557,30 @@ def get_revenue_projection(year, filters=None):
     revenue_data = []
 
     for mt in membership_types:
-        # Count active members of this type
-        member_count = frappe.db.sql(
+        # Get actual revenue from invoices for this membership type in the selected year
+        result = frappe.db.sql(
             """
-            SELECT COUNT(DISTINCT m.member) as count,
-                   SUM(COALESCE(mem.dues_rate, mt.minimum_amount)) as revenue
-            FROM `tabMembership` m
-            JOIN `tabMember` mem ON m.member = mem.name
-            JOIN `tabMembership Type` mt ON m.membership_type = mt.name
-            WHERE m.status = 'Active'
-            AND m.membership_type = %s
+            SELECT
+                COUNT(DISTINCT si.member) as count,
+                SUM(si.grand_total) as revenue
+            FROM `tabSales Invoice` si
+            JOIN `tabMember` mem ON si.member = mem.name
+            JOIN `tabMembership` m ON m.member = mem.name AND m.status = 'Active'
+            WHERE si.docstatus = 1
+                AND si.posting_date BETWEEN %s AND %s
+                AND (si.is_membership_invoice = 1 OR si.member IS NOT NULL)
+                AND m.membership_type = %s
         """,
-            mt.name,
+            (year_start, year_end, mt.name),
             as_dict=True,
         )[0]
 
         revenue_data.append(
             {
                 "membership_type": mt.name,
-                "member_count": member_count.count or 0,
-                "revenue": member_count.revenue or 0,
-                "average_fee": mt.minimum_amount,
+                "member_count": result.count or 0,
+                "revenue": result.revenue or 0,
+                "average_fee": (result.revenue / result.count) if result.count else mt.minimum_amount,
             }
         )
 
@@ -526,26 +590,47 @@ def get_revenue_projection(year, filters=None):
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
 def get_membership_breakdown(year, filters=None):
-    """Get membership breakdown by type"""
+    """Get membership breakdown by type for a specific year
+
+    Returns membership type distribution based on:
+    - Members who were active at some point during the specified year
+    - Members who joined before or during the year
+    - Members who hadn't yet terminated before the year started
+    """
+    from frappe.query_builder import Case
+    from frappe.query_builder.functions import Coalesce, Count, Sum
+
     filters = filters or {}
 
     # Ensure year is an integer
     year = int(year)
-    breakdown = frappe.db.sql(
-        """
-        SELECT
-            m.membership_type,
-            COUNT(DISTINCT m.member) as count,
-            SUM(COALESCE(mem.dues_rate, mt.minimum_amount)) as revenue
-        FROM `tabMembership` m
-        JOIN `tabMember` mem ON m.member = mem.name
-        JOIN `tabMembership Type` mt ON m.membership_type = mt.name
-        WHERE m.status = 'Active'
-        GROUP BY m.membership_type
-    """,
-        as_dict=True,
+    year_start = f"{year}-01-01"
+    year_end = f"{year}-12-31"
+
+    Membership = frappe.qb.DocType("Membership")
+    Member = frappe.qb.DocType("Member")
+    MembershipType = frappe.qb.DocType("Membership Type")
+
+    query = (
+        frappe.qb.from_(Membership)
+        .join(Member)
+        .on(Membership.member == Member.name)
+        .join(MembershipType)
+        .on(Membership.membership_type == MembershipType.name)
+        .select(
+            Membership.membership_type,
+            Count(Membership.member).distinct().as_("count"),
+            Sum(Coalesce(Member.dues_rate, MembershipType.minimum_amount)).as_("revenue"),
+        )
+        .where(Membership.status == "Active")
+        .where(Member.member_since <= year_end)
+        .where(
+            (Member.member_end_date.isnull()) | (Member.member_end_date >= year_start)
+        )
+        .groupby(Membership.membership_type)
     )
 
+    breakdown = query.run(as_dict=True)
     return breakdown
 
 
@@ -796,143 +881,270 @@ def get_region_condition(region):
 
 
 def get_chapter_segmentation(year, filter_conditions):
-    """Get member distribution by chapter"""
+    """Get member distribution by chapter for a specific year"""
+    from frappe.query_builder import Case, Criterion
+    from frappe.query_builder.functions import Avg, Coalesce, Count, Sum
+    from pypika import CustomFunction
+    from pypika.terms import ValueWrapper
 
     # Ensure year is an integer
     year = int(year)
+    year_start = f"{year}-01-01"
+    year_end = f"{year}-12-31"
+
+    Member = frappe.qb.DocType("Member")
+    ChapterMember = frappe.qb.DocType("Chapter Member")
+    Chapter = frappe.qb.DocType("Chapter")
+    Membership = frappe.qb.DocType("Membership")
+    MembershipType = frappe.qb.DocType("Membership Type")
+
+    # Custom function for YEAR()
+    Year = CustomFunction("YEAR", ["date"])
+
+    # Subquery for membership type minimum amount
+    mt_subquery = (
+        frappe.qb.from_(Membership)
+        .join(MembershipType)
+        .on(Membership.membership_type == MembershipType.name)
+        .select(MembershipType.minimum_amount)
+        .where(Membership.member == Member.name)
+        .where(Membership.status == "Active")
+        .limit(1)
+    )
+
+    # Build the query without ORDER BY first
+    query = (
+        frappe.qb.from_(Member)
+        .left_join(ChapterMember)
+        .on((ChapterMember.member == Member.name) & (ChapterMember.status == "Active"))
+        .left_join(Chapter)
+        .on(Chapter.name == ChapterMember.parent)
+        .select(
+            Coalesce(Chapter.name, "No Chapter").as_("name"),
+            Count(Member.name).distinct().as_("total_members"),
+            Sum(
+                Case()
+                .when(Year(Member.member_since) == year, 1)
+                .else_(0)
+            ).as_("new_members"),
+            Avg(Coalesce(Member.dues_rate, mt_subquery, 0)).as_("avg_fee"),
+        )
+        .where(Member.member_since <= year_end)
+        .where((Member.member_end_date.isnull()) | (Member.member_end_date >= year_start))
+        .where(Member.status != "Rejected")
+        .groupby(Chapter.name)
+    )
+
+    # Execute query and sort in Python instead of SQL
+    # This avoids the ORDER BY alias issue with query builder
+    results = query.run(as_dict=True)
+    results.sort(key=lambda x: x.get("total_members", 0), reverse=True)
+
+    return results
+
+
+def get_region_segmentation(year, filter_conditions):
+    """Get member distribution by region for a specific year"""
+    from frappe.query_builder import Case
+    from frappe.query_builder.functions import Count, Sum
+    from pypika import CustomFunction
+
+    # Ensure year is an integer
+    year = int(year)
+    year_start = f"{year}-01-01"
+    year_end = f"{year}-12-31"
+
+    Member = frappe.qb.DocType("Member")
+    Address = frappe.qb.DocType("Address")
+
+    # Custom functions
+    Year = CustomFunction("YEAR", ["date"])
+    Left = CustomFunction("LEFT", ["string", "length"])
+
+    # Build region case statement
+    postal_prefix = Left(Address.pincode, 2)
+    region_case = (
+        Case()
+        .when(postal_prefix.between("10", "19"), "Noord-Holland")
+        .when(postal_prefix.between("20", "29"), "Zuid-Holland")
+        .when(postal_prefix.between("30", "39"), "Utrecht")
+        .when(postal_prefix.between("40", "49"), "Gelderland")
+        .when(postal_prefix.between("50", "59"), "Noord-Brabant")
+        .when(postal_prefix.between("60", "69"), "Limburg")
+        .when(postal_prefix.between("70", "79"), "Zeeland")
+        .when(postal_prefix.between("80", "89"), "Overijssel")
+        .when(postal_prefix.between("90", "99"), "Groningen")
+        .else_("Other")
+    )
+
+    query = (
+        frappe.qb.from_(Member)
+        .left_join(Address)
+        .on(Member.primary_address == Address.name)
+        .select(
+            region_case.as_("name"),
+            Count(Member.name).distinct().as_("total_members"),
+            Sum(Case().when(Year(Member.member_since) == year, 1).else_(0)).as_(
+                "new_members"
+            ),
+        )
+        .where(Member.member_since <= year_end)
+        .where((Member.member_end_date.isnull()) | (Member.member_end_date >= year_start))
+        .where(Member.status != "Rejected")
+        .groupby(region_case)
+    )
+
+    results = query.run(as_dict=True)
+    results.sort(key=lambda x: x.get("total_members", 0), reverse=True)
+
+    return results
+
+
+def get_age_segmentation(year, filter_conditions):
+    """Get member distribution by age group for a specific year
+
+    Age is calculated as of the end of the specified year.
+    """
+    # Ensure year is an integer
+    year = int(year)
+    year_start = f"{year}-01-01"
+    year_end = f"{year}-12-31"
+
+    # For age segmentation, the TIMESTAMPDIFF function is complex enough
+    # that using raw SQL is cleaner than fighting with query builder
     query = f"""
         SELECT
-            COALESCE(c.name, 'No Chapter') as name,
-            COUNT(DISTINCT m.name) as total_members,
-            SUM(CASE WHEN YEAR(m.member_since) = {year} THEN 1 ELSE 0 END) as new_members,
+            CASE
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') < 25 THEN 'Under 25'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 25 AND 34 THEN '25-34'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 35 AND 44 THEN '35-44'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 45 AND 54 THEN '45-54'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 55 AND 64 THEN '55-64'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') >= 65 THEN '65+'
+                ELSE 'Unknown'
+            END as name,
+            COUNT(*) as total_members,
             AVG(COALESCE(m.dues_rate,
                 (SELECT minimum_amount FROM `tabMembership Type` mt
                  JOIN `tabMembership` ms ON ms.membership_type = mt.name
                  WHERE ms.member = m.name AND ms.status = 'Active'
                  LIMIT 1), 0)) as avg_fee
         FROM `tabMember` m
-        LEFT JOIN `tabChapter Member` cm ON cm.member = m.name AND cm.status = 'Active'
-        LEFT JOIN `tabChapter` c ON c.name = cm.parent
-        WHERE m.status = 'Active' {filter_conditions}
-        GROUP BY c.name
-        ORDER BY total_members DESC
-    """
-
-    return frappe.db.sql(query, as_dict=True)
-
-
-def get_region_segmentation(year, filter_conditions):
-    """Get member distribution by region"""
-
-    # Ensure year is an integer
-    year = int(year)
-    query = f"""
-        SELECT
+        WHERE m.member_since <= '{year_end}'
+            AND (m.member_end_date IS NULL OR m.member_end_date >= '{year_start}')
+            AND m.status != 'Rejected'
+            AND birth_date IS NOT NULL {filter_conditions}
+        GROUP BY
             CASE
-                WHEN LEFT(a.pincode, 2) BETWEEN '10' AND '19' THEN 'Noord-Holland'
-                WHEN LEFT(a.pincode, 2) BETWEEN '20' AND '29' THEN 'Zuid-Holland'
-                WHEN LEFT(a.pincode, 2) BETWEEN '30' AND '39' THEN 'Utrecht'
-                WHEN LEFT(a.pincode, 2) BETWEEN '40' AND '49' THEN 'Gelderland'
-                WHEN LEFT(a.pincode, 2) BETWEEN '50' AND '59' THEN 'Noord-Brabant'
-                WHEN LEFT(a.pincode, 2) BETWEEN '60' AND '69' THEN 'Limburg'
-                WHEN LEFT(a.pincode, 2) BETWEEN '70' AND '79' THEN 'Zeeland'
-                WHEN LEFT(a.pincode, 2) BETWEEN '80' AND '89' THEN 'Overijssel'
-                WHEN LEFT(a.pincode, 2) BETWEEN '90' AND '99' THEN 'Groningen'
-                ELSE 'Other'
-            END as name,
-            COUNT(DISTINCT m.name) as total_members,
-            SUM(CASE WHEN YEAR(m.member_since) = {year} THEN 1 ELSE 0 END) as new_members
-        FROM `tabMember` m
-        LEFT JOIN `tabAddress` a ON m.primary_address = a.name
-        WHERE m.status = 'Active' {filter_conditions}
-        GROUP BY name
-        ORDER BY total_members DESC
-    """
-
-    return frappe.db.sql(query, as_dict=True)
-
-
-def get_age_segmentation(year, filter_conditions):
-    """Get member distribution by age group"""
-
-    # Ensure year is an integer
-    year = int(year)
-    query = f"""
-        SELECT
-            CASE
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) < 25 THEN 'Under 25'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) BETWEEN 25 AND 34 THEN '25-34'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) BETWEEN 35 AND 44 THEN '35-44'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) BETWEEN 45 AND 54 THEN '45-54'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) BETWEEN 55 AND 64 THEN '55-64'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) >= 65 THEN '65+'
-                ELSE 'Unknown'
-            END as name,
-            COUNT(*) as total_members,
-            AVG(COALESCE(dues_rate,
-                (SELECT minimum_amount FROM `tabMembership Type` mt
-                 JOIN `tabMembership` ms ON ms.membership_type = mt.name
-                 WHERE ms.member = m.name AND ms.status = 'Active'
-                 LIMIT 1), 0)) as avg_fee
-        FROM `tabMember` m
-        WHERE status = 'Active' AND birth_date IS NOT NULL {filter_conditions}
-        GROUP BY CASE
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) < 25 THEN 'Under 25'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) BETWEEN 25 AND 34 THEN '25-34'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) BETWEEN 35 AND 44 THEN '35-44'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) BETWEEN 45 AND 54 THEN '45-54'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) BETWEEN 55 AND 64 THEN '55-64'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) >= 65 THEN '65+'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') < 25 THEN 'Under 25'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 25 AND 34 THEN '25-34'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 35 AND 44 THEN '35-44'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 45 AND 54 THEN '45-54'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 55 AND 64 THEN '55-64'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') >= 65 THEN '65+'
                 ELSE 'Unknown'
             END
-        ORDER BY FIELD(name, 'Under 25', '25-34', '35-44', '45-54', '55-64', '65+', 'Unknown')
     """
 
-    return frappe.db.sql(query, as_dict=True)
+    results = frappe.db.sql(query, as_dict=True)
+
+    # Sort results in the proper age order
+    age_order = ["Under 25", "25-34", "35-44", "45-54", "55-64", "65+", "Unknown"]
+    results.sort(key=lambda x: age_order.index(x["name"]) if x["name"] in age_order else len(age_order))
+
+    return results
 
 
 def get_payment_method_segmentation(year, filter_conditions):
-    """Get member distribution by payment method"""
+    """Get member distribution by payment method for a specific year"""
+    from frappe.query_builder import Case
+    from frappe.query_builder.functions import Coalesce, Count, Sum
+    from pypika import CustomFunction
 
     # Ensure year is an integer
     year = int(year)
-    query = f"""
-        SELECT
-            COALESCE(payment_method, 'Not Set') as name,
-            COUNT(*) as total_members,
-            SUM(CASE WHEN YEAR(member_since) = {year} THEN 1 ELSE 0 END) as new_members
-        FROM `tabMember` m
-        WHERE status = 'Active' {filter_conditions}
-        GROUP BY payment_method
-        ORDER BY total_members DESC
-    """
+    year_start = f"{year}-01-01"
+    year_end = f"{year}-12-31"
 
-    return frappe.db.sql(query, as_dict=True)
+    Member = frappe.qb.DocType("Member")
+
+    # Custom function for YEAR()
+    Year = CustomFunction("YEAR", ["date"])
+
+    query = (
+        frappe.qb.from_(Member)
+        .select(
+            Coalesce(Member.payment_method, "Not Set").as_("name"),
+            Count("*").as_("total_members"),
+            Sum(Case().when(Year(Member.member_since) == year, 1).else_(0)).as_(
+                "new_members"
+            ),
+        )
+        .where(Member.member_since <= year_end)
+        .where((Member.member_end_date.isnull()) | (Member.member_end_date >= year_start))
+        .where(Member.status != "Rejected")
+        .groupby(Member.payment_method)
+    )
+
+    results = query.run(as_dict=True)
+    results.sort(key=lambda x: x.get("total_members", 0), reverse=True)
+
+    return results
 
 
 def get_join_year_segmentation(year, filter_conditions):
-    """Get member distribution by join year"""
+    """Get member distribution by join year for a specific year
+
+    Shows historical join years for members who were active during the specified year.
+    """
+    from frappe.query_builder.functions import Avg, Coalesce, Count
+    from pypika import CustomFunction
 
     # Ensure year is an integer
     year = int(year)
-    query = f"""
-        SELECT
-            YEAR(member_since) as name,
-            COUNT(*) as total_members,
-            AVG(total_membership_days) as avg_tenure_days,
-            AVG(COALESCE(dues_rate,
-                (SELECT minimum_amount FROM `tabMembership Type` mt
-                 JOIN `tabMembership` ms ON ms.membership_type = mt.name
-                 WHERE ms.member = m.name AND ms.status = 'Active'
-                 LIMIT 1), 0)) as avg_fee
-        FROM `tabMember` m
-        WHERE status = 'Active' AND member_since IS NOT NULL {filter_conditions}
-        GROUP BY YEAR(member_since)
-        ORDER BY name DESC
-        LIMIT 10
-    """
+    year_start = f"{year}-01-01"
+    year_end = f"{year}-12-31"
 
-    return frappe.db.sql(query, as_dict=True)
+    Member = frappe.qb.DocType("Member")
+    Membership = frappe.qb.DocType("Membership")
+    MembershipType = frappe.qb.DocType("Membership Type")
+
+    # Custom function for YEAR()
+    Year = CustomFunction("YEAR", ["date"])
+
+    # Subquery for membership type minimum amount
+    mt_subquery = (
+        frappe.qb.from_(Membership)
+        .join(MembershipType)
+        .on(Membership.membership_type == MembershipType.name)
+        .select(MembershipType.minimum_amount)
+        .where(Membership.member == Member.name)
+        .where(Membership.status == "Active")
+        .limit(1)
+    )
+
+    join_year = Year(Member.member_since)
+
+    query = (
+        frappe.qb.from_(Member)
+        .select(
+            join_year.as_("name"),
+            Count("*").as_("total_members"),
+            Avg(Member.total_membership_days).as_("avg_tenure_days"),
+            Avg(Coalesce(Member.dues_rate, mt_subquery, 0)).as_("avg_fee"),
+        )
+        .where(Member.member_since <= year_end)
+        .where((Member.member_end_date.isnull()) | (Member.member_end_date >= year_start))
+        .where(Member.status != "Rejected")
+        .where(Member.member_since.isnotnull())
+        .groupby(join_year)
+    )
+
+    results = query.run(as_dict=True)
+    # Sort by join year descending and limit to 10
+    results.sort(key=lambda x: x.get("name", 0), reverse=True)
+
+    return results[:10]
 
 
 @frappe.whitelist()

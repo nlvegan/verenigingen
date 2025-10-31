@@ -1774,6 +1774,25 @@ class MollieDebugService:
                                     f"based on Mollie subscription cancellation"
                                 )
 
+                        # Get Sales Invoices for this member
+                        sales_invoices = frappe.get_all(
+                            "Sales Invoice",
+                            filters={"member": member.name, "docstatus": 1},
+                            fields=["name", "posting_date", "grand_total", "status"],
+                            order_by="posting_date desc",
+                            limit=5,  # Show last 5 invoices
+                        )
+                        member_result["sales_invoices"] = [
+                            {
+                                "name": inv.name,
+                                "date": str(inv.posting_date),
+                                "amount": float(inv.grand_total),
+                                "status": inv.status,
+                            }
+                            for inv in sales_invoices
+                        ]
+                        member_result["invoice_count"] = len(sales_invoices)
+
                         # Also update Membership records if they exist
                         membership = frappe.get_all(
                             "Membership",
@@ -2107,6 +2126,21 @@ class MollieDebugService:
                                     pe_name = dues_processor._create_payment_entry_for_dues(
                                         member_name, payment
                                     )
+
+                                    # Link BT to PE for automatic reconciliation
+                                    bt_name = bt_result.get("bank_transaction")
+                                    bt_doc = frappe.get_doc("Bank Transaction", bt_name)
+
+                                    # Add PE to the payment_entries child table
+                                    bt_doc.append(
+                                        "payment_entries",
+                                        {
+                                            "payment_document": "Payment Entry",
+                                            "payment_entry": pe_name,
+                                            "allocated_amount": abs(bt_doc.unallocated_amount),
+                                        },
+                                    )
+                                    bt_doc.save()
 
                                     # Merge results
                                     payment_result = {
