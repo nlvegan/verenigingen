@@ -518,6 +518,9 @@ class MembershipAnalytics {
 		$('#projected-revenue').text(
 			this.format_currency(summary.projected_revenue)
 		);
+		// Update the label to show the actual projection year
+		const projection_year = parseInt(this.filters.year) + 1;
+		$('#projected-revenue-label').text(projection_year);
 
 		// Show comparison if available
 		if (previous) {
@@ -1075,7 +1078,7 @@ class MembershipAnalytics {
 				method:
           'verenigingen.verenigingen.doctype.membership_analytics_snapshot.membership_analytics_snapshot.create_snapshot',
 				args: {
-					snapshot_type: 'Manual',
+					snapshot_type: 'Daily',
 					specific_date: frappe.datetime.nowdate()
 				},
 				callback: (r) => {

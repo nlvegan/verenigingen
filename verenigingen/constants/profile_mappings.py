@@ -15,7 +15,6 @@ ROLE_MODULE_MAPPING = {
     "Verenigingen Team Leader": "Verenigingen Team Management Access",
     "Verenigingen Chapter Board Member": "Verenigingen Volunteer Access",
     "Verenigingen Treasurer": "Verenigingen Financial Access",
-    "Verenigingen Chapter Administrator": "Verenigingen Management Access",
     "Verenigingen Communications Officer": "Verenigingen Communications Access",
     "Verenigingen Event Coordinator": "Verenigingen Volunteer Access",
     "Verenigingen Staff": "Verenigingen Management Access",

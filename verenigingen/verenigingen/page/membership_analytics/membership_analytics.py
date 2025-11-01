@@ -90,16 +90,16 @@ def get_summary_metrics(year, period="year", filters=None):
         # For past/future years, count members active as of year-end
         cutoff_date = f"{year}-12-31"
 
-    # Count members who:
+    # Count active and suspended members as of the cutoff date
     # - Joined on or before the cutoff date
     # - Either never terminated, or terminated after the cutoff date
-    # - Weren't rejected
+    # - Only Active or Suspended status (excludes Terminated, Banned, Deceased, Rejected)
     total_members = frappe.db.sql(
         """
         SELECT COUNT(*)
         FROM `tabMember`
         WHERE member_since <= %s
-            AND status != 'Rejected'
+            AND status IN ('Active', 'Suspended')
             AND (member_end_date IS NULL OR member_end_date > %s)
         """,
         (cutoff_date, cutoff_date),
@@ -147,31 +147,32 @@ def get_summary_metrics(year, period="year", filters=None):
 
 
 def calculate_projected_revenue(year):
-    """Calculate projected annual revenue for the next 12 months
+    """Calculate projected annual revenue for the year following the selected year
 
     This projects revenue based on:
     - Active Membership Dues Schedules with their billing frequencies
     - Member dues_rate (custom rates) or schedule suggested_amount
-    - Excludes members with termination dates within the projection period
+    - Excludes members with termination dates within the projection year
     - Annualizes based on billing frequency (Monthly=12x, Quarterly=4x, Yearly=1x)
 
     Args:
-        year: The reference year (currently used for future enhancements)
+        year: The reference year - will calculate projected revenue for year+1
 
     Returns:
-        float: Projected annual revenue for the next 12 months
+        float: Projected annual revenue for the following year (year+1)
     """
     # Ensure year is an integer
     year = int(year)
 
-    # Calculate projection period: next 12 months from today
-    from frappe.utils import add_months, getdate, today
+    # Calculate projection for the following year
+    from frappe.utils import getdate
 
-    projection_start = today()
-    projection_end = add_months(projection_start, 12)
+    projection_year = year + 1
+    projection_start = f"{projection_year}-01-01"
+    projection_end = f"{projection_year}-12-31"
 
     # SQL query to calculate annualized revenue based on billing frequency
-    # Excludes members whose membership ends before the projection period ends
+    # Includes members who were active during the projection year
     query = """
         SELECT
             SUM(
@@ -202,12 +203,13 @@ def calculate_projected_revenue(year):
         JOIN `tabMember` m ON m.name = mds.member
         WHERE mds.status = 'Active'
             AND mds.is_template = 0
-            AND m.status = 'Active'
+            AND m.status != 'Rejected'
+            AND m.member_since <= %s
             AND (m.member_end_date IS NULL OR m.member_end_date > %s)
     """
 
     try:
-        result = frappe.db.sql(query, (projection_end,), as_dict=True)
+        result = frappe.db.sql(query, (projection_end, projection_start), as_dict=True)
         total_revenue = result[0].total_annual_revenue if result and result[0].total_annual_revenue else 0
         return float(total_revenue)
     except Exception as e:
@@ -276,7 +278,9 @@ def get_current_year_revenue(year):
         # 2. Get direct dues payments not linked to invoices
         # Get dues keywords and income account from settings
         payment_settings = frappe.get_single("Verenigingen Payments Settings")
-        dues_keywords = [kw.strip().lower() for kw in (payment_settings.dues_keywords or "contributie").split(",")]
+        dues_keywords = [
+            kw.strip().lower() for kw in (payment_settings.dues_keywords or "contributie").split(",")
+        ]
 
         verenigingen_settings = frappe.get_single("Verenigingen Settings")
         dues_income_account = verenigingen_settings.dues_income_account
@@ -325,8 +329,7 @@ def get_current_year_revenue(year):
 
         # Format the query with conditions
         direct_payments_query = direct_payments_query.format(
-            keyword_conditions=keyword_conditions,
-            account_condition=account_condition
+            keyword_conditions=keyword_conditions, account_condition=account_condition
         )
 
         direct_payments_result = frappe.db.sql(direct_payments_query, tuple(params), as_dict=True)
@@ -624,9 +627,7 @@ def get_membership_breakdown(year, filters=None):
         )
         .where(Membership.status == "Active")
         .where(Member.member_since <= year_end)
-        .where(
-            (Member.member_end_date.isnull()) | (Member.member_end_date >= year_start)
-        )
+        .where((Member.member_end_date.isnull()) | (Member.member_end_date >= year_start))
         .groupby(Membership.membership_type)
     )
 
@@ -922,16 +923,12 @@ def get_chapter_segmentation(year, filter_conditions):
         .select(
             Coalesce(Chapter.name, "No Chapter").as_("name"),
             Count(Member.name).distinct().as_("total_members"),
-            Sum(
-                Case()
-                .when(Year(Member.member_since) == year, 1)
-                .else_(0)
-            ).as_("new_members"),
+            Sum(Case().when(Year(Member.member_since) == year, 1).else_(0)).as_("new_members"),
             Avg(Coalesce(Member.dues_rate, mt_subquery, 0)).as_("avg_fee"),
         )
         .where(Member.member_since <= year_end)
         .where((Member.member_end_date.isnull()) | (Member.member_end_date >= year_start))
-        .where(Member.status != "Rejected")
+        .where(Member.status.notin(["Rejected", "Terminated", "Banned", "Deceased"]))
         .groupby(Chapter.name)
     )
 
@@ -984,13 +981,11 @@ def get_region_segmentation(year, filter_conditions):
         .select(
             region_case.as_("name"),
             Count(Member.name).distinct().as_("total_members"),
-            Sum(Case().when(Year(Member.member_since) == year, 1).else_(0)).as_(
-                "new_members"
-            ),
+            Sum(Case().when(Year(Member.member_since) == year, 1).else_(0)).as_("new_members"),
         )
         .where(Member.member_since <= year_end)
         .where((Member.member_end_date.isnull()) | (Member.member_end_date >= year_start))
-        .where(Member.status != "Rejected")
+        .where(Member.status.notin(["Rejected", "Terminated", "Banned", "Deceased"]))
         .groupby(region_case)
     )
 
@@ -1032,7 +1027,7 @@ def get_age_segmentation(year, filter_conditions):
         FROM `tabMember` m
         WHERE m.member_since <= '{year_end}'
             AND (m.member_end_date IS NULL OR m.member_end_date >= '{year_start}')
-            AND m.status != 'Rejected'
+            AND m.status NOT IN ('Rejected', 'Terminated', 'Banned', 'Deceased')
             AND birth_date IS NOT NULL {filter_conditions}
         GROUP BY
             CASE
@@ -1076,13 +1071,11 @@ def get_payment_method_segmentation(year, filter_conditions):
         .select(
             Coalesce(Member.payment_method, "Not Set").as_("name"),
             Count("*").as_("total_members"),
-            Sum(Case().when(Year(Member.member_since) == year, 1).else_(0)).as_(
-                "new_members"
-            ),
+            Sum(Case().when(Year(Member.member_since) == year, 1).else_(0)).as_("new_members"),
         )
         .where(Member.member_since <= year_end)
         .where((Member.member_end_date.isnull()) | (Member.member_end_date >= year_start))
-        .where(Member.status != "Rejected")
+        .where(Member.status.notin(["Rejected", "Terminated", "Banned", "Deceased"]))
         .groupby(Member.payment_method)
     )
 
@@ -1135,7 +1128,7 @@ def get_join_year_segmentation(year, filter_conditions):
         )
         .where(Member.member_since <= year_end)
         .where((Member.member_end_date.isnull()) | (Member.member_end_date >= year_start))
-        .where(Member.status != "Rejected")
+        .where(Member.status.notin(["Rejected", "Terminated", "Banned", "Deceased"]))
         .where(Member.member_since.isnotnull())
         .groupby(join_year)
     )

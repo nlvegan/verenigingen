@@ -15,6 +15,9 @@
         <div class="mb-8">
             <h1 class="text-3xl font-bold text-gray-900">{{ title }}</h1>
             <p class="mt-2 text-sm text-gray-600">Current Period: {{ current_period_start }} to {{ current_period_end }}</p>
+            {% if debug_info %}
+            <p class="mt-1 text-xs text-red-600">DEBUG: {{ debug_info }}</p>
+            {% endif %}
         </div>
 
         <!-- Action Buttons -->

@@ -885,7 +885,6 @@ fixtures = [
                     "Verenigingen Team Leader",
                     "Verenigingen Chapter Board Member",
                     "Verenigingen Treasurer",
-                    "Verenigingen Chapter Administrator",
                     "Verenigingen Staff",
                     "Verenigingen System Administrator",
                     "Verenigingen Auditor",

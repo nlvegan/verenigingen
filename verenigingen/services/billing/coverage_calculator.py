@@ -279,12 +279,19 @@ class CoverageCalculator:
         Returns:
             date: The cutoff date through which invoices should provide coverage
         """
+        from datetime import date as date_obj
+
         from frappe.utils import add_days, getdate, today
 
         settings = frappe.get_single("Verenigingen Settings")
         cutoff_frequency = getattr(settings, "billing_cutoff_frequency", "Monthly")
 
         today_date = getdate(today())
+
+        # DEBUG LOGGING
+        frappe.logger().info(
+            f"[CoverageCalculator] today_date={today_date}, cutoff_frequency={cutoff_frequency}"
+        )
 
         if cutoff_frequency == "Monthly":
             # End of current month
@@ -302,42 +309,62 @@ class CoverageCalculator:
             months_since_book_start = (today_date.month - book_year_start_month) % 12
             current_quarter = (months_since_book_start // 3) + 1
 
-            # Calculate end of current quarter
+            # Calculate end month of current quarter
             quarter_end_month = ((current_quarter * 3 - 1) + book_year_start_month - 1) % 12 + 1
 
-            if quarter_end_month <= today_date.month:
+            # Determine the year for the quarter end
+            # If quarter_end_month >= today's month, we're still in this year's quarter
+            # If quarter_end_month < today's month, the quarter must have wrapped to next year
+            if quarter_end_month >= today_date.month:
                 quarter_end_year = today_date.year
             else:
-                quarter_end_year = today_date.year - 1
+                # Quarter wraps to next year (e.g., book year starts in April, we're in Jan-Mar)
+                quarter_end_year = today_date.year + 1
 
-            # Get last day of quarter end month
-            if quarter_end_month == 12:
-                next_month = (quarter_end_year + 1, 1)
-            else:
-                next_month = (quarter_end_year, quarter_end_month + 1)
+            # Calculate last day of quarter end month
+            import calendar
 
-            quarter_end = today_date.replace(year=next_month[0], month=next_month[1], day=1)
-            return add_days(quarter_end, -1)
+            last_day_of_month = calendar.monthrange(quarter_end_year, quarter_end_month)[1]
+            return date_obj(quarter_end_year, quarter_end_month, last_day_of_month)
 
         elif cutoff_frequency == "Yearly":
             # End of current book year
             book_year_end_month = getattr(settings, "book_year_end_month", 12)
+            book_year_end_day = getattr(settings, "book_year_end_day", 31)
 
-            if today_date.month <= book_year_end_month:
+            frappe.logger().info(
+                f"[CoverageCalculator] Yearly: book_year_end_month={book_year_end_month}, "
+                f"book_year_end_day={book_year_end_day}, today={today_date}"
+            )
+
+            if today_date.month < book_year_end_month or (
+                today_date.month == book_year_end_month and today_date.day <= book_year_end_day
+            ):
                 # Still in current book year
                 end_year = today_date.year
             else:
                 # In next book year
                 end_year = today_date.year + 1
 
-            # Get last day of book year end month
-            if book_year_end_month == 12:
-                next_month = (end_year + 1, 1)
-            else:
-                next_month = (end_year, book_year_end_month + 1)
+            frappe.logger().info(f"[CoverageCalculator] end_year={end_year}")
 
-            year_end = today_date.replace(year=next_month[0], month=next_month[1], day=1)
-            return add_days(year_end, -1)
+            # Calculate last day of book year end month
+            if book_year_end_month == 12:
+                # December - use actual last day or day 31
+                import calendar
+
+                last_day = min(book_year_end_day, calendar.monthrange(end_year, 12)[1])
+                result = date_obj(end_year, 12, last_day)
+                frappe.logger().info(f"[CoverageCalculator] Returning Dec result: {result}")
+                return result
+            else:
+                # Other month - calculate last day properly
+                import calendar
+
+                last_day = min(book_year_end_day, calendar.monthrange(end_year, book_year_end_month)[1])
+                result = date_obj(end_year, book_year_end_month, last_day)
+                frappe.logger().info(f"[CoverageCalculator] Returning other month result: {result}")
+                return result
 
         else:
             # Default to end of current month

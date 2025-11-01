@@ -959,10 +959,22 @@ def check_all_customers_for_new_payments(days_back=7, all_history=False, limit_p
 
         from verenigingen.integrations.mollie.services.bulk_payment_checker import BulkPaymentChecker
 
-        checker = BulkPaymentChecker()
-        return checker.check_all_customers_for_new_payments(
-            days_back=days_back, all_history=all_history, limit_per_customer=limit_per_customer
+        frappe.logger().info(
+            f"🔍 check_all_customers_for_new_payments called with days_back={days_back}, max_members=None"
         )
+
+        checker = BulkPaymentChecker()
+        result = checker.check_all_customers_for_new_payments(
+            days_back=days_back,
+            all_history=all_history,
+            limit_per_customer=limit_per_customer,
+            max_members=10000,  # Large number to check all members (will be capped by total available)
+        )
+
+        frappe.logger().info(
+            f"✅ BulkPaymentChecker returned: {result.get('members_checked')} members checked out of {result.get('total_members')}"
+        )
+        return result
 
     except Exception as e:
         frappe.log_error(f"Bulk payment check error: {str(e)}")

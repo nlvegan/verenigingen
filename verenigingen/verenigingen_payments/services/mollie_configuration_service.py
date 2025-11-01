@@ -518,7 +518,9 @@ class MollieConfigurationService:
         return accounts
 
     @classmethod
-    def validate_all_mollie_accounts(cls, raise_on_error: bool = True) -> Dict[str, Any]:
+    def validate_all_mollie_accounts(
+        cls, raise_on_error: bool = True, skip_settlement_account: bool = False
+    ) -> Dict[str, Any]:
         """
         Validate all Mollie GL accounts configuration comprehensively.
 
@@ -528,6 +530,9 @@ class MollieConfigurationService:
 
         Args:
             raise_on_error: Whether to raise exception on validation failure (default: True)
+            skip_settlement_account: Skip validation of settlement bank account (default: False).
+                                   Set to True when processing virtual account payments, as
+                                   settlement account is only relevant for payout processing.
 
         Returns:
             Dict with validation results:
@@ -558,6 +563,12 @@ class MollieConfigurationService:
 
             # Strict validation that raises on error
             get_mollie_config().validate_all_mollie_accounts()  # Raises if any account invalid
+
+            # Skip settlement account validation for virtual account payments
+            validation = get_mollie_config().validate_all_mollie_accounts(
+                raise_on_error=False,
+                skip_settlement_account=True
+            )
         """
         settings = cls.get_settings()
         accounts_to_validate = {
@@ -568,7 +579,7 @@ class MollieConfigurationService:
             },
             "bank_account": {
                 "name": settings.get("mollie_bank_account"),
-                "required": True,
+                "required": not skip_settlement_account,  # Optional if skipping settlement validation
                 "account_type": "Bank",  # Physical bank accounts are Bank type
             },
             "fees_account": {

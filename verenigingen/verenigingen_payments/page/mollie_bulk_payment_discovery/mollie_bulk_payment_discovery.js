@@ -140,7 +140,11 @@ function render_results(page, data, filters) {
 
 			<h5>Statistics:</h5>
 			<ul>
-				<li><strong>Total Payments Found:</strong> ${data.total_payments_found || 0}</li>
+				<li><strong>Total Payments Found (Raw API):</strong> ${data.total_payments_found || 0}</li>
+				<li><strong>Payments After Filtering:</strong> ${data.total_payments_after_filtering || 0}</li>
+				<li style="margin-left: 20px; color: #6c757d;">
+					<small>Filtered: ${data.total_filtered_by_date || 0} by date, ${data.total_filtered_by_duplicate || 0} duplicates</small>
+				</li>
 				<li><strong>New/Unprocessed:</strong> ${data.total_new_payments || 0}</li>
 				<li><strong>Orphaned (no member match):</strong> ${orphaned_count}</li>
 				<li><strong>Errors:</strong> ${data.errors || 0}</li>
@@ -207,26 +211,32 @@ function render_results(page, data, filters) {
 
 	// Build payments array from results
 	let payments = [];
+	let already_processed_payments = [];
 
 	if (data.retrieval_mode === 'customer' && data.customers) {
 		// Customer mode: extract from customers array
 		data.customers.forEach(customer => {
 			customer.payments.forEach(payment => {
-				if (payment.processable || payment.already_processed) {
-					payments.push({
-						payment_id: payment.id,
-						member: customer.member,
-						member_full_name: customer.member_full_name || '',
-						status: payment.status,
-						amount: payment.amount_display,
-						currency: payment.currency,
-						payment_type: payment.payment_type,
-						paid_at: payment.paid_at,
-						already_processed: payment.already_processed ? 'Yes' : 'No',
-						payment_entry: payment.payment_entry || '',
-						bank_transaction: payment.bank_transaction || '',
-						processable: payment.processable ? 'Yes' : 'No'
-					});
+				const payment_data = {
+					payment_id: payment.id,
+					member: customer.member,
+					member_full_name: customer.member_full_name || '',
+					status: payment.status,
+					amount: payment.amount_display,
+					currency: payment.currency,
+					payment_type: payment.payment_type,
+					paid_at: payment.paid_at,
+					already_processed: payment.already_processed ? 'Yes' : 'No',
+					payment_entry: payment.payment_entry || '',
+					bank_transaction: payment.bank_transaction || '',
+					processable: payment.processable ? 'Yes' : 'No'
+				};
+
+				// Separate already-processed from processable payments
+				if (payment.already_processed) {
+					already_processed_payments.push(payment_data);
+				} else if (payment.processable) {
+					payments.push(payment_data);
 				}
 			});
 		});
@@ -258,7 +268,7 @@ function render_results(page, data, filters) {
 	}
 
 	// Render table
-	if (payments.length === 0) {
+	if (payments.length === 0 && already_processed_payments.length === 0) {
 		$table.html('<p class="text-muted">No payments found.</p>');
 		$(page.bulk_process_btn).hide();
 		return;
@@ -276,53 +286,107 @@ function render_results(page, data, filters) {
 		$(page.bulk_process_btn).hide();
 	}
 
-	let html = `
-		<table class="table table-bordered">
-			<thead>
-				<tr>
-					<th>Payment ID</th>
-					<th>Member</th>
-					<th>Member Name</th>
-					<th>Status</th>
-					<th>Amount</th>
-					<th>Type</th>
-					<th>Paid At</th>
-					<th>Processed</th>
-					<th>Processable</th>
-					<th>Actions</th>
-				</tr>
-			</thead>
-			<tbody>
-	`;
+	let html = '';
 
-	payments.forEach(payment => {
-		const is_orphaned = payment.member === '⚠️ ORPHANED';
-		const row_class = is_orphaned ? 'table-danger' : '';
+	// Section 1: Unprocessed/Processable Payments
+	if (payments.length > 0) {
+		html += `
+			<h4 style="margin-top: 20px; margin-bottom: 15px;">
+				Unprocessed Payments (${payments.length})
+			</h4>
+			<table class="table table-bordered">
+				<thead>
+					<tr>
+						<th>Payment ID</th>
+						<th>Member</th>
+						<th>Member Name</th>
+						<th>Status</th>
+						<th>Amount</th>
+						<th>Type</th>
+						<th>Paid At</th>
+						<th>Processable</th>
+						<th>Actions</th>
+					</tr>
+				</thead>
+				<tbody>
+		`;
+
+		payments.forEach(payment => {
+			const is_orphaned = payment.member === '⚠️ ORPHANED';
+			const row_class = is_orphaned ? 'table-danger' : '';
+
+			html += `
+				<tr class="${row_class}">
+					<td style="font-family: monospace;">${payment.payment_id}</td>
+					<td>${payment.member}</td>
+					<td>${payment.member_full_name}</td>
+					<td>${format_status(payment.status)}</td>
+					<td>${payment.amount}</td>
+					<td>${payment.payment_type}</td>
+					<td>${payment.paid_at || ''}</td>
+					<td>${format_processable(payment.processable)}</td>
+					<td>
+						${payment.processable === 'Yes' && !is_orphaned ?
+							`<button class="btn btn-sm btn-primary process-payment" data-payment-id="${payment.payment_id}">
+								Process
+							</button>` :
+							'<span class="text-muted">N/A</span>'
+						}
+					</td>
+				</tr>
+			`;
+		});
+
+		html += '</tbody></table>';
+	}
+
+	// Section 2: Already Processed Payments (for audit/reference)
+	if (already_processed_payments.length > 0) {
+		html += `
+			<div style="margin-top: 30px; padding: 15px; background-color: #f8f9fa; border-radius: 4px;">
+				<h4 style="margin-top: 0; color: #28a745;">
+					✓ Already Processed Payments (${already_processed_payments.length})
+				</h4>
+				<p class="text-muted" style="margin-bottom: 15px;">
+					<em>These payments have already been processed and created Bank Transactions/Payment Entries.
+					Shown for reference only.</em>
+				</p>
+				<div style="max-height: 400px; overflow-y: auto;">
+					<table class="table table-sm table-bordered">
+						<thead>
+							<tr>
+								<th>Payment ID</th>
+								<th>Member</th>
+								<th>Amount</th>
+								<th>Paid At</th>
+								<th>Payment Entry</th>
+								<th>Bank Transaction</th>
+							</tr>
+						</thead>
+						<tbody>
+		`;
+
+		already_processed_payments.forEach(payment => {
+			html += `
+				<tr class="table-success">
+					<td style="font-family: monospace; font-size: 0.9em;">${payment.payment_id}</td>
+					<td>${payment.member}</td>
+					<td>${payment.amount}</td>
+					<td style="font-size: 0.9em;">${payment.paid_at || ''}</td>
+					<td>${payment.payment_entry ? `<code>${payment.payment_entry}</code>` : '-'}</td>
+					<td>${payment.bank_transaction ? `<code>${payment.bank_transaction}</code>` : '-'}</td>
+				</tr>
+			`;
+		});
 
 		html += `
-			<tr class="${row_class}">
-				<td>${payment.payment_id}</td>
-				<td>${payment.member}</td>
-				<td>${payment.member_full_name}</td>
-				<td>${format_status(payment.status)}</td>
-				<td>${payment.amount}</td>
-				<td>${payment.payment_type}</td>
-				<td>${payment.paid_at || ''}</td>
-				<td>${format_processed(payment.already_processed)}</td>
-				<td>${format_processable(payment.processable)}</td>
-				<td>
-					${payment.processable === 'Yes' && !is_orphaned ?
-						`<button class="btn btn-sm btn-primary process-payment" data-payment-id="${payment.payment_id}">
-							Process
-						</button>` :
-						'<span class="text-muted">N/A</span>'
-					}
-				</td>
-			</tr>
+						</tbody>
+					</table>
+				</div>
+			</div>
 		`;
-	});
+	}
 
-	html += '</tbody></table>';
 	$table.html(html);
 
 	// Store processable payment IDs on page for bulk processing

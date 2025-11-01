@@ -107,7 +107,7 @@ def determine_user_profile(user_email):
         elif "Website Manager" in user_roles and "Newsletter Manager" in user_roles:
             return "Verenigingen Communications Officer"
         else:
-            return "Verenigingen Chapter Administrator"
+            return "Verenigingen Staff"
 
     # 5. Board roles
     if "Verenigingen Chapter Board Member" in user_roles:

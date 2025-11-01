@@ -58,18 +58,7 @@ Role profiles in Verenigingen are designed to provide appropriate access levels 
   - Generate financial reports
   - Manage chapter budgets
 
-### 6. **Verenigingen Chapter Administrator**
-
-- **For**: Chapter secretaries and operational administrators
-- **Access**: Chapter operations and communications
-- **Additional Modules**: Website, Newsletter, Blog
-- **Key Features**:
-  - Manage chapter website content
-  - Send member communications
-  - Organize events
-  - Maintain member records
-
-### 7. **Verenigingen Communications Officer** (NEW)
+### 6. **Verenigingen Communications Officer** (NEW)
 
 - **For**: Dedicated communications staff
 - **Access**: Full communications and content management
@@ -79,7 +68,7 @@ Role profiles in Verenigingen are designed to provide appropriate access levels 
   - Newsletter campaigns
   - Blog and news updates
 
-### 8. **Verenigingen Event Coordinator** (NEW)
+### 7. **Verenigingen Event Coordinator** (NEW)
 
 - **For**: Event organizers and coordinators
 - **Access**: Project and event management tools
@@ -89,7 +78,7 @@ Role profiles in Verenigingen are designed to provide appropriate access levels 
   - Track event participation
   - Generate event reports
 
-### 9. **Verenigingen Manager**
+### 8. **Verenigingen Manager**
 
 - **For**: National office staff and regional managers
 - **Access**: Comprehensive management capabilities
@@ -100,7 +89,7 @@ Role profiles in Verenigingen are designed to provide appropriate access levels 
   - Support team access
   - Advanced reporting
 
-### 10. **Verenigingen Finance Manager** (NEW)
+### 9. **Verenigingen Finance Manager** (NEW)
 
 - **For**: Senior financial staff
 - **Access**: Full financial management
@@ -111,7 +100,7 @@ Role profiles in Verenigingen are designed to provide appropriate access levels 
   - Asset tracking
   - Financial planning
 
-### 11. **Verenigingen System Administrator**
+### 10. **Verenigingen System Administrator**
 
 - **For**: IT administrators and system managers
 - **Access**: Full system access
@@ -121,7 +110,7 @@ Role profiles in Verenigingen are designed to provide appropriate access levels 
   - User management
   - Technical administration
 
-### 12. **Verenigingen Auditor**
+### 11. **Verenigingen Auditor**
 
 - **For**: Internal auditors and compliance officers
 - **Access**: Read-only access to financial and governance data
@@ -131,7 +120,7 @@ Role profiles in Verenigingen are designed to provide appropriate access levels 
   - Generate compliance reports
   - Quality management tools
 
-### 13. **Verenigingen Guest** (NEW)
+### 12. **Verenigingen Guest** (NEW)
 
 - **For**: Non-members and public users
 - **Access**: Public website only

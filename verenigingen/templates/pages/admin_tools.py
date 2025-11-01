@@ -276,6 +276,60 @@ def get_context(context):
             "args": {"dry_run": False},
             "formatter": "orphan",
         },
+        {
+            "title": "Preview Payment Entry Cleanup",
+            "description": "Preview which Payment Entries would be deleted and which members would be affected (safe preview)",
+            "method": "verenigingen.utils.payment_entry_cleanup.get_payment_entry_cleanup_preview",
+            "icon": "fa fa-search",
+            "color": "brand-accent",
+            "args": {"filters": {"docstatus": ["in", [0, 2]]}},
+            "formatter": "generic",
+        },
+        {
+            "title": "Delete Draft & Cancelled Payment Entries",
+            "description": "Delete all draft and cancelled Payment Entries and clean up Member Payment History references",
+            "method": "verenigingen.utils.payment_entry_cleanup.bulk_delete_payment_entries",
+            "icon": "fa fa-trash-o",
+            "color": "warning",
+            "warning": "This will permanently delete all draft and cancelled Payment Entries and remove them from Member Payment History!",
+            "args": {"filters": {"docstatus": ["in", [0, 2]]}},
+            "formatter": "cleanup",
+        },
+        {
+            "title": "Analyze Payment Processing Gaps",
+            "description": "Identify payments missing Bank Transactions, Payment Entries, or Sales Invoices",
+            "method": "verenigingen.utils.payment_processing_recovery.analyze_payment_gaps",
+            "icon": "fa fa-search-plus",
+            "color": "brand-accent",
+            "formatter": "generic",
+        },
+        {
+            "title": "Find Incomplete Payments (All)",
+            "description": "Check ALL recent Bank Transactions for missing documents (may take a minute)",
+            "method": "verenigingen.utils.payment_processing_recovery.get_incomplete_payments",
+            "icon": "fa fa-exclamation-triangle",
+            "color": "warning",
+            "formatter": "generic",
+        },
+        {
+            "title": "Complete Partial Payments (DRY RUN) - 300 limit",
+            "description": "Preview which documents would be created to complete partially processed payments (max 300)",
+            "method": "verenigingen.utils.payment_processing_recovery.complete_partial_payments",
+            "icon": "fa fa-eye",
+            "color": "brand-accent",
+            "args": {"dry_run": True, "max_payments": 300},
+            "formatter": "generic",
+        },
+        {
+            "title": "Complete Partial Payments (LIVE) - 300 limit",
+            "description": "Create missing Bank Transactions, Payment Entries, and Sales Invoices for incomplete payments (max 300)",
+            "method": "verenigingen.utils.payment_processing_recovery.complete_partial_payments",
+            "icon": "fa fa-magic",
+            "color": "success",
+            "warning": "This will create missing financial documents for partially processed payments!",
+            "args": {"dry_run": False, "max_payments": 300},
+            "formatter": "generic",
+        },
     ]
 
     # System administration tools
@@ -499,6 +553,22 @@ def get_context(context):
             "description": "⚠️ DANGER: Nuclear cleanup ALL members (LIVE)",
             "command": 'bench --site dev.veganisme.net execute verenigingen.utils.member_import_cleanup.nuclear_cleanup_all_members --kwargs=\'{"confirm_nuclear_cleanup": True, "dry_run": False}\'',
         },
+        {
+            "description": "Complete partial payments (dry run, max 300)",
+            "command": 'bench --site dev.veganisme.net execute verenigingen.utils.payment_processing_recovery.complete_partial_payments --kwargs=\'{"dry_run": True, "max_payments": 300}\'',
+        },
+        {
+            "description": "Complete partial payments (LIVE, max 300)",
+            "command": 'bench --site dev.veganisme.net execute verenigingen.utils.payment_processing_recovery.complete_partial_payments --kwargs=\'{"dry_run": False, "max_payments": 300}\'',
+        },
+        {
+            "description": "Complete partial payments (LIVE, unlimited - up to 2500)",
+            "command": "bench --site dev.veganisme.net execute verenigingen.utils.payment_processing_recovery.complete_partial_payments --kwargs='{\"dry_run\": False}'",
+        },
+        {
+            "description": "Complete partial payments (LIVE, custom limit)",
+            "command": 'bench --site dev.veganisme.net execute verenigingen.utils.payment_processing_recovery.complete_partial_payments --kwargs=\'{"dry_run": False, "max_payments": 500}\'',
+        },
     ]
 
     return context
@@ -527,6 +597,15 @@ ALLOWED_ADMIN_METHODS = {
     "verenigingen.utils.orphaned_child_table_cleanup.cleanup_orphaned_child_tables",
     "verenigingen.utils.orphaned_child_table_cleanup.cleanup_member_child_tables_only",
     "verenigingen.utils.orphaned_child_table_cleanup.cleanup_volunteer_child_tables_only",
+    # Payment Entry cleanup
+    "verenigingen.utils.payment_entry_cleanup.bulk_delete_payment_entries",
+    "verenigingen.utils.payment_entry_cleanup.delete_payment_entries_by_date_range",
+    "verenigingen.utils.payment_entry_cleanup.get_payment_entry_cleanup_preview",
+    # Payment processing recovery
+    "verenigingen.utils.payment_processing_recovery.analyze_payment_gaps",
+    "verenigingen.utils.payment_processing_recovery.get_incomplete_payments",
+    "verenigingen.utils.payment_processing_recovery.complete_partial_payments",
+    "verenigingen.utils.payment_processing_recovery.get_payment_processing_status",
     # System administration
     "verenigingen.utils.performance_dashboard.get_system_health",
     "verenigingen.utils.performance_dashboard.get_performance_dashboard",

@@ -23,7 +23,6 @@ def setup_role_profiles():
         "Verenigingen Team Leader": "Verenigingen Volunteer Access",
         "Verenigingen Chapter Board Member": "Verenigingen Volunteer Access",
         "Verenigingen Treasurer": "Verenigingen Financial Access",
-        "Verenigingen Chapter Administrator": "Verenigingen Management Access",
         "Verenigingen Staff": "Verenigingen Management Access",
         "Verenigingen Financial Manager": "Verenigingen Financial Access",  # Consolidates Bank Reconciliation User
         "Verenigingen System Administrator": None,  # Full access
@@ -109,7 +108,7 @@ def get_recommended_role_profile(user: str) -> str | None:
         if "Accounts User" in user_roles:
             return "Verenigingen Treasurer"
         else:
-            return "Verenigingen Chapter Administrator"
+            return "Verenigingen Staff"
 
     # 4. Governance roles
     if "Verenigingen Governance Auditor" in user_roles:
@@ -221,7 +220,6 @@ def setup_role_profiles_cli():
             "Verenigingen Team Leader": "Verenigingen Volunteer Access",
             "Verenigingen Chapter Board Member": "Verenigingen Volunteer Access",
             "Verenigingen Treasurer": "Verenigingen Financial Access",
-            "Verenigingen Chapter Administrator": "Verenigingen Management Access",
             "Verenigingen Staff": "Verenigingen Management Access",
             "Verenigingen System Administrator": None,  # Full access
             "Verenigingen Auditor": "Verenigingen Audit Access",
@@ -281,12 +279,9 @@ def setup_role_profiles_cli():
                 # Manager roles
                 elif "Verenigingen Staff" in user_roles:
                     recommended_profile = "Verenigingen Staff"
-                # Staff roles
-                elif "Verenigingen Staff" in user_roles:
-                    if "Accounts User" in user_roles:
-                        recommended_profile = "Verenigingen Treasurer"
-                    else:
-                        recommended_profile = "Verenigingen Chapter Administrator"
+                # Staff roles with accounting
+                elif "Verenigingen Staff" in user_roles and "Accounts User" in user_roles:
+                    recommended_profile = "Verenigingen Treasurer"
                 # Governance roles
                 elif "Verenigingen Governance Auditor" in user_roles:
                     recommended_profile = "Verenigingen Auditor"

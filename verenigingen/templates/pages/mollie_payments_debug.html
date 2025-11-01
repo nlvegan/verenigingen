@@ -101,7 +101,7 @@
                         <strong>{{ _("API Mode:") }}</strong>
                         <span class="font-mono">{{ api_key_type.upper() }}</span>
                         {% if not mollie_configured %}
-                        <span class="text-red-600 ml-2">{{ _("(Not configured)") }}</span>
+                        <span class="text-danger-600 ml-2">{{ _("(Not configured)") }}</span>
                         {% endif %}
                     </div>
                 </div>
@@ -444,12 +444,12 @@
 
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Amount (EUR)") }} <span class="text-red-600">*</span></label>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Amount (EUR)") }} <span class="text-danger-600">*</span></label>
                             <input type="number" id="test-payment-amount" class="debug-input"
                                    placeholder="25.00" min="0.01" max="1000" step="0.01" value="25.00">
                         </div>
                         <div class="md:col-span-2">
-                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Description") }} <span class="text-red-600">*</span></label>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Description") }} <span class="text-danger-600">*</span></label>
                             <input type="text" id="test-payment-description" class="debug-input"
                                    placeholder="Test membership dues payment">
                         </div>
@@ -546,11 +546,11 @@
 
             <!-- List Chargebacks Section -->
             <div class="debug-card">
-                <div class="p-4 border border-red-300 rounded-lg bg-red-50 mb-4">
-                    <h3 class="text-lg font-semibold text-red-800 mb-2">
+                <div class="p-4 border border-danger-300 rounded-lg bg-danger-50 mb-4">
+                    <h3 class="text-lg font-semibold text-danger-800 mb-2">
                         <i class="fa fa-exclamation-triangle mr-2"></i>{{ _("List Chargebacks") }}
                     </h3>
-                    <p class="text-red-700 mb-4">{{ _("Investigate disputed transactions and chargebacks") }}</p>
+                    <p class="text-danger-700 mb-4">{{ _("Investigate disputed transactions and chargebacks") }}</p>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                         <div>
@@ -565,7 +565,7 @@
                         </div>
                     </div>
 
-                    <button type="button" onclick="listChargebacks()" class="inline-flex items-center px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-md transition-colors duration-200">
+                    <button type="button" onclick="listChargebacks()" class="inline-flex items-center px-4 py-2 bg-danger-600 hover:bg-danger-700 text-white font-medium rounded-md transition-colors duration-200">
                         <i class="fa fa-exclamation-triangle mr-2"></i>{{ _("List Chargebacks") }}
                     </button>
 
@@ -781,13 +781,13 @@
         <!-- Admin Actions Tab -->
         <div id="admin-tab" class="tab-content hidden">
             <div class="mb-4">
-                <h2 class="text-2xl font-semibold mb-2 text-red-600">{{ _("Administrative Actions") }}</h2>
+                <h2 class="text-2xl font-semibold mb-2 text-danger-600">{{ _("Administrative Actions") }}</h2>
                 <p class="text-gray-600">{{ _("Dangerous operations - use with extreme caution") }}</p>
             </div>
 
             <!-- Cancel Subscription Section -->
             <div class="debug-card mb-6">
-                <h3 class="text-lg font-medium text-red-700 mb-3">{{ _("Cancel Subscription") }}</h3>
+                <h3 class="text-lg font-medium text-danger-700 mb-3">{{ _("Cancel Subscription") }}</h3>
                 <p class="text-gray-600 mb-4">{{ _("Cancel an active Mollie subscription for a customer") }}</p>
 
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
@@ -818,7 +818,7 @@
 
             <!-- Revoke Mandate Section -->
             <div class="debug-card mb-6">
-                <h3 class="text-lg font-medium text-red-700 mb-3">{{ _("Revoke Mandate") }}</h3>
+                <h3 class="text-lg font-medium text-danger-700 mb-3">{{ _("Revoke Mandate") }}</h3>
                 <p class="text-gray-600 mb-4">{{ _("Revoke a SEPA direct debit mandate for a customer") }}</p>
 
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
@@ -849,7 +849,7 @@
 
             <!-- Cancel Payment Section -->
             <div class="debug-card mb-6">
-                <h3 class="text-lg font-medium text-red-700 mb-3">{{ _("Cancel Payment") }}</h3>
+                <h3 class="text-lg font-medium text-danger-700 mb-3">{{ _("Cancel Payment") }}</h3>
                 <p class="text-gray-600 mb-4">{{ _("Cancel a pending payment transaction") }}</p>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
@@ -881,11 +881,11 @@
             </div>
 
             <!-- Delete Customer Section (DANGER ZONE) -->
-            <div class="debug-card border-2 border-red-500 bg-red-50">
-                <h3 class="text-lg font-semibold text-red-800 mb-2">
+            <div class="debug-card border-2 border-danger-500 bg-danger-50">
+                <h3 class="text-lg font-semibold text-danger-800 mb-2">
                     <i class="fa fa-skull-crossbones mr-2"></i>{{ _("DANGER ZONE: Delete Customer") }}
                 </h3>
-                <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+                <div class="bg-danger-100 border border-danger-400 text-danger-700 px-4 py-3 rounded mb-4">
                     <strong>{{ _("WARNING:") }}</strong> {{ _("This will permanently delete the customer AND automatically cancel ALL subscriptions and mandates. This action cannot be undone!") }}
                     <br><br>
                     <strong>{{ _("RESTRICTED TO:") }}</strong> {{ _("Verenigingen Administrator role only") }}
@@ -893,20 +893,20 @@
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <div>
-                        <label class="block text-sm font-medium text-red-700 mb-1">{{ _("Customer ID") }}</label>
-                        <input type="text" id="delete-customer-id" class="debug-input border-red-300"
+                        <label class="block text-sm font-medium text-danger-700 mb-1">{{ _("Customer ID") }}</label>
+                        <input type="text" id="delete-customer-id" class="debug-input border-danger-300"
                                placeholder="cst_xxxxxxxxxx">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-red-700 mb-1">{{ _("Deletion Reason") }}</label>
-                        <input type="text" id="delete-reason" class="debug-input border-red-300"
+                        <label class="block text-sm font-medium text-danger-700 mb-1">{{ _("Deletion Reason") }}</label>
+                        <input type="text" id="delete-reason" class="debug-input border-danger-300"
                                placeholder="Critical administrative cleanup">
                     </div>
                     <div class="md:col-span-2">
-                        <label class="block text-sm font-medium text-red-700 mb-1">
+                        <label class="block text-sm font-medium text-danger-700 mb-1">
                             {{ _("Type exactly") }} <strong>"DELETE CUSTOMER"</strong> {{ _("to confirm") }}:
                         </label>
-                        <input type="text" id="delete-confirmation" class="debug-input border-red-300"
+                        <input type="text" id="delete-confirmation" class="debug-input border-danger-300"
                                placeholder="DELETE CUSTOMER">
                     </div>
                 </div>
@@ -3287,7 +3287,7 @@ function bulkRetrieveAllMemberPayments() {
 
     // Show loading in results area
     document.getElementById('bulk-payments-list').style.display = 'block';
-    document.getElementById('bulk-payments-table-body').innerHTML = '<tr><td colspan="7" class="text-center py-4"><i class="fa fa-spinner fa-spin mr-2"></i>Fetching payments via global endpoint (optimized)...</td></tr>';
+    document.getElementById('bulk-payments-table-body').innerHTML = '<tr><td colspan="7" class="text-center py-4"><i class="fa fa-spinner fa-spin mr-2"></i>Fetching payments via BulkPaymentChecker (with deduplication)...</td></tr>';
 
     const formData = new FormData();
     formData.append('days_back', daysBack);
@@ -3320,47 +3320,89 @@ function bulkRetrieveAllMemberPayments() {
 }
 
 function displayBulkPaymentsResults(data) {
+    // Debug: Log the raw data to console
+    console.log('BMPP Response Data:', {
+        total_payments: data.total_payments,
+        total_payments_found: data.total_payments_found,
+        total_payments_after_filtering: data.total_payments_after_filtering,
+        total_filtered_by_date: data.total_filtered_by_date,
+        total_filtered_by_duplicate: data.total_filtered_by_duplicate
+    });
+
     // Update summary
     document.getElementById('bulk-total-members').textContent = data.total_members;
     document.getElementById('bulk-members-checked').textContent = data.members_checked;
-    document.getElementById('bulk-total-payments').textContent = data.total_payments;
-    document.getElementById('bulk-unprocessed-payments').textContent = data.unprocessed_payments;
+
+    // Show filtering details
+    const totalPayments = data.total_payments || data.total_payments_found || 0;
+    const afterFiltering = data.total_payments_after_filtering || totalPayments;
+    const filteredByDate = data.total_filtered_by_date || 0;
+    const filteredByDuplicate = data.total_filtered_by_duplicate || 0;
+
+    console.log('Computed values:', { totalPayments, afterFiltering, filteredByDate, filteredByDuplicate });
+
+    if (filteredByDate > 0 || filteredByDuplicate > 0) {
+        const displayText = `${totalPayments} (${afterFiltering} after filtering: ${filteredByDate} date, ${filteredByDuplicate} dup)`;
+        console.log('Setting total payments to:', displayText);
+        document.getElementById('bulk-total-payments').textContent = displayText;
+    } else {
+        console.log('No filtering, setting total payments to:', totalPayments);
+        document.getElementById('bulk-total-payments').textContent = totalPayments;
+    }
+
+    document.getElementById('bulk-unprocessed-payments').textContent = data.unprocessed_payments || data.total_new_payments || 0;
     document.getElementById('bulk-api-calls').textContent = data.api_calls_made || 0;
 
     // Build table
     const tbody = document.getElementById('bulk-payments-table-body');
     tbody.innerHTML = '';
 
-    if (!data.members || data.members.length === 0) {
+    // BulkPaymentChecker returns 'customers' array, old service returned 'members'
+    const customersList = data.customers || data.members || [];
+
+    if (customersList.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-gray-500">No members with payments found</td></tr>';
         return;
     }
 
-    data.members.forEach(member => {
-        if (!member.payments || member.payments.length === 0) return;
+    customersList.forEach(customer => {
+        if (!customer.payments || customer.payments.length === 0) return;
 
-        member.payments.forEach((payment, index) => {
+        // Map BulkPaymentChecker fields to expected format
+        const memberName = customer.member || customer.member_name;
+        const fullName = customer.full_name || memberName;  // BulkPaymentChecker doesn't return full_name
+
+        customer.payments.forEach((payment, index) => {
             const row = document.createElement('tr');
-            row.className = payment.is_processed ? 'bg-gray-50' : 'bg-white hover:bg-gray-50';
 
-            const checkbox = !payment.is_processed ?
-                `<input type="checkbox" class="bulk-payment-checkbox" data-payment-id="${payment.payment_id}" onchange="bulkUpdateSelectedCount()">` :
+            // BulkPaymentChecker uses 'already_processed', old service used 'is_processed'
+            const isProcessed = payment.already_processed || payment.is_processed;
+            row.className = isProcessed ? 'bg-gray-50' : 'bg-white hover:bg-gray-50';
+
+            // BulkPaymentChecker uses 'id', old service used 'payment_id'
+            const paymentId = payment.id || payment.payment_id;
+
+            const checkbox = !isProcessed ?
+                `<input type="checkbox" class="bulk-payment-checkbox" data-payment-id="${paymentId}" onchange="bulkUpdateSelectedCount()">` :
                 `<span class="text-gray-400">—</span>`;
 
             const memberDisplay = index === 0 ?
-                `<div class="font-medium">${member.full_name}</div><div class="text-xs text-gray-500">${member.member}</div>` :
+                `<div class="font-medium">${fullName}</div><div class="text-xs text-gray-500">${memberName}</div>` :
                 `<div class="text-xs text-gray-400">↳ same member</div>`;
 
-            const processedBadge = payment.is_processed ?
+            const processedBadge = isProcessed ?
                 '<span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded">✓ Processed</span>' :
                 '<span class="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded">Unprocessed</span>';
+
+            // BulkPaymentChecker uses 'amount_display', old service used 'amount'
+            const amountDisplay = payment.amount_display || payment.amount;
 
             row.innerHTML = `
                 <td class="px-2 py-2">${checkbox}</td>
                 <td class="px-2 py-2">${memberDisplay}</td>
-                <td class="px-2 py-2"><code class="text-xs">${payment.payment_id}</code></td>
+                <td class="px-2 py-2"><code class="text-xs">${paymentId}</code></td>
                 <td class="px-2 py-2"><span class="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">${payment.status}</span></td>
-                <td class="px-2 py-2">${payment.amount}</td>
+                <td class="px-2 py-2">${amountDisplay}</td>
                 <td class="px-2 py-2 text-xs">${payment.created_at ? new Date(payment.created_at).toLocaleDateString() : 'N/A'}</td>
                 <td class="px-2 py-2">${processedBadge}</td>
             `;
@@ -3373,9 +3415,18 @@ function displayBulkPaymentsResults(data) {
 }
 
 function bulkSelectAllUnprocessed() {
+    let count = 0;
+
     document.querySelectorAll('.bulk-payment-checkbox').forEach(cb => {
         cb.checked = true;
+        count++;
     });
+
+    if (count === 0) {
+        alert('No unprocessed payments available to select.\n\nPlease click "Retrieve All Member Payments" first to load payment data.');
+        return;
+    }
+
     bulkUpdateSelectedCount();
 }
 
@@ -3388,10 +3439,34 @@ function bulkDeselectAll() {
 }
 
 function bulkToggleSelectAll() {
-    const checked = document.getElementById('bulk-select-all-checkbox').checked;
-    document.querySelectorAll('.bulk-payment-checkbox').forEach(cb => {
-        cb.checked = checked;
+    const MAX_BATCH_SIZE = 500;
+    const selectAllCheckbox = document.getElementById('bulk-select-all-checkbox');
+    const checked = selectAllCheckbox.checked;
+    const checkboxes = document.querySelectorAll('.bulk-payment-checkbox');
+    let count = 0;
+
+    // Check if there are any checkboxes available
+    if (checked && checkboxes.length === 0) {
+        alert('No unprocessed payments available to select.\n\nPlease click "Retrieve All Member Payments" first to load payment data.');
+        selectAllCheckbox.checked = false;  // Uncheck the header checkbox
+        return;
+    }
+
+    checkboxes.forEach(cb => {
+        if (checked) {
+            if (count < MAX_BATCH_SIZE) {
+                cb.checked = true;
+                count++;
+            }
+        } else {
+            cb.checked = false;
+        }
     });
+
+    if (checked && count >= MAX_BATCH_SIZE) {
+        alert(`Selected first ${MAX_BATCH_SIZE} payments.\n\nMaximum batch size is ${MAX_BATCH_SIZE} to prevent timeouts.\nProcess these first, then select more.`);
+    }
+
     bulkUpdateSelectedCount();
 }
 
@@ -3410,6 +3485,11 @@ function bulkProcessSelectedPayments() {
     const paymentIds = Array.from(checkboxes).map(cb => cb.dataset.paymentId);
     const docstatus = '1';  // Always submit documents
     const createBankTransactions = document.getElementById('bulk-create-bank-transactions').checked;
+
+    // Warn about timeout risk when creating both BT+PE with large batches
+    if (!createBankTransactions && paymentIds.length > 250) {
+        alert(`⚠️ Large Batch Warning\n\nYou're processing ${paymentIds.length} payments with Bank Transaction + Payment Entry creation.\n\nThis may take several minutes and could timeout.\n\nRecommendation: Use "Bank Transaction Only" mode for batches over 250 payments.`);
+    }
 
     const modeText = createBankTransactions ? 'Bank Transaction Only' : 'Bank Transaction + Payment Entry';
     const modeDescription = createBankTransactions
@@ -3470,7 +3550,21 @@ function bulkProcessSelectedPayments() {
         displayBulkProcessingResults(result);
     })
     .catch(error => {
-        const errorText = 'Error processing payments:\n\n' + error.message + '\n\nCheck browser console for details.';
+        let errorText = 'Bulk processing error:\n\n' + error.message;
+
+        // Check if it's a timeout/500 error
+        if (error.message.includes('500') || error.message.includes('Internal Server Error')) {
+            errorText += '\n\n⚠️ This is likely a timeout issue.\n\n';
+            errorText += 'The processing may still be running in the background.\n';
+            errorText += 'Check the Error Log in Frappe or wait a few minutes and refresh to see if documents were created.\n\n';
+            errorText += 'For large batches with PE creation, consider:\n';
+            errorText += '• Using "Bank Transaction Only" mode\n';
+            errorText += '• Processing in smaller batches (< 250 payments)\n';
+            errorText += '• Using the single-member processor for individual members';
+        } else {
+            errorText += '\n\nCheck browser console for details.';
+        }
+
         document.getElementById('bulk-processing-results').textContent = errorText;
         document.getElementById('bulk-processing-results').style.display = 'block';
         console.error('Bulk processing error:', error);

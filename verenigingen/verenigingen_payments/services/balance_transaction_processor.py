@@ -465,8 +465,11 @@ class BalanceTransactionProcessor:
 
         try:
             # Use centralized validation from configuration service
+            # Skip settlement account validation - balance transactions are from virtual account
             mollie_config = get_mollie_config()
-            validation_result = mollie_config.validate_all_mollie_accounts(raise_on_error=False)
+            validation_result = mollie_config.validate_all_mollie_accounts(
+                raise_on_error=False, skip_settlement_account=True
+            )
 
             if not validation_result["valid"]:
                 # Log detailed validation errors

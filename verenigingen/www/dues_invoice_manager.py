@@ -16,16 +16,52 @@ def get_context(context):
     context.title = _("Dues Invoice Manager") if frappe.db else "Dues Invoice Manager"
     context.parents = [{"title": "Financial Management", "name": "financial-management"}]
 
-    # Calculate billing period - simplified to always use current month
-    today_date = getdate(today())
-    period_start = today_date.replace(day=1)
+    # Calculate billing period using CoverageCalculator service
+    # This respects the billing_cutoff_frequency setting (Monthly/Quarterly/Yearly)
+    from verenigingen.services.billing.coverage_calculator import CoverageCalculator
 
-    # Get last day of current month
-    if today_date.month == 12:
-        next_month = today_date.replace(year=today_date.year + 1, month=1, day=1)
+    today_date = getdate(today())
+    settings = frappe.get_single("Verenigingen Settings")
+    cutoff_freq = getattr(settings, "billing_cutoff_frequency", "Monthly")
+
+    # Calculate period start based on billing frequency
+    if cutoff_freq == "Monthly":
+        period_start = today_date.replace(day=1)
+    elif cutoff_freq == "Quarterly":
+        # Calculate start of current quarter
+        book_year_start_month = getattr(settings, "book_year_start_month", 1)
+        months_since_book_start = (today_date.month - book_year_start_month) % 12
+        current_quarter = (months_since_book_start // 3) + 1
+        quarter_start_month = ((current_quarter - 1) * 3 + book_year_start_month - 1) % 12 + 1
+
+        # Determine year for quarter start
+        if quarter_start_month <= today_date.month:
+            quarter_start_year = today_date.year
+        else:
+            # Quarter started in previous year
+            quarter_start_year = today_date.year - 1
+
+        period_start = today_date.replace(year=quarter_start_year, month=quarter_start_month, day=1)
+    elif cutoff_freq == "Yearly":
+        # Start of current book year
+        book_year_start_month = getattr(settings, "book_year_start_month", 1)
+        book_year_start_day = getattr(settings, "book_year_start_day", 1)
+
+        if today_date.month >= book_year_start_month:
+            # We're in the current book year
+            book_year_start_year = today_date.year
+        else:
+            # Book year started last year
+            book_year_start_year = today_date.year - 1
+
+        period_start = today_date.replace(
+            year=book_year_start_year, month=book_year_start_month, day=book_year_start_day
+        )
     else:
-        next_month = today_date.replace(month=today_date.month + 1, day=1)
-    period_end = add_days(next_month, -1)
+        # Default to current month
+        period_start = today_date.replace(day=1)
+
+    period_end = CoverageCalculator.calculate_cutoff_date_for_period()
 
     context.current_period_start = period_start.strftime("%Y-%m-%d")
     context.current_period_end = period_end.strftime("%Y-%m-%d")

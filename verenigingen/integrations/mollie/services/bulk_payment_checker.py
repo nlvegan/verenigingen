@@ -75,9 +75,11 @@ class BulkPaymentChecker:
         if limit is None:
             limit = BulkPaymentCheckerConfig.MAX_MEMBERS_PER_RUN
 
-        # Enforce maximum limit
-        if limit > BulkPaymentCheckerConfig.MAX_MEMBERS_PER_RUN:
-            limit = BulkPaymentCheckerConfig.MAX_MEMBERS_PER_RUN
+        # Enforce maximum limit (only when called without explicit override)
+        # Allow larger limits when explicitly requested (e.g., from mollie_payments_debug page)
+        # Cap at a reasonable maximum to prevent memory issues
+        if limit > 10000:
+            limit = 10000
 
         # Get total count (for progress tracking)
         total_count = frappe.db.count(
@@ -149,6 +151,8 @@ class BulkPaymentChecker:
             "total_found": 0,
             "new_payments": 0,
             "error": None,
+            "filtered_by_date": 0,
+            "filtered_by_duplicate": 0,
         }
 
         try:
@@ -193,6 +197,14 @@ class BulkPaymentChecker:
                 if from_date.tzinfo is None:
                     from_date = from_date.replace(tzinfo=timezone.utc)
 
+            # Deduplicate payment IDs (Mollie API sometimes returns duplicates)
+            seen_payment_ids = set()
+
+            # Debug counters to track filtering
+            filtered_by_date = 0
+            filtered_by_duplicate = 0
+            payments_added = 0
+
             for payment in payments:
                 # Apply date filter
                 # CRITICAL: Use paid_at for financial reconciliation (when money actually moved)
@@ -214,11 +226,35 @@ class BulkPaymentChecker:
                             payment_date = payment_date.replace(tzinfo=timezone.utc)
 
                         if payment_date < from_date:
+                            filtered_by_date += 1
                             continue
                     except (AttributeError, TypeError):
+                        # Payment has unparseable date - exclude from results
                         frappe.logger().warning(
-                            f"Could not parse payment date for {payment.id}, skipping date filter"
+                            f"Could not parse payment date for {payment.id}, excluding from results"
                         )
+                        filtered_by_date += 1
+                        continue
+
+                # Deduplicate: Skip if we've already seen this payment ID
+                if payment.id in seen_payment_ids:
+                    filtered_by_duplicate += 1
+                    frappe.logger().warning(
+                        f"⚠️ Duplicate payment ID from Mollie API: {payment.id} for member {member_name}. "
+                        f"This indicates the API returned the same payment multiple times."
+                    )
+                    continue
+                seen_payment_ids.add(payment.id)
+
+                # Memory protection: Circuit breaker for excessive payment volumes
+                if len(seen_payment_ids) > 10000:
+                    frappe.logger().error(
+                        f"⚠️ MEMORY LIMIT EXCEEDED: Processed {len(seen_payment_ids)} unique payments "
+                        f"for customer {customer_id} (Member: {member_name}). "
+                        f"Stopping pagination to prevent memory issues. "
+                        f"This indicates either an API issue or misconfigured date range."
+                    )
+                    break
 
                 # Check if already processed using centralized service
                 from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
@@ -277,15 +313,42 @@ class BulkPaymentChecker:
                 }
 
                 result["payments"].append(payment_info)
+                payments_added += 1
 
                 # Count new unprocessed payments
                 if payment_info["processable"]:
                     result["new_payments"] += 1
 
-            frappe.logger().info(
-                f"Customer {customer_id} (Member: {member_name}): "
-                f"Found {result['total_found']} payments, {result['new_payments']} new/unprocessed"
-            )
+            # Save filtering statistics to result
+            result["filtered_by_date"] = filtered_by_date
+            result["filtered_by_duplicate"] = filtered_by_duplicate
+
+            # Validate counter accuracy - ensure no payments are lost or double-counted
+            expected_after_filtering = result["total_found"] - (filtered_by_date + filtered_by_duplicate)
+            actual_after_filtering = len(result["payments"])
+            if expected_after_filtering != actual_after_filtering:
+                frappe.logger().error(
+                    f"⚠️ COUNTER MISMATCH for customer {customer_id} (Member: {member_name}): "
+                    f"Expected {expected_after_filtering} payments after filtering "
+                    f"(found={result['total_found']}, date_filtered={filtered_by_date}, "
+                    f"dup_filtered={filtered_by_duplicate}), "
+                    f"but got {actual_after_filtering} in result. "
+                    f"This indicates a bug in filtering logic."
+                )
+
+            # Log filtering statistics for this customer
+            if filtered_by_date > 0 or filtered_by_duplicate > 0:
+                frappe.logger().info(
+                    f"Customer {customer_id} (Member: {member_name}): "
+                    f"Found {result['total_found']} payments from Mollie API, "
+                    f"added {payments_added} after filtering "
+                    f"(filtered: {filtered_by_date} by date, {filtered_by_duplicate} duplicates)"
+                )
+            else:
+                frappe.logger().info(
+                    f"Customer {customer_id} (Member: {member_name}): "
+                    f"Found {result['total_found']} payments, {result['new_payments']} new/unprocessed"
+                )
 
         except Exception as e:
             result["error"] = str(e)
@@ -370,6 +433,10 @@ class BulkPaymentChecker:
             "started_at": frappe.utils.now(),
             "completed_at": None,
             "summary": "",
+            # Filtering statistics
+            "total_filtered_by_date": 0,
+            "total_filtered_by_duplicate": 0,
+            "total_payments_after_filtering": 0,
         }
 
         try:
@@ -435,6 +502,11 @@ class BulkPaymentChecker:
                 result["total_payments_found"] += customer_result["total_found"]
                 result["total_new_payments"] += customer_result["new_payments"]
 
+                # Aggregate filtering statistics
+                result["total_payments_after_filtering"] += len(customer_result.get("payments", []))
+                result["total_filtered_by_date"] += customer_result.get("filtered_by_date", 0)
+                result["total_filtered_by_duplicate"] += customer_result.get("filtered_by_duplicate", 0)
+
                 if customer_result["error"]:
                     result["errors"] += 1
                     consecutive_errors += 1
@@ -486,12 +558,27 @@ class BulkPaymentChecker:
                     if not all_history
                     else f"last {BulkPaymentCheckerConfig.MAX_DAYS_BACK} days"
                 )
-                result["summary"] = (
-                    f"Checked {result['members_checked']}/{result['total_members']} members. "
-                    f"Found {result['total_payments_found']} payments ({date_range}), "
-                    f"{result['total_new_payments']} new/unprocessed. "
-                    f"Errors: {result['errors']}"
-                )
+
+                # Calculate total filtered
+                total_filtered = result["total_filtered_by_date"] + result["total_filtered_by_duplicate"]
+
+                # Build summary with filtering details if any filtering occurred
+                if total_filtered > 0:
+                    result["summary"] = (
+                        f"Checked {result['members_checked']}/{result['total_members']} members. "
+                        f"Found {result['total_payments_found']} payments from Mollie API ({date_range}), "
+                        f"{result['total_payments_after_filtering']} after filtering "
+                        f"({result['total_filtered_by_date']} by date, {result['total_filtered_by_duplicate']} duplicates). "
+                        f"{result['total_new_payments']} new/unprocessed. "
+                        f"Errors: {result['errors']}"
+                    )
+                else:
+                    result["summary"] = (
+                        f"Checked {result['members_checked']}/{result['total_members']} members. "
+                        f"Found {result['total_payments_found']} payments ({date_range}), "
+                        f"{result['total_new_payments']} new/unprocessed. "
+                        f"Errors: {result['errors']}"
+                    )
 
             # Audit logging
             self._log_bulk_operation_audit(result, "discovery", days_back, all_history)
@@ -536,9 +623,11 @@ class BulkPaymentChecker:
                 details["dry_run"] = result.get("dry_run", False)
 
             log_security_event(
-                category="financial",
-                event_type=f"bulk_payment_{operation_type}",
-                details=details,
+                event_type="other",  # Use "other" instead of custom event types
+                details={
+                    **details,
+                    "custom_event_type": f"bulk_payment_{operation_type}",  # Store actual type in details
+                },
                 severity=severity,
             )
         except Exception as e:

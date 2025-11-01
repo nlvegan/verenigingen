@@ -9,7 +9,7 @@ Handles processing of Mollie payments for membership dues, including:
 """
 
 from calendar import monthrange
-from datetime import datetime, date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -62,7 +62,9 @@ def get_month_coverage_dates(payment_date: date) -> Tuple[date, date]:
         Tuple of (month_start_date, month_end_date)
     """
     coverage_start = date(payment_date.year, payment_date.month, 1)
-    coverage_end = date(payment_date.year, payment_date.month, monthrange(payment_date.year, payment_date.month)[1])
+    coverage_end = date(
+        payment_date.year, payment_date.month, monthrange(payment_date.year, payment_date.month)[1]
+    )
 
     return coverage_start, coverage_end
 
@@ -228,6 +230,7 @@ class DuesPaymentProcessor:
 
         # Validate payment_date is not in future
         from frappe.utils import getdate
+
         payment_date = getdate(payment_date)
         if payment_date > date.today():
             raise ValueError(f"Payment date {payment_date} cannot be in the future")
@@ -258,7 +261,7 @@ class DuesPaymentProcessor:
                     "docstatus": ["<", 2],  # Not cancelled
                 },
                 fieldname=["name", "grand_total"],
-                as_dict=True
+                as_dict=True,
             )
 
             if existing_invoice:
@@ -318,7 +321,7 @@ class DuesPaymentProcessor:
             Membership type name, or None if not available
         """
         # Initialize cache on first use
-        if not hasattr(self, '_membership_type_cache'):
+        if not hasattr(self, "_membership_type_cache"):
             self._membership_type_cache = {}
             self._default_membership_type = None
 
@@ -328,10 +331,7 @@ class DuesPaymentProcessor:
                 # Cache miss - fetch from database
                 try:
                     membership_type = frappe.db.get_value(
-                        "Membership",
-                        member_doc.current_membership_plan,
-                        "membership_type",
-                        cache=True
+                        "Membership", member_doc.current_membership_plan, "membership_type", cache=True
                     )
                     if membership_type:
                         self._membership_type_cache[member_doc.current_membership_plan] = membership_type
@@ -351,14 +351,18 @@ class DuesPaymentProcessor:
         if self._default_membership_type is None:
             settings = frappe.get_single("Verenigingen Settings")
             self._default_membership_type = settings.default_membership_type
-            frappe.logger().info(
-                f"Cached default membership type: {self._default_membership_type}"
-            )
+            frappe.logger().info(f"Cached default membership type: {self._default_membership_type}")
 
         return self._default_membership_type
 
     def _create_simple_invoice(
-        self, member_doc: Any, membership_type: str, coverage_start: date, coverage_end: date, amount: float, payment_date: date
+        self,
+        member_doc: Any,
+        membership_type: str,
+        coverage_start: date,
+        coverage_end: date,
+        amount: float,
+        payment_date: date,
     ) -> Optional[str]:
         """
         Create a simple Sales Invoice for historical payment (mijnrood import use case).
@@ -398,58 +402,117 @@ class DuesPaymentProcessor:
             - May create new Item if membership dues item doesn't exist
             - Logs to "Invoice Creation Failed" on error
         """
-        try:
-            settings = frappe.get_single("Verenigingen Settings")
+        import time
 
-            # Get income account
-            income_account = settings.dues_income_account
-            if not income_account:
-                company_doc = frappe.get_cached_doc("Company", settings.company)
-                income_account = company_doc.default_income_account
+        # First check if invoice already exists (idempotency)
+        existing_invoice = frappe.db.get_value(
+            "Sales Invoice",
+            filters={
+                "customer": member_doc.customer,
+                "custom_coverage_start_date": coverage_start,
+                "custom_coverage_end_date": coverage_end,
+                "docstatus": ["<", 2],  # Not cancelled
+            },
+            fieldname="name",
+        )
 
-            if not income_account:
-                frappe.logger().error("No income account configured")
+        if existing_invoice:
+            frappe.logger().info(
+                f"⏭️ Sales Invoice already exists for coverage {coverage_start} to {coverage_end}: {existing_invoice}"
+            )
+            return existing_invoice
+
+        # Deadlock retry configuration
+        max_retries = 3
+        retry_count = 0
+
+        while retry_count < max_retries:
+            try:
+                settings = frappe.get_single("Verenigingen Settings")
+
+                # Get income account
+                income_account = settings.dues_income_account
+                if not income_account:
+                    company_doc = frappe.get_cached_doc("Company", settings.company)
+                    income_account = company_doc.default_income_account
+
+                if not income_account:
+                    frappe.logger().error("No income account configured")
+                    return None
+
+                # Create invoice
+                invoice = frappe.new_doc("Sales Invoice")
+                invoice.customer = member_doc.customer
+                invoice.company = settings.company
+
+                # Set posting date explicitly (must be done before insert to prevent auto-setting)
+                invoice.posting_date = payment_date
+                invoice.set_posting_time = 1  # Enable custom posting date
+                invoice.due_date = payment_date
+
+                # Set coverage period custom fields
+                invoice.custom_coverage_start_date = coverage_start
+                invoice.custom_coverage_end_date = coverage_end
+
+                # Audit logging for historical backdating
+                frappe.logger().warning(
+                    f"HISTORICAL INVOICE CREATION: User {frappe.session.user} creating backdated invoice "
+                    f"for member {member_doc.name} ({member_doc.full_name}) with posting_date={payment_date} "
+                    f"(today={date.today()}), coverage={coverage_start} to {coverage_end}, amount=€{amount}"
+                )
+
+                # Add item
+                item_name = f"Membership Dues - {membership_type}"
+                invoice.append(
+                    "items",
+                    {
+                        "item_code": self._get_or_create_dues_item(
+                            item_name, settings.company, income_account
+                        ),
+                        "qty": 1,
+                        "rate": amount,
+                        "income_account": income_account,
+                        "description": f"Membership dues for {member_doc.full_name} ({membership_type}) - Period: {coverage_start} to {coverage_end}",
+                    },
+                )
+
+                invoice.insert()
+                invoice.submit()
+
+                return invoice.name
+
+            except frappe.QueryDeadlockError as e:
+                # Deadlock detected - retry with exponential backoff
+                retry_count += 1
+                if retry_count < max_retries:
+                    wait_time = 0.1 * (2 ** (retry_count - 1))  # 0.1s, 0.2s, 0.4s
+                    frappe.logger().warning(
+                        f"⚠️ Deadlock creating Sales Invoice for {member_doc.name}, "
+                        f"retry {retry_count}/{max_retries} after {wait_time}s"
+                    )
+                    time.sleep(wait_time)
+                    continue  # Retry
+                else:
+                    # Max retries exceeded
+                    frappe.logger().error(
+                        f"❌ Failed to create Sales Invoice after {max_retries} retries due to deadlocks: {e}"
+                    )
+                    frappe.log_error(
+                        f"Sales Invoice creation failed after {max_retries} deadlock retries for member {member_doc.name}: {e}",
+                        "Sales Invoice Deadlock Error",
+                    )
+                    return None
+
+            except Exception as e:
+                frappe.logger().error(f"Failed to create simple invoice: {str(e)}")
+                frappe.log_error(
+                    f"Sales Invoice creation failed for member {member_doc.name}: {e}",
+                    "Sales Invoice Creation Error",
+                )
                 return None
 
-            # Create invoice
-            invoice = frappe.new_doc("Sales Invoice")
-            invoice.customer = member_doc.customer
-            invoice.company = settings.company
-
-            # Set posting date explicitly (must be done before insert to prevent auto-setting)
-            invoice.posting_date = payment_date
-            invoice.set_posting_time = 1  # Enable custom posting date
-            invoice.due_date = payment_date
-
-            # Set coverage period custom fields
-            invoice.custom_coverage_start_date = coverage_start
-            invoice.custom_coverage_end_date = coverage_end
-
-            # Audit logging for historical backdating
-            frappe.logger().warning(
-                f"HISTORICAL INVOICE CREATION: User {frappe.session.user} creating backdated invoice "
-                f"for member {member_doc.name} ({member_doc.full_name}) with posting_date={payment_date} "
-                f"(today={date.today()}), coverage={coverage_start} to {coverage_end}, amount=€{amount}"
-            )
-
-            # Add item
-            item_name = f"Membership Dues - {membership_type}"
-            invoice.append("items", {
-                "item_code": self._get_or_create_dues_item(item_name, settings.company, income_account),
-                "qty": 1,
-                "rate": amount,
-                "income_account": income_account,
-                "description": f"Membership dues for {member_doc.full_name} ({membership_type}) - Period: {coverage_start} to {coverage_end}"
-            })
-
-            invoice.insert()
-            invoice.submit()
-
-            return invoice.name
-
-        except Exception as e:
-            frappe.logger().error(f"Failed to create simple invoice: {str(e)}")
-            return None
+        # Should never reach here, but safety fallback
+        return None
 
     def _get_or_create_dues_item(self, item_name: str, company: str, income_account: str) -> str:
         """Get or create a membership dues item."""
@@ -467,9 +530,9 @@ class DuesPaymentProcessor:
             return item_name
         except Exception:
             # If creation fails, try to find any membership dues item
-            existing_item = frappe.get_all("Item",
-                                          filters={"item_name": ["like", "%Membership Dues%"]},
-                                          limit=1)
+            existing_item = frappe.get_all(
+                "Item", filters={"item_name": ["like", "%Membership Dues%"]}, limit=1
+            )
             if existing_item:
                 return existing_item[0].name
             return "Membership Dues"  # Fallback to generic name
@@ -532,12 +595,28 @@ class DuesPaymentProcessor:
                 check_payment_entry=True,  # Dual mode: check both Payment Entry and Bank Transaction
             )
 
-            if idempotency_check["already_processed"]:
+            # Detect partial processing scenarios
+            has_payment_entry = bool(idempotency_check.get("payment_entry"))
+            has_bank_transaction = bool(idempotency_check.get("bank_transaction"))
+
+            # Full processing complete - both exist
+            if has_payment_entry and has_bank_transaction:
                 result["status"] = "already_processed"
                 result["payment_entry"] = idempotency_check["payment_entry"]
                 result["bank_transaction"] = idempotency_check["bank_transaction"]
-                result["skipped_reason"] = idempotency_check["details"]
+                result["skipped_reason"] = "Both Payment Entry and Bank Transaction already exist"
                 return result
+
+            # Only Payment Entry exists (legacy mode) - fully processed
+            if has_payment_entry and not has_bank_transaction:
+                result["status"] = "already_processed"
+                result["payment_entry"] = idempotency_check["payment_entry"]
+                result["skipped_reason"] = "Payment Entry already exists (legacy mode)"
+                return result
+
+            # Partial processing: Bank Transaction exists but no Payment Entry
+            # Continue processing to create Payment Entry, but skip Bank Transaction creation
+            partial_processing = has_bank_transaction and not has_payment_entry
 
             # Identify payment type
             payment_type = self.identify_payment_type(payment)
@@ -566,38 +645,98 @@ class DuesPaymentProcessor:
                 mollie_config = get_mollie_config()
                 creation_mode = mollie_config.get_dues_payment_creation_mode()
 
-            if creation_mode == "Payment Entry":
+            # Handle partial processing: if Bank Transaction exists, only create Payment Entry
+            if partial_processing:
+                frappe.logger().info(
+                    f"⚠️ Partial processing for {payment_id}: Bank Transaction {idempotency_check['bank_transaction']} "
+                    f"exists but no Payment Entry. Creating Payment Entry only."
+                )
+                record_name = self._create_payment_entry_for_dues(member_name, payment)
+                record_type = "Payment Entry"
+
+                if record_name:
+                    result["status"] = "success"
+                    result["payment_entry"] = record_name
+                    result["bank_transaction"] = idempotency_check["bank_transaction"]  # Reference existing
+                    result["record_type"] = record_type
+                    result["partial_processing"] = True
+                    result["message"] = (
+                        f"Completed partial processing: Created Payment Entry {record_name} "
+                        f"for existing Bank Transaction {idempotency_check['bank_transaction']}"
+                    )
+            elif creation_mode == "Payment Entry":
                 # Legacy mode: Create Payment Entry directly
                 record_name = self._create_payment_entry_for_dues(member_name, payment)
                 record_type = "Payment Entry"
+
+                if record_name:
+                    result["status"] = "success"
+                    result["payment_entry"] = record_name
+                    result["bank_transaction"] = None
+                    result["record_type"] = record_type
             else:
                 # Default mode: Create Bank Transaction for reconciliation
                 record_name = self._create_bank_transaction_for_dues(member_name, payment)
                 record_type = "Bank Transaction"
 
-            if record_name:
-                result["status"] = "success"
-                # Set BOTH fields for frontend compatibility, only one will have value
-                result["payment_entry"] = record_name if creation_mode == "Payment Entry" else None
-                result["bank_transaction"] = record_name if creation_mode != "Payment Entry" else None
-                result["record_type"] = record_type
+                if record_name:
+                    result["status"] = "success"
+                    result["payment_entry"] = None
+                    result["bank_transaction"] = record_name
+                    result["record_type"] = record_type
 
-                # Get linked Sales Invoice if Payment Entry was created
-                if creation_mode == "Payment Entry" and record_name:
-                    try:
+            if record_name:
+                # Get linked Sales Invoices - check both Payment Entry references and member's unpaid invoices
+                try:
+                    sales_invoices = []
+
+                    # If Payment Entry was created, check its references
+                    # This includes both direct Payment Entry creation and partial_processing mode
+                    if (creation_mode == "Payment Entry" or partial_processing) and record_name:
                         pe_doc = frappe.get_doc("Payment Entry", record_name)
-                        # Check if any Sales Invoices are referenced
-                        sales_invoices = []
                         for ref in pe_doc.get("references", []):
                             if ref.reference_doctype == "Sales Invoice":
-                                sales_invoices.append({
-                                    "name": ref.reference_name,
-                                    "allocated_amount": float(ref.allocated_amount)
-                                })
-                        if sales_invoices:
-                            result["sales_invoices"] = sales_invoices
-                    except Exception as si_error:
-                        frappe.log_error(f"Could not fetch Sales Invoice references for {record_name}: {si_error}")
+                                sales_invoices.append(
+                                    {
+                                        "name": ref.reference_name,
+                                        "allocated_amount": float(ref.allocated_amount),
+                                        "linked": True,
+                                    }
+                                )
+
+                    # Also show recent unpaid invoices for this member (helpful for Bank Transaction mode)
+                    if member_name:
+                        unpaid_invoices = frappe.get_all(
+                            "Sales Invoice",
+                            filters={
+                                "member": member_name,
+                                "docstatus": 1,
+                                "status": ["in", ["Unpaid", "Overdue", "Partly Paid"]],
+                            },
+                            fields=["name", "posting_date", "grand_total", "outstanding_amount"],
+                            order_by="posting_date desc",
+                            limit=3,
+                        )
+
+                        # Add unpaid invoices that aren't already in the linked list
+                        linked_names = {inv["name"] for inv in sales_invoices}
+                        for inv in unpaid_invoices:
+                            if inv.name not in linked_names:
+                                sales_invoices.append(
+                                    {
+                                        "name": inv.name,
+                                        "amount": float(inv.grand_total),
+                                        "outstanding": float(inv.outstanding_amount),
+                                        "date": str(inv.posting_date),
+                                        "linked": False,
+                                    }
+                                )
+
+                    if sales_invoices:
+                        result["sales_invoices"] = sales_invoices
+
+                except Exception as si_error:
+                    frappe.log_error(f"Could not fetch Sales Invoice information: {si_error}")
 
                 frappe.logger().info(
                     f"✅ Successfully processed dues payment {payment_id} for member {member_name} "
@@ -685,7 +824,11 @@ class DuesPaymentProcessor:
                 "posting_date": payment_date,
                 "mode_of_payment": mode_of_payment,
                 "remarks": f"Membership dues payment via Mollie for {member.full_name} (awaiting settlement). "
-                + (f"Linked to invoice {invoice_name}" if invoice_name else "Manual reconciliation may be required."),
+                + (
+                    f"Linked to invoice {invoice_name}"
+                    if invoice_name
+                    else "Manual reconciliation may be required."
+                ),
                 "custom_member": member_name,  # Link to member for payment history tracking
             }
         )
@@ -792,7 +935,11 @@ class DuesPaymentProcessor:
         return bank_transaction_name
 
     def batch_process_customer_payments(
-        self, customer_id: str, limit: int = 250, only_unpaid: bool = False
+        self,
+        customer_id: str,
+        limit: int = 250,
+        only_unpaid: bool = False,
+        create_payment_entry: bool = False,
     ) -> Dict[str, Any]:
         """
         Retrieve and process all payments for a Mollie customer.
@@ -803,6 +950,8 @@ class DuesPaymentProcessor:
             customer_id: Mollie customer ID
             limit: Maximum number of payments to retrieve
             only_unpaid: If True, only process payments not yet in Payment Entry
+            create_payment_entry: If True, creates both Bank Transaction + Payment Entry (complete audit trail).
+                                 If False, creates only Bank Transaction (for manual reconciliation later).
 
         Returns:
             dict: {
@@ -839,17 +988,73 @@ class DuesPaymentProcessor:
             batch_result["total_retrieved"] = len(payments)
 
             for payment in payments:
-                # Process each payment
-                result = self.process_dues_payment(payment.id, payment)
+                # Process each payment with deadlock retry
+                import time
 
-                batch_result["results"].append(result)
+                max_retries = 3
+                retry_count = 0
+                result = None
 
-                if result["status"] == "success":
-                    batch_result["processed"] += 1
-                elif result["status"] == "skipped" or result["status"] == "already_processed":
-                    batch_result["skipped"] += 1
-                elif result["status"] == "error":
-                    batch_result["errors"] += 1
+                while retry_count < max_retries:
+                    try:
+                        # Strategy 1: Bank Transaction only (default)
+                        result = self.process_dues_payment(
+                            payment.id, payment, creation_mode="Bank Transaction"
+                        )
+
+                        # Strategy 2: If create_payment_entry requested, also create PE and link them
+                        # IMPORTANT: PE creation is INSIDE the retry loop to handle deadlocks
+                        if (
+                            create_payment_entry
+                            and result.get("status") == "success"
+                            and result.get("bank_transaction")
+                        ):
+                            member_name = result.get("member")
+                            if member_name:
+                                pe_name = self._create_payment_entry_for_dues(member_name, payment)
+                                bt_name = result.get("bank_transaction")
+                                bt_doc = frappe.get_doc("Bank Transaction", bt_name)
+                                bt_doc.append(
+                                    "payment_entries",
+                                    {
+                                        "payment_document": "Payment Entry",
+                                        "payment_entry": pe_name,
+                                        "allocated_amount": abs(bt_doc.unallocated_amount),
+                                    },
+                                )
+                                bt_doc.save()
+                                result["payment_entry"] = pe_name
+                                result["pe_creation_mode"] = "linked_to_bank_transaction"
+
+                        break  # Success - exit retry loop
+
+                    except Exception as e:
+                        retry_count += 1
+                        error_str = str(e)
+                        is_deadlock = "1213" in error_str or "Deadlock" in error_str
+
+                        if is_deadlock and retry_count < max_retries:
+                            wait_time = 0.1 * (2 ** (retry_count - 1))  # 0.1s, 0.2s, 0.4s
+                            frappe.logger().warning(
+                                f"Deadlock on {payment.id}, retry {retry_count}/{max_retries} after {wait_time}s"
+                            )
+                            time.sleep(wait_time)
+                            continue
+                        else:
+                            # Not a deadlock or max retries reached
+                            result = {"payment_id": payment.id, "status": "error", "error": error_str}
+                            frappe.log_error(f"Error processing {payment.id}: {e}")
+                            break
+
+                if result:
+                    batch_result["results"].append(result)
+
+                    if result["status"] == "success":
+                        batch_result["processed"] += 1
+                    elif result["status"] == "skipped" or result["status"] == "already_processed":
+                        batch_result["skipped"] += 1
+                    elif result["status"] == "error":
+                        batch_result["errors"] += 1
 
             frappe.logger().info(
                 f"✅ Batch processing complete for customer {customer_id}: "

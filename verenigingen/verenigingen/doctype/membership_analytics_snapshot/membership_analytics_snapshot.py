@@ -5,6 +5,7 @@ import json
 from datetime import datetime, timedelta
 
 import frappe
+from frappe import _
 from frappe.model.document import Document
 from frappe.utils import add_days, add_months, flt, getdate, today
 
@@ -172,16 +173,17 @@ def calculate_financial_metrics(snapshot, period):
 
 def calculate_segmentation_data(snapshot, period):
     """Calculate segmentation breakdowns"""
-    # By Chapter
+    # By Chapter - join to Chapter Member child table since current_chapter_display is HTML field
     chapter_data = frappe.db.sql(
         """
         SELECT
-            COALESCE(current_chapter_display, 'No Chapter') as chapter,
-            COUNT(*) as member_count,
-            SUM(CASE WHEN member_since BETWEEN %s AND %s THEN 1 ELSE 0 END) as new_members
-        FROM `tabMember`
-        WHERE status = 'Active'
-        GROUP BY current_chapter_display
+            COALESCE(cm.parent, 'No Chapter') as chapter,
+            COUNT(DISTINCT m.name) as member_count,
+            SUM(CASE WHEN m.member_since BETWEEN %s AND %s THEN 1 ELSE 0 END) as new_members
+        FROM `tabMember` m
+        LEFT JOIN `tabChapter Member` cm ON cm.member = m.name AND cm.parenttype = 'Chapter'
+        WHERE m.status = 'Active'
+        GROUP BY cm.parent
     """,
         (period["start_date"], period["end_date"]),
         as_dict=True,

@@ -933,15 +933,41 @@ def get_empty_coverage_analysis():
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def generate_catchup_invoices(members):
+def generate_catchup_invoices(members, from_date=None, to_date=None):
     """Generate catch-up invoices for members with coverage gaps"""
+    import html
+    from datetime import timedelta
+
+    from vereinigen.services.billing.coverage_calculator import CoverageCalculator
+
+    from verenigingen.services.billing.invoice_generator import InvoiceGenerator
 
     # Check permissions
     if not frappe.has_permission("Sales Invoice", "create"):
         frappe.throw(_("Insufficient permissions to create invoices"))
 
+    # Frappe's @whitelist() decorator usually auto-deserializes JSON to Python objects
+    # But in some cases (especially with complex nested structures), it might still be a string
+    # And sometimes it HTML-encodes the JSON (using &quot; instead of ")
+    # Handle both cases gracefully
     if isinstance(members, str):
-        members = json.loads(members)
+        try:
+            # First try to HTML-decode in case it's HTML-encoded JSON
+            decoded_members = html.unescape(members)
+            members = json.loads(decoded_members)
+        except (json.JSONDecodeError, ValueError) as e:
+            # Log more details for debugging
+            frappe.log_error(
+                f"JSON decode error in generate_catchup_invoices: {str(e)}\n"
+                f"Received data type: {type(members)}\n"
+                f"Data (first 1000 chars): {members[:1000] if len(members) > 1000 else members}",
+                "Catchup Invoice Generation",
+            )
+            frappe.throw(_("Invalid members data format. Please try again or contact support."))
+
+    # Ensure members is a list
+    if not isinstance(members, list):
+        frappe.throw(_("Members parameter must be a list, got {0}").format(type(members).__name__))
 
     generated_invoices = []
     errors = []
@@ -950,30 +976,69 @@ def generate_catchup_invoices(members):
         try:
             member_name = member_data["member"]
 
-            # Get detailed coverage analysis
-            coverage_analysis = calculate_coverage_timeline(member_name)
+            # Get detailed coverage analysis - RESPECT DATE FILTERS
+            coverage_analysis = calculate_coverage_timeline(member_name, from_date, to_date)
 
             if not coverage_analysis["catchup"]["required"]:
                 continue
 
-            # Generate invoices for each catch-up period
+            # Get member document
             member_doc = frappe.get_doc("Member", member_name)
 
+            # Get the member's active dues schedule
+            dues_schedule_name = frappe.db.get_value(
+                "Membership Dues Schedule",
+                {"member": member_name, "status": "Active"},
+                "name",
+            )
+
+            if not dues_schedule_name:
+                error_msg = f"No active dues schedule found for {member_name}"
+                errors.append(error_msg)
+                continue
+
+            # Get the schedule document
+            schedule_doc = frappe.get_doc("Membership Dues Schedule", dues_schedule_name)
+
+            # Generate invoices for each catch-up period using InvoiceGenerator
             for period in coverage_analysis["catchup"]["periods"]:
                 # Validate period data
                 if not period.get("start") or not period.get("end") or not period.get("amount"):
                     error_msg = f"Invalid catch-up period data for {member_name}: {period}"
-                    frappe.log_error(error_msg, "Catch-up Invoice Generation")
+                    frappe.log_error(error_msg, f"Catchup: {member_name[:20]}")
                     errors.append(error_msg)
                     continue
+
+                # Fix period end date if it's clipped to "today" - extend to proper billing period end
+                period_start = period["start"]
+                period_end = period["end"]
+
+                # If this is the current/most recent period (ends close to today),
+                # calculate proper period end based on billing frequency
+                # BUT only if the member hasn't indicated they're quitting (member_end_date)
+                member_end_date = getattr(member_doc, "member_end_date", None)
+                is_current_period = abs((getdate(period_end) - getdate(today())).days) <= 7
+
+                if is_current_period and not member_end_date:
+                    # This period ends around today and member hasn't indicated end date
+                    # Extend to proper billing period end
+                    from verenigingen.services.billing.coverage_calculator import CoverageCalculator
+
+                    proper_end = CoverageCalculator.calculate_period_end_date(
+                        period_start, schedule_doc.billing_frequency
+                    )
+                    period_end = proper_end
+                elif is_current_period and member_end_date and getdate(member_end_date) < getdate(period_end):
+                    # Member is quitting - use their end date as the period end
+                    period_end = getdate(member_end_date)
 
                 # Check if invoice already exists for this period
                 existing_invoice = frappe.db.exists(
                     "Sales Invoice",
                     {
                         "customer": member_doc.customer,
-                        "custom_coverage_start_date": period["start"],
-                        "custom_coverage_end_date": period["end"],
+                        "custom_coverage_start_date": period_start,
+                        "custom_coverage_end_date": period_end,
                         "docstatus": ["!=", 2],  # Not cancelled
                     },
                 )
@@ -981,102 +1046,40 @@ def generate_catchup_invoices(members):
                 if existing_invoice:
                     continue  # Skip if invoice already exists
 
-                # Create Sales Invoice for this catch-up period
-                invoice = frappe.new_doc("Sales Invoice")
-                invoice.customer = member_doc.customer
-                invoice.posting_date = today()
-                invoice.due_date = add_days(today(), 30)  # 30 days to pay
-
-                # Set coverage dates
-                invoice.custom_coverage_start_date = period["start"]
-                invoice.custom_coverage_end_date = period["end"]
-
-                # Check if "Membership Dues" item exists, create fallback
-                item_code = "Membership Dues"
-                if not frappe.db.exists("Item", item_code):
-                    item_code = frappe.db.get_value(
-                        "Item", {"item_group": "Services", "is_stock_item": 0}, "name"
-                    )
-                    if not item_code:
-                        # Create a basic service item if none exists
-                        item_doc = frappe.new_doc("Item")
-                        item_doc.item_code = "Membership Dues"
-                        item_doc.item_name = "Membership Dues"
-                        item_doc.item_group = "All Item Groups"  # Fallback group
-                        item_doc.is_stock_item = 0
-                        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-                        item_result = secure_document_operation(
-                            operation="insert",
-                            doc=item_doc,
-                            justification=f"Create default Membership Dues item for catch-up invoice generation - member {member_name}",
-                            required_permissions=["Item:create"],
-                        )
-                        if not item_result.success:
-                            error_msg = f"Failed to create Membership Dues item for {member_name}: {'; '.join(item_result.errors)}"
-                            frappe.log_error(error_msg, "Catch-up Invoice Generation")
-                            errors.append(error_msg)
-                            continue
-                        item_code = item_doc.name
-
-                # Add invoice item
-                invoice.append(
-                    "items",
-                    {
-                        "item_code": item_code,
-                        "description": f"Catch-up Dues: {period['start']} to {period['end']}",
-                        "qty": 1,
-                        "rate": period["amount"],
-                        "amount": period["amount"],
-                    },
-                )
-
-                # Link to SEPA mandate if available
-                if hasattr(member_doc, "sepa_mandate") and member_doc.sepa_mandate:
-                    invoice.custom_sepa_mandate = member_doc.sepa_mandate
-
-                # Save and submit invoice with error handling
+                # Use InvoiceGenerator to create the catch-up invoice
                 try:
-                    invoice.insert()
-                    invoice.submit()
+                    generator = InvoiceGenerator(schedule_doc)
 
-                    generated_invoices.append(
-                        {
-                            "member": member_name,
-                            "invoice": invoice.name,
-                            "amount": period["amount"],
-                            "period": f"{period['start']} to {period['end']}",
-                        }
+                    # Generate and save the invoice
+                    result = generator.generate_invoice(
+                        coverage_start=period_start,
+                        coverage_end=period_end,
+                        member_doc=member_doc,
                     )
-                except Exception as submit_error:
-                    error_msg = f"Failed to create invoice for {member_name}: {str(submit_error)}"
-                    frappe.log_error(error_msg, "Catch-up Invoice Generation")
+
+                    if result.success:
+                        generated_invoices.append(
+                            {
+                                "member": member_name,
+                                "invoice": result.invoice.name,
+                                "amount": period["amount"],
+                                "period": f"{period['start']} to {period['end']}",
+                            }
+                        )
+                    else:
+                        error_msg = f"Failed to generate invoice for {member_name}: {result.error}"
+                        errors.append(error_msg)
+
+                except Exception as gen_error:
+                    error_msg = f"Failed to generate invoice for {member_name}: {str(gen_error)}"
+                    frappe.log_error(error_msg, f"Catchup: {member_name[:20]}")
                     errors.append(error_msg)
 
-                    # Try to delete the failed invoice
-                    try:
-                        if invoice.name:
-                            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-                            delete_result = secure_document_operation(
-                                operation="delete",
-                                doc=invoice,
-                                justification=f"Cleanup failed catch-up invoice {invoice.name} for member {member_name} after creation error",
-                                required_permissions=["Sales Invoice:delete"],
-                            )
-                            if not delete_result.success:
-                                frappe.log_error(
-                                    f"Failed to cleanup invoice {invoice.name}: {'; '.join(delete_result.errors)}",
-                                    "Invoice Cleanup Error",
-                                )
-                    except Exception as cleanup_error:
-                        frappe.log_error(
-                            f"Invoice cleanup error: {str(cleanup_error)}", "Invoice Cleanup Error"
-                        )
-
         except Exception as e:
-            error_msg = (
-                f"Error generating catch-up invoice for {member_data.get('member', 'Unknown')}: {str(e)}"
-            )
-            frappe.log_error(error_msg, "Catch-up Invoice Generation")
+            member_id = member_data.get("member", "Unknown")
+            error_msg = f"Error generating catch-up invoice for {member_id}: {str(e)}"
+            # Use shorter title to avoid character limit (max 140 chars)
+            frappe.log_error(error_msg, f"Catchup: {member_id[:20]}")
             errors.append(error_msg)
 
     # Build response message

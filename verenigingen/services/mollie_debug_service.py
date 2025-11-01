@@ -1899,6 +1899,10 @@ class MollieDebugService:
             "members": [],
             "api_calls_made": 0,
             "error": None,
+            # Filtering statistics
+            "total_payments_found": 0,  # Raw count from Mollie API before filtering
+            "total_payments_after_filtering": 0,  # After deduplication
+            "total_filtered_by_duplicate": 0,
         }
 
         try:
@@ -1952,6 +1956,7 @@ class MollieDebugService:
             from_id = None
             limit = 250
             total_fetched = 0
+            seen_payment_ids = set()  # Track payment IDs to detect duplicates
 
             while has_next and total_fetched < max_payments:
                 try:
@@ -1972,6 +1977,17 @@ class MollieDebugService:
                     # Process each payment
                     for payment in batch_payments:
                         total_fetched += 1
+                        result["total_payments_found"] += 1  # Count raw API results
+
+                        # Deduplicate: Skip if we've already seen this payment ID
+                        if payment.id in seen_payment_ids:
+                            result["total_filtered_by_duplicate"] += 1
+                            frappe.logger().warning(
+                                f"⚠️ Duplicate payment ID from Mollie API: {payment.id}. "
+                                f"This indicates the API returned the same payment multiple times."
+                            )
+                            continue
+                        seen_payment_ids.add(payment.id)
 
                         # Extract customer ID
                         customer_id = getattr(payment, "customer_id", None)
@@ -2028,6 +2044,7 @@ class MollieDebugService:
                             member_result["payments"].append(payment_info)
                             member_result["payment_count"] += 1
                             result["total_payments"] += 1
+                            result["total_payments_after_filtering"] += 1  # Count after deduplication
 
                             if not is_processed:
                                 member_result["unprocessed_count"] += 1
@@ -2066,7 +2083,13 @@ class MollieDebugService:
         self, payment_ids: list, docstatus: int = 0, create_bank_transactions: bool = True
     ):
         """
-        Bulk process selected payments to create Payment Entries and/or Bank Transactions.
+        Bulk process selected payments with deadlock prevention through member grouping.
+
+        Strategy:
+        1. Group payments by member to avoid concurrent updates to same customer
+        2. Process each member's payments sequentially
+        3. Remove explicit transaction management (let Frappe handle it)
+        4. Add deadlock retry with exponential backoff
 
         Args:
             payment_ids: List of Mollie payment IDs to process
@@ -2076,6 +2099,13 @@ class MollieDebugService:
         Returns:
             Dict with processing results
         """
+        import random
+        import time
+        from collections import defaultdict
+
+        # Auto-batch large requests to prevent deadlocks and timeouts
+        SAFE_BATCH_SIZE = 250  # Safe batch size to prevent MySQL deadlocks
+
         result = {
             "total_requested": len(payment_ids),
             "processed": 0,
@@ -2085,140 +2115,211 @@ class MollieDebugService:
             "timestamp": frappe.utils.now(),
             "docstatus": docstatus,
             "create_bank_transactions": create_bank_transactions,
+            "batches_processed": 0,
+            "total_batches": 0,
         }
+
+        # If request is larger than safe batch size, split into batches
+        if len(payment_ids) > SAFE_BATCH_SIZE:
+            total_batches = (len(payment_ids) + SAFE_BATCH_SIZE - 1) // SAFE_BATCH_SIZE
+            result["total_batches"] = total_batches
+            result["batch_size"] = SAFE_BATCH_SIZE
+
+            frappe.logger().info(
+                f"Auto-splitting {len(payment_ids)} payments into {total_batches} batches "
+                f"of {SAFE_BATCH_SIZE} to prevent deadlocks"
+            )
+
+            # Process in batches with delays
+            for batch_num in range(total_batches):
+                start_idx = batch_num * SAFE_BATCH_SIZE
+                end_idx = min(start_idx + SAFE_BATCH_SIZE, len(payment_ids))
+                batch_payment_ids = payment_ids[start_idx:end_idx]
+
+                frappe.logger().info(
+                    f"Processing batch {batch_num + 1}/{total_batches}: "
+                    f"payments {start_idx + 1}-{end_idx} of {len(payment_ids)}"
+                )
+
+                # Recursively call this function with smaller batch
+                batch_result = self.bulk_process_member_payments(
+                    batch_payment_ids, docstatus, create_bank_transactions
+                )
+
+                # Aggregate results
+                result["processed"] += batch_result["processed"]
+                result["skipped"] += batch_result["skipped"]
+                result["errors"] += batch_result["errors"]
+                result["results"].extend(batch_result.get("results", []))
+                result["batches_processed"] += 1
+
+                # Add random delay between batches to reduce contention (0.5-2 seconds)
+                if batch_num < total_batches - 1:  # Don't delay after last batch
+                    delay = random.uniform(0.5, 2.0)
+                    frappe.logger().info(
+                        f"Batch {batch_num + 1} complete. Waiting {delay:.2f}s before next batch..."
+                    )
+                    time.sleep(delay)
+
+            result["message"] = f"Completed {total_batches} batches successfully"
+            return result
+
+        # Single batch processing (original logic below)
+        result["batches_processed"] = 1
+        result["total_batches"] = 1
 
         try:
             from verenigingen.integrations.mollie.services.dues_payment_processor import DuesPaymentProcessor
 
             dues_processor = DuesPaymentProcessor()
 
-            # Determine creation strategy:
-            # - create_bank_transactions=True: Create ONLY Bank Transaction (for manual reconciliation)
-            # - create_bank_transactions=False: Create BOTH Bank Transaction AND Payment Entry (full audit trail)
+            # Step 1: Group payments by member to prevent deadlocks
+            frappe.logger().info(f"Grouping {len(payment_ids)} payments by member...")
+            payments_by_member = defaultdict(list)
 
             for payment_id in payment_ids:
-                # Wrap each payment in explicit transaction for atomic operations
                 try:
-                    frappe.db.begin()  # Start transaction
+                    # Quick member lookup
+                    payment = dues_processor.mollie_client.sdk_client.payments.get(payment_id)
+                    customer_id = getattr(payment, "customerId", None)
 
-                    if create_bank_transactions:
-                        # Strategy 1: Bank Transaction only (for later manual reconciliation)
-                        payment_result = dues_processor.process_dues_payment(
-                            payment_id, creation_mode="Bank Transaction"
-                        )
+                    if customer_id:
+                        member = frappe.db.get_value("Member", {"mollie_customer_id": customer_id}, "name")
+                        group_key = member if member else f"no_member_{customer_id}"
                     else:
-                        # Strategy 2: Create both BT and PE for complete audit trail
-                        # First create Bank Transaction
-                        bt_result = dues_processor.process_dues_payment(
-                            payment_id, creation_mode="Bank Transaction"
-                        )
+                        group_key = "no_customer"
 
-                        if bt_result.get("status") == "success" and bt_result.get("bank_transaction"):
-                            # Then create Payment Entry manually (bypassing idempotency check)
-                            # The idempotency check in process_dues_payment would see the BT and skip PE creation
-                            try:
-                                # Fetch payment from Mollie
-                                payment = dues_processor.mollie_client.sdk_client.payments.get(payment_id)
-                                member_name = bt_result.get("member")
+                    payments_by_member[group_key].append(payment_id)
+                except Exception as e:
+                    # On error, process individually
+                    payments_by_member[f"error_{payment_id}"].append(payment_id)
+                    frappe.logger().warning(f"Failed to group payment {payment_id}: {e}")
 
-                                if member_name:
-                                    # Create PE directly
-                                    pe_name = dues_processor._create_payment_entry_for_dues(
-                                        member_name, payment
-                                    )
+            frappe.logger().info(
+                f"Grouped into {len(payments_by_member)} groups: "
+                + ", ".join(f"{k}({len(v)})" for k, v in list(payments_by_member.items())[:5])
+            )
 
-                                    # Link BT to PE for automatic reconciliation
-                                    bt_name = bt_result.get("bank_transaction")
-                                    bt_doc = frappe.get_doc("Bank Transaction", bt_name)
+            # Step 2: Process each member's payments sequentially
+            for member_key, member_payment_ids in payments_by_member.items():
+                for payment_id in member_payment_ids:
+                    # Retry logic for deadlocks
+                    max_retries = 3
+                    retry_count = 0
+                    payment_result = None
 
-                                    # Add PE to the payment_entries child table
-                                    bt_doc.append(
-                                        "payment_entries",
-                                        {
-                                            "payment_document": "Payment Entry",
+                    while retry_count < max_retries:
+                        try:
+                            # Process payment (Frappe handles transactions automatically)
+                            if create_bank_transactions:
+                                # Strategy 1: Bank Transaction only
+                                payment_result = dues_processor.process_dues_payment(
+                                    payment_id, creation_mode="Bank Transaction"
+                                )
+                            else:
+                                # Strategy 2: Both BT and PE
+                                # IMPORTANT: PE creation is INSIDE the retry loop to handle deadlocks
+                                bt_result = dues_processor.process_dues_payment(
+                                    payment_id, creation_mode="Bank Transaction"
+                                )
+
+                                if bt_result.get("status") == "success" and bt_result.get("bank_transaction"):
+                                    payment = dues_processor.mollie_client.sdk_client.payments.get(payment_id)
+                                    member_name = bt_result.get("member")
+
+                                    if member_name:
+                                        pe_name = dues_processor._create_payment_entry_for_dues(
+                                            member_name, payment
+                                        )
+                                        bt_name = bt_result.get("bank_transaction")
+                                        bt_doc = frappe.get_doc("Bank Transaction", bt_name)
+                                        bt_doc.append(
+                                            "payment_entries",
+                                            {
+                                                "payment_document": "Payment Entry",
+                                                "payment_entry": pe_name,
+                                                "allocated_amount": abs(bt_doc.unallocated_amount),
+                                            },
+                                        )
+                                        bt_doc.save()
+                                        payment_result = {
+                                            "payment_id": payment_id,
+                                            "status": "success",
+                                            "bank_transaction": bt_name,
                                             "payment_entry": pe_name,
-                                            "allocated_amount": abs(bt_doc.unallocated_amount),
-                                        },
-                                    )
-                                    bt_doc.save()
-
-                                    # Merge results
-                                    payment_result = {
-                                        "payment_id": payment_id,
-                                        "status": "success",
-                                        "bank_transaction": bt_result.get("bank_transaction"),
-                                        "payment_entry": pe_name,
-                                        "payment_type": bt_result.get("payment_type"),
-                                        "member": member_name,
-                                    }
+                                            "payment_type": bt_result.get("payment_type"),
+                                            "member": member_name,
+                                        }
+                                    else:
+                                        payment_result = bt_result
                                 else:
                                     payment_result = bt_result
-                            except Exception as pe_error:
-                                # If PE creation fails, still return success for BT
-                                frappe.log_error(
-                                    f"Failed to create PE for payment {payment_id}: {pe_error}",
-                                    "Dual Document Creation Error",
+
+                            # Handle submission if requested
+                            if payment_result.get("status") == "success" and docstatus == 1:
+                                try:
+                                    if payment_result.get("bank_transaction"):
+                                        bt_doc = frappe.get_doc(
+                                            "Bank Transaction", payment_result["bank_transaction"]
+                                        )
+                                        if bt_doc.docstatus == 0:
+                                            if not frappe.has_permission(
+                                                "Bank Transaction", "submit", bt_doc
+                                            ):
+                                                raise frappe.PermissionError(
+                                                    f"User {frappe.session.user} lacks submit permission"
+                                                )
+                                            bt_doc.submit()
+                                            payment_result["bank_transaction_submitted"] = True
+
+                                    if payment_result.get("payment_entry"):
+                                        pe_doc = frappe.get_doc(
+                                            "Payment Entry", payment_result["payment_entry"]
+                                        )
+                                        if pe_doc.docstatus == 0:
+                                            if not frappe.has_permission("Payment Entry", "submit", pe_doc):
+                                                raise frappe.PermissionError(
+                                                    f"User {frappe.session.user} lacks submit permission"
+                                                )
+                                            pe_doc.submit()
+                                            payment_result["payment_entry_submitted"] = True
+                                except Exception as submit_error:
+                                    payment_result["submit_error"] = str(submit_error)
+                                    frappe.log_error(f"Submission error for {payment_id}: {submit_error}")
+
+                            # Success - break retry loop
+                            break
+
+                        except Exception as e:
+                            retry_count += 1
+                            error_str = str(e)
+                            is_deadlock = "1213" in error_str or "Deadlock" in error_str
+
+                            if is_deadlock and retry_count < max_retries:
+                                wait_time = 0.1 * (2 ** (retry_count - 1))
+                                frappe.logger().warning(
+                                    f"Deadlock on {payment_id}, retry {retry_count}/{max_retries} after {wait_time}s"
                                 )
-                                payment_result = bt_result
-                                payment_result["pe_creation_error"] = str(pe_error)
-                        else:
-                            payment_result = bt_result
-
-                    # If successful and docstatus is specified, submit the documents
-                    if payment_result.get("status") == "success":
-                        if docstatus == 1:
-                            # Submit both Payment Entry AND Bank Transaction if both were created
-                            try:
-                                # Submit Bank Transaction first (if created)
-                                if payment_result.get("bank_transaction"):
-                                    bt_doc = frappe.get_doc(
-                                        "Bank Transaction", payment_result["bank_transaction"]
-                                    )
-                                    if bt_doc.docstatus == 0:
-                                        # Verify user has submit permission
-                                        if not frappe.has_permission("Bank Transaction", "submit", bt_doc):
-                                            raise frappe.PermissionError(
-                                                f"User {frappe.session.user} does not have permission "
-                                                f"to submit Bank Transaction {bt_doc.name}"
-                                            )
-                                        bt_doc.submit()
-                                        payment_result["bank_transaction_submitted"] = True
-
-                                # Then submit Payment Entry (if created)
-                                if payment_result.get("payment_entry"):
-                                    pe_doc = frappe.get_doc("Payment Entry", payment_result["payment_entry"])
-                                    if pe_doc.docstatus == 0:
-                                        # Verify user has submit permission
-                                        if not frappe.has_permission("Payment Entry", "submit", pe_doc):
-                                            raise frappe.PermissionError(
-                                                f"User {frappe.session.user} does not have permission "
-                                                f"to submit Payment Entry {pe_doc.name}"
-                                            )
-                                        pe_doc.submit()
-                                        payment_result["payment_entry_submitted"] = True
-                            except Exception as submit_error:
-                                payment_result["submit_error"] = str(submit_error)
-                                frappe.db.rollback()  # Rollback on submission error
-                                result["errors"] += 1
-                                result["results"].append(payment_result)
+                                time.sleep(wait_time)
                                 continue
+                            else:
+                                payment_result = {
+                                    "payment_id": payment_id,
+                                    "status": "error",
+                                    "error": error_str,
+                                }
+                                frappe.log_error(f"Error processing {payment_id}: {e}")
+                                break
 
-                        frappe.db.commit()  # Commit successful transaction
-                        result["processed"] += 1
-                    elif payment_result.get("status") in ["skipped", "already_processed"]:
-                        frappe.db.rollback()  # No changes made, rollback
-                        result["skipped"] += 1
-                    else:
-                        frappe.db.rollback()  # Failed processing, rollback
-                        result["errors"] += 1
-
-                    result["results"].append(payment_result)
-
-                except Exception as e:
-                    frappe.db.rollback()  # Ensure rollback on exception
-                    result["errors"] += 1
-                    result["results"].append({"payment_id": payment_id, "status": "error", "error": str(e)})
-                    frappe.log_error(f"Error processing payment {payment_id}: {e}")
+                    # Record result
+                    if payment_result:
+                        if payment_result.get("status") == "success":
+                            result["processed"] += 1
+                        elif payment_result.get("status") in ["skipped", "already_processed"]:
+                            result["skipped"] += 1
+                        else:
+                            result["errors"] += 1
+                        result["results"].append(payment_result)
 
             frappe.logger().info(
                 f"Bulk processing complete: {result['processed']} processed, "

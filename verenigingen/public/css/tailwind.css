@@ -176,6 +176,7 @@
     --color-success-500: #01796f;
     --color-success-600: #016b63;
     --color-success-800: #014a44;
+    --color-danger-50: #fef2f2;
     --color-danger-100: #fee2e2;
     --color-danger-300: #fca5a5;
     --color-danger-400: #f87171;
@@ -1078,6 +1079,9 @@
   .border-danger-400 {
     border-color: var(--color-danger-400);
   }
+  .border-danger-500 {
+    border-color: var(--color-danger-500);
+  }
   .border-gray-100 {
     border-color: var(--color-gray-100);
   }
@@ -1219,9 +1223,6 @@
   .border-yellow-200 {
     border-color: var(--color-yellow-200);
   }
-  .border-yellow-300 {
-    border-color: var(--color-yellow-300);
-  }
   .border-yellow-400 {
     border-color: var(--color-yellow-400);
   }
@@ -1285,11 +1286,17 @@
   .bg-blue-700 {
     background-color: var(--color-blue-700);
   }
+  .bg-danger-50 {
+    background-color: var(--color-danger-50);
+  }
   .bg-danger-100 {
     background-color: var(--color-danger-100);
   }
   .bg-danger-500 {
     background-color: var(--color-danger-500);
+  }
+  .bg-danger-600 {
+    background-color: var(--color-danger-600);
   }
   .bg-gray-50 {
     background-color: var(--color-gray-50);
@@ -2390,6 +2397,13 @@
     &:hover {
       @media (hover: hover) {
         background-color: var(--color-blue-700);
+      }
+    }
+  }
+  .hover\:bg-danger-700 {
+    &:hover {
+      @media (hover: hover) {
+        background-color: var(--color-danger-700);
       }
     }
   }

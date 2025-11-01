@@ -299,7 +299,7 @@ def setup_example_chapter():
         if frappe.db.exists("Chapter Role", "Chapter Secretary"):
             chapter_doc.append("board_role_specific_profiles", {
                 "chapter_role": "Chapter Secretary",
-                "role_profile": "Verenigingen Chapter Administrator", 
+                "role_profile": "Verenigingen Staff",
                 "description": "Chapter secretaries get administrative permissions"
             })
         

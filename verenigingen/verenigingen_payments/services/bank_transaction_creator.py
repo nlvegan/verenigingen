@@ -386,6 +386,10 @@ class BankTransactionCreator:
 
         Uses centralized MollieConfigurationService with GL account validation.
 
+        NOTE: This method is used for virtual account payment processing, so it skips
+        settlement bank account validation. Settlement account is only relevant when
+        processing Mollie settlement payouts, not individual payments received.
+
         Returns:
             dict with 'bank_account' and 'company', or error info
 
@@ -401,8 +405,11 @@ class BankTransactionCreator:
 
         try:
             # Use centralized validation from configuration service
+            # Skip settlement account validation - only needed for settlement processing
             mollie_config = get_mollie_config()
-            validation_result = mollie_config.validate_all_mollie_accounts(raise_on_error=False)
+            validation_result = mollie_config.validate_all_mollie_accounts(
+                raise_on_error=False, skip_settlement_account=True
+            )
 
             if not validation_result["valid"]:
                 # Log detailed validation errors
@@ -565,111 +572,146 @@ class BankTransactionCreator:
         Returns:
             Bank Transaction name if created, None on failure
         """
+        import time
+
         from frappe.exceptions import DuplicateEntryError
 
         from verenigingen.utils.secure_operations import secure_document_operation
 
-        try:
-            bank_transaction_dict = {
-                "doctype": "Bank Transaction",
-                "date": date,
-                "bank_account": bank_account,
-                "company": company,
-                "deposit": deposit,
-                "withdrawal": withdrawal,
-                "currency": currency,
-                "reference_number": reference_number,
-                "description": description,
-                "status": "Unreconciled",
-                "unallocated_amount": deposit if deposit > 0 else abs(withdrawal),
-                "allocated_amount": 0.0,
-            }
+        # Deadlock retry configuration
+        max_retries = 3
+        retry_count = 0
 
-            # Add transaction_id if provided (for balance transactions)
-            if transaction_id:
-                bank_transaction_dict["transaction_id"] = transaction_id
+        while retry_count < max_retries:
+            try:
+                bank_transaction_dict = {
+                    "doctype": "Bank Transaction",
+                    "date": date,
+                    "bank_account": bank_account,
+                    "company": company,
+                    "deposit": deposit,
+                    "withdrawal": withdrawal,
+                    "currency": currency,
+                    "reference_number": reference_number,
+                    "description": description,
+                    "status": "Unreconciled",
+                    "unallocated_amount": deposit if deposit > 0 else abs(withdrawal),
+                    "allocated_amount": 0.0,
+                }
 
-            # Add party fields if provided (for dues payments)
-            if party_type:
-                bank_transaction_dict["party_type"] = party_type
-            if party:
-                bank_transaction_dict["party"] = party
+                # Add transaction_id if provided (for balance transactions)
+                if transaction_id:
+                    bank_transaction_dict["transaction_id"] = transaction_id
 
-            # Add bank party fields if provided (for SEPA/bank imports)
-            if bank_party_name:
-                bank_transaction_dict["bank_party_name"] = bank_party_name
-            if bank_party_iban:
-                bank_transaction_dict["bank_party_iban"] = bank_party_iban
-            if bank_party_account_number:
-                bank_transaction_dict["bank_party_account_number"] = bank_party_account_number
+                # Add party fields if provided (for dues payments)
+                if party_type:
+                    bank_transaction_dict["party_type"] = party_type
+                if party:
+                    bank_transaction_dict["party"] = party
 
-            # Add any additional custom fields (e.g., Mollie-specific fields)
-            for field, value in additional_fields.items():
-                if value is not None:
-                    bank_transaction_dict[field] = value
+                # Add bank party fields if provided (for SEPA/bank imports)
+                if bank_party_name:
+                    bank_transaction_dict["bank_party_name"] = bank_party_name
+                if bank_party_iban:
+                    bank_transaction_dict["bank_party_iban"] = bank_party_iban
+                if bank_party_account_number:
+                    bank_transaction_dict["bank_party_account_number"] = bank_party_account_number
 
-            bank_transaction = frappe.get_doc(bank_transaction_dict)
+                # Add any additional custom fields (e.g., Mollie-specific fields)
+                for field, value in additional_fields.items():
+                    if value is not None:
+                        bank_transaction_dict[field] = value
 
-            # Create Bank Transaction using secure operations framework
-            # This handles permission validation and creates in draft if user lacks submit permission
-            create_result = secure_document_operation(
-                operation="create",
-                doc=bank_transaction,
-                justification=f"Bank Transaction creation from {description[:50]}",
-                required_permissions=["Bank Transaction:create"],
-                allow_system_user=True,  # Allow system user fallback for webhook/automated contexts
-            )
+                bank_transaction = frappe.get_doc(bank_transaction_dict)
 
-            if not create_result.success:
-                error_msg = ", ".join(create_result.errors) if create_result.errors else "Unknown error"
-                frappe.logger().error(f"❌ Failed to create Bank Transaction: {error_msg}")
+                # Create Bank Transaction using secure operations framework
+                # This handles permission validation and creates in draft if user lacks submit permission
+                create_result = secure_document_operation(
+                    operation="create",
+                    doc=bank_transaction,
+                    justification=f"Bank Transaction creation from {description[:50]}",
+                    required_permissions=["Bank Transaction:create"],
+                    allow_system_user=True,  # Allow system user fallback for webhook/automated contexts
+                )
+
+                if not create_result.success:
+                    error_msg = ", ".join(create_result.errors) if create_result.errors else "Unknown error"
+                    frappe.logger().error(f"❌ Failed to create Bank Transaction: {error_msg}")
+                    return None
+
+                # Get the created document
+                bank_transaction = create_result.document
+
+                frappe.logger().info(
+                    f"After create: Bank Transaction {bank_transaction.name} docstatus={bank_transaction.docstatus}"
+                )
+
+                # Attempt to submit Bank Transaction using secure operations framework
+                # Framework will only submit if current user has submit permission
+                # If user lacks permission, document remains in draft state
+                submit_result = secure_document_operation(
+                    operation="submit",
+                    doc=bank_transaction,
+                    justification=f"Bank Transaction submission for {reference_number}",
+                    required_permissions=["Bank Transaction:submit"],
+                    allow_system_user=False,  # Require actual user permission for submit
+                )
+
+                if submit_result.success:
+                    frappe.logger().info(
+                        f"✅ Created and submitted Bank Transaction: {bank_transaction.name} "
+                        f"(ref: {reference_number}, amount: {currency} {deposit or withdrawal})"
+                    )
+                else:
+                    # Document created but not submitted (draft state)
+                    frappe.logger().info(
+                        f"✅ Created Bank Transaction (draft): {bank_transaction.name} "
+                        f"(ref: {reference_number}) - user lacks submit permission"
+                    )
+
+                    return bank_transaction.name
+
+            except (DuplicateEntryError, frappe.UniqueValidationError):
+                # Handle race condition: another process created this Bank Transaction
+                # UniqueValidationError is raised by secure_document_operation when IntegrityError occurs
+                frappe.logger().info(
+                    f"⏭️ Bank Transaction already created (race condition): {reference_number}"
+                )
+                # Return existing Bank Transaction
+                return self._check_existing_by_reference(reference_number)
+
+            except frappe.QueryDeadlockError as e:
+                # Deadlock detected - retry with exponential backoff
+                retry_count += 1
+                if retry_count < max_retries:
+                    wait_time = 0.1 * (2 ** (retry_count - 1))  # 0.1s, 0.2s, 0.4s
+                    frappe.logger().warning(
+                        f"⚠️ Deadlock creating Bank Transaction (ref: {reference_number}), "
+                        f"retry {retry_count}/{max_retries} after {wait_time}s"
+                    )
+                    time.sleep(wait_time)
+                    continue  # Retry
+                else:
+                    # Max retries exceeded
+                    frappe.logger().error(
+                        f"❌ Failed to create Bank Transaction after {max_retries} retries due to deadlocks: {e}"
+                    )
+                    frappe.log_error(
+                        f"Bank Transaction creation failed after {max_retries} deadlock retries for reference {reference_number}: {e}",
+                        "Bank Transaction Deadlock Error",
+                    )
+                    return None
+
+            except Exception as e:
+                frappe.logger().error(f"❌ Failed to create Bank Transaction: {e}")
+                frappe.log_error(
+                    f"Bank Transaction creation failed for reference {reference_number}: {e}",
+                    "Bank Transaction Creation Error",
+                )
                 return None
 
-            # Get the created document
-            bank_transaction = create_result.document
-
-            frappe.logger().info(
-                f"After create: Bank Transaction {bank_transaction.name} docstatus={bank_transaction.docstatus}"
-            )
-
-            # Attempt to submit Bank Transaction using secure operations framework
-            # Framework will only submit if current user has submit permission
-            # If user lacks permission, document remains in draft state
-            submit_result = secure_document_operation(
-                operation="submit",
-                doc=bank_transaction,
-                justification=f"Bank Transaction submission for {reference_number}",
-                required_permissions=["Bank Transaction:submit"],
-                allow_system_user=False,  # Require actual user permission for submit
-            )
-
-            if submit_result.success:
-                frappe.logger().info(
-                    f"✅ Created and submitted Bank Transaction: {bank_transaction.name} "
-                    f"(ref: {reference_number}, amount: {currency} {deposit or withdrawal})"
-                )
-            else:
-                # Document created but not submitted (draft state)
-                frappe.logger().info(
-                    f"✅ Created Bank Transaction (draft): {bank_transaction.name} "
-                    f"(ref: {reference_number}) - user lacks submit permission"
-                )
-
-            return bank_transaction.name
-
-        except DuplicateEntryError:
-            # Handle race condition: another process created this Bank Transaction
-            frappe.logger().info(f"⏭️ Bank Transaction already created (race condition): {reference_number}")
-            # Return existing Bank Transaction
-            return self._check_existing_by_reference(reference_number)
-
-        except Exception as e:
-            frappe.logger().error(f"❌ Failed to create Bank Transaction: {e}")
-            frappe.log_error(
-                f"Bank Transaction creation failed for reference {reference_number}: {e}",
-                "Bank Transaction Creation Error",
-            )
-            return None
+        # Should never reach here, but safety fallback
+        return None
 
 
 def get_bank_transaction_creator() -> BankTransactionCreator:
