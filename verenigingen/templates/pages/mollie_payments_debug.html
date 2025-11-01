@@ -673,15 +673,8 @@
                         <!-- Processing Options -->
                         <div class="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
                             <h5 class="font-semibold text-yellow-800 mb-2">{{ _("Processing Options") }}</h5>
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="grid grid-cols-1 gap-4">
                                 <div>
-                                    <label class="block text-sm font-medium text-yellow-900 mb-1">{{ _("Document Status") }}</label>
-                                    <select id="bulk-docstatus" class="w-full px-3 py-2 border border-yellow-300 rounded-md bg-white">
-                                        <option value="0">Draft (Recommended)</option>
-                                        <option value="1">Submitted</option>
-                                    </select>
-                                </div>
-                                <div class="pt-6">
                                     <div class="flex items-center">
                                         <input type="checkbox" id="bulk-create-bank-transactions" class="mr-2" checked>
                                         <label for="bulk-create-bank-transactions" class="text-sm font-medium text-yellow-900">
@@ -3415,15 +3408,14 @@ function bulkProcessSelectedPayments() {
     }
 
     const paymentIds = Array.from(checkboxes).map(cb => cb.dataset.paymentId);
-    const docstatus = document.getElementById('bulk-docstatus').value;
+    const docstatus = '1';  // Always submit documents
     const createBankTransactions = document.getElementById('bulk-create-bank-transactions').checked;
 
-    const docstatusText = docstatus === '0' ? 'DRAFT' : 'SUBMITTED';
     const modeText = createBankTransactions ? 'Bank Transaction Only' : 'Bank Transaction + Payment Entry';
     const modeDescription = createBankTransactions
         ? 'Creates only Bank Transactions (for manual reconciliation later)'
         : 'Creates both Bank Transactions and Payment Entries (complete audit trail)';
-    const message = `Process ${paymentIds.length} payment(s)?\n\nDocument Status: ${docstatusText}\nCreation Mode: ${modeText}\n\n${modeDescription}\n\nContinue?`;
+    const message = `Process ${paymentIds.length} payment(s)?\n\nCreation Mode: ${modeText}\n\n${modeDescription}\n\nDocuments will be auto-submitted.\n\nContinue?`;
 
     if (!confirm(message)) {
         return;
@@ -3445,13 +3437,43 @@ function bulkProcessSelectedPayments() {
         },
         body: formData
     })
-    .then(response => response.json())
+    .then(response => {
+        // Check if response is ok before parsing
+        if (!response.ok) {
+            return response.text().then(text => {
+                throw new Error(`Server error (${response.status}): ${text}`);
+            });
+        }
+        return response.json();
+    })
     .then(data => {
+        // Check for Frappe error response format
+        if (data.exc || data._server_messages) {
+            let errorMsg = 'Server Error:\n\n';
+            if (data._server_messages) {
+                try {
+                    const messages = JSON.parse(data._server_messages);
+                    errorMsg += messages.map(m => JSON.parse(m).message).join('\n');
+                } catch (e) {
+                    errorMsg += data._server_messages;
+                }
+            }
+            if (data.exc) {
+                errorMsg += '\n\nException:\n' + data.exc;
+            }
+            document.getElementById('bulk-processing-results').textContent = errorMsg;
+            document.getElementById('bulk-processing-results').style.display = 'block';
+            return;
+        }
+
         const result = data.message || data;
         displayBulkProcessingResults(result);
     })
     .catch(error => {
-        document.getElementById('bulk-processing-results').textContent = 'Error: ' + error.message;
+        const errorText = 'Error processing payments:\n\n' + error.message + '\n\nCheck browser console for details.';
+        document.getElementById('bulk-processing-results').textContent = errorText;
+        document.getElementById('bulk-processing-results').style.display = 'block';
+        console.error('Bulk processing error:', error);
     });
 }
 
