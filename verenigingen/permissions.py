@@ -263,41 +263,41 @@ def has_member_permission(doc, user=None, permission_type=None):
         return False
 
     # Chapter Board Members - can access members in their chapters only
-    if "Chapter Board Member" in user_roles:
+    if "Verenigingen Chapter Board Member" in user_roles:
         try:
             # Use cached function to get user's chapters (with schema fix)
             user_chapter_names = get_user_chapter_memberships_cached(user, get_cache_key())
 
-            if not user_chapter_names:
+            if user_chapter_names:
+                # Check if the target member is in any of the user's chapters
+                member_chapters = frappe.db.sql(
+                    """
+                    SELECT DISTINCT parent as chapter_name
+                    FROM `tabChapter Member`
+                    WHERE member = %s AND status = 'Active'
+                """,
+                    member_name,
+                    as_dict=True,
+                )
+
+                member_chapter_names = [ch["chapter_name"] for ch in member_chapters]
+
+                # Allow access if there's any chapter overlap
+                has_chapter_overlap = bool(set(user_chapter_names) & set(member_chapter_names))
+
+                frappe.logger().debug(
+                    f"User chapters: {user_chapter_names}, Member chapters: {member_chapter_names}, Overlap: {has_chapter_overlap}"
+                )
+
+                if has_chapter_overlap:
+                    return True
+            else:
                 frappe.logger().debug(f"User {user} is not an active board member in any chapter")
-                return False
-
-            # Check if the target member is in any of the user's chapters
-            member_chapters = frappe.db.sql(
-                """
-                SELECT DISTINCT parent as chapter_name
-                FROM `tabChapter Member`
-                WHERE member = %s AND status = 'Active'
-            """,
-                member_name,
-                as_dict=True,
-            )
-
-            member_chapter_names = [ch["chapter_name"] for ch in member_chapters]
-
-            # Allow access if there's any chapter overlap
-            has_chapter_overlap = bool(set(user_chapter_names) & set(member_chapter_names))
-
-            frappe.logger().debug(
-                f"User chapters: {user_chapter_names}, Member chapters: {member_chapter_names}, Overlap: {has_chapter_overlap}"
-            )
-
-            if has_chapter_overlap:
-                return True
+                # Don't return False - fall through to check other role-based permissions
 
         except Exception as e:
             frappe.log_error(f"Error checking chapter board member permissions: {str(e)}")
-            # Fall through to deny access on error
+            # Fall through to check other permissions on error
 
     # Verenigingen Staff - handled by query conditions, allow individual document access
     if "Verenigingen Staff" in user_roles:
@@ -378,7 +378,7 @@ def has_volunteer_permission(doc, user=None, permission_type=None):
             return True
 
     # Chapter Board Members can access volunteers in their chapters
-    if "Chapter Board Member" in user_roles:
+    if "Verenigingen Chapter Board Member" in user_roles:
         try:
             # Get chapters where the user is an active board member
             user_chapters = frappe.db.sql(
@@ -552,25 +552,75 @@ def get_donor_permission_query(user):
 
 
 def has_address_permission(doc, user=None, permission_type=None):
-    """Permission check for Address doctype - allows members to access their own addresses"""
+    """Permission check for Address doctype - allows members to access their own addresses
+    and chapter board members to access addresses of members in their chapters"""
     if not user:
         user = frappe.session.user
 
+    user_roles = frappe.get_roles(user)
+
     # Admin roles always have access
-    admin_roles = ["System Manager", "Verenigingen Administrator"]
-    if any(role in frappe.get_roles(user) for role in admin_roles):
+    admin_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Staff"]
+    if any(role in user_roles for role in admin_roles):
         return True
 
-    # Check if this address is linked to the user's member record
+    # Handle both doc object and string (address name)
+    address_name = doc.name if hasattr(doc, 'name') else doc
+
+    # Chapter Board Members can access addresses of members in their chapters
+    if "Verenigingen Chapter Board Member" in user_roles:
+        try:
+            # Get member linked to this address
+            address_member = frappe.db.get_value(
+                "Dynamic Link",
+                {"parent": address_name, "parenttype": "Address", "link_doctype": "Member"},
+                "link_name",
+            )
+
+            if address_member:
+                # Check if this member is in any of the user's chapters
+                user_member = get_member_name_for_user(user)
+                if user_member:
+                    user_chapters = frappe.db.sql(
+                        """
+                        SELECT DISTINCT cbm.parent as chapter_name
+                        FROM `tabChapter Board Member` cbm
+                        JOIN `tabVolunteer` v ON cbm.volunteer = v.name
+                        WHERE v.member = %s AND cbm.is_active = 1
+                        """,
+                        user_member,
+                        as_dict=True,
+                    )
+
+                    if user_chapters:
+                        chapter_names = [ch["chapter_name"] for ch in user_chapters]
+                        member_in_chapter = frappe.db.sql(
+                            """
+                            SELECT 1
+                            FROM `tabChapter Member` cm
+                            WHERE cm.member = %s
+                              AND cm.parent IN ({})
+                              AND cm.status = 'Active'
+                            LIMIT 1
+                            """.format(
+                                ",".join(["%s"] * len(chapter_names))
+                            ),
+                            [address_member] + chapter_names,
+                        )
+
+                        if member_in_chapter:
+                            return True
+        except Exception as e:
+            frappe.log_error(f"Error checking chapter board member address permission: {str(e)}", "Address Permission")
+
+    # Check if this address is linked to the user's own member record
     member_name = get_member_name_for_user(user)
-    if not member_name:
-        member_name = get_member_name_for_user(user)
 
     if member_name:
         # Check if address is linked to this member via Dynamic Link
         link_exists = DocumentExistenceValidator.check_document_exists(
             "Dynamic Link",
-            {"parent": doc.name, "parenttype": "Address", "link_doctype": "Member", "link_name": member_name},
+            {"parent": address_name, "parenttype": "Address", "link_doctype": "Member", "link_name": member_name},
         )
 
         if link_exists:
@@ -578,7 +628,7 @@ def has_address_permission(doc, user=None, permission_type=None):
 
         # Also check if this is the member's primary address
         member_primary_address = frappe.db.get_value("Member", member_name, "primary_address")
-        if member_primary_address == doc.name:
+        if member_primary_address == address_name:
             return True
 
     # Fall back to standard Contact-based permissions
@@ -591,25 +641,25 @@ def has_address_permission(doc, user=None, permission_type=None):
 
 
 def get_address_permission_query(user):
-    """Permission query for Address - filters to show only member's addresses"""
+    """Permission query for Address - filters to show only member's addresses
+    and addresses of members in the user's chapters (for board members)"""
     if not user:
         user = frappe.session.user
 
+    user_roles = frappe.get_roles(user)
+
     # Admin roles see all
-    admin_roles = ["System Manager", "Verenigingen Administrator"]
-    if any(role in frappe.get_roles(user) for role in admin_roles):
+    admin_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Staff"]
+    if any(role in user_roles for role in admin_roles):
         return ""
 
     conditions = []
 
     # Find member by email or user field
     member_name = get_member_name_for_user(user)
-    if not member_name:
-        member_name = get_member_name_for_user(user)
 
     if member_name:
         # Add condition for addresses linked to this member
-        # FIXED: Proper SQL escaping to prevent injection
         escaped_member_name = frappe.db.escape(member_name)
         conditions.append(
             f"""
@@ -622,10 +672,41 @@ def get_address_permission_query(user):
         """
         )
 
+    # Chapter Board Members can see addresses of members in their chapters
+    if "Verenigingen Chapter Board Member" in user_roles and member_name:
+        # Get the user's chapters
+        user_chapters = frappe.db.sql(
+            """
+            SELECT DISTINCT cbm.parent as chapter_name
+            FROM `tabChapter Board Member` cbm
+            JOIN `tabVolunteer` v ON cbm.volunteer = v.name
+            WHERE v.member = %s AND cbm.is_active = 1
+            """,
+            member_name,
+            as_dict=True,
+        )
+
+        if user_chapters:
+            chapter_names = [frappe.db.escape(ch["chapter_name"]) for ch in user_chapters]
+            conditions.append(
+                f"""
+                `tabAddress`.name in (
+                    SELECT parent FROM `tabDynamic Link` dl
+                    WHERE dl.parenttype = 'Address'
+                    AND dl.link_doctype = 'Member'
+                    AND dl.link_name IN (
+                        SELECT cm.member
+                        FROM `tabChapter Member` cm
+                        WHERE cm.parent IN ({','.join(chapter_names)})
+                          AND cm.status = 'Active'
+                    )
+                )
+            """
+            )
+
     # Also check Contact-based addresses (original ERPNext behavior)
     contact_name = frappe.db.get_value("Contact", {"email_id": user}, "name")
     if contact_name:
-        # FIXED: Proper SQL escaping to prevent injection
         escaped_contact_name = frappe.db.escape(contact_name)
         conditions.append(
             f"""
@@ -674,7 +755,7 @@ def get_member_permission_query(user):
     conditions = []
 
     # Chapter Board Members can see members in their chapters
-    if "Chapter Board Member" in user_roles:
+    if "Verenigingen Chapter Board Member" in user_roles:
         try:
             # Get the current user's member record
             user_member = get_member_name_for_user(user)
@@ -694,11 +775,12 @@ def get_member_permission_query(user):
                 if user_chapters:
                     chapter_names = [frappe.db.escape(ch["chapter_name"]) for ch in user_chapters]
                     chapters_condition = f"""
-                        `tabMember`.name IN (
-                            SELECT DISTINCT member
-                            FROM `tabChapter Member`
-                            WHERE parent IN ({','.join(chapter_names)}) AND status = 'Active'
-                        )
+                        (`tabMember`.name IN (
+                            SELECT DISTINCT cm.member
+                            FROM `tabChapter Member` cm
+                            WHERE cm.parent IN ({','.join(chapter_names)})
+                              AND cm.status = 'Active'
+                        ))
                     """
                     conditions.append(chapters_condition)
                     frappe.logger().debug(f"Added chapter board member condition for user {user}")
@@ -719,10 +801,21 @@ def get_member_permission_query(user):
     if conditions:
         final_condition = f"({' OR '.join(conditions)})"
         frappe.logger().debug(f"Final Member query condition for {user}: {final_condition}")
+        # TEMPORARY DEBUG: Write to file
+        with open("/tmp/member_permission_debug.log", "a") as f:
+            f.write(f"\n{'='*60}\n")
+            f.write(f"User: {user}\n")
+            f.write(f"Roles: {user_roles}\n")
+            f.write(f"Condition: {final_condition}\n")
+            f.write(f"{'='*60}\n")
         return final_condition
 
     # No access if no conditions matched
     frappe.logger().debug(f"No Member access conditions matched for user {user}")
+    with open("/tmp/member_permission_debug.log", "a") as f:
+        f.write(f"\n{'='*60}\n")
+        f.write(f"User: {user} - NO ACCESS (returning 1=0)\n")
+        f.write(f"{'='*60}\n")
     return "1=0"
 
 
@@ -928,7 +1021,7 @@ def can_access_termination_functions(user=None):
 
     for volunteer_record in volunteer_records:
         board_positions = frappe.get_all(
-            "Chapter Board Member",
+            "Verenigingen Chapter Board Member",
             filters={"volunteer": volunteer_record.name, "is_active": 1},
             fields=["name"],
         )
@@ -962,7 +1055,7 @@ def get_chapter_member_permission_query(user):
 
     for volunteer_record in volunteer_records:
         board_positions = frappe.get_all(
-            "Chapter Board Member",
+            "Verenigingen Chapter Board Member",
             filters={"volunteer": volunteer_record.name, "is_active": 1},
             fields=["parent"],
         )
@@ -1007,7 +1100,7 @@ def get_termination_permission_query(user):
 
     for volunteer_record in volunteer_records:
         board_positions = frappe.get_all(
-            "Chapter Board Member",
+            "Verenigingen Chapter Board Member",
             filters={"volunteer": volunteer_record.name, "is_active": 1},
             fields=["parent"],
         )
@@ -1075,7 +1168,7 @@ def has_membership_termination_request_permission(doc, user=None, permission_typ
         return False
 
     # Chapter Board Members - can access termination requests for members in their chapters
-    if "Chapter Board Member" in user_roles:
+    if "Verenigingen Chapter Board Member" in user_roles:
         try:
             # Get the current user's member record
             user_member = get_member_name_for_user(user)
@@ -1161,7 +1254,7 @@ def get_volunteer_expense_permission_query(user):
         conditions.append(f"`tabVolunteer Expense`.volunteer = {frappe.db.escape(user_volunteer)}")
 
     # Chapter Board Members can see expenses for their chapters
-    if "Chapter Board Member" in user_roles:
+    if "Verenigingen Chapter Board Member" in user_roles:
         try:
             # Get chapters where user is an active board member
             user_chapters = frappe.db.sql(
@@ -1244,7 +1337,7 @@ def has_volunteer_expense_permission(doc, user=None, permission_type=None):
         return True
 
     # Chapter Board Members can access expenses from their chapters
-    if "Chapter Board Member" in user_roles and expense_chapter:
+    if "Verenigingen Chapter Board Member" in user_roles and expense_chapter:
         try:
             # Use cached function to get user's chapters (with schema fix)
             user_chapter_names = get_user_chapter_memberships_cached(user, get_cache_key())
@@ -1383,11 +1476,11 @@ def assign_chapter_board_role(user_email):
         if board_positions:
             # User has board positions, ensure they have the Chapter Board Member role
             if not DocumentExistenceValidator.check_document_exists(
-                "Has Role", {"parent": user_email, "role": "Chapter Board Member"}
+                "Has Role", {"parent": user_email, "role": "Verenigingen Chapter Board Member"}
             ):
                 # Add the role using secure operations
                 user_doc = frappe.get_doc("User", user_email)
-                user_doc.append("roles", {"role": "Chapter Board Member"})
+                user_doc.append("roles", {"role": "Verenigingen Chapter Board Member"})
                 role_result = secure_document_operation(
                     operation="save",
                     doc=user_doc,
@@ -1408,9 +1501,11 @@ def assign_chapter_board_role(user_email):
         else:
             # User has no board positions, remove the role if they have it
             if DocumentExistenceValidator.check_document_exists(
-                "Has Role", {"parent": user_email, "role": "Chapter Board Member"}
+                "Has Role", {"parent": user_email, "role": "Verenigingen Chapter Board Member"}
             ):
-                frappe.db.delete("Has Role", {"parent": user_email, "role": "Chapter Board Member"})
+                frappe.db.delete(
+                    "Has Role", {"parent": user_email, "role": "Verenigingen Chapter Board Member"}
+                )
                 frappe.logger().info(f"Removed Chapter Board Member role from {user_email}")
                 return True
             else:
@@ -1504,7 +1599,7 @@ def get_volunteer_permission_query(user):
     management_roles = [
         "Volunteer Coordinator",
         "Verenigingen Chapter Manager",
-        "Chapter Board Member",
+        "Verenigingen Chapter Board Member",
         "Team Leader",
     ]
 
@@ -1525,7 +1620,9 @@ def get_volunteer_permission_query(user):
                 `tabVolunteer`.member IN (
                     SELECT cm.member
                     FROM `tabChapter Member` cm
-                    WHERE cm.parent IN ('{chapter_list}') AND cm.enabled = 1
+                    WHERE cm.parent IN ('{chapter_list}')
+                      AND cm.enabled = 1
+                      AND cm.status = 'Active'
                 )
             """
             )

@@ -832,7 +832,7 @@ def execute_safe_member_termination(member, termination_type, termination_date=N
 
 
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.MEMBER_DATA)
+@standard_api(operation_type=OperationType.REPORTING)
 def get_member_termination_status(member):
     """Get termination status for a member - redirect to member_utils"""
     from verenigingen.verenigingen.doctype.member.member_utils import get_member_termination_status

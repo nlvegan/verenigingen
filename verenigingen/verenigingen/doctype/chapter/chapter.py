@@ -20,8 +20,13 @@ Key Features:
 Architecture:
     - Manager Pattern: Delegates specific responsibilities to specialized managers
     - Validator Pattern: Centralized validation logic with comprehensive error handling
-    - Website Generator: Automatic public website page generation
+    - Custom Web Pages: Public chapter pages handled by /www/chapter.py (not WebsiteGenerator)
     - Event-driven: Hooks into document lifecycle for automated processing
+
+Migration Note (2025-11-02):
+    Switched from WebsiteGenerator to Document base class to fix form rendering issues.
+    WebsiteGenerator was interfering with desk form display for board members, causing
+    child tables to not render properly. Public chapter pages now use custom web pages.
 
 Manager Components:
     - BoardManager: Handles board member appointments and permissions
@@ -48,7 +53,7 @@ Integration Points:
     - Volunteer system for activity coordination
     - Financial systems for dues and payments
     - Communication systems for announcements
-    - Website generator for public presence
+    - Custom web pages (/www/chapter.py) for public chapter pages
 
 Author: Verenigingen Development Team
 License: MIT
@@ -56,9 +61,9 @@ License: MIT
 
 import frappe
 from frappe import _
+from frappe.model.document import Document
 from frappe.query_builder import DocType
 from frappe.utils import getdate, now, today
-from frappe.website.website_generator import WebsiteGenerator
 
 from verenigingen.events.chapter_events import (
     emit_chapter_board_changed,
@@ -78,7 +83,7 @@ from .managers import BoardManager, CommunicationManager, MemberManager, Volunte
 from .validators import ChapterValidator
 
 
-class Chapter(WebsiteGenerator):
+class Chapter(Document):
     """
     Chapter document with refactored manager pattern
 
@@ -508,45 +513,16 @@ class Chapter(WebsiteGenerator):
         result = frappe.db.sql(chair_query, params, as_dict=True)
         return result[0].member if result else None
 
-    def get_context(self, context):
-        """Get context for web view with optimized data loading"""
-        try:
-            context.no_cache = True
-            context.show_sidebar = True
-            context.parents = [dict(label="View All Chapters", route="chapters", title="View Chapters")]
-
-            # Use optimized permission checking
-            user_permissions = self.get_user_permissions_optimized()
-
-            context.is_board_member = user_permissions["is_board_member"]
-            context.board_role = user_permissions["board_role"]
-            context.is_system_manager = user_permissions["is_system_manager"]
-            context.can_write_chapter = user_permissions["can_write_chapter"]
-
-            # Only load sensitive member data if user has appropriate permissions
-            if user_permissions["can_view_members"]:
-                # Use optimized batch loading for member data
-                context.members = self.get_members_optimized()
-                context.board_members = self.get_board_members_optimized()
-            else:
-                # Regular members cannot see member lists
-                context.members = []
-                context.board_members = []
-
-            # Add chapter head member details with optimized loading
-            context.chapter_head_member = self.get_chapter_head_member_optimized()
-
-            return context
-
-        except Exception as e:
-            frappe.log_error(f"Error getting context for chapter {self.name}: {str(e)}")
-            # Return minimal context to prevent page crash
-            context.members = []
-            context.board_members = []
-            context.is_board_member = False
-            context.board_role = None
-            context.chapter_head_member = None
-            return context
+    # Chapter no longer uses WebsiteGenerator to avoid Desk form rendering conflicts.
+    # WebsiteGenerator was causing child tables to not render for board members because
+    # it substituted web views in place of the desk form interface.
+    #
+    # Public chapter pages are now handled by custom web pages:
+    # - Single chapter: /www/chapter.py and /www/chapter.html
+    # - Chapter list: /www/chapters.py and /www/chapters.html
+    #
+    # If new public chapter features are needed, extend the /www/chapter.py handler
+    # instead of re-implementing WebsiteGenerator, which will reintroduce the same issues.
 
     def get_user_permissions_optimized(self):
         """Single query to get all user permissions for this chapter"""
@@ -670,7 +646,7 @@ class Chapter(WebsiteGenerator):
     def _ensure_route(self):
         """Ensure route is set"""
         if not self.route:
-            self.route = "chapters/" + self.scrub(self.name)
+            self.route = "chapters/" + frappe.scrub(self.name)
 
     def _handle_document_changes(self):
         """Handle changes between document versions"""
@@ -1116,7 +1092,7 @@ def get_list_context(context):
 
 
 def get_chapter_permission_query_conditions(user=None):
-    """Get permission query conditions for Chapters with optimized single query"""
+    """Get permission query conditions for Chapters with board member access"""
     try:
         if not user:
             user = frappe.session.user
@@ -1126,13 +1102,84 @@ def get_chapter_permission_query_conditions(user=None):
         ):
             return ""
 
-        # For regular users and members, show all published chapters
-        # This allows users to see all chapters on the listing page
+        # Check if user is a chapter board member
+        user_roles = frappe.get_roles(user)
+        if "Verenigingen Chapter Board Member" in user_roles:
+            # Get user's member record
+            member = frappe.db.get_value("Member", {"user": user}, "name")
+            if member:
+                # Get user's volunteer record
+                volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")
+                if volunteer:
+                    # Get chapters where user is a board member
+                    board_chapters = frappe.db.sql(
+                        """
+                        SELECT DISTINCT parent
+                        FROM `tabChapter Board Member`
+                        WHERE volunteer = %s AND is_active = 1
+                        """,
+                        volunteer,
+                        as_list=True,
+                    )
+
+                    if board_chapters:
+                        chapter_names = [f"'{c[0]}'" for c in board_chapters]
+                        # Board members can see their chapters OR published chapters
+                        return f"(`tabChapter`.name IN ({','.join(chapter_names)}) OR `tabChapter`.published = 1)"
+
+        # For regular users and members, show only published chapters
         return "`tabChapter`.published = 1"
 
     except Exception as e:
         frappe.log_error(f"Error in chapter permission query: {str(e)}")
         return "`tabChapter`.published = 1"
+
+
+def has_chapter_permission(doc, ptype="read", user=None):
+    """Control document-level access to Chapter
+
+    Provides row-level security ensuring board members can only access their own chapters.
+    Without this, any user with "Verenigingen Chapter Board Member" role could access ALL chapters.
+    """
+    if not user:
+        user = frappe.session.user
+
+    # Admin roles always have access
+    user_roles = frappe.get_roles(user)
+    if (
+        "System Manager" in user_roles
+        or "Verenigingen Administrator" in user_roles
+        or "Verenigingen Staff" in user_roles
+    ):
+        return True
+
+    # Check if user is a board member of this chapter
+    if "Verenigingen Chapter Board Member" in user_roles:
+        member = frappe.db.get_value("Member", {"user": user}, "name")
+        if member:
+            volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")
+            if volunteer:
+                # Check if this volunteer is an active board member of this chapter
+                is_board_member = frappe.db.exists(
+                    "Chapter Board Member", {"parent": doc.name, "volunteer": volunteer, "is_active": 1}
+                )
+                if is_board_member:
+                    return True
+
+        # Board member role but NOT on this chapter's board - explicitly deny
+        return False
+
+    # Regular members can view chapters (read-only)
+    if "Verenigingen Member" in user_roles and ptype == "read":
+        return True
+
+    # Explicitly deny write operations for regular members
+    if "Verenigingen Member" in user_roles and ptype in ["write", "delete", "submit", "cancel"]:
+        return False
+
+    # Default deny - never delegate to role permissions alone for row-level security
+    # Row-level security requires explicit permission grant
+    return False
 
 
 def get_user_accessible_chapters_optimized(user):
@@ -1194,7 +1241,7 @@ def leave(title, member_id, leave_reason):
 
 
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.MEMBER_DATA)
+@standard_api(operation_type=OperationType.REPORTING)
 def get_board_memberships(member_name):
     """Get board memberships for a member"""
     try:

@@ -518,7 +518,7 @@ def derive_bic_from_iban(iban):
 
 
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.MEMBER_DATA)
+@standard_api(operation_type=OperationType.REPORTING)
 def get_member_termination_status(member):
     """Get termination status for a member"""
     pending_requests = frappe.get_all(

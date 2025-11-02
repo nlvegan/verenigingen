@@ -513,14 +513,21 @@ class Member(
 
                 try:
                     # Update other members at address display
+                    # This may fail for users with limited permissions - that's acceptable
                     self.update_other_members_at_address_display()
                     # Ensure the HTML field is included in the response
                     if hasattr(self, "other_members_at_address") and self.other_members_at_address:
                         self.set_onload("other_members_at_address", self.other_members_at_address)
                 except Exception as e:
-                    frappe.log_error(
-                        f"Error updating other members at address display in onload for {self.name}: {e}"
-                    )
+                    # Silently handle permission errors - household members display is non-critical
+                    # Only log if it's not a permission error
+                    error_str = str(e)
+                    if "Access denied" not in error_str and "permission" not in error_str.lower():
+                        frappe.log_error(
+                            f"Error updating other members at address display in onload for {self.name}: {e}"
+                        )
+                    # Clear the field to prevent showing stale data
+                    self.other_members_at_address = ""
 
         except Exception as e:
             frappe.log_error(f"Critical error in onload method for {self.name}: {e}")
@@ -1490,7 +1497,7 @@ class Member(
             return {"error": str(e)}
 
     @frappe.whitelist()
-    @high_security_api(operation_type=OperationType.MEMBER_DATA)
+    @standard_api(operation_type=OperationType.REPORTING)
     def get_other_members_at_address(self):
         """Get other members living at the same address using Address Management Service"""
         try:
@@ -2943,7 +2950,7 @@ def is_chapter_management_enabled():
 
 
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.MEMBER_DATA)
+@standard_api(operation_type=OperationType.REPORTING)
 def get_board_memberships(member_name):
     """Get board memberships for a member"""
     from verenigingen.services.member.chapter import ChapterManagementService
@@ -3848,7 +3855,7 @@ def set_member_user_modules(user_name):
 
 
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.MEMBER_DATA)
+@standard_api(operation_type=OperationType.REPORTING)
 def check_donor_exists(member_name):
     """Check if a donor record exists for this member"""
     from verenigingen.services.member.donor import DonorManagementService
@@ -4287,7 +4294,7 @@ def sync_member_dues_rate(member_name):
 
 
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.FINANCIAL)
+@standard_api(operation_type=OperationType.REPORTING)
 def get_current_dues_schedule_details(member):
     """Get current dues schedule details for a member"""
     try:

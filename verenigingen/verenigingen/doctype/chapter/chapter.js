@@ -1646,9 +1646,6 @@ function validate_chapter_role_assignment(frm, cdt, cdn) {
 	}
 }
 
-// Removed validate_chapter_role_profile_assignment - Role Profile DocType has no 'disabled' field
-// Link field validation is sufficient
-
 /**
  * Show Board Role Profile Management Dialog
  * @param {Object} frm - Form object

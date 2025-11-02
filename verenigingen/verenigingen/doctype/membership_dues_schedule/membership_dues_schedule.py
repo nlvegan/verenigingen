@@ -3413,35 +3413,40 @@ def has_permission(doc, user=None, permission_type="read"):
             frappe.logger().info(f"PERMISSION GRANTED: User matches member for {user}")
             return True
 
-    # Check if user is chapter board with finance permissions
-    if hasattr(doc, "member") and doc.member:
+    # Check if user is chapter board member (any active board position grants access)
+    if hasattr(doc, "member") and doc.member and "Verenigingen Chapter Board Member" in user_roles:
         try:
-            # Get member's chapter
-            chapter = frappe.db.get_value(
-                "Chapter Member", {"member": doc.member, "status": "Active"}, "parent"
+            # Get member's chapters
+            member_chapters = frappe.db.get_all(
+                "Chapter Member",
+                filters={"member": doc.member, "status": "Active"},
+                fields=["parent"],
+                pluck="parent",
             )
-            if chapter:
-                # Get user's member record
+
+            if member_chapters:
+                # Get user's member and volunteer records
                 user_member = frappe.db.get_value("Member", {"user": user}, "name")
                 if user_member:
-                    # Check if user is board member with finance permissions
-                    board_member = frappe.db.get_value(
-                        "Verenigingen Chapter Board Member",
-                        {
-                            "parent": chapter,
-                            "member": user_member,
-                            "is_active": 1,
-                        },
-                        ["chapter_role"],
-                        as_dict=True,
-                    )
+                    user_volunteer = frappe.db.get_value("Volunteer", {"member": user_member}, "name")
+                    if user_volunteer:
+                        # Check if user is board member in any of the member's chapters
+                        board_position = frappe.db.exists(
+                            "Chapter Board Member",
+                            {
+                                "parent": ["in", member_chapters],
+                                "volunteer": user_volunteer,
+                                "is_active": 1,
+                            },
+                        )
 
-                    if board_member and board_member.chapter_role:
-                        role_doc = frappe.get_doc("Chapter Role", board_member.chapter_role)
-                        if getattr(role_doc, "permissions_level", None) in ["Financial", "Admin"]:
-                            frappe.logger().info(f"PERMISSION GRANTED: Chapter board access for {user}")
+                        if board_position:
+                            frappe.logger().info(
+                                f"PERMISSION GRANTED: Chapter board member access for {user}"
+                            )
                             return True
-        except Exception:
+        except Exception as e:
+            frappe.logger().error(f"Error checking chapter board permission: {str(e)}")
             pass  # If any chapter permission check fails, continue to deny access
 
     frappe.logger().info(
@@ -3467,6 +3472,41 @@ def get_permission_query_conditions(user=None):
     if any(role in user_roles for role in ["Verenigingen Administrator", "Verenigingen Staff"]):
         frappe.logger().info(f"QUERY PERMISSION: Admin role full access for {user}")
         return ""  # No restrictions
+
+    # Chapter Board Members can access dues schedules for members in their chapters
+    if "Verenigingen Chapter Board Member" in user_roles:
+        # Get chapters where user is a board member
+        user_member = frappe.db.get_value("Member", {"user": user}, "name")
+        if user_member:
+            # Get the volunteer record for this member
+            volunteer = frappe.db.get_value("Volunteer", {"member": user_member}, "name")
+            if volunteer:
+                chapters = frappe.db.sql(
+                    """
+                    SELECT DISTINCT cbm.parent
+                    FROM `tabChapter Board Member` cbm
+                    WHERE cbm.volunteer = %s AND cbm.is_active = 1
+                    """,
+                    volunteer,
+                    as_dict=False,
+                )
+
+                if chapters:
+                    chapter_names = [f"'{c[0]}'" for c in chapters]
+                    frappe.logger().info(
+                        f"QUERY PERMISSION: Chapter Board Member access for chapters {chapter_names}"
+                    )
+                    # Allow templates OR records for members in their chapters OR their own
+                    return f"""(
+                        `tabMembership Dues Schedule`.is_template = 1
+                        OR `tabMembership Dues Schedule`.member IN (
+                            SELECT DISTINCT cm.member
+                            FROM `tabChapter Member` cm
+                            WHERE cm.parent IN ({','.join(chapter_names)})
+                              AND cm.status = 'Active'
+                        )
+                        OR `tabMembership Dues Schedule`.member = '{user_member}'
+                    )"""
 
     # For regular members, restrict to templates OR their own records
     # Get the user's member record

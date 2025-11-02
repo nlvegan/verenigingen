@@ -682,22 +682,14 @@ permission_query_conditions = {
     "Membership": "verenigingen.permissions.get_membership_permission_query",
     "Membership Termination Request": "verenigingen.permissions.get_termination_permission_query",
     "Volunteer Expense": "verenigingen.permissions.get_volunteer_expense_permission_query",
-    "Verenigingen Volunteer": "verenigingen.permissions.get_volunteer_permission_query",
+    "Volunteer": "verenigingen.permissions.get_volunteer_permission_query",
     "Chapter Member": "verenigingen.permissions.get_chapter_member_permission_query",
     "Team Member": "verenigingen.permissions.get_team_member_permission_query",
     "Donor": "verenigingen.permissions.get_donor_permission_query",
     "Address": "verenigingen.permissions.get_address_permission_query",
 }
 
-has_permission = {
-    "Member": "verenigingen.permissions.has_member_permission",
-    "Membership": "verenigingen.permissions.has_membership_permission",
-    "Membership Termination Request": "verenigingen.permissions.has_membership_termination_request_permission",
-    "Volunteer Expense": "verenigingen.permissions.has_volunteer_expense_permission",
-    "Verenigingen Volunteer": "verenigingen.permissions.has_volunteer_permission",
-    "Donor": "verenigingen.permissions.has_donor_permission",
-    "Address": "verenigingen.permissions.has_address_permission",
-}
+# REMOVED: Duplicate has_permission declaration merged below (line 763)
 
 # Boot session hooks
 # ------------------
@@ -753,7 +745,7 @@ permission_query_conditions = {
     "Team": "verenigingen.verenigingen.doctype.team.team.get_team_permission_query_conditions",
     "Team Member": "verenigingen.permissions.get_team_member_permission_query",
     "Membership Termination Request": "verenigingen.permissions.get_termination_permission_query",
-    "Verenigingen Volunteer": "verenigingen.permissions.get_volunteer_permission_query",
+    "Volunteer": "verenigingen.permissions.get_volunteer_permission_query",
     "Address": "verenigingen.permissions.get_address_permission_query",
     "Donor": "verenigingen.permissions.get_donor_permission_query",
     "Membership Dues Schedule": "verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.get_permission_query_conditions",
@@ -763,9 +755,12 @@ permission_query_conditions = {
 has_permission = {
     "Member": "verenigingen.permissions.has_member_permission",
     "Membership": "verenigingen.permissions.has_membership_permission",
+    "Membership Termination Request": "verenigingen.permissions.has_membership_termination_request_permission",
+    "Volunteer Expense": "verenigingen.permissions.has_volunteer_expense_permission",
     "Address": "verenigingen.permissions.has_address_permission",
     "Donor": "verenigingen.permissions.has_donor_permission",
-    "Verenigingen Volunteer": "verenigingen.permissions.has_volunteer_permission",
+    "Volunteer": "verenigingen.permissions.has_volunteer_permission",
+    "Chapter": "verenigingen.verenigingen.doctype.chapter.chapter.has_chapter_permission",
     "Membership Dues Schedule": "verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.has_permission",
     "Project": "verenigingen.utils.project_permissions.has_project_permission_via_team",
 }

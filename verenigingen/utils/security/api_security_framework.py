@@ -187,9 +187,10 @@ class APISecurityFramework:
         ],  # National oversight
         "Verenigingen Staff": [SecurityLevel.HIGH, SecurityLevel.MEDIUM, SecurityLevel.LOW],
         "Verenigingen Chapter Board Member": [
+            SecurityLevel.HIGH,
             SecurityLevel.MEDIUM,
             SecurityLevel.LOW,
-        ],  # + contextual for their chapter
+        ],  # + contextual for their chapter (HIGH for member data access)
         "Verenigingen Auditor": [SecurityLevel.MEDIUM, SecurityLevel.LOW],  # Audit/compliance access
         "Verenigingen Team Leader": [SecurityLevel.LOW],  # + contextual for their team
         "Verenigingen Member": [SecurityLevel.LOW],

@@ -150,7 +150,7 @@ def get_income_account_query(doctype, txt, searchfield, start, page_len, filters
 
 
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.ADMIN)
+@standard_api(operation_type=OperationType.REPORTING)
 def get_organization_email_domain():
     """Get organization email domain setting for user creation"""
     settings = frappe.get_single("Verenigingen Settings")

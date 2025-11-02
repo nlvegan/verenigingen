@@ -6,7 +6,12 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import getdate, today
 
-from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
 
 
 class ChapterJoinRequest(Document):
@@ -334,7 +339,7 @@ def reject_join_request(request_name, reason=None):
 
 
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.MEMBER_DATA)
+@standard_api(operation_type=OperationType.REPORTING)
 def get_member_chapter_join_requests(member_name):
     """Get all chapter join requests for a specific member"""
     try:

@@ -1,6 +1,6 @@
 {
   "actions": [],
-  "allow_guest_to_view": 1,
+  "allow_guest_to_view": 0,
   "allow_rename": 1,
   "app": "verenigingen",
   "autoname": "prompt",
@@ -8,8 +8,8 @@
   "doctype": "DocType",
   "editable_grid": 1,
   "engine": "InnoDB",
-  "has_web_view": 1,
-  "is_published_field": "published",
+  "has_web_view": 0,
+  "is_published_field": "",
   "field_order": [
     "chapter_head",
     "status",
@@ -97,8 +97,7 @@
       "fieldname": "board_members",
       "fieldtype": "Table",
       "label": "Board Members",
-      "options": "Chapter Board Member",
-      "permlevel": 1
+      "options": "Chapter Board Member"
     },
     {
       "fieldname": "board_role_profile_section",
@@ -168,8 +167,7 @@
       "fieldname": "members",
       "fieldtype": "Table",
       "label": "Members",
-      "options": "Chapter Member",
-      "permlevel": 1
+      "options": "Chapter Member"
     }
   ],
   "links": [],
@@ -203,6 +201,7 @@
       "role": "Verenigingen Member"
     },
     {
+      "create": 1,
       "email": 1,
       "export": 1,
       "print": 1,

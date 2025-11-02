@@ -78,7 +78,24 @@
   ],
   "istable": 1,
   "name": "Chapter Board Member",
-  "permissions": [],
+  "permissions": [
+    {
+      "read": 1,
+      "role": "Verenigingen Chapter Board Member"
+    },
+    {
+      "read": 1,
+      "role": "Verenigingen Member"
+    },
+    {
+      "read": 1,
+      "role": "Verenigingen Administrator"
+    },
+    {
+      "read": 1,
+      "role": "System Manager"
+    }
+  ],
   "sort_field": "modified",
   "sort_order": "DESC"
 }
