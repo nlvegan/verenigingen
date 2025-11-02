@@ -564,7 +564,7 @@ frappe.ui.form.on('Chapter Role Profile Mapping', {
    * @param {string} cdn - Child document name/ID
    */
 	role_profile(frm, cdt, cdn) {
-		validate_chapter_role_profile_assignment(frm, cdt, cdn);
+		// Link field validation is sufficient - Role Profile has no 'disabled' field
 	}
 });
 
@@ -1646,32 +1646,8 @@ function validate_chapter_role_assignment(frm, cdt, cdn) {
 	}
 }
 
-/**
- * Validate Chapter Role Profile Assignment
- * @param {Object} frm - Form object
- * @param {string} cdt - Child DocType
- * @param {string} cdn - Child document name
- */
-function validate_chapter_role_profile_assignment(frm, cdt, cdn) {
-	const row = locals[cdt][cdn];
-	if (!row.role_profile) {
-		return;
-	}
-
-	// Validate that the role profile is active
-	frappe.db.get_value('Role Profile', row.role_profile, 'disabled', (r) => {
-		if (r && r.disabled) {
-			frappe.msgprint({
-				title: __('Invalid Role Profile'),
-				message: __(
-					'The selected role profile is disabled. Please choose an active role profile.'
-				),
-				indicator: 'orange'
-			});
-			frappe.model.set_value(cdt, cdn, 'role_profile', '');
-		}
-	});
-}
+// Removed validate_chapter_role_profile_assignment - Role Profile DocType has no 'disabled' field
+// Link field validation is sufficient
 
 /**
  * Show Board Role Profile Management Dialog

@@ -327,25 +327,11 @@ function validate_team_role_assignment(frm, cdt, cdn) {
  * @param {string} cdt - Child DocType
  * @param {string} cdn - Child document name
  */
+// Removed validate_role_profile_assignment - Role Profile DocType has no 'disabled' field
+// Link field validation is sufficient
 function validate_role_profile_assignment(frm, cdt, cdn) {
-	const row = locals[cdt][cdn];
-	if (!row.role_profile) {
-		return;
-	}
-
-	// Validate that the role profile is active
-	frappe.db.get_value('Role Profile', row.role_profile, 'disabled', (r) => {
-		if (r && r.disabled) {
-			frappe.msgprint({
-				title: __('Invalid Role Profile'),
-				message: __(
-					'The selected role profile is disabled. Please choose an active role profile.'
-				),
-				indicator: 'orange'
-			});
-			frappe.model.set_value(cdt, cdn, 'role_profile', '');
-		}
-	});
+	// No-op - kept for backwards compatibility but validation removed
+	// Role Profile DocType has no 'disabled' field
 }
 
 // ==================== DIALOG FUNCTIONS ====================
