@@ -1,227 +1,290 @@
 {
-  "actions": [],
-  "allow_guest_to_view": 0,
-  "allow_rename": 1,
-  "app": "verenigingen",
-  "autoname": "prompt",
-  "creation": "2017-09-14 13:36:03.904702",
-  "doctype": "DocType",
-  "editable_grid": 1,
-  "engine": "InnoDB",
-  "has_web_view": 0,
-  "is_published_field": "",
-  "field_order": [
-    "chapter_head",
-    "status",
-    "column_break_3",
-    "region",
-    "cost_center",
-    "chapter_split_percentage",
-    "postal_codes",
-    "contact_email",
-    "published",
-    "board_section",
-    "board_members",
-    "board_role_profile_section",
-    "default_board_role_profile",
-    "enable_board_role_specific_profiles",
-    "board_role_specific_profiles",
-    "introduction",
-    "meetup_embed_html",
-    "address",
-    "route",
-    "chapter_members",
-    "members"
-  ],
-  "fields": [
-    {
-      "fieldname": "chapter_head",
-      "fieldtype": "Link",
-      "in_list_view": 1,
-      "label": "Chapter Head",
-      "options": "Member",
-      "read_only": 1
-    },
-    {
-      "fieldname": "status",
-      "fieldtype": "Select",
-      "label": "Status",
-      "options": "Active\nInactive\nDissolved",
-      "default": "Active",
-      "in_list_view": 1,
-      "reqd": 1
-    },
-    {
-      "fieldname": "column_break_3",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "region",
-      "fieldtype": "Link",
-      "label": "Region",
-      "options": "Region",
-      "reqd": 1
-    },
-    {
-      "fieldname": "cost_center",
-      "fieldtype": "Link",
-      "label": "Cost Center",
-      "options": "Cost Center",
-      "description": "Associated cost center for financial tracking"
-    },
-    {
-      "fieldname": "chapter_split_percentage",
-      "fieldtype": "Percent",
-      "label": "Chapter Split %",
-      "description": "Custom percentage of dues income for this chapter (overrides default). Leave blank to use system default."
-    },
-    {
-      "description": "List of postal code patterns separated by commas (e.g. 1000-1099, 2500, 3*)",
-      "fieldname": "postal_codes",
-      "fieldtype": "Small Text",
-      "label": "Postal Codes"
-    },
-    {
-      "fieldname": "contact_email",
-      "fieldtype": "Data",
-      "label": "Contact Email",
-      "options": "Email",
-      "description": "Primary email address for chapter communications"
-    },
-    {
-      "fieldname": "board_section",
-      "fieldtype": "Section Break",
-      "label": "Chapter Board"
-    },
-    {
-      "fieldname": "board_members",
-      "fieldtype": "Table",
-      "label": "Board Members",
-      "options": "Chapter Board Member"
-    },
-    {
-      "fieldname": "board_role_profile_section",
-      "fieldtype": "Section Break",
-      "label": "Board Role Profile Configuration",
-      "description": "Configure which role profiles are automatically assigned to chapter board members"
-    },
-    {
-      "fieldname": "default_board_role_profile",
-      "fieldtype": "Link",
-      "label": "Default Board Role Profile",
-      "options": "Role Profile",
-      "description": "Role profile assigned to all board members (unless overridden by role-specific configuration)"
-    },
-    {
-      "default": "0",
-      "fieldname": "enable_board_role_specific_profiles",
-      "fieldtype": "Check",
-      "label": "Enable Board Role-Specific Profiles",
-      "description": "Allow different role profiles for different board roles (Chair, Treasurer, etc.)"
-    },
-    {
-      "depends_on": "enable_board_role_specific_profiles",
-      "fieldname": "board_role_specific_profiles",
-      "fieldtype": "Table",
-      "label": "Board Role-Specific Profile Assignments",
-      "options": "Chapter Role Profile Mapping"
-    },
-    {
-      "fieldname": "introduction",
-      "fieldtype": "Text Editor",
-      "in_list_view": 1,
-      "label": "Introduction",
-      "reqd": 1
-    },
-    {
-      "fieldname": "meetup_embed_html",
-      "fieldtype": "Code",
-      "label": "Meetup Embed HTML"
-    },
-    {
-      "fieldname": "address",
-      "fieldtype": "Text",
-      "label": "Address"
-    },
-    {
-      "description": "chapters/chapter_name\nleave blank automatically set after saving chapter.",
-      "fieldname": "route",
-      "fieldtype": "Data",
-      "in_list_view": 1,
-      "label": "Route"
-    },
-    {
-      "default": "0",
-      "fieldname": "published",
-      "fieldtype": "Check",
-      "label": "Published",
-      "description": "Make this chapter visible on the public website"
-    },
-    {
-      "collapsible": 1,
-      "fieldname": "chapter_members",
-      "fieldtype": "Section Break",
-      "label": "Chapter Members"
-    },
-    {
-      "fieldname": "members",
-      "fieldtype": "Table",
-      "label": "Members",
-      "options": "Chapter Member"
-    }
-  ],
-  "links": [],
-  "modified": "2025-06-14 18:25:15.774344",
-  "modified_by": "Administrator",
-  "module": "Verenigingen",
-  "name": "Chapter",
-  "naming_rule": "Set by user",
-  "owner": "Administrator",
-  "permissions": [
-    {
-      "create": 1,
-      "delete": 1,
-      "email": 1,
-      "export": 1,
-      "print": 1,
-      "read": 1,
-      "report": 1,
-      "role": "Verenigingen Administrator",
-      "share": 1,
-      "write": 1
-    },
-    {
-      "permlevel": 1,
-      "read": 1,
-      "role": "Verenigingen Administrator",
-      "write": 1
-    },
-    {
-      "read": 1,
-      "role": "Verenigingen Member"
-    },
-    {
-      "create": 1,
-      "email": 1,
-      "export": 1,
-      "print": 1,
-      "read": 1,
-      "report": 1,
-      "role": "Verenigingen Chapter Board Member",
-      "share": 1,
-      "write": 1
-    },
-    {
-      "permlevel": 1,
-      "read": 1,
-      "role": "Verenigingen Chapter Board Member"
-    }
-  ],
-  "quick_entry": 1,
-  "route": "chapters",
-  "row_format": "Dynamic",
-  "sort_field": "modified",
-  "sort_order": "DESC",
-  "states": [],
-  "track_changes": 1
+ "actions": [],
+ "allow_rename": 1,
+ "app": "verenigingen",
+ "autoname": "prompt",
+ "creation": "2025-11-03 10:25:39.501149",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "chapter_head",
+  "status",
+  "postal_codes",
+  "published",
+  "column_break_3",
+  "region",
+  "cost_center",
+  "department",
+  "chapter_split_percentage",
+  "contact_email",
+  "board_section",
+  "board_members",
+  "chapter_information_section",
+  "introduction",
+  "meetup_embed_html",
+  "address",
+  "board_role_profile_section",
+  "default_board_role_profile",
+  "enable_board_role_specific_profiles",
+  "board_role_specific_profiles",
+  "expense_approval_section",
+  "board_member_approval_limit",
+  "column_break_expense",
+  "financial_role_approval_limit",
+  "route",
+  "chapter_members",
+  "members"
+ ],
+ "fields": [
+  {
+   "fieldname": "chapter_head",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Chapter Head",
+   "options": "Member",
+   "read_only": 1
+  },
+  {
+   "default": "Active",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Active\nInactive\nDissolved",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "region",
+   "fieldtype": "Link",
+   "label": "Region",
+   "options": "Region",
+   "reqd": 1
+  },
+  {
+   "description": "Associated cost center for financial tracking",
+   "fieldname": "cost_center",
+   "fieldtype": "Link",
+   "label": "Cost Center",
+   "options": "Cost Center",
+   "permlevel": 1
+  },
+  {
+   "description": "Linked ERPNext Department (auto-synced with chapter name)",
+   "fetch_from": "name",
+   "fetch_if_empty": 1,
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "label": "Department",
+   "options": "Department"
+  },
+  {
+   "description": "Custom percentage of dues income for this chapter (overrides default). Leave blank to use system default.",
+   "fieldname": "chapter_split_percentage",
+   "fieldtype": "Percent",
+   "label": "Chapter Split %",
+   "permlevel": 1
+  },
+  {
+   "description": "List of postal code patterns separated by commas (e.g. 1000-1099, 2500, 3*)",
+   "fieldname": "postal_codes",
+   "fieldtype": "Small Text",
+   "label": "Postal Codes"
+  },
+  {
+   "description": "Primary email address for chapter communications",
+   "fieldname": "contact_email",
+   "fieldtype": "Data",
+   "label": "Contact Email",
+   "options": "Email"
+  },
+  {
+   "fieldname": "board_section",
+   "fieldtype": "Section Break",
+   "label": "Chapter Board"
+  },
+  {
+   "fieldname": "board_members",
+   "fieldtype": "Table",
+   "label": "Board Members",
+   "options": "Chapter Board Member"
+  },
+  {
+   "description": "Configure which role profiles are automatically assigned to chapter board members",
+   "fieldname": "board_role_profile_section",
+   "fieldtype": "Section Break",
+   "label": "Board Role Profile Configuration"
+  },
+  {
+   "description": "Role profile assigned to all board members (unless overridden by role-specific configuration)",
+   "fieldname": "default_board_role_profile",
+   "fieldtype": "Link",
+   "label": "Default Board Role Profile",
+   "options": "Role Profile",
+   "ignore_user_permissions": 1
+  },
+  {
+   "default": "0",
+   "description": "Allow different role profiles for different board roles (Chair, Treasurer, etc.)",
+   "fieldname": "enable_board_role_specific_profiles",
+   "fieldtype": "Check",
+   "label": "Enable Board Role-Specific Profiles"
+  },
+  {
+   "depends_on": "enable_board_role_specific_profiles",
+   "fieldname": "board_role_specific_profiles",
+   "fieldtype": "Table",
+   "label": "Board Role-Specific Profile Assignments",
+   "options": "Chapter Role Profile Mapping"
+  },
+  {
+   "description": "Configure expense approval limits for board members. Leave blank to require all expenses to be approved.",
+   "fieldname": "expense_approval_section",
+   "fieldtype": "Section Break",
+   "label": "Expense Approval Settings"
+  },
+  {
+   "description": "Maximum amount that regular board members (without financial role) can approve. Leave blank for no limit.",
+   "fieldname": "board_member_approval_limit",
+   "fieldtype": "Currency",
+   "label": "Regular Board Member Approval Limit",
+   "permlevel": 1
+  },
+  {
+   "fieldname": "column_break_expense",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Maximum amount that board members with financial role (financial checkbox) can approve. Leave blank for no limit.",
+   "fieldname": "financial_role_approval_limit",
+   "fieldtype": "Currency",
+   "label": "Financial Role Approval Limit",
+   "permlevel": 1
+  },
+  {
+   "fieldname": "introduction",
+   "fieldtype": "Text Editor",
+   "in_list_view": 1,
+   "label": "Introduction",
+   "reqd": 1
+  },
+  {
+   "fieldname": "meetup_embed_html",
+   "fieldtype": "Code",
+   "label": "Meetup Embed HTML"
+  },
+  {
+   "fieldname": "address",
+   "fieldtype": "Text",
+   "label": "Address"
+  },
+  {
+   "description": "chapters/chapter_name\nleave blank automatically set after saving chapter.",
+   "fieldname": "route",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Route"
+  },
+  {
+   "default": "0",
+   "description": "Make this chapter visible on the public website",
+   "fieldname": "published",
+   "fieldtype": "Check",
+   "label": "Published"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "chapter_members",
+   "fieldtype": "Section Break",
+   "label": "Chapter Members"
+  },
+  {
+   "fieldname": "members",
+   "fieldtype": "Table",
+   "label": "Members",
+   "options": "Chapter Member"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "chapter_information_section",
+   "fieldtype": "Section Break",
+   "label": "Chapter information"
+  }
+ ],
+ "links": [],
+ "modified": "2025-11-03 10:27:49.344083",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Chapter",
+ "naming_rule": "Set by user",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "permlevel": 1,
+   "read": 1,
+   "role": "Verenigingen Administrator",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Staff",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "permlevel": 1,
+   "read": 1,
+   "role": "Verenigingen Staff",
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Verenigingen Member"
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Chapter Board Member",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "permlevel": 1,
+   "read": 1,
+   "role": "Verenigingen Chapter Board Member"
+  }
+ ],
+ "quick_entry": 1,
+ "route": "chapters",
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
 }

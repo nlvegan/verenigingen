@@ -143,9 +143,10 @@ def get_data(filters):
                 }
 
     # Batch load chapter information to avoid N+1 queries
-    chapter_map = {}
+    chapter_map = {}  # member -> primary chapter (for display)
+    member_all_chapters = {}  # member -> list of all chapters (for filtering)
     if member_names:
-        # Get primary chapters for all members
+        # Get all chapters for all members
         chapter_memberships = frappe.db.sql(
             """
             SELECT cm.member, cm.parent as chapter_name
@@ -158,10 +159,16 @@ def get_data(filters):
             as_dict=True,
         )
 
-        # Use first (most recent) chapter as primary
+        # Build both primary chapter and all chapters lists
         for cm in chapter_memberships:
+            # Use first (most recent) chapter as primary for display
             if cm.member not in chapter_map:
                 chapter_map[cm.member] = cm.chapter_name
+
+            # Track all chapters for filtering
+            if cm.member not in member_all_chapters:
+                member_all_chapters[cm.member] = []
+            member_all_chapters[cm.member].append(cm.chapter_name)
 
     # Apply user-based chapter filtering
     user_chapters = get_user_accessible_chapters()
@@ -202,17 +209,23 @@ def get_data(filters):
             if getdate(member_since) > getdate(filters.get("to_date")):
                 continue
 
-        # Get primary chapter from batch-loaded data
+        # Get primary chapter from batch-loaded data (for display)
         primary_chapter = chapter_map.get(member.name, None)
+
+        # Get all chapters for this member (for filtering)
+        all_member_chapters = member_all_chapters.get(member.name, [])
 
         # Apply chapter filter if specified
         if filters and filters.get("chapter"):
             if primary_chapter != filters.get("chapter"):
                 continue
 
-        # Apply user access filtering
+        # Apply user access filtering based on ANY chapter overlap
         if user_chapters is not None:  # None means see all
-            if primary_chapter and primary_chapter not in user_chapters:
+            # Check if member has any chapter in common with user
+            has_chapter_overlap = bool(set(all_member_chapters) & set(user_chapters))
+
+            if not has_chapter_overlap:
                 # Check if user has national access using pre-loaded settings
                 if (
                     settings
@@ -221,7 +234,7 @@ def get_data(filters):
                 ):
                     pass  # User has national access
                 else:
-                    continue  # Skip this member
+                    continue  # Skip this member - no chapter overlap
 
         # Calculate days active
         days_active = (getdate(today()) - getdate(member_since)).days

@@ -158,7 +158,7 @@ frappe.query_reports['Chapter Expense Report'] = {
 		}
 
 		// Format amount with currency
-		if (column.fieldname === 'amount' && data.currency) {
+		if (column.fieldname === 'amount' && data && data.currency) {
 			return `${data.currency} ${value}`;
 		}
 

@@ -92,7 +92,7 @@ def get_user_accessible_chapters(
 
         # Get all board positions for the volunteer
         board_positions = frappe.get_all(
-            "Verenigingen Chapter Board Member",
+            "Chapter Board Member",
             filters={"volunteer": volunteer_name, "is_active": 1},
             fields=["parent", "chapter_role"],
             order_by="parent",  # Consistent ordering
@@ -133,7 +133,7 @@ def get_user_accessible_chapters(
             if national_chapter and national_chapter not in accessible_chapters:
                 # Check if user has board position in national chapter
                 national_positions = frappe.get_all(
-                    "Verenigingen Chapter Board Member",
+                    "Chapter Board Member",
                     filters={"parent": national_chapter, "volunteer": volunteer_name, "is_active": 1},
                     fields=["chapter_role"],
                     limit=1,  # We only need to know if any exist
@@ -249,7 +249,7 @@ def get_user_board_positions(
 
         # Get board positions with role information
         positions = frappe.get_all(
-            "Verenigingen Chapter Board Member",
+            "Chapter Board Member",
             filters=filters,
             fields=["parent as chapter", "chapter_role", "is_active", "start_date", "end_date"],
             order_by="parent, start_date desc",

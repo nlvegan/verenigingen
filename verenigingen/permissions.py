@@ -473,46 +473,95 @@ def has_membership_permission(doc, user=None, permission_type=None):
 
 
 def has_donor_permission(doc, user=None, permission_type=None):
-    """Direct permission check for Donor doctype"""
+    """Direct permission check for Donor doctype
+
+    Grants access to:
+    - Admins (System Manager, Verenigingen Staff, Verenigingen Administrator)
+    - Chapter Board Members (for donors linked to members in their chapters)
+    - Members (for their own donor records)
+    """
     if not user:
         user = frappe.session.user
 
-    # Log for debugging
-    frappe.logger().debug(f"Checking Donor permissions for user {user} with roles {frappe.get_roles(user)}")
+    user_roles = frappe.get_roles(user)
 
-    # Admin roles always have access
+    # Log for debugging
+    frappe.logger().debug(f"Checking Donor permissions for user {user} with roles {user_roles}")
+
+    # Admin roles always have access (org-wide)
     admin_roles = ["System Manager", "Verenigingen Staff", "Verenigingen Administrator"]
-    if any(role in frappe.get_roles(user) for role in admin_roles):
+    if any(role in user_roles for role in admin_roles):
         frappe.logger().debug(f"User {user} has admin role, granting access to donor")
         return True
 
-    # For regular members, check if they are linked to this donor record
-    if "Verenigingen Member" in frappe.get_roles(user):
+    # Get donor member link
+    if isinstance(doc, str):
+        # doc is just the name, need to get the member field
+        if not DocumentExistenceValidator.check_document_exists("Donor", doc):
+            frappe.logger().debug(f"Donor record {doc} does not exist")
+            return False
+        donor_member = frappe.db.get_value("Donor", doc, "member")
+    else:
+        # doc is the document object
+        donor_member = getattr(doc, "member", None)
+
+    if not donor_member:
+        frappe.logger().debug("Donor record has no linked member")
+        return False
+
+    # Verify the linked member still exists and is active
+    if not DocumentExistenceValidator.check_document_exists("Member", donor_member):
+        frappe.logger().debug(f"Linked member {donor_member} no longer exists")
+        return False
+
+    # Chapter Board Members can access donors for members in their chapters
+    if "Verenigingen Chapter Board Member" in user_roles:
         try:
-            # Get the user's member record
+            user_member = get_member_name_for_user(user)
+            if user_member:
+                # Get user's chapters
+                user_chapters = frappe.db.sql(
+                    """
+                    SELECT DISTINCT cbm.parent as chapter_name
+                    FROM `tabChapter Board Member` cbm
+                    JOIN `tabVolunteer` v ON cbm.volunteer = v.name
+                    WHERE v.member = %s AND cbm.is_active = 1
+                    """,
+                    user_member,
+                    as_dict=True,
+                )
+
+                if user_chapters:
+                    chapter_names = [ch["chapter_name"] for ch in user_chapters]
+                    # Check if donor's member is in any of these chapters
+                    member_in_chapter = frappe.db.sql(
+                        """
+                        SELECT 1
+                        FROM `tabChapter Member` cm
+                        WHERE cm.member = %s
+                          AND cm.parent IN ({})
+                          AND cm.status = 'Active'
+                        LIMIT 1
+                        """.format(
+                            ",".join(["%s"] * len(chapter_names))
+                        ),
+                        [donor_member] + chapter_names,
+                    )
+
+                    if member_in_chapter:
+                        frappe.logger().debug(
+                            f"Chapter board member {user} has access to donor for member {donor_member}"
+                        )
+                        return True
+        except Exception as e:
+            frappe.logger().error(f"Error checking chapter board member donor permission: {str(e)}")
+
+    # For regular members, check if they are linked to this donor record
+    if "Verenigingen Member" in user_roles:
+        try:
             user_member = get_member_name_for_user(user)
             if not user_member:
                 frappe.logger().debug(f"User {user} has Verenigingen Member role but no member record found")
-                return False
-
-            # Check if this donor record is linked to the user's member record
-            if isinstance(doc, str):
-                # doc is just the name, need to get the member field
-                if not DocumentExistenceValidator.check_document_exists("Donor", doc):
-                    frappe.logger().debug(f"Donor record {doc} does not exist")
-                    return False
-                donor_member = frappe.db.get_value("Donor", doc, "member")
-            else:
-                # doc is the document object
-                donor_member = getattr(doc, "member", None)
-
-            if not donor_member:
-                frappe.logger().debug("Donor record has no linked member")
-                return False
-
-            # Verify the linked member still exists and is active
-            if not DocumentExistenceValidator.check_document_exists("Member", donor_member):
-                frappe.logger().debug(f"Linked member {donor_member} no longer exists")
                 return False
 
             is_linked = donor_member == user_member
@@ -531,21 +580,217 @@ def has_donor_permission(doc, user=None, permission_type=None):
 
 
 def get_donor_permission_query(user):
-    """Permission query for Donor doctype - limits records to those the user can access"""
+    """Permission query for Donor doctype - limits records to those the user can access
+
+    Filters for:
+    - Admins: All records (no filter)
+    - Chapter Board Members: Donors for members in their chapters
+    - Members: Only their own donor records
+    """
     if not user:
         user = frappe.session.user
 
-    # Admin roles get access to all records
-    admin_roles = ["System Manager", "Verenigingen Staff", "Verenigingen Administrator"]
-    if any(role in frappe.get_roles(user) for role in admin_roles):
-        return None  # No additional conditions needed
+    user_roles = frappe.get_roles(user)
 
-    # For regular members, limit to donor records linked to their member record
-    if "Verenigingen Member" in frappe.get_roles(user):
+    # Admin roles get access to all records (org-wide)
+    admin_roles = ["System Manager", "Verenigingen Staff", "Verenigingen Administrator"]
+    if any(role in admin_roles for role in user_roles):
+        return ""  # No filter needed
+
+    conditions = []
+
+    # Chapter Board Members can see donors for members in their chapters
+    if "Verenigingen Chapter Board Member" in user_roles:
         user_member = get_member_name_for_user(user)
         if user_member:
-            # FIXED: Proper SQL escaping to prevent injection
-            return f"`tabDonor`.member = {frappe.db.escape(user_member)}"
+            user_chapters = frappe.db.sql(
+                """
+                SELECT DISTINCT cbm.parent as chapter_name
+                FROM `tabChapter Board Member` cbm
+                JOIN `tabVolunteer` v ON cbm.volunteer = v.name
+                WHERE v.member = %s AND cbm.is_active = 1
+                """,
+                user_member,
+                as_dict=True,
+            )
+
+            if user_chapters:
+                chapter_names = [frappe.db.escape(ch["chapter_name"]) for ch in user_chapters]
+                conditions.append(
+                    f"""
+                    `tabDonor`.member IN (
+                        SELECT cm.member
+                        FROM `tabChapter Member` cm
+                        WHERE cm.parent IN ({','.join(chapter_names)})
+                          AND cm.status = 'Active'
+                    )
+                """
+                )
+
+    # For regular members, limit to donor records linked to their member record
+    if "Verenigingen Member" in user_roles:
+        user_member = get_member_name_for_user(user)
+        if user_member:
+            conditions.append(f"`tabDonor`.member = {frappe.db.escape(user_member)}")
+
+    if conditions:
+        return f"({' OR '.join(conditions)})"
+
+    # Users without proper roles see no records
+    return "1=0"
+
+
+def has_donation_permission(doc, user=None, permission_type=None):
+    """Direct permission check for Donation doctype
+
+    Grants access to:
+    - Admins (System Manager, Verenigingen Staff, Verenigingen Administrator)
+    - Chapter Board Members (for donations linked to donors/members in their chapters)
+    - Members (for their own donation records)
+    """
+    if not user:
+        user = frappe.session.user
+
+    user_roles = frappe.get_roles(user)
+
+    # Admin roles always have access (org-wide)
+    admin_roles = ["System Manager", "Verenigingen Staff", "Verenigingen Administrator"]
+    if any(role in user_roles for role in admin_roles):
+        return True
+
+    # Get donation's donor and member
+    if isinstance(doc, str):
+        if not DocumentExistenceValidator.check_document_exists("Donation", doc):
+            return False
+        donor_name = frappe.db.get_value("Donation", doc, "donor")
+    else:
+        donor_name = getattr(doc, "donor", None)
+
+    if not donor_name:
+        return False
+
+    # Get the member linked to this donor
+    donor_member = frappe.db.get_value("Donor", donor_name, "member")
+    if not donor_member:
+        return False
+
+    # Chapter Board Members can access donations for members in their chapters
+    if "Verenigingen Chapter Board Member" in user_roles:
+        try:
+            user_member = get_member_name_for_user(user)
+            if user_member:
+                user_chapters = frappe.db.sql(
+                    """
+                    SELECT DISTINCT cbm.parent as chapter_name
+                    FROM `tabChapter Board Member` cbm
+                    JOIN `tabVolunteer` v ON cbm.volunteer = v.name
+                    WHERE v.member = %s AND cbm.is_active = 1
+                    """,
+                    user_member,
+                    as_dict=True,
+                )
+
+                if user_chapters:
+                    chapter_names = [ch["chapter_name"] for ch in user_chapters]
+                    member_in_chapter = frappe.db.sql(
+                        """
+                        SELECT 1
+                        FROM `tabChapter Member` cm
+                        WHERE cm.member = %s
+                          AND cm.parent IN ({})
+                          AND cm.status = 'Active'
+                        LIMIT 1
+                        """.format(
+                            ",".join(["%s"] * len(chapter_names))
+                        ),
+                        [donor_member] + chapter_names,
+                    )
+
+                    if member_in_chapter:
+                        return True
+        except Exception as e:
+            frappe.logger().error(f"Error checking chapter board member donation permission: {str(e)}")
+
+    # For regular members, check if donation is linked to their donor record
+    if "Verenigingen Member" in user_roles:
+        try:
+            user_member = get_member_name_for_user(user)
+            if not user_member:
+                return False
+
+            return donor_member == user_member
+
+        except Exception as e:
+            frappe.logger().error(f"Error checking donation permission for user {user}: {str(e)}")
+            return False
+
+    return False
+
+
+def get_donation_permission_query(user):
+    """Permission query for Donation doctype - limits records to those the user can access
+
+    Filters for:
+    - Admins: All records (no filter)
+    - Chapter Board Members: Donations for members in their chapters
+    - Members: Only their own donation records
+    """
+    if not user:
+        user = frappe.session.user
+
+    user_roles = frappe.get_roles(user)
+
+    # Admin roles get access to all records (org-wide)
+    admin_roles = ["System Manager", "Verenigingen Staff", "Verenigingen Administrator"]
+    if any(role in admin_roles for role in user_roles):
+        return ""  # No filter needed
+
+    conditions = []
+
+    # Chapter Board Members can see donations for members in their chapters
+    if "Verenigingen Chapter Board Member" in user_roles:
+        user_member = get_member_name_for_user(user)
+        if user_member:
+            user_chapters = frappe.db.sql(
+                """
+                SELECT DISTINCT cbm.parent as chapter_name
+                FROM `tabChapter Board Member` cbm
+                JOIN `tabVolunteer` v ON cbm.volunteer = v.name
+                WHERE v.member = %s AND cbm.is_active = 1
+                """,
+                user_member,
+                as_dict=True,
+            )
+
+            if user_chapters:
+                chapter_names = [frappe.db.escape(ch["chapter_name"]) for ch in user_chapters]
+                conditions.append(
+                    f"""
+                    `tabDonation`.donor IN (
+                        SELECT d.name
+                        FROM `tabDonor` d
+                        JOIN `tabChapter Member` cm ON cm.member = d.member
+                        WHERE cm.parent IN ({','.join(chapter_names)})
+                          AND cm.status = 'Active'
+                    )
+                """
+                )
+
+    # For regular members, limit to donations linked to their donor records
+    if "Verenigingen Member" in user_roles:
+        user_member = get_member_name_for_user(user)
+        if user_member:
+            conditions.append(
+                f"""
+                `tabDonation`.donor IN (
+                    SELECT name FROM `tabDonor`
+                    WHERE member = {frappe.db.escape(user_member)}
+                )
+            """
+            )
+
+    if conditions:
+        return f"({' OR '.join(conditions)})"
 
     # Users without proper roles see no records
     return "1=0"
@@ -565,7 +810,7 @@ def has_address_permission(doc, user=None, permission_type=None):
         return True
 
     # Handle both doc object and string (address name)
-    address_name = doc.name if hasattr(doc, 'name') else doc
+    address_name = doc.name if hasattr(doc, "name") else doc
 
     # Chapter Board Members can access addresses of members in their chapters
     if "Verenigingen Chapter Board Member" in user_roles:
@@ -611,7 +856,9 @@ def has_address_permission(doc, user=None, permission_type=None):
                         if member_in_chapter:
                             return True
         except Exception as e:
-            frappe.log_error(f"Error checking chapter board member address permission: {str(e)}", "Address Permission")
+            frappe.log_error(
+                f"Error checking chapter board member address permission: {str(e)}", "Address Permission"
+            )
 
     # Check if this address is linked to the user's own member record
     member_name = get_member_name_for_user(user)
@@ -620,7 +867,12 @@ def has_address_permission(doc, user=None, permission_type=None):
         # Check if address is linked to this member via Dynamic Link
         link_exists = DocumentExistenceValidator.check_document_exists(
             "Dynamic Link",
-            {"parent": address_name, "parenttype": "Address", "link_doctype": "Member", "link_name": member_name},
+            {
+                "parent": address_name,
+                "parenttype": "Address",
+                "link_doctype": "Member",
+                "link_name": member_name,
+            },
         )
 
         if link_exists:
@@ -1064,12 +1316,13 @@ def get_chapter_member_permission_query(user):
             if position.parent not in user_chapters:
                 user_chapters.append(position.parent)
 
-    # Build permission filter
-    conditions = [f"`tabChapter Member`.member = '{requesting_member}'"]  # Own records
+    # Build permission filter (escape values to prevent SQL injection)
+    conditions = [f"`tabChapter Member`.member = {frappe.db.escape(requesting_member)}"]  # Own records
 
     if user_chapters:
+        escaped_chapters = [frappe.db.escape(chapter) for chapter in user_chapters]
         chapter_conditions = " OR ".join(
-            [f"`tabChapter Member`.parent = '{chapter}'" for chapter in user_chapters]
+            [f"`tabChapter Member`.parent = {chapter}" for chapter in escaped_chapters]
         )
         conditions.append(f"({chapter_conditions})")  # Board access chapters
 
@@ -1605,8 +1858,8 @@ def get_volunteer_permission_query(user):
 
     conditions = []
 
-    # Always allow access to own volunteer records
-    conditions.append(f"`tabVolunteer`.member = '{requesting_member}'")
+    # Always allow access to own volunteer records (escape to prevent SQL injection)
+    conditions.append(f"`tabVolunteer`.member = {frappe.db.escape(requesting_member)}")
 
     # If user has management roles, allow broader access
     if any(role in user_roles for role in management_roles):
@@ -1698,7 +1951,104 @@ def get_team_member_permission_query(user):
     if not user_teams:
         return "1=0"  # No access if not a member of any team
 
-    team_names = [team[0] for team in user_teams]
-    team_filter = " OR ".join([f"`tabTeam Member`.parent = '{team}'" for team in team_names])
+    # Escape team names to prevent SQL injection (defense in depth)
+    team_names = [frappe.db.escape(team[0]) for team in user_teams]
+    team_filter = " OR ".join([f"`tabTeam Member`.parent = {team}" for team in team_names])
 
     return f"({team_filter})"
+
+
+def has_expense_claim_permission(doc, user=None, permission_type=None):
+    """Permission check for Expense Claim doctype
+
+    Grants access to:
+    - Admins (System Manager, HR Manager, Verenigingen Staff, Verenigingen Administrator)
+    - Expense Approvers: Can see expense claims for chapters they are board members of
+    - Employees: Can see their own expense claims
+    """
+    if not user:
+        user = frappe.session.user
+
+    user_roles = frappe.get_roles(user)
+    admin_roles = ["System Manager", "HR Manager", "Verenigingen Staff", "Verenigingen Administrator"]
+
+    # Admin roles can see all
+    if any(role in user_roles for role in admin_roles):
+        return True
+
+    # Get expense claim chapter
+    if isinstance(doc, str):
+        expense_chapter = frappe.db.get_value("Expense Claim", doc, "custom_chapter")
+        expense_employee = frappe.db.get_value("Expense Claim", doc, "employee")
+    else:
+        expense_chapter = getattr(doc, "custom_chapter", None)
+        expense_employee = getattr(doc, "employee", None)
+
+    # Employees can see their own expense claims
+    if expense_employee:
+        employee_user = frappe.db.get_value("Employee", expense_employee, "user_id")
+        if employee_user == user:
+            return True
+
+    # Expense approvers can see expense claims for their chapters
+    if "Expense Approver" in user_roles and expense_chapter:
+        from verenigingen.utils.chapter_utils import get_user_accessible_chapters
+
+        accessible_chapters = get_user_accessible_chapters(user)
+
+        # None means admin access (already handled above)
+        if accessible_chapters is None:
+            return True
+
+        # Check if expense chapter is in accessible list
+        if accessible_chapters and expense_chapter in accessible_chapters:
+            return True
+
+    return False
+
+
+def get_expense_claim_permission_query(user):
+    """Permission query for Expense Claim doctype - limits records to those the user can access
+
+    Filters for:
+    - Admins: All records (no filter)
+    - Expense Approvers: Expense claims for chapters they are board members of
+    - Employees: Their own expense claims
+    """
+    if not user:
+        user = frappe.session.user
+
+    user_roles = frappe.get_roles(user)
+    admin_roles = ["System Manager", "HR Manager", "Verenigingen Staff", "Verenigingen Administrator"]
+
+    # Admin roles see all
+    if any(role in user_roles for role in admin_roles):
+        return ""
+
+    conditions = []
+
+    # Employees can see their own expense claims
+    employee_name = frappe.db.get_value("Employee", {"user_id": user}, "name")
+    if employee_name:
+        conditions.append(f"`tabExpense Claim`.employee = {frappe.db.escape(employee_name)}")
+
+    # Expense Approvers can see expense claims for their chapters
+    if "Expense Approver" in user_roles:
+        from verenigingen.utils.chapter_utils import get_user_accessible_chapters
+
+        accessible_chapters = get_user_accessible_chapters(user)
+
+        # None means admin access (already handled above)
+        if accessible_chapters is None:
+            return ""
+
+        # Add chapter filter for accessible chapters
+        if accessible_chapters:
+            chapter_names = [frappe.db.escape(ch) for ch in accessible_chapters]
+            conditions.append(f"`tabExpense Claim`.custom_chapter IN ({','.join(chapter_names)})")
+
+    if conditions:
+        return f"({' OR '.join(conditions)})"
+
+    # Users without proper roles see no records
+    return "1=0"

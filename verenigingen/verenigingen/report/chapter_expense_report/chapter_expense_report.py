@@ -64,19 +64,33 @@ def get_data(filters):
 
     for expense in erpnext_data:
         # Apply chapter access filtering
-        if user_chapters is not None:  # None means see all
-            if expense.get("organization_type") == "Chapter" and expense.get("chapter"):
-                if expense.get("chapter") not in user_chapters:
+        if user_chapters is not None:  # None means see all (admin access)
+            # For Chapter-type expenses
+            if expense.get("organization_type") == "Chapter":
+                if not expense.get("chapter"):
+                    # Unassigned chapter expense - skip for non-admins
                     continue
-            elif expense.get("organization_type") == "Team" and expense.get("team"):
+                if expense.get("chapter") not in user_chapters:
+                    # Chapter expense not in user's accessible chapters
+                    continue
+            # For Team-type expenses
+            elif expense.get("organization_type") == "Team":
+                if not expense.get("team"):
+                    # Unassigned team expense - skip for non-admins
+                    continue
                 # Check if team's chapter is accessible
                 try:
                     team_chapter = frappe.db.get_value("Team", expense.get("team"), "chapter")
-                    if team_chapter and team_chapter not in user_chapters:
+                    if not team_chapter or team_chapter not in user_chapters:
+                        # Team has no chapter or chapter not accessible
                         continue
                 except Exception:
-                    # If Team table doesn't exist, skip this filtering
-                    pass
+                    # If Team table doesn't exist or error, skip this expense
+                    continue
+            # For expenses with no organization type or other types
+            else:
+                # For expenses without proper chapter/team assignment, skip for non-admins
+                continue
 
         # Apply approval level filter if specified
         if filters and filters.get("approval_level"):

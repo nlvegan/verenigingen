@@ -55,6 +55,44 @@
 // Custom script for Expense Claim to add member ledger link
 
 frappe.ui.form.on('Expense Claim', {
+	setup(frm) {
+		// Filter custom_chapter to only show chapters the user has board access to
+		frm.set_query('custom_chapter', () => {
+			return {
+				query: 'verenigingen.api.expense_claim_queries.get_user_accessible_chapters_for_expenses'
+			};
+		});
+
+		// Set up the expense_approver query filter
+		// This needs to be in setup() to be applied before the form loads
+		frm.set_query('expense_approver', () => {
+			// If custom_chapter is set, filter by chapter board members
+			if (frm.doc.custom_chapter) {
+				return {
+					query: 'verenigingen.api.expense_claim_queries.get_chapter_expense_approvers',
+					filters: {
+						chapter: frm.doc.custom_chapter
+					}
+				};
+			}
+
+			// If custom_team is set, filter by team's chapter board members
+			if (frm.doc.custom_team) {
+				return {
+					query: 'verenigingen.api.expense_claim_queries.get_team_expense_approvers',
+					filters: {
+						team: frm.doc.custom_team
+					}
+				};
+			}
+
+			// Default: show all users with Expense Approver role
+			// Note: We can't easily filter by role using standard filters
+			// This will show all users, but the custom query will be used when chapter/team is set
+			return {};
+		});
+	},
+
 	refresh(frm) {
 		// Add "View Member Record" button if employee is linked
 		if (frm.doc.employee && !frm.doc.__islocal) {
@@ -89,6 +127,32 @@ frappe.ui.form.on('Expense Claim', {
 					}
 				}
 			});
+		}
+	},
+
+	custom_chapter(frm) {
+		// Refresh the expense_approver field when chapter changes
+		frm.set_value('expense_approver', null);
+		frm.refresh_field('expense_approver');
+	},
+
+	custom_team(frm) {
+		// Refresh the expense_approver field when team changes
+		frm.set_value('expense_approver', null);
+		frm.refresh_field('expense_approver');
+	},
+
+	validate(frm) {
+		// Client-side validation before save
+		// Check if approval_status is set when submitting
+		if (frm.doc.docstatus === 1 && (!frm.doc.approval_status || frm.doc.approval_status === 'Draft')) {
+			frappe.msgprint({
+				title: __('Approval Required'),
+				indicator: 'red',
+				message: __('Please set the Approval Status to "Approved" or "Rejected" before submitting this expense claim.')
+			});
+			frappe.validated = false;
+			return false;
 		}
 	}
 });

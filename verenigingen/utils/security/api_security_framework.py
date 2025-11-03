@@ -976,6 +976,28 @@ class APISecurityFramework:
 
             # Sanitize string inputs
             if isinstance(value, str):
+                # Skip validation for file/attachment data
+                # File data is typically base64 encoded and can be very large
+                file_related_keys = ["filedata", "file_content", "content", "data", "file"]
+                is_file_data = False
+
+                # Check if key suggests file data
+                if any(file_key in key.lower() for file_key in file_related_keys):
+                    is_file_data = True
+
+                # Check if value looks like base64 data (heuristic: starts with data:image or very long alphanumeric)
+                if not is_file_data and len(value) > 1000:
+                    if value.startswith("data:") or (
+                        len(value) > 10000
+                        and value.replace("/", "").replace("+", "").replace("=", "").isalnum()
+                    ):
+                        is_file_data = True
+
+                # Skip validation for file data - Frappe handles file uploads separately
+                if is_file_data:
+                    validated_data[key] = value
+                    continue
+
                 # Decode HTML entities first (common issue with form submissions)
                 import html
 

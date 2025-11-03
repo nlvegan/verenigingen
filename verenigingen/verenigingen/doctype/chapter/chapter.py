@@ -154,8 +154,9 @@ class Chapter(Document):
 
     def after_insert(self):
         """After insert hook"""
+        # Create corresponding Department for ERPNext integration
+        self._sync_department()
         # Cost center creation removed - will be re-implemented later
-        pass
 
     def after_save(self):
         """After save hook - streamlined with safe operations"""
@@ -190,10 +191,37 @@ class Chapter(Document):
         """On update hook with event emission for background processing"""
         self._clear_manager_caches()
 
-        # Emit events for significant changes to trigger background operations
+        # Sync Department status if changed (name changes handled in after_rename)
         old_doc = self.get_doc_before_save()
+        if old_doc and self.has_value_changed("status"):
+            self._sync_department(old_doc)
+
+        # Emit events for significant changes to trigger background operations
         if old_doc:
             self._emit_chapter_change_events(old_doc)
+
+    def after_rename(self, old_name, new_name, merge=False):
+        """Handle department renaming when chapter is renamed"""
+        if merge:
+            return  # Don't sync departments during merge operations
+
+        try:
+            # Check if old department exists
+            if frappe.db.exists("Department", old_name):
+                # Rename the department to match new chapter name
+                frappe.rename_doc("Department", old_name, new_name, force=True)
+                frappe.logger().info(
+                    f"Renamed Department from {old_name} to {new_name} to match chapter rename"
+                )
+
+                # Update the chapter's department field link
+                frappe.db.set_value("Chapter", new_name, "department", new_name, update_modified=False)
+        except Exception as e:
+            # Don't block rename if department sync fails
+            frappe.log_error(
+                f"Failed to rename Department from {old_name} to {new_name}: {str(e)}",
+                "Chapter Department Rename Error",
+            )
 
     # ========================================================================
     # MANAGER PROPERTIES (Lazy Loading)
@@ -647,6 +675,73 @@ class Chapter(Document):
         """Ensure route is set"""
         if not self.route:
             self.route = "chapters/" + frappe.scrub(self.name)
+
+    def _sync_department(self, old_doc=None):
+        """Synchronize ERPNext Department record with Chapter for native integration
+
+        This enables expense claims to use the native ERPNext department field
+        for filtering and user permissions, while maintaining chapter as the
+        primary organizational unit.
+
+        Security Note:
+            Uses ignore_permissions=True because this is an automated system sync
+            triggered by Chapter document lifecycle hooks (after_insert, on_update).
+            Permission control is enforced at the Chapter level - users must have
+            permission to modify the Chapter to trigger this department sync.
+            This prevents requiring separate Department permissions for chapter
+            administrators while maintaining proper access control.
+
+        Args:
+            old_doc: Previous version of the document (for name change detection)
+        """
+        try:
+            # Check if department exists with current chapter name
+            department_exists = frappe.db.exists("Department", self.name)
+
+            # Map chapter status to department disabled status
+            is_disabled = 0 if self.status == "Active" else 1
+
+            if department_exists:
+                # Update existing department (rename handled in after_rename hook)
+                dept_doc = frappe.get_doc("Department", self.name)
+
+                # Update status if changed
+                if dept_doc.disabled != is_disabled:
+                    dept_doc.disabled = is_disabled
+                    dept_doc.save(ignore_permissions=True)
+                    frappe.logger().info(f"Updated Department {self.name} disabled status to {is_disabled}")
+            else:
+                # Get company from Verenigingen Settings
+                company = frappe.db.get_single_value("Verenigingen Settings", "company")
+                if not company:
+                    # Fallback to global default if not set
+                    company = frappe.db.get_single_value("Global Defaults", "default_company")
+
+                # Create new department
+                dept_doc = frappe.get_doc(
+                    {
+                        "doctype": "Department",
+                        "department_name": self.name,
+                        "parent_department": "All Departments",  # ERPNext default root
+                        "disabled": is_disabled,
+                        "company": company,
+                    }
+                )
+                dept_doc.insert(ignore_permissions=True)
+                frappe.logger().info(
+                    f"Created Department {self.name} for chapter (disabled={is_disabled}, company={company})"
+                )
+
+            # Update the chapter's department field to show the link
+            if self.department != self.name:
+                frappe.db.set_value("Chapter", self.name, "department", self.name, update_modified=False)
+
+        except Exception as e:
+            # Don't block chapter save if department sync fails
+            frappe.log_error(
+                f"Failed to sync Department for chapter {self.name}: {str(e)}",
+                "Chapter Department Sync Error",
+            )
 
     def _handle_document_changes(self):
         """Handle changes between document versions"""

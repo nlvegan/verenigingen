@@ -686,6 +686,7 @@ permission_query_conditions = {
     "Chapter Member": "verenigingen.permissions.get_chapter_member_permission_query",
     "Team Member": "verenigingen.permissions.get_team_member_permission_query",
     "Donor": "verenigingen.permissions.get_donor_permission_query",
+    "Donation": "verenigingen.permissions.get_donation_permission_query",
     "Address": "verenigingen.permissions.get_address_permission_query",
 }
 
@@ -750,6 +751,7 @@ permission_query_conditions = {
     "Donor": "verenigingen.permissions.get_donor_permission_query",
     "Membership Dues Schedule": "verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.get_permission_query_conditions",
     "Project": "verenigingen.utils.project_permissions.get_project_permission_query_conditions",
+    "Expense Claim": "verenigingen.permissions.get_expense_claim_permission_query",
 }
 
 has_permission = {
@@ -759,10 +761,12 @@ has_permission = {
     "Volunteer Expense": "verenigingen.permissions.has_volunteer_expense_permission",
     "Address": "verenigingen.permissions.has_address_permission",
     "Donor": "verenigingen.permissions.has_donor_permission",
+    "Donation": "verenigingen.permissions.has_donation_permission",
     "Volunteer": "verenigingen.permissions.has_volunteer_permission",
     "Chapter": "verenigingen.verenigingen.doctype.chapter.chapter.has_chapter_permission",
     "Membership Dues Schedule": "verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.has_permission",
     "Project": "verenigingen.utils.project_permissions.has_project_permission_via_team",
+    "Expense Claim": "verenigingen.permissions.has_expense_claim_permission",
 }
 
 # Workflow Action Handlers

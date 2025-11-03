@@ -1584,25 +1584,20 @@ function handle_board_role_specific_profiles_toggle(frm) {
  * @param {Object} frm - Form object
  */
 function validate_default_board_role_profile(frm) {
+	// Role Profile DocType doesn't have a 'disabled' field
+	// Validation is handled server-side if needed
 	if (frm.doc.default_board_role_profile) {
-		// Validate that the role profile exists and is active
-		frappe.db.get_value(
-			'Role Profile',
-			frm.doc.default_board_role_profile,
-			'disabled',
-			(r) => {
-				if (r && r.disabled) {
-					frappe.msgprint({
-						title: __('Invalid Role Profile'),
-						message: __(
-							'The selected role profile is disabled. Please choose an active role profile.'
-						),
-						indicator: 'orange'
-					});
-					frm.set_value('default_board_role_profile', '');
-				}
+		// Simple existence check only
+		frappe.db.exists('Role Profile', frm.doc.default_board_role_profile).then((exists) => {
+			if (!exists) {
+				frappe.msgprint({
+					title: __('Invalid Role Profile'),
+					message: __('The selected role profile does not exist.'),
+					indicator: 'red'
+				});
+				frm.set_value('default_board_role_profile', '');
 			}
-		);
+		});
 	}
 }
 
