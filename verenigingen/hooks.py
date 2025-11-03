@@ -677,18 +677,7 @@ after_migrate = [
 
 # Permission Query Methods
 # ------------------------
-permission_query_conditions = {
-    "Member": "verenigingen.permissions.get_member_permission_query",
-    "Membership": "verenigingen.permissions.get_membership_permission_query",
-    "Membership Termination Request": "verenigingen.permissions.get_termination_permission_query",
-    "Volunteer Expense": "verenigingen.permissions.get_volunteer_expense_permission_query",
-    "Volunteer": "verenigingen.permissions.get_volunteer_permission_query",
-    "Chapter Member": "verenigingen.permissions.get_chapter_member_permission_query",
-    "Team Member": "verenigingen.permissions.get_team_member_permission_query",
-    "Donor": "verenigingen.permissions.get_donor_permission_query",
-    "Donation": "verenigingen.permissions.get_donation_permission_query",
-    "Address": "verenigingen.permissions.get_address_permission_query",
-}
+# REMOVED: Duplicate permission_query_conditions declaration (consolidated at line 741)
 
 # REMOVED: Duplicate has_permission declaration merged below (line 763)
 

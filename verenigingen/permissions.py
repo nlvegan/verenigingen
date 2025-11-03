@@ -999,11 +999,6 @@ def get_member_permission_query(user):
         frappe.logger().debug(f"User {user} has admin role, granting full access")
         return ""
 
-    # Verenigingen Staff see all members (controlled by DocType read-only permissions)
-    if "Verenigingen Staff" in user_roles:
-        frappe.logger().debug(f"User {user} has Verenigingen Staff role, granting full access")
-        return ""
-
     conditions = []
 
     # Chapter Board Members can see members in their chapters
@@ -1030,8 +1025,10 @@ def get_member_permission_query(user):
                         (`tabMember`.name IN (
                             SELECT DISTINCT cm.member
                             FROM `tabChapter Member` cm
+                            JOIN `tabMember` m ON m.name = cm.member
                             WHERE cm.parent IN ({','.join(chapter_names)})
                               AND cm.status = 'Active'
+                              AND m.status NOT IN ('Terminated', 'Banned', 'Deceased')
                         ))
                     """
                     conditions.append(chapters_condition)
@@ -1053,21 +1050,10 @@ def get_member_permission_query(user):
     if conditions:
         final_condition = f"({' OR '.join(conditions)})"
         frappe.logger().debug(f"Final Member query condition for {user}: {final_condition}")
-        # TEMPORARY DEBUG: Write to file
-        with open("/tmp/member_permission_debug.log", "a") as f:
-            f.write(f"\n{'='*60}\n")
-            f.write(f"User: {user}\n")
-            f.write(f"Roles: {user_roles}\n")
-            f.write(f"Condition: {final_condition}\n")
-            f.write(f"{'='*60}\n")
         return final_condition
 
     # No access if no conditions matched
     frappe.logger().debug(f"No Member access conditions matched for user {user}")
-    with open("/tmp/member_permission_debug.log", "a") as f:
-        f.write(f"\n{'='*60}\n")
-        f.write(f"User: {user} - NO ACCESS (returning 1=0)\n")
-        f.write(f"{'='*60}\n")
     return "1=0"
 
 
