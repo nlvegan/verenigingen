@@ -183,7 +183,7 @@ class MemberManager(BaseManager):
                 member_id=member_id,
                 chapter_name=self.chapter_name,
                 assignment_type="Member",
-                start_date=today(),
+                start_date=join_date or today(),  # Use the same date as chapter_join_date
                 reason=f"Added to {self.chapter_name} chapter",
             )
 

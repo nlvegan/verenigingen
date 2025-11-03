@@ -238,13 +238,44 @@ def complete_partial_payments(
     Returns:
         dict: Processing results
     """
+    # Check permissions before processing (only when not dry_run)
+    if isinstance(dry_run, str):
+        dry_run = dry_run.lower() == "true"
+
+    if not dry_run:
+        missing_permissions = []
+
+        # Check Bank Transaction permissions (create and write for reconciliation)
+        if not frappe.has_permission("Bank Transaction", "create"):
+            missing_permissions.append("Bank Transaction: create")
+        if not frappe.has_permission("Bank Transaction", "write"):
+            missing_permissions.append("Bank Transaction: write (for reconciliation)")
+
+        # Check Sales Invoice permissions (create and submit)
+        if not frappe.has_permission("Sales Invoice", "create"):
+            missing_permissions.append("Sales Invoice: create")
+        if not frappe.has_permission("Sales Invoice", "submit"):
+            missing_permissions.append("Sales Invoice: submit")
+
+        # Check Payment Entry permissions (create and submit)
+        if not frappe.has_permission("Payment Entry", "create"):
+            missing_permissions.append("Payment Entry: create")
+        if not frappe.has_permission("Payment Entry", "submit"):
+            missing_permissions.append("Payment Entry: submit")
+
+        # If any permissions are missing, stop execution
+        if missing_permissions:
+            error_message = (
+                f"Insufficient permissions to execute complete_partial_payments. "
+                f"User {frappe.session.user} is missing the following permissions:\n"
+                + "\n".join(f"  - {perm}" for perm in missing_permissions)
+            )
+            frappe.throw(error_message, title="Permission Denied")
+
     if isinstance(payment_ids, str):
         import json
 
         payment_ids = json.loads(payment_ids)
-
-    if isinstance(dry_run, str):
-        dry_run = dry_run.lower() == "true"
 
     if isinstance(max_payments, str):
         max_payments = int(max_payments)
@@ -387,16 +418,61 @@ def complete_partial_payments(
                     status["has_payment_entry"] = True
 
             if not status["has_bank_transaction"] and payment:
-                # Create BT (needs payment object)
-                bt_result = dues_processor.process_dues_payment(
-                    payment_id, payment, creation_mode="Bank Transaction"
+                # Double-check before creating BT to minimize race condition window
+                # Re-query database immediately before creation attempt
+                existing_bt_check = frappe.db.get_value(
+                    "Bank Transaction", {"reference_number": payment_id}, "name"
                 )
-                if bt_result.get("status") == "success":
-                    payment_result["actions_taken"].append(
-                        f"Created Bank Transaction: {bt_result['bank_transaction']}"
+
+                if existing_bt_check:
+                    # BT was created by another process between status check and now
+                    frappe.logger().info(
+                        f"⏭️ Bank Transaction {existing_bt_check} created by another process for {payment_id}"
                     )
-                    status["bank_transaction"] = bt_result["bank_transaction"]
+                    payment_result["actions_taken"].append(
+                        f"Bank Transaction already exists: {existing_bt_check}"
+                    )
+                    status["bank_transaction"] = existing_bt_check
                     status["has_bank_transaction"] = True
+                else:
+                    # Create BT (needs payment object)
+                    # Handle race condition where another process creates BT concurrently
+                    try:
+                        bt_result = dues_processor.process_dues_payment(
+                            payment_id, payment, creation_mode="Bank Transaction"
+                        )
+                        if bt_result.get("status") == "success":
+                            payment_result["actions_taken"].append(
+                                f"Created Bank Transaction: {bt_result['bank_transaction']}"
+                            )
+                            status["bank_transaction"] = bt_result["bank_transaction"]
+                            status["has_bank_transaction"] = True
+                        elif bt_result.get("status") == "already_processed":
+                            # BT already existed (race condition or concurrent webhook)
+                            payment_result["actions_taken"].append(
+                                f"Bank Transaction already exists: {bt_result.get('bank_transaction', 'unknown')}"
+                            )
+                            status["bank_transaction"] = bt_result.get("bank_transaction")
+                            status["has_bank_transaction"] = True
+                    except (frappe.UniqueValidationError, frappe.DuplicateEntryError) as e:
+                        # Another process created the Bank Transaction between our check and insert
+                        # This is expected in concurrent webhook scenarios
+                        frappe.logger().info(
+                            f"⏭️ Bank Transaction race condition for {payment_id}: {str(e)[:100]}"
+                        )
+                        # Re-check for existing Bank Transaction
+                        existing_bt = frappe.db.get_value(
+                            "Bank Transaction", {"reference_number": payment_id}, "name"
+                        )
+                        if existing_bt:
+                            payment_result["actions_taken"].append(
+                                f"Bank Transaction exists (race condition): {existing_bt}"
+                            )
+                            status["bank_transaction"] = existing_bt
+                            status["has_bank_transaction"] = True
+                        else:
+                            # Unexpected: duplicate error but can't find the document
+                            raise
 
             # Link BT to PE if needed (handles both newly created and pre-existing documents)
             # This ensures proper reconciliation even if documents were created separately
