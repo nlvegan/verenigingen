@@ -730,6 +730,7 @@ after_migrate = [
 permission_query_conditions = {
     "Member": "verenigingen.permissions.get_member_permission_query",
     "Membership": "verenigingen.permissions.get_membership_permission_query",
+    "Employee": "verenigingen.permissions.get_employee_permission_query",
     "Chapter": "verenigingen.verenigingen.doctype.chapter.chapter.get_chapter_permission_query_conditions",
     "Chapter Member": "verenigingen.permissions.get_chapter_member_permission_query",
     "Team": "verenigingen.verenigingen.doctype.team.team.get_team_permission_query_conditions",

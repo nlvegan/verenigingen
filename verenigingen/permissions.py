@@ -1088,6 +1088,71 @@ def get_membership_permission_query(user):
     return ""
 
 
+def get_employee_permission_query(user):
+    """
+    Permission query for Employee doctype to restrict VBCM users to employees
+    linked to members in their chapters only.
+
+    Returns SQL WHERE conditions:
+    - Admin roles: No restrictions (see all employees)
+    - Chapter Board Members: See only employees linked to members in their chapters
+    - Others: Default ERPNext permissions apply
+    """
+    if not user:
+        user = frappe.session.user
+
+    user_roles = frappe.get_roles(user)
+
+    # Admin roles see all employees
+    admin_roles = [
+        "System Manager",
+        "Verenigingen Staff",
+        "Verenigingen Administrator",
+        "HR Manager",
+        "HR User",
+    ]
+    if any(role in user_roles for role in admin_roles):
+        return ""
+
+    # Chapter Board Members can only see employees for members in their chapters
+    if "Verenigingen Chapter Board Member" in user_roles:
+        try:
+            # Get the current user's member record
+            user_member = get_member_name_for_user(user)
+            if user_member:
+                # Get chapters where the user is an active board member
+                user_chapters = frappe.db.sql(
+                    """
+                    SELECT DISTINCT cbm.parent as chapter_name
+                    FROM `tabChapter Board Member` cbm
+                    JOIN `tabVolunteer` v ON cbm.volunteer = v.name
+                    WHERE v.member = %s AND cbm.is_active = 1
+                """,
+                    user_member,
+                    as_dict=True,
+                )
+
+                if user_chapters:
+                    chapter_names = [frappe.db.escape(ch["chapter_name"]) for ch in user_chapters]
+                    # Return condition that limits to employees linked to members in those chapters
+                    return f"""
+                        (`tabEmployee`.name IN (
+                            SELECT DISTINCT m.employee
+                            FROM `tabMember` m
+                            JOIN `tabChapter Member` cm ON cm.member = m.name
+                            WHERE cm.parent IN ({','.join(chapter_names)})
+                              AND cm.status = 'Active'
+                              AND m.status NOT IN ('Terminated', 'Banned', 'Deceased')
+                              AND m.employee IS NOT NULL
+                        ))
+                    """
+        except Exception as e:
+            frappe.log_error(f"Error building employee permission query: {str(e)}")
+
+    # No access for non-admin, non-VBCM users
+    return "1=0"
+
+
 def can_view_financial_info(doctype, name=None, user=None):
     """Check if user can view financial information for a member"""
     if not user:
