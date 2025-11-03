@@ -38,7 +38,7 @@ FINANCIAL_ROLES = [
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.QUERY)
+@standard_api(operation_type=OperationType.REPORTING)
 def get_user_accessible_chapters_for_expenses(
     doctype: str, txt: str, searchfield: str, start: int, page_len: int, filters: Optional[dict] = None
 ):
@@ -116,7 +116,7 @@ def get_user_accessible_chapters_for_expenses(
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.QUERY)
+@standard_api(operation_type=OperationType.REPORTING)
 def get_chapter_expense_approvers(
     doctype: str, txt: str, searchfield: str, start: int, page_len: int, filters: Optional[dict] = None
 ):
@@ -189,7 +189,7 @@ def get_chapter_expense_approvers(
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.QUERY)
+@standard_api(operation_type=OperationType.REPORTING)
 def get_team_expense_approvers(
     doctype: str, txt: str, searchfield: str, start: int, page_len: int, filters: Optional[dict] = None
 ):
