@@ -1259,7 +1259,7 @@ def can_access_termination_functions(user=None):
 
     for volunteer_record in volunteer_records:
         board_positions = frappe.get_all(
-            "Verenigingen Chapter Board Member",
+            "Chapter Board Member",
             filters={"volunteer": volunteer_record.name, "is_active": 1},
             fields=["name"],
         )
@@ -1293,7 +1293,7 @@ def get_chapter_member_permission_query(user):
 
     for volunteer_record in volunteer_records:
         board_positions = frappe.get_all(
-            "Verenigingen Chapter Board Member",
+            "Chapter Board Member",
             filters={"volunteer": volunteer_record.name, "is_active": 1},
             fields=["parent"],
         )
@@ -1339,7 +1339,7 @@ def get_termination_permission_query(user):
 
     for volunteer_record in volunteer_records:
         board_positions = frappe.get_all(
-            "Verenigingen Chapter Board Member",
+            "Chapter Board Member",
             filters={"volunteer": volunteer_record.name, "is_active": 1},
             fields=["parent"],
         )

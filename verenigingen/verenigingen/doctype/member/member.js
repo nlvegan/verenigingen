@@ -91,12 +91,37 @@ function validate_link_fields(frm) {
 		const link_value = frm.doc[fieldname];
 
 		if (link_value && link_doctype) {
-			frappe.db.exists(link_doctype, link_value).then(exists => {
-				if (!exists) {
-					console.warn(`${link_doctype} record '${link_value}' not found in field '${fieldname}', clearing link`);
-					frm.set_value(fieldname, null);
-				}
-			});
+			// Skip Customer validation if user doesn't have permissions
+			// This prevents permission warning popups for VBCM users
+			if (link_doctype === 'Customer') {
+				frappe.perm.has_perm('Customer', 0, 'read', (has_perm) => {
+					if (!has_perm) {
+						// User doesn't have Customer permissions, silently skip validation
+						return;
+					}
+					// User has permissions, validate normally
+					frappe.db.exists(link_doctype, link_value).then(exists => {
+						if (!exists) {
+							console.warn(`${link_doctype} record '${link_value}' not found in field '${fieldname}', clearing link`);
+							frm.set_value(fieldname, null);
+						}
+					}).catch(err => {
+						// Silently handle permission errors
+						console.log(`Skipping validation for ${link_doctype} due to permission restrictions`);
+					});
+				});
+			} else {
+				// For other link types, validate normally
+				frappe.db.exists(link_doctype, link_value).then(exists => {
+					if (!exists) {
+						console.warn(`${link_doctype} record '${link_value}' not found in field '${fieldname}', clearing link`);
+						frm.set_value(fieldname, null);
+					}
+				}).catch(err => {
+					// Silently handle errors
+					console.log(`Error validating ${link_doctype}: ${err.message}`);
+				});
+			}
 		}
 	});
 }
@@ -3195,18 +3220,27 @@ function setup_user_link_button(frm) {
 function setup_customer_link_button(frm) {
 	// Add a custom Customer link button if member has linked customer
 	if (frm.doc.customer && !frm.doc.__islocal) {
-		frm.add_custom_button(
-			__('View Customer Record'),
-			() => {
-				frappe.set_route('Form', 'Customer', frm.doc.customer);
-			},
-			__('Links')
-		);
+		// Check if user has permission to view Customer before adding links
+		frappe.model.with_doctype('Customer', () => {
+			frappe.perm.has_perm('Customer', 0, 'read', (has_perm) => {
+				if (!has_perm) {
+					// User doesn't have Customer permissions, silently skip
+					return;
+				}
 
-		// Also add in the connections area if dashboard exists
-		if (frm.dashboard && frm.dashboard.stats_area) {
-			// Add custom link entry to dashboard
-			const customer_link = `
+				// User has permissions, add the button
+				frm.add_custom_button(
+					__('View Customer Record'),
+					() => {
+						frappe.set_route('Form', 'Customer', frm.doc.customer);
+					},
+					__('Links')
+				);
+
+				// Also add in the connections area if dashboard exists
+				if (frm.dashboard && frm.dashboard.stats_area) {
+					// Add custom link entry to dashboard
+					const customer_link = `
                 <div class="col-sm-6">
                     <div class="document-link" data-doctype="Customer">
                         <div class="document-link-badge">
@@ -3225,15 +3259,17 @@ function setup_customer_link_button(frm) {
                 </div>
             `;
 
-			// Find existing dashboard and append customer link
-			const connections_area = frm.dashboard.stats_area_parent;
-			if (
-				connections_area
+					// Find existing dashboard and append customer link
+					const connections_area = frm.dashboard.stats_area_parent;
+					if (
+						connections_area
         && !connections_area.find('[data-doctype="Customer"]').length
-			) {
-				connections_area.append(customer_link);
-			}
-		}
+					) {
+						connections_area.append(customer_link);
+					}
+				}
+			});
+		});
 	}
 }
 
