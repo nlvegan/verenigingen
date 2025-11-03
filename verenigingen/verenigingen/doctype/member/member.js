@@ -91,12 +91,15 @@ function validate_link_fields(frm) {
 		const link_value = frm.doc[fieldname];
 
 		if (link_value && link_doctype) {
-			// Skip Customer validation if user doesn't have permissions
+			// Skip validation for ERPNext DocTypes if user doesn't have permissions
 			// This prevents permission warning popups for VBCM users
-			if (link_doctype === 'Customer') {
-				frappe.perm.has_perm('Customer', 0, 'read', (has_perm) => {
+			const erpnext_doctypes = ['Customer', 'Employee', 'Supplier'];
+
+			if (erpnext_doctypes.includes(link_doctype)) {
+				frappe.perm.has_perm(link_doctype, 0, 'read', (has_perm) => {
 					if (!has_perm) {
-						// User doesn't have Customer permissions, silently skip validation
+						// User doesn't have permissions, silently skip validation
+						console.log(`Skipping ${link_doctype} validation due to permission restrictions`);
 						return;
 					}
 					// User has permissions, validate normally

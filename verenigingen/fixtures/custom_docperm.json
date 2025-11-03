@@ -219,5 +219,18 @@
     "print": 0,
     "email": 0,
     "select": 1
+  },
+  {
+    "doctype": "Custom DocPerm",
+    "name": "Custom DocPerm-Employee-Verenigingen Chapter Board Member",
+    "parent": "Employee",
+    "parenttype": "DocType",
+    "parentfield": "permissions",
+    "role": "Verenigingen Chapter Board Member",
+    "read": 1,
+    "print": 1,
+    "email": 1,
+    "export": 1,
+    "report": 1
   }
 ]

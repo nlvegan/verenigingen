@@ -291,6 +291,27 @@ def has_member_permission(doc, user=None, permission_type=None):
 
                 if has_chapter_overlap:
                     return True
+
+                # Check if user has a termination request for this member
+                # If so, allow access to view the member details
+                termination_requests = frappe.db.sql(
+                    """
+                    SELECT name
+                    FROM `tabMembership Termination Request`
+                    WHERE member = %s
+                """,
+                    member_name,
+                    as_dict=True,
+                )
+
+                if termination_requests:
+                    # Use the termination request permission check
+                    for req in termination_requests:
+                        if has_membership_termination_request_permission(req.name, user, "read"):
+                            frappe.logger().debug(
+                                f"User {user} has termination request access for member {member_name}"
+                            )
+                            return True
             else:
                 frappe.logger().debug(f"User {user} is not an active board member in any chapter")
                 # Don't return False - fall through to check other role-based permissions
@@ -1324,7 +1345,7 @@ def get_termination_permission_query(user):
         user = frappe.session.user
 
     # Admin roles get full access
-    admin_roles = ["System Manager", "Verenigingen Administrator"]
+    admin_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Staff"]
     if any(role in frappe.get_roles(user) for role in admin_roles):
         return ""
 
@@ -1388,7 +1409,7 @@ def has_membership_termination_request_permission(doc, user=None, permission_typ
     user_roles = frappe.get_roles(user)
 
     # Admin roles always have access
-    admin_roles = ["System Manager", "Verenigingen Administrator"]
+    admin_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Staff"]
     if any(role in user_roles for role in admin_roles):
         frappe.logger().debug(f"User {user} has admin role, granting access")
         return True

@@ -316,6 +316,65 @@ class Member(
             f"Amount: {self.dues_rate}, Reason: {getattr(self, 'fee_override_reason', 'No reason provided')}"
         )
 
+    def has_permission(self, ptype="read", user=None):
+        """
+        Override permission check to bypass User Permission restrictions for VBCM users.
+
+        This method is called by Frappe's permission system BEFORE User Permission checks.
+        It allows Chapter Board Members to access Member records in their chapters even if
+        those members are linked to Employee records the board member doesn't have User Permission for.
+
+        Args:
+            ptype: Permission type (read, write, etc.)
+            user: User to check permissions for
+
+        Returns:
+            True if permission granted, False otherwise
+        """
+        if not user:
+            user = frappe.session.user
+
+        # Import here to avoid circular import
+        from verenigingen.permissions import has_member_permission
+
+        # Use our custom permission function which handles chapter-based access
+        # This will return True for VBCM users who have access to this member's chapter
+        # regardless of Employee User Permission restrictions
+        return has_member_permission(self, user, ptype)
+
+    @staticmethod
+    def has_query_permission(user):
+        """
+        Override query permission to bypass User Permission filtering on list views.
+
+        This method is called by Frappe when building list view queries with write permissions.
+        It prevents User Permission restrictions (like Employee permissions) from filtering
+        the Member list for VBCM users who should see all members in their chapters.
+
+        Args:
+            user: User to check permissions for
+
+        Returns:
+            True to skip User Permission filtering, None to use default behavior
+        """
+        if not user:
+            user = frappe.session.user
+
+        user_roles = frappe.get_roles(user)
+
+        # Admin roles always have full access
+        admin_roles = ["System Manager", "Verenigingen Staff", "Verenigingen Administrator"]
+        if any(role in user_roles for role in admin_roles):
+            return True
+
+        # For VBCM users, bypass User Permission filtering
+        # The actual filtering is handled by get_member_permission_query
+        if "Verenigingen Chapter Board Member" in user_roles:
+            return True
+
+        # For other users, use default Frappe permission behavior
+        return None
+
     def before_insert(self):
         """Execute before inserting new document"""
         # Member ID generation is now handled in before_save based on application status
