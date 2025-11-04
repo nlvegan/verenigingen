@@ -94,6 +94,80 @@ class BrandSettings(Document):
         brightness = self.get_color_brightness(background_color)
         return "#ffffff" if brightness < 128 else "#000000"
 
+    def mix_colors(self, color1, color2, ratio=0.5):
+        """Mix two hex colors together at specified ratio (0.0 to 1.0)
+
+        Args:
+            color1: First hex color (e.g., '#ff0000')
+            color2: Second hex color (e.g., '#0000ff')
+            ratio: How much of color1 vs color2 (0.5 = 50/50 mix)
+
+        Returns:
+            Mixed hex color
+        """
+        if not color1 or not color1.startswith("#"):
+            return color2
+        if not color2 or not color2.startswith("#"):
+            return color1
+
+        # Convert hex to RGB
+        def hex_to_rgb(hex_color):
+            hex_part = hex_color[1:]
+            if len(hex_part) == 3:
+                hex_part = "".join([c * 2 for c in hex_part])
+            return tuple(int(hex_part[i:i+2], 16) for i in (0, 2, 4))
+
+        # Mix RGB values
+        rgb1 = hex_to_rgb(color1)
+        rgb2 = hex_to_rgb(color2)
+
+        mixed_rgb = tuple(
+            int(rgb1[i] * ratio + rgb2[i] * (1 - ratio))
+            for i in range(3)
+        )
+
+        # Convert back to hex
+        return "#{:02x}{:02x}{:02x}".format(*mixed_rgb)
+
+    def tint_color(self, base_color, tint_color, strength=0.05):
+        """Add a subtle tint of brand color to a base color
+
+        Args:
+            base_color: Base color (e.g., white '#ffffff')
+            tint_color: Brand color to tint with
+            strength: How strong the tint (0.05 = 5% brand color)
+
+        Returns:
+            Tinted hex color
+        """
+        return self.mix_colors(tint_color, base_color, strength)
+
+    def generate_background_layers(self):
+        """Generate layered background colors with depth and subtle brand tinting
+
+        Returns:
+            dict with workspace, container, and card background colors
+        """
+        # Start with user-defined backgrounds or defaults
+        base_bg = self.background_primary_color or "#ffffff"
+        secondary_bg = self.background_secondary_color or "#f8f9fa"
+
+        # Add subtle brand tint to workspace (5% primary color)
+        workspace_bg = self.tint_color(base_bg, self.primary_color, 0.05)
+
+        # Card container - noticeably darker/tinted (12% primary color)
+        container_bg = self.tint_color(secondary_bg, self.primary_color, 0.12)
+
+        # Individual cards - clean white with minimal tint (2% secondary color)
+        # This creates clear separation from container
+        card_bg = self.tint_color(base_bg, self.secondary_color, 0.02)
+
+        return {
+            "workspace": workspace_bg,
+            "container": container_bg,
+            "cards": card_bg
+        }
+
     def on_update(self):
         """Clear cache when settings are updated"""
         frappe.cache().delete_key("active_brand_settings")
@@ -170,7 +244,23 @@ class BrandSettings(Document):
             frappe.log_error(f"Error exporting logo to public location: {str(e)}", "Logo Export Error")
 
     def sync_to_owl_theme(self):
-        """Sync Brand Settings to Owl Theme Settings if owl_theme app is installed"""
+        """Sync Brand Settings to Owl Theme Settings if owl_theme app is installed
+
+        Auto-Derivation Strategy:
+        - 3 core brand colors: primary, secondary, accent
+        - All text colors auto-calculated for optimal contrast
+        - Background colors for depth/hierarchy
+        - No manual text color configuration needed
+
+        Field Mapping:
+        - primary_color → navbar background, primary buttons
+        - secondary_color → secondary buttons
+        - accent_color → accent buttons
+        - text_primary_color → sidebar, card titles (user can customize)
+        - text_secondary_color → card descriptions (user can customize)
+        - background_primary_color → workspace, forms, lists, cards
+        - background_secondary_color → sidebar, card containers (depth)
+        """
         try:
             # Check if owl_theme app is installed
             if not frappe.db.exists("DocType", "Owl Theme Settings"):
@@ -179,38 +269,41 @@ class BrandSettings(Document):
             # Get or create Owl Theme Settings
             owl_settings = frappe.get_single("Owl Theme Settings")
 
-            # Map Brand Settings colors to Owl Theme fields
+            # BUTTON COLORS - Auto-calculate text colors for contrast
             owl_settings.primary_buttons_background_color = self.primary_color
             owl_settings.primary_buttons_text_color = self.get_contrasting_text_color(self.primary_color)
+
             owl_settings.secondary_buttons_background_color = self.secondary_color
             owl_settings.secondary_buttons_text_color = self.get_contrasting_text_color(self.secondary_color)
 
-            # Set navbar colors
+            # NAVBAR COLORS - Primary brand identity with auto-contrasting text
             owl_settings.navbar_background_color = self.primary_color
             owl_settings.navbar_text_color = self.get_contrasting_text_color(self.primary_color)
 
-            # Set sidebar colors
+            # APP NAME COLOR - Auto-contrast for breadcrumbs and workspace names
+            owl_settings.app_name_color = self.get_contrasting_text_color(self.primary_color)
+
+            # SIDEBAR COLORS - Use secondary background with user-defined text
             owl_settings.sidebar_background_color = self.background_secondary_color
             owl_settings.sidebar_text_color = self.text_primary_color
 
-            # Set page background colors
-            owl_settings.main_page_background_color = self.background_primary_color
-            owl_settings.main_page_card_container_background_color = self.background_secondary_color
+            # WORKSPACE/MAIN PAGE BACKGROUNDS - Generated with depth and brand tinting
+            bg_layers = self.generate_background_layers()
 
-            # Set card colors
-            owl_settings.cards_background_color = self.background_primary_color
+            owl_settings.main_page_background_color = bg_layers["workspace"]
+            owl_settings.main_page_card_container_background_color = bg_layers["container"]
+            owl_settings.background_color = bg_layers["workspace"]
+
+            # CARD COLORS - Workspace shortcut cards with subtle tinting
+            owl_settings.cards_background_color = bg_layers["cards"]
             owl_settings.cards_title_text_color = self.text_primary_color
             owl_settings.cards_text_color = self.text_secondary_color
 
-            # Set form and list page backgrounds
-            owl_settings.form_background_color = self.background_primary_color
-            owl_settings.list_page_background_color = self.background_primary_color
+            # FORM AND LIST PAGE BACKGROUNDS - Use workspace background
+            owl_settings.form_background_color = bg_layers["workspace"]
+            owl_settings.list_page_background_color = bg_layers["workspace"]
 
-            # Set general background and app name colors
-            owl_settings.background_color = self.background_primary_color
-            owl_settings.app_name_color = self.primary_color
-
-            # Sync logo if available
+            # LOGO SYNC - Use organization branding
             if self.logo:
                 owl_settings.app_logo = self.logo
 
