@@ -46,12 +46,20 @@ class MembershipDuesSchedule(Document):
         )
 
         try:
-            template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+            # Special case: if this template is calling get_template_values() on itself during validation,
+            # use the current unsaved values instead of loading from database
+            if self.is_template and self.name == membership_type.dues_schedule_template:
+                # Template is looking up its own values - use current state, not database state
+                template = self
+            else:
+                # Load the template from database (normal case for member schedules)
+                template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
 
-            # Validate template has required configuration before using it
-            if not template.suggested_amount:
+            # Validate template has required configuration based on contribution mode
+            # Only require suggested_amount for Calculator mode (not Custom mode)
+            if template.contribution_mode == "Calculator" and not template.suggested_amount:
                 frappe.throw(
-                    f"Dues schedule template '{membership_type.dues_schedule_template}' must have a suggested_amount configured"
+                    f"Dues schedule template '{membership_type.dues_schedule_template}' with Calculator mode must have a suggested_amount configured"
                 )
 
             values.update(
@@ -61,7 +69,7 @@ class MembershipDuesSchedule(Document):
                         if template.minimum_amount is not None
                         else membership_type_minimum
                     ),
-                    "suggested_amount": template.suggested_amount,  # Required field, validated above
+                    "suggested_amount": template.suggested_amount,  # Use current value for self-referencing templates
                     "billing_frequency": template.billing_frequency
                     or "Annual",  # Explicit default, validated in template creation
                     "invoice_days_before": (
@@ -115,6 +123,7 @@ class MembershipDuesSchedule(Document):
             self.validate_dates()
 
         self.validate_custom_frequency()  # Validate custom frequency settings
+        self.sync_from_template()  # Sync minimum_amount and other fields from template
         self.set_dues_rate_from_membership_type()  # Set default before validation
         self.validate_dues_rate_configuration()
         self.validate_financial_constraints()  # Add financial validation
@@ -420,7 +429,10 @@ class MembershipDuesSchedule(Document):
                 template_values = self.get_template_values()
                 suggested_amount = template_values.get("suggested_amount", 0)
                 if not suggested_amount:
-                    frappe.throw("Cannot calculate dues: template has no suggested_amount configured")
+                    frappe.throw(
+                        "Cannot calculate dues: template has no suggested_amount configured. "
+                        "Either set a suggested_amount or switch to Custom contribution mode."
+                    )
 
                 # Use base multiplier, defaulting to 1.0 if not set
                 multiplier = self.base_multiplier if self.base_multiplier is not None else 1.0
@@ -532,13 +544,48 @@ class MembershipDuesSchedule(Document):
                     member_doc = frappe.get_doc("Member", self.member)
                     self.member_name = member_doc.full_name
 
+    def sync_from_template(self):
+        """Sync minimum_amount and other read-only fields from template and membership type"""
+        if not self.membership_type:
+            return
+
+        membership_type = frappe.get_doc("Membership Type", self.membership_type)
+
+        # For templates themselves, sync directly from membership type (not from another template)
+        # This avoids circular logic where template calls get_template_values() which loads itself
+        if self.is_template:
+            # Templates get minimum_amount directly from membership type
+            self.minimum_amount = (
+                membership_type.minimum_amount
+                if membership_type.minimum_amount is not None
+                else 0
+            )
+            # Keep suggested_amount as manually set (don't override)
+            return
+
+        # For member-specific schedules, sync from the template
+        template_values = self.get_template_values()
+
+        # Always update minimum_amount from template (it's read-only so must be calculated)
+        self.minimum_amount = template_values.get("minimum_amount", 0)
+
+        # Update suggested_amount if not explicitly overridden
+        if not self.suggested_amount:
+            self.suggested_amount = template_values.get("suggested_amount", 0)
+
     def set_dues_rate_from_membership_type(self):
         """Set dues rate based on membership type template if not already set"""
         if not self.dues_rate and self.membership_type:
             # Get the fee from template values (explicit configuration)
             template_values = self.get_template_values()
-            # Template is now required and must have suggested_amount
-            self.dues_rate = template_values.get("suggested_amount", 0)
+            # For Calculator mode, use suggested_amount as default
+            # For Custom mode, suggested_amount is optional (can be 0)
+            # For Tier mode, dues_rate will be set from tier selection
+            if self.contribution_mode == "Calculator":
+                self.dues_rate = template_values.get("suggested_amount", 0)
+            elif self.contribution_mode == "Custom":
+                # For Custom mode, use suggested_amount if available, otherwise 0
+                self.dues_rate = template_values.get("suggested_amount", 0)
 
     def set_billing_day(self):
         """Set billing day based on member's anniversary date"""
