@@ -814,7 +814,9 @@ def get_segmentation_data(year, period="year", filters=None):
         "by_chapter": get_chapter_segmentation(year, filter_conditions),
         "by_region": get_region_segmentation(year, filter_conditions),
         "by_age": get_age_segmentation(year, filter_conditions),
-        "by_payment_method": get_payment_method_segmentation(year, filter_conditions),
+        "volunteer_participation_by_chapter": get_volunteer_participation_by_chapter(
+            year, filter_conditions
+        ),
         "by_join_year": get_join_year_segmentation(year, filter_conditions),
     }
 
@@ -851,7 +853,8 @@ def build_filter_conditions(filters):
 def get_age_group_condition(age_group):
     """Get SQL condition for age group"""
     conditions = {
-        "Under 25": "TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) < 25",
+        "Under 20": "TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) < 20",
+        "20-25": "TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) BETWEEN 20 AND 25",
         "25-34": "TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) BETWEEN 25 AND 34",
         "35-44": "TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) BETWEEN 35 AND 44",
         "45-54": "TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) BETWEEN 45 AND 54",
@@ -1006,7 +1009,8 @@ def get_age_segmentation(year, filter_conditions):
     query = f"""
         SELECT
             CASE
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') < 25 THEN 'Under 25'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') < 20 THEN 'Under 20'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 20 AND 25 THEN '20-25'
                 WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 25 AND 34 THEN '25-34'
                 WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 35 AND 44 THEN '35-44'
                 WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 45 AND 54 THEN '45-54'
@@ -1027,7 +1031,8 @@ def get_age_segmentation(year, filter_conditions):
             AND birth_date IS NOT NULL {filter_conditions}
         GROUP BY
             CASE
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') < 25 THEN 'Under 25'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') < 20 THEN 'Under 20'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 20 AND 25 THEN '20-25'
                 WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 25 AND 34 THEN '25-34'
                 WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 35 AND 44 THEN '35-44'
                 WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 45 AND 54 THEN '45-54'
@@ -1040,9 +1045,35 @@ def get_age_segmentation(year, filter_conditions):
     results = frappe.db.sql(query, as_dict=True)
 
     # Sort results in the proper age order
-    age_order = ["Under 25", "25-34", "35-44", "45-54", "55-64", "65+", "Unknown"]
+    age_order = ["Under 20", "20-25", "25-34", "35-44", "45-54", "55-64", "65+", "Unknown"]
     results.sort(key=lambda x: age_order.index(x["name"]) if x["name"] in age_order else len(age_order))
 
+    return results
+
+
+def get_volunteer_participation_by_chapter(year, filter_conditions):
+    """Get volunteer participation breakdown by chapter"""
+    year = int(year)
+    year_start = f"{year}-01-01"
+    year_end = f"{year}-12-31"
+
+    query = f"""
+        SELECT
+            COALESCE(cm.parent, 'No Chapter') as chapter,
+            SUM(CASE WHEN v.name IS NOT NULL THEN 1 ELSE 0 END) as volunteers,
+            SUM(CASE WHEN v.name IS NULL THEN 1 ELSE 0 END) as non_volunteers,
+            COUNT(DISTINCT m.name) as total_members
+        FROM `tabMember` m
+        LEFT JOIN `tabChapter Member` cm ON cm.member = m.name AND cm.enabled = 1
+        LEFT JOIN `tabVolunteer` v ON v.member = m.name AND v.status = 'Active'
+        WHERE m.member_since <= '{year_end}'
+            AND (m.member_end_date IS NULL OR m.member_end_date >= '{year_start}')
+            AND m.status NOT IN ('Rejected', 'Terminated', 'Banned', 'Deceased') {filter_conditions}
+        GROUP BY COALESCE(cm.parent, 'No Chapter')
+        ORDER BY total_members DESC
+    """
+
+    results = frappe.db.sql(query, as_dict=True)
     return results
 
 

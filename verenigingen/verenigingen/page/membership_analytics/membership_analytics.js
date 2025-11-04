@@ -322,7 +322,7 @@ class MembershipAnalytics {
 		});
 
 		// Age groups are predefined
-		const ageGroups = ['Under 25', '25-34', '35-44', '45-54', '55-64', '65+'];
+		const ageGroups = ['Under 20', '20-25', '25-34', '35-44', '45-54', '55-64', '65+'];
 		const ageSelect = $('#filter-age-group');
 		ageGroups.forEach((age) => {
 			ageSelect.append(`<option value="${age}">${age}</option>`);
@@ -478,6 +478,7 @@ class MembershipAnalytics {
 
 		// Render segmentation data
 		if (data.segmentation) {
+			console.log('Segmentation data:', data.segmentation);
 			this.render_segmentation(data.segmentation);
 		}
 
@@ -491,8 +492,23 @@ class MembershipAnalytics {
 	}
 
 	update_summary_cards(summary, previous, current_year_revenue) {
+		console.log('Updating summary cards. Previous period data:', previous);
+
 		// Total Members
 		$('#total-members').text(this.format_number(summary.total_members));
+
+		// Show total members change if previous data available
+		if (previous) {
+			const member_change = summary.total_members - previous.total_members;
+			const member_change_pct = previous.total_members
+				? ((member_change / previous.total_members) * 100).toFixed(1)
+				: 0;
+			$('#total-members-change').html(
+				`<i class="fa fa-${member_change >= 0 ? 'arrow-up' : 'arrow-down'}"></i> ${member_change_pct}% vs previous period`
+			);
+		} else {
+			$('#total-members-change').html('');
+		}
 
 		// Net Growth
 		$('#net-growth').html(this.format_growth_number(summary.net_growth));
@@ -630,10 +646,18 @@ class MembershipAnalytics {
 						: 'progress-bar-danger';
 
 			const goal_html = `
-                <div class="goal-item mb-3">
+                <div class="goal-item mb-3" data-goal-name="${goal.name}">
                     <div class="d-flex justify-content-between mb-1">
                         <strong>${goal.goal_name}</strong>
-                        <span>${goal.achievement_percentage.toFixed(1)}%</span>
+                        <div>
+                            <span class="mr-2">${goal.achievement_percentage.toFixed(1)}%</span>
+                            <a href="#" class="btn-edit-goal text-muted" data-goal-name="${goal.name}" title="${__('Edit Goal')}">
+                                <i class="fa fa-pencil"></i>
+                            </a>
+                            <a href="#" class="btn-delete-goal text-muted ml-1" data-goal-name="${goal.name}" title="${__('Delete Goal')}">
+                                <i class="fa fa-trash"></i>
+                            </a>
+                        </div>
                     </div>
                     <div class="progress">
                         <div class="progress-bar ${progress_class}"
@@ -647,6 +671,19 @@ class MembershipAnalytics {
                 </div>
             `;
 			container.append(goal_html);
+		});
+
+		// Attach event handlers for edit/delete buttons
+		$('.btn-edit-goal').on('click', (e) => {
+			e.preventDefault();
+			const goal_name = $(e.currentTarget).data('goal-name');
+			this.edit_goal(goal_name);
+		});
+
+		$('.btn-delete-goal').on('click', (e) => {
+			e.preventDefault();
+			const goal_name = $(e.currentTarget).data('goal-name');
+			this.delete_goal(goal_name);
 		});
 	}
 
@@ -725,7 +762,11 @@ class MembershipAnalytics {
 						'Churn Reduction',
 						'Chapter Expansion'
 					],
-					reqd: 1
+					reqd: 1,
+					onchange: () => {
+						const goal_type = d.get_value('goal_type');
+						this.update_target_field_label(d, goal_type);
+					}
 				},
 				{
 					label: __('Target Value'),
@@ -783,6 +824,175 @@ class MembershipAnalytics {
 			}
 		});
 		d.show();
+	}
+
+	update_target_field_label(dialog, goal_type) {
+		if (!goal_type) return;
+
+		const percentage_goals = ['Retention Rate', 'Churn Reduction'];
+		const is_percentage = percentage_goals.includes(goal_type);
+
+		let label, description;
+
+		if (is_percentage) {
+			label = __('Target Value (%)');
+			description = __('Enter percentage as a number (e.g., 85 for 85%)');
+		} else {
+			switch(goal_type) {
+				case 'Revenue Growth':
+					label = __('Target Revenue');
+					description = __('Enter target revenue amount (e.g., 50000)');
+					break;
+				case 'Member Count Growth':
+					label = __('Target Net Growth');
+					description = __('Enter target number of new members (e.g., 100)');
+					break;
+				case 'New Member Acquisition':
+					label = __('Target New Members');
+					description = __('Enter target number of new member acquisitions (e.g., 150)');
+					break;
+				case 'Chapter Expansion':
+					label = __('Target New Chapters');
+					description = __('Enter target number of new chapters with active members (e.g., 5)');
+					break;
+				default:
+					label = __('Target Value');
+					description = __('Enter target value as a number');
+			}
+		}
+
+		dialog.set_df_property('target_value', 'label', label);
+		dialog.set_df_property('target_value', 'description', description);
+	}
+
+	edit_goal(goal_name) {
+		// Fetch the goal data first
+		frappe.call({
+			method: 'frappe.client.get',
+			args: {
+				doctype: 'Membership Goal',
+				name: goal_name
+			},
+			callback: (r) => {
+				if (r.message) {
+					const goal = r.message;
+
+					const d = new frappe.ui.Dialog({
+						title: __('Edit Membership Goal'),
+						fields: [
+							{
+								label: __('Goal Name'),
+								fieldname: 'goal_name',
+								fieldtype: 'Data',
+								default: goal.goal_name,
+								reqd: 1
+							},
+							{
+								label: __('Goal Type'),
+								fieldname: 'goal_type',
+								fieldtype: 'Select',
+								options: [
+									'Member Count Growth',
+									'Revenue Growth',
+									'Retention Rate',
+									'New Member Acquisition',
+									'Churn Reduction',
+									'Chapter Expansion'
+								],
+								default: goal.goal_type,
+								reqd: 1,
+								onchange: () => {
+									const goal_type = d.get_value('goal_type');
+									this.update_target_field_label(d, goal_type);
+								}
+							},
+							{
+								label: __('Target Value'),
+								fieldname: 'target_value',
+								fieldtype: 'Float',
+								default: goal.target_value,
+								reqd: 1,
+								description: __('Enter number or percentage based on goal type')
+							},
+							{
+								label: __('Goal Year'),
+								fieldname: 'goal_year',
+								fieldtype: 'Int',
+								default: goal.goal_year,
+								reqd: 1
+							},
+							{
+								label: __('Start Date'),
+								fieldname: 'start_date',
+								fieldtype: 'Date',
+								default: goal.start_date,
+								reqd: 1
+							},
+							{
+								label: __('End Date'),
+								fieldname: 'end_date',
+								fieldtype: 'Date',
+								default: goal.end_date,
+								reqd: 1
+							},
+							{
+								label: __('Description'),
+								fieldname: 'description',
+								fieldtype: 'Text',
+								default: goal.description
+							}
+						],
+						primary_action_label: __('Update Goal'),
+						primary_action: (values) => {
+							frappe.call({
+								method: 'frappe.client.set_value',
+								args: {
+									doctype: 'Membership Goal',
+									name: goal_name,
+									fieldname: values
+								},
+								callback: (r) => {
+									if (r.message) {
+										frappe.show_alert({
+											message: __('Goal updated successfully'),
+											indicator: 'green'
+										});
+										d.hide();
+										this.refresh_dashboard();
+									}
+								}
+							});
+						}
+					});
+
+					d.show();
+					// Update label based on initial goal type
+					this.update_target_field_label(d, goal.goal_type);
+				}
+			}
+		});
+	}
+
+	delete_goal(goal_name) {
+		frappe.confirm(
+			__('Are you sure you want to delete this goal?'),
+			() => {
+				frappe.call({
+					method: 'frappe.client.delete',
+					args: {
+						doctype: 'Membership Goal',
+						name: goal_name
+					},
+					callback: (r) => {
+						frappe.show_alert({
+							message: __('Goal deleted successfully'),
+							indicator: 'green'
+						});
+						this.refresh_dashboard();
+					}
+				});
+			}
+		);
 	}
 
 	// Helper functions
@@ -854,12 +1064,10 @@ class MembershipAnalytics {
 			);
 		}
 
-		// Render payment method segmentation
-		if (segmentation.by_payment_method) {
-			this.render_segmentation_chart(
-				'payment-method-chart',
-				segmentation.by_payment_method,
-				'Payment Methods'
+		// Render volunteer participation by chapter
+		if (segmentation.volunteer_participation_by_chapter) {
+			this.render_volunteer_participation_chart(
+				segmentation.volunteer_participation_by_chapter
 			);
 		}
 	}
@@ -898,6 +1106,56 @@ class MembershipAnalytics {
 			axisOptions: {
 				xAxisMode: 'tick',
 				xIsSeries: true
+			}
+		});
+	}
+
+	render_volunteer_participation_chart(data) {
+		const container = $('#volunteer-participation-chart');
+		console.log('Volunteer participation data:', data);
+		if (!container.length) {
+			console.error('Volunteer participation chart container not found');
+			return;
+		}
+		if (!data || data.length === 0) {
+			console.log('No volunteer participation data available');
+			container.html('<p class="text-muted">No volunteer participation data available</p>');
+			return;
+		}
+
+		// Sort by chapter name
+		const sortedData = data.sort((a, b) => a.chapter.localeCompare(b.chapter));
+
+		const chartData = {
+			labels: sortedData.map((d) => d.chapter),
+			datasets: [
+				{
+					name: __('Volunteers'),
+					values: sortedData.map((d) => d.volunteers)
+				},
+				{
+					name: __('Non-Volunteers'),
+					values: sortedData.map((d) => d.non_volunteers)
+				}
+			]
+		};
+
+		// Destroy existing chart if any
+		if (this.charts['volunteer-participation-chart']) {
+			this.charts['volunteer-participation-chart'].destroy();
+		}
+
+		this.charts['volunteer-participation-chart'] = new frappe.Chart('#volunteer-participation-chart', {
+			data: chartData,
+			type: 'bar',
+			height: 250,
+			colors: ['#28a745', '#6c757d'],
+			axisOptions: {
+				xAxisMode: 'tick',
+				xIsSeries: true
+			},
+			barOptions: {
+				stacked: 1
 			}
 		});
 	}
