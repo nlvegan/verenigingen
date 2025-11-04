@@ -83,8 +83,6 @@ class MemberMergeService:
         "member_end_date",
         "current_membership_plan",
         "current_membership_type",
-        "current_membership_start",
-        "current_membership_end",
         "current_dues_schedule",
         "dues_rate",
         "next_invoice_date",

@@ -490,6 +490,28 @@ class Membership(Document):
                     # For lifetime memberships without minimum period, set a far future date
                     self.renewal_date = add_to_date(self.start_date, years=50)
 
+        # Set commitment end date (typically 1 year from start for welcome gift eligibility)
+        # This is separate from renewal_date as it tracks when members can quit
+        self.set_commitment_end_date()
+
+    def set_commitment_end_date(self):
+        """
+        Set the commitment end date - the minimum period members must remain before quitting.
+        This is typically 1 year from start date for members who receive welcome gifts.
+        """
+        if not self.start_date:
+            return
+
+        # Default to 1 year commitment period (welcome gift eligibility requirement)
+        # Can be overridden if needed for special cases
+        if not self.commitment_end_date:
+            reference_date = self.start_date
+            if getattr(self, "_is_csv_import", False) and getdate(self.start_date) < getdate(today()):
+                # For historic imports, calculate from today
+                reference_date = today()
+
+            self.commitment_end_date = add_to_date(reference_date, months=12)
+
     def get_months_from_period(self, period, custom_months=None):
         period_months = {
             "Daily": 0,  # Will be handled specially

@@ -20,6 +20,7 @@
     "details_section",
     "start_date",
     "renewal_date",
+    "commitment_end_date",
     "column_break_11",
     "cancellation_date",
     "cancellation_reason",
@@ -130,6 +131,13 @@
       "fieldname": "renewal_date",
       "fieldtype": "Date",
       "label": "Renewal Date",
+      "read_only": 1
+    },
+    {
+      "description": "Members who receive welcome gifts cannot quit before this date (typically 1 year from start)",
+      "fieldname": "commitment_end_date",
+      "fieldtype": "Date",
+      "label": "Commitment Period Ends",
       "read_only": 1
     },
     {

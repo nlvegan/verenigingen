@@ -716,6 +716,11 @@ class MembershipTerminationRequest(Document):
         if member_status in ["Terminated", "Banned", "Deceased"]:
             frappe.throw(_("Cannot terminate member with status: {0}").format(member_status))
 
+        # Validate commitment period for voluntary terminations
+        # Disciplinary terminations bypass this check
+        if self.termination_type == "Voluntary":
+            self.validate_commitment_period()
+
         # Validate disciplinary terminations
         disciplinary_types = ["Policy Violation", "Disciplinary Action", "Expulsion"]
         if self.termination_type in disciplinary_types:
@@ -730,6 +735,35 @@ class MembershipTerminationRequest(Document):
             # Validate approver permissions
             if self.secondary_approver:
                 self._validate_approver_permissions(self.secondary_approver)
+
+    def validate_commitment_period(self):
+        """
+        Validate that member has completed their commitment period.
+        Members who receive welcome gifts must remain for minimum 1 year.
+        """
+        # Get the member's current active membership
+        current_membership = frappe.db.get_value("Member", self.member, "current_membership_plan")
+
+        if not current_membership:
+            # No active membership, no commitment to check
+            return
+
+        # Get the commitment end date from the membership
+        commitment_end_date = frappe.db.get_value("Membership", current_membership, "commitment_end_date")
+
+        if not commitment_end_date:
+            # No commitment period set, allow termination
+            return
+
+        # Check if termination date is before commitment end date
+        if getdate(self.termination_date) < getdate(commitment_end_date):
+            frappe.throw(
+                _(
+                    "Member cannot quit before {0} due to welcome gift commitment period. "
+                    "They must remain a member for at least one year from their membership start date."
+                ).format(frappe.format(commitment_end_date, {"fieldtype": "Date"})),
+                title=_("Commitment Period Not Met"),
+            )
 
     def _validate_approver_permissions(self, user):
         """Validate that the user has permission to approve termination requests"""

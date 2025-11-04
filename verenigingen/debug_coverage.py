@@ -222,9 +222,7 @@ def debug_coverage_analysis_original():
                 results.append(
                     f"    Membership: {member.current_membership_type} ({member.membership_status})"
                 )
-                results.append(
-                    f"    Period: {member.current_membership_start} to {member.current_membership_end or 'Active'}"
-                )
+                # Note: Membership period details moved to Membership DocType
                 results.append("")
         else:
             results.append("❌ No active members found!")

@@ -437,9 +437,8 @@ class TestMember(EnhancedTestCase):
         # These fields should be empty for new members
         self.assertFalse(member.current_membership_plan)
         self.assertFalse(member.current_dues_schedule)
-        self.assertFalse(member.current_membership_start)
-        self.assertFalse(member.current_membership_end)
         self.assertFalse(member.membership_status)
+        # Note: membership period fields moved to Membership DocType
 
     def test_iban_transfer_from_application(self):
         """Test that IBAN data is properly transferred from application to member"""

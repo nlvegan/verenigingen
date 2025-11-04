@@ -40,8 +40,6 @@
   "dues_rate",
   "next_invoice_date",
   "column_break_incg",
-  "current_membership_start",
-  "current_membership_end",
   "amendment_status_html",
   "member_end_date",
   "termination_status_html",
@@ -619,20 +617,6 @@
    "read_only": 1
   },
   {
-   "fetch_from": "current_membership_plan.start_date",
-   "fieldname": "current_membership_start",
-   "fieldtype": "Date",
-   "label": "Membership start date",
-   "read_only": 1
-  },
-  {
-   "fetch_from": "current_membership_plan.renewal_date",
-   "fieldname": "current_membership_end",
-   "fieldtype": "Date",
-   "label": "Membership end date",
-   "read_only": 1
-  },
-  {
    "fetch_from": "current_membership.plan.status",
    "fieldname": "membership_status",
    "fieldtype": "Data",
@@ -724,7 +708,8 @@
    "fieldname": "member_end_date",
    "fieldtype": "Date",
    "label": "Membership End Date",
-   "read_only": 1
+   "read_only": 1,
+   "read_only_depends_on": "eval:!(frappe.user_roles.includes('System Manager') || frappe.user_roles.includes('Verenigingen Administrator') || frappe.user_roles.includes('Verenigingen Staff'))"
   },
   {
    "fieldname": "membership_tab",
