@@ -584,6 +584,15 @@ class BankTransactionCreator:
 
         while retry_count < max_retries:
             try:
+                # CRITICAL: Double-check for existing Bank Transaction immediately before insert
+                # This minimizes the race condition window between check and insert
+                existing_bt_name = self._check_existing_by_reference(reference_number)
+                if existing_bt_name:
+                    frappe.logger().info(
+                        f"⏭️ Bank Transaction already exists (caught in retry loop): {existing_bt_name}"
+                    )
+                    return existing_bt_name
+
                 bank_transaction_dict = {
                     "doctype": "Bank Transaction",
                     "date": date,
@@ -662,23 +671,47 @@ class BankTransactionCreator:
                         f"✅ Created and submitted Bank Transaction: {bank_transaction.name} "
                         f"(ref: {reference_number}, amount: {currency} {deposit or withdrawal})"
                     )
+                    return bank_transaction.name
                 else:
                     # Document created but not submitted (draft state)
                     frappe.logger().info(
                         f"✅ Created Bank Transaction (draft): {bank_transaction.name} "
                         f"(ref: {reference_number}) - user lacks submit permission"
                     )
-
                     return bank_transaction.name
 
-            except (DuplicateEntryError, frappe.UniqueValidationError):
+            except (DuplicateEntryError, frappe.UniqueValidationError) as dup_error:
                 # Handle race condition: another process created this Bank Transaction
                 # UniqueValidationError is raised by secure_document_operation when IntegrityError occurs
                 frappe.logger().info(
                     f"⏭️ Bank Transaction already created (race condition): {reference_number}"
                 )
-                # Return existing Bank Transaction
-                return self._check_existing_by_reference(reference_number)
+
+                # Query the existing Bank Transaction - it MUST exist since we got a duplicate error
+                existing_bt_name = self._check_existing_by_reference(reference_number)
+
+                if existing_bt_name:
+                    frappe.logger().info(
+                        f"✅ Successfully recovered from race condition - using existing BT: {existing_bt_name}"
+                    )
+                    return existing_bt_name
+                else:
+                    # This should never happen - we got a duplicate error but can't find the record
+                    # This could indicate a database issue or the record was created and immediately deleted
+                    frappe.logger().error(
+                        f"❌ CRITICAL: Got duplicate error for {reference_number} but cannot find existing record. "
+                        f"Retrying... (attempt {retry_count + 1}/{max_retries})"
+                    )
+                    retry_count += 1
+                    if retry_count < max_retries:
+                        time.sleep(0.1)  # Brief wait before retry
+                        continue
+                    else:
+                        frappe.log_error(
+                            f"Race condition recovery failed for {reference_number}: {dup_error}",
+                            "Bank Transaction Race Condition Error",
+                        )
+                        return None
 
             except frappe.QueryDeadlockError as e:
                 # Deadlock detected - retry with exponential backoff
