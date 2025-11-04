@@ -449,8 +449,8 @@ class EligibilityChecker:
         """
         Check if it's too early to generate invoice based on invoice_days_before setting.
 
-        Only applies when there's existing coverage - prevents generating too far ahead.
-        If no coverage exists, member has a gap that needs filling immediately.
+        Only applies when there's existing coverage AND no gap exists - prevents generating too far ahead.
+        If no coverage exists or there's a gap, member needs invoice immediately.
 
         Returns:
             EligibilityResult indicating if timing allows generation
@@ -461,6 +461,11 @@ class EligibilityChecker:
         latest_coverage_end = self._schedule_doc.get_latest_coverage_end_date()
 
         if latest_coverage_end:
+            # If there's a coverage gap (coverage ended in the past), generate immediately
+            if latest_coverage_end < getdate(today()):
+                return EligibilityResult(True, "Coverage gap detected - generate immediately", "valid")
+
+            # Coverage extends into the future - check if it's time to generate next invoice
             # Use configured days_before or system default (30 days)
             days_before = self.invoice_days_before if self.invoice_days_before is not None else 30
             generate_on_date = add_days(self.next_invoice_date, -days_before)

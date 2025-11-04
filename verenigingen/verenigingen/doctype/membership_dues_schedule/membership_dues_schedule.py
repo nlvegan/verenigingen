@@ -2205,10 +2205,12 @@ def calculate_cutoff_date_for_period():
         # Calculate end of current quarter
         quarter_end_month = ((current_quarter * 3 - 1) + book_year_start_month - 1) % 12 + 1
 
-        if quarter_end_month <= today_date.month:
+        # If quarter end month is greater than current month, quarter ends later this year
+        # If quarter end month is less than/equal to current month, we're past that quarter end
+        if quarter_end_month >= today_date.month:
             quarter_end_year = today_date.year
         else:
-            quarter_end_year = today_date.year - 1
+            quarter_end_year = today_date.year + 1
 
         # Get last day of quarter end month
         if quarter_end_month == 12:

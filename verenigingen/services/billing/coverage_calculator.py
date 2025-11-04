@@ -168,9 +168,8 @@ class CoverageCalculator:
         """
         Determine if invoice generation is needed to cover through cutoff_date.
 
-        The duplicate coverage check is the real safeguard - this just determines if we
-        should attempt generation. Generating ahead of time is fine as long as we don't
-        duplicate coverage.
+        Prioritizes actual coverage data from submitted invoices over the next_invoice_date
+        tracking field, which can become stale after invoice cancellations or manual adjustments.
 
         Args:
             cutoff_date: Target date that should be covered by invoices
@@ -185,15 +184,14 @@ class CoverageCalculator:
         if latest_coverage_end is None:
             latest_coverage_end = self.get_latest_coverage_end_date(None)
 
-        # Generate if:
-        # 1. No previous coverage, OR
-        # 2. Latest coverage doesn't extend through cutoff_date, OR
-        # 3. next_invoice_date is overdue
-        return (
-            not latest_coverage_end
-            or latest_coverage_end < cutoff_date
-            or (self.next_invoice_date and getdate(self.next_invoice_date) < getdate(today()))
-        )
+        # If we have actual coverage data, use it exclusively
+        # This prevents stale next_invoice_date from affecting decisions
+        if latest_coverage_end is not None:
+            return latest_coverage_end < cutoff_date
+
+        # No coverage exists yet - use next_invoice_date as signal for first invoice
+        # Generate if no next_invoice_date set, or if it's overdue
+        return not self.next_invoice_date or getdate(self.next_invoice_date) < getdate(today())
 
     # ========== Data Access Methods ==========
 
