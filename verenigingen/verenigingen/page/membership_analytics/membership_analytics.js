@@ -240,14 +240,24 @@ class MembershipAnalytics {
 		// Cohort interval toggle buttons
 		$('#cohort-monthly').on('click', () => {
 			$('#cohort-monthly').addClass('active');
+			$('#cohort-quarterly').removeClass('active');
 			$('#cohort-yearly').removeClass('active');
 			this.filters.cohort_interval = 'monthly';
 			this.refresh_dashboard();
 		});
 
-		$('#cohort-yearly').on('click', () => {
-			$('#cohort-yearly').addClass('active');
+		$('#cohort-quarterly').on('click', () => {
 			$('#cohort-monthly').removeClass('active');
+			$('#cohort-quarterly').addClass('active');
+			$('#cohort-yearly').removeClass('active');
+			this.filters.cohort_interval = 'quarterly';
+			this.refresh_dashboard();
+		});
+
+		$('#cohort-yearly').on('click', () => {
+			$('#cohort-monthly').removeClass('active');
+			$('#cohort-quarterly').removeClass('active');
+			$('#cohort-yearly').addClass('active');
 			this.filters.cohort_interval = 'yearly';
 			this.refresh_dashboard();
 		});
@@ -946,11 +956,25 @@ class MembershipAnalytics {
 			return;
 		}
 
-		// Detect interval type (monthly vs yearly)
-		const isYearly = cohortData[0].retention.length > 0 && 'year' in cohortData[0].retention[0];
-		const maxPeriods = isYearly ? 10 : 12;
-		const periodKey = isYearly ? 'year' : 'month';
-		const periodLabel = isYearly ? 'Y' : 'M';
+		// Detect interval type (monthly, quarterly, or yearly)
+		const firstRetention = cohortData[0].retention.length > 0 ? cohortData[0].retention[0] : null;
+		const isYearly = firstRetention && 'year' in firstRetention;
+		const isQuarterly = firstRetention && 'quarter' in firstRetention;
+
+		let maxPeriods, periodKey, periodLabel;
+		if (isYearly) {
+			maxPeriods = 10;
+			periodKey = 'year';
+			periodLabel = 'Y';
+		} else if (isQuarterly) {
+			maxPeriods = 12;
+			periodKey = 'quarter';
+			periodLabel = 'Q';
+		} else {
+			maxPeriods = 12;
+			periodKey = 'month';
+			periodLabel = 'M';
+		}
 
 		let tableHtml = `
             <table class="table table-bordered table-sm cohort-table">

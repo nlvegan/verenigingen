@@ -1164,6 +1164,8 @@ def get_cohort_analysis(year=None, cohort_interval="monthly"):
     # Determine cohort periods based on interval
     if cohort_interval == "yearly":
         return _get_yearly_cohorts(earliest_date)
+    elif cohort_interval == "quarterly":
+        return _get_quarterly_cohorts(earliest_date)
     else:
         return _get_monthly_cohorts(earliest_date)
 
@@ -1220,6 +1222,84 @@ def _get_monthly_cohorts(earliest_date):
 
         # Move to next month
         cohort_date = add_months(cohort_date, 1)
+
+    return cohorts
+
+
+def _get_quarterly_cohorts(earliest_date):
+    """Generate quarterly cohorts from earliest_date to now"""
+    cohorts = []
+    current_date = datetime.now()
+
+    # Start from the beginning of the earliest quarter
+    cohort_year = earliest_date.year
+    cohort_quarter = (earliest_date.month - 1) // 3 + 1  # 1-4
+
+    while cohort_year < current_date.year or (
+        cohort_year == current_date.year and cohort_quarter <= (current_date.month - 1) // 3 + 1
+    ):
+        # Calculate quarter start and end dates
+        quarter_start_month = (cohort_quarter - 1) * 3 + 1
+        quarter_start = datetime(cohort_year, quarter_start_month, 1)
+        quarter_end_month = quarter_start_month + 2
+
+        # Get initial cohort size for the quarter
+        initial_count = frappe.db.sql(
+            """
+            SELECT COUNT(*)
+            FROM `tabMember`
+            WHERE member_since >= %s
+            AND member_since < DATE_ADD(%s, INTERVAL 3 MONTH)
+            AND status != 'Rejected'
+            """,
+            (quarter_start, quarter_start),
+        )[0][0]
+
+        if initial_count > 0:
+            quarter_label = f"Q{cohort_quarter} {cohort_year}"
+            cohort_data = {
+                "cohort": quarter_label,
+                "initial": initial_count,
+                "retention": [],
+            }
+
+            # Calculate retention for each subsequent quarter
+            current_quarter = (current_date.month - 1) // 3 + 1
+            quarters_since_cohort = (current_date.year - cohort_year) * 4 + (current_quarter - cohort_quarter)
+
+            for quarter_offset in range(0, min(quarters_since_cohort + 1, 12)):  # Cap at 12 quarters (3 years)
+                check_quarter = cohort_quarter + quarter_offset
+                check_year = cohort_year + (check_quarter - 1) // 4
+                check_quarter = ((check_quarter - 1) % 4) + 1
+
+                # End of the check quarter
+                check_quarter_month = (check_quarter - 1) * 3 + 3
+                end_of_check_quarter = datetime(check_year, check_quarter_month, 1)
+                end_of_check_quarter = add_months(end_of_check_quarter, 1)  # Start of next quarter
+
+                retained = frappe.db.sql(
+                    """
+                    SELECT COUNT(*)
+                    FROM `tabMember` m
+                    WHERE member_since >= %s
+                    AND member_since < DATE_ADD(%s, INTERVAL 3 MONTH)
+                    AND (member_end_date IS NULL OR member_end_date >= %s)
+                    """,
+                    (quarter_start, quarter_start, end_of_check_quarter),
+                )[0][0]
+
+                retention_rate = (retained / initial_count) * 100 if initial_count > 0 else 0
+                cohort_data["retention"].append(
+                    {"quarter": quarter_offset, "rate": retention_rate, "count": retained}
+                )
+
+            cohorts.append(cohort_data)
+
+        # Move to next quarter
+        cohort_quarter += 1
+        if cohort_quarter > 4:
+            cohort_quarter = 1
+            cohort_year += 1
 
     return cohorts
 
