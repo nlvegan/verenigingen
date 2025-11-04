@@ -709,7 +709,7 @@
    "fieldname": "member_since",
    "fieldtype": "Date",
    "label": "Member Since",
-   "read_only": 1
+   "read_only_depends_on": "eval:!frappe.user_roles.includes('System Manager') && !frappe.user_roles.includes('Verenigingen Administrator') && !frappe.user_roles.includes('Verenigingen Staff')"
   },
   {
    "description": "Total cumulative time as an active member, calculated from membership days",
