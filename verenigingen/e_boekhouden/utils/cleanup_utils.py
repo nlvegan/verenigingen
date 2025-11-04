@@ -15,9 +15,17 @@ from verenigingen.utils.security_decorators import development_only
 
 
 @frappe.whitelist()
-@critical_api(operation_type=OperationType.FINANCIAL)
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def cleanup_chart_of_accounts(company, delete_all_accounts=0):
-    """Clean up chart of accounts imported from E-Boekhouden"""
+    """
+    Clean up chart of accounts imported from E-Boekhouden.
+
+    Safety measures:
+    - Requires Account delete permission
+    - Skips accounts with GL entries (preserves transaction history)
+    - Skips system accounts (Asset, Liability, Income, Expense, Equity)
+    - Only deletes leaf accounts first (maintains tree integrity)
+    """
     try:
         # Check permissions upfront
         if not frappe.has_permission("Account", "delete"):
@@ -25,7 +33,11 @@ def cleanup_chart_of_accounts(company, delete_all_accounts=0):
 
         # Use migration context for cleanup operations
         with migration_context("account_creation"):
-            delete_all = int(delete_all_accounts)
+            # Handle both boolean strings ('true'/'false') and numeric strings ('1'/'0')
+            if isinstance(delete_all_accounts, str):
+                delete_all = delete_all_accounts.lower() in ('true', '1')
+            else:
+                delete_all = bool(delete_all_accounts)
 
             cleanup_results = {"accounts_deleted": 0, "accounts_skipped": 0, "errors": []}
 
