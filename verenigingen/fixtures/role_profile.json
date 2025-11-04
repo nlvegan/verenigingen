@@ -28,6 +28,15 @@
       },
       {
         "role": "Expense Approver"
+      },
+      {
+        "role": "Accounts User"
+      },
+      {
+        "role": "Sales User"
+      },
+      {
+        "role": "Purchase User"
       }
     ]
   },
@@ -245,6 +254,15 @@
       },
       {
         "role": "System Manager"
+      },
+      {
+        "role": "Accounts Manager"
+      },
+      {
+        "role": "Sales Manager"
+      },
+      {
+        "role": "Purchase Manager"
       }
     ]
   },
@@ -271,6 +289,15 @@
       },
       {
         "role": "Support Team"
+      },
+      {
+        "role": "Accounts User"
+      },
+      {
+        "role": "Sales User"
+      },
+      {
+        "role": "Purchase User"
       }
     ]
   },

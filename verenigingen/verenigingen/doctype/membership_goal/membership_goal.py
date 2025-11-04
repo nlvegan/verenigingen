@@ -7,6 +7,7 @@ from typing import Union
 import frappe
 from frappe.model.document import Document
 from frappe.query_builder import DocType
+from frappe.query_builder.functions import Count
 from frappe.utils import flt, getdate, now_datetime
 
 from verenigingen.utils.api_response import api_response_handler
@@ -211,7 +212,7 @@ class MembershipGoal(Document):
         try:
             query = (
                 frappe.qb.from_(Member)
-                .select(frappe.qb.functions.Count(Member.current_chapter_display.distinct()))
+                .select(Count(Member.current_chapter_display.distinct()))
                 .where(
                     (Member.member_since.between(self.start_date, self.end_date))
                     & (Member.current_chapter_display.isnotnull())

@@ -292,11 +292,7 @@ def get_current_year_revenue(year):
             SELECT COALESCE(SUM(DISTINCT pe.paid_amount), 0) as total
             FROM `tabPayment Entry` pe
             LEFT JOIN `tabPayment Entry Reference` per ON per.parent = pe.name
-            LEFT JOIN `tabMember` m ON (
-                pe.party = m.name
-                OR pe.custom_mollie_payment_id = m.mollie_subscription_id
-                OR pe.mollie_transaction_id LIKE CONCAT('%%', m.mollie_customer_id, '%%')
-            )
+            LEFT JOIN `tabMember` m ON pe.party = m.name
             WHERE pe.docstatus = 1
                 AND pe.posting_date BETWEEN %s AND %s
                 AND pe.payment_type = 'Receive'
