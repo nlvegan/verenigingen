@@ -1219,8 +1219,21 @@ class MollieDebugService:
             # Add optional parameters
             if mandate_id:
                 subscription_data["mandateId"] = mandate_id
+
+            # Handle start date - use configured scheduled months if not explicitly provided
             if start_date:
                 subscription_data["startDate"] = start_date
+            else:
+                # For quarterly/yearly subscriptions, calculate optimal start date
+                if interval in ["3 months", "6 months", "12 months"]:
+                    mollie_settings = frappe.get_single("Mollie Settings")
+                    calculated_start = mollie_settings.get_next_payment_date_for_scheduled_months(min_months_ahead=2)
+                    if calculated_start:
+                        subscription_data["startDate"] = calculated_start
+                        frappe.logger().info(
+                            f"Auto-calculated subscription start date: {calculated_start} "
+                            f"(interval: {interval}, configured months: {mollie_settings.quarterly_yearly_payment_months})"
+                        )
 
             # Create subscription
             customer = client.customers.get(customer_id)
@@ -1257,6 +1270,181 @@ class MollieDebugService:
             # Log full error internally with user context
             frappe.log_error(
                 f"Mollie subscription creation error for user {frappe.session.user}, "
+                f"customer {customer_id}: {str(e)}"
+            )
+
+        return result
+
+    def create_scheduled_subscription(
+        self,
+        customer_id: str,
+        amount: float,
+        interval_count: int,
+        interval_unit: str,
+        description: str,
+        times: int = None,
+        start_date: str = None,
+        mandate_id: str = None,
+    ):
+        """
+        Create a new Mollie subscription with flexible scheduling options.
+
+        Args:
+            customer_id: Mollie customer ID (e.g., "cst_xxxxxxxxxx")
+            amount: Subscription amount in EUR
+            interval_count: Number of weeks/months between payments (1-12 for months, 1-52 for weeks)
+            interval_unit: "weeks" or "months"
+            description: Human-readable subscription description
+            times: Optional number of payments before subscription ends (None = indefinite)
+            start_date: Optional start date (YYYY-MM-DD format). If None and interval is quarterly/yearly,
+                       will use configured scheduled months
+            mandate_id: Optional specific mandate ID to use
+
+        Returns:
+            Dict containing subscription details including:
+                - status: "success" or "error"
+                - subscription_id: Created subscription ID (if successful)
+                - error: Error message (if failed)
+
+        Raises:
+            ValueError: If validation fails for any input parameter
+
+        Note:
+            - For monthly intervals, payments will be scheduled on the configured payment_day_of_month
+            - For quarterly/yearly intervals without explicit start_date, uses configured scheduled months
+            - This operation is restricted to Verenigingen Administrator role
+        """
+        if not customer_id:
+            raise ValueError(_("Customer ID is required"))
+
+        # Validate amount
+        try:
+            amount_float = float(amount)
+        except (ValueError, TypeError):
+            raise ValueError(_("Invalid amount format - must be a number"))
+
+        if amount_float <= 0:
+            raise ValueError(_("Amount must be positive"))
+
+        if amount_float > 1000.00:
+            raise ValueError(_("Test subscription amount cannot exceed €1,000"))
+
+        # Validate interval
+        try:
+            interval_count_int = int(interval_count)
+        except (ValueError, TypeError):
+            raise ValueError(_("Invalid interval count - must be a number"))
+
+        if interval_unit not in ["weeks", "months"]:
+            raise ValueError(_("Interval unit must be 'weeks' or 'months'"))
+
+        if interval_unit == "months" and not (1 <= interval_count_int <= 12):
+            raise ValueError(_("For months, interval count must be between 1 and 12"))
+
+        if interval_unit == "weeks" and not (1 <= interval_count_int <= 52):
+            raise ValueError(_("For weeks, interval count must be between 1 and 52"))
+
+        # Build Mollie interval string
+        mollie_interval = f"{interval_count_int} {interval_unit[:-1] if interval_count_int == 1 else interval_unit}"
+
+        # Validate times (payment count limit)
+        if times is not None:
+            try:
+                times_int = int(times)
+                if times_int < 1:
+                    raise ValueError(_("Times must be at least 1"))
+                if times_int > 999:
+                    raise ValueError(_("Times cannot exceed 999 payments"))
+            except (ValueError, TypeError):
+                raise ValueError(_("Invalid times format - must be a number"))
+
+        result = {
+            "customer_id": customer_id,
+            "test_mode": self.mollie_client.is_test_mode(),
+            "timestamp": frappe.utils.now(),
+            "status": "pending",
+            "error": None,
+        }
+
+        try:
+            # Get the raw Mollie client
+            client = self.mollie_client.sdk_client
+
+            # Build subscription data
+            subscription_data = {
+                "amount": {"value": f"{amount_float:.2f}", "currency": "EUR"},
+                "interval": mollie_interval,
+                "description": description,
+                "metadata": {
+                    "created_via": "debug_page_scheduled",
+                    "created_by": frappe.session.user,
+                    "created_at": frappe.utils.now(),
+                    "interval_count": interval_count_int,
+                    "interval_unit": interval_unit,
+                },
+            }
+
+            # Add optional parameters
+            if mandate_id:
+                subscription_data["mandateId"] = mandate_id
+
+            if times is not None:
+                subscription_data["times"] = int(times)
+
+            # Handle start date - use configured scheduled months if not explicitly provided
+            if start_date:
+                subscription_data["startDate"] = start_date
+            else:
+                # For quarterly/yearly subscriptions, calculate optimal start date
+                if mollie_interval in ["3 months", "6 months", "12 months"]:
+                    mollie_settings = frappe.get_single("Mollie Settings")
+                    calculated_start = mollie_settings.get_next_payment_date_for_scheduled_months(
+                        min_months_ahead=2
+                    )
+                    if calculated_start:
+                        subscription_data["startDate"] = calculated_start
+                        frappe.logger().info(
+                            f"Auto-calculated subscription start date: {calculated_start} "
+                            f"(interval: {mollie_interval}, configured months: {mollie_settings.quarterly_yearly_payment_months})"
+                        )
+
+            # Create subscription
+            customer = client.customers.get(customer_id)
+            subscription = customer.subscriptions.create(subscription_data)
+
+            result["status"] = "success"
+            result["subscription_id"] = subscription.id
+            result["subscription_status"] = subscription.status
+            result["amount"] = self._format_mollie_amount(subscription.amount)
+            result["interval"] = subscription.interval
+            result["description"] = subscription.description
+            result["webhook_url"] = getattr(subscription, "webhookUrl", "Using dashboard webhook")
+
+            # Add optional fields if present
+            if hasattr(subscription, "start_date") and subscription.start_date:
+                result["start_date"] = str(subscription.start_date)
+            if hasattr(subscription, "next_payment_date") and subscription.next_payment_date:
+                result["next_payment_date"] = str(subscription.next_payment_date)
+            if hasattr(subscription, "times") and subscription.times:
+                result["times"] = subscription.times
+
+            # Enhanced audit logging
+            frappe.logger().info(
+                f"DEBUG SUBSCRIPTION CREATION: User {frappe.session.user} "
+                f"created subscription {subscription.id} for customer {customer_id} "
+                f"(amount: €{amount_float:.2f}, interval: {mollie_interval}, "
+                f"times: {times or 'indefinite'}, start: {start_date or 'auto-calculated'})"
+            )
+
+        except Exception as e:
+            # Sanitize error message before returning to client
+            sanitized_error = self._sanitize_error_message(str(e))
+            result["error"] = sanitized_error
+            result["status"] = "error"
+
+            # Log full error internally with user context
+            frappe.log_error(
+                f"Mollie scheduled subscription creation error for user {frappe.session.user}, "
                 f"customer {customer_id}: {str(e)}"
             )
 

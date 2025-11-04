@@ -550,14 +550,26 @@ class MembershipAnalytics {
 
 		// Show comparison if available
 		if (previous) {
+			// Net Growth comparison
 			const growth_change = summary.net_growth - previous.net_growth;
 			const growth_pct = previous.net_growth
 				? ((growth_change / Math.abs(previous.net_growth)) * 100).toFixed(1)
 				: 0;
 
 			$('#net-growth-change').html(
-				`<i class="fa fa-${growth_change >= 0 ? 'arrow-up' : 'arrow-down'}"></i> ${growth_pct}%`
+				`<i class="fa fa-${growth_change >= 0 ? 'arrow-up' : 'arrow-down'}"></i> ${growth_pct}% vs previous`
 			);
+
+			// Growth Rate comparison (percentage point change)
+			const rate_change = summary.growth_rate - previous.growth_rate;
+			const rate_color = rate_change >= 0 ? 'success' : 'danger';
+			$('#growth-rate').html(
+				`${summary.growth_rate.toFixed(1)}% <small class="text-${rate_color}"><i class="fa fa-${rate_change >= 0 ? 'arrow-up' : 'arrow-down'}"></i> ${Math.abs(rate_change).toFixed(1)}pp</small>`
+			);
+		} else {
+			// Clear comparison displays when not comparing
+			$('#net-growth-change').html('');
+			$('#growth-rate').html(`${summary.growth_rate.toFixed(1)}%`);
 		}
 	}
 

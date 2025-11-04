@@ -205,21 +205,17 @@ class MembershipGoal(Document):
 
     def calculate_chapter_expansion(self) -> int:
         """Calculate number of new chapters with active members"""
-        # This would need to track chapter creation/activation
-        # For now, return count of chapters with new members
-        # Calculate chapter expansion using Query Builder for better maintainability
-        Member = DocType("Member")
+        # Count distinct chapters that have members who joined during the goal period
         try:
-            query = (
-                frappe.qb.from_(Member)
-                .select(Count(Member.current_chapter_display.distinct()))
-                .where(
-                    (Member.member_since.between(self.start_date, self.end_date))
-                    & (Member.current_chapter_display.isnotnull())
-                )
-            )
-            result = query.run()
-            new_chapters = result[0][0] if result and result[0] else 0
+            # Use raw SQL since we need to join with Chapter Member and count distinct chapters
+            query = """
+                SELECT COUNT(DISTINCT cm.parent) as chapter_count
+                FROM `tabMember` m
+                JOIN `tabChapter Member` cm ON cm.member = m.name AND cm.enabled = 1
+                WHERE m.member_since BETWEEN %s AND %s
+            """
+            result = frappe.db.sql(query, (self.start_date, self.end_date), as_dict=True)
+            new_chapters = result[0].chapter_count if result and result[0] else 0
         except Exception as e:
             frappe.log_error(f"Error calculating chapter expansion: {str(e)}")
             new_chapters = 0

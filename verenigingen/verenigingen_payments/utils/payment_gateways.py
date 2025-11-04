@@ -1123,6 +1123,17 @@ def _activate_direct_subscription_after_first_payment(gateway, payment):
             },
         }
 
+        # For quarterly/yearly subscriptions, calculate optimal start date
+        if subscription_interval in ["3 months", "6 months", "12 months"]:
+            mollie_settings = frappe.get_single("Mollie Settings")
+            calculated_start = mollie_settings.get_next_payment_date_for_scheduled_months(min_months_ahead=2)
+            if calculated_start:
+                subscription_data["startDate"] = calculated_start
+                frappe.logger().info(
+                    f"Auto-calculated subscription start date: {calculated_start} "
+                    f"(interval: {subscription_interval}, configured months: {mollie_settings.quarterly_yearly_payment_months})"
+                )
+
         # Create subscription using Mollie API directly
         customer = gateway.client.customers.get(customer_id)
         subscription = customer.subscriptions.create(data=subscription_data)

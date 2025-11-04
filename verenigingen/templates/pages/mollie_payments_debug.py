@@ -357,6 +357,47 @@ def create_subscription(customer_id, amount, interval, description, mandate_id=N
 
 @frappe.whitelist(allow_guest=False)
 @high_security_api(operation_type=OperationType.FINANCIAL)
+def create_scheduled_subscription(
+    customer_id,
+    amount,
+    interval_count,
+    interval_unit,
+    description,
+    times=None,
+    start_date=None,
+    mandate_id=None,
+):
+    """
+    Create a new Mollie subscription with flexible scheduling options (Verenigingen Administrator only).
+
+    Args:
+        customer_id: Mollie customer ID
+        amount: Subscription amount in EUR
+        interval_count: Number of weeks/months between payments
+        interval_unit: "weeks" or "months"
+        description: Subscription description
+        times: Optional number of payments before subscription ends
+        start_date: Optional start date (YYYY-MM-DD)
+        mandate_id: Optional mandate ID to use
+    """
+    try:
+        # Restrict to Verenigingen Administrator only
+        user_roles = frappe.get_roles(frappe.session.user)
+        if "Verenigingen Administrator" not in user_roles:
+            frappe.throw(_("Access denied - Verenigingen Administrator role required"))
+
+        service = MollieDebugService()
+        return service.create_scheduled_subscription(
+            customer_id, amount, interval_count, interval_unit, description, times, start_date, mandate_id
+        )
+
+    except Exception as e:
+        frappe.log_error(f"Mollie scheduled subscription creation error: {str(e)}")
+        return {"error": str(e), "customer_id": customer_id, "status": "error"}
+
+
+@frappe.whitelist(allow_guest=False)
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def list_subscriptions(customer_id, limit=50, active_only=True):
     """List subscriptions for a specific customer with optional filtering"""
     try:

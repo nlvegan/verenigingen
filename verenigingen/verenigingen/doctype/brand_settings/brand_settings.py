@@ -216,11 +216,15 @@ class BrandSettings(Document):
                 return
 
             # Get the source logo file path
+            from urllib.parse import unquote
+
             logo_file = frappe.get_doc("File", {"file_url": self.logo})
             if not logo_file:
                 return
 
-            source_path = Path(frappe.get_site_path()) / logo_file.file_name.lstrip("/")
+            # URL-decode the file name to handle spaces and special characters
+            decoded_file_name = unquote(logo_file.file_name.lstrip("/"))
+            source_path = Path(frappe.get_site_path()) / decoded_file_name
             if not source_path.exists():
                 frappe.log_error(f"Source logo file not found: {source_path}", "Logo Export Error")
                 return

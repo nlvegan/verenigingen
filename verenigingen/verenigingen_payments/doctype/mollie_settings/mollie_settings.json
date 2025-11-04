@@ -15,6 +15,8 @@
     "section_break_subscription_2",
     "default_subscription_interval",
     "subscription_description_template",
+    "quarterly_yearly_payment_months",
+    "payment_day_of_month",
     "webhook_security_section",
     "testing_webhook_url",
     "testing_webhook_secret_key",
@@ -131,6 +133,22 @@
       "fieldname": "subscription_description_template",
       "fieldtype": "Small Text",
       "label": "Subscription Description Template"
+    },
+    {
+      "default": "1,4,7,10",
+      "depends_on": "eval:doc.enable_subscriptions",
+      "description": "Comma-separated list of months (1-12) when quarterly/yearly subscription payments should be scheduled. For example: '1,4,7,10' for Jan, Apr, Jul, Oct. System will select the first month that is at least 2 months from now.",
+      "fieldname": "quarterly_yearly_payment_months",
+      "fieldtype": "Data",
+      "label": "Quarterly/Yearly Payment Months"
+    },
+    {
+      "default": "25",
+      "depends_on": "eval:doc.enable_subscriptions",
+      "description": "Day of the month (1-28) when recurring subscription payments should be charged. Using 1-28 ensures the date is valid in all months.",
+      "fieldname": "payment_day_of_month",
+      "fieldtype": "Int",
+      "label": "Payment Day of Month"
     },
     {
       "fieldname": "webhook_security_section",

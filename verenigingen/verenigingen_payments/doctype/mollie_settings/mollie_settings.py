@@ -657,6 +657,85 @@ class MollieSettings(Document):
         """Get live webhook secret key"""
         return self.get_password(fieldname="live_webhook_secret_key", raise_exception=False)
 
+    def get_next_payment_date_for_scheduled_months(self, min_months_ahead=2):
+        """
+        Calculate the next payment date based on configured quarterly/yearly payment months.
+
+        This method reads the quarterly_yearly_payment_months field (comma-separated list
+        of months) and returns the first eligible month that is at least min_months_ahead
+        from now, scheduled for the configured payment_day_of_month.
+
+        Args:
+            min_months_ahead: Minimum number of months from current date (default: 2)
+
+        Returns:
+            str: ISO date string (YYYY-MM-DD) for the configured day of the selected month,
+                 or None if no valid months configured
+
+        Example:
+            If quarterly_yearly_payment_months = "1,4,7,10" (quarterly)
+            and payment_day_of_month = 25
+            and current date is November 15, 2025:
+            - Dec 2025 is too soon (< 2 months)
+            - Jan 2026 is exactly 2 months → returns "2026-01-25"
+        """
+        from datetime import datetime, timedelta
+        from dateutil.relativedelta import relativedelta
+
+        if not self.quarterly_yearly_payment_months:
+            return None
+
+        # Get configured payment day (default to 25 if not set)
+        payment_day = int(self.payment_day_of_month) if self.payment_day_of_month else 25
+
+        # Validate payment day (1-28 to ensure valid in all months)
+        if not 1 <= payment_day <= 28:
+            frappe.log_error(
+                f"Invalid payment_day_of_month: {payment_day}. Must be between 1-28.",
+                "Mollie Settings Payment Date Calculation",
+            )
+            payment_day = 25  # Fallback to default
+
+        # Parse configured months
+        try:
+            configured_months = [
+                int(m.strip()) for m in self.quarterly_yearly_payment_months.split(",") if m.strip()
+            ]
+            # Validate month values (1-12)
+            configured_months = [m for m in configured_months if 1 <= m <= 12]
+            if not configured_months:
+                return None
+        except (ValueError, AttributeError):
+            frappe.log_error(
+                f"Invalid quarterly_yearly_payment_months format: {self.quarterly_yearly_payment_months}",
+                "Mollie Settings Payment Date Calculation",
+            )
+            return None
+
+        # Sort months for easier iteration
+        configured_months.sort()
+
+        # Calculate minimum eligible date (min_months_ahead from now)
+        today = datetime.now().date()
+        min_date = today + relativedelta(months=min_months_ahead)
+
+        # Find the first configured month that is >= min_date
+        # Search up to 2 years ahead to handle edge cases
+        for year_offset in range(0, 3):
+            for month in configured_months:
+                candidate_year = min_date.year + year_offset
+                candidate_date = datetime(candidate_year, month, payment_day).date()
+
+                if candidate_date >= min_date:
+                    return candidate_date.strftime("%Y-%m-%d")
+
+        # Fallback: shouldn't reach here, but return None if no valid date found
+        frappe.log_error(
+            f"Could not find eligible payment date with months {configured_months} and min_date {min_date}",
+            "Mollie Settings Payment Date Calculation",
+        )
+        return None
+
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)

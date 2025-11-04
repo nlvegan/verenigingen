@@ -383,6 +383,69 @@
                     <div id="create-subscription-result" class="result-area" style="display: none;"></div>
                 </div>
             </div>
+
+            <!-- Scheduled Subscription Creation (Advanced) -->
+            <div class="debug-card">
+                <div class="p-4 border border-purple-300 rounded-lg bg-purple-50 mb-4">
+                    <h3 class="text-lg font-semibold text-purple-800 mb-2">
+                        <i class="fa fa-calendar-check mr-2"></i>{{ _("Create Scheduled Subscription (Advanced)") }}
+                    </h3>
+                    <p class="text-purple-700 mb-4">{{ _("Create subscription with flexible scheduling: custom intervals, payment limits, and start dates. Monthly payments use the day configured in Mollie Settings.") }}</p>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Customer ID") }}</label>
+                            <input type="text" id="sched-sub-customer-id" class="debug-input"
+                                   placeholder="cst_xxxxxxxxxx">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Amount (EUR)") }}</label>
+                            <input type="number" id="sched-sub-amount" class="debug-input"
+                                   placeholder="25.00" step="0.01" min="0.01" value="25.00">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Interval Count") }}</label>
+                            <input type="number" id="sched-sub-interval-count" class="debug-input"
+                                   placeholder="3" min="1" max="52" value="3">
+                            <p class="text-xs text-gray-500 mt-1">{{ _("1-12 for months, 1-52 for weeks") }}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Interval Unit") }}</label>
+                            <select id="sched-sub-interval-unit" class="debug-input">
+                                <option value="months">Months</option>
+                                <option value="weeks">Weeks</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Payment Limit (optional)") }}</label>
+                            <input type="number" id="sched-sub-times" class="debug-input"
+                                   placeholder="12" min="1" max="999">
+                            <p class="text-xs text-gray-500 mt-1">{{ _("Leave empty for indefinite") }}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Start Date (optional)") }}</label>
+                            <input type="date" id="sched-sub-start-date" class="debug-input">
+                            <p class="text-xs text-gray-500 mt-1">{{ _("Leave empty for auto-calculation") }}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Mandate ID (optional)") }}</label>
+                            <input type="text" id="sched-sub-mandate-id" class="debug-input"
+                                   placeholder="mdt_xxxxxxxxxx">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Description") }}</label>
+                            <input type="text" id="sched-sub-description" class="debug-input"
+                                   placeholder="Scheduled subscription" value="Scheduled subscription">
+                        </div>
+                    </div>
+
+                    <button type="button" onclick="createScheduledSubscription()" class="inline-flex items-center px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-md transition-colors duration-200">
+                        <i class="fa fa-calendar-plus mr-2"></i>{{ _("Create Scheduled Subscription") }}
+                    </button>
+
+                    <div id="create-scheduled-subscription-result" class="result-area" style="display: none;"></div>
+                </div>
+            </div>
         </div>
 
         <!-- Mandate Debug Tab -->
@@ -2712,6 +2775,110 @@ function formatSubscriptionCreationResult(data) {
     html += `<p><strong>Description:</strong> ${data.description}</p>`;
     if (data.start_date) html += `<p><strong>Start Date:</strong> ${data.start_date}</p>`;
     if (data.next_payment_date) html += `<p><strong>Next Payment:</strong> ${data.next_payment_date}</p>`;
+
+    return html;
+}
+
+function createScheduledSubscription() {
+    const customerId = document.getElementById('sched-sub-customer-id').value.trim();
+    const amount = document.getElementById('sched-sub-amount').value.trim();
+    const intervalCount = document.getElementById('sched-sub-interval-count').value.trim();
+    const intervalUnit = document.getElementById('sched-sub-interval-unit').value;
+    const times = document.getElementById('sched-sub-times').value.trim();
+    const startDate = document.getElementById('sched-sub-start-date').value;
+    const mandateId = document.getElementById('sched-sub-mandate-id').value.trim();
+    const description = document.getElementById('sched-sub-description').value.trim();
+
+    if (!customerId) {
+        frappe.msgprint('{{ _("Please enter a customer ID") }}');
+        return;
+    }
+
+    if (!amount || parseFloat(amount) <= 0) {
+        frappe.msgprint('{{ _("Please enter a valid amount") }}');
+        return;
+    }
+
+    if (!intervalCount || parseInt(intervalCount) <= 0) {
+        frappe.msgprint('{{ _("Please enter a valid interval count") }}');
+        return;
+    }
+
+    if (!description) {
+        frappe.msgprint('{{ _("Please enter a description") }}');
+        return;
+    }
+
+    const intervalString = intervalCount + ' ' + intervalUnit;
+    const timesString = times ? `${times} payments` : '{{ _("Indefinite") }}';
+
+    const confirmMessage = `<strong>{{ _("CREATE SCHEDULED SUBSCRIPTION") }}</strong><br><br>` +
+                          `{{ _("Customer ID:") }} ${customerId}<br>` +
+                          `{{ _("Amount:") }} €${amount}<br>` +
+                          `{{ _("Interval:") }} ${intervalString}<br>` +
+                          `{{ _("Payment Limit:") }} ${timesString}<br>` +
+                          `{{ _("Start Date:") }} ${startDate || '{{ _("Auto-calculated") }}'}<br>` +
+                          `{{ _("Description:") }} ${description}<br>` +
+                          (mandateId ? `{{ _("Mandate ID:") }} ${mandateId}<br>` : '') +
+                          `<br>{{ _("Continue?") }}`;
+
+    frappe.confirm(
+        confirmMessage,
+        () => executeCreateScheduledSubscription(customerId, amount, intervalCount, intervalUnit, times, startDate, mandateId, description)
+    );
+}
+
+function executeCreateScheduledSubscription(customerId, amount, intervalCount, intervalUnit, times, startDate, mandateId, description) {
+    showLoading('create-scheduled-subscription-result', '{{ _("Creating scheduled subscription...") }}');
+
+    const formData = new FormData();
+    formData.append('customer_id', customerId);
+    formData.append('amount', amount);
+    formData.append('interval_count', intervalCount);
+    formData.append('interval_unit', intervalUnit);
+    formData.append('description', description);
+    if (times) formData.append('times', times);
+    if (startDate) formData.append('start_date', startDate);
+    if (mandateId) formData.append('mandate_id', mandateId);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.create_scheduled_subscription', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': frappe.csrf_token
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            const html = formatScheduledSubscriptionResult(data.message);
+            displayResult('create-scheduled-subscription-result', html, data.message.status === 'error' ? 'error' : 'success');
+        } else if (data.exc) {
+            displayResult('create-scheduled-subscription-result', `Error: ${data.exc}`, 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error creating scheduled subscription:', error);
+        displayResult('create-scheduled-subscription-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+function formatScheduledSubscriptionResult(data) {
+    if (data.error) {
+        return `<strong>Error:</strong> ${data.error}`;
+    }
+
+    let html = `<h3>✅ Scheduled Subscription Created Successfully</h3>`;
+    html += `<p><strong>Subscription ID:</strong> ${data.subscription_id}</p>`;
+    html += `<p><strong>Customer ID:</strong> ${data.customer_id}</p>`;
+    html += `<p><strong>Status:</strong> <span class="status-badge status-active">${data.subscription_status}</span></p>`;
+    html += `<p><strong>Amount:</strong> ${data.amount}</p>`;
+    html += `<p><strong>Interval:</strong> ${data.interval}</p>`;
+    html += `<p><strong>Description:</strong> ${data.description}</p>`;
+    if (data.times) html += `<p><strong>Payment Limit:</strong> ${data.times} payments</p>`;
+    if (data.start_date) html += `<p><strong>Start Date:</strong> ${data.start_date}</p>`;
+    if (data.next_payment_date) html += `<p><strong>Next Payment:</strong> ${data.next_payment_date}</p>`;
+    html += `<p><strong>Test Mode:</strong> ${data.test_mode ? 'Yes' : 'No'}</p>`;
 
     return html;
 }
