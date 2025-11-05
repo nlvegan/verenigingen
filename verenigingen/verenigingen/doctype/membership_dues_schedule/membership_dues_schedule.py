@@ -556,9 +556,7 @@ class MembershipDuesSchedule(Document):
         if self.is_template:
             # Templates get minimum_amount directly from membership type
             self.minimum_amount = (
-                membership_type.minimum_amount
-                if membership_type.minimum_amount is not None
-                else 0
+                membership_type.minimum_amount if membership_type.minimum_amount is not None else 0
             )
             # Keep suggested_amount as manually set (don't override)
             return
@@ -1556,11 +1554,11 @@ class MembershipDuesSchedule(Document):
 
         # Auto-submit by default unless explicitly disabled
         try:
-            keep_as_draft = frappe.db.get_single_value(
+            auto_submit = frappe.db.get_single_value(
                 "Verenigingen Settings", "auto_submit_membership_invoices"
             )
-            # Auto-submit unless the "Keep as Drafts" setting is enabled
-            if not keep_as_draft:
+            # Auto-submit if the setting is enabled (default True)
+            if auto_submit:
                 # Keep minimal logging flags for submit operation
                 invoice.flags.ignore_version = True
                 invoice.flags.ignore_links = True

@@ -685,11 +685,11 @@
    "options": "Account"
   },
   {
-   "default": "0",
-   "description": "Keep membership invoices as drafts instead of auto-submitting",
+   "default": "1",
+   "description": "Automatically submit membership invoices when created. Uncheck to keep them as drafts for manual review.",
    "fieldname": "auto_submit_membership_invoices",
    "fieldtype": "Check",
-   "label": "Keep Membership Invoices as Drafts"
+   "label": "Auto-Submit Membership Invoices"
   },
   {
    "description": "Default item group for membership items",

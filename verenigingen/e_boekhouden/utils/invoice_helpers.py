@@ -554,6 +554,335 @@ def map_unit_of_measure(unit):
     return uom_map(unit)
 
 
+def auto_create_ledger_mapping(ledger_id, transaction_type, company, debug_info):
+    """
+    Auto-create missing ledger mapping by fetching from eBoekhouden API
+    and creating both ERPNext Account and Ledger Mapping if needed.
+
+    Args:
+        ledger_id: eBoekhouden ledger ID
+        transaction_type: 'sales' or 'purchase'
+        company: Company name
+        debug_info: List to append debug messages
+
+    Returns:
+        str: ERPNext account name if successful, None otherwise
+    """
+    try:
+        import requests
+
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_client import EBoekhoudenRESTClient
+
+        debug_info.append(f"Attempting to fetch ledger {ledger_id} from eBoekhouden API")
+
+        # Get eBoekhouden settings
+        settings = frappe.get_single("E-Boekhouden Settings")
+        if not settings.api_token:
+            debug_info.append("E-Boekhouden API not configured")
+            return None
+
+        client = EBoekhoudenRESTClient(settings)
+
+        # Fetch ledger details from API
+        try:
+            # Get session token
+            session_token = client._get_session_token()
+            if not session_token:
+                debug_info.append("Failed to get session token")
+                return None
+
+            headers = {"Authorization": session_token, "Accept": "application/json"}
+            ledger_url = f"{client.base_url}/v1/ledger/{ledger_id}"
+
+            response = requests.get(ledger_url, headers=headers, timeout=30)
+
+            if response.status_code != 200:
+                debug_info.append(f"API error fetching ledger {ledger_id}: HTTP {response.status_code}")
+                return None
+
+            ledger_data = response.json()
+            ledger_code = ledger_data.get("code") or ledger_data.get("Code")
+            ledger_name = (
+                ledger_data.get("description")
+                or ledger_data.get("Description")
+                or ledger_data.get("Omschrijving")
+                or f"Ledger {ledger_code}"
+            )
+            ledger_category = (
+                ledger_data.get("category") or ledger_data.get("Category") or ledger_data.get("Categorie")
+            )
+
+            if not ledger_code:
+                debug_info.append(f"No ledger code found in API response for {ledger_id}")
+                return None
+
+            debug_info.append(
+                f"Fetched ledger details: code={ledger_code}, name={ledger_name}, category={ledger_category}"
+            )
+
+        except Exception as e:
+            debug_info.append(f"Error fetching ledger from API: {str(e)}")
+            return None
+
+        # Check if ERPNext Account already exists with this code
+        existing_account = frappe.db.get_value(
+            "Account",
+            {"company": company, "eboekhouden_grootboek_nummer": ledger_code},
+            ["name", "account_type"],
+            as_dict=True,
+        )
+
+        # Check if we need a different account type than what exists
+        # This happens when cost accounts (Expense) are used in Sales Invoices (need Income)
+        needs_different_type = False
+        if existing_account:
+            # Check if this is a cost account being used in the wrong transaction type
+            ledger_name_lower = (ledger_name or "").lower()
+            is_cost_account = any(
+                keyword in ledger_name_lower
+                for keyword in [
+                    "bankkosten",
+                    "bank cost",
+                    "transactiekosten",
+                    "payment fee",
+                    "processing fee",
+                ]
+            )
+
+            if (
+                is_cost_account
+                and transaction_type == "sales"
+                and existing_account.account_type == "Expense Account"
+            ):
+                debug_info.append(
+                    f"Found existing Expense Account {existing_account.name} but need Income Account for sales transaction"
+                )
+                needs_different_type = True
+            elif transaction_type == "purchase" and existing_account.account_type == "Income Account":
+                debug_info.append(
+                    f"Found existing Income Account {existing_account.name} but need Expense Account for purchase transaction"
+                )
+                needs_different_type = True
+
+        if not existing_account or needs_different_type:
+            # Need to create new account or create alternate account for different transaction type
+            if needs_different_type:
+                # Create alternate account with suffix to distinguish
+                alt_suffix = " (Contra-Revenue)" if transaction_type == "sales" else " (Cost)"
+
+                # Check if alternate account already exists
+                alt_account_name = f"{ledger_code} - {ledger_name[:50]}{alt_suffix}"
+                existing_alt = frappe.db.get_value(
+                    "Account", {"account_name": alt_account_name, "company": company}, "name"
+                )
+
+                if existing_alt:
+                    debug_info.append(f"Alternate account already exists: {existing_alt}")
+                    account_name = existing_alt
+                    # Skip account creation, go directly to mapping creation
+                else:
+                    debug_info.append(f"Creating alternate account with suffix: {alt_suffix}")
+            else:
+                alt_suffix = ""
+                existing_alt = None
+
+            # Only create account if we don't have an existing alternate
+            if not existing_alt:
+                # Need to create ERPNext Account - determine account type from ledger code/category
+                account_type, parent_account = _determine_account_type_for_transaction(
+                    ledger_code, ledger_name, ledger_category, transaction_type, company, debug_info
+                )
+
+                if not account_type or not parent_account:
+                    debug_info.append(f"Could not determine account type for ledger {ledger_code}")
+                    return None
+
+                # Create ERPNext Account
+                try:
+                    account_doc = frappe.new_doc("Account")
+                    account_doc.account_name = f"{ledger_code} - {ledger_name[:50]}{alt_suffix}"  # Limit name length, add suffix if needed
+                    account_doc.company = company
+                    account_doc.account_type = account_type
+                    account_doc.parent_account = parent_account
+                    account_doc.eboekhouden_grootboek_nummer = ledger_code
+                    # Note: Using ignore_permissions for automated ledger mapping creation
+                    # This is needed because eBoekhouden API integration runs in system context
+                    # Audit: All creations are logged in debug_info and E-Boekhouden Ledger Mapping records
+                    account_doc.insert(ignore_permissions=True)
+                    account_name = account_doc.name
+
+                    debug_info.append(f"Created ERPNext Account: {account_name} (type: {account_type})")
+
+                except Exception as e:
+                    debug_info.append(f"Error creating ERPNext Account: {str(e)}")
+                    frappe.log_error(
+                        title=f"Auto-Create Account Failed - {ledger_code}",
+                        message=f"Error creating account for ledger {ledger_id} ({ledger_code})\n\n{str(e)}\n\n{frappe.get_traceback()}",
+                    )
+                    return None
+        else:
+            # Use existing account
+            account_name = existing_account.name
+            debug_info.append(
+                f"Using existing account: {account_name} (type: {existing_account.account_type})"
+            )
+
+        # Create ledger mapping (if it doesn't already exist)
+        try:
+            # Check if mapping already exists
+            existing_mapping = frappe.db.get_value(
+                "E-Boekhouden Ledger Mapping", {"ledger_id": str(ledger_id)}, "name"
+            )
+
+            if existing_mapping:
+                debug_info.append(
+                    f"Ledger mapping already exists: {ledger_id} ({ledger_code}) -> {account_name}"
+                )
+                return account_name
+
+            # Create new mapping
+            mapping = frappe.new_doc("E-Boekhouden Ledger Mapping")
+            mapping.ledger_id = str(ledger_id)
+            mapping.ledger_code = ledger_code
+            mapping.ledger_name = ledger_name
+            mapping.erpnext_account = account_name
+            # Note: Using ignore_permissions for automated ledger mapping creation
+            # This is needed because eBoekhouden API integration runs in system context
+            # Audit: Ledger mapping records serve as audit trail for auto-created accounts
+            mapping.insert(ignore_permissions=True)
+
+            debug_info.append(f"Created ledger mapping: {ledger_id} ({ledger_code}) -> {account_name}")
+            return account_name
+
+        except Exception as e:
+            error_msg = f"Error creating ledger mapping: {str(e)}"
+            debug_info.append(error_msg)
+            frappe.log_error(
+                title=f"Auto-Create Ledger Mapping Failed - {ledger_id}",
+                message=f"Error creating mapping for ledger {ledger_id} ({ledger_code}) -> {account_name}\n\n{error_msg}\n\n{frappe.get_traceback()}",
+            )
+            return None
+
+    except Exception as e:
+        debug_info.append(f"Unexpected error in auto_create_ledger_mapping: {str(e)}")
+        return None
+
+
+def _determine_account_type_for_transaction(
+    ledger_code, ledger_name, ledger_category, transaction_type, company, debug_info
+):
+    """
+    Determine appropriate ERPNext account type and parent account for a transaction.
+
+    Args:
+        ledger_code: eBoekhouden account code
+        ledger_name: eBoekhouden account name
+        ledger_category: eBoekhouden category (FIN, VER, OMS, KOS, etc.)
+        transaction_type: 'sales' or 'purchase'
+        company: Company name
+        debug_info: Debug info list
+
+    Returns:
+        tuple: (account_type, parent_account) or (None, None) if cannot determine
+    """
+    # Check if this is a cost account (bank fees, transaction costs, etc.) being used in a sales invoice
+    # These should be treated as "contra-revenue" (deductions from income) not expenses
+    ledger_name_lower = (ledger_name or "").lower()
+    is_cost_account = any(
+        keyword in ledger_name_lower
+        for keyword in ["bankkosten", "bank cost", "transactiekosten", "payment fee", "processing fee"]
+    )
+
+    # Priority 1: Use transaction type as primary signal
+    if transaction_type == "sales":
+        # Sales invoices need income accounts (including contra-revenue accounts like bank fees)
+        account_type = "Income Account"
+
+        # For cost accounts in sales invoices, use "Kortingen en Kostenposten" or similar parent
+        if is_cost_account:
+            # Try to find a "Kortingen" (Discounts) or similar parent account
+            parent_account = frappe.db.get_value(
+                "Account",
+                {
+                    "company": company,
+                    "account_type": "Income Account",
+                    "is_group": 1,
+                    "account_name": ["like", "%Korting%"],
+                },
+                "name",
+            )
+            if not parent_account:
+                # Fallback to main Income group (Opbrengsten or Omzet)
+                for keyword in ["%Opbrengsten%", "%Omzet%", "%Revenue%", "%Income%"]:
+                    parent_account = frappe.db.get_value(
+                        "Account",
+                        {"company": company, "is_group": 1, "account_name": ["like", keyword]},
+                        "name",
+                    )
+                    if parent_account:
+                        break
+            debug_info.append(
+                f"Sales transaction with cost item: using Income Account (contra-revenue) under {parent_account}"
+            )
+        else:
+            # Regular income account - search for common Dutch/English names
+            for keyword in ["%Opbrengsten%", "%Omzet%", "%Revenue%", "%Income%"]:
+                parent_account = frappe.db.get_value(
+                    "Account",
+                    {"company": company, "is_group": 1, "account_name": ["like", keyword]},
+                    "name",
+                )
+                if parent_account:
+                    break
+            debug_info.append(f"Sales transaction: using Income Account under {parent_account}")
+
+        if not parent_account:
+            # Last resort fallback
+            parent_account = frappe.db.get_value(
+                "Account",
+                {
+                    "company": company,
+                    "is_group": 1,
+                    "account_name": ["like", "%8%"],  # Dutch chart usually starts with 8
+                },
+                "name",
+            )
+            debug_info.append(f"Fallback: using income group: {parent_account}")
+
+    else:  # purchase
+        # Purchase invoices need expense accounts
+        account_type = "Expense Account"
+        # Find appropriate parent - look for "Kosten" or "Expense" account
+        parent_account = frappe.db.get_value(
+            "Account",
+            {
+                "company": company,
+                "account_type": "Expense Account",
+                "is_group": 1,
+                "account_name": ["like", "%Kosten%"],
+            },
+            "name",
+        )
+        if not parent_account:
+            # Fallback to any Expense Account group
+            parent_account = frappe.db.get_value(
+                "Account",
+                {
+                    "company": company,
+                    "account_type": "Expense Account",
+                    "is_group": 1,
+                },
+                "name",
+            )
+        debug_info.append(f"Purchase transaction: using Expense Account under {parent_account}")
+
+    if not parent_account:
+        debug_info.append(f"ERROR: No parent account found for {account_type}")
+        return None, None
+
+    return account_type, parent_account
+
+
 def map_grootboek_to_erpnext_account(
     grootboek_nummer, transaction_type, company, debug_info=None, allow_fallback=False
 ):
@@ -610,8 +939,16 @@ def map_grootboek_to_erpnext_account(
             )
             return mapping["erpnext_account"]
 
-        # No mapping found in ledger mapping table
-        debug_info.append(f"No ledger mapping found for {grootboek_nummer}")
+        # No mapping found in ledger mapping table - try to auto-create
+        debug_info.append(f"No ledger mapping found for {grootboek_nummer}, attempting auto-creation")
+        auto_created_account = auto_create_ledger_mapping(
+            grootboek_nummer, transaction_type, company, debug_info
+        )
+        if auto_created_account:
+            return auto_created_account
+
+        # Auto-creation failed
+        debug_info.append(f"Auto-creation failed for ledger {grootboek_nummer}")
         return None
 
     except Exception as e:

@@ -71,7 +71,7 @@ class MijnroodCSVImport(Document):
                 _(
                     "Cannot start CSV import. Please configure the following in Verenigingen Settings:<br><br>"
                     "<b>{0}</b><br><br>"
-                    "Go to: <a href='/app/vereinigingen-settings'>Verenigingen Settings</a> → "
+                    "Go to: <a href='/app/verenigingen-settings'>Verenigingen Settings</a> → "
                     "Mijnrood CSV Import Settings section"
                 ).format("<br>".join(f"• {s}" for s in missing_settings)),
                 title=_("Missing CSV Import Configuration"),
@@ -1547,7 +1547,9 @@ class MijnroodCSVImport(Document):
             # Priority 1: Use explicitly configured default region
             if self.default_region:
                 if frappe.db.exists("Region", self.default_region):
-                    frappe.logger().info(f"Using configured default region '{self.default_region}' for chapter creation")
+                    frappe.logger().info(
+                        f"Using configured default region '{self.default_region}' for chapter creation"
+                    )
                     return self.default_region
                 else:
                     frappe.logger().error(
@@ -1583,7 +1585,9 @@ class MijnroodCSVImport(Document):
                 return region_name
 
             # Priority 3: Create basic Netherlands region as fallback
-            frappe.logger().info("No default region configured and no NL region found. Creating default Netherlands region...")
+            frappe.logger().info(
+                "No default region configured and no NL region found. Creating default Netherlands region..."
+            )
 
             region = frappe.new_doc("Region")
             region.region_name = "Netherlands"
@@ -1593,7 +1597,9 @@ class MijnroodCSVImport(Document):
             region.preferred_language = "Dutch"
             region.time_zone = "Europe/Amsterdam"
             region.membership_fee_adjustment = 1.0
-            region.description = "Auto-created Netherlands region during CSV import. Please update with proper details."
+            region.description = (
+                "Auto-created Netherlands region during CSV import. Please update with proper details."
+            )
 
             # Set CSV import flags
             region._csv_import = True
@@ -1608,7 +1614,7 @@ class MijnroodCSVImport(Document):
             frappe.logger().error("Failed to ensure region exists: %s", str(e))
             frappe.log_error(
                 title="Region Creation Failed During CSV Import",
-                message=f"Error: {str(e)}\nImport: {self.name}\nDefault Region: {self.default_region}"
+                message=f"Error: {str(e)}\nImport: {self.name}\nDefault Region: {self.default_region}",
             )
             return None
 
@@ -1627,20 +1633,22 @@ class MijnroodCSVImport(Document):
                 frappe.logger().error(error_msg)
                 frappe.log_error(
                     title="Chapter Auto-Creation Failed - No Region",
-                    message=f"{error_msg}\nImport: {self.name}\nDefault Region: {self.default_region}"
+                    message=f"{error_msg}\nImport: {self.name}\nDefault Region: {self.default_region}",
                 )
                 return None
 
             # Create new chapter
             # Chapter uses autoname="prompt", so we must set the name explicitly
-            chapter = frappe.get_doc({
-                "doctype": "Chapter",
-                "name": chapter_name,  # Explicit name for autoname="prompt"
-                "__newname": chapter_name,  # Alternative way to set name
-                "status": "Active",
-                "region": region_name,
-                "introduction": f"Auto-created chapter '{chapter_name}' during CSV import. Please update with proper details."
-            })
+            chapter = frappe.get_doc(
+                {
+                    "doctype": "Chapter",
+                    "name": chapter_name,  # Explicit name for autoname="prompt"
+                    "__newname": chapter_name,  # Alternative way to set name
+                    "status": "Active",
+                    "region": region_name,
+                    "introduction": f"Auto-created chapter '{chapter_name}' during CSV import. Please update with proper details.",
+                }
+            )
 
             # Set CSV import flags
             chapter._csv_import = True
@@ -1663,7 +1671,7 @@ class MijnroodCSVImport(Document):
             frappe.logger().error(error_msg)
             frappe.log_error(
                 title="Chapter Auto-Creation Failed",
-                message=f"{error_msg}\nImport: {self.name}\nRegion: {region_name if 'region_name' in locals() else 'Unknown'}"
+                message=f"{error_msg}\nImport: {self.name}\nRegion: {region_name if 'region_name' in locals() else 'Unknown'}",
             )
             return None
 
