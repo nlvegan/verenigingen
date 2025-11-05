@@ -106,7 +106,7 @@ class PaymentEntryHandler:
                 # Final attempt failed or non-retryable error
                 self._log(f"ERROR processing mutation {mutation_id}: {error_str}")
                 frappe.log_error(
-                    f"Payment mutation processing failed: {error_str}\\nMutation: {json.dumps(mutation, indent=2)}",
+                    f"Payment mutation processing failed: {error_str}\\nMutation: {json.dumps(mutation, indent=2)}\\n\\nTraceback:\\n{frappe.get_traceback()}",
                     "E-Boekhouden Payment Import",
                 )
                 return None
@@ -713,7 +713,7 @@ class PaymentEntryHandler:
             and payment_entry.party_type == "Supplier"
         ):
             self._log(
-                f"Supplier debit note detected - reversing payment type from 'Pay' to 'Receive' (supplier owes us)"
+                "Supplier debit note detected - reversing payment type from 'Pay' to 'Receive' (supplier owes us)"
             )
             payment_entry.payment_type = "Receive"
             # Swap paid_from and paid_to accounts
@@ -725,7 +725,7 @@ class PaymentEntryHandler:
             )
         elif has_negative_outstanding and payment_entry.party_type == "Customer":
             self._log(
-                f"Customer credit note detected with negative outstanding - keeping payment_type='Pay' (we owe customer)"
+                "Customer credit note detected with negative outstanding - keeping payment_type='Pay' (we owe customer)"
             )
 
         # Validate payment amount vs invoice amounts (informational only)
