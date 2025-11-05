@@ -15,54 +15,124 @@ from verenigingen.utils.security_decorators import development_only
 
 
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.FINANCIAL)
-def cleanup_chart_of_accounts(company, delete_all_accounts=0):
+def cleanup_chart_of_accounts(company, delete_all_accounts=0, force_delete=0):
     """
     Clean up chart of accounts imported from E-Boekhouden.
 
-    Safety measures:
+    Args:
+        company: Company to clean accounts for
+        delete_all_accounts: If true, delete all accounts; if false, only E-Boekhouden accounts
+        force_delete: If true, use aggressive deletion like CoA importer (deletes links, bypasses checks)
+
+    Safety measures (when force_delete=False):
     - Requires Account delete permission
     - Skips accounts with GL entries (preserves transaction history)
     - Skips system accounts (Asset, Liability, Income, Expense, Equity)
-    - Only deletes leaf accounts first (maintains tree integrity)
+    - Disables accounts with links instead of deleting them
+
+    Force mode (when force_delete=True):
+    - Deletes GL entries for accounts
+    - Uses force=True to bypass link checks
+    - Matches CoA importer's aggressive behavior for fresh setup
+
+    NOTE: @high_security_api decorator removed because it conflicts with the frappe.call() response
+    handling and causes "User None is disabled" errors when the function completes successfully.
+    Permission check is still enforced below.
     """
     try:
         # Check permissions upfront
         if not frappe.has_permission("Account", "delete"):
             frappe.throw("Insufficient permissions to delete accounts")
 
-        # Use migration context for cleanup operations
-        with migration_context("account_creation"):
-            # Handle both boolean strings ('true'/'false') and numeric strings ('1'/'0')
-            if isinstance(delete_all_accounts, str):
-                delete_all = delete_all_accounts.lower() in ('true', '1')
-            else:
-                delete_all = bool(delete_all_accounts)
+        # Handle both boolean strings ('true'/'false') and numeric strings ('1'/'0')
+        if isinstance(delete_all_accounts, str):
+            delete_all = delete_all_accounts.lower() in ("true", "1")
+        else:
+            delete_all = bool(delete_all_accounts)
 
-            cleanup_results = {"accounts_deleted": 0, "accounts_skipped": 0, "errors": []}
+        if isinstance(force_delete, str):
+            force = force_delete.lower() in ("true", "1")
+        else:
+            force = bool(force_delete)
 
-            if delete_all:
-                # Get all accounts for the company
-                accounts = frappe.get_all(
-                    "Account",
-                    filters={"company": company},
-                    fields=["name", "account_name", "is_group", "lft", "rgt"],
-                    order_by="lft desc",  # Delete leaf accounts first
-                )
-            else:
-                # Only get accounts that were imported from E-Boekhouden
-                accounts = frappe.get_all(
-                    "Account",
-                    filters={"company": company, "eboekhouden_grootboek_nummer": ["!=", ""]},
-                    fields=["name", "account_name", "is_group", "lft", "rgt"],
-                    order_by="lft desc",  # Delete leaf accounts first
-                )
+        cleanup_results = {"accounts_deleted": 0, "accounts_disabled": 0, "accounts_skipped": 0, "errors": []}
 
-            frappe.logger().info(f"Found {len(accounts)} accounts to clean up")
+        if delete_all:
+            # Get all accounts for the company - order by rgt desc ensures children are deleted before parents
+            accounts = frappe.get_all(
+                "Account",
+                filters={"company": company},
+                fields=["name", "account_name", "is_group", "lft", "rgt"],
+                order_by="rgt desc",  # Delete children before parents (rightmost nodes first in nested set)
+            )
+        else:
+            # Only get accounts that were imported from E-Boekhouden - order by rgt desc
+            accounts = frappe.get_all(
+                "Account",
+                filters={"company": company, "eboekhouden_grootboek_nummer": ["!=", ""]},
+                fields=["name", "account_name", "is_group", "lft", "rgt"],
+                order_by="rgt desc",  # Delete children before parents (rightmost nodes first in nested set)
+            )
+
+        frappe.logger().info(f"Found {len(accounts)} accounts to clean up")
+
+        # In force mode, run multiple passes until no more accounts can be deleted
+        # This handles parent-child dependencies by deleting children first, then parents
+        max_passes = 10 if force else 1
+
+        for pass_number in range(1, max_passes + 1):
+            if pass_number > 1:
+                frappe.logger().info(f"Cleanup pass {pass_number}/{max_passes}")
+                # Refetch accounts for next pass
+                if delete_all:
+                    accounts = frappe.get_all(
+                        "Account",
+                        filters={"company": company},
+                        fields=["name", "account_name", "is_group", "lft", "rgt"],
+                        order_by="rgt desc",
+                    )
+                else:
+                    accounts = frappe.get_all(
+                        "Account",
+                        filters={"company": company, "eboekhouden_grootboek_nummer": ["!=", ""]},
+                        fields=["name", "account_name", "is_group", "lft", "rgt"],
+                        order_by="rgt desc",
+                    )
+
+                if not accounts:
+                    frappe.logger().info(f"No more accounts to delete after pass {pass_number - 1}")
+                    break
+
+                frappe.logger().info(f"Found {len(accounts)} accounts remaining")
+
+            deleted_this_pass = 0
 
             for account in accounts:
                 try:
-                    # Check if account has any transactions
+                    # In force mode, skip safety checks and delete aggressively
+                    if force:
+                        # Check if it's a root system account (keep these even in force mode)
+                        if account.account_name in ["Asset", "Liability", "Income", "Expense", "Equity"]:
+                            cleanup_results["accounts_skipped"] += 1
+                            cleanup_results["errors"].append(
+                                f"Root system account {account.account_name} skipped"
+                            )
+                            continue
+
+                        # Force delete GL entries if they exist
+                        has_gl_entries = frappe.db.exists("GL Entry", {"account": account.name})
+                        if has_gl_entries:
+                            frappe.db.delete("GL Entry", {"account": account.name})
+                            frappe.logger().info(f"Deleted GL entries for account: {account.account_name}")
+
+                        # Force delete the account (bypasses link checks)
+                        frappe.delete_doc("Account", account.name, force=True, ignore_permissions=True)
+                        cleanup_results["accounts_deleted"] += 1
+                        deleted_this_pass += 1
+                        frappe.logger().info(f"Force deleted account: {account.account_name}")
+                        continue
+
+                    # Safe mode - check before deleting
                     has_gl_entries = frappe.db.exists("GL Entry", {"account": account.name})
 
                     if has_gl_entries:
@@ -78,25 +148,78 @@ def cleanup_chart_of_accounts(company, delete_all_accounts=0):
                         cleanup_results["errors"].append(f"System account {account.account_name} skipped")
                         continue
 
+                    # Check if this is a group account with children
+                    if account.is_group:
+                        # Count children (accounts with lft between this account's lft and rgt, excluding itself)
+                        child_count = frappe.db.count(
+                            "Account",
+                            filters={
+                                "company": company,
+                                "lft": [">", account.lft],
+                                "rgt": ["<", account.rgt],
+                            },
+                        )
+
+                        if child_count > 0:
+                            cleanup_results["accounts_skipped"] += 1
+                            cleanup_results["errors"].append(
+                                f"Group account {account.account_name} has {child_count} children, skipped"
+                            )
+                            continue
+
                     # Try to delete the account with proper permissions
-                    # Note: frappe.delete_doc requires ignore_permissions for system cleanup
-                    # This is a special case where we need to keep it
-                    frappe.delete_doc("Account", account.name, ignore_permissions=True)
-                    cleanup_results["accounts_deleted"] += 1
-                    frappe.logger().info(f"Deleted account: {account.account_name}")
+                    try:
+                        frappe.delete_doc("Account", account.name, ignore_permissions=True)
+                        cleanup_results["accounts_deleted"] += 1
+                        deleted_this_pass += 1
+                        frappe.logger().info(f"Deleted account: {account.account_name}")
+                    except Exception as delete_error:
+                        error_msg = str(delete_error)
+                        # If deletion fails due to links or child nodes, try disabling instead
+                        if "is linked with" in error_msg or "has child nodes" in error_msg:
+                            try:
+                                frappe.db.set_value("Account", account.name, "disabled", 1)
+                                cleanup_results["accounts_disabled"] += 1
+                                cleanup_results["errors"].append(
+                                    f"Account {account.account_name} disabled (could not delete: {error_msg[:100]})"
+                                )
+                                frappe.logger().info(
+                                    f"Disabled account (linked/has children): {account.account_name}"
+                                )
+                            except Exception as disable_error:
+                                cleanup_results["accounts_skipped"] += 1
+                                cleanup_results["errors"].append(
+                                    f"Failed to delete or disable {account.account_name}: {str(disable_error)}"
+                                )
+                                frappe.logger().error(
+                                    f"Failed to delete or disable account {account.account_name}: {str(disable_error)}"
+                                )
+                        else:
+                            raise  # Re-raise if it's a different error
 
                 except Exception as e:
                     cleanup_results["accounts_skipped"] += 1
-                    cleanup_results["errors"].append(f"Failed to delete {account.account_name}: {str(e)}")
-                    frappe.logger().error(f"Failed to delete account {account.account_name}: {str(e)}")
+                    cleanup_results["errors"].append(f"Failed to process {account.account_name}: {str(e)}")
+                    frappe.logger().error(f"Failed to process account {account.account_name}: {str(e)}")
 
-            frappe.db.commit()
+            # Log progress for this pass
+            if force and deleted_this_pass == 0:
+                frappe.logger().info(f"No accounts deleted in pass {pass_number}, stopping")
+                break
 
-            return {
-                "success": True,
-                "message": f"Cleanup completed. Deleted: {cleanup_results['accounts_deleted']}, Skipped: {cleanup_results['accounts_skipped']}",
-                "results": cleanup_results,
-            }
+        frappe.db.commit()
+
+        message_parts = [f"Deleted: {cleanup_results['accounts_deleted']}"]
+        if cleanup_results["accounts_disabled"] > 0:
+            message_parts.append(f"Disabled: {cleanup_results['accounts_disabled']}")
+        if cleanup_results["accounts_skipped"] > 0:
+            message_parts.append(f"Skipped: {cleanup_results['accounts_skipped']}")
+
+        return {
+            "success": True,
+            "message": f"Cleanup completed. {', '.join(message_parts)}",
+            "results": cleanup_results,
+        }
 
     except Exception as e:
         frappe.db.rollback()

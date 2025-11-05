@@ -371,6 +371,11 @@ function setup_action_buttons(frm) {
 	) {
 		add_post_migration_tools(frm);
 	}
+
+	// Add Tools dropdown (re-add after clearing buttons)
+	if (!frm.is_new() && frm.doc.docstatus === 0) {
+		add_tools_dropdown(frm);
+	}
 }
 
 function analyze_eboekhouden_data(frm) {
@@ -1090,115 +1095,158 @@ function handle_setup_coa(frm) {
 		return;
 	}
 
-	// Show setup dialog with cleanup option
+	// Check if document is saved
+	if (!frm.doc.name || frm.is_new()) {
+		frappe.msgprint({
+			title: __('Save Required'),
+			message: __('Please save the migration document first.'),
+			indicator: 'orange'
+		});
+		return;
+	}
+
+	// Simple confirmation - no nested dialogs
+	frappe.confirm(
+		'<strong>Setup Chart of Accounts</strong><br><br>'
+		+ 'This will import:<br>'
+		+ '• Complete Chart of Accounts from E-Boekhouden<br>'
+		+ '• All Customers and Suppliers<br>'
+		+ '• Cost Centers (if configured)<br><br>'
+		+ '<strong>Note:</strong> If you need to clean up existing accounts first, '
+		+ 'use the "Tools" → "Cleanup" menu instead.<br><br>'
+		+ 'Continue with import?',
+		() => {
+			// Direct call without any dialogs
+			start_coa_import(frm);
+		},
+		() => {
+			// Cancelled
+		}
+	);
+}
+
+/**
+ * Show cleanup dialog (accessed via Tools menu)
+ * Uses simple single-level dialog to avoid session corruption issues
+ */
+function show_cleanup_dialog(frm) {
+	// Validate company
+	if (!frm.doc.company) {
+		frappe.msgprint({
+			title: __('Company Required'),
+			message: __('Please select a company before cleaning up the Chart of Accounts.'),
+			indicator: 'orange'
+		});
+		return;
+	}
+
+	// First dialog: Choose cleanup type
 	const dialog = new frappe.ui.Dialog({
-		title: 'Setup Chart of Accounts',
+		title: __('Clean up Chart of Accounts'),
 		fields: [
 			{
-				fieldname: 'info_section',
-				fieldtype: 'HTML',
-				options: `<div class="alert alert-info">
-					<strong>This will import:</strong>
-					<ul>
-						<li>Complete Chart of Accounts from E-Boekhouden</li>
-						<li>All Customers and Suppliers</li>
-						<li>Cost Centers (if configured)</li>
-					</ul>
-					<p class="mt-2">You will be able to review and adjust account types after import.</p>
-				</div>`
-			},
-			{
 				fieldname: 'cleanup_type',
-				label: 'Clean up existing accounts first',
+				label: __('Cleanup Type'),
 				fieldtype: 'Select',
-				options:
-          'No cleanup\nClean up E-Boekhouden accounts only\nClean up ALL accounts',
-				default: 'No cleanup',
-				description: 'Choose what to clean up before importing',
-				onchange() {
-					const cleanup_type = dialog.get_value('cleanup_type');
-					dialog.set_df_property(
-						'cleanup_warning',
-						'hidden',
-						cleanup_type === 'No cleanup'
-					);
-
-					// Update warning message based on selection
-					if (cleanup_type === 'Clean up E-Boekhouden accounts only') {
-						dialog.set_df_property(
-							'cleanup_warning',
-							'options',
-							'<div class="alert alert-warning"><strong>⚠️ Warning:</strong> This will delete all accounts with E-Boekhouden numbers. Make sure you have no transactions linked to these accounts!</div>'
-						);
-					} else if (cleanup_type === 'Clean up ALL accounts') {
-						dialog.set_df_property(
-							'cleanup_warning',
-							'options',
-							'<div class="alert alert-danger"><strong>🚨 DANGER:</strong> This will delete ALL accounts in the Chart of Accounts for this company! This action cannot be undone. Only use this if you want to completely reset your Chart of Accounts.</div>'
-						);
-					}
-				}
+				options: [
+					'Clean up E-Boekhouden accounts only',
+					'Clean up ALL accounts'
+				],
+				default: 'Clean up E-Boekhouden accounts only',
+				reqd: 1
 			},
 			{
-				fieldname: 'cleanup_warning',
+				fieldname: 'force_delete',
+				label: __('Force Delete (Aggressive)'),
+				fieldtype: 'Check',
+				default: 0,
+				description: 'Bypass link checks and delete GL entries. Use for fresh setup only!'
+			},
+			{
+				fieldname: 'warning_html',
 				fieldtype: 'HTML',
-				hidden: 1,
-				options: ''
+				options: '<div class="alert alert-warning" style="margin-top: 10px;">'
+					+ '<strong>⚠️ Warning:</strong> This will delete all accounts with E-Boekhouden numbers. '
+					+ 'Make sure you have no transactions linked to these accounts!'
+					+ '</div>'
 			}
 		],
-		primary_action_label: 'Start Setup',
+		primary_action_label: __('Clean Up'),
 		primary_action(values) {
 			dialog.hide();
 
-			// If cleanup requested, do it first
-			if (values.cleanup_type !== 'No cleanup') {
-				const delete_all = values.cleanup_type === 'Clean up ALL accounts';
+			const delete_all = values.cleanup_type === 'Clean up ALL accounts';
+			const force_delete = values.force_delete || 0;
 
-				// Extra confirmation for delete all
-				if (delete_all) {
-					frappe.confirm(
-						'<strong>Are you absolutely sure?</strong><br><br>'
-              + 'This will delete ALL accounts in your Chart of Accounts.<br>'
-              + 'This action cannot be undone!<br><br>'
-              + 'Type "DELETE ALL" to confirm:',
-						() => {
-							// Get the input value from the prompt
-							frappe.prompt(
-								{
-									fieldname: 'confirmation',
-									label: 'Type "DELETE ALL" to confirm',
-									fieldtype: 'Data',
-									reqd: 1
-								},
-								(values) => {
-									if (values.confirmation === 'DELETE ALL') {
-										perform_cleanup(frm, true);
-									} else {
-										frappe.msgprint(
-											'Confirmation text did not match. Cleanup cancelled.'
-										);
-									}
-								},
-								'Confirm Deletion',
-								'Delete'
-							);
-						},
-						() => {
-							// Cancelled - do nothing
-						}
-					);
-				} else {
-					// Regular E-Boekhouden cleanup
-					perform_cleanup(frm, false);
-				}
-			} else {
-				// Start import directly
-				start_coa_import(frm);
+			// Build confirmation message
+			let message = delete_all
+				? __('Are you sure you want to delete ALL accounts in your Chart of Accounts?')
+				: __('Are you sure you want to delete all accounts with E-Boekhouden numbers?');
+
+			if (force_delete) {
+				message += '<br><br><strong style="color: red;">⚠️ FORCE MODE ENABLED:</strong> '
+					+ 'This will delete GL entries and bypass link checks. This action cannot be undone!';
 			}
+
+			frappe.confirm(
+				message,
+				() => {
+					perform_cleanup_action(frm, delete_all, force_delete);
+				}
+			);
 		}
 	});
 
+	// Update warning based on selection
+	dialog.fields_dict.cleanup_type.df.onchange = () => {
+		const cleanup_type = dialog.get_value('cleanup_type');
+		const is_delete_all = cleanup_type === 'Clean up ALL accounts';
+
+		dialog.fields_dict.warning_html.df.options = is_delete_all
+			? '<div class="alert alert-danger" style="margin-top: 10px;">'
+				+ '<strong>🚨 DANGER:</strong> This will delete ALL accounts in your Chart of Accounts. '
+				+ 'This action cannot be undone!'
+				+ '</div>'
+			: '<div class="alert alert-warning" style="margin-top: 10px;">'
+				+ '<strong>⚠️ Warning:</strong> This will delete all accounts with E-Boekhouden numbers. '
+				+ 'Make sure you have no transactions linked to these accounts!'
+				+ '</div>';
+
+		dialog.fields_dict.warning_html.refresh();
+	};
+
 	dialog.show();
+}
+
+/**
+ * Perform the actual cleanup action
+ */
+function perform_cleanup_action(frm, delete_all_accounts, force_delete) {
+	frappe.call({
+		method: 'verenigingen.e_boekhouden.utils.cleanup_utils.cleanup_chart_of_accounts',
+		args: {
+			company: frm.doc.company,
+			delete_all_accounts: delete_all_accounts,
+			force_delete: force_delete || 0
+		},
+		freeze: true,
+		freeze_message: __('Cleaning up accounts...'),
+		callback(r) {
+			if (r.message && r.message.success) {
+				frappe.show_alert({
+					message: r.message.message,
+					indicator: 'green'
+				});
+				frm.reload_doc();
+			} else {
+				frappe.msgprint({
+					title: __('Cleanup Failed'),
+					message: r.message ? r.message.error : 'Unknown error',
+					indicator: 'red'
+				});
+			}
+		}
+	});
 }
 
 function perform_cleanup(frm, delete_all_accounts) {
@@ -1243,9 +1291,19 @@ function start_coa_import(frm) {
 	frm.set_value('date_from', tenYearsAgo);
 	frm.set_value('date_to', today);
 
-	// Save and start
-	frm.save().then(() => {
-		frappe.call({
+	// Check if document needs to be created first
+	if (!frm.doc.name || frm.is_new()) {
+		frappe.msgprint({
+			title: __('Save Required'),
+			message: __('Please save the migration document first before starting the import.'),
+			indicator: 'orange'
+		});
+		return;
+	}
+
+	// Just call start_migration directly - it will handle the field updates on the backend
+	// (workaround for session cookie issues with multiple frappe.db.set_value calls)
+	frappe.call({
 			method:
         'verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration.start_migration',
 			args: {
@@ -1276,7 +1334,6 @@ function start_coa_import(frm) {
 				}
 			}
 		});
-	});
 }
 
 function check_and_show_account_type_review(frm) {
@@ -1982,6 +2039,18 @@ function start_opening_balance_import(frm, options) {
 
 function add_tools_dropdown(frm) {
 	// Add debugging and REST API tools
+	console.log('add_tools_dropdown called'); // DEBUG
+
+	// Cleanup Chart of Accounts
+	console.log('Adding Cleanup Chart of Accounts button'); // DEBUG
+	frm.add_custom_button(
+		__('Cleanup Chart of Accounts'),
+		() => {
+			show_cleanup_dialog(frm);
+		},
+		__('Tools')
+	);
+	console.log('Cleanup Chart of Accounts button added'); // DEBUG
 
 	// Debug Connection - moved to frm.add_custom_button
 	frm.add_custom_button(

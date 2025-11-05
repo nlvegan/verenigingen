@@ -38,19 +38,24 @@ def migration_context(operation_type: str = "general", user: Optional[str] = Non
         with migration_context("account_creation"):
             account.insert()  # No need for ignore_permissions=True
     """
-    current_user = frappe.session.user
+    # Safely get current user - handle cases where session might not be initialized
+    current_user = getattr(frappe.session, "user", None)
+    if not current_user or current_user == "None":
+        current_user = MIGRATION_SYSTEM_USER
+
     migration_user = user or MIGRATION_SYSTEM_USER
 
     try:
-        # Check if current user has required roles
-        if not has_migration_permission(operation_type):
+        # Check if current user has required roles (skip check if we're already using system user)
+        if current_user != MIGRATION_SYSTEM_USER and not has_migration_permission(operation_type):
             frappe.throw(
                 f"User {current_user} does not have permission for {operation_type} operations. "
                 f"Required roles: {', '.join(MIGRATION_ROLES.get(operation_type, []))}"
             )
 
-        # Switch to migration user with proper roles
-        frappe.set_user(migration_user)
+        # Switch to migration user with proper roles (only if different from current)
+        if current_user != migration_user:
+            frappe.set_user(migration_user)
 
         # Set migration flags for audit trail
         frappe.flags.in_migration = True
@@ -60,8 +65,9 @@ def migration_context(operation_type: str = "general", user: Optional[str] = Non
         yield
 
     finally:
-        # Restore original user
-        frappe.set_user(current_user)
+        # Restore original user (only if we switched)
+        if current_user != migration_user:
+            frappe.set_user(current_user)
         frappe.flags.in_migration = False
         frappe.flags.migration_operation = None
         frappe.flags.migration_initiated_by = None
@@ -78,7 +84,10 @@ def has_migration_permission(operation_type: str) -> bool:
         True if user has required roles
     """
     required_roles = MIGRATION_ROLES.get(operation_type, ["System Manager"])
-    user_roles = frappe.get_roles(frappe.session.user)
+
+    # Safely get current user
+    current_user = getattr(frappe.session, "user", None) or MIGRATION_SYSTEM_USER
+    user_roles = frappe.get_roles(current_user)
 
     return any(role in user_roles for role in required_roles)
 

@@ -30,6 +30,23 @@
     "payment_gateway_invoice_prefix",
     "account_groups_section",
     "account_group_mappings",
+    "account_group_type_mappings",
+    "account_classification_section",
+    "enable_account_classification_service",
+    "column_break_classification",
+    "classification_strategy",
+    "bal_classification_section",
+    "bal_asset_ranges",
+    "bal_liability_ranges",
+    "column_break_bal",
+    "bal_equity_ranges",
+    "bal_equity_keywords",
+    "vw_classification_section",
+    "vw_income_ranges",
+    "vw_expense_ranges",
+    "column_break_vw",
+    "vw_income_keywords",
+    "vw_expense_keywords",
     "cost_center_section",
     "parse_groups_button",
     "cost_center_mappings"
@@ -181,6 +198,109 @@
       "fieldtype": "Long Text",
       "label": "Account Group Mappings",
       "description": "Paste account group codes and names in format: 'code <space> name' (one per line). Example:\n001 Vaste activa\n002 Liquide middelen\n055 Opbrengsten\n056 Personeelskosten"
+    },
+    {
+      "fieldname": "account_group_type_mappings",
+      "fieldtype": "Code",
+      "label": "Account Group Type Mappings (JSON)",
+      "description": "JSON mapping of group codes to ERPNext account types. Leave empty to disable group-based classification. Format:\n{\n  \"001\": {\"account_type\": \"Fixed Asset\", \"root_type\": \"Asset\"},\n  \"002\": {\"account_type\": \"Bank\", \"root_type\": \"Asset\"},\n  \"055\": {\"account_type\": \"Income Account\", \"root_type\": \"Income\"}\n}",
+      "options": "JSON"
+    },
+    {
+      "fieldname": "account_classification_section",
+      "fieldtype": "Section Break",
+      "label": "Account Classification Configuration",
+      "description": "Configure how accounts are classified during import. You can use account code ranges and keywords to control classification of BAL (Balance Sheet) and VW (P&L) accounts.",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "enable_account_classification_service",
+      "fieldtype": "Check",
+      "label": "Use Advanced Classification Service",
+      "default": 1,
+      "description": "Enable the AccountClassificationService for more accurate classification using categories, groups, and patterns"
+    },
+    {
+      "fieldname": "column_break_classification",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "classification_strategy",
+      "fieldtype": "Select",
+      "label": "Classification Strategy",
+      "options": "Prefer Groups\nPrefer Code Ranges\nGroups Only\nCode Ranges Only",
+      "default": "Prefer Groups",
+      "description": "Choose whether to prioritize E-Boekhouden groups or account code ranges for classification"
+    },
+    {
+      "fieldname": "bal_classification_section",
+      "fieldtype": "Section Break",
+      "label": "BAL (Balance Sheet) Classification Rules",
+      "description": "Configure account code ranges for Balance Sheet accounts. Use ranges like '0000-2999' for Assets, '3000-4999' for Liabilities. Leave empty to disable code-based classification.",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "bal_asset_ranges",
+      "fieldtype": "Small Text",
+      "label": "Asset Account Ranges",
+      "description": "Account code ranges for Assets (one per line). Leave empty to disable range-based classification. Example based on administratievoeren.nl schema:\n0010-0599 Fixed Assets\n1000-1199 Liquid Assets\n1300-1899 Receivables\n2000-2999 Transfer accounts\n3000-3199 Inventory"
+    },
+    {
+      "fieldname": "bal_liability_ranges",
+      "fieldtype": "Small Text",
+      "label": "Liability Account Ranges",
+      "description": "Account code ranges for Liabilities (one per line). Leave empty to disable range-based classification. Example based on administratievoeren.nl schema:\n0800-0899 Provisions\n0900-0999 Long-term debt\n1600-1699 Creditors"
+    },
+    {
+      "fieldname": "column_break_bal",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "bal_equity_ranges",
+      "fieldtype": "Small Text",
+      "label": "Equity Account Ranges",
+      "description": "Account code ranges for Equity (one per line). Leave empty to disable range-based classification. Example based on administratievoeren.nl schema:\n0600-0699 Equity accounts"
+    },
+    {
+      "fieldname": "bal_equity_keywords",
+      "fieldtype": "Small Text",
+      "label": "Equity Keywords",
+      "description": "Keywords to identify Equity accounts (one per line). Leave empty to disable keyword-based classification."
+    },
+    {
+      "fieldname": "vw_classification_section",
+      "fieldtype": "Section Break",
+      "label": "VW (Profit & Loss) Classification Rules",
+      "description": "Configure account code ranges for P&L accounts. Use ranges like '8000-8999' for Income, '6000-7999' for Expenses. Leave empty to rely on groups only.",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "vw_income_ranges",
+      "fieldtype": "Small Text",
+      "label": "Income Account Ranges",
+      "description": "Account code ranges for Income (one per line). Leave empty to rely on groups and keywords only. Example based on administratievoeren.nl schema:\n8000-8099 Revenue/Sales (Omzet)\n9000-9099 Results from participations\n9800-9899 Payment discounts"
+    },
+    {
+      "fieldname": "vw_expense_ranges",
+      "fieldtype": "Small Text",
+      "label": "Expense Account Ranges",
+      "description": "Account code ranges for Expenses (one per line). Leave empty to rely on groups and keywords only. Example based on administratievoeren.nl schema:\n4000-4999 All expense categories\n5000-5999 Additional expense accounts\n7000-7099 Cost of goods sold"
+    },
+    {
+      "fieldname": "column_break_vw",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "vw_income_keywords",
+      "fieldtype": "Small Text",
+      "label": "Income Keywords",
+      "description": "Keywords to identify Income accounts (one per line). Leave empty to disable keyword-based classification."
+    },
+    {
+      "fieldname": "vw_expense_keywords",
+      "fieldtype": "Small Text",
+      "label": "Expense Keywords",
+      "description": "Keywords to identify Expense accounts (one per line). Leave empty to disable keyword-based classification."
     },
     {
       "fieldname": "cost_center_section",

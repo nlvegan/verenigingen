@@ -887,21 +887,21 @@ function formatCleanupResult(result) {
 
     if (result.total_records_affected !== undefined) {
         html += '<div class="statistics-grid mb-4">';
-        html += '<div class="stat-card" style="border-left-color: #dc3545;">';
-        html += '<div class="stat-value" style="color: #dc3545;">' + result.total_records_affected + '</div>';
+        html += '<div class="stat-card" style="border-left-color: var(--brand-error, #dc3545);">';
+        html += '<div class="stat-value" style="color: var(--brand-error, #dc3545);">' + result.total_records_affected + '</div>';
         html += '<div class="stat-label">Total Records Affected</div>';
         html += '</div>';
 
         if (result.members && result.members.count !== undefined) {
-            html += '<div class="stat-card" style="border-left-color: #fd7e14;">';
-            html += '<div class="stat-value" style="color: #fd7e14;">' + result.members.count + '</div>';
+            html += '<div class="stat-card" style="border-left-color: var(--brand-warning, #ffc107);">';
+            html += '<div class="stat-value" style="color: var(--brand-warning, #ffc107);">' + result.members.count + '</div>';
             html += '<div class="stat-label">Members</div>';
             html += '</div>';
         }
 
         if (result.memberships && result.memberships.count !== undefined) {
-            html += '<div class="stat-card" style="border-left-color: #20c997;">';
-            html += '<div class="stat-value" style="color: #20c997;">' + result.memberships.count + '</div>';
+            html += '<div class="stat-card" style="border-left-color: var(--brand-success, #1A555F);">';
+            html += '<div class="stat-value" style="color: var(--brand-success, #1A555F);">' + result.memberships.count + '</div>';
             html += '<div class="stat-label">Memberships</div>';
             html += '</div>';
         }

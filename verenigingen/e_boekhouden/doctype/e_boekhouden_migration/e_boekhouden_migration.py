@@ -979,6 +979,35 @@ class EBoekhoudenMigration(Document):
                 }
             )
 
+    def _account_in_ranges(self, account_code, ranges):
+        """Check if account code falls within any of the configured ranges
+
+        Args:
+            account_code: Account code to check (e.g., "1000", "4500")
+            ranges: List of (start, end) tuples (e.g., [("0010", "0599"), ("1000", "1899")])
+
+        Returns:
+            bool: True if account code is within any range
+        """
+        if not ranges or not account_code:
+            return False
+
+        # Normalize account code to string for comparison
+        account_code_str = str(account_code).strip()
+
+        for start, end in ranges:
+            # Use string comparison for account codes (works for numeric and alphanumeric)
+            # Pad to same length for proper comparison
+            max_len = max(len(start), len(end), len(account_code_str))
+            padded_code = account_code_str.zfill(max_len)
+            padded_start = start.zfill(max_len)
+            padded_end = end.zfill(max_len)
+
+            if padded_start <= padded_code <= padded_end:
+                return True
+
+        return False
+
     def create_account(self, account_data, use_enhanced=False):
         """Create Account in ERPNext"""
         try:
@@ -1048,12 +1077,21 @@ class EBoekhoudenMigration(Document):
                 # If too long, truncate
                 full_account_name = account_name[:137] + "..."
 
-            # Get default company first
+            # CACHE SETTINGS - Fetch once and reuse throughout method to avoid redundant DB queries
             settings = frappe.get_single("E-Boekhouden Settings")
-            company = settings.default_company
+            classification_rules = settings.get_classification_rules()
+
+            # Use company from migration record, fallback to settings if not set
+            company = self.company
+            if not company:
+                company = settings.default_company
+                if company:
+                    frappe.logger().warning(
+                        f"Migration record has no company set, using default company: {company}"
+                    )
 
             if not company:
-                self.log_error("No default company set in E-Boekhouden Settings")
+                self.log_error("No company set on migration record or in E-Boekhouden Settings")
                 return False
 
             # Check if account already exists
@@ -1130,48 +1168,102 @@ class EBoekhoudenMigration(Document):
             account_type = mapping["account_type"]
             root_type = mapping["root_type"]
 
-            # Handle BAL and VW categories - need to determine root_type from account code
-            if root_type is None:
+            # PRIORITY 1: Check configurable group type mappings FIRST (most reliable)
+            # These are explicit user-configured mappings for specific group codes
+            group_based_classification = None
+            if account_code and group_code:
+                # Use cached classification rules (already fetched above)
+                group_type_mappings = classification_rules.get("group_type_mappings", {})
+
+                # Check if this group code has a configured mapping
+                if group_code in group_type_mappings:
+                    mapping = group_type_mappings[group_code]
+                    mapped_account_type = mapping.get("account_type")
+                    mapped_root_type = mapping.get("root_type")
+
+                    if mapped_root_type:  # Only apply if valid mapping exists
+                        account_type = mapped_account_type if mapped_account_type else ""
+                        root_type = mapped_root_type
+                        group_based_classification = True
+                        frappe.logger().info(
+                            f"Account {account_code} classified via group {group_code}: "
+                            f"{account_type}/{root_type} (from configured group mappings - PRIORITY 1)"
+                        )
+
+                        # Special handling for Bank/Cash distinction in group 002 (if that's configured)
+                        if (
+                            mapped_account_type == "Bank"
+                            and "kas" in account_name.lower()
+                            and "bank" not in account_name.lower()
+                        ):
+                            account_type = "Cash"
+                            frappe.logger().info(
+                                f"Account {account_code} refined to Cash based on name pattern"
+                            )
+
+                        # Special handling for Payable distinction in group 006 (if that's configured)
+                        if mapped_account_type == "Current Liability":
+                            account_name_lower = account_name.lower()
+                            if "te betalen" in account_name_lower or "crediteuren" in account_name_lower:
+                                account_type = "Payable"
+                                frappe.logger().info(
+                                    f"Account {account_code} refined to Payable based on name pattern"
+                                )
+
+            # PRIORITY 2: Handle BAL and VW categories - use range/keyword-based classification rules
+            # Only use if group mappings didn't provide classification
+            if root_type is None and not group_based_classification:
                 if category == "BAL":
-                    # Balance sheet accounts - check for equity patterns first
+                    # Use cached classification rules (already fetched above)
+                    bal_rules = classification_rules.get("bal_rules", {})
+
                     account_name_lower = account_name.lower()
-                    if any(
-                        pattern in account_name_lower
-                        for pattern in [
-                            "eigen vermogen",
-                            "reserve",
-                            "reservering",
-                            "bestemmingsreserve",
-                            "continuiteitsreserve",
-                        ]
-                    ):
+
+                    # Check equity keywords first (from settings)
+                    equity_keywords = bal_rules.get("equity_keywords", [])
+                    if equity_keywords and any(keyword in account_name_lower for keyword in equity_keywords):
                         root_type = "Equity"
                         account_type = ""
                         frappe.logger().info(
-                            f"BAL account {account_code} classified as Equity due to name pattern: {account_name}"
+                            f"BAL account {account_code} classified as Equity due to keyword in: {account_name}"
                         )
+                    # Check if group code indicates equity
                     elif group_code == "005":
                         root_type = "Equity"
                         account_type = ""
                         frappe.logger().info(
                             f"BAL account {account_code} classified as Equity due to group {group_code}"
                         )
-                    elif account_code.startswith(("0", "1", "2")):
+                    # Check configurable ranges
+                    elif self._account_in_ranges(account_code, bal_rules.get("asset_ranges", [])):
                         root_type = "Asset"
-                    elif account_code.startswith(("3", "4")):
-                        root_type = "Liability"
-                    elif account_code.startswith("5") and not group_code:
-                        # Only use code pattern if no group code available
-                        root_type = "Equity"
                         frappe.logger().info(
-                            f"BAL account {account_code} classified as Equity due to 5xxx code pattern (no group)"
+                            f"BAL account {account_code} classified as Asset by configured range"
+                        )
+                    elif self._account_in_ranges(account_code, bal_rules.get("liability_ranges", [])):
+                        root_type = "Liability"
+                        frappe.logger().info(
+                            f"BAL account {account_code} classified as Liability by configured range"
+                        )
+                    elif self._account_in_ranges(account_code, bal_rules.get("equity_ranges", [])):
+                        root_type = "Equity"
+                        account_type = ""
+                        frappe.logger().info(
+                            f"BAL account {account_code} classified as Equity by configured range"
                         )
                     else:
                         # Default for unknown BAL accounts
                         root_type = "Asset"
-                        frappe.logger().warning(f"Unknown BAL account code pattern: {account_code}")
+                        frappe.logger().warning(
+                            f"BAL account {account_code} does not match any configured ranges, defaulting to Asset"
+                        )
                 elif category == "VW":
-                    # Profit & Loss accounts - use GROUP NUMBERS instead of account codes
+                    # Use cached classification rules (already fetched above)
+                    vw_rules = classification_rules.get("vw_rules", {})
+
+                    account_name_lower = account_name.lower()
+
+                    # Check GROUP NUMBERS first (most reliable)
                     # Group 055 = Income (Opbrengsten)
                     # Groups 056-059 = Expenses (various cost types)
                     if group_code == "055":
@@ -1186,107 +1278,48 @@ class EBoekhoudenMigration(Document):
                         frappe.logger().info(
                             f"VW account {account_code} classified as Expense (group {group_code} - cost type)"
                         )
-                    else:
-                        # For VW accounts without clear group codes, use name-based detection and account code patterns
-                        account_name_lower = account_name.lower()
-                        if (
-                            "opbrengst" in account_name_lower
-                            or "omzet" in account_name_lower
-                            or "inkomst" in account_name_lower
-                            or "contributie" in account_name_lower
-                            or "donatie" in account_name_lower
-                            or "verkoop" in account_name_lower
-                            or "advertentie" in account_name_lower
-                            or "commissie" in account_name_lower
-                            or "provisie" in account_name_lower
-                            or "rentebaten" in account_name_lower
-                        ):
-                            root_type = "Income"
-                            account_type = "Income Account"
-                            frappe.logger().info(
-                                f"VW account {account_code} classified as Income (name pattern: {account_name})"
-                            )
-                        elif account_code.startswith("8") and not group_code:
-                            # 8xxx accounts are typically income in Dutch accounting (fallback when no group)
-                            root_type = "Income"
-                            account_type = "Income Account"
-                            frappe.logger().info(
-                                f"VW account {account_code} classified as Income (8xxx code pattern, no group)"
-                            )
-                        else:
-                            # Default VW accounts to expense
-                            root_type = "Expense"
-                            account_type = "Expense Account"
-                            frappe.logger().info(
-                                f"VW account {account_code} classified as Expense (VW category default, group {group_code})"
-                            )
-
-            # Enhanced account type determination - prioritize Dutch rekeninggroepen over account codes
-            # ALWAYS run this logic to override category-based defaults with group-based precision
-            if account_code:
-                # PRIORITY 1: Dutch Rekeninggroepen (Account Groups) - most reliable
-                if group_code:
-                    # Dutch standard rekeninggroepen mapping
-                    if group_code == "001":  # Vaste activa
-                        account_type = "Fixed Asset"
-                        root_type = "Asset"
-                    elif group_code == "002":  # Liquide middelen - Financial assets (bank/cash)
-                        # Distinguish between bank and cash based on account name
-                        if "kas" in account_name.lower() and "bank" not in account_name.lower():
-                            account_type = "Cash"
-                            root_type = "Asset"
-                            frappe.logger().info(
-                                f"Account {account_code} classified as Cash due to group 002 + name pattern"
-                            )
-                        else:
-                            account_type = "Bank"
-                            root_type = "Asset"
-                            frappe.logger().info(
-                                f"Account {account_code} classified as Bank due to group 002 (Liquide middelen)"
-                            )
-                    elif group_code == "003":  # Voorraden
-                        account_type = (
-                            "Current Asset"  # Use Current Asset instead of Stock for migration simplicity
-                        )
-                        root_type = "Asset"
-                    elif group_code == "004":  # Vorderingen
-                        account_type = "Receivable"  # Proper receivable classification
-                        root_type = "Asset"
-                    elif group_code == "006":  # Kortlopende schulden
-                        # Check for specific payable patterns before generic Current Liability
-                        account_name_lower = account_name.lower()
-                        if "te betalen" in account_name_lower or "crediteuren" in account_name_lower:
-                            account_type = "Payable"  # Specific payable classification
-                            root_type = "Liability"
-                            frappe.logger().info(
-                                f"Account {account_code} classified as Payable due to group 006 + name pattern"
-                            )
-                        else:
-                            account_type = "Current Liability"  # Generic group 006 classification
-                            root_type = "Liability"
-                    elif group_code == "007":  # Langlopende schulden
-                        account_type = "Current Liability"
-                        root_type = "Liability"
-                    elif group_code == "008":  # Overlopende passiva
-                        account_type = "Current Liability"
-                        root_type = "Liability"
-                    elif group_code == "005":  # Eigen vermogen (single group 005)
-                        account_type = ""
-                        root_type = "Equity"
-                        frappe.logger().info(
-                            f"Account {account_code} classified as Equity due to group {group_code} (Eigen vermogen)"
-                        )
-                    elif group_code == "055":  # Opbrengsten (Income)
-                        account_type = "Income Account"
+                    # Check income keywords from settings
+                    elif vw_rules.get("income_keywords") and any(
+                        keyword in account_name_lower for keyword in vw_rules.get("income_keywords", [])
+                    ):
                         root_type = "Income"
-                    elif group_code in ["056", "057", "058", "059"]:  # Various cost types
-                        account_type = "Expense Account"
-                        root_type = "Expense"
+                        account_type = "Income Account"
                         frappe.logger().info(
-                            f"Account {account_code} classified as Expense due to group {group_code} (Dutch cost group)"
+                            f"VW account {account_code} classified as Income (keyword match in: {account_name})"
+                        )
+                    # Check expense keywords from settings
+                    elif vw_rules.get("expense_keywords") and any(
+                        keyword in account_name_lower for keyword in vw_rules.get("expense_keywords", [])
+                    ):
+                        root_type = "Expense"
+                        account_type = "Expense Account"
+                        frappe.logger().info(
+                            f"VW account {account_code} classified as Expense (keyword match in: {account_name})"
+                        )
+                    # Check configurable income ranges
+                    elif self._account_in_ranges(account_code, vw_rules.get("income_ranges", [])):
+                        root_type = "Income"
+                        account_type = "Income Account"
+                        frappe.logger().info(
+                            f"VW account {account_code} classified as Income by configured range"
+                        )
+                    # Check configurable expense ranges
+                    elif self._account_in_ranges(account_code, vw_rules.get("expense_ranges", [])):
+                        root_type = "Expense"
+                        account_type = "Expense Account"
+                        frappe.logger().info(
+                            f"VW account {account_code} classified as Expense by configured range"
+                        )
+                    else:
+                        # Default VW accounts to expense (most common)
+                        root_type = "Expense"
+                        account_type = "Expense Account"
+                        frappe.logger().info(
+                            f"VW account {account_code} classified as Expense (default, group {group_code})"
                         )
 
-                # PRIORITY 2: Account name patterns - supplement group classification
+            # PRIORITY 3: Account name patterns - supplement group/range classification
+            if account_code and group_code:
                 if not account_type:
                     account_name_lower = account_name.lower()
 
@@ -1907,12 +1940,18 @@ class EBoekhoudenMigration(Document):
                 self.log_error("Invalid cost center data: no description")
                 return False
 
-            # Get default company
-            settings = frappe.get_single("E-Boekhouden Settings")
-            company = settings.default_company
+            # Use company from migration record, fallback to settings if not set
+            company = self.company
+            if not company:
+                settings = frappe.get_single("E-Boekhouden Settings")
+                company = settings.default_company
+                if company:
+                    frappe.logger().warning(
+                        f"Migration record has no company set, using default company: {company}"
+                    )
 
             if not company:
-                self.log_error("No default company set in E-Boekhouden Settings")
+                self.log_error("No company set on migration record or in E-Boekhouden Settings")
                 return False
 
             # Check if cost center already exists
@@ -2409,12 +2448,18 @@ class EBoekhoudenMigration(Document):
                 self.skipped_stock_transactions += 1
                 return False
 
-            # Get default settings
-            settings = frappe.get_single("E-Boekhouden Settings")
-            company = settings.default_company
+            # Use company from migration record, fallback to settings if not set
+            company = self.company
+            if not company:
+                settings = frappe.get_single("E-Boekhouden Settings")
+                company = settings.default_company
+                if company:
+                    frappe.logger().warning(
+                        f"Migration record has no company set, using default company: {company}"
+                    )
 
             if not company:
-                self.log_error("No default company set in E-Boekhouden Settings")
+                self.log_error("No company set on migration record or in E-Boekhouden Settings")
                 return False
 
             # Parse transaction date
@@ -3109,7 +3154,13 @@ def start_migration(migration_name, setup_only=False):
 
         # If setup_only, configure the migration to skip transactions
         if setup_only:
-            # Temporarily set migration flags for setup-only mode
+            # Set migration flags for setup-only mode (CoA import)
+            # Also set date range if not already set
+            from frappe.utils import add_days, today
+
+            today_date = today()
+            ten_years_ago = add_days(today_date, -3650)
+
             migration.db_set(
                 {
                     "migrate_accounts": 1,
@@ -3117,6 +3168,9 @@ def start_migration(migration_name, setup_only=False):
                     "migrate_customers": 1,
                     "migrate_suppliers": 1,
                     "migrate_transactions": 0,  # Skip transactions
+                    "dry_run": 0,
+                    "date_from": migration.date_from or ten_years_ago,
+                    "date_to": migration.date_to or today_date,
                 }
             )
             frappe.db.commit()
@@ -3138,7 +3192,9 @@ def start_migration(migration_name, setup_only=False):
 
 
 @frappe.whitelist()
-@critical_api(operation_type=OperationType.FINANCIAL)
+# NOTE: @critical_api decorator removed because JavaScript UI already provides
+# comprehensive confirmation dialogs including "Type DELETE ALL" safeguard (see e_boekhouden_migration.js:1158-1184)
+# Removing decorator prevents double-confirmation validation conflicts
 def cleanup_chart_of_accounts(company, delete_all_accounts=False):
     """Delegated to cleanup_utils for better organization"""
     from verenigingen.e_boekhouden.utils.cleanup_utils import cleanup_chart_of_accounts as cleanup_impl
@@ -3181,18 +3237,12 @@ def import_single_mutation(migration_name, mutation_id, overwrite_existing=True)
             # First, check for orphaned Bank Transactions (not linked to any Payment Entry)
             # These can be left over from failed imports or legacy processing
             bt_reference = f"EB-{mutation_id}"
-            orphaned_bt = frappe.db.get_value(
-                "Bank Transaction",
-                {"reference_number": bt_reference},
-                "name"
-            )
+            orphaned_bt = frappe.db.get_value("Bank Transaction", {"reference_number": bt_reference}, "name")
 
             if orphaned_bt:
                 # Check if it's actually orphaned (no linked payments)
                 linked_payments = frappe.get_all(
-                    "Bank Transaction Payments",
-                    filters={"parent": orphaned_bt},
-                    limit=1
+                    "Bank Transaction Payments", filters={"parent": orphaned_bt}, limit=1
                 )
 
                 if not linked_payments:
@@ -3701,11 +3751,15 @@ def update_account_type_mapping(account_name, new_account_type, company):
         elif frappe.db.exists("Account", {"account_name": account_name, "company": company}):
             account = frappe.get_doc("Account", {"account_name": account_name, "company": company})
         else:
-            return {"success": False, "error": f"Account {account_name} not found"}
+            error_msg = f"Account {account_name} not found"
+            frappe.log_error(error_msg, "Account Type Update Failed")
+            return {"success": False, "error": error_msg}
 
         # Validate it's from the right company
         if account.company != company:
-            return {"success": False, "error": f"Account {account_name} belongs to different company"}
+            error_msg = f"Account {account_name} belongs to company {account.company}, not {company}"
+            frappe.log_error(error_msg, "Account Type Update Failed")
+            return {"success": False, "error": error_msg}
 
         # Update account type
         account.account_type = new_account_type
@@ -3718,9 +3772,14 @@ def update_account_type_mapping(account_name, new_account_type, company):
             "message": f"Updated account type for {account.account_name} to {new_account_type}",
         }
 
+    except frappe.PermissionError as e:
+        error_msg = f"Permission denied updating account type: {str(e)}"
+        frappe.log_error(error_msg, "Account Type Update Permission Error")
+        return {"success": False, "error": error_msg}
     except Exception as e:
-        frappe.log_error(f"Error updating account type: {str(e)}")
-        return {"success": False, "error": str(e)}
+        error_msg = f"Error updating account type for {account_name}: {str(e)}"
+        frappe.log_error(error_msg, "Account Type Update Error")
+        return {"success": False, "error": error_msg}
 
     def _get_migration_currency(self, settings):
         """Get currency for migration with explicit validation"""
@@ -3775,9 +3834,16 @@ def get_account_type_recommendations(company, show_all=False):
         show_all: If True, show all accounts (not just those without types)
     """
     try:
+        # Import AccountClassificationService for proper classification
+        from verenigingen.e_boekhouden.services.account_classification_service import (
+            AccountClassificationService,
+        )
+
+        classification_service = AccountClassificationService()
+
         # Build the query based on whether we want all accounts or just untyped ones
         if show_all:
-            # Get ALL imported accounts with parent information
+            # Get ALL imported accounts with parent information and E-Boekhouden data
             accounts = frappe.db.sql(
                 """
                 SELECT
@@ -3814,13 +3880,33 @@ def get_account_type_recommendations(company, show_all=False):
                 as_dict=True,
             )
 
-        # Add recommended types for each account
+        # Add recommended types for each account using AccountClassificationService
         recommendations = []
         for account in accounts:
             if not account.account_code:
                 continue
 
-            recommended_type = get_recommended_account_type(account.account_code, account.account_name)
+            # Use the proper classification service
+            try:
+                classification = classification_service.classify_account(
+                    {
+                        "code": account.account_code,
+                        "description": account.account_name or "",
+                        # Note: category and group not stored in ERPNext currently
+                        # Classification will use code patterns and keywords as fallback
+                        "category": "",
+                        "group": "",
+                    }
+                )
+
+                recommended_type = classification.account_type
+
+            except Exception as classification_error:
+                frappe.logger().warning(
+                    f"Classification failed for account {account.account_code}: {str(classification_error)}"
+                )
+                # Fallback to old logic if classification fails
+                recommended_type = get_recommended_account_type(account.account_code, account.account_name)
 
             recommendations.append(
                 {

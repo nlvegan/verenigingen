@@ -12,6 +12,284 @@ from verenigingen.utils.security.api_security_framework import OperationType, cr
 
 
 class EBoekhoudenSettings(Document):
+    def get_classification_rules(self):
+        """Get account classification rules from settings
+
+        Returns:
+            dict: Classification configuration with ranges, keywords, and group mappings
+        """
+        return {
+            "use_classification_service": self.get("enable_account_classification_service", 1),
+            "strategy": self.get("classification_strategy", "Prefer Groups"),
+            "group_mappings": self._parse_account_group_mappings(),
+            "group_type_mappings": self._parse_group_type_mappings(),
+            "bal_rules": {
+                "asset_ranges": self._parse_ranges(self.get("bal_asset_ranges", "")),
+                "liability_ranges": self._parse_ranges(self.get("bal_liability_ranges", "")),
+                "equity_ranges": self._parse_ranges(self.get("bal_equity_ranges", "")),
+                "equity_keywords": self._parse_keywords(self.get("bal_equity_keywords", "")),
+            },
+            "vw_rules": {
+                "income_ranges": self._parse_ranges(self.get("vw_income_ranges", "")),
+                "expense_ranges": self._parse_ranges(self.get("vw_expense_ranges", "")),
+                "income_keywords": self._parse_keywords(self.get("vw_income_keywords", "")),
+                "expense_keywords": self._parse_keywords(self.get("vw_expense_keywords", "")),
+            },
+        }
+
+    def _parse_group_type_mappings(self):
+        """Parse group type mappings from JSON field with validation
+
+        Returns:
+            dict: Group code to type mapping, e.g., {"001": {"account_type": "Fixed Asset", "root_type": "Asset"}}
+        """
+        mappings_json = self.get("account_group_type_mappings", "")
+        if not mappings_json or not mappings_json.strip():
+            return {}
+
+        try:
+            mappings = json.loads(mappings_json)
+            if not isinstance(mappings, dict):
+                frappe.log_error(
+                    "account_group_type_mappings is not a valid JSON object", "Settings Parse Error"
+                )
+                return {}
+
+            # Validate each mapping entry
+            valid_mappings = {}
+            valid_root_types = ["Asset", "Liability", "Equity", "Income", "Expense"]
+            valid_account_types = [
+                "Accumulated Depreciation",
+                "Asset Received But Not Billed",
+                "Bank",
+                "Cash",
+                "Chargeable",
+                "Capital Work in Progress",
+                "Cost of Goods Sold",
+                "Depreciation",
+                "Equity",
+                "Expense Account",
+                "Expenses Included In Asset Valuation",
+                "Expenses Included In Valuation",
+                "Fixed Asset",
+                "Income Account",
+                "Payable",
+                "Receivable",
+                "Round Off",
+                "Stock",
+                "Stock Adjustment",
+                "Stock Received But Not Billed",
+                "Tax",
+                "Temporary",
+            ]
+
+            for group_code, mapping in mappings.items():
+                if not isinstance(mapping, dict):
+                    frappe.log_error(
+                        f"Group '{group_code}' mapping is not a valid object (expected dict with account_type and root_type)",
+                        "Settings Validation Error",
+                    )
+                    continue
+
+                root_type = mapping.get("root_type")
+                account_type = mapping.get("account_type", "")
+
+                # Validate root_type (required)
+                if not root_type:
+                    frappe.log_error(
+                        f"Group '{group_code}' is missing required field 'root_type'",
+                        "Settings Validation Error",
+                    )
+                    continue
+
+                if root_type not in valid_root_types:
+                    frappe.log_error(
+                        f"Group '{group_code}' has invalid root_type '{root_type}'. "
+                        f"Valid values: {', '.join(valid_root_types)}",
+                        "Settings Validation Error",
+                    )
+                    continue
+
+                # Validate account_type (optional, but must be valid if provided)
+                if account_type and account_type not in valid_account_types:
+                    frappe.log_error(
+                        f"Group '{group_code}' has invalid account_type '{account_type}'. "
+                        f"Valid values: {', '.join(valid_account_types)}",
+                        "Settings Validation Error",
+                    )
+                    continue
+
+                # Mapping is valid
+                valid_mappings[group_code] = mapping
+
+            return valid_mappings
+
+        except json.JSONDecodeError as e:
+            frappe.log_error(
+                f"Failed to parse account_group_type_mappings JSON: {str(e)}", "Settings Parse Error"
+            )
+            return {}
+
+    def _parse_account_group_mappings(self):
+        """Parse account group mappings from the account_group_mappings field
+
+        The field contains text like:
+        001 Vaste activa
+        002 Liquide middelen
+        055 Opbrengsten
+
+        Returns:
+            dict: Group code to group name mapping, e.g., {"001": "Vaste activa", "002": "Liquide middelen"}
+        """
+        mappings_text = self.get("account_group_mappings", "")
+        if not mappings_text or not mappings_text.strip():
+            return {}
+
+        mappings = {}
+        for line in mappings_text.strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+
+            # Split on first space to separate code from name
+            parts = line.split(" ", 1)
+            if len(parts) >= 2:
+                code = parts[0].strip()
+                name = parts[1].strip()
+                if code and name:
+                    mappings[code] = name
+
+        return mappings
+
+    def _parse_ranges(self, ranges_text):
+        """Parse account code ranges from text with validation
+
+        Args:
+            ranges_text: Text with ranges like '0000-2999\n1000-1999'
+
+        Returns:
+            list: List of (start, end) tuples
+        """
+        if not ranges_text or not ranges_text.strip():
+            return []
+
+        ranges = []
+        line_number = 0
+
+        for line in ranges_text.strip().split("\n"):
+            line_number += 1
+            line = line.strip()
+            if not line:
+                continue
+
+            if "-" not in line:
+                frappe.log_error(
+                    f"Range validation error on line {line_number}: '{line}' - Missing '-' separator. "
+                    "Expected format: 'start-end' (e.g., '0000-2999')",
+                    "Settings Validation Error",
+                )
+                continue
+
+            parts = line.split("-", 1)
+            if len(parts) != 2:
+                frappe.log_error(
+                    f"Range validation error on line {line_number}: '{line}' - Invalid format. "
+                    "Expected format: 'start-end' (e.g., '0000-2999')",
+                    "Settings Validation Error",
+                )
+                continue
+
+            start = parts[0].strip()
+            end = parts[1].strip()
+
+            # Validate both start and end exist
+            if not start or not end:
+                frappe.log_error(
+                    f"Range validation error on line {line_number}: '{line}' - Start or end value is empty",
+                    "Settings Validation Error",
+                )
+                continue
+
+            # Validate reasonable length (prevent abuse with extremely long ranges)
+            if len(start) > 10 or len(end) > 10:
+                frappe.log_error(
+                    f"Range validation error on line {line_number}: '{line}' - Account codes longer than 10 characters are not supported",
+                    "Settings Validation Error",
+                )
+                continue
+
+            # Validate start <= end using zero-padded comparison
+            max_len = max(len(start), len(end))
+            padded_start = start.zfill(max_len)
+            padded_end = end.zfill(max_len)
+
+            if padded_start > padded_end:
+                frappe.log_error(
+                    f"Range validation error on line {line_number}: '{line}' - Start value '{start}' is greater than end value '{end}'. "
+                    "Ranges must have start <= end",
+                    "Settings Validation Error",
+                )
+                continue
+
+            ranges.append((start, end))
+
+        # Check for overlaps within the same category
+        if len(ranges) > 1:
+            self._check_range_overlaps(ranges, ranges_text[:30])  # Pass first 30 chars as category hint
+
+        return ranges
+
+    def _check_range_overlaps(self, ranges, category_hint):
+        """Check for overlapping ranges and log warnings
+
+        Args:
+            ranges: List of (start, end) tuples
+            category_hint: String hint about which category (for error messages)
+        """
+        for i, (start1, end1) in enumerate(ranges):
+            for j, (start2, end2) in enumerate(ranges):
+                if i >= j:  # Only check each pair once
+                    continue
+
+                # Normalize for comparison
+                max_len = max(len(start1), len(end1), len(start2), len(end2))
+                padded_start1 = start1.zfill(max_len)
+                padded_end1 = end1.zfill(max_len)
+                padded_start2 = start2.zfill(max_len)
+                padded_end2 = end2.zfill(max_len)
+
+                # Check if ranges overlap
+                # Range1 overlaps Range2 if: start1 <= end2 AND start2 <= end1
+                if padded_start1 <= padded_end2 and padded_start2 <= padded_end1:
+                    frappe.log_error(
+                        f"Range overlap detected in '{category_hint}...': "
+                        f"Range '{start1}-{end1}' overlaps with '{start2}-{end2}'. "
+                        "This may cause unexpected account classification behavior. "
+                        "Consider revising your ranges to eliminate overlaps.",
+                        "Settings Validation Warning",
+                    )
+                    # Note: We log but don't reject - overlaps might be intentional in some cases
+
+    def _parse_keywords(self, keywords_text):
+        """Parse keywords from text
+
+        Args:
+            keywords_text: Text with keywords, one per line
+
+        Returns:
+            list: List of lowercase keywords
+        """
+        if not keywords_text or not keywords_text.strip():
+            return []
+
+        keywords = []
+        for line in keywords_text.strip().split("\n"):
+            line = line.strip().lower()
+            if line:
+                keywords.append(line)
+
+        return keywords
+
     def test_connection(self):
         """Test connection to e-Boekhouden API"""
         try:
