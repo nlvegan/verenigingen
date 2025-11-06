@@ -63,9 +63,18 @@ class AccountClassificationService(StatelessService):
         # result.confidence = ClassificationConfidence.HIGH
     """
 
-    def __init__(self):
-        """Initialize the classification service"""
+    def __init__(self, settings=None):
+        """
+        Initialize the classification service
+
+        Args:
+            settings: Optional E-Boekhouden Settings doc. If not provided, will fetch from database.
+        """
         super().__init__()
+
+        # Cache settings for performance
+        self._settings = settings
+        self._classification_rules = None
 
         # E-Boekhouden category to ERPNext type mapping
         # NOTE: DEB/CRED mapped to Current Asset/Liability instead of Receivable/Payable
@@ -192,7 +201,13 @@ class AccountClassificationService(StatelessService):
         if code and not code.replace(" ", "").replace("-", "").isalnum():
             raise ValueError(f"Account code contains invalid characters: {code}")
 
-        # Strategy 1: Category-based classification (highest confidence)
+        # PRIORITY 0: User-configured group type mappings (highest priority - explicit user intent)
+        if group:
+            result = self._classify_by_group_mapping(code, description, category, group)
+            if result:
+                return result
+
+        # PRIORITY 1: Category-based classification (high confidence)
         result = self._classify_by_category(code, description, category, group)
         if result:
             return result
@@ -222,6 +237,77 @@ class AccountClassificationService(StatelessService):
 
         # Strategy 5: Ultimate fallback (low confidence)
         return self._fallback_classification(code, description)
+
+    def _classify_by_group_mapping(
+        self, code: str, description: str, category: str, group: str
+    ) -> Optional[AccountClassification]:
+        """
+        Classify using user-configured group type mappings from E-Boekhouden Settings.
+
+        These are explicit user mappings for specific group codes and take highest priority.
+
+        Args:
+            code: Account code
+            description: Account description
+            category: E-Boekhouden category
+            group: E-Boekhouden group code
+
+        Returns:
+            AccountClassification if group has configured mapping, None otherwise
+        """
+        # Get classification rules from settings
+        classification_rules = self._get_classification_rules()
+        group_type_mappings = classification_rules.get("group_type_mappings", {})
+
+        # Check if this group code has a configured mapping
+        if group not in group_type_mappings:
+            return None
+
+        mapping = group_type_mappings[group]
+        mapped_account_type = mapping.get("account_type")
+        mapped_root_type = mapping.get("root_type")
+
+        if not mapped_root_type:  # Only apply if valid mapping exists
+            return None
+
+        account_type = mapped_account_type if mapped_account_type else ""
+        root_type = mapped_root_type
+
+        # Special handling for Bank/Cash distinction in group 002 (if that's configured)
+        if (
+            mapped_account_type == "Bank"
+            and "kas" in description.lower()
+            and "bank" not in description.lower()
+        ):
+            account_type = "Cash"
+            return AccountClassification(
+                account_type=account_type,
+                root_type=root_type,
+                confidence=ClassificationConfidence.HIGH,
+                strategy_used=f"group_mapping_{group}_refined_to_cash",
+                notes=f"Group {group} mapped to Bank, refined to Cash by name pattern",
+            )
+
+        # Special handling for Payable distinction in group 006 (if that's configured)
+        if mapped_account_type == "Current Liability":
+            description_lower = description.lower()
+            if "te betalen" in description_lower or "crediteuren" in description_lower:
+                account_type = "Payable"
+                return AccountClassification(
+                    account_type=account_type,
+                    root_type=root_type,
+                    confidence=ClassificationConfidence.HIGH,
+                    strategy_used=f"group_mapping_{group}_refined_to_payable",
+                    notes=f"Group {group} mapped to Current Liability, refined to Payable by name pattern",
+                )
+
+        return AccountClassification(
+            account_type=account_type,
+            root_type=root_type,
+            confidence=ClassificationConfidence.HIGH,
+            strategy_used=f"group_mapping_{group}",
+            notes=f"Explicit group mapping: Group {group} → {account_type}/{root_type}",
+        )
 
     def _classify_by_category(
         self, code: str, description: str, category: str, group: str
@@ -411,15 +497,41 @@ class AccountClassificationService(StatelessService):
         """
         Classify VW (Verbruiksrekeningen - Profit & Loss) category accounts.
 
-        Uses E-Boekhouden group codes as primary classifier:
-        - Group 055: Income (Opbrengsten)
-        - Groups 056-059: Expenses (various cost types)
+        Priority order:
+        1. Configurable code ranges from E-Boekhouden Settings (most reliable)
+        2. E-Boekhouden group codes (055 = Income, 056-059 = Expense)
+        3. Keyword-based classification
+        4. Hardcoded code patterns (8xxx/9xxx = Income)
 
-        Fallback to keywords and code patterns if group unavailable.
+        This respects user configuration while maintaining backward compatibility.
         """
         description_lower = description.lower()
 
-        # Strategy 1: Use group code (most reliable for VW accounts)
+        # Get classification rules from settings
+        classification_rules = self._get_classification_rules()
+        vw_rules = classification_rules.get("vw_rules", {})
+
+        # PRIORITY 1: Check configurable account code ranges (most reliable for Dutch RGS)
+        # Account codes 8000-8999 = Income, 4000-7999 = Expenses
+        if self._account_in_ranges(code, vw_rules.get("income_ranges", [])):
+            return AccountClassification(
+                account_type="Income Account",
+                root_type="Income",
+                confidence=ClassificationConfidence.HIGH,
+                strategy_used="profit_loss_income_range",
+                notes=f"Account code {code} in configured income ranges",
+            )
+
+        if self._account_in_ranges(code, vw_rules.get("expense_ranges", [])):
+            return AccountClassification(
+                account_type="Expense Account",
+                root_type="Expense",
+                confidence=ClassificationConfidence.HIGH,
+                strategy_used="profit_loss_expense_range",
+                notes=f"Account code {code} in configured expense ranges",
+            )
+
+        # PRIORITY 2: Use group code (reliable for E-Boekhouden groupings)
         if group == "055":
             return AccountClassification(
                 account_type="Income Account",
@@ -437,8 +549,10 @@ class AccountClassificationService(StatelessService):
                 notes=f"Group {group} = Expenses",
             )
 
-        # Strategy 2: Keyword-based classification
-        if any(keyword in description_lower for keyword in self.income_keywords):
+        # PRIORITY 3: Keyword-based classification from settings
+        if vw_rules.get("income_keywords") and any(
+            keyword in description_lower for keyword in vw_rules.get("income_keywords", [])
+        ):
             return AccountClassification(
                 account_type="Income Account",
                 root_type="Income",
@@ -447,7 +561,28 @@ class AccountClassificationService(StatelessService):
                 notes=f"Income keyword detected in: {description}",
             )
 
-        # Strategy 3: Code pattern fallback (8xxx, 9xxx typically income)
+        if vw_rules.get("expense_keywords") and any(
+            keyword in description_lower for keyword in vw_rules.get("expense_keywords", [])
+        ):
+            return AccountClassification(
+                account_type="Expense Account",
+                root_type="Expense",
+                confidence=ClassificationConfidence.MEDIUM,
+                strategy_used="profit_loss_expense_keyword",
+                notes=f"Expense keyword detected in: {description}",
+            )
+
+        # PRIORITY 4: Hardcoded keyword fallback (backward compatibility)
+        if any(keyword in description_lower for keyword in self.income_keywords):
+            return AccountClassification(
+                account_type="Income Account",
+                root_type="Income",
+                confidence=ClassificationConfidence.MEDIUM,
+                strategy_used="profit_loss_income_keyword_fallback",
+                notes=f"Income keyword detected in: {description}",
+            )
+
+        # PRIORITY 5: Code pattern fallback (8xxx, 9xxx typically income)
         if code.startswith(("8", "9")):
             return AccountClassification(
                 account_type="Income Account",
@@ -903,6 +1038,55 @@ class AccountClassificationService(StatelessService):
                 strategy_used="fallback_ultimate",
                 notes="Unknown pattern - defaulted to Expense",
             )
+
+    def _get_classification_rules(self) -> Dict:
+        """
+        Get classification rules from E-Boekhouden Settings.
+        Cached for performance.
+
+        Returns:
+            Dict with vw_rules, bal_rules, and group_type_mappings
+        """
+        if self._classification_rules is not None:
+            return self._classification_rules
+
+        # Get settings if not provided
+        if self._settings is None:
+            self._settings = frappe.get_single("E-Boekhouden Settings")
+
+        # Get and cache classification rules
+        self._classification_rules = self._settings.get_classification_rules()
+        return self._classification_rules
+
+    def _account_in_ranges(self, account_code: str, ranges: list) -> bool:
+        """
+        Check if account code falls within any of the configured ranges.
+
+        Args:
+            account_code: Account code to check
+            ranges: List of (start, end) tuples
+
+        Returns:
+            True if account code is within any range
+        """
+        if not ranges or not account_code:
+            return False
+
+        # Normalize account code to string for comparison
+        account_code_str = str(account_code).strip()
+
+        for start, end in ranges:
+            # Use string comparison for account codes
+            # Pad to same length for proper comparison
+            max_len = max(len(start), len(end), len(account_code_str))
+            padded_code = account_code_str.zfill(max_len)
+            padded_start = start.zfill(max_len)
+            padded_end = end.zfill(max_len)
+
+            if padded_start <= padded_code <= padded_end:
+                return True
+
+        return False
 
     def get_service_name(self) -> str:
         """Return the service name for logging"""
