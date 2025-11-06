@@ -287,123 +287,67 @@ def _analyze_account_code(account_code, account_name):
     """
     Analyze eBoekhouden account code and suggest appropriate ERPNext account type.
 
-    This function implements sophisticated pattern matching based on Dutch accounting
-    standards and eBoekhouden account code conventions to determine the most
-    appropriate ERPNext account type and root type classification.
+    This function uses the AccountClassificationService to provide intelligent account
+    type suggestions based on Dutch chart of accounts standards and eBoekhouden coding
+    conventions. It leverages the centralized classification service which implements
+    priority-based classification with settings integration.
 
     Args:
         account_code (str): eBoekhouden account code (grootboek nummer)
         account_name (str): Human-readable account name for context analysis
 
-    Analysis Logic:
-        Applies hierarchical pattern matching based on Dutch chart of accounts:
-
-        Assets (Balance Sheet - Debit):
-        * 10xxx: Bank and Cash accounts with specific Cash (10000) detection
-        * 13xxx: Receivables and trade debtors with contextual analysis
-        * 02xxx: Fixed assets and capital equipment
-        * 14xxx: Other current assets and prepaid expenses
-        * 0x/1x: General asset classification for unlisted codes
-
-        Liabilities (Balance Sheet - Credit):
-        * 44xxx: Trade creditors and payables with contextual analysis
-        * 17xxx/18xxx: Other current liabilities and accrued expenses
-        * 154x/157x: Tax-specific accounts (BTW and fiscal obligations)
-        * 2x/3x/4x: General liability classification for unlisted codes
-
-        Equity (Balance Sheet - Credit):
-        * 5xxxx: All equity accounts including capital and retained earnings
-
-        Income (P&L - Credit):
-        * 8xxxx: All revenue and income accounts
-
-        Expenses (P&L - Debit):
-        * 6xxxx/7xxxx: Operating expenses and administrative costs
-
-    Contextual Analysis:
-        Uses account name keywords for refined classification:
-        * "kas": Cash account identification
-        * "te ontvangen", "debiteuren", "vordering": Receivable identification
-        * "te betalen", "crediteuren": Payable identification
-
     Returns:
         tuple: (suggested_type, suggested_root) where:
             - suggested_type (str): Specific ERPNext account type or empty string
             - suggested_root (str): Root type (Asset/Liability/Equity/Income/Expense)
-            - (None, None): If no pattern match found
+            - (None, None): If classification fails or no pattern match found
 
     Integration Note:
-        Designed specifically for eBoekhouden to ERPNext migration scenarios
-        where Dutch accounting code patterns need to be mapped to ERPNext's
-        account type system for proper financial reporting and workflow integration.
+        Uses AccountClassificationService for consistent classification across all
+        eBoekhouden migration and analysis functions. The service respects user
+        configuration from E-Boekhouden Settings and implements the full priority
+        hierarchy (group mappings, category codes, ranges, keywords, patterns).
     """
     if not account_code:
         return None, None
 
-    account_name_lower = (account_name or "").lower()
+    try:
+        from verenigingen.e_boekhouden.services.account_classification_service import (
+            AccountClassificationService,
+        )
 
-    # Bank accounts
-    if account_code.startswith("10"):
-        if account_code == "10000" or "kas" in account_name_lower:
-            return "Cash", "Asset"
-        else:
+        # Create minimal account data for classification
+        # Note: We don't have category/group here, so service will use code patterns
+        account_data = {
+            "code": account_code,
+            "description": account_name or "",
+            "category": "",  # Not available in this context
+            "group": "",  # Not available in this context
+        }
+
+        service = AccountClassificationService()
+        result = service.classify_account(account_data)
+
+        return result.account_type, result.root_type
+
+    except Exception as e:
+        frappe.logger().error(
+            f"AccountClassificationService failed for {account_code}: {str(e)}. Using fallback."
+        )
+
+        # Fallback: Basic hardcoded patterns for critical cases
+        if account_code.startswith("10"):
+            if account_code == "10000" or "kas" in (account_name or "").lower():
+                return "Cash", "Asset"
             return "Bank", "Asset"
+        elif account_code.startswith("8"):
+            return "", "Income"
+        elif account_code.startswith(("6", "7")):
+            return "", "Expense"
+        elif account_code.startswith("5"):
+            return "", "Equity"
 
-    # Receivables
-    elif account_code.startswith("13"):
-        if (
-            "te ontvangen" in account_name_lower
-            or "debiteuren" in account_name_lower
-            or "vordering" in account_name_lower
-        ):
-            return "Receivable", "Asset"
-        else:
-            return "Current Asset", "Asset"
-
-    # Fixed assets
-    elif account_code.startswith("02"):
-        return "Fixed Asset", "Asset"
-
-    # Current assets
-    elif account_code.startswith("14"):
-        return "Current Asset", "Asset"
-
-    # Payables
-    elif account_code.startswith("44"):
-        if "te betalen" in account_name_lower or "crediteuren" in account_name_lower:
-            return "Payable", "Liability"
-        else:
-            return "Current Liability", "Liability"
-
-    # Other liabilities
-    elif account_code.startswith(("17", "18")):
-        return "Current Liability", "Liability"
-
-    # Equity
-    elif account_code.startswith("5"):
-        return "", "Equity"
-
-    # Income
-    elif account_code.startswith("8"):
-        return "", "Income"
-
-    # Expenses
-    elif account_code.startswith(("6", "7")):
-        return "", "Expense"
-
-    # Tax accounts
-    elif any(tax_prefix in account_code for tax_prefix in ["1540", "1570", "1571", "1572"]):
-        return "Tax", "Liability"
-
-    # Default for other assets
-    elif account_code.startswith(("0", "1")):
-        return "Current Asset", "Asset"
-
-    # Default for other liabilities
-    elif account_code.startswith(("2", "3", "4")):
-        return "Current Liability", "Liability"
-
-    return None, None
+        return None, None
 
 
 def _get_suggestion_reason(account_code, suggested_type):
