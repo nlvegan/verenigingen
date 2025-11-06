@@ -186,6 +186,11 @@ class APISecurityFramework:
             SecurityLevel.MEDIUM,
         ],  # National oversight
         "Verenigingen Staff": [SecurityLevel.HIGH, SecurityLevel.MEDIUM, SecurityLevel.LOW],
+        "Verenigingen Background Service": [
+            SecurityLevel.HIGH,
+            SecurityLevel.MEDIUM,
+            SecurityLevel.LOW,
+        ],  # Background automation (application processing, scheduled tasks)
         "Verenigingen Chapter Board Member": [
             SecurityLevel.HIGH,
             SecurityLevel.MEDIUM,

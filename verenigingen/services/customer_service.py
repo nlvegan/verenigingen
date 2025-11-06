@@ -18,13 +18,13 @@ from verenigingen.utils.service_error_handler import handle_service_error, valid
 
 # Safe import of security framework with fallback
 try:
-    from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+    from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 except ImportError:
     # Fallback for environments where security framework is not available
     class OperationType:
-        FINANCIAL = "financial"
+        MEMBER_DATA = "member_data"
 
-    def critical_api(operation_type=None):
+    def standard_api(operation_type=None):
         """Fallback decorator when security framework is not available"""
 
         def decorator(func):
@@ -33,7 +33,7 @@ except ImportError:
         return decorator
 
 
-@critical_api(operation_type=OperationType.FINANCIAL)
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def create_customer_for_member(member_doc, suppress_messages=False):
     """Create a customer for this member in ERPNext.
 

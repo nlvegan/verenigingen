@@ -273,6 +273,43 @@ def generate_brand_css_file(doc=None, method=None):
     background-color: var(--brand-secondary-600) !important;
     border-color: var(--brand-secondary-600) !important;
 }}
+
+/* Additional brand utility classes for legacy code */
+.bg-brand-primary {{
+    background-color: var(--brand-primary) !important;
+}}
+
+.bg-brand-secondary {{
+    background-color: var(--brand-secondary) !important;
+}}
+
+.bg-brand-accent {{
+    background-color: var(--brand-accent) !important;
+}}
+
+.text-brand-primary {{
+    color: var(--brand-primary) !important;
+}}
+
+.text-brand-secondary {{
+    color: var(--brand-secondary) !important;
+}}
+
+.text-brand-accent {{
+    color: var(--brand-accent) !important;
+}}
+
+.border-brand-primary {{
+    border-color: var(--brand-primary) !important;
+}}
+
+.border-brand-secondary {{
+    border-color: var(--brand-secondary) !important;
+}}
+
+.border-brand-accent {{
+    border-color: var(--brand-accent) !important;
+}}
 """
 
         # Write to assets directory
