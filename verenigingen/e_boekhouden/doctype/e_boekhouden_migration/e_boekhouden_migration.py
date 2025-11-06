@@ -979,35 +979,6 @@ class EBoekhoudenMigration(Document):
                 }
             )
 
-    def _account_in_ranges(self, account_code, ranges):
-        """Check if account code falls within any of the configured ranges
-
-        Args:
-            account_code: Account code to check (e.g., "1000", "4500")
-            ranges: List of (start, end) tuples (e.g., [("0010", "0599"), ("1000", "1899")])
-
-        Returns:
-            bool: True if account code is within any range
-        """
-        if not ranges or not account_code:
-            return False
-
-        # Normalize account code to string for comparison
-        account_code_str = str(account_code).strip()
-
-        for start, end in ranges:
-            # Use string comparison for account codes (works for numeric and alphanumeric)
-            # Pad to same length for proper comparison
-            max_len = max(len(start), len(end), len(account_code_str))
-            padded_code = account_code_str.zfill(max_len)
-            padded_start = start.zfill(max_len)
-            padded_end = end.zfill(max_len)
-
-            if padded_start <= padded_code <= padded_end:
-                return True
-
-        return False
-
     def create_account(self, account_data, use_enhanced=False):
         """Create Account in ERPNext"""
         try:
@@ -1110,366 +1081,46 @@ class EBoekhoudenMigration(Document):
                 )
                 return False
 
-            # PHASE 1: NEW CLASSIFICATION SERVICE (Parallel execution for validation)
-            # Run new service in parallel to compare with existing logic
-            new_service_result = None
-            if frappe.conf.get("enable_account_classification_service_comparison", False):
-                try:
-                    from verenigingen.e_boekhouden.services.account_classification_service import (
-                        AccountClassificationService,
-                    )
+            # CLASSIFICATION: Use AccountClassificationService
+            # This service implements the same priority-based logic that was previously inline
+            try:
+                from verenigingen.e_boekhouden.services.account_classification_service import (
+                    AccountClassificationService,
+                )
 
-                    service = AccountClassificationService()
-                    new_service_result = service.classify_account(account_data)
+                service = AccountClassificationService(settings=settings)
+                classification_result = service.classify_account(account_data)
 
-                    frappe.logger().info(
-                        f"NEW SERVICE - {account_code}: {new_service_result.account_type}/{new_service_result.root_type} "
-                        f"(Confidence: {new_service_result.confidence.value}, Strategy: {new_service_result.strategy_used})"
-                    )
-                except Exception as e:
-                    frappe.log_error(
-                        f"Account classification service failed for {account_code}: {str(e)}",
-                        "AccountClassificationService Error",
-                    )
+                account_type = classification_result.account_type
+                root_type = classification_result.root_type
 
-            # Map e-Boekhouden categories to ERPNext account types and root types
-            # Based on e-Boekhouden REST API specification
-            category_mapping = {
-                # Tax-related categories
-                "BTWRC": {"account_type": "Tax", "root_type": "Liability"},  # VAT current account
-                "AF6": {"account_type": "Tax", "root_type": "Liability"},  # Turnover tax low rate
-                "AF19": {"account_type": "Tax", "root_type": "Liability"},  # Turnover tax high rate
-                "AFOVERIG": {"account_type": "Tax", "root_type": "Liability"},  # Turnover tax other
-                "AF": {"account_type": "Tax", "root_type": "Liability"},  # Turnover tax
-                "VOOR": {"account_type": "Tax", "root_type": "Asset"},  # Input tax (VAT receivable)
-                # Balance sheet categories
-                "BAL": {"account_type": "", "root_type": None},  # Balance sheet - need to determine from code
-                "FIN": {
-                    "account_type": "Bank",
-                    "root_type": "Asset",
-                },  # Financial/Liquid Assets - Bank accounts
-                "DEB": {
-                    "account_type": "Current Asset",
-                    "root_type": "Asset",
-                },  # Debtors (not Receivable to avoid party requirement)
-                "CRED": {
-                    "account_type": "Current Liability",
-                    "root_type": "Liability",
-                },  # Creditors (not Payable to avoid party requirement)
-                # Profit & Loss category - ALL VW accounts are P&L accounts
-                # Set root_type to None to allow PRIORITY 2 classification by ranges/keywords
-                "VW": {
-                    "account_type": "",
-                    "root_type": None,
-                },  # VW accounts classified by ranges/keywords in PRIORITY 2
-            }
+                frappe.logger().info(
+                    f"CLASSIFIED - {account_code}: {account_type}/{root_type} "
+                    f"(Confidence: {classification_result.confidence.value}, Strategy: {classification_result.strategy_used})"
+                )
 
-            # Get mapping or default
-            mapping = category_mapping.get(category, {"account_type": "", "root_type": None})
-            account_type = mapping["account_type"]
-            root_type = mapping["root_type"]
+                if classification_result.notes:
+                    frappe.logger().debug(f"  Notes: {classification_result.notes}")
 
-            # PRIORITY 1: Check configurable group type mappings FIRST (most reliable)
-            # These are explicit user-configured mappings for specific group codes
-            group_based_classification = None
-            if account_code and group_code:
-                # Use cached classification rules (already fetched above)
-                group_type_mappings = classification_rules.get("group_type_mappings", {})
-
-                # Check if this group code has a configured mapping
-                if group_code in group_type_mappings:
-                    mapping = group_type_mappings[group_code]
-                    mapped_account_type = mapping.get("account_type")
-                    mapped_root_type = mapping.get("root_type")
-
-                    if mapped_root_type:  # Only apply if valid mapping exists
-                        account_type = mapped_account_type if mapped_account_type else ""
-                        root_type = mapped_root_type
-                        group_based_classification = True
-                        frappe.logger().info(
-                            f"Account {account_code} classified via group {group_code}: "
-                            f"{account_type}/{root_type} (from configured group mappings - PRIORITY 1)"
-                        )
-
-                        # Special handling for Bank/Cash distinction in group 002 (if that's configured)
-                        if (
-                            mapped_account_type == "Bank"
-                            and "kas" in account_name.lower()
-                            and "bank" not in account_name.lower()
-                        ):
-                            account_type = "Cash"
-                            frappe.logger().info(
-                                f"Account {account_code} refined to Cash based on name pattern"
-                            )
-
-                        # Special handling for Payable distinction in group 006 (if that's configured)
-                        if mapped_account_type == "Current Liability":
-                            account_name_lower = account_name.lower()
-                            if "te betalen" in account_name_lower or "crediteuren" in account_name_lower:
-                                account_type = "Payable"
-                                frappe.logger().info(
-                                    f"Account {account_code} refined to Payable based on name pattern"
-                                )
-
-            # PRIORITY 2: Handle BAL and VW categories - use range/keyword-based classification rules
-            # Only use if group mappings didn't provide classification
-            if root_type is None and not group_based_classification:
-                if category == "BAL":
-                    # Use cached classification rules (already fetched above)
-                    bal_rules = classification_rules.get("bal_rules", {})
-
-                    account_name_lower = account_name.lower()
-
-                    # Check equity keywords first (from settings)
-                    equity_keywords = bal_rules.get("equity_keywords", [])
-                    if equity_keywords and any(keyword in account_name_lower for keyword in equity_keywords):
-                        root_type = "Equity"
-                        account_type = ""
-                        frappe.logger().info(
-                            f"BAL account {account_code} classified as Equity due to keyword in: {account_name}"
-                        )
-                    # Check if group code indicates equity
-                    elif group_code == "005":
-                        root_type = "Equity"
-                        account_type = ""
-                        frappe.logger().info(
-                            f"BAL account {account_code} classified as Equity due to group {group_code}"
-                        )
-                    # Check configurable ranges
-                    elif self._account_in_ranges(account_code, bal_rules.get("asset_ranges", [])):
-                        root_type = "Asset"
-                        frappe.logger().info(
-                            f"BAL account {account_code} classified as Asset by configured range"
-                        )
-                    elif self._account_in_ranges(account_code, bal_rules.get("liability_ranges", [])):
-                        root_type = "Liability"
-                        frappe.logger().info(
-                            f"BAL account {account_code} classified as Liability by configured range"
-                        )
-                    elif self._account_in_ranges(account_code, bal_rules.get("equity_ranges", [])):
-                        root_type = "Equity"
-                        account_type = ""
-                        frappe.logger().info(
-                            f"BAL account {account_code} classified as Equity by configured range"
-                        )
-                    else:
-                        # Default for unknown BAL accounts
-                        root_type = "Asset"
-                        frappe.logger().warning(
-                            f"BAL account {account_code} does not match any configured ranges, defaulting to Asset"
-                        )
-                elif category == "VW":
-                    # Use cached classification rules (already fetched above)
-                    vw_rules = classification_rules.get("vw_rules", {})
-
-                    account_name_lower = account_name.lower()
-
-                    # PRIORITY: Check account code ranges FIRST (most reliable for standard Dutch accounting)
-                    # Account codes 8000-8999 = Income, 4000-7999 = Expenses
-                    if self._account_in_ranges(account_code, vw_rules.get("income_ranges", [])):
-                        root_type = "Income"
-                        account_type = "Income Account"
-                        frappe.logger().info(
-                            f"VW account {account_code} classified as Income by configured range"
-                        )
-                    # Check configurable expense ranges
-                    elif self._account_in_ranges(account_code, vw_rules.get("expense_ranges", [])):
-                        root_type = "Expense"
-                        account_type = "Expense Account"
-                        frappe.logger().info(
-                            f"VW account {account_code} classified as Expense by configured range"
-                        )
-                    # Fallback to GROUP NUMBERS (E-Boekhouden internal groupings)
-                    # Group 055 = Income (Opbrengsten)
-                    # Groups 056-059 = Expenses (various cost types)
-                    elif group_code == "055":
-                        root_type = "Income"
-                        account_type = "Income Account"
-                        frappe.logger().info(
-                            f"VW account {account_code} classified as Income (group 055 - Opbrengsten)"
-                        )
-                    elif group_code in ["056", "057", "058", "059"]:
-                        root_type = "Expense"
-                        account_type = "Expense Account"
-                        frappe.logger().info(
-                            f"VW account {account_code} classified as Expense (group {group_code} - cost type)"
-                        )
-                    # Check income keywords from settings
-                    elif vw_rules.get("income_keywords") and any(
-                        keyword in account_name_lower for keyword in vw_rules.get("income_keywords", [])
-                    ):
-                        root_type = "Income"
-                        account_type = "Income Account"
-                        frappe.logger().info(
-                            f"VW account {account_code} classified as Income (keyword match in: {account_name})"
-                        )
-                    # Check expense keywords from settings
-                    elif vw_rules.get("expense_keywords") and any(
-                        keyword in account_name_lower for keyword in vw_rules.get("expense_keywords", [])
-                    ):
-                        root_type = "Expense"
-                        account_type = "Expense Account"
-                        frappe.logger().info(
-                            f"VW account {account_code} classified as Expense (keyword match in: {account_name})"
-                        )
-                    else:
-                        # No range/keyword match - leave unclassified for PRIORITY 3 name pattern matching
-                        # VW accounts MUST be classified by ranges/keywords or name patterns
-                        # Do NOT default to Expense here - let it fall through to PRIORITY 3
-                        frappe.logger().warning(
-                            f"VW account {account_code} did not match any income/expense ranges or keywords. "
-                            f"Will try PRIORITY 3 name patterns. Group: {group_code}, Name: {account_name}"
-                        )
-
-            # PRIORITY 3: Account name patterns - supplement group/range classification
-            if account_code and group_code:
-                if not account_type:
-                    account_name_lower = account_name.lower()
-
-                    # Equity patterns - detect common equity terms
-                    if any(
-                        pattern in account_name_lower
-                        for pattern in [
-                            "eigen vermogen",
-                            "reserve",
-                            "reservering",
-                            "bestemmingsreserve",
-                            "continuiteitsreserve",
-                        ]
-                    ):
-                        account_type = ""
-                        root_type = "Equity"
-                        frappe.logger().info(
-                            f"Account {account_code} classified as Equity due to name pattern: {account_name}"
-                        )
-
-                    # Cash patterns (only detect cash, not banks - banks should come from FIN category)
-                    elif "kas" in account_name_lower and "bank" not in account_name_lower:
-                        account_type = "Cash"
-                        root_type = "Asset"
-
-                    # BTW/VAT patterns
-                    elif "btw" in account_name_lower or "vat" in account_name_lower:
-                        account_type = "Tax"
-                        root_type = "Liability"
-
-                    # Receivables and payables patterns
-                    elif "te ontvangen" in account_name_lower:
-                        account_type = "Receivable"  # Proper receivable classification
-                        root_type = "Asset"
-                    elif "te betalen" in account_name_lower:
-                        account_type = "Payable"  # Proper payable classification
-                        root_type = "Liability"
-                    elif "vooruitontvangen" in account_name_lower:
-                        account_type = "Current Liability"
-                        root_type = "Liability"
-                    elif "vooruitbetaald" in account_name_lower:
-                        account_type = "Current Asset"
-                        root_type = "Asset"
-
-                    # Depreciation patterns
-                    elif "afschrijving" in account_name_lower and (
-                        "cum" in account_name_lower or "cumul" in account_name_lower
-                    ):
-                        account_type = "Accumulated Depreciation"
-                        root_type = "Asset"
-                    elif "afschrijving" in account_name_lower:
-                        account_type = "Depreciation"
-                        root_type = "Expense"
-
-                    # Equity patterns
-                    elif any(
-                        pattern in account_name_lower for pattern in ["reserve", "reservering", "vermogen"]
-                    ):
-                        account_type = ""
-                        root_type = "Equity"
-
-                    # Income patterns
-                    elif any(pattern in account_name_lower for pattern in ["omzet", "opbrengst"]):
-                        account_type = "Income Account"
-                        root_type = "Income"
-
-                    # Expense patterns
-                    elif "kosten" in account_name_lower:
-                        account_type = "Expense Account"
-                        root_type = "Expense"
-
-                # PRIORITY 3: Category-based fallbacks - NO account code patterns
-                if not account_type and not root_type:
-                    # Use category information as fallback
-                    if category == "VW":  # P&L accounts - already handled in category logic above
-                        # VW accounts should have been handled by ranges/keywords or name patterns
-                        # If we reach here, classification failed - LOG ERROR, do not default to Expense
-                        frappe.log_error(
-                            f"VW account {account_code} ({account_name}) could not be classified!\n"
-                            f"  Group: {group_code}\n"
-                            f"  Category: {category}\n"
-                            f"  NO income/expense ranges matched\n"
-                            f"  NO keywords matched\n"
-                            f"  NO name patterns matched\n"
-                            f"  PLEASE CONFIGURE: Add appropriate ranges to E-Boekhouden Settings\n"
-                            f"  or add explicit group mapping for group {group_code}",
-                            f"Unclassified VW Account - {account_code}",
-                        )
-                        # Still need to set something to avoid errors - use empty values
-                        # This will be caught by validation and user can fix manually
-                        account_type = ""
-                        root_type = None
-                        frappe.logger().warning(
-                            f"VW account {account_code} left unclassified - requires manual intervention"
-                        )
-                    elif category == "BAL":  # Balance sheet accounts - use conservative defaults
-                        account_type = "Current Asset"
-                        root_type = "Asset"
-                        frappe.logger().info(f"BAL account {account_code} defaulted to Current Asset")
-                    elif category == "FIN":  # Financial accounts
-                        account_type = "Bank"
-                        root_type = "Asset"
-                        frappe.logger().info(f"FIN account {account_code} classified as Bank")
-                    elif category == "DEB":  # Debtors
-                        account_type = "Current Asset"
-                        root_type = "Asset"
-                        frappe.logger().info(f"DEB account {account_code} classified as Current Asset")
-                    elif category == "CRED":  # Creditors
-                        account_type = "Current Liability"
-                        root_type = "Liability"
-                        frappe.logger().info(f"CRED account {account_code} classified as Current Liability")
-                    else:
-                        # Unknown category - default to asset
-                        account_type = "Current Asset"
-                        root_type = "Asset"
-                        frappe.logger().warning(
-                            f"Unknown account {account_code} (category {category}, group {group_code}) defaulted to Current Asset"
-                        )
-
-            # PHASE 1: COMPARE NEW SERVICE RESULT WITH OLD LOGIC (if enabled)
-            if new_service_result and frappe.conf.get(
-                "enable_account_classification_service_comparison", False
-            ):
-                old_classification = f"{account_type}/{root_type}"
-                new_classification = f"{new_service_result.account_type}/{new_service_result.root_type}"
-
-                if old_classification != new_classification:
-                    # Log mismatch for review
-                    mismatch_msg = (
-                        f"CLASSIFICATION MISMATCH - {account_code} ({account_name})\n"
-                        f"  Old: {old_classification}\n"
-                        f"  New: {new_classification}\n"
-                        f"  Confidence: {new_service_result.confidence.value}\n"
-                        f"  Strategy: {new_service_result.strategy_used}\n"
-                        f"  Notes: {new_service_result.notes}\n"
-                        f"  Category: {category}, Group: {group_code}"
-                    )
-                    frappe.logger().warning(mismatch_msg)
-
-                    # Log to Error Log for easy review
-                    frappe.log_error(mismatch_msg, "Account Classification Mismatch")
+            except Exception as e:
+                frappe.log_error(
+                    f"Account classification failed for {account_code} ({account_name}): {str(e)}\n"
+                    f"Category: {category}, Group: {group_code}",
+                    "Account Classification Error",
+                )
+                # Fallback: Try to make an educated guess based on account code
+                if account_code.startswith(("8", "9")):
+                    account_type = "Income Account"
+                    root_type = "Income"
+                elif account_code.startswith(("4", "6", "7")):
+                    account_type = "Expense Account"
+                    root_type = "Expense"
                 else:
-                    frappe.logger().info(
-                        f"CLASSIFICATION MATCH - {account_code}: {old_classification} "
-                        f"(Confidence: {new_service_result.confidence.value})"
-                    )
-
+                    account_type = "Current Asset"
+                    root_type = "Asset"
+                frappe.logger().warning(
+                    f"Using fallback classification for {account_code}: {account_type}/{root_type}"
+                )
             # Check if this should be a root account
             # With our Dutch root account structure in place, very few accounts should be truly root
             is_root_account = False
