@@ -4327,7 +4327,8 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
         summary_content += f"• Legacy Processing: {processed_with_legacy} ({processed_with_legacy * 100 / (processed_with_new + processed_with_legacy):.1f}%)\n\n"
 
     # PHASE 3: Add Bank Transaction statistics for payment types
-    if type_name in ["Customer Payments", "Supplier Payments", "Money Received", "Money Paid"]:
+    # Only show stats if we actually imported something (skip if all were skipped/existing)
+    if type_name in ["Customer Payments", "Supplier Payments", "Money Received", "Money Paid"] and imported > 0:
         try:
             # Query Payment Entries created in this batch and check for Bank Transactions
             mutation_ids = [str(m.get("id")) for m in mutations] if mutations else []
@@ -4355,8 +4356,11 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
                     without_bt = total - with_bt
                     success_rate = (with_bt / total * 100) if total > 0 else 0
 
-                    summary_content += "BANK TRANSACTION CREATION:\n"
-                    summary_content += f"• Payment Entries Created: {total}\n"
+                    summary_content += f"BANK TRANSACTION STATUS:\n"
+                    summary_content += f"• Payment Entries in batch: {total} (of {len(mutations)} mutations processed)\n"
+                    summary_content += f"  - Newly created: {imported - (len(mutations) - total)}\n"
+                    summary_content += f"  - Previously imported: {skipped if total > imported else min(skipped, total - imported)}\n"
+                    summary_content += f"  - Created as Journal Entry instead: {len(mutations) - total}\n"
                     summary_content += f"• With Bank Transactions: {with_bt} ({success_rate:.1f}%)\n"
                     summary_content += f"• WITHOUT Bank Transactions: {without_bt}\n"
 

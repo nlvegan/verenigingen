@@ -116,6 +116,24 @@ def get_or_create_item_improved(
         )
         account_code = "MISC"
 
+    # CRITICAL: Check if account_code is actually a ledger ID (long numeric string)
+    # If so, resolve it to the actual account code
+    if account_code and str(account_code).isdigit() and len(str(account_code)) > 5:
+        # This looks like a ledger ID, not an account code - resolve it
+        from .invoice_helpers import resolve_ledger_code
+
+        debug_info_local = []
+        resolved_code = resolve_ledger_code(account_code, debug_info_local)
+        if resolved_code != account_code:
+            frappe.logger().info(
+                f"E-Boekhouden Item Creation: Resolved ledger_id {account_code} to account_code {resolved_code}"
+            )
+            account_code = resolved_code
+        else:
+            frappe.logger().warning(
+                f"E-Boekhouden Item Creation: Could not resolve ledger_id {account_code}, using as-is"
+            )
+
     # Step 1: Bank Cost Pattern Detection (check first, higher priority)
     if _is_bank_cost_transaction(description, account_code):
         # For bank costs, use a standardized bank cost item
