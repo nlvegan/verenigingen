@@ -1,15 +1,25 @@
 import frappe
 from frappe.utils import now
+import os
 
-from verenigingen.verenigingen.doctype.brand_settings.brand_settings import generate_brand_css
+from verenigingen.utils.brand_css_generator import get_brand_css_file_path
 
 
 def get_context(context):
     """Generate CSS content for brand colors"""
     context.no_cache = 1
 
+    # Read from the static CSS file
+    css_path = get_brand_css_file_path()
+    if os.path.exists(css_path):
+        with open(css_path, 'r') as f:
+            css = f.read()
+    else:
+        # Fallback if file doesn't exist
+        from verenigingen.verenigingen.doctype.brand_settings.brand_settings import generate_brand_css
+        css = generate_brand_css()
+
     # Add timestamp comment to help debug caching issues
-    css = generate_brand_css()
     css_with_timestamp = f"/* Generated at {now()} */\n{css}"
 
     # Set response content and headers after generating CSS
@@ -28,7 +38,16 @@ def get_context(context):
 def serve_brand_css():
     """Serve brand CSS with proper MIME type"""
     try:
-        css = generate_brand_css()
+        # Read from the static CSS file
+        css_path = get_brand_css_file_path()
+        if os.path.exists(css_path):
+            with open(css_path, 'r') as f:
+                css = f.read()
+        else:
+            # Fallback if file doesn't exist
+            from verenigingen.verenigingen.doctype.brand_settings.brand_settings import generate_brand_css
+            css = generate_brand_css()
+
         css_with_timestamp = f"/* Generated at {now()} */\n{css}"
 
         # Set response content type
