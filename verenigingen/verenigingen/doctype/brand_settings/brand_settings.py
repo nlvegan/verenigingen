@@ -15,10 +15,81 @@ from verenigingen.utils.security.api_security_framework import (
 
 
 class BrandSettings(Document):
+    def before_save(self):
+        """Auto-calculate derived colors before saving"""
+        self.auto_calculate_derived_colors()
+
     def validate(self):
         """Validate brand settings"""
         self.validate_colors()
         self.validate_active_settings()
+
+    def auto_calculate_derived_colors(self):
+        """Auto-calculate all derived colors from primary, secondary, and accent colors
+
+        This reduces the number of required fields from 20+ to just 3 main colors.
+        All hover, text, and background colors are derived automatically.
+        Users can still override any field if needed (read_only=0).
+        """
+        # Get previous values to detect manual changes
+        doc_before_save = self.get_doc_before_save() if self.get("name") else None
+
+        # Auto-calculate hover colors (15% darker than base colors)
+        # Only auto-calculate if the field wasn't manually changed by the user
+        if self.primary_color:
+            # Calculate what the auto value would be
+            auto_hover = self.mix_colors(self.primary_color, "#000000", 0.85)
+            # If user hasn't manually set a different value, use auto value
+            if not doc_before_save or self.primary_hover_color == doc_before_save.get("primary_hover_color"):
+                self.primary_hover_color = auto_hover
+
+        if self.secondary_color:
+            auto_hover = self.mix_colors(self.secondary_color, "#000000", 0.85)
+            if not doc_before_save or self.secondary_hover_color == doc_before_save.get("secondary_hover_color"):
+                self.secondary_hover_color = auto_hover
+
+        if self.accent_color:
+            auto_hover = self.mix_colors(self.accent_color, "#000000", 0.85)
+            if not doc_before_save or self.accent_hover_color == doc_before_save.get("accent_hover_color"):
+                self.accent_hover_color = auto_hover
+
+        # Auto-calculate button text colors based on brightness
+        # These always auto-calculate unless user manually changed them
+        if self.primary_color:
+            auto_text = self.get_contrasting_text_color(self.primary_color)
+            if not doc_before_save or self.primary_button_text_color == doc_before_save.get("primary_button_text_color"):
+                self.primary_button_text_color = auto_text
+
+        if self.secondary_color:
+            auto_text = self.get_contrasting_text_color(self.secondary_color)
+            if not doc_before_save or self.secondary_button_text_color == doc_before_save.get("secondary_button_text_color"):
+                self.secondary_button_text_color = auto_text
+
+        if self.accent_color:
+            auto_text = self.get_contrasting_text_color(self.accent_color)
+            if not doc_before_save or self.accent_button_text_color == doc_before_save.get("accent_button_text_color"):
+                self.accent_button_text_color = auto_text
+
+        # Semantic status colors - keep defaults unless manually changed
+        # These use standard UI/UX color conventions
+        if not self.success_color:
+            self.success_color = "#28a745"  # Green
+        if not self.warning_color:
+            self.warning_color = "#ffc107"  # Amber
+        if not self.error_color:
+            self.error_color = "#dc3545"  # Red
+        if not self.info_color:
+            self.info_color = "#17a2b8"  # Blue
+
+        # Text and background colors - use standard defaults
+        if not self.text_primary_color:
+            self.text_primary_color = "#333333"  # Dark gray
+        if not self.text_secondary_color:
+            self.text_secondary_color = "#666666"  # Medium gray
+        if not self.background_primary_color:
+            self.background_primary_color = "#ffffff"  # White
+        if not self.background_secondary_color:
+            self.background_secondary_color = "#f8f9fa"  # Light gray
 
     def validate_colors(self):
         """Validate that all colors are valid hex colors"""
@@ -284,8 +355,9 @@ class BrandSettings(Document):
             owl_settings.navbar_background_color = self.primary_color
             owl_settings.navbar_text_color = self.get_contrasting_text_color(self.primary_color)
 
-            # APP NAME COLOR - Auto-contrast for breadcrumbs and workspace names
-            owl_settings.app_name_color = self.get_contrasting_text_color(self.primary_color)
+            # APP NAME COLOR - Auto-contrast against navbar background for breadcrumbs and workspace names
+            # This ensures breadcrumb text is readable against the navbar, not the primary color
+            owl_settings.app_name_color = self.get_contrasting_text_color(owl_settings.navbar_background_color or self.primary_color)
 
             # SIDEBAR COLORS - Use secondary background with user-defined text
             owl_settings.sidebar_background_color = self.background_secondary_color

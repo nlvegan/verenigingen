@@ -162,9 +162,17 @@ def create_unallocated_payment_entry(
         # CRITICAL: Set paid_amount, then call set_amounts() to populate received_amount
         pe.paid_amount = amount
 
-        # Set accounts
-        pe.paid_from = "13900 - Te ontvangen bedragen - NVV"  # Debtors account
-        pe.paid_to = "10440 - Triodos - 19.83.96.716 - Algemeen - NVV"  # Bank account
+        # Set accounts - get from company defaults
+        company = pe.company
+        pe.paid_from = frappe.db.get_value("Company", company, "default_receivable_account")
+        if not pe.paid_from:
+            frappe.throw(f"No default receivable account configured for company {company}")
+
+        # Get bank account from Verenigingen Settings or company default
+        bank_account = frappe.db.get_value("Company", company, "default_bank_account")
+        if not bank_account:
+            frappe.throw(f"No default bank account configured for company {company}")
+        pe.paid_to = bank_account
 
         # Add reference info but no invoice allocation
         pe.reference_no = f"EBH-{mutation.get('id', '')}"

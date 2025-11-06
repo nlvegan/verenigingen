@@ -1,12 +1,53 @@
+"""
+Smart Tegenrekening Mapper - DEPRECATED
+
+⚠️ WARNING: This module is deprecated and not used in production invoice processing.
+
+Production code uses `eboekhouden_improved_item_naming.get_or_create_item_improved()` instead,
+which provides comprehensive business logic for:
+- Bank cost detection and special handling
+- Event ticket items
+- COGS vs Expense classification
+- Intelligent item naming
+
+This module was designed for pre-seeding EB-{account_code} items, but that pattern
+is not actively used in production. The deployment guide claims integration that doesn't exist.
+
+For new integrations, use:
+    from verenigingen.e_boekhouden.utils.eboekhouden_improved_item_naming import get_or_create_item_improved
+
+History: Created alongside improved_item_naming in commit e0fc5752 but never integrated
+into production invoice processing pipeline (invoice_helpers.py, transaction_utils.py).
+"""
+
 import frappe
 
 from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 
 
 class SmartTegenrekeningMapper:
-    """Smart mapping system for E-Boekhouden tegenrekening codes to ERPNext items"""
+    """
+    Smart mapping system for E-Boekhouden tegenrekening codes to ERPNext items
+
+    ⚠️ DEPRECATED: This class is not used in production invoice processing.
+
+    Production code uses `eboekhouden_improved_item_naming.get_or_create_item_improved()` instead,
+    which provides more comprehensive business logic for bank costs, events, COGS detection, etc.
+
+    This class was designed for pre-seeding EB-{account_code} items before migration,
+    but that pattern is not actively used in the invoice processing pipeline.
+
+    Consider using `get_or_create_item_improved()` from eboekhouden_improved_item_naming.py
+    for any new integrations.
+    """
 
     def __init__(self, company="Ned Ver Vegan"):
+        # Emit deprecation warning
+        frappe.logger().warning(
+            "SmartTegenrekeningMapper is deprecated. "
+            "Use eboekhouden_improved_item_naming.get_or_create_item_improved() instead."
+        )
+
         self.company = company
         self._ledger_mapping_cache = None
         self._account_cache = {}
@@ -154,10 +195,16 @@ class SmartTegenrekeningMapper:
             )
 
             if not result.success:
-                frappe.log_error(
-                    f"Failed to create item {item_code} - permission denied", "Tegenrekening Mapping"
+                # Build detailed error message from result
+                error_details = "\n".join(result.errors) if result.errors else "Unknown error"
+                error_msg = (
+                    f"Failed to create item {item_code} for E-Boekhouden account {account_code}.\n"
+                    f"Error: {error_details}\n\n"
+                    f"This item is required for transaction processing. Please ensure:\n"
+                    f"1. The current user has 'Create' permission for Item DocType, OR\n"
+                    f"2. A system user is configured in Verenigingen Settings with Item creation rights"
                 )
-                return None
+                frappe.throw(error_msg, title="Item Creation Failed")
 
             return {
                 "item_code": item_code,
@@ -322,23 +369,53 @@ class SmartTegenrekeningMapper:
             )
 
             if not result.success:
+                # Build detailed error message from result
+                error_details = "\n".join(result.errors) if result.errors else "Unknown error"
                 frappe.log_error(
-                    f"Failed to create fallback item {item_code} - permission denied", "Tegenrekening Mapping"
+                    title="Fallback Item Creation Failed",
+                    message=(
+                        f"Failed to create fallback item {item_code} for {transaction_type} transactions.\n"
+                        f"Error: {error_details}\n\n"
+                        f"This may indicate a permission issue. Check Verenigingen Settings for system user configuration."
+                    ),
                 )
+                # Don't throw here - fallback items are optional
                 return
-        except Exception:
-            pass  # Ignore if already exists
+        except frappe.DuplicateEntryError:
+            # Item already exists - this is expected and safe to ignore
+            pass
+        except Exception as e:
+            frappe.log_error(
+                title="Unexpected Error in Fallback Item Creation",
+                message=f"Error creating fallback item {item_code}: {str(e)}\n{frappe.get_traceback()}",
+            )
 
 
 # Helper functions for migration scripts
 def get_item_for_purchase_transaction(tegenrekening_code, description="", amount=0):
-    """Helper for purchase transactions (invoices, payments)"""
+    """
+    Helper for purchase transactions (invoices, payments)
+
+    ⚠️ DEPRECATED: Use eboekhouden_improved_item_naming.get_or_create_item_improved() instead.
+    """
+    frappe.logger().warning(
+        "get_item_for_purchase_transaction() is deprecated. "
+        "Use get_or_create_item_improved() from eboekhouden_improved_item_naming.py"
+    )
     mapper = SmartTegenrekeningMapper()
     return mapper.get_item_for_tegenrekening(tegenrekening_code, description, "purchase", amount)
 
 
 def get_item_for_sales_transaction(tegenrekening_code, description="", amount=0):
-    """Helper for sales transactions (invoices, receipts)"""
+    """
+    Helper for sales transactions (invoices, receipts)
+
+    ⚠️ DEPRECATED: Use eboekhouden_improved_item_naming.get_or_create_item_improved() instead.
+    """
+    frappe.logger().warning(
+        "get_item_for_sales_transaction() is deprecated. "
+        "Use get_or_create_item_improved() from eboekhouden_improved_item_naming.py"
+    )
     mapper = SmartTegenrekeningMapper()
     return mapper.get_item_for_tegenrekening(tegenrekening_code, description, "sales", amount)
 
@@ -346,7 +423,15 @@ def get_item_for_sales_transaction(tegenrekening_code, description="", amount=0)
 def create_invoice_line_for_tegenrekening(
     tegenrekening_code, amount, description="", transaction_type="purchase"
 ):
-    """Create complete invoice line dict for a tegenrekening"""
+    """
+    Create complete invoice line dict for a tegenrekening
+
+    ⚠️ DEPRECATED: Use eboekhouden_improved_item_naming.get_or_create_item_improved() instead.
+    """
+    frappe.logger().warning(
+        "create_invoice_line_for_tegenrekening() is deprecated. "
+        "Use get_or_create_item_improved() from eboekhouden_improved_item_naming.py"
+    )
     mapper = SmartTegenrekeningMapper()
     item_mapping = mapper.get_item_for_tegenrekening(
         tegenrekening_code, description, transaction_type, amount

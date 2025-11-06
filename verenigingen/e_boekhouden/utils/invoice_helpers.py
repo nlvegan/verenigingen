@@ -40,16 +40,16 @@ def ensure_fiscal_year_exists(transaction_date, company, debug_info=None):
             transaction_date = getdate(transaction_date)
 
         # Check if fiscal year already exists for this date
+        # Note: Fiscal Years are global in ERPNext, not company-specific
         existing_fy = frappe.db.sql(
             """
             SELECT name, year_start_date, year_end_date
             FROM `tabFiscal Year`
             WHERE %s BETWEEN year_start_date AND year_end_date
-            AND (company = %s OR company IS NULL OR company = '')
             AND disabled = 0
             LIMIT 1
             """,
-            (transaction_date, company),
+            (transaction_date,),
             as_dict=True,
         )
 

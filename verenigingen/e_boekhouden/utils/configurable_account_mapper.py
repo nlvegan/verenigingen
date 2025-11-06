@@ -109,16 +109,17 @@ class ConfigurableAccountMapper:
 
     def _find_bank_by_name(self, bank_name: str) -> Optional[str]:
         """Find bank account by name pattern."""
+        # Use filters parameter with all conditions including LIKE pattern
         return frappe.db.get_value(
             "Account",
-            {
-                "company": self.company,
-                "account_type": "Bank",
-                "is_group": 0,
-                "disabled": 0,
-            },
-            "name",
-            filters=[["name", "like", f"%{bank_name}%"]],
+            filters=[
+                ["company", "=", self.company],
+                ["account_type", "=", "Bank"],
+                ["is_group", "=", 0],
+                ["disabled", "=", 0],
+                ["name", "like", f"%{bank_name}%"]
+            ],
+            fieldname="name",
             order_by="name",
         )
 

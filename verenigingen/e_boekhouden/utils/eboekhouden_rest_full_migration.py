@@ -17,6 +17,54 @@ from verenigingen.e_boekhouden.utils.eboekhouden_payment_naming import (
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 
+def ensure_account_type_is_correct(account_name, expected_type, debug_info=None):
+    """
+    Ensure an account has the correct account_type, auto-correcting if needed.
+
+    Args:
+        account_name: Full account name (e.g., "1350 - Te ontvangen bedragen - NVV")
+        expected_type: Expected account type ("Receivable" or "Payable")
+        debug_info: Optional list to append debug messages
+
+    Returns:
+        bool: True if account type is correct or was corrected, False if account doesn't exist
+    """
+    if debug_info is None:
+        debug_info = []
+
+    try:
+        # Check if account exists
+        if not frappe.db.exists("Account", account_name):
+            debug_info.append(f"Account {account_name} does not exist")
+            return False
+
+        # Get current account type
+        current_type = frappe.db.get_value("Account", account_name, "account_type")
+
+        # If already correct, nothing to do
+        if current_type == expected_type:
+            debug_info.append(f"Account {account_name} already has correct type: {expected_type}")
+            return True
+
+        # Auto-correct the account type
+        frappe.db.set_value("Account", account_name, "account_type", expected_type)
+        frappe.db.commit()
+
+        debug_info.append(
+            f"✅ Auto-corrected account type: {account_name} from '{current_type}' to '{expected_type}'"
+        )
+        frappe.logger().info(
+            f"E-Boekhouden: Auto-corrected account {account_name} type from '{current_type}' to '{expected_type}'"
+        )
+
+        return True
+
+    except Exception as e:
+        debug_info.append(f"ERROR: Failed to ensure account type for {account_name}: {str(e)}")
+        frappe.logger().error(f"Failed to ensure account type for {account_name}: {str(e)}")
+        return False
+
+
 def get_default_cost_center(company):
     """Get the most appropriate default cost center for the company"""
     # Try multiple approaches to find the best cost center
@@ -1444,22 +1492,11 @@ def _import_opening_balances(company, cost_center, debug_info, dry_run=False):
                 debug_info.append(f"Skipping zero amount opening balance for ledger {ledger_id}")
                 continue
 
-            # Get account mapping
-            account = None
-            if ledger_id:
-                mapping_result = frappe.db.sql(
-                    """SELECT erpnext_account
-                       FROM `tabE-Boekhouden Ledger Mapping`
-                       WHERE ledger_id = %s
-                       LIMIT 1""",
-                    ledger_id,
-                )
-
-                if mapping_result:
-                    account = mapping_result[0][0]
+            # Get account mapping (with auto-create if missing)
+            account = get_erpnext_account_from_ledger_id(ledger_id, company, debug_info, auto_create=True)
 
             if not account:
-                debug_info.append(f"No mapping found for ledger {ledger_id}, skipping")
+                debug_info.append(f"Failed to resolve or create mapping for ledger {ledger_id}, skipping")
                 continue
 
             # Skip if we've already processed this account (avoid duplicates)
@@ -1573,6 +1610,20 @@ def _import_opening_balances(company, cost_center, debug_info, dry_run=False):
             # Update totals
             total_debit += balancing_entry["debit_in_account_currency"]
             total_credit += balancing_entry["credit_in_account_currency"]
+
+        # Check if we have any valid entries to process
+        if not je.accounts:
+            debug_info.append("No valid opening balance entries found after filtering P&L and Stock accounts")
+            debug_info.append(
+                f"Summary: {len(skipped_accounts['pnl'])} P&L accounts skipped, "
+                f"{len(skipped_accounts['stock'])} stock accounts skipped, "
+                f"{len(skipped_accounts['errors'])} error accounts"
+            )
+            return {
+                "success": True,
+                "message": "No valid opening balance entries found (all accounts were P&L or Stock)",
+                "journal_entry": None,
+            }
 
         # Save and submit journal entry (unless dry run)
         if dry_run:
@@ -1716,22 +1767,11 @@ def _import_opening_balances_from_data(mutations_data, company, cost_center, deb
                 debug_info.append(f"Skipping zero amount opening balance for ledger {ledger_id}")
                 continue
 
-            # Get account mapping
-            account = None
-            if ledger_id:
-                mapping_result = frappe.db.sql(
-                    """SELECT erpnext_account
-                       FROM `tabE-Boekhouden Ledger Mapping`
-                       WHERE ledger_id = %s
-                       LIMIT 1""",
-                    ledger_id,
-                )
-
-                if mapping_result:
-                    account = mapping_result[0][0]
+            # Get account mapping (with auto-create if missing)
+            account = get_erpnext_account_from_ledger_id(ledger_id, company, debug_info, auto_create=True)
 
             if not account:
-                debug_info.append(f"No mapping found for ledger {ledger_id}, skipping")
+                debug_info.append(f"Failed to resolve or create mapping for ledger {ledger_id}, skipping")
                 continue
 
             # Skip if we've already processed this account (avoid duplicates)
@@ -2247,7 +2287,12 @@ def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
     si.remarks = description
 
     # Check for credit notes and handle negative amounts (improved detection)
-    is_credit_note, effective_total_amount = _detect_credit_note_improved(mutation_detail, debug_info)
+    credit_note_result = _detect_credit_note_improved(mutation_detail, debug_info)
+    if credit_note_result is None:
+        debug_info.append("ERROR: Credit note detection returned None - skipping invoice creation")
+        return None
+
+    is_credit_note, effective_total_amount = credit_note_result
     si.is_return = is_credit_note
 
     if is_credit_note:
@@ -2271,6 +2316,8 @@ def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
                 "name",
             )
             if te_ontvangen_bedragen_account:
+                # Ensure the account is configured as Receivable type
+                ensure_account_type_is_correct(te_ontvangen_bedragen_account, "Receivable", debug_info)
                 si.debit_to = te_ontvangen_bedragen_account
                 debug_info.append(f"Set receivable account to: {te_ontvangen_bedragen_account}")
             else:
@@ -2280,17 +2327,23 @@ def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
                 # Fallback to standard ledger mapping
                 account_mapping = _resolve_account_mapping(ledger_id, debug_info)
                 if account_mapping and account_mapping.get("erpnext_account"):
-                    si.debit_to = account_mapping["erpnext_account"]
+                    receivable_account = account_mapping["erpnext_account"]
+                    # Ensure the account is configured as Receivable type
+                    ensure_account_type_is_correct(receivable_account, "Receivable", debug_info)
+                    si.debit_to = receivable_account
                     debug_info.append(
-                        f"Set receivable account from ledger mapping: {account_mapping['erpnext_account']}"
+                        f"Set receivable account from ledger mapping: {receivable_account}"
                     )
         else:
             # Use standard ledger mapping for non-WooCommerce/FactuurSturen invoices
             account_mapping = _resolve_account_mapping(ledger_id, debug_info)
             if account_mapping and account_mapping.get("erpnext_account"):
-                si.debit_to = account_mapping["erpnext_account"]
+                receivable_account = account_mapping["erpnext_account"]
+                # Ensure the account is configured as Receivable type
+                ensure_account_type_is_correct(receivable_account, "Receivable", debug_info)
+                si.debit_to = receivable_account
                 debug_info.append(
-                    f"Set receivable account from ledger mapping: {account_mapping['erpnext_account']}"
+                    f"Set receivable account from ledger mapping: {receivable_account}"
                 )
             else:
                 debug_info.append(f"WARNING: No account mapping found for ledger ID {ledger_id}")
@@ -2375,7 +2428,12 @@ def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
                 f"Pure credit note with negative total ({calculated_total}). is_return already set."
             )
 
-    si.save()
+    try:
+        si.save()
+        debug_info.append(f"Saved Sales Invoice draft: {si.name}")
+    except Exception as save_error:
+        debug_info.append(f"ERROR: Failed to save Sales Invoice: {str(save_error)}")
+        raise
 
     # Ensure fiscal year exists before submission
     from .invoice_helpers import ensure_fiscal_year_exists
@@ -2386,7 +2444,14 @@ def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
         debug_info.append(f"WARNING: Could not ensure fiscal year: {str(fy_error)}")
         # Continue anyway - the submit() will give a clearer error message
 
-    si.submit()
+    try:
+        si.submit()
+        debug_info.append(f"Submitted Sales Invoice: {si.name}")
+    except Exception as submit_error:
+        debug_info.append(f"ERROR: Failed to submit Sales Invoice {si.name}: {str(submit_error)}")
+        debug_info.append(f"Submit error type: {type(submit_error).__name__}")
+        raise
+
     debug_info.append(f"Created enhanced Sales Invoice {si.name} with {len(si.items)} line items")
     return si
 
@@ -2533,8 +2598,56 @@ def _get_ledger_code_from_id(ledger_id, debug_info):
         frappe.throw(error_msg, title="Missing Account Mapping")
 
 
-def _fetch_and_create_missing_ledger_mapping(ledger_id, debug_info):
-    """Fetch ledger details from E-Boekhouden API and create mapping if missing"""
+def get_erpnext_account_from_ledger_id(ledger_id, company, debug_info, auto_create=True):
+    """
+    Get ERPNext account name from E-Boekhouden ledger ID.
+
+    Args:
+        ledger_id: E-Boekhouden ledger ID
+        company: Company name for account lookup
+        debug_info: List to append debug messages to
+        auto_create: If True, attempt to fetch and create missing mappings from API
+
+    Returns:
+        ERPNext account name or None if not found/created
+    """
+    if not ledger_id:
+        return None
+
+    # First try to get existing mapping
+    mapping_result = frappe.db.sql(
+        """SELECT erpnext_account
+           FROM `tabE-Boekhouden Ledger Mapping`
+           WHERE ledger_id = %s
+           LIMIT 1""",
+        ledger_id,
+    )
+
+    if mapping_result:
+        return mapping_result[0][0]
+
+    # No existing mapping found
+    if not auto_create:
+        debug_info.append(f"No mapping found for ledger {ledger_id} (auto_create=False)")
+        return None
+
+    # Try to fetch and create missing mapping
+    debug_info.append(f"No mapping found for ledger {ledger_id}, attempting to fetch from API")
+    return _fetch_and_create_missing_ledger_mapping(ledger_id, company, debug_info)
+
+
+def _fetch_and_create_missing_ledger_mapping(ledger_id, company, debug_info):
+    """
+    Fetch ledger details from E-Boekhouden API and create mapping if missing.
+
+    Args:
+        ledger_id: E-Boekhouden ledger ID to fetch
+        company: Company name for account lookup
+        debug_info: List to append debug messages to
+
+    Returns:
+        ERPNext account name or None if not found
+    """
     try:
         from .eboekhouden_rest_iterator import EBoekhoudenRESTIterator
 
@@ -2559,21 +2672,41 @@ def _fetch_and_create_missing_ledger_mapping(ledger_id, debug_info):
                 # Check if account exists with this code
                 account_name = frappe.db.get_value(
                     "Account",
-                    {"company": "Ned Ver Vegan", "eboekhouden_grootboek_nummer": ledger_code},
+                    {"company": company, "eboekhouden_grootboek_nummer": ledger_code},
                     "name",
                 )
 
                 if account_name:
-                    # Create ledger mapping
-                    mapping = frappe.new_doc("E-Boekhouden Ledger Mapping")
-                    mapping.ledger_id = str(ledger_id)
-                    mapping.ledger_code = ledger_code
-                    mapping.ledger_name = ledger_name
-                    mapping.erpnext_account = account_name
-                    mapping.insert()
+                    # Check if mapping was created by another concurrent call
+                    existing = frappe.db.get_value(
+                        "E-Boekhouden Ledger Mapping",
+                        {"ledger_id": str(ledger_id)},
+                        "erpnext_account"
+                    )
 
-                    debug_info.append(f"Created ledger mapping: {ledger_id} -> {account_name}")
-                    return account_name
+                    if existing:
+                        debug_info.append(f"Mapping already exists (created by concurrent call): {ledger_id} -> {existing}")
+                        return existing
+
+                    # Create ledger mapping only if still missing
+                    try:
+                        mapping = frappe.new_doc("E-Boekhouden Ledger Mapping")
+                        mapping.ledger_id = str(ledger_id)
+                        mapping.ledger_code = ledger_code
+                        mapping.ledger_name = ledger_name
+                        mapping.erpnext_account = account_name
+                        mapping.insert()
+
+                        debug_info.append(f"Created ledger mapping: {ledger_id} -> {account_name}")
+                        return account_name
+                    except frappe.exceptions.DuplicateEntryError:
+                        # Another process created it between our check and insert
+                        debug_info.append(f"Mapping created by concurrent call during insert: {ledger_id}")
+                        return frappe.db.get_value(
+                            "E-Boekhouden Ledger Mapping",
+                            {"ledger_id": str(ledger_id)},
+                            "erpnext_account"
+                        )
                 else:
                     debug_info.append(f"No account found for ledger code {ledger_code}")
 
@@ -2738,7 +2871,12 @@ def _create_purchase_invoice(mutation_detail, company, cost_center, debug_info):
     pi.remarks = description
 
     # Check for credit notes and handle negative amounts (improved detection)
-    is_credit_note, effective_total_amount = _detect_credit_note_improved(mutation_detail, debug_info)
+    credit_note_result = _detect_credit_note_improved(mutation_detail, debug_info)
+    if credit_note_result is None:
+        debug_info.append("ERROR: Credit note detection returned None - skipping invoice creation")
+        return None
+
+    is_credit_note, effective_total_amount = credit_note_result
     pi.is_return = is_credit_note
 
     if is_credit_note:
@@ -2751,9 +2889,12 @@ def _create_purchase_invoice(mutation_detail, company, cost_center, debug_info):
     if ledger_id:
         account_mapping = _resolve_account_mapping(ledger_id, debug_info)
         if account_mapping and account_mapping.get("erpnext_account"):
-            pi.credit_to = account_mapping["erpnext_account"]
+            payable_account = account_mapping["erpnext_account"]
+            # Ensure the account is configured as Payable type
+            ensure_account_type_is_correct(payable_account, "Payable", debug_info)
+            pi.credit_to = payable_account
             debug_info.append(
-                f"Set payable account from ledger mapping: {account_mapping['erpnext_account']}"
+                f"Set payable account from ledger mapping: {payable_account}"
             )
         else:
             debug_info.append(f"WARNING: No account mapping found for ledger ID {ledger_id}")
@@ -2919,14 +3060,8 @@ def _create_zero_amount_payment_entry(mutation, company, cost_center, debug_info
             pe.payment_type = "Internal Transfer"
 
         # Get bank account from main ledger
-        bank_account = None
-        if ledger_id:
-            mapping_result = frappe.db.sql(
-                """SELECT erpnext_account FROM `tabE-Boekhouden Ledger Mapping` WHERE ledger_id = %s LIMIT 1""",
-                ledger_id,
-            )
-            if mapping_result:
-                bank_account = mapping_result[0][0]
+        # Get bank account from ledger mapping (no auto-create, will use fallback)
+        bank_account = get_erpnext_account_from_ledger_id(ledger_id, company, debug_info, auto_create=False)
 
         # Fallback to default bank account
         if not bank_account:
@@ -3061,15 +3196,10 @@ def _create_money_transfer_payment_entry(mutation, company, cost_center, debug_i
     )
 
     # Get bank account from main ledgerId
-    bank_account = None
-    if ledger_id:
-        mapping_result = frappe.db.sql(
-            """SELECT erpnext_account FROM `tabE-Boekhouden Ledger Mapping` WHERE ledger_id = %s LIMIT 1""",
-            ledger_id,
-        )
-        if mapping_result:
-            bank_account = mapping_result[0][0]
-            debug_info.append(f"Mapped main ledger {ledger_id} to bank account: {bank_account}")
+    # Get bank account from ledger mapping (no auto-create, will use fallback)
+    bank_account = get_erpnext_account_from_ledger_id(ledger_id, company, debug_info, auto_create=False)
+    if bank_account:
+        debug_info.append(f"Mapped main ledger {ledger_id} to bank account: {bank_account}")
 
     if not bank_account:
         # Fallback to default payment account
@@ -3080,14 +3210,10 @@ def _create_money_transfer_payment_entry(mutation, company, cost_center, debug_i
     target_account = None
     if rows and len(rows) > 0:
         row_ledger_id = rows[0].get("ledgerId")
-        if row_ledger_id:
-            mapping_result = frappe.db.sql(
-                """SELECT erpnext_account FROM `tabE-Boekhouden Ledger Mapping` WHERE ledger_id = %s LIMIT 1""",
-                row_ledger_id,
-            )
-            if mapping_result:
-                target_account = mapping_result[0][0]
-                debug_info.append(f"Mapped row ledger {row_ledger_id} to target account: {target_account}")
+        # Get target account from ledger mapping (with auto-create if missing)
+        target_account = get_erpnext_account_from_ledger_id(row_ledger_id, company, debug_info, auto_create=True)
+        if target_account:
+            debug_info.append(f"Mapped row ledger {row_ledger_id} to target account: {target_account}")
 
     if not target_account:
         # Create appropriate account based on mutation type
@@ -3285,15 +3411,8 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
             if row_amount == 0:
                 continue
 
-            # Get row account mapping
-            row_account = None
-            if row_ledger_id:
-                mapping_result = frappe.db.sql(
-                    """SELECT erpnext_account FROM `tabE-Boekhouden Ledger Mapping` WHERE ledger_id = %s LIMIT 1""",
-                    row_ledger_id,
-                )
-                if mapping_result:
-                    row_account = mapping_result[0][0]
+            # Get row account mapping (with auto-create if missing)
+            row_account = get_erpnext_account_from_ledger_id(row_ledger_id, company, debug_info, auto_create=True)
 
             if not row_account:
                 # Get ledger code instead of ledger ID
@@ -3313,18 +3432,8 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
 
             # For memorial bookings, create paired entries
             if is_memorial_booking and ledger_id:
-                main_mapping_result = frappe.db.sql(
-                    """SELECT erpnext_account FROM `tabE-Boekhouden Ledger Mapping` WHERE ledger_id = %s LIMIT 1""",
-                    ledger_id,
-                )
-
-                main_account = None
-                if main_mapping_result:
-                    main_account = main_mapping_result[0][0]
-                else:
-                    # Try to fetch and create missing ledger mapping
-                    debug_info.append(f"Missing ledger mapping for {ledger_id}, attempting to fetch from API")
-                    main_account = _fetch_and_create_missing_ledger_mapping(ledger_id, debug_info)
+                # Get main account mapping (with auto-create if missing)
+                main_account = get_erpnext_account_from_ledger_id(ledger_id, company, debug_info, auto_create=True)
 
                 if main_account:
                     abs_amount = abs(row_amount)
@@ -3422,20 +3531,8 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
         # line to enable automatic reconciliation, but that adds complexity for edge cases
         # (partial refunds, adjustments, timing differences between credit note and refund).
         if mutation_type in [3, 4] and ledger_id and not is_memorial_booking:
-            main_mapping_result = frappe.db.sql(
-                """SELECT erpnext_account FROM `tabE-Boekhouden Ledger Mapping` WHERE ledger_id = %s LIMIT 1""",
-                ledger_id,
-            )
-
-            main_account = None
-            if main_mapping_result:
-                main_account = main_mapping_result[0][0]
-            else:
-                # Try to fetch and create missing ledger mapping
-                debug_info.append(
-                    f"Missing ledger mapping for main ledger {ledger_id}, attempting to fetch from API"
-                )
-                main_account = _fetch_and_create_missing_ledger_mapping(ledger_id, debug_info)
+            # Get main account mapping (with auto-create if missing)
+            main_account = get_erpnext_account_from_ledger_id(ledger_id, company, debug_info, auto_create=True)
 
             if main_account:
                 # Calculate the offsetting amount (opposite of row totals)
@@ -3486,14 +3583,8 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
 
     else:
         # Simple journal entry with main amount
-        main_account = None
-        if ledger_id:
-            mapping_result = frappe.db.sql(
-                """SELECT erpnext_account FROM `tabE-Boekhouden Ledger Mapping` WHERE ledger_id = %s LIMIT 1""",
-                ledger_id,
-            )
-            if mapping_result:
-                main_account = mapping_result[0][0]
+        # Get main account mapping (with auto-create if missing)
+        main_account = get_erpnext_account_from_ledger_id(ledger_id, company, debug_info, auto_create=True)
 
         if not main_account:
             # Get ledger code instead of ledger ID

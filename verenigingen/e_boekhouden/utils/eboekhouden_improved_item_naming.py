@@ -582,10 +582,43 @@ def _is_bank_cost_transaction(description, account_code):
         if any(pattern in description_lower for pattern in description_patterns):
             return True
 
-    # Check account code by looking up the ledger name from E-Boekhouden Ledger Mapping
+    # Check account code by looking up account name directly or via ledger mapping
     if account_code:
+        bank_cost_patterns = ["bankkosten", "bank cost", "bank fee", "banking fee", "transaction fee"]
+
         try:
-            # Look up the ledger name from E-Boekhouden Ledger Mapping table
+            # FIRST: Try to find ERPNext Account directly by account_number or eboekhouden_grootboek_nummer
+            # This is the primary path for account codes like "4640"
+            account_name = frappe.db.get_value(
+                "Account",
+                {"account_number": str(account_code)},
+                "name"
+            )
+
+            if not account_name:
+                # Also try eboekhouden_grootboek_nummer field
+                account_name = frappe.db.get_value(
+                    "Account",
+                    {"eboekhouden_grootboek_nummer": str(account_code)},
+                    "name"
+                )
+
+            if account_name:
+                frappe.logger().info(
+                    f"E-Boekhouden Bank Cost Check: Found ERPNext account '{account_name}' for code {account_code}"
+                )
+
+                # Check if the account name contains bank cost indicators
+                account_name_lower = account_name.lower()
+                for pattern in bank_cost_patterns:
+                    if pattern in account_name_lower:
+                        frappe.logger().info(
+                            f"E-Boekhouden Bank Cost: Detected pattern '{pattern}' in account name '{account_name}'"
+                        )
+                        return True
+
+            # SECOND: If not found as account code, try looking up by ledger_id
+            # This handles cases where account_code is actually a ledger_id (like "15568120")
             ledger_mapping = frappe.db.sql(
                 """
                 SELECT ledger_name, ledger_code, erpnext_account
@@ -606,8 +639,6 @@ def _is_bank_cost_transaction(description, account_code):
                 )
 
                 # Check if the ledger name contains bank cost indicators
-                bank_cost_patterns = ["bankkosten", "bank cost", "bank fee", "banking fee", "transaction fee"]
-
                 ledger_name_lower = ledger_name.lower()
                 for pattern in bank_cost_patterns:
                     if pattern in ledger_name_lower:
@@ -627,12 +658,12 @@ def _is_bank_cost_transaction(description, account_code):
                             return True
             else:
                 frappe.logger().info(
-                    f"E-Boekhouden Bank Cost Check: No ledger mapping found for id {account_code}"
+                    f"E-Boekhouden Bank Cost Check: No ledger mapping or account found for code {account_code}"
                 )
 
         except Exception as e:
             # If lookup fails, log the error
-            frappe.logger().error(f"Failed to lookup ledger for {account_code}: {e}")
+            frappe.logger().error(f"Failed to lookup account/ledger for {account_code}: {e}")
             pass
 
     return False
@@ -641,6 +672,8 @@ def _is_bank_cost_transaction(description, account_code):
 def get_or_create_bank_cost_item(company):
     """
     Get or create a standardized Bank Costs item
+
+    Uses secure_document_operation framework for proper permission handling.
     """
     item_code = "Bank-Costs"
     item_name = "Bank Costs"
@@ -681,7 +714,28 @@ def get_or_create_bank_cost_item(company):
         if hasattr(item, "custom_eboekhouden_account_code"):
             item.custom_eboekhouden_account_code = "BANK_COSTS"
 
-        item.insert()
+        # Use secure operation framework instead of direct insert
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        result = secure_document_operation(
+            operation="insert",
+            doc=item,
+            justification="Creating standardized Bank-Costs item for E-Boekhouden transaction processing",
+            required_permissions=["Item:create"],
+        )
+
+        if not result.success:
+            error_details = "\n".join(result.errors) if result.errors else "Unknown error"
+            frappe.log_error(
+                title="E-Boekhouden Bank Costs: Item Creation Failed",
+                message=(
+                    f"Failed to create Bank Costs item using secure framework.\n"
+                    f"Error: {error_details}\n\n"
+                    f"Attempting fallback to generic item creation."
+                ),
+            )
+            # Fallback to generic item creation
+            return get_or_create_generic_item(company)
 
         frappe.logger().info(f"E-Boekhouden Bank Costs: Created item: {item_code}")
         return item_code
@@ -689,7 +743,7 @@ def get_or_create_bank_cost_item(company):
     except Exception as e:
         frappe.log_error(
             title="E-Boekhouden Bank Costs: Item Creation Failed",
-            message=f"Failed to create Bank Costs item: {str(e)}. Falling back to generic item creation.",
+            message=f"Failed to create Bank Costs item: {str(e)}\n{frappe.get_traceback()}",
         )
         # Fallback to generic item creation
         return get_or_create_generic_item(company)
@@ -698,6 +752,8 @@ def get_or_create_bank_cost_item(company):
 def get_or_create_event_ticket_item(company):
     """
     Get or create a standardized Event Ticket item for WooCommerce imports
+
+    Uses secure_document_operation framework for proper permission handling.
     """
     item_code = "Event-Ticket"
     item_name = "Event Ticket"
@@ -738,7 +794,28 @@ def get_or_create_event_ticket_item(company):
         if hasattr(item, "custom_eboekhouden_account_code"):
             item.custom_eboekhouden_account_code = "WOOCOMMERCE_EVENT"
 
-        item.insert()
+        # Use secure operation framework instead of direct insert
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        result = secure_document_operation(
+            operation="insert",
+            doc=item,
+            justification="Creating standardized Event-Ticket item for WooCommerce/E-Boekhouden integration",
+            required_permissions=["Item:create"],
+        )
+
+        if not result.success:
+            error_details = "\n".join(result.errors) if result.errors else "Unknown error"
+            frappe.log_error(
+                title="E-Boekhouden WooCommerce: Event Ticket Item Creation Failed",
+                message=(
+                    f"Failed to create Event Ticket item using secure framework.\n"
+                    f"Error: {error_details}\n\n"
+                    f"Attempting fallback to generic item creation."
+                ),
+            )
+            # Fallback to generic item creation
+            return get_or_create_generic_item(company)
 
         frappe.logger().info(f"E-Boekhouden WooCommerce: Created Event Ticket item: {item_code}")
         return item_code
@@ -746,7 +823,7 @@ def get_or_create_event_ticket_item(company):
     except Exception as e:
         frappe.log_error(
             title="E-Boekhouden WooCommerce: Event Ticket Item Creation Failed",
-            message=f"Failed to create Event Ticket item: {str(e)}. Falling back to generic item creation.",
+            message=f"Failed to create Event Ticket item: {str(e)}\n{frappe.get_traceback()}",
         )
         # Fallback to generic item creation
         return get_or_create_generic_item(company)

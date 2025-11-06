@@ -148,14 +148,14 @@ ACCOUNT_TYPE_MAP = {
     "asset": {
         "range_start": 10000,
         "range_end": 19999,
-        "default_account": "13900 - Debiteuren handelsvorderingen - NVV",
+        "default_account": None,  # Retrieved dynamically from company settings
         "account_type": "Receivable",
     },
     # Liability accounts (14000-19999) - overlaps with assets in NVV's system
     "liability": {
         "range_start": 14000,
         "range_end": 19999,
-        "default_account": "14700 - Crediteuren handelsschulden - NVV",
+        "default_account": None,  # Retrieved dynamically from company settings
         "account_type": "Payable",
     },
 }
@@ -387,7 +387,7 @@ DEFAULT_ITEM_GROUPS = {
     "travel": "Expense Items",  # Travel and Expenses -> Expense Items
     "marketing": "Services",  # Marketing and Advertising -> Services
     "utility": "Services",  # Utilities and Infrastructure -> Services
-    "office": "Consumable",  # Office Supplies -> Consumable
+    "office": "Office Supplies",  # Fixed: invoice_helpers.py expects "Office Supplies" not "Consumable"
     "subscription": "Services",  # Software and Subscriptions -> Services
     "finance": "Services",  # Financial Services -> Services
     "catering": "Services",  # Catering and Events -> Services

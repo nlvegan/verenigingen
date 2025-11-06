@@ -231,7 +231,7 @@ class PaymentProcessor(BaseTransactionProcessor):
                 pe.party = party
 
                 # For Receive: paid_from = receivable account, paid_to = bank account
-                pe.paid_from = frappe.get_value("Company", self.company, "default_receivable_account")
+                pe.paid_from = frappe.db.get_value("Company", self.company, "default_receivable_account")
                 pe.paid_to = bank_account
 
             else:  # Type 6 - Money Paid
@@ -242,7 +242,7 @@ class PaymentProcessor(BaseTransactionProcessor):
 
                 # For Pay: paid_from = bank account, paid_to = payable account
                 pe.paid_from = bank_account
-                pe.paid_to = frappe.get_value("Company", self.company, "default_payable_account")
+                pe.paid_to = frappe.db.get_value("Company", self.company, "default_payable_account")
 
             # Set amounts
             pe.paid_amount = abs(amount)
@@ -442,7 +442,7 @@ class PaymentProcessor(BaseTransactionProcessor):
             else:
                 # Try by name
                 if frappe.db.exists("Purchase Invoice", invoice_num):
-                    invoice = frappe.get_value(
+                    invoice = frappe.db.get_value(
                         "Purchase Invoice", invoice_num, ["name", "grand_total"], as_dict=True
                     )
 

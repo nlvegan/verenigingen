@@ -1061,6 +1061,15 @@ class PaymentEntryHandler:
                 )
                 if account:
                     self._log(f"Found receivable account from invoice {invoice_num}: {account}")
+                    # Ensure the account is configured as Receivable type
+                    from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
+                        ensure_account_type_is_correct,
+                    )
+
+                    debug_info = []
+                    ensure_account_type_is_correct(account, "Receivable", debug_info)
+                    for msg in debug_info:
+                        self._log(msg)
                     return account
             else:  # Supplier
                 account = frappe.db.get_value(
@@ -1070,6 +1079,15 @@ class PaymentEntryHandler:
                 )
                 if account:
                     self._log(f"Found payable account from invoice {invoice_num}: {account}")
+                    # Ensure the account is configured as Payable type
+                    from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
+                        ensure_account_type_is_correct,
+                    )
+
+                    debug_info = []
+                    ensure_account_type_is_correct(account, "Payable", debug_info)
+                    for msg in debug_info:
+                        self._log(msg)
                     return account
         return None
 
@@ -1092,6 +1110,16 @@ class PaymentEntryHandler:
                 )
                 if mapping_result:
                     self._log(f"Using API row ledger {row_ledger_id} -> {mapping_result}")
+                    # Ensure the account is configured correctly
+                    from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
+                        ensure_account_type_is_correct,
+                    )
+
+                    expected_type = "Receivable" if party_type == "Customer" else "Payable"
+                    debug_info = []
+                    ensure_account_type_is_correct(mapping_result, expected_type, debug_info)
+                    for msg in debug_info:
+                        self._log(msg)
                     return mapping_result
                 else:
                     self._log(f"WARNING: No mapping found for API row ledger {row_ledger_id}")
@@ -1112,6 +1140,17 @@ class PaymentEntryHandler:
         if not fallback_account:
             # Should never happen in a properly configured system
             raise frappe.ValidationError(f"No {party_type.lower()} account found for party {party}")
+
+        # Ensure the fallback account is configured correctly
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
+            ensure_account_type_is_correct,
+        )
+
+        expected_type = "Receivable" if party_type == "Customer" else "Payable"
+        debug_info = []
+        ensure_account_type_is_correct(fallback_account, expected_type, debug_info)
+        for msg in debug_info:
+            self._log(msg)
 
         return fallback_account
 

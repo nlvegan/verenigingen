@@ -1,0 +1,435 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Volunteer Application") }}{% endblock %}
+
+{% block style %}
+<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+{% from "templates/macros/brand_css.html" import brand_css %}
+{{ brand_css() }}
+<style>
+.volunteer-hero {
+    background: linear-gradient(135deg, var(--brand-primary, #cf3131) 0%, #991b1b 100%);
+    color: white;
+    padding: 3rem 0;
+    margin-bottom: 2rem;
+}
+
+.form-section {
+    background: white;
+    border-radius: 12px;
+    padding: 2rem;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.form-section h3 {
+    color: var(--brand-primary, #cf3131);
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid #e2e8f0;
+}
+
+.form-group {
+    margin-bottom: 1.5rem;
+}
+
+.form-group label {
+    display: block;
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+    color: #1e293b;
+}
+
+.form-group label .required {
+    color: #ef4444;
+    margin-left: 0.25rem;
+}
+
+.form-group input[type="text"],
+.form-group input[type="email"],
+.form-group input[type="tel"],
+.form-group input[type="date"],
+.form-group select,
+.form-group textarea {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 1rem;
+    transition: border-color 0.2s;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+    outline: none;
+    border-color: var(--brand-primary, #cf3131);
+    box-shadow: 0 0 0 3px rgba(207, 49, 49, 0.1);
+}
+
+.form-group textarea {
+    min-height: 120px;
+    resize: vertical;
+}
+
+.form-group .help-text {
+    font-size: 0.875rem;
+    color: #64748b;
+    margin-top: 0.25rem;
+}
+
+.checkbox-group {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+
+.checkbox-group input[type="checkbox"] {
+    margin-top: 0.25rem;
+    width: 1.25rem;
+    height: 1.25rem;
+    cursor: pointer;
+}
+
+.interest-areas {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 0.75rem;
+}
+
+.interest-area-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+
+.interest-area-item:hover {
+    background: #f8fafc;
+    border-color: var(--brand-primary, #cf3131);
+}
+
+.interest-area-item input[type="checkbox"] {
+    width: 1.125rem;
+    height: 1.125rem;
+}
+
+.btn-primary {
+    background: var(--brand-primary, #cf3131);
+    color: white;
+    padding: 0.875rem 2rem;
+    border: none;
+    border-radius: 6px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    width: 100%;
+    margin-top: 1rem;
+}
+
+.btn-primary:hover {
+    background: #991b1b;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(207, 49, 49, 0.3);
+}
+
+.btn-primary:disabled {
+    background: #9ca3af;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.alert {
+    padding: 1rem;
+    border-radius: 6px;
+    margin-bottom: 1rem;
+}
+
+.alert-success {
+    background: #d1fae5;
+    border: 1px solid #10b981;
+    color: #065f46;
+}
+
+.alert-error {
+    background: #fee2e2;
+    border: 1px solid #ef4444;
+    color: #991b1b;
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+
+@media (max-width: 768px) {
+    .form-row {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div class="volunteer-hero">
+    <div class="container">
+        <h1 class="text-3xl font-bold mb-2">{{ _("Volunteer With Us") }}</h1>
+        <p class="text-lg opacity-90">{{ _("Make a difference in our community") }}</p>
+    </div>
+</div>
+
+<div class="container max-w-4xl">
+    {% if already_member %}
+    <div class="alert alert-success">
+        <p><strong>{{ _("You're already a member!") }}</strong></p>
+        <p>{{ _("Visit your volunteer dashboard to update your preferences.") }}</p>
+        <a href="/volunteer/dashboard" class="text-blue-600 underline">{{ _("Go to Dashboard") }}</a>
+    </div>
+    {% else %}
+
+    <form id="volunteer-application-form" method="POST">
+        <!-- Personal Information -->
+        <div class="form-section">
+            <h3>{{ _("Personal Information") }}</h3>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>{{ _("First Name") }}<span class="required">*</span></label>
+                    <input type="text" name="first_name" required>
+                </div>
+
+                <div class="form-group">
+                    <label>{{ _("Last Name") }}<span class="required">*</span></label>
+                    <input type="text" name="last_name" required>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>{{ _("Email") }}<span class="required">*</span></label>
+                    <input type="email" name="email" required>
+                    <div class="help-text">{{ _("We'll use this to contact you about opportunities") }}</div>
+                </div>
+
+                <div class="form-group">
+                    <label>{{ _("Phone Number") }}</label>
+                    <input type="tel" name="contact_number">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>{{ _("Date of Birth") }}<span class="required">*</span></label>
+                <input type="date" name="birth_date" required>
+                <div class="help-text">{{ _("You must be at least 16 years old to volunteer") }}</div>
+            </div>
+        </div>
+
+        <!-- Volunteer Background -->
+        <div class="form-section">
+            <h3>{{ _("Tell Us About Yourself") }}</h3>
+
+            <div class="form-group">
+                <label>{{ _("Why do you want to volunteer with us?") }}<span class="required">*</span></label>
+                <textarea name="motivation" required placeholder="{{ _('Share what motivates you to get involved...') }}"></textarea>
+            </div>
+
+            <div class="form-group">
+                <label>{{ _("What interests or passions do you have?") }}</label>
+                <textarea name="interests" placeholder="{{ _('Tell us about your hobbies, interests, or causes you care about...') }}"></textarea>
+            </div>
+
+            <div class="form-group">
+                <label>{{ _("Do you have any previous volunteer experience?") }}</label>
+                <textarea name="previous_experience" placeholder="{{ _('Describe any previous volunteer work or community involvement...') }}"></textarea>
+            </div>
+
+            <div class="form-group">
+                <label>{{ _("What skills or talents can you contribute?") }}</label>
+                <textarea name="skills_description" placeholder="{{ _('E.g., event planning, social media, writing, design, technical skills, etc.') }}"></textarea>
+            </div>
+        </div>
+
+        <!-- Volunteer Preferences -->
+        <div class="form-section">
+            <h3>{{ _("Volunteer Preferences") }}</h3>
+
+            <div class="form-group">
+                <label>{{ _("What types of activities interest you most?") }}</label>
+                <div class="interest-areas">
+                    <div class="interest-area-item">
+                        <input type="checkbox" name="interest_events" id="interest_events" value="1">
+                        <label for="interest_events" class="mb-0">{{ _("Event Organization") }}</label>
+                    </div>
+                    <div class="interest-area-item">
+                        <input type="checkbox" name="interest_communications" id="interest_communications" value="1">
+                        <label for="interest_communications" class="mb-0">{{ _("Communications") }}</label>
+                    </div>
+                    <div class="interest-area-item">
+                        <input type="checkbox" name="interest_fundraising" id="interest_fundraising" value="1">
+                        <label for="interest_fundraising" class="mb-0">{{ _("Fundraising") }}</label>
+                    </div>
+                    <div class="interest-area-item">
+                        <input type="checkbox" name="interest_admin" id="interest_admin" value="1">
+                        <label for="interest_admin" class="mb-0">{{ _("Administrative") }}</label>
+                    </div>
+                    <div class="interest-area-item">
+                        <input type="checkbox" name="interest_outreach" id="interest_outreach" value="1">
+                        <label for="interest_outreach" class="mb-0">{{ _("Community Outreach") }}</label>
+                    </div>
+                    <div class="interest-area-item">
+                        <input type="checkbox" name="interest_tech" id="interest_tech" value="1">
+                        <label for="interest_tech" class="mb-0">{{ _("Technical/IT") }}</label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>{{ _("How much time can you commit per month?") }}</label>
+                <select name="time_commitment">
+                    <option value="">{{ _("Please select...") }}</option>
+                    <option value="1-5">{{ _("1-5 hours") }}</option>
+                    <option value="6-10">{{ _("6-10 hours") }}</option>
+                    <option value="11-20">{{ _("11-20 hours") }}</option>
+                    <option value="20+">{{ _("20+ hours") }}</option>
+                    <option value="flexible">{{ _("Flexible/Varies") }}</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>{{ _("Preferred days/times?") }}</label>
+                <textarea name="availability" placeholder="{{ _('E.g., Weekday evenings, weekend mornings, flexible...') }}"></textarea>
+            </div>
+        </div>
+
+        <!-- Additional Information -->
+        <div class="form-section">
+            <h3>{{ _("Additional Information") }}</h3>
+
+            <div class="form-group">
+                <div class="checkbox-group">
+                    <input type="checkbox" name="become_member" id="become_member" value="1">
+                    <label for="become_member" class="mb-0">
+                        {{ _("I would also like to become a member") }}
+                        <div class="help-text">{{ _("Members receive additional benefits and voting rights") }}</div>
+                    </label>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>{{ _("How did you hear about us?") }}</label>
+                <select name="referral_source">
+                    <option value="">{{ _("Please select...") }}</option>
+                    <option value="friend">{{ _("Friend or family") }}</option>
+                    <option value="social_media">{{ _("Social media") }}</option>
+                    <option value="website">{{ _("Website") }}</option>
+                    <option value="event">{{ _("Event") }}</option>
+                    <option value="search">{{ _("Search engine") }}</option>
+                    <option value="other">{{ _("Other") }}</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>{{ _("Anything else you'd like us to know?") }}</label>
+                <textarea name="additional_comments" placeholder="{{ _('Any questions, special requests, or additional information...') }}"></textarea>
+            </div>
+        </div>
+
+        <!-- Submit Button -->
+        <div class="form-section">
+            <div id="message-container"></div>
+            <button type="submit" class="btn-primary" id="submit-btn">
+                {{ _("Submit Application") }}
+            </button>
+        </div>
+    </form>
+
+    {% endif %}
+</div>
+
+<script>
+document.getElementById('volunteer-application-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+
+    const submitBtn = document.getElementById('submit-btn');
+    const messageContainer = document.getElementById('message-container');
+
+    // Disable submit button
+    submitBtn.disabled = true;
+    submitBtn.textContent = '{{ _("Submitting...") }}';
+
+    // Collect form data
+    const formData = new FormData(e.target);
+    const data = {};
+
+    // Convert FormData to object
+    for (let [key, value] of formData.entries()) {
+        data[key] = value;
+    }
+
+    // Add volunteer flag
+    data.interested_in_volunteering = 1;
+    data.application_source = 'Volunteer Application Form';
+
+    try {
+        // Submit to volunteer application API
+        const response = await fetch('/api/method/verenigingen.api.volunteer_application.submit_volunteer_application', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Frappe-CSRF-Token': frappe.csrf_token
+            },
+            body: JSON.stringify(data)
+        });
+
+        const result = await response.json();
+
+        if (result.message && result.message.success) {
+            messageContainer.innerHTML = `
+                <div class="alert alert-success">
+                    <h4 class="font-bold mb-2">{{ _("Application Submitted Successfully!") }}</h4>
+                    <p>{{ _("Thank you for your interest in volunteering. We'll review your application and contact you soon.") }}</p>
+                    <p class="mt-2"><strong>{{ _("Application ID:") }}</strong> ${result.message.application_id}</p>
+                </div>
+            `;
+            e.target.reset();
+        } else {
+            throw new Error(result.message?.error || '{{ _("Submission failed") }}');
+        }
+    } catch (error) {
+        messageContainer.innerHTML = `
+            <div class="alert alert-error">
+                <h4 class="font-bold mb-2">{{ _("Submission Error") }}</h4>
+                <p>${error.message || '{{ _("An error occurred. Please try again.") }}'}</p>
+            </div>
+        `;
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = '{{ _("Submit Application") }}';
+    }
+});
+
+// Age validation
+document.querySelector('input[name="birth_date"]').addEventListener('change', function(e) {
+    const birthDate = new Date(e.target.value);
+    const today = new Date();
+    const age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+    }
+
+    if (age < 16) {
+        alert('{{ _("You must be at least 16 years old to volunteer.") }}');
+        e.target.value = '';
+    }
+});
+</script>
+{% endblock %}

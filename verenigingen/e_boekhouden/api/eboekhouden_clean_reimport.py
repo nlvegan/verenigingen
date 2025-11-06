@@ -84,13 +84,8 @@ def setup_enhanced_infrastructure():
         required_groups = [
             "Services",
             "Products",
-            "Office Supplies",
-            "Software and Subscriptions",
-            "Travel and Expenses",
-            "Marketing and Advertising",
-            "Utilities and Infrastructure",
-            "Financial Services",
-            "Catering and Events",
+            "Office Supplies",  # Used by invoice_helpers.py:564,639
+            "Expense Items",  # Used for travel/expense mapping
         ]
 
         for group in required_groups:
