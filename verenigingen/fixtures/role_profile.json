@@ -170,6 +170,7 @@
   {
     "doctype": "Role Profile",
     "docstatus": 0,
+    "module_profile": "Verenigingen Management Access",
     "name": "Verenigingen National Board Member",
     "role_profile": "Verenigingen National Board Member",
     "roles": [

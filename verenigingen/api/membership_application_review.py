@@ -341,20 +341,20 @@ def approve_membership_application(
         f"(source: {'invoice' if invoice and hasattr(invoice, 'grand_total') else 'member_rate' if hasattr(member, 'dues_rate') and member.dues_rate else 'membership_type'})"
     )
 
-    # Activate volunteer record if explicitly requested (not automatic)
-    # Note: interested_in_volunteering flag creates Volunteer record but doesn't auto-activate
-    if activate_as_volunteer:
+    # Activate volunteer record automatically when interested_in_volunteering is checked
+    # The volunteer record was created during application submission
+    if hasattr(member, "interested_in_volunteering") and member.interested_in_volunteering:
         try:
-            if hasattr(member, "interested_in_volunteering") and member.interested_in_volunteering:
-                activate_volunteer_record(member)
-                frappe.logger().info(f"Activated volunteer record for {member.name} per approval request")
-            else:
-                frappe.logger().warning(
-                    f"Cannot activate as volunteer for {member.name} - no interested_in_volunteering flag"
-                )
+            activate_volunteer_record(member)
+            frappe.logger().info(f"Activated volunteer record for {member.name} during approval")
         except Exception as e:
             safe_log_error(f"Non-critical: Failed to activate volunteer record for {member.name}: {str(e)}")
             # Continue with approval - this is not critical
+    elif activate_as_volunteer:
+        # Only warn if volunteer activation was explicitly requested but member isn't interested
+        frappe.logger().warning(
+            f"Cannot activate as volunteer for {member.name} - no interested_in_volunteering flag"
+        )
 
     # Create user account for portal access using secure AccountCreationManager
     user_creation_result = {"success": False, "error": "Not attempted"}
@@ -380,9 +380,27 @@ def approve_membership_application(
 
     # Send approval email with payment link
     try:
-        send_approval_notification(member, invoice, membership_type_doc)
+        email_result = send_approval_notification(member, invoice, membership_type_doc)
+        if not email_result or not email_result.get("success"):
+            frappe.log_error(
+                f"Approval email failed for {member.name} ({member.email}): {email_result.get('errors') if email_result else 'No result returned'}",
+                "Approval Email Failed"
+            )
+            frappe.msgprint(
+                _("⚠️ Approval successful, but email notification failed. Please check error logs or send the approval email manually."),
+                title=_("Email Warning"),
+                indicator="orange"
+            )
     except Exception as e:
-        safe_log_error(f"Non-critical: Email notification failed for {member.name}: {str(e)}")
+        frappe.log_error(
+            f"Exception sending approval email for {member.name} ({member.email}): {str(e)}\n{frappe.get_traceback()}",
+            "Approval Email Exception"
+        )
+        frappe.msgprint(
+            _("⚠️ Approval successful, but email notification encountered an error. Please check error logs."),
+            title=_("Email Error"),
+            indicator="orange"
+        )
         # Continue with approval - emails can be sent manually
 
     # Note: finalize_member_approval() call removed - approval fields are already set
@@ -648,6 +666,13 @@ def activate_volunteer_record(member):
             volunteer.status = "Active"
             volunteer.save()
             frappe.logger().info(f"Activated volunteer record {volunteer_name} for member {member.name}")
+
+            # Link volunteer to member record if not already linked
+            if hasattr(member, "volunteer_record") and member.volunteer_record != volunteer_name:
+                member.reload()  # Ensure we have latest data
+                member.volunteer_record = volunteer_name
+                member.save()
+                frappe.logger().info(f"Linked volunteer {volunteer_name} to member {member.name}")
 
             # Upgrade user account from Website User to System User for volunteer access
             if member.user:
@@ -1024,6 +1049,8 @@ def send_approval_notification(member, invoice, membership_type):
         frappe.logger("membership_review").warning(
             f"Failed to send approval notification to {member.email}: {'; '.join(result.get('errors', []))}"
         )
+
+    return result
 
 
 def send_rejection_notification(member, reason, email_template=None, rejection_category=None):

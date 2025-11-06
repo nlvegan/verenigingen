@@ -131,7 +131,9 @@ def log_security_event(user, event_type, details, severity="medium"):
                     "status": "Success",
                     "user": user,
                     "full_name": frappe.db.get_value("User", user, "full_name") or user,
-                    "operation": event_type,
+                    # operation field only accepts: "", "Login", "Logout", "Impersonate"
+                    # Leave empty for custom security events - details are in subject/content
+                    "operation": "",
                     "content": details,
                     "creation": now_datetime(),
                 }

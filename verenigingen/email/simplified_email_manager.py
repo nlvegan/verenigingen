@@ -12,6 +12,8 @@ from typing import Dict, List, Optional
 
 import frappe
 from frappe import _
+from frappe.query_builder import DocType
+from frappe.query_builder.functions import Distinct
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 from verenigingen.verenigingen.doctype.chapter.managers.communication_manager import CommunicationManager
@@ -29,7 +31,7 @@ class SimplifiedEmailManager(CommunicationManager):
         test_mode: bool = False,
     ) -> Dict:
         """
-        Send email to specific chapter segments using direct queries
+        Send email to specific chapter segments using Query Builder
 
         Args:
             chapter_name: Name of the chapter
@@ -41,51 +43,62 @@ class SimplifiedEmailManager(CommunicationManager):
         Returns:
             Dict with success status and details
         """
+        Member = DocType("Member")
+        ChapterMember = DocType("Chapter Member")
+        ChapterBoardMember = DocType("Chapter Board Member")
+        Volunteer = DocType("Volunteer")
+
         # Build recipient query based on segment
         if segment == "all":
-            recipients = frappe.db.sql_list(
-                """
-                SELECT DISTINCT m.email
-                FROM `tabMember` m
-                INNER JOIN `tabChapter Member` cm ON m.name = cm.member
-                WHERE cm.parent = %s
-                    AND cm.enabled = 1
-                    AND m.status = 'Active'
-                    AND m.email IS NOT NULL
-                    AND (m.opt_out_optional_emails IS NULL OR m.opt_out_optional_emails = 0)  -- FIELD FIX: Handle NULL values properly
-            """,
-                chapter_name,
+            # All active chapter members who haven't explicitly opted out
+            # accepts_optional_communications: 1 (opted in) or NULL (default/not set) = include
+            # accepts_optional_communications: 0 (opted out) = exclude
+            query = (
+                frappe.qb.from_(Member)
+                .inner_join(ChapterMember).on(Member.name == ChapterMember.member)
+                .select(Distinct(Member.email))
+                .where(
+                    (ChapterMember.parent == chapter_name)
+                    & (ChapterMember.enabled == 1)
+                    & (Member.status == "Active")
+                    & (Member.email.isnotnull())
+                    & ((Member.accepts_optional_communications != 0) | (Member.accepts_optional_communications.isnull()))
+                )
             )
+            recipients = query.run(pluck=True)
 
         elif segment == "board":
-            recipients = frappe.db.sql_list(
-                """
-                SELECT DISTINCT m.email
-                FROM `tabChapter Board Member` cbm
-                INNER JOIN `tabVolunteer` v ON cbm.volunteer = v.name
-                INNER JOIN `tabMember` m ON v.member = m.name
-                WHERE cbm.parent = %s
-                    AND cbm.is_active = 1
-                    AND m.email IS NOT NULL
-                    AND (m.opt_out_optional_emails IS NULL OR m.opt_out_optional_emails = 0)  -- FIELD FIX: Handle NULL values properly
-            """,
-                chapter_name,
+            # Board members are active volunteers - no opt-out filtering
+            # They need to receive organizational communications
+            query = (
+                frappe.qb.from_(ChapterBoardMember)
+                .inner_join(Volunteer).on(ChapterBoardMember.volunteer == Volunteer.name)
+                .inner_join(Member).on(Volunteer.member == Member.name)
+                .select(Distinct(Member.email))
+                .where(
+                    (ChapterBoardMember.parent == chapter_name)
+                    & (ChapterBoardMember.is_active == 1)
+                    & (Member.email.isnotnull())
+                )
             )
+            recipients = query.run(pluck=True)
 
         elif segment == "volunteers":
-            recipients = frappe.db.sql_list(
-                """
-                SELECT DISTINCT m.email
-                FROM `tabVolunteer` v
-                INNER JOIN `tabMember` m ON v.member = m.name
-                INNER JOIN `tabChapter Member` cm ON m.name = cm.member
-                WHERE cm.parent = %s
-                    AND v.status = 'Active'
-                    AND m.email IS NOT NULL
-                    AND (m.opt_out_optional_emails IS NULL OR m.opt_out_optional_emails = 0)  -- FIELD FIX: Handle NULL values properly
-            """,
-                chapter_name,
+            # Active volunteers - no opt-out filtering
+            # Volunteers are actively engaged and need to receive chapter communications
+            query = (
+                frappe.qb.from_(Volunteer)
+                .inner_join(Member).on(Volunteer.member == Member.name)
+                .inner_join(ChapterMember).on(Member.name == ChapterMember.member)
+                .select(Distinct(Member.email))
+                .where(
+                    (ChapterMember.parent == chapter_name)
+                    & (Volunteer.status == "Active")
+                    & (Member.email.isnotnull())
+                )
             )
+            recipients = query.run(pluck=True)
+
         else:
             return {"success": False, "error": f"Unknown segment: {segment}"}
 
