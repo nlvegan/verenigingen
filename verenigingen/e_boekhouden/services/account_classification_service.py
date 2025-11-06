@@ -26,6 +26,7 @@ class ClassificationConfidence(Enum):
     HIGH = "high"  # Category + code pattern match
     MEDIUM = "medium"  # Code pattern or keyword match
     LOW = "low"  # Fallback classification
+    NONE = "none"  # Could not classify - requires manual intervention
 
 
 @dataclass
@@ -280,7 +281,7 @@ class AccountClassificationService(StatelessService):
                 root_type="Equity",
                 confidence=ClassificationConfidence.HIGH,
                 strategy_used="balance_sheet_group_005",
-                notes=f"Group 005 indicates equity",
+                notes="Group 005 indicates equity",
             )
 
         # Check for equity patterns (name-based)
@@ -456,13 +457,18 @@ class AccountClassificationService(StatelessService):
                 notes="8xxx/9xxx = Income (RGS)",
             )
 
-        # Default VW to Expense
+        # VW account with no matches - cannot classify confidently
+        # Return None to indicate no classification rather than defaulting to Expense
+        frappe.logger().warning(
+            f"VW account {code} ({description}) could not be classified - "
+            f"no group match, no keyword match, no code pattern match (group: {group})"
+        )
         return AccountClassification(
-            account_type="Expense Account",
-            root_type="Expense",
-            confidence=ClassificationConfidence.LOW,
-            strategy_used="profit_loss_expense_fallback",
-            notes="VW category defaults to Expense",
+            account_type="",
+            root_type=None,
+            confidence=ClassificationConfidence.NONE,
+            strategy_used="profit_loss_no_match",
+            notes="VW account could not be classified - requires manual review or additional configuration",
         )
 
     def _classify_by_code_pattern(
@@ -895,7 +901,7 @@ class AccountClassificationService(StatelessService):
                 root_type="Expense",
                 confidence=ClassificationConfidence.LOW,
                 strategy_used="fallback_ultimate",
-                notes=f"Unknown pattern - defaulted to Expense",
+                notes="Unknown pattern - defaulted to Expense",
             )
 
     def get_service_name(self) -> str:

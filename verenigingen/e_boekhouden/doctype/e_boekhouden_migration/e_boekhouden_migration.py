@@ -1157,10 +1157,11 @@ class EBoekhoudenMigration(Document):
                     "root_type": "Liability",
                 },  # Creditors (not Payable to avoid party requirement)
                 # Profit & Loss category - ALL VW accounts are P&L accounts
+                # Set root_type to None to allow PRIORITY 2 classification by ranges/keywords
                 "VW": {
-                    "account_type": "Expense Account",
-                    "root_type": "Expense",
-                },  # Default VW to Expense Account (will be refined by code patterns)
+                    "account_type": "",
+                    "root_type": None,
+                },  # VW accounts classified by ranges/keywords in PRIORITY 2
             }
 
             # Get mapping or default
@@ -1263,10 +1264,25 @@ class EBoekhoudenMigration(Document):
 
                     account_name_lower = account_name.lower()
 
-                    # Check GROUP NUMBERS first (most reliable)
+                    # PRIORITY: Check account code ranges FIRST (most reliable for standard Dutch accounting)
+                    # Account codes 8000-8999 = Income, 4000-7999 = Expenses
+                    if self._account_in_ranges(account_code, vw_rules.get("income_ranges", [])):
+                        root_type = "Income"
+                        account_type = "Income Account"
+                        frappe.logger().info(
+                            f"VW account {account_code} classified as Income by configured range"
+                        )
+                    # Check configurable expense ranges
+                    elif self._account_in_ranges(account_code, vw_rules.get("expense_ranges", [])):
+                        root_type = "Expense"
+                        account_type = "Expense Account"
+                        frappe.logger().info(
+                            f"VW account {account_code} classified as Expense by configured range"
+                        )
+                    # Fallback to GROUP NUMBERS (E-Boekhouden internal groupings)
                     # Group 055 = Income (Opbrengsten)
                     # Groups 056-059 = Expenses (various cost types)
-                    if group_code == "055":
+                    elif group_code == "055":
                         root_type = "Income"
                         account_type = "Income Account"
                         frappe.logger().info(
@@ -1296,26 +1312,13 @@ class EBoekhoudenMigration(Document):
                         frappe.logger().info(
                             f"VW account {account_code} classified as Expense (keyword match in: {account_name})"
                         )
-                    # Check configurable income ranges
-                    elif self._account_in_ranges(account_code, vw_rules.get("income_ranges", [])):
-                        root_type = "Income"
-                        account_type = "Income Account"
-                        frappe.logger().info(
-                            f"VW account {account_code} classified as Income by configured range"
-                        )
-                    # Check configurable expense ranges
-                    elif self._account_in_ranges(account_code, vw_rules.get("expense_ranges", [])):
-                        root_type = "Expense"
-                        account_type = "Expense Account"
-                        frappe.logger().info(
-                            f"VW account {account_code} classified as Expense by configured range"
-                        )
                     else:
-                        # Default VW accounts to expense (most common)
-                        root_type = "Expense"
-                        account_type = "Expense Account"
-                        frappe.logger().info(
-                            f"VW account {account_code} classified as Expense (default, group {group_code})"
+                        # No range/keyword match - leave unclassified for PRIORITY 3 name pattern matching
+                        # VW accounts MUST be classified by ranges/keywords or name patterns
+                        # Do NOT default to Expense here - let it fall through to PRIORITY 3
+                        frappe.logger().warning(
+                            f"VW account {account_code} did not match any income/expense ranges or keywords. "
+                            f"Will try PRIORITY 3 name patterns. Group: {group_code}, Name: {account_name}"
                         )
 
             # PRIORITY 3: Account name patterns - supplement group/range classification
@@ -1395,11 +1398,25 @@ class EBoekhoudenMigration(Document):
                 if not account_type and not root_type:
                     # Use category information as fallback
                     if category == "VW":  # P&L accounts - already handled in category logic above
-                        # VW accounts should have been handled by category logic, this is fallback
-                        account_type = "Expense Account"
-                        root_type = "Expense"  # Default VW to expense
-                        frappe.logger().info(
-                            f"VW account {account_code} defaulted to Expense (no group/name match)"
+                        # VW accounts should have been handled by ranges/keywords or name patterns
+                        # If we reach here, classification failed - LOG ERROR, do not default to Expense
+                        frappe.log_error(
+                            f"VW account {account_code} ({account_name}) could not be classified!\n"
+                            f"  Group: {group_code}\n"
+                            f"  Category: {category}\n"
+                            f"  NO income/expense ranges matched\n"
+                            f"  NO keywords matched\n"
+                            f"  NO name patterns matched\n"
+                            f"  PLEASE CONFIGURE: Add appropriate ranges to E-Boekhouden Settings\n"
+                            f"  or add explicit group mapping for group {group_code}",
+                            f"Unclassified VW Account - {account_code}",
+                        )
+                        # Still need to set something to avoid errors - use empty values
+                        # This will be caught by validation and user can fix manually
+                        account_type = ""
+                        root_type = None
+                        frappe.logger().warning(
+                            f"VW account {account_code} left unclassified - requires manual intervention"
                         )
                     elif category == "BAL":  # Balance sheet accounts - use conservative defaults
                         account_type = "Current Asset"
@@ -3460,7 +3477,7 @@ def import_single_mutation(migration_name, mutation_id, overwrite_existing=True)
                             "message": f"Mutation {mutation_id} intentionally skipped (payment gateway adjustment)",
                         }
                     else:
-                        debug_info.append(f"⚠️ New processors returned None, falling back to legacy")
+                        debug_info.append("⚠️ New processors returned None, falling back to legacy")
 
             except Exception as e:
                 # Log processor failure but don't fail the import

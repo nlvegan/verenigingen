@@ -2376,6 +2376,16 @@ def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
             )
 
     si.save()
+
+    # Ensure fiscal year exists before submission
+    from .invoice_helpers import ensure_fiscal_year_exists
+
+    try:
+        ensure_fiscal_year_exists(si.posting_date, company, debug_info)
+    except Exception as fy_error:
+        debug_info.append(f"WARNING: Could not ensure fiscal year: {str(fy_error)}")
+        # Continue anyway - the submit() will give a clearer error message
+
     si.submit()
     debug_info.append(f"Created enhanced Sales Invoice {si.name} with {len(si.items)} line items")
     return si
@@ -2825,7 +2835,6 @@ def _create_purchase_invoice(mutation_detail, company, cost_center, debug_info):
                 f"Consolidated to single line: qty={pi.items[0].qty}, rate={pi.items[0].rate}, net={calculated_total}"
             )
             pi.save()
-            pi.submit()
         else:
             # Pure credit note - use is_return as normal
             debug_info.append(
@@ -2835,11 +2844,20 @@ def _create_purchase_invoice(mutation_detail, company, cost_center, debug_info):
             pi.is_return = 1
             pi.update_stock = 0  # Disable "Update Billed Amount in Purchase Receipt"
             pi.save()
-            pi.submit()
     else:
         # Normal invoice with positive total
         pi.save()
-        pi.submit()
+
+    # Ensure fiscal year exists before submission (all paths)
+    from .invoice_helpers import ensure_fiscal_year_exists
+
+    try:
+        ensure_fiscal_year_exists(pi.posting_date, company, debug_info)
+    except Exception as fy_error:
+        debug_info.append(f"WARNING: Could not ensure fiscal year: {str(fy_error)}")
+        # Continue anyway - the submit() will give a clearer error message
+
+    pi.submit()
 
     debug_info.append(f"Created enhanced Purchase Invoice {pi.name} with {len(pi.items)} line items")
     return pi
@@ -4100,7 +4118,7 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
                                 skip_indicators = [
                                     "Skipping payment gateway adjustment",
                                     "already detected in can_process",
-                                    "SKIPPING"
+                                    "SKIPPING",
                                 ]
                                 for debug_line in processor_debug:
                                     if any(indicator in debug_line for indicator in skip_indicators):
@@ -4213,7 +4231,7 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
 
     # PHASE 2: Add processor statistics
     if processed_with_new > 0 or processed_with_legacy > 0:
-        summary_content += f"PROCESSING METHOD BREAKDOWN:\n"
+        summary_content += "PROCESSING METHOD BREAKDOWN:\n"
         summary_content += f"• New Processors: {processed_with_new} ({processed_with_new * 100 / (processed_with_new + processed_with_legacy):.1f}%)\n"
         summary_content += f"• Legacy Processing: {processed_with_legacy} ({processed_with_legacy * 100 / (processed_with_new + processed_with_legacy):.1f}%)\n\n"
 
@@ -4224,16 +4242,20 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
             mutation_ids = [str(m.get("id")) for m in mutations] if mutations else []
             if mutation_ids and len(mutation_ids) > 0:
                 # Use parameterized query to avoid SQL injection
-                placeholders = ', '.join(['%s'] * len(mutation_ids))
+                placeholders = ", ".join(["%s"] * len(mutation_ids))
 
-                bank_tx_stats = frappe.db.sql(f"""
+                bank_tx_stats = frappe.db.sql(
+                    f"""
                     SELECT
                         COUNT(DISTINCT pe.name) as total_pes,
                         COUNT(DISTINCT btp.parent) as with_bank_tx
                     FROM `tabPayment Entry` pe
                     LEFT JOIN `tabBank Transaction Payments` btp ON btp.payment_entry = pe.name
                     WHERE pe.eboekhouden_mutation_nr IN ({placeholders})
-                """, tuple(mutation_ids), as_dict=True)
+                """,
+                    tuple(mutation_ids),
+                    as_dict=True,
+                )
 
                 if bank_tx_stats and bank_tx_stats[0]:
                     stats = bank_tx_stats[0]
@@ -4242,20 +4264,24 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
                     without_bt = total - with_bt
                     success_rate = (with_bt / total * 100) if total > 0 else 0
 
-                    summary_content += f"BANK TRANSACTION CREATION:\n"
+                    summary_content += "BANK TRANSACTION CREATION:\n"
                     summary_content += f"• Payment Entries Created: {total}\n"
                     summary_content += f"• With Bank Transactions: {with_bt} ({success_rate:.1f}%)\n"
                     summary_content += f"• WITHOUT Bank Transactions: {without_bt}\n"
 
                     if without_bt > 0:
-                        summary_content += f"  ⚠️  WARNING: {without_bt} Payment Entries missing Bank Transactions!\n"
+                        summary_content += (
+                            f"  ⚠️  WARNING: {without_bt} Payment Entries missing Bank Transactions!\n"
+                        )
                     else:
-                        summary_content += f"  ✓ All Payment Entries have Bank Transactions\n"
+                        summary_content += "  ✓ All Payment Entries have Bank Transactions\n"
 
                     summary_content += "\n"
         except Exception as bt_stats_error:
             # Don't fail the summary if Bank Transaction stats fail
-            summary_content += f"BANK TRANSACTION STATISTICS: Error collecting stats - {str(bt_stats_error)}\n\n"
+            summary_content += (
+                f"BANK TRANSACTION STATISTICS: Error collecting stats - {str(bt_stats_error)}\n\n"
+            )
 
     if error_categories:
         summary_content += "ERROR CATEGORIES:\n"
@@ -4354,7 +4380,7 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
                     debug_info.append(f"  ❌ Retry exception for mutation {mutation_id}: {str(retry_error)}")
 
             # Log retry summary
-            retry_summary = f"\n🔄 RETRY SUMMARY:\n"
+            retry_summary = "\n🔄 RETRY SUMMARY:\n"
             retry_summary += f"• Attempted: {len(failed_mutation_ids)} mutations\n"
             retry_summary += f"• Successful: {retry_success}\n"
             retry_summary += f"• Failed: {retry_failed}\n"

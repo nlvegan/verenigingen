@@ -13,6 +13,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate, nowdate
 
+from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_exists
 from verenigingen.e_boekhouden.utils.security_helper import atomic_migration_operation, validate_and_insert
 
 
@@ -334,6 +335,13 @@ class PaymentEntryHandler:
                     )
             else:
                 self._log("WARNING: Failed to create Bank Transaction - proceeding with Payment Entry only")
+
+            # Ensure fiscal year exists before submission
+            try:
+                ensure_fiscal_year_exists(pe.posting_date, self.company, self.debug_info)
+            except Exception as fy_error:
+                self._log(f"WARNING: Could not ensure fiscal year: {str(fy_error)}")
+                # Continue anyway - the submit() will give a clearer error message
 
             # Submit Payment Entry (commits both PE and BT together in atomic transaction)
             self._log(f"Submitting Payment Entry {pe.name} (will commit both PE and BT atomically)...")
