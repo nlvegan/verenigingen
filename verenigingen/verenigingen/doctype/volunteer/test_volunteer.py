@@ -21,6 +21,15 @@ class TestVolunteer(EnhancedTestCase):
         # EnhancedTestCase handles cleanup automatically via database rollback
         super().tearDown()
 
+    @staticmethod
+    def get_unique_suffix():
+        """Generate unique suffix using timestamp + random to avoid collisions"""
+        import time
+
+        timestamp = str(int(time.time() * 1000000) % 1000000)
+        rand_suffix = random.randint(100, 999)
+        return f"{timestamp}-{rand_suffix}"
+
     def create_test_interest_categories(self):
         """Create test interest categories"""
         categories = ["Test Category 1", "Test Category 2"]
@@ -38,7 +47,7 @@ class TestVolunteer(EnhancedTestCase):
     def create_test_volunteer(self, status="Active"):
         """Create a test volunteer record"""
         # Generate unique name to avoid conflicts
-        unique_suffix = random.randint(1000, 9999)
+        unique_suffix = self.get_unique_suffix()
 
         volunteer = frappe.get_doc(
             {
@@ -218,11 +227,12 @@ class TestVolunteer(EnhancedTestCase):
         # Use a different member for this test to avoid conflicts
         test_member = self.create_test_member()
 
+        unique_suffix = self.get_unique_suffix()
         volunteer = frappe.get_doc(
             {
                 "doctype": "Volunteer",
-                "volunteer_name": f"Status Test Volunteer {random.randint(1000, 9999)}",
-                "email": f"status.test{random.randint(1000, 9999)}@example.org",
+                "volunteer_name": f"Status Test Volunteer {unique_suffix}",
+                "email": f"status.test{unique_suffix}@example.org",
                 "member": test_member.name,
                 "status": "New",
                 "start_date": today(),
@@ -328,7 +338,7 @@ class TestVolunteer(EnhancedTestCase):
     def test_volunteer_from_member_application(self):
         """Test volunteer creation from member application workflow"""
         # Create a member with volunteer interest
-        unique_suffix = random.randint(1000, 9999)
+        unique_suffix = self.get_unique_suffix()
         member = frappe.get_doc(
             {
                 "doctype": "Member",
@@ -416,7 +426,7 @@ class TestVolunteer(EnhancedTestCase):
             self.assertEqual(volunteer.commitment_level, level)
 
         # Test work style preferences
-        work_styles = ["Remote", "On-site", "Hybrid"]
+        work_styles = ["Remote", "In-person", "Hybrid"]
         for style in work_styles:
             volunteer.preferred_work_style = style
             volunteer.save()  # Already running as Administrator from setUp
@@ -594,7 +604,7 @@ class TestVolunteer(EnhancedTestCase):
         # Test volunteer access from member perspective
         # Find volunteers linked to this member
         member_volunteers = frappe.get_all(
-            "Verenigingen Volunteer",
+            "Volunteer",
             filters={"member": self.test_member.name},
             fields=["name", "volunteer_name", "status"],
         )
@@ -606,12 +616,16 @@ class TestVolunteer(EnhancedTestCase):
         """Test volunteer integration with board management system"""
         volunteer = self.create_test_volunteer()
 
+        # Use EnhancedTestCase's region creation method
+        test_region = self.create_test_region()
+        unique_suffix = self.get_unique_suffix()
+
         # Create a test chapter for board membership
         chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
-                "name": f"Test Board Chapter {random.randint(1000, 9999)}",
-                "region": "Test Region",
+                "name": f"Test Board Chapter {unique_suffix}",
+                "region": test_region.name,
                 "introduction": "Test chapter for volunteer board integration",
             }
         )
@@ -700,12 +714,13 @@ class TestVolunteer(EnhancedTestCase):
         # Create multiple volunteers for bulk testing
         for i in range(5):
             member = self.create_test_member()
+            unique_suffix = self.get_unique_suffix()
 
             volunteer = frappe.get_doc(
                 {
                     "doctype": "Volunteer",
-                    "volunteer_name": f"Bulk Test Volunteer {i}",
-                    "email": f"bulk.test{i}.{random.randint(1000, 9999)}@example.org",
+                    "volunteer_name": f"Bulk Test Volunteer {i}-{unique_suffix}",
+                    "email": f"bulk.test{i}.{unique_suffix}@example.org",
                     "member": member.name,
                     "status": "Active",
                     "start_date": today(),
