@@ -2169,7 +2169,9 @@ def _process_single_mutation(mutation, company, cost_center, debug_info):
                     else (
                         "Payment Entry"
                         if existing_pe
-                        else "Sales Invoice" if existing_si else "Purchase Invoice"
+                        else "Sales Invoice"
+                        if existing_si
+                        else "Purchase Invoice"
                     )
                 ),
                 existing_doc,
@@ -2554,7 +2556,7 @@ def _detect_credit_note_improved(mutation_detail, debug_info):
         return False, line_item_total
 
 
-def _get_ledger_code_from_id(ledger_id, debug_info):
+def _get_ledger_code_from_id(ledger_id, company, debug_info):
     """Get the ledger code (account number) from ledger ID via mapping table"""
     if not ledger_id:
         return None
@@ -2572,7 +2574,7 @@ def _get_ledger_code_from_id(ledger_id, debug_info):
         debug_info.append(f"No mapping found for ledger_id {ledger_id}")
         # Try to fetch missing mapping from E-Boekhouden API before failing
         try:
-            _fetch_and_create_missing_ledger_mapping(ledger_id, debug_info)
+            _fetch_and_create_missing_ledger_mapping(ledger_id, company, debug_info)
             # Retry the lookup after creating mapping
             retry_result = frappe.db.sql(
                 """SELECT ledger_code FROM `tabE-Boekhouden Ledger Mapping` WHERE ledger_id = %s LIMIT 1""",
@@ -3213,7 +3215,7 @@ def _create_money_transfer_payment_entry(mutation, company, cost_center, debug_i
             # Get ledger code instead of ledger ID
             ledger_code = None
             if rows:
-                ledger_code = _get_ledger_code_from_id(rows[0].get("ledgerId"), debug_info)
+                ledger_code = _get_ledger_code_from_id(rows[0].get("ledgerId"), company, debug_info)
 
             line_dict = create_invoice_line_for_tegenrekening(
                 tegenrekening_code=ledger_code,
@@ -3226,7 +3228,7 @@ def _create_money_transfer_payment_entry(mutation, company, cost_center, debug_i
             # Get ledger code instead of ledger ID
             ledger_code = None
             if rows:
-                ledger_code = _get_ledger_code_from_id(rows[0].get("ledgerId"), debug_info)
+                ledger_code = _get_ledger_code_from_id(rows[0].get("ledgerId"), company, debug_info)
 
             line_dict = create_invoice_line_for_tegenrekening(
                 tegenrekening_code=ledger_code,
@@ -3410,7 +3412,9 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
 
             if not row_account:
                 # Get ledger code instead of ledger ID
-                ledger_code = _get_ledger_code_from_id(row_ledger_id, debug_info) if row_ledger_id else None
+                ledger_code = (
+                    _get_ledger_code_from_id(row_ledger_id, company, debug_info) if row_ledger_id else None
+                )
 
                 line_dict = create_invoice_line_for_tegenrekening(
                     tegenrekening_code=ledger_code,
@@ -3586,7 +3590,7 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
 
         if not main_account:
             # Get ledger code instead of ledger ID
-            ledger_code = _get_ledger_code_from_id(ledger_id, debug_info) if ledger_id else None
+            ledger_code = _get_ledger_code_from_id(ledger_id, company, debug_info) if ledger_id else None
 
             line_dict = create_invoice_line_for_tegenrekening(
                 tegenrekening_code=ledger_code,

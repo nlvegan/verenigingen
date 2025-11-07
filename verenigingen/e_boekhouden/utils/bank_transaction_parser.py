@@ -169,6 +169,20 @@ class BankTransactionParser:
                 # Remove extra whitespace
                 party_name = " ".join(party_name.split())
 
+                # Remove Mollie payment processor intermediary text
+                # Patterns: "via Stichting Mollie Paym", "via Stichting Mol lie", etc.
+                # The bank statement may split "Mollie" across spaces
+                party_name = re.sub(
+                    r"\s+via\s+Stichting\s+Mol+\s*lie\s*(?:Paym?)?.*$", "", party_name, flags=re.IGNORECASE
+                ).strip()
+
+                # Remove timestamps in various formats
+                # Patterns: "03-04-24 10:33", "2024-03-04 10:33:45", "20240304 103345"
+                party_name = re.sub(
+                    r"\s+\d{2}-\d{2}-\d{2,4}\s+\d{2}:\d{2}(?::\d{2})?.*$", "", party_name
+                ).strip()
+                party_name = re.sub(r"\s+\d{8}\s+\d{6}.*$", "", party_name).strip()
+
                 # Remove trailing punctuation EXCEPT periods (keep "B.V." intact)
                 party_name = party_name.rstrip(",;:-")
 

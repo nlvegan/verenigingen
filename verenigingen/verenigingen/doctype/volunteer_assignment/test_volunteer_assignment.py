@@ -11,23 +11,15 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 class TestVolunteerAssignment(EnhancedTestCase):
     def setUp(self):
-        # Initialize the cleanup list
-        self._docs_to_delete = []
+        super().setUp()  # EnhancedTestCase handles permissions and factory setup
 
         # Create test data
         self.test_member = self.create_test_member()
-        self._docs_to_delete.append(("Member", self.test_member.name))
-
         self.test_volunteer = self.create_test_volunteer(self.test_member)
-        self._docs_to_delete.append(("Verenigingen Volunteer", self.test_volunteer.name))
 
     def tearDown(self):
-        # Clean up test data
-        for doctype, name in self._docs_to_delete:
-            try:
-                frappe.delete_doc(doctype, name, force=True)
-            except Exception:
-                pass
+        # EnhancedTestCase handles cleanup automatically via database rollback
+        super().tearDown()
 
     def test_basic_assignment(self):
         """Test creating a basic assignment in assignment_history without external references"""
@@ -45,21 +37,34 @@ class TestVolunteerAssignment(EnhancedTestCase):
 
     def test_board_assignment(self):
         """Test creating a board position assignment"""
-        # Create a test chapter with name
-        chapter_name = f"Test_Chapter_{random.randint(1000, 9999)}"
+        # Use timestamp-based unique suffix to avoid collisions
+        import time
 
-        if not frappe.db.exists("Chapter", chapter_name):
-            chapter = frappe.get_doc(
-                {
-                    "doctype": "Chapter",
-                    "name": chapter_name,  # Explicitly set name
-                    "chapter_head": self.test_member.name,
-                    "region": "Test Region",
-                    "introduction": "Test chapter for assignment tests",
-                }
-            )
-            chapter.insert()
-            self._docs_to_delete.append(("Chapter", chapter_name))
+        unique_suffix = str(int(time.time() * 1000000) % 1000000)
+
+        # Create a test region first
+        test_region = frappe.get_doc(
+            {
+                "doctype": "Region",
+                "region_name": f"Test Region {unique_suffix}",
+                "region_code": f"TR{unique_suffix[:3]}",
+            }
+        )
+        test_region.insert()
+
+        # Create a test chapter (Chapter uses 'prompt' autoname, so we must set the name)
+        # Chapter name validation only allows letters, numbers, spaces, hyphens and underscores
+        chapter_name = f"Test Chapter {unique_suffix}"
+        chapter = frappe.get_doc(
+            {
+                "doctype": "Chapter",
+                "name": chapter_name,
+                "chapter_head": self.test_member.name,
+                "region": test_region.name,
+                "introduction": "Test chapter for assignment tests",
+            }
+        )
+        chapter.insert()
 
         # Add board assignment to assignment_history
         self.test_volunteer.append(

@@ -960,9 +960,13 @@ class PaymentProcessor(BaseTransactionProcessor):
                 if existing_bank:
                     return existing_bank
 
-                # Return the extracted name even if supplier doesn't exist yet
-                # The bank transaction creator can handle creating it if needed
-                return bank_name
+                # Only return bank name if it exists as a Supplier
+                # This prevents link validation errors when creating Bank Transactions
+                # with non-existent party names like "Kas" (Cash)
+                self.debug_info.append(
+                    f"Bank '{bank_name}' not found as Supplier - Bank Transaction will be created without party"
+                )
+                return None
 
         except Exception as e:
             frappe.logger().warning(f"Could not extract bank name from '{bank_account}': {str(e)}")

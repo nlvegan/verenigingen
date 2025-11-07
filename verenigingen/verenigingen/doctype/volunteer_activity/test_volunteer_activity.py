@@ -10,23 +10,15 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 class TestVolunteerActivity(EnhancedTestCase):
     def setUp(self):
-        # Initialize the docs to delete list
-        self._docs_to_delete = []
+        super().setUp()  # EnhancedTestCase handles permissions and factory setup
 
         # Create test data
         self.test_member = self.create_test_member()
-        self._docs_to_delete.append(("Member", self.test_member.name))
-
         self.test_volunteer = self.create_test_volunteer(self.test_member)
-        self._docs_to_delete.append(("Verenigingen Volunteer", self.test_volunteer.name))
 
     def tearDown(self):
-        # Clean up test data
-        for doctype, name in self._docs_to_delete:
-            try:
-                frappe.delete_doc(doctype, name, force=True)
-            except Exception:
-                pass
+        # EnhancedTestCase handles cleanup automatically via database rollback
+        super().tearDown()
 
     def create_test_activity(self):
         """Create a test volunteer activity"""
@@ -42,7 +34,7 @@ class TestVolunteerActivity(EnhancedTestCase):
             }
         )
         activity.insert()
-        self._docs_to_delete.append(("Volunteer Activity", activity.name))
+        # EnhancedTestCase handles cleanup via rollback
         return activity
 
     def test_activity_creation(self):
