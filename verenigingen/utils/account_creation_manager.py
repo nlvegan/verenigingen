@@ -466,6 +466,7 @@ class AccountCreationManager:
                     "date_of_birth": "1990-01-01",  # Default value
                     "date_of_joining": frappe.utils.today(),
                     "user_id": self.created_user,  # Link to user account
+                    "create_user_permission": 1,  # Enable user permissions for volunteers
                 }
             )
 
@@ -767,12 +768,13 @@ def queue_account_creation_for_member(member_name, roles=None, role_profile=None
     if not role_profile:
         role_profile = "Verenigingen Member"
 
-    # Determine request type based on role profile
+    # All member account requests use "Member" type (source_record links to Member DocType)
+    # Employee creation is controlled via create_employee_record flag
+    request_type = "Member"
+
+    # Determine if employee record should be created
     # Volunteers need Employee records for expense functionality
-    if role_profile == "Verenigingen Volunteer":
-        request_type = "Volunteer"
-    else:
-        request_type = "Member"
+    create_employee = (role_profile == "Verenigingen Volunteer")
 
     # Create request
     request = frappe.get_doc(
@@ -785,6 +787,7 @@ def queue_account_creation_for_member(member_name, roles=None, role_profile=None
             "priority": priority,
             "role_profile": role_profile,
             "business_justification": "Member account creation for portal access",
+            "create_employee_record": create_employee,
         }
     )
 

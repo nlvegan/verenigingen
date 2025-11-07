@@ -50,13 +50,13 @@ class DepartmentHierarchyManager:
 
         for chapter in chapters:
             # Main chapter department
-            chapter_dept = "Chapter {chapter.name}"
+            chapter_dept = f"Chapter {chapter.name}"
             self._ensure_department(chapter_dept, parent="Chapters")
 
             # Sub-departments
             self._ensure_department(f"{chapter_dept} Board", parent=chapter_dept)
             self._ensure_department(f"{chapter_dept} Teams", parent=chapter_dept)
-            self._ensure_department("{chapter_dept} Volunteers", parent=chapter_dept)
+            self._ensure_department(f"{chapter_dept} Volunteers", parent=chapter_dept)
 
     def _create_team_departments(self):
         """Create departments for teams"""
@@ -304,8 +304,15 @@ class DepartmentHierarchyManager:
             department = self.get_volunteer_department(volunteer.name)
 
             if frappe.db.exists("Employee", volunteer.employee_id):
-                frappe.db.set_value("Employee", volunteer.employee_id, "department", department)
-                updated += 1
+                # Only set department if it exists - skip if not created yet
+                if department and frappe.db.exists("Department", department):
+                    frappe.db.set_value("Employee", volunteer.employee_id, "department", department)
+                    updated += 1
+                else:
+                    frappe.logger().info(
+                        f"Skipping employee department update for {volunteer.name}: "
+                        f"Department '{department}' does not exist"
+                    )
 
         frappe.db.commit()
         return updated
@@ -342,4 +349,13 @@ def update_volunteer_employee_department(doc, method):
     if doc.employee_id and frappe.db.exists("Employee", doc.employee_id):
         manager = DepartmentHierarchyManager()
         department = manager.get_volunteer_department(doc.name)
-        frappe.db.set_value("Employee", doc.employee_id, "department", department)
+
+        # Only set department if it exists - don't fail if department hasn't been created yet
+        # Departments are created when chapters are saved, but volunteers might be created first
+        if department and frappe.db.exists("Department", department):
+            frappe.db.set_value("Employee", doc.employee_id, "department", department)
+        else:
+            frappe.logger().info(
+                f"Skipping employee department assignment for {doc.name}: "
+                f"Department '{department}' does not exist yet"
+            )

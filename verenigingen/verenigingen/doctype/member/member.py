@@ -279,7 +279,16 @@ class Member(
             f"is_in_test={is_in_test}, fee_override_reason={fee_override_reason}"
         )
 
-        if not (is_csv_import or is_system_update or is_in_test) and not fee_override_reason:
+        # Skip validation if:
+        # - CSV import, system update, or test environment
+        # - Existing member with reason already set (don't re-validate on every save)
+        if is_csv_import or is_system_update or is_in_test:
+            return
+
+        if not self.is_new() and fee_override_reason:
+            return  # Existing member with reason - don't block saves
+
+        if not fee_override_reason:
             frappe.throw(_("Please provide a reason for the fee override"))
 
     def validate_fee_override_permissions(self):
