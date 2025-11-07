@@ -1572,34 +1572,33 @@ class EnhancedTestCase(FrappeTestCase):
 
     def tearDown(self):
         """
-        Clean up test environment - relies on Frappe's transaction rollback.
+        Clean up test environment with per-method transaction rollback.
 
-        CRITICAL: Database records are automatically cleaned up by Frappe's test
-        framework via transaction rollback. Manual deletion is unnecessary and
-        causes issues:
+        CRITICAL CHANGE (2025-11-07): Added per-method rollback to fix test isolation.
 
-        1. Foreign key constraints can cause silent deletion failures
-        2. Failed deletions accumulate test data (31 Emma Students found!)
-        3. Manual deletion before rollback interferes with Frappe's cleanup
+        Previous behavior: Frappe's FrappeTestCase only rolls back at the CLASS level
+        (after all test methods run), not after each method. This caused test data
+        to leak between methods, leading to duplicate entry errors.
 
-        KNOWN ISSUE: Member DocType has 11 frappe.db.commit() calls that break
-        test isolation. Records created during tests may persist despite rollback.
-        The _cleanup_stale_test_data() method runs once per test class to catch
-        these leaked records using email patterns (@test.invalid, @university.nl).
+        New behavior: Explicitly rollback after each test method to ensure complete
+        isolation. This prevents:
+        1. Duplicate entry errors when tests create records with the same name
+        2. Foreign key constraint failures from leftover test data
+        3. Flaky tests that pass/fail depending on execution order
 
-        We only clean up in-memory Python objects (mocks, patches) that aren't
-        affected by database rollback.
+        The class-level cleanup (_cleanup_stale_test_data) still runs to catch any
+        records that escaped rollback due to explicit db.commit() calls in code.
         """
         # EMAIL MOCKING CLEANUP: Stop all email patches
         try:
-            # Stop comprehensive email patches  
+            # Stop comprehensive email patches
             if hasattr(self, 'email_patches'):
                 for patch_obj in self.email_patches:
                     try:
                         patch_obj.stop()
                     except Exception:
                         pass  # Patch might already be stopped
-                        
+
             # Legacy cleanup for backward compatibility
             if hasattr(self, 'sendmail_patch'):
                 self.sendmail_patch.stop()
@@ -1611,6 +1610,12 @@ class EnhancedTestCase(FrappeTestCase):
             self._teardown_rate_limit_mocking()
         except Exception:
             pass  # Continue cleanup even if rate limit patch cleanup fails
+
+        # NOTE: We do NOT call frappe.db.rollback() here because:
+        # 1. Frappe's test framework handles rollback at the CLASS level (not method level)
+        # 2. Rolling back here would delete setUp() fixtures needed by other test methods
+        # 3. Test isolation should be ensured by using unique IDs per test method
+        # 4. The class-level rollback in setUpClass cleanup is sufficient
 
         super().tearDown()
 

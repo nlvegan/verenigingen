@@ -23,7 +23,12 @@ class TestChapter(EnhancedTestCase):
 
     def get_unique_id(self):
         """Get a unique identifier for each test method call"""
-        return f"{self.base_id}-{random.randint(1000, 9999)}"
+        import time
+
+        # Use timestamp + random to ensure uniqueness even if random seed is fixed
+        timestamp = str(int(time.time() * 1000000) % 1000000)  # Last 6 digits of microseconds
+        rand_suffix = random.randint(100, 999)
+        return f"{self.base_id}-{timestamp}-{rand_suffix}"
 
     def tearDown(self):
         """Clean up test data"""
