@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import frappe
 from frappe import _
-from frappe.utils import add_seconds, get_datetime, now
+from frappe.utils import add_to_date, get_datetime, now
 
 from verenigingen.utils.error_handling import SEPAError, handle_api_error, log_error
 from verenigingen.utils.performance_utils import performance_monitor
@@ -328,7 +328,7 @@ class SEPADistributedLock:
             )
 
             # Delete very old inactive locks (older than 24 hours)
-            cleanup_time = add_seconds(current_time, -86400)  # 24 hours ago
+            cleanup_time = add_to_date(current_time, seconds=-86400)  # 24 hours ago
             frappe.db.sql(
                 """
                 DELETE FROM `tabSEPA_Distributed_Lock`

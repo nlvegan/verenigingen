@@ -210,7 +210,9 @@ class AccountCreationManager:
             is_bulk_operation = getattr(frappe.flags, "bulk_account_creation", False)
 
             # Skip welcome emails during bulk imports
-            send_welcome = 0 if (is_bulk_operation or frappe.flags.in_import or frappe.flags.in_bulk_import) else 1
+            send_welcome = (
+                0 if (is_bulk_operation or frappe.flags.in_import or frappe.flags.in_bulk_import) else 1
+            )
 
             # Create user document
             user_data = {
@@ -765,10 +767,12 @@ def queue_account_creation_for_member(member_name, roles=None, role_profile=None
     if not role_profile:
         role_profile = "Verenigingen Member"
 
-    # All member account requests use "Member" type
-    # Employee creation is determined by requires_employee_creation() method
-    # which checks for volunteer records automatically
-    request_type = "Member"
+    # Determine request type based on role profile
+    # Volunteers need Employee records for expense functionality
+    if role_profile == "Verenigingen Volunteer":
+        request_type = "Volunteer"
+    else:
+        request_type = "Member"
 
     # Create request
     request = frappe.get_doc(

@@ -155,7 +155,7 @@ class MemberManager(BaseManager):
 
                     if is_transient and attempt < max_retries - 1:
                         # Log and retry for transient errors
-                        wait_time = (2 ** attempt) * 0.1  # Exponential backoff: 0.1s, 0.2s, 0.4s
+                        wait_time = (2**attempt) * 0.1  # Exponential backoff: 0.1s, 0.2s, 0.4s
                         frappe.logger().warning(
                             f"Transient error adding member {member_id} to chapter {self.chapter_name}: {str(e)}, "
                             f"retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})"

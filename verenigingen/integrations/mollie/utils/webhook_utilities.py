@@ -100,9 +100,7 @@ def safe_extract_amount(webhook_data: Dict[str, Any], default: float = 0.0) -> f
         else:
             return float(amount_data or default)
     except (ValueError, TypeError):
-        frappe.logger().warning(
-            f"⚠️ Could not extract amount from webhook data: {webhook_data.get('amount')}"
-        )
+        frappe.logger().warning(f"⚠️ Could not extract amount from webhook data: {webhook_data.get('amount')}")
         return default
 
 

@@ -33,7 +33,9 @@ class TestErrorMessageDeduplication(unittest.TestCase):
 
     def test_deduplicate_multiple_nested_prefixes(self):
         """Test deduplication with deeply nested prefixes"""
-        error = "Invoice generation failed: Invoice generation failed: Invoice generation failed: Original error"
+        error = (
+            "Invoice generation failed: Invoice generation failed: Invoice generation failed: Original error"
+        )
         result = MembershipDuesSchedule._deduplicate_error_message(error)
         self.assertEqual(result, "Invoice generation failed: Original error")
 
@@ -143,7 +145,9 @@ class TestDeadlockHandling(unittest.TestCase):
         # Bind the real methods to our mock
         self.schedule._is_deadlock_error = MembershipDuesSchedule._is_deadlock_error
         self.schedule._deduplicate_error_message = MembershipDuesSchedule._deduplicate_error_message
-        self.schedule._should_auto_advance_schedule = lambda err: MembershipDuesSchedule._should_auto_advance_schedule(self.schedule, err)
+        self.schedule._should_auto_advance_schedule = (
+            lambda err: MembershipDuesSchedule._should_auto_advance_schedule(self.schedule, err)
+        )
 
     def test_deadlock_detection_in_error_message(self):
         """Test that deadlock errors are correctly identified"""
@@ -170,17 +174,17 @@ class TestErrorConstants(unittest.TestCase):
     def test_constants_exist(self):
         """Test that error length constants are defined"""
         from verenigingen.verenigingen.doctype.membership_dues_schedule import (
-            membership_dues_schedule as mds_module
+            membership_dues_schedule as mds_module,
         )
 
-        self.assertTrue(hasattr(mds_module, 'MAX_USER_ERROR_LENGTH'))
-        self.assertTrue(hasattr(mds_module, 'MAX_DB_ERROR_LENGTH'))
-        self.assertTrue(hasattr(mds_module, 'MAX_LOG_ERROR_LENGTH'))
+        self.assertTrue(hasattr(mds_module, "MAX_USER_ERROR_LENGTH"))
+        self.assertTrue(hasattr(mds_module, "MAX_DB_ERROR_LENGTH"))
+        self.assertTrue(hasattr(mds_module, "MAX_LOG_ERROR_LENGTH"))
 
     def test_constant_values(self):
         """Test that constants have sensible values"""
         from verenigingen.verenigingen.doctype.membership_dues_schedule import (
-            membership_dues_schedule as mds_module
+            membership_dues_schedule as mds_module,
         )
 
         self.assertEqual(mds_module.MAX_USER_ERROR_LENGTH, 200)
@@ -190,14 +194,14 @@ class TestErrorConstants(unittest.TestCase):
     def test_deadlock_patterns_defined(self):
         """Test that deadlock patterns are properly defined"""
         from verenigingen.verenigingen.doctype.membership_dues_schedule import (
-            membership_dues_schedule as mds_module
+            membership_dues_schedule as mds_module,
         )
 
-        self.assertTrue(hasattr(mds_module, 'DEADLOCK_PATTERNS'))
+        self.assertTrue(hasattr(mds_module, "DEADLOCK_PATTERNS"))
         self.assertIsInstance(mds_module.DEADLOCK_PATTERNS, list)
         self.assertGreaterEqual(len(mds_module.DEADLOCK_PATTERNS), 4)
         # Verify specific patterns
-        self.assertIn('deadlock', mds_module.DEADLOCK_PATTERNS)
-        self.assertIn('1213', mds_module.DEADLOCK_PATTERNS)
-        self.assertIn('1205', mds_module.DEADLOCK_PATTERNS)
-        self.assertIn('3058', mds_module.DEADLOCK_PATTERNS)
+        self.assertIn("deadlock", mds_module.DEADLOCK_PATTERNS)
+        self.assertIn("1213", mds_module.DEADLOCK_PATTERNS)
+        self.assertIn("1205", mds_module.DEADLOCK_PATTERNS)
+        self.assertIn("3058", mds_module.DEADLOCK_PATTERNS)

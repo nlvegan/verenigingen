@@ -143,9 +143,9 @@ def analyze_results(results):
     standard_api_failures = [f for f in failed_tests if "standard_api" in f["test"]]
     if standard_api_failures:
         analysis["standard_api_issue"] = True
-        analysis[
-            "recommendation"
-        ] = "Issue with @standard_api(operation_type=OperationType.UTILITY) decorator chaining identified"
+        analysis["recommendation"] = (
+            "Issue with @standard_api(operation_type=OperationType.UTILITY) decorator chaining identified"
+        )
     else:
         analysis["standard_api_issue"] = False
         analysis["recommendation"] = "No @standard_api(operation_type=OperationType.UTILITY) issues detected"

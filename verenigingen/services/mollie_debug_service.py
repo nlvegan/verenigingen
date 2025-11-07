@@ -1227,7 +1227,9 @@ class MollieDebugService:
                 # For quarterly/yearly subscriptions, calculate optimal start date
                 if interval in ["3 months", "6 months", "12 months"]:
                     mollie_settings = frappe.get_single("Mollie Settings")
-                    calculated_start = mollie_settings.get_next_payment_date_for_scheduled_months(min_months_ahead=2)
+                    calculated_start = mollie_settings.get_next_payment_date_for_scheduled_months(
+                        min_months_ahead=2
+                    )
                     if calculated_start:
                         subscription_data["startDate"] = calculated_start
                         frappe.logger().info(
@@ -1345,7 +1347,9 @@ class MollieDebugService:
             raise ValueError(_("For weeks, interval count must be between 1 and 52"))
 
         # Build Mollie interval string
-        mollie_interval = f"{interval_count_int} {interval_unit[:-1] if interval_count_int == 1 else interval_unit}"
+        mollie_interval = (
+            f"{interval_count_int} {interval_unit[:-1] if interval_count_int == 1 else interval_unit}"
+        )
 
         # Validate times (payment count limit)
         if times is not None:
@@ -2020,9 +2024,9 @@ class MollieDebugService:
                                         f"for member {member.name}"
                                     )
                         else:
-                            member_result[
-                                "membership_note"
-                            ] = "No submitted membership found (member end date still updated)"
+                            member_result["membership_note"] = (
+                                "No submitted membership found (member end date still updated)"
+                            )
 
                 except Exception as member_error:
                     member_result["error"] = str(member_error)

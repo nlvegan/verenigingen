@@ -1259,9 +1259,9 @@ def debug_mt940_import_detailed(file_content, bank_account=None, company=None):
                     debug_results["error"] = f"No Bank Account found with IBAN {statement_iban}"
                     return debug_results
             else:
-                debug_results[
-                    "error"
-                ] = "Could not extract IBAN from MT940 file and no bank account specified"
+                debug_results["error"] = (
+                    "Could not extract IBAN from MT940 file and no bank account specified"
+                )
                 return debug_results
 
         debug_results["final_bank_account"] = bank_account

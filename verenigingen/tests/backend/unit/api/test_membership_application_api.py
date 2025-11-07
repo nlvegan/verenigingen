@@ -11,7 +11,7 @@ Tests the whitelisted API functions for membership applications
 import frappe
 from frappe.utils import add_days, today
 
-from verenigingen.verenigingen.api import membership_application
+from verenigingen.api import membership_application
 from verenigingen.tests.utils.assertions import AssertionHelpers
 from verenigingen.tests.utils.base import VereningingenUnitTestCase
 from verenigingen.tests.utils.factories import TestDataBuilder

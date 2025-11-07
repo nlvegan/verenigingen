@@ -866,9 +866,9 @@ def run_final_comprehensive_chapter_assignment_test():
         }
 
         results["success"] = results["summary"]["overall_success"]
-        results[
-            "message"
-        ] = f"Comprehensive test completed: {passed_test_groups}/{total_test_groups} test groups passed"
+        results["message"] = (
+            f"Comprehensive test completed: {passed_test_groups}/{total_test_groups} test groups passed"
+        )
 
         return results
 

@@ -814,9 +814,7 @@ def get_segmentation_data(year, period="year", filters=None):
         "by_chapter": get_chapter_segmentation(year, filter_conditions),
         "by_region": get_region_segmentation(year, filter_conditions),
         "by_age": get_age_segmentation(year, filter_conditions),
-        "volunteer_participation_by_chapter": get_volunteer_participation_by_chapter(
-            year, filter_conditions
-        ),
+        "volunteer_participation_by_chapter": get_volunteer_participation_by_chapter(year, filter_conditions),
         "by_join_year": get_join_year_segmentation(year, filter_conditions),
     }
 
@@ -1298,7 +1296,9 @@ def _get_quarterly_cohorts(earliest_date):
             current_quarter = (current_date.month - 1) // 3 + 1
             quarters_since_cohort = (current_date.year - cohort_year) * 4 + (current_quarter - cohort_quarter)
 
-            for quarter_offset in range(0, min(quarters_since_cohort + 1, 12)):  # Cap at 12 quarters (3 years)
+            for quarter_offset in range(
+                0, min(quarters_since_cohort + 1, 12)
+            ):  # Cap at 12 quarters (3 years)
                 check_quarter = cohort_quarter + quarter_offset
                 check_year = cohort_year + (check_quarter - 1) // 4
                 check_quarter = ((check_quarter - 1) % 4) + 1

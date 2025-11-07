@@ -517,9 +517,7 @@ class PerformanceTester:
                     "cache_effectiveness": (
                         "Excellent"
                         if overall_hit_rate > 90
-                        else "Good"
-                        if overall_hit_rate > 70
-                        else "Needs improvement"
+                        else "Good" if overall_hit_rate > 70 else "Needs improvement"
                     ),
                 }
             )

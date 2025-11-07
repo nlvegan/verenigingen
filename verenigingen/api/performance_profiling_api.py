@@ -1433,9 +1433,7 @@ def identify_function_hotspots(top_functions: List[Dict]) -> List[Dict]:
                 "severity": (
                     "HIGH"
                     if func["total_time_seconds"] > 0.1
-                    else "MEDIUM"
-                    if func["total_time_seconds"] > 0.05
-                    else "LOW"
+                    else "MEDIUM" if func["total_time_seconds"] > 0.05 else "LOW"
                 ),
             }
         )

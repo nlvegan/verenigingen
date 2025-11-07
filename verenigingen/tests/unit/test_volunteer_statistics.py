@@ -13,8 +13,7 @@ import frappe
 from frappe.utils import today, add_months, flt
 from verenigingen.utils.volunteer_statistics import (
     get_volunteer_expense_statistics,
-    get_volunteer_expense_summary,
-    _map_erpnext_status_to_volunteer_status
+    get_volunteer_expense_summary
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 

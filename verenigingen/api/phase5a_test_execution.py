@@ -120,9 +120,9 @@ def execute_database_indexes_test():
 
             if actual_improvement < improvement_threshold:
                 implementation_results["overall_status"] = "SUCCESS_PARTIAL"
-                implementation_results[
-                    "improvement_note"
-                ] = f"Improvement {actual_improvement:.1f}% below target {improvement_threshold}% but keeping indexes for Phase 5A testing"
+                implementation_results["improvement_note"] = (
+                    f"Improvement {actual_improvement:.1f}% below target {improvement_threshold}% but keeping indexes for Phase 5A testing"
+                )
             else:
                 implementation_results["overall_status"] = "SUCCESS"
                 implementation_results["overall_improvement"] = overall_impact

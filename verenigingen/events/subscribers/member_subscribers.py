@@ -64,7 +64,7 @@ def handle_status_change_notifications(event_name, event_data, **kwargs):
         # Bulk import skip already handled above, so this is a real error
         frappe.log_error(
             title=f"Member Status Notification Error: {event_data.get('member')}",
-            message=frappe.get_traceback()
+            message=frappe.get_traceback(),
         )
 
 
@@ -116,8 +116,7 @@ def handle_chapter_assignment_updates(event_name, event_data, **kwargs):
         # Log production errors with full traceback for audit trail
         # Bulk import skip already handled above, so this is a real error
         frappe.log_error(
-            title=f"Chapter Assignment Error: {event_data.get('member')}",
-            message=frappe.get_traceback()
+            title=f"Chapter Assignment Error: {event_data.get('member')}", message=frappe.get_traceback()
         )
 
 
@@ -242,9 +241,7 @@ def handle_cache_invalidation(event_name, event_data, **kwargs):
         # Check if member still exists before invalidating caches
         # Note: We still clear caches even if member is deleted, as stale cache entries should be removed
         if not frappe.db.exists("Member", member_name):
-            frappe.logger("events").info(
-                f"Member {member_name} no longer exists - clearing caches anyway"
-            )
+            frappe.logger("events").info(f"Member {member_name} no longer exists - clearing caches anyway")
 
         # Clear member-specific caches
         frappe.cache().delete_keys("member_dashboard_*")

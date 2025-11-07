@@ -525,9 +525,9 @@ class BulkPaymentChecker:
                     # Circuit breaker: Stop after consecutive errors
                     if consecutive_errors >= BulkPaymentCheckerConfig.MAX_CONSECUTIVE_ERRORS:
                         result["circuit_breaker_triggered"] = True
-                        result[
-                            "summary"
-                        ] = f"STOPPED: {BulkPaymentCheckerConfig.MAX_CONSECUTIVE_ERRORS} consecutive API errors"
+                        result["summary"] = (
+                            f"STOPPED: {BulkPaymentCheckerConfig.MAX_CONSECUTIVE_ERRORS} consecutive API errors"
+                        )
                         frappe.logger().warning(
                             f"Circuit breaker triggered: {consecutive_errors} consecutive errors"
                         )
@@ -536,9 +536,9 @@ class BulkPaymentChecker:
                     # Circuit breaker: Stop if error budget exceeded
                     if result["errors"] > error_budget:
                         result["circuit_breaker_triggered"] = True
-                        result[
-                            "summary"
-                        ] = f"STOPPED: Error rate exceeded {BulkPaymentCheckerConfig.ERROR_BUDGET_PERCENTAGE}% threshold"
+                        result["summary"] = (
+                            f"STOPPED: Error rate exceeded {BulkPaymentCheckerConfig.ERROR_BUDGET_PERCENTAGE}% threshold"
+                        )
                         frappe.logger().warning(
                             f"Circuit breaker triggered: {result['errors']} total errors (budget: {error_budget})"
                         )

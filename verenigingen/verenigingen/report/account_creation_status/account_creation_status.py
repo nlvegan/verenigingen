@@ -474,81 +474,93 @@ def get_summary_data():
         {
             "label": _("└─ with Membership"),
             "value": active_members["with_membership"],
-            "indicator": "green"
-            if active_members["with_membership"] == active_members["total"]
-            else "orange",
+            "indicator": (
+                "green" if active_members["with_membership"] == active_members["total"] else "orange"
+            ),
             "datatype": "Int",
         },
         {
             "label": _("└─ with Dues Schedule"),
             "value": active_members["with_dues_schedule"],
-            "indicator": "green"
-            if active_members["with_dues_schedule"] == active_members["total"]
-            else "orange",
+            "indicator": (
+                "green" if active_members["with_dues_schedule"] == active_members["total"] else "orange"
+            ),
             "datatype": "Int",
         },
         {
             "label": _("Members with User Account"),
             "value": member_stats["members_with_user"],
-            "indicator": "green"
-            if member_stats["members_with_user"] == member_stats["total_members"]
-            else "orange",
+            "indicator": (
+                "green" if member_stats["members_with_user"] == member_stats["total_members"] else "orange"
+            ),
             "datatype": "Int",
         },
         {
             "label": _("└─ with User Account"),
             "value": active_chapter_members["with_user"],
-            "indicator": "green"
-            if active_chapter_members["with_user"] == member_stats["members_with_user"]
-            else "orange",
+            "indicator": (
+                "green"
+                if active_chapter_members["with_user"] == member_stats["members_with_user"]
+                else "orange"
+            ),
             "datatype": "Int",
         },
         {
             "label": _("Members with Volunteer Record"),
             "value": member_stats["members_with_volunteer"],
-            "indicator": "green"
-            if member_stats["members_with_volunteer"] == member_stats["total_members"]
-            else "orange",
+            "indicator": (
+                "green"
+                if member_stats["members_with_volunteer"] == member_stats["total_members"]
+                else "orange"
+            ),
             "datatype": "Int",
         },
         {
             "label": _("└─ with Volunteer Record"),
             "value": active_chapter_members["with_volunteer"],
-            "indicator": "green"
-            if active_chapter_members["with_volunteer"] == member_stats["members_with_volunteer"]
-            else "orange",
+            "indicator": (
+                "green"
+                if active_chapter_members["with_volunteer"] == member_stats["members_with_volunteer"]
+                else "orange"
+            ),
             "datatype": "Int",
         },
         {
             "label": _("Members with Employee Record"),
             "value": member_stats["members_with_employee"],
-            "indicator": "green"
-            if member_stats["members_with_employee"] == member_stats["total_members"]
-            else "orange",
+            "indicator": (
+                "green"
+                if member_stats["members_with_employee"] == member_stats["total_members"]
+                else "orange"
+            ),
             "datatype": "Int",
         },
         {
             "label": _("└─ with Employee Record"),
             "value": active_chapter_members["with_employee"],
-            "indicator": "green"
-            if active_chapter_members["with_employee"] == member_stats["members_with_employee"]
-            else "orange",
+            "indicator": (
+                "green"
+                if active_chapter_members["with_employee"] == member_stats["members_with_employee"]
+                else "orange"
+            ),
             "datatype": "Int",
         },
         {
             "label": _("Members with Customer Record"),
             "value": member_stats["members_with_customer"],
-            "indicator": "green"
-            if member_stats["members_with_customer"] == member_stats["total_members"]
-            else "orange",
+            "indicator": (
+                "green"
+                if member_stats["members_with_customer"] == member_stats["total_members"]
+                else "orange"
+            ),
             "datatype": "Int",
         },
         {
             "label": _("Members with Address"),
             "value": member_stats["members_with_address"],
-            "indicator": "green"
-            if member_stats["members_with_address"] == member_stats["total_members"]
-            else "orange",
+            "indicator": (
+                "green" if member_stats["members_with_address"] == member_stats["total_members"] else "orange"
+            ),
             "datatype": "Int",
         },
     ]

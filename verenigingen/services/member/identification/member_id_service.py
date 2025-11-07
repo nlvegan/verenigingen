@@ -293,13 +293,13 @@ class MemberIDService:
             elif debug_info["can_assign_id"]:
                 debug_info["explanation"] = "Member is eligible and can receive an ID"
             elif debug_info["is_application_member"]:
-                debug_info[
-                    "explanation"
-                ] = f"Application member uses application_id: {debug_info['application_id']}"
+                debug_info["explanation"] = (
+                    f"Application member uses application_id: {debug_info['application_id']}"
+                )
             else:
-                debug_info[
-                    "explanation"
-                ] = f"Member status '{debug_info['status']}' does not qualify for member ID"
+                debug_info["explanation"] = (
+                    f"Member status '{debug_info['status']}' does not qualify for member ID"
+                )
 
             frappe.logger().debug(f"MemberIDService: Debug info for {member_name}: {debug_info}")
 

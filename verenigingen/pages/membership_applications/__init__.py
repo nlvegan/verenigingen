@@ -157,7 +157,7 @@ def bulk_approve_applications(member_names, membership_type, create_invoices=Tru
     for member_name in member_names:
         try:
             # Use the existing approval function
-            from verenigingen.verenigingen.web_form.membership_application import (
+            from verenigingen.api.membership_application_review import (
                 approve_membership_application,
             )
 

@@ -231,7 +231,7 @@ class ComprehensiveSEPAMandateTests(EnhancedTestCase):
         sign_date: str = None,
         expiry_date: str = None,
         **kwargs,
-    ) -> frappe.Document:
+    ):
         """
         Create a test SEPA mandate with realistic data.
 

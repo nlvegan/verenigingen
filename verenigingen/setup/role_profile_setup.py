@@ -240,9 +240,7 @@ def setup_role_profiles_cli():
                             f"✅ Assigned module profile '{module_profile_name}' to role profile '{role_profile_name}'"
                         )
                     else:
-                        print(
-                            f"ℹ️  Skipping '{role_profile_name}' - module profile not found or not required"
-                        )
+                        print(f"ℹ️  Skipping '{role_profile_name}' - module profile not found or not required")
 
             except Exception as e:
                 print(f"❌ Error setting up {role_profile_name}: {str(e)}")

@@ -10,7 +10,7 @@ Tests the whitelisted API functions for payment operations
 
 from frappe.utils import add_days, today
 
-from verenigingen.verenigingen.api import payment_processing
+from verenigingen.api import payment_processing
 from verenigingen.tests.utils.assertions import AssertionHelpers
 from verenigingen.tests.utils.base import VereningingenUnitTestCase
 from verenigingen.tests.utils.factories import TestDataBuilder

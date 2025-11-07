@@ -680,6 +680,7 @@ class MollieSettings(Document):
             - Jan 2026 is exactly 2 months → returns "2026-01-25"
         """
         from datetime import datetime, timedelta
+
         from dateutil.relativedelta import relativedelta
 
         if not self.quarterly_yearly_payment_months:

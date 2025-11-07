@@ -379,21 +379,17 @@ class TestMember(EnhancedTestCase):
         # Now test updating an existing member
         member.reload()
 
-        # Mock get_active_membership to avoid database issues
-        member.get_active_membership
-        mock_called = [False]
+        # Call update_membership_status - should set status to "Lapsed" for member without memberships
+        result = member.update_membership_status()
 
-        def mock_get_active_membership():
-            mock_called[0] = True
-            return None  # No active membership
+        # Verify that the method executed and returned a status
+        self.assertIsNotNone(result, "update_membership_status should return a status")
+        # Member without memberships should be marked as Lapsed
+        self.assertEqual(result, "Lapsed", "Member without memberships should be Lapsed")
 
-        member.get_active_membership = mock_get_active_membership
-
-        # Call update_membership_status - should reach get_active_membership
-        member.update_membership_status()
-
-        # Verify that the method executed properly (reached get_active_membership)
-        self.assertTrue(mock_called[0], "update_membership_status should process existing members")
+        # Verify the status was persisted
+        member.reload()
+        self.assertEqual(member.membership_status, "Lapsed")
 
     def test_member_creation_no_database_error(self):
         """Test that creating a new member doesn't cause database errors"""
@@ -434,10 +430,11 @@ class TestMember(EnhancedTestCase):
         member.update(member_data)
         member.insert()
 
-        # These fields should be empty for new members
+        # These fields should have expected values for new members
         self.assertFalse(member.current_membership_plan)
         self.assertFalse(member.current_dues_schedule)
-        self.assertFalse(member.membership_status)
+        # New members without memberships should be marked as "Lapsed"
+        self.assertEqual(member.membership_status, "Lapsed")
         # Note: membership period fields moved to Membership DocType
 
     def test_iban_transfer_from_application(self):
@@ -484,15 +481,16 @@ class TestMember(EnhancedTestCase):
             member.create_customer()
             member.reload()
 
-        # Test get_linked_donations method exists and works
-        self.assertTrue(hasattr(member, "get_linked_donations"))
-        self.assertTrue(callable(getattr(member, "get_linked_donations")))
+        # Test get_linked_donations function exists and works
+        # Note: get_linked_donations is a module-level function, not an instance method
+        from verenigingen.verenigingen.doctype.member.member import get_linked_donations
 
         # Should not error even with no donations
         try:
-            donations = member.get_linked_donations()
-            # Should return list (empty or with data)
-            self.assertTrue(isinstance(donations, list))
+            result = get_linked_donations(member.name)
+            # Should return a dict with success status
+            self.assertTrue(isinstance(result, dict))
+            self.assertIn("success", result)
         except Exception as e:
             self.fail(f"get_linked_donations raised {type(e).__name__} unexpectedly!")
 

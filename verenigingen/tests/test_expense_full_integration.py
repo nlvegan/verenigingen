@@ -10,6 +10,7 @@ This file restores critical expense workflow testing that was removed during Pha
 import frappe
 from frappe.utils import today, add_days, flt
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 
 class TestExpenseFullIntegration(EnhancedTestCase):

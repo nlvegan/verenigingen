@@ -269,7 +269,9 @@ class DonationManagementService:
                 )
 
         except Exception as e:
-            self.logger.error(f"❌ [{self.debug_context}] Failed to update donation with Mollie IDs: {str(e)}")
+            self.logger.error(
+                f"❌ [{self.debug_context}] Failed to update donation with Mollie IDs: {str(e)}"
+            )
             # Don't raise - this is non-critical
 
     def validate_donation_compatibility(self, flow_type: str) -> Dict[str, Any]:

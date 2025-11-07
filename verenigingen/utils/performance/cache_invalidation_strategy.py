@@ -509,11 +509,7 @@ class CacheInvalidationManager:
                     "efficiency_rating": (
                         "excellent"
                         if hit_rate >= 90
-                        else "good"
-                        if hit_rate >= 80
-                        else "acceptable"
-                        if hit_rate >= 70
-                        else "poor"
+                        else "good" if hit_rate >= 80 else "acceptable" if hit_rate >= 70 else "poor"
                     ),
                     "invalidation_impact": "optimal" if hit_rate >= 85 else "needs_tuning",
                 }

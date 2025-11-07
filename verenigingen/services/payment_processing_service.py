@@ -404,7 +404,9 @@ class PaymentProcessingService:
 
             donation.save()
 
-            self.logger.info(f"✅ [{self.debug_context}] Payment history updated for donation {donation.name}")
+            self.logger.info(
+                f"✅ [{self.debug_context}] Payment history updated for donation {donation.name}"
+            )
 
         except Exception as e:
             self.logger.error(f"❌ [{self.debug_context}] Failed to add payment history: {str(e)}")

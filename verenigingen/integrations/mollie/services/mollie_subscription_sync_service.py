@@ -282,7 +282,9 @@ class MollieSubscriptionSyncService:
                 # Re-raise for outer exception handler if not handled above
                 raise
 
-            frappe.logger().info(f"✅ Created new subscription {new_subscription.id} for member {member.name}")
+            frappe.logger().info(
+                f"✅ Created new subscription {new_subscription.id} for member {member.name}"
+            )
 
             # Verify subscription amount matches dues schedule
             verification_result = self._verify_subscription_amount(

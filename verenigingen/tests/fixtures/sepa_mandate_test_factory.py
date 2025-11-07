@@ -576,10 +576,10 @@ class SEPAMandateTestMixin:
         
     def create_test_sepa_mandate(
         self,
-        member: frappe.Document = None,
+        member=None,
         status: str = "Active",
         **kwargs
-    ) -> frappe.Document:
+    ):
         """
         Create a test SEPA mandate with business logic validation.
         
@@ -628,10 +628,10 @@ class SEPAMandateTestMixin:
         
     def create_test_sepa_mandate_with_usage(
         self,
-        member: frappe.Document = None,
+        member = None,
         usage_scenario: str = "regular",
         **kwargs
-    ) -> frappe.Document:
+    ):
         """
         Create a test SEPA mandate with realistic usage history.
         
@@ -660,8 +660,8 @@ class SEPAMandateTestMixin:
     def create_compliance_test_mandate(
         self, 
         scenario: str,
-        member: frappe.Document = None
-    ) -> frappe.Document:
+        member = None
+    ):
         """
         Create a SEPA mandate for specific compliance testing scenarios.
         
@@ -682,7 +682,7 @@ class SEPAMandateTestMixin:
         
         return self.create_test_sepa_mandate(member=member, **mandate_data)
         
-    def assert_sepa_mandate_valid(self, mandate: frappe.Document):
+    def assert_sepa_mandate_valid(self, mandate):
         """
         Assert that a SEPA mandate meets all validation requirements.
         
@@ -717,7 +717,7 @@ class SEPAMandateTestMixin:
         elif mandate.status in ["Cancelled", "Expired", "Suspended"]:
             self.assertEqual(mandate.is_active, 0, "Inactive mandates should have is_active=0")
             
-    def assert_mandate_compliance(self, mandate: frappe.Document, scenario: str):
+    def assert_mandate_compliance(self, mandate, scenario: str):
         """
         Assert that a mandate meets specific compliance requirements.
         

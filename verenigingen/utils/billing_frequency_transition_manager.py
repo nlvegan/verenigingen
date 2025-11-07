@@ -336,9 +336,9 @@ class BillingFrequencyTransitionManager:
             frappe.db.commit()
 
             result["success"] = True
-            result[
-                "message"
-            ] = f"Successfully transitioned from {transition_params['old_frequency']} to {transition_params['new_frequency']} billing"
+            result["message"] = (
+                f"Successfully transitioned from {transition_params['old_frequency']} to {transition_params['new_frequency']} billing"
+            )
 
             return result
 

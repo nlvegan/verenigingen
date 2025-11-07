@@ -1195,9 +1195,9 @@ def test_list_view_access():
     try:
         # Check if list view system is working for a known doctype
         user_list = frappe.get_list("User", fields=["name"], limit=1)
-        results[
-            "system_check"
-        ] = f"✓ List view system working (User doctype accessible: {len(user_list)} records)"
+        results["system_check"] = (
+            f"✓ List view system working (User doctype accessible: {len(user_list)} records)"
+        )
     except Exception as e:
         results["system_check"] = f"✗ List view system issue: {str(e)}"
 
@@ -1474,9 +1474,9 @@ def test_workspace_links():
             dt_info = frappe.db.get_value(
                 "DocType", link.link_to, ["has_web_view", "allow_guest_to_view"], as_dict=True
             )
-            test_result[
-                "web_view"
-            ] = f"has_web_view: {dt_info.has_web_view}, allow_guest: {dt_info.allow_guest_to_view}"
+            test_result["web_view"] = (
+                f"has_web_view: {dt_info.has_web_view}, allow_guest: {dt_info.allow_guest_to_view}"
+            )
 
             # Test 4: Check permissions
             has_read = frappe.has_permission(link.link_to, "read")

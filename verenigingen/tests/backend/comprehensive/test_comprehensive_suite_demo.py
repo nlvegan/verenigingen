@@ -10,14 +10,14 @@ Demonstrates the enhanced test infrastructure and workflows
 
 from frappe.utils import today
 
-from verenigingen.tests.fixtures.test_personas import PersonaTestMixin, TestPersonas
+from verenigingen.tests.fixtures.test_personas import TestPersonas
 from verenigingen.tests.utils.base import VereningingenWorkflowTestCase
-from verenigingen.tests.workflows.test_member_lifecycle import TestMemberLifecycle
-from verenigingen.tests.workflows.test_payment_failure_recovery import TestPaymentFailureRecovery
-from verenigingen.tests.workflows.test_volunteer_journey import TestVolunteerJourney
+from verenigingen.tests.backend.workflows.test_member_lifecycle import TestMemberLifecycle
+from verenigingen.tests.backend.workflows.test_payment_failure_recovery import TestPaymentFailureRecovery
+from verenigingen.tests.backend.workflows.test_volunteer_journey import TestVolunteerJourney
 
 
-class TestComprehensiveSuiteDemo(VereningingenWorkflowTestCase, PersonaTestMixin):
+class TestComprehensiveSuiteDemo(VereningingenWorkflowTestCase):
     """
     Demonstration of the comprehensive test suite capabilities
     Shows integration of all testing components

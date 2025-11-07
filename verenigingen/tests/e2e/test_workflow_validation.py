@@ -20,7 +20,7 @@ from verenigingen.verenigingen_payments.clients.invoices_client import InvoicesC
 from verenigingen.verenigingen_payments.workflows.reconciliation_engine import ReconciliationEngine
 from verenigingen.verenigingen_payments.workflows.subscription_manager import SubscriptionManager
 from verenigingen.verenigingen_payments.workflows.dispute_resolution import DisputeResolutionWorkflow
-from verenigingen.verenigingen_payments.workflows.financial_dashboard import FinancialDashboard
+from verenigingen.verenigingen_payments.dashboards.financial_dashboard import FinancialDashboard
 from verenigingen.verenigingen_payments.core.security.webhook_validator import WebhookValidator
 
 

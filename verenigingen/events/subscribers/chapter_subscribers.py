@@ -183,7 +183,7 @@ def handle_membership_notifications(event_name, event_data, **kwargs):
         # Bulk import skip already handled above, so this is a real error
         frappe.log_error(
             title=f"Chapter Membership Notification Error: {event_data.get('chapter')}",
-            message=frappe.get_traceback()
+            message=frappe.get_traceback(),
         )
 
 

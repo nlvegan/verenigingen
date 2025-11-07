@@ -37,10 +37,37 @@ class BankTransactionParser:
         r"\w{4}NL\w{2}",  # Generic Dutch BIC pattern (4 chars + NL + 2 chars)
     ]
 
+    # Bank names that should NEVER be treated as parties
+    # These are typically seen in bank cost/interest transactions
+    BANK_NAME_BLACKLIST = {
+        "ASN",  # ASN Bank
+        "ABN",  # ABN AMRO
+        "ABN AMRO",
+        "ING",
+        "RABOBANK",
+        "RABO",
+        "SNS",
+        "SNS BANK",
+        "TRIODOS",
+        "TRIODOS BANK",
+        "BUNQ",
+        "REVOLUT",
+        "KNAB",
+    }
+
     # Keywords that typically follow the party name
     # Based on analysis of 50+ real SEPA transactions from Bank Transaction table
     # These patterns are ordered by frequency (most common first)
     TERMINATOR_KEYWORDS = [
+        # Bank transaction keywords (MUST come first to prevent bank costs from being extracted as parties)
+        # These indicate internal bank transactions (costs, interest, etc.) with no counterparty
+        r"\bBANK\s+KOSTEN\b",  # Bank costs
+        r"\bBANK\s+COST",  # Bank costs (English)
+        r"\bKOSTEN\b",  # Costs (alone)
+        r"\bRENTE\b",  # Interest
+        r"\bINTEREST\b",  # Interest (English)
+        r"\bCREDIT\s+RENTE\b",  # Credit interest
+        r"\bDEBET\s+RENTE\b",  # Debit interest
         # TRIODOS bank keywords (most common - 50% of transactions)
         # Appears in various split forms: "TRIODOS", "TRIOD OS", "TRIO DOS", "TRI ODOS", "TR IODOS"
         r"TRIOD\s*OS",  # "TRIOD OS" (most common split)
@@ -168,6 +195,15 @@ class BankTransactionParser:
                 # Limit length
                 if len(party_name) > 100:
                     party_name = party_name[:100]
+
+                # CRITICAL: Reject bank names that should never be parties
+                # Bank cost/interest transactions often have just the bank name (e.g., "ASN", "ING")
+                # These should return None instead of creating invalid party records
+                if party_name.upper() in self.BANK_NAME_BLACKLIST:
+                    frappe.logger().info(
+                        f"Rejected bank name '{party_name}' from party extraction (bank transaction, not customer/supplier)"
+                    )
+                    party_name = None
 
         return {"iban": iban, "bic": bic, "party_name": party_name, "remainder": remainder}
 

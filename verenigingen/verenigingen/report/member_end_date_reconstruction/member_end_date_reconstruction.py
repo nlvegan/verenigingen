@@ -144,9 +144,9 @@ def check_active_payment_methods(member, result):
             result["data_source"].append(f"Mollie subscription {mollie_subscription}")
 
         result["data_source"] = ", ".join(result["data_source"])
-        result[
-            "details"
-        ] = "Member appears to still have active payment method - review before setting end date"
+        result["details"] = (
+            "Member appears to still have active payment method - review before setting end date"
+        )
         result["suggested_end_date"] = None
 
         return True

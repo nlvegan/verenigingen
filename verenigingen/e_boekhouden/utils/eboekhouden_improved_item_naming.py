@@ -607,18 +607,12 @@ def _is_bank_cost_transaction(description, account_code):
         try:
             # FIRST: Try to find ERPNext Account directly by account_number or eboekhouden_grootboek_nummer
             # This is the primary path for account codes like "4640"
-            account_name = frappe.db.get_value(
-                "Account",
-                {"account_number": str(account_code)},
-                "name"
-            )
+            account_name = frappe.db.get_value("Account", {"account_number": str(account_code)}, "name")
 
             if not account_name:
                 # Also try eboekhouden_grootboek_nummer field
                 account_name = frappe.db.get_value(
-                    "Account",
-                    {"eboekhouden_grootboek_nummer": str(account_code)},
-                    "name"
+                    "Account", {"eboekhouden_grootboek_nummer": str(account_code)}, "name"
                 )
 
             if account_name:

@@ -19,8 +19,8 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.clients.balances_client import BalancesClient
 from verenigingen.verenigingen_payments.clients.settlements_client import SettlementsClient
 from verenigingen.verenigingen_payments.core.resilience.circuit_breaker import CircuitBreaker
-from verenigingen.verenigingen_payments.core.resilience.rate_limiter import RateLimiter
-from verenigingen.verenigingen_payments.workflows.financial_dashboard import FinancialDashboard
+from verenigingen.verenigingen_payments.core.resilience.rate_limiter import TokenBucketRateLimiter as RateLimiter
+from verenigingen.verenigingen_payments.dashboards.financial_dashboard import FinancialDashboard
 from verenigingen.verenigingen_payments.workflows.reconciliation_engine import ReconciliationEngine
 
 

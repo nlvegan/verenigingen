@@ -5,8 +5,8 @@ Service layer for E-Boekhouden integration operations.
 """
 
 from verenigingen.e_boekhouden.services.account_classification_service import (
-    AccountClassificationService,
     AccountClassification,
+    AccountClassificationService,
     ClassificationConfidence,
 )
 

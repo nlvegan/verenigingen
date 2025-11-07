@@ -2169,9 +2169,7 @@ def _process_single_mutation(mutation, company, cost_center, debug_info):
                     else (
                         "Payment Entry"
                         if existing_pe
-                        else "Sales Invoice"
-                        if existing_si
-                        else "Purchase Invoice"
+                        else "Sales Invoice" if existing_si else "Purchase Invoice"
                     )
                 ),
                 existing_doc,

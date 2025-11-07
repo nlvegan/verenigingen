@@ -94,7 +94,9 @@ def backfill_missing_mollie_ids(dry_run=True, limit=50):
                     else:
                         # Update the donation record
                         frappe.db.set_value("Donation", donation_data.name, update_data)
-                        frappe.logger().info(f"✅ Updated {donation_data.name} with Mollie IDs: {update_data}")
+                        frappe.logger().info(
+                            f"✅ Updated {donation_data.name} with Mollie IDs: {update_data}"
+                        )
                         updated_count += 1
                 else:
                     frappe.logger().info(

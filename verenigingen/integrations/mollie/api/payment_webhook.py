@@ -503,16 +503,12 @@ def extract_mollie_payment_data(payment):
         "amount": (
             payment.amount.get("value")
             if isinstance(payment.amount, dict)
-            else getattr(payment.amount, "value", None)
-            if hasattr(payment, "amount")
-            else None
+            else getattr(payment.amount, "value", None) if hasattr(payment, "amount") else None
         ),
         "currency": (
             payment.amount.get("currency")
             if isinstance(payment.amount, dict)
-            else getattr(payment.amount, "currency", None)
-            if hasattr(payment, "amount")
-            else None
+            else getattr(payment.amount, "currency", None) if hasattr(payment, "amount") else None
         ),
         "method": getattr(payment, "method", None),
         "customer_id": getattr(payment, "customer_id", None),
@@ -1276,9 +1272,7 @@ def _process_payment_refunds(payment_id, payment):
             )
 
             if existing_pe:
-                frappe.logger().info(
-                    f"⏭️ Refund {refund.id} already processed (Payment Entry: {existing_pe})"
-                )
+                frappe.logger().info(f"⏭️ Refund {refund.id} already processed (Payment Entry: {existing_pe})")
                 continue
 
             # Process the refund using unified payment entry creator and utilities
@@ -1399,9 +1393,7 @@ def _notify_member_of_payment_failure(member, payment, failure_count):
         if result.get("status") == "success":
             frappe.logger().info(f"✅ Payment failure notification sent to {member.email}")
         else:
-            frappe.logger().warning(
-                f"⚠️ Failed to send payment failure notification: {result.get('message')}"
-            )
+            frappe.logger().warning(f"⚠️ Failed to send payment failure notification: {result.get('message')}")
 
     except Exception as e:
         frappe.logger().error(f"❌ Error sending payment failure notification: {e}")

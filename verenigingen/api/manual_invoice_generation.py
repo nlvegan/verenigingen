@@ -421,9 +421,9 @@ def scan_email_template_issues():
             "Consider creating helper functions for common email patterns",
         ]
 
-        results[
-            "summary"
-        ] = f"Scanned {results['scanned_files']} files, found {len(results['potential_issues'])} potential issues"
+        results["summary"] = (
+            f"Scanned {results['scanned_files']} files, found {len(results['potential_issues'])} potential issues"
+        )
 
         return results
 

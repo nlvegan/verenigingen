@@ -714,9 +714,7 @@ def generate_optimization_report(original_invoices, created_batches, config):
                 "risk_level": (
                     "High"
                     if flt(batch.total_amount) > 4000 or batch.entry_count > 25
-                    else "Medium"
-                    if flt(batch.total_amount) > 2000
-                    else "Low"
+                    else "Medium" if flt(batch.total_amount) > 2000 else "Low"
                 ),
             }
             for batch in created_batches
@@ -775,9 +773,7 @@ def get_batching_preview(config=None):
                 "risk_level": (
                     "High"
                     if group_total > 4000 or len(group) > 25
-                    else "Medium"
-                    if group_total > 2000
-                    else "Low"
+                    else "Medium" if group_total > 2000 else "Low"
                 ),
                 "customers": list(set(inv["customer"] for inv in group)),
                 "sample_invoices": [inv["invoice"] for inv in group[:3]],  # Show first 3

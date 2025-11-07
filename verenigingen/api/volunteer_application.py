@@ -2,11 +2,12 @@
 Volunteer Application API
 Handles submissions from the volunteer application form
 """
+
 import frappe
 from frappe import _
-from frappe.utils import today, now_datetime, getdate
+from frappe.utils import getdate, now_datetime, today
 
-from verenigingen.utils.security.api_security_framework import public_api, OperationType
+from verenigingen.utils.security.api_security_framework import OperationType, public_api
 
 
 @frappe.whitelist(allow_guest=True)
@@ -50,14 +51,14 @@ def submit_volunteer_application(**data):
             if existing_volunteer.status in ["Active", "Onboarding"]:
                 return {
                     "success": False,
-                    "error": _("You already have an active volunteer profile. Please log in to access your account."),
+                    "error": _(
+                        "You already have an active volunteer profile. Please log in to access your account."
+                    ),
                 }
             elif existing_volunteer.status == "New":
                 return {
                     "success": False,
-                    "error": _(
-                        "We already have your volunteer application. We'll contact you soon!"
-                    ),
+                    "error": _("We already have your volunteer application. We'll contact you soon!"),
                 }
 
         # Check if they're already a member (link volunteer to existing member)
@@ -81,19 +82,21 @@ def submit_volunteer_application(**data):
         system_user = get_system_user_for_operation("volunteer_application_submission")
 
         with secure_user_context(system_user, f"Create volunteer record from public application form"):
-            volunteer = frappe.get_doc({
-                "doctype": "Volunteer",
-                "volunteer_name": f"{data.get('first_name')} {data.get('last_name')}",
-                "email": data.get("email"),
-                "member": member_link,  # Link to member if exists
-                "status": "New",  # Start as "New" - will be activated during onboarding
-                "start_date": today(),
-                "note": _build_volunteer_notes(data),
-                # Map commitment level from time_commitment
-                "commitment_level": _map_time_commitment(data.get("time_commitment")),
-                "experience_level": "Beginner",  # Default for new volunteers
-                "preferred_work_style": "Hybrid",  # Default
-            })
+            volunteer = frappe.get_doc(
+                {
+                    "doctype": "Volunteer",
+                    "volunteer_name": f"{data.get('first_name')} {data.get('last_name')}",
+                    "email": data.get("email"),
+                    "member": member_link,  # Link to member if exists
+                    "status": "New",  # Start as "New" - will be activated during onboarding
+                    "start_date": today(),
+                    "note": _build_volunteer_notes(data),
+                    # Map commitment level from time_commitment
+                    "commitment_level": _map_time_commitment(data.get("time_commitment")),
+                    "experience_level": "Beginner",  # Default for new volunteers
+                    "preferred_work_style": "Hybrid",  # Default
+                }
+            )
 
             volunteer.insert()
 
@@ -108,9 +111,7 @@ def submit_volunteer_application(**data):
         frappe.db.commit()
 
         # Log volunteer application for analytics
-        frappe.logger().info(
-            f"Volunteer application submitted: {volunteer.name} - {data.get('email')}"
-        )
+        frappe.logger().info(f"Volunteer application submitted: {volunteer.name} - {data.get('email')}")
 
         return {
             "success": True,
@@ -162,16 +163,13 @@ def _add_interest_areas(volunteer_name, data):
         if data.get(field):
             # Check if interest area category exists, create if not
             if not frappe.db.exists("Volunteer Interest Category", interest_name):
-                category = frappe.get_doc({
-                    "doctype": "Volunteer Interest Category",
-                    "interest_category": interest_name
-                })
+                category = frappe.get_doc(
+                    {"doctype": "Volunteer Interest Category", "interest_category": interest_name}
+                )
                 category.insert()
 
             # Add interest area to volunteer
-            volunteer_doc.append("interests", {
-                "interest_category": interest_name
-            })
+            volunteer_doc.append("interests", {"interest_category": interest_name})
 
     # Save volunteer with all interest areas added
     if len(volunteer_doc.interests) > 0:
@@ -205,7 +203,11 @@ def _create_membership_application(data, volunteer_name):
             # Link the volunteer to the new member
             member_name = result.get("member_name")
 
-            from verenigingen.utils.secure_operations import get_system_user_for_operation, secure_user_context
+            from verenigingen.utils.secure_operations import (
+                get_system_user_for_operation,
+                secure_user_context,
+            )
+
             system_user = get_system_user_for_operation("volunteer_application_submission")
 
             with secure_user_context(system_user, f"Link volunteer {volunteer_name} to member {member_name}"):
@@ -220,9 +222,7 @@ def _create_membership_application(data, volunteer_name):
 
     except Exception as e:
         # Just log the error, don't fail the volunteer application
-        frappe.logger().error(
-            f"Error creating membership for volunteer {volunteer_name}: {str(e)}"
-        )
+        frappe.logger().error(f"Error creating membership for volunteer {volunteer_name}: {str(e)}")
     return None
 
 

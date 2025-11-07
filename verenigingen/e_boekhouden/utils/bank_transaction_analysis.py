@@ -27,7 +27,12 @@ class BankTransactionAnalysisResult:
         self.failure_categories[category] += 1
 
         self.detailed_failures.append(
-            {"category": category, "mutation_nr": mutation_nr, "payment_entry": payment_entry, "reason": reason}
+            {
+                "category": category,
+                "mutation_nr": mutation_nr,
+                "payment_entry": payment_entry,
+                "reason": reason,
+            }
         )
 
     def get_summary(self):

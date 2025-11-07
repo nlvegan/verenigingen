@@ -2,6 +2,7 @@
 Volunteer Application Page
 Dedicated form for volunteer applications
 """
+
 import frappe
 from frappe import _
 

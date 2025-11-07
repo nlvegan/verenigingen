@@ -540,9 +540,9 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
         )
 
         if dry_run:
-            results[
-                "summary"
-            ] = f"DRY RUN: Would delete {results['total_records_affected']} total records across all related DocTypes"
+            results["summary"] = (
+                f"DRY RUN: Would delete {results['total_records_affected']} total records across all related DocTypes"
+            )
             return results
 
         # Step 3: ACTUAL DELETION (in dependency order) - WITH TRANSACTION SAFETY
@@ -941,9 +941,9 @@ def force_cleanup_orphaned_schedules_and_invoices(dry_run=True):
                     results["orphaned_schedules"]["errors"].append(f"{schedule.name}: {str(e)}")
 
             frappe.db.commit()
-            results[
-                "summary"
-            ] = f"Successfully deleted {results['orphaned_schedules']['deleted']} schedules and {results['orphaned_invoices']['deleted']} invoices (with {results['gl_entries_deleted']} GL entries, {results['payment_ledger_deleted']} payment ledger entries, {results['payment_references_deleted']} payment references)"
+            results["summary"] = (
+                f"Successfully deleted {results['orphaned_schedules']['deleted']} schedules and {results['orphaned_invoices']['deleted']} invoices (with {results['gl_entries_deleted']} GL entries, {results['payment_ledger_deleted']} payment ledger entries, {results['payment_references_deleted']} payment references)"
+            )
 
         except Exception as e:
             frappe.db.rollback()
@@ -1019,13 +1019,13 @@ def cleanup_orphaned_chapter_members(dry_run=True):
                 results["errors"].append(f"{chapter.name}: {str(e)}")
 
         if dry_run:
-            results[
-                "summary"
-            ] = f"DRY RUN: Found {results['orphaned_found']} orphaned members across {len(results['chapters_affected'])} chapters"
+            results["summary"] = (
+                f"DRY RUN: Found {results['orphaned_found']} orphaned members across {len(results['chapters_affected'])} chapters"
+            )
         else:
-            results[
-                "summary"
-            ] = f"Removed {results['orphaned_removed']} orphaned members from {len(results['chapters_affected'])} chapters"
+            results["summary"] = (
+                f"Removed {results['orphaned_removed']} orphaned members from {len(results['chapters_affected'])} chapters"
+            )
             frappe.db.commit()
 
     except Exception as e:
@@ -1131,9 +1131,9 @@ def cleanup_orphaned_addresses_and_contacts(dry_run=True):
         results["contacts"]["count"] = len(orphaned_contacts)
 
         if dry_run:
-            results[
-                "summary"
-            ] = f"DRY RUN: Would delete {len(orphaned_addresses)} addresses and {len(orphaned_contacts)} contacts"
+            results["summary"] = (
+                f"DRY RUN: Would delete {len(orphaned_addresses)} addresses and {len(orphaned_contacts)} contacts"
+            )
             return results
 
         # Delete orphaned records
@@ -1155,9 +1155,9 @@ def cleanup_orphaned_addresses_and_contacts(dry_run=True):
                     results["contacts"]["errors"].append(f"{contact}: {str(e)}")
 
             frappe.db.commit()
-            results[
-                "summary"
-            ] = f"Deleted {results['addresses']['deleted']} addresses and {results['contacts']['deleted']} contacts"
+            results["summary"] = (
+                f"Deleted {results['addresses']['deleted']} addresses and {results['contacts']['deleted']} contacts"
+            )
 
         except Exception as e:
             frappe.db.rollback()

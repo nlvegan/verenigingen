@@ -94,13 +94,13 @@ def handle_chapter_assignment(event_name, event_data, **kwargs):
     try:
         member = frappe.get_doc("Member", member_name)
 
-        # Use existing helper function
-        from verenigingen.api.membership_application_review import assign_member_to_chapter
+        # Activate the pending chapter membership created during application submission
+        from verenigingen.utils.application_helpers import activate_pending_chapter_membership
 
-        assign_member_to_chapter(member, chapter)
+        activate_pending_chapter_membership(member, chapter)
 
-        logger.info(f"Chapter assignment completed for member {member_name} to chapter {chapter}")
-        return {"success": True, "action": "assigned", "chapter": chapter}
+        logger.info(f"Chapter membership activated for member {member_name} in chapter {chapter}")
+        return {"success": True, "action": "activated", "chapter": chapter}
 
     except Exception as e:
         logger.error(f"Error in chapter assignment background job for {member_name}: {str(e)}")

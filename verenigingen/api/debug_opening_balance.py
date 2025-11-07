@@ -1,8 +1,10 @@
 """
 Debug API endpoint for opening balance investigation
 """
-import frappe
+
 import json
+
+import frappe
 
 
 @frappe.whitelist()
@@ -34,11 +36,15 @@ def check_opening_balance_mutations():
         desc = mut.get("description", "")
 
         # Check if mapping exists
-        mapping = frappe.db.sql("""
+        mapping = frappe.db.sql(
+            """
             SELECT erpnext_account, ledger_code, ledger_name
             FROM `tabE-Boekhouden Ledger Mapping`
             WHERE ledger_id = %s
-        """, ledger_id, as_dict=True)
+        """,
+            ledger_id,
+            as_dict=True,
+        )
 
         if mapping:
             account_name = mapping[0].get("erpnext_account")
@@ -47,8 +53,9 @@ def check_opening_balance_mutations():
 
             # Check if account exists
             if frappe.db.exists("Account", account_name):
-                account = frappe.db.get_value("Account", account_name,
-                    ["root_type", "account_type"], as_dict=True)
+                account = frappe.db.get_value(
+                    "Account", account_name, ["root_type", "account_type"], as_dict=True
+                )
                 status = f"✓ {account.root_type}"
                 if account.account_type:
                     status += f" ({account.account_type})"

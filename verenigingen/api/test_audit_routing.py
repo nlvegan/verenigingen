@@ -207,14 +207,14 @@ def test_field_mapping():
             # Validate mappings
             if sepa_doc.process_type != "Mandate Creation":
                 sepa_test["status"] = "FAIL"
-                sepa_test[
-                    "error"
-                ] = f"Expected process_type 'Mandate Creation', got '{sepa_doc.process_type}'"
+                sepa_test["error"] = (
+                    f"Expected process_type 'Mandate Creation', got '{sepa_doc.process_type}'"
+                )
             elif sepa_doc.compliance_status != "Exception":
                 sepa_test["status"] = "FAIL"
-                sepa_test[
-                    "error"
-                ] = f"Expected compliance_status 'Exception', got '{sepa_doc.compliance_status}'"
+                sepa_test["error"] = (
+                    f"Expected compliance_status 'Exception', got '{sepa_doc.compliance_status}'"
+                )
 
             results["tests"].append(sepa_test)
 

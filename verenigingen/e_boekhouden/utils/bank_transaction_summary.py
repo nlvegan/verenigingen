@@ -123,13 +123,10 @@ def log_bank_transaction_summary():
     ]
 
     # Add recommendations based on results
-    if summary['overall']['without_bank_tx'] > 0:
-        report_lines.extend([
-            "⚠️ ISSUES DETECTED:",
-            ""
-        ])
+    if summary["overall"]["without_bank_tx"] > 0:
+        report_lines.extend(["⚠️ ISSUES DETECTED:", ""])
 
-        if summary['type_3_4']['without_bank_tx'] > 0:
+        if summary["type_3_4"]["without_bank_tx"] > 0:
             report_lines.append(
                 f"  • {summary['type_3_4']['without_bank_tx']} Type 3/4 payments missing Bank Transactions"
             )
@@ -137,7 +134,7 @@ def log_bank_transaction_summary():
                 "    → Check PaymentEntryHandler._create_bank_transaction_for_payment() for failures"
             )
 
-        if summary['type_5_6']['without_bank_tx'] > 0:
+        if summary["type_5_6"]["without_bank_tx"] > 0:
             report_lines.append(
                 f"  • {summary['type_5_6']['without_bank_tx']} Type 5/6 payments missing Bank Transactions"
             )
@@ -145,10 +142,7 @@ def log_bank_transaction_summary():
                 "    → Check PaymentProcessor._create_bank_transaction_for_money_transfer() for failures"
             )
     else:
-        report_lines.extend([
-            "✓ SUCCESS: All Payment Entries have Bank Transactions!",
-            ""
-        ])
+        report_lines.extend(["✓ SUCCESS: All Payment Entries have Bank Transactions!", ""])
 
     report_lines.append("=" * 80)
 

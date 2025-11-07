@@ -13,7 +13,6 @@ from typing import Dict, List, Optional
 import frappe
 from frappe import _
 from frappe.query_builder import DocType
-from frappe.query_builder.functions import Distinct
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 from verenigingen.verenigingen.doctype.chapter.managers.communication_manager import CommunicationManager
@@ -55,14 +54,19 @@ class SimplifiedEmailManager(CommunicationManager):
             # accepts_optional_communications: 0 (opted out) = exclude
             query = (
                 frappe.qb.from_(Member)
-                .inner_join(ChapterMember).on(Member.name == ChapterMember.member)
-                .select(Distinct(Member.email))
+                .inner_join(ChapterMember)
+                .on(Member.name == ChapterMember.member)
+                .select(Member.email)
+                .distinct()
                 .where(
                     (ChapterMember.parent == chapter_name)
                     & (ChapterMember.enabled == 1)
                     & (Member.status == "Active")
                     & (Member.email.isnotnull())
-                    & ((Member.accepts_optional_communications != 0) | (Member.accepts_optional_communications.isnull()))
+                    & (
+                        (Member.accepts_optional_communications != 0)
+                        | (Member.accepts_optional_communications.isnull())
+                    )
                 )
             )
             recipients = query.run(pluck=True)
@@ -72,9 +76,12 @@ class SimplifiedEmailManager(CommunicationManager):
             # They need to receive organizational communications
             query = (
                 frappe.qb.from_(ChapterBoardMember)
-                .inner_join(Volunteer).on(ChapterBoardMember.volunteer == Volunteer.name)
-                .inner_join(Member).on(Volunteer.member == Member.name)
-                .select(Distinct(Member.email))
+                .inner_join(Volunteer)
+                .on(ChapterBoardMember.volunteer == Volunteer.name)
+                .inner_join(Member)
+                .on(Volunteer.member == Member.name)
+                .select(Member.email)
+                .distinct()
                 .where(
                     (ChapterBoardMember.parent == chapter_name)
                     & (ChapterBoardMember.is_active == 1)
@@ -88,9 +95,12 @@ class SimplifiedEmailManager(CommunicationManager):
             # Volunteers are actively engaged and need to receive chapter communications
             query = (
                 frappe.qb.from_(Volunteer)
-                .inner_join(Member).on(Volunteer.member == Member.name)
-                .inner_join(ChapterMember).on(Member.name == ChapterMember.member)
-                .select(Distinct(Member.email))
+                .inner_join(Member)
+                .on(Volunteer.member == Member.name)
+                .inner_join(ChapterMember)
+                .on(Member.name == ChapterMember.member)
+                .select(Member.email)
+                .distinct()
                 .where(
                     (ChapterMember.parent == chapter_name)
                     & (Volunteer.status == "Active")

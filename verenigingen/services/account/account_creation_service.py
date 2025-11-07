@@ -338,9 +338,9 @@ class AccountCreationService:
                     "justification": justification or "Account creation via AccountCreationService",
                     "requested_roles": [{"role": role} for role in roles],
                     "role_profile": role_profile,
-                    "create_employee_record": 1
-                    if create_employee
-                    else 0,  # Persistent field for employee creation
+                    "create_employee_record": (
+                        1 if create_employee else 0
+                    ),  # Persistent field for employee creation
                 }
             )
 

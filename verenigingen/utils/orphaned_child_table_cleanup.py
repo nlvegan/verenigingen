@@ -67,10 +67,7 @@ def verify_child_table_indexes():
     # SECURITY: Explicit permission validation for database schema introspection
     # Defense-in-depth: verify user has System Settings read permission beyond @critical_api
     if not frappe.has_permission("System Settings", "read"):
-        frappe.throw(
-            "Insufficient permissions to verify database indexes",
-            frappe.PermissionError
-        )
+        frappe.throw("Insufficient permissions to verify database indexes", frappe.PermissionError)
 
     results = {
         "success": True,
@@ -565,9 +562,9 @@ def cleanup_orphaned_child_tables(dry_run=True, table_filter=None):
         )
 
         if dry_run:
-            results[
-                "note"
-            ] = "This was a dry run. No records were actually deleted. Run with dry_run=False to perform cleanup."
+            results["note"] = (
+                "This was a dry run. No records were actually deleted. Run with dry_run=False to perform cleanup."
+            )
 
         return results
 

@@ -127,9 +127,9 @@ def validate_architectural_fix():
         all_passed = all(step.get("passed", False) for step in results["test_steps"])
 
         if all_passed:
-            results[
-                "conclusion"
-            ] = "✅ SUCCESS: Event-driven architecture is properly configured. Invoice submission is decoupled from payment history validation."
+            results["conclusion"] = (
+                "✅ SUCCESS: Event-driven architecture is properly configured. Invoice submission is decoupled from payment history validation."
+            )
             results["status"] = "success"
         else:
             results["conclusion"] = "❌ FAILURE: Some tests failed. Check the individual test steps."

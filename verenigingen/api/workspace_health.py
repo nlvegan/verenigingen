@@ -412,9 +412,7 @@ class WorkspaceHealthManager:
         if not self.issues and not self.fixes_applied:
             return f"✅ {self.workspace_name} workspace is healthy"
         elif self.issues and not self.fixes_applied:
-            return (
-                f"⚠️  Found {len(self.issues)} issues in {self.workspace_name} workspace (no fixes applied)"
-            )
+            return f"⚠️  Found {len(self.issues)} issues in {self.workspace_name} workspace (no fixes applied)"
         elif self.fixes_applied:
             remaining = len(self.issues) - len(self.fixes_applied)
             if remaining <= 0:

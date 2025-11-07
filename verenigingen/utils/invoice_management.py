@@ -589,9 +589,9 @@ def validate_invoice_generation_readiness():
         if validation["system_ready"]:
             validation["message"] = "System is ready for invoice generation"
         else:
-            validation[
-                "message"
-            ] = f"System has {len(validation['issues'])} critical issues that need resolution"
+            validation["message"] = (
+                f"System has {len(validation['issues'])} critical issues that need resolution"
+            )
 
         return validation
 
@@ -826,9 +826,9 @@ def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20):
                     # Check if member still exists before deletion
                     if frappe.db.exists("Member", membership_data["member"]):
                         membership_info["action"] = "member_exists_skipped"
-                        membership_info[
-                            "note"
-                        ] = f"Member {membership_data['member']} exists - manual review needed"
+                        membership_info["note"] = (
+                            f"Member {membership_data['member']} exists - manual review needed"
+                        )
                     else:
                         # Check for dependent records before deletion
                         dependent_records = frappe.db.sql(
@@ -851,9 +851,9 @@ def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20):
 
                         if has_dependencies:
                             membership_info["action"] = "skipped_has_dependencies"
-                            membership_info[
-                                "note"
-                            ] = f"Membership has dependent records: {', '.join(f'{r.type}({r.count})' for r in dependent_records if r.count > 0)}"
+                            membership_info["note"] = (
+                                f"Membership has dependent records: {', '.join(f'{r.type}({r.count})' for r in dependent_records if r.count > 0)}"
+                            )
                         else:
                             # Safe to delete if member doesn't exist and no dependencies
                             frappe.delete_doc("Membership", membership_data["name"], ignore_permissions=True)
@@ -932,9 +932,9 @@ def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20):
             elif len(results["errors"]) > 0:
                 # Rollback if there were any errors to maintain consistency
                 frappe.db.rollback()
-                results[
-                    "message"
-                ] = f"Cleanup rolled back due to {len(results['errors'])} errors. No changes were made."
+                results["message"] = (
+                    f"Cleanup rolled back due to {len(results['errors'])} errors. No changes were made."
+                )
                 results["success"] = False
 
         # Generate summary message

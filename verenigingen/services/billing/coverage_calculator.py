@@ -148,9 +148,9 @@ class CoverageCalculator:
 
         # For daily billing, start and end can be the same day; otherwise start must be before end
         if getdate(coverage_start) > getdate(coverage_end):
-            metadata[
-                "error"
-            ] = f"Invalid coverage period: start date {coverage_start} must not be after end date {coverage_end}"
+            metadata["error"] = (
+                f"Invalid coverage period: start date {coverage_start} must not be after end date {coverage_end}"
+            )
             return CoveragePeriodResult(None, None, calculation_method, **metadata)
 
         if getdate(coverage_start) == getdate(coverage_end) and self.billing_frequency != "Daily":

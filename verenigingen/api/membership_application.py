@@ -24,12 +24,16 @@ from verenigingen.utils.application_helpers import (
     get_membership_type_details as get_membership_type_details_util,
 )
 from verenigingen.utils.application_helpers import load_draft_application as load_draft_application_util
-from verenigingen.utils.application_helpers import parse_application_data
+from verenigingen.utils.application_helpers import (
+    parse_application_data,
+)
 from verenigingen.utils.application_helpers import save_draft_application as save_draft_application_util
 from verenigingen.utils.application_helpers import (
     suggest_membership_amounts as suggest_membership_amounts_util,
 )
-from verenigingen.utils.application_helpers import update_member_from_reapplication
+from verenigingen.utils.application_helpers import (
+    update_member_from_reapplication,
+)
 from verenigingen.utils.application_notifications import (
     check_overdue_applications,
     notify_reviewers_of_new_application,
@@ -73,7 +77,9 @@ from verenigingen.utils.validation.application_validators import (
     validate_custom_amount as validate_custom_amount_util,
 )
 from verenigingen.utils.validation.application_validators import validate_email as validate_email_util
-from verenigingen.utils.validation.application_validators import validate_membership_amount_selection
+from verenigingen.utils.validation.application_validators import (
+    validate_membership_amount_selection,
+)
 from verenigingen.utils.validation.application_validators import validate_name as validate_name_util
 from verenigingen.utils.validation.application_validators import (
     validate_phone_number as validate_phone_number_util,
@@ -81,7 +87,9 @@ from verenigingen.utils.validation.application_validators import (
 from verenigingen.utils.validation.application_validators import (
     validate_postal_code as validate_postal_code_util,
 )
-from verenigingen.utils.validation.application_validators import validate_required_fields
+from verenigingen.utils.validation.application_validators import (
+    validate_required_fields,
+)
 
 # Utility functions
 
@@ -902,9 +910,9 @@ def fix_specific_member(member_name, chapter_name=None, dry_run=True):
         )
 
         if existing_chapters:
-            results[
-                "error"
-            ] = f"Member {member_name} already has chapter memberships: {[ch['parent'] for ch in existing_chapters]}"
+            results["error"] = (
+                f"Member {member_name} already has chapter memberships: {[ch['parent'] for ch in existing_chapters]}"
+            )
             return results
 
         # Determine chapter if not provided
@@ -1122,9 +1130,9 @@ def test_chapter_membership_workflow():
 
         # Success!
         results["success"] = True
-        results[
-            "summary"
-        ] = f"All {len([s for s in results['steps'] if s.startswith('✓')])} critical steps passed"
+        results["summary"] = (
+            f"All {len([s for s in results['steps'] if s.startswith('✓')])} critical steps passed"
+        )
 
     except Exception as e:
         results["errors"].append(str(e))
@@ -1279,9 +1287,9 @@ def test_status_field_integration():
 
     # Summary
     results["success"] = results["tests_failed"] == 0
-    results[
-        "summary"
-    ] = f"Integration Test Results: {results['tests_passed']}/{results['tests_run']} tests passed"
+    results["summary"] = (
+        f"Integration Test Results: {results['tests_passed']}/{results['tests_run']} tests passed"
+    )
 
     if results["success"]:
         results["details"].append(

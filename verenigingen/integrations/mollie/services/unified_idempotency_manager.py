@@ -260,7 +260,9 @@ class UnifiedIdempotencyManager:
             mollie_refunds = refunds_response.get("_embedded", {}).get("refunds", [])
             self.logger.info(f"📋 Mollie SSOT: {len(mollie_refunds)} refunds for payment {payment_id}")
         except Exception as e:
-            self.logger.error(f"❌ [unified_idempotency] Failed to fetch Mollie refunds for {payment_id}: {e}")
+            self.logger.error(
+                f"❌ [unified_idempotency] Failed to fetch Mollie refunds for {payment_id}: {e}"
+            )
             # CRITICAL FIX: Mark check as failed instead of silent return
             result.refund_check_failed = True
             return

@@ -18,7 +18,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 import frappe
 from frappe import _
-from frappe.utils import add_seconds, get_datetime, now
+from frappe.utils import add_to_date, get_datetime, now
 
 from verenigingen.utils.error_handling import SEPAError, handle_api_error, log_error
 from verenigingen.utils.performance_utils import performance_monitor

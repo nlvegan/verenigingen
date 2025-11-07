@@ -343,9 +343,11 @@ def approve_membership_application(
 
     # Activate volunteer record automatically when interested_in_volunteering is checked
     # The volunteer record was created during application submission
+    should_activate_volunteer = False
     if hasattr(member, "interested_in_volunteering") and member.interested_in_volunteering:
         try:
             activate_volunteer_record(member)
+            should_activate_volunteer = True  # Set flag for user account creation
             frappe.logger().info(f"Activated volunteer record for {member.name} during approval")
         except Exception as e:
             safe_log_error(f"Non-critical: Failed to activate volunteer record for {member.name}: {str(e)}")
@@ -355,12 +357,14 @@ def approve_membership_application(
         frappe.logger().warning(
             f"Cannot activate as volunteer for {member.name} - no interested_in_volunteering flag"
         )
+        should_activate_volunteer = activate_as_volunteer
 
     # Create user account for portal access using secure AccountCreationManager
+    # Pass should_activate_volunteer to ensure correct role profile assignment
     user_creation_result = {"success": False, "error": "Not attempted"}
     try:
         user_creation_result = create_secure_user_account_for_member(
-            member, activate_as_volunteer=activate_as_volunteer
+            member, activate_as_volunteer=should_activate_volunteer
         )
     except Exception as e:
         safe_log_error(f"Non-critical: User account creation failed for {member.name}: {str(e)}")
@@ -384,22 +388,24 @@ def approve_membership_application(
         if not email_result or not email_result.get("success"):
             frappe.log_error(
                 f"Approval email failed for {member.name} ({member.email}): {email_result.get('errors') if email_result else 'No result returned'}",
-                "Approval Email Failed"
+                "Approval Email Failed",
             )
             frappe.msgprint(
-                _("⚠️ Approval successful, but email notification failed. Please check error logs or send the approval email manually."),
+                _(
+                    "⚠️ Approval successful, but email notification failed. Please check error logs or send the approval email manually."
+                ),
                 title=_("Email Warning"),
-                indicator="orange"
+                indicator="orange",
             )
     except Exception as e:
         frappe.log_error(
             f"Exception sending approval email for {member.name} ({member.email}): {str(e)}\n{frappe.get_traceback()}",
-            "Approval Email Exception"
+            "Approval Email Exception",
         )
         frappe.msgprint(
             _("⚠️ Approval successful, but email notification encountered an error. Please check error logs."),
             title=_("Email Error"),
-            indicator="orange"
+            indicator="orange",
         )
         # Continue with approval - emails can be sent manually
 

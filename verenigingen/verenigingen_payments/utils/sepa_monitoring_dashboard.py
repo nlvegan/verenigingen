@@ -368,9 +368,7 @@ class SEPAMonitoringDashboard:
             "overall_health": (
                 "healthy"
                 if not problems
-                else "degraded"
-                if all(p["severity"] == "warning" for p in problems)
-                else "critical"
+                else "degraded" if all(p["severity"] == "warning" for p in problems) else "critical"
             ),
         }
 

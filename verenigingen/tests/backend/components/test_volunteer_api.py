@@ -4,11 +4,11 @@ from datetime import timedelta
 import frappe
 from frappe.utils import getdate, today
 
-from verenigingen.tests.utils.base import BaseVereengingenTest
-from verenigingen.tests.utils.factories import TestDataFactory
+from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.test_utils import TestDataFactory
 
 
-class TestVolunteerAPI(BaseVereengingenTest):
+class TestVolunteerAPI(VereningingenTestCase):
     """Test whitelisted API endpoints for Volunteer doctype as called from JavaScript"""
 
     def setUp(self):
@@ -16,16 +16,16 @@ class TestVolunteerAPI(BaseVereengingenTest):
         self.factory = TestDataFactory()
 
         # Create test volunteer with member link
-        self.test_member = self.factory.create_member(
+        self.test_member = self.factory.create_test_member(
             membership_id="TEST-VOL-001", first_name="Test", last_name="Verenigingen Volunteer"
         )
 
-        self.test_volunteer = self.factory.create_volunteer(
+        self.test_volunteer = self.factory.create_test_volunteer(
             volunteer_name="Test Volunteer", member=self.test_member.name, start_date=today()
         )
 
         # Create a test user for API calls
-        self.test_user = self.factory.create_user(
+        self.test_user = self.factory.create_test_user(
             email="test.volunteer@example.com", first_name="Test", last_name="Verenigingen Volunteer"
         )
 
@@ -228,7 +228,7 @@ class TestVolunteerAPI(BaseVereengingenTest):
     def test_api_permissions(self):
         """Test API permission checks"""
         # Create unauthorized user
-        unauthorized_user = self.factory.create_user(
+        unauthorized_user = self.factory.create_test_user(
             email="unauthorized@example.com", first_name="Unauthorized", last_name="User"
         )
 

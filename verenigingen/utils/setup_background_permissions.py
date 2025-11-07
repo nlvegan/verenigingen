@@ -43,20 +43,22 @@ def setup_background_service_permissions():
             results.append(f"Updated {doctype} permissions")
         else:
             # Create new permission
-            frappe.get_doc({
-                "doctype": "Custom DocPerm",
-                "parent": doctype,
-                "parenttype": "DocType",
-                "parentfield": "permissions",
-                "role": role_name,
-                "read": perms["read"],
-                "write": perms["write"],
-                "create": perms["create"],
-                "delete": perms["delete"],
-                "submit": 0,
-                "cancel": 0,
-                "amend": 0,
-            }).insert(ignore_permissions=True)
+            frappe.get_doc(
+                {
+                    "doctype": "Custom DocPerm",
+                    "parent": doctype,
+                    "parenttype": "DocType",
+                    "parentfield": "permissions",
+                    "role": role_name,
+                    "read": perms["read"],
+                    "write": perms["write"],
+                    "create": perms["create"],
+                    "delete": perms["delete"],
+                    "submit": 0,
+                    "cancel": 0,
+                    "amend": 0,
+                }
+            ).insert(ignore_permissions=True)
             results.append(f"Created {doctype} permissions")
 
     frappe.db.commit()

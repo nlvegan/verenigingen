@@ -220,9 +220,7 @@ def process_payment_chargeback(payment_id, chargeback_amount_total, debug_contex
         donations = frappe.get_all("Donation", filters={"payment_id": payment_id}, fields=["name"])
 
         if not donations:
-            frappe.logger().info(
-                f"⚠️ [{debug_context}] No donation found for chargeback payment {payment_id}"
-            )
+            frappe.logger().info(f"⚠️ [{debug_context}] No donation found for chargeback payment {payment_id}")
             return {
                 "status": "warning",
                 "message": f"No donation found for payment {payment_id} - chargeback noted but no donation to update",

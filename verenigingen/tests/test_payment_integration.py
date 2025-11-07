@@ -11,6 +11,7 @@ Focus on payment processing, ERPNext integration, and financial workflows
 import frappe
 from frappe.utils import today, add_days, add_months, flt
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 
 class TestPaymentIntegration(EnhancedTestCase):

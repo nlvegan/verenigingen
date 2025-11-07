@@ -57,13 +57,13 @@ def execute_phase22_rollback(reason: str = "Manual rollback requested") -> Dict[
         )
 
         if all_steps_successful:
-            rollback_results[
-                "message"
-            ] = "Phase 2.2 rollback completed successfully. System restored to baseline configuration."
+            rollback_results["message"] = (
+                "Phase 2.2 rollback completed successfully. System restored to baseline configuration."
+            )
         else:
-            rollback_results[
-                "message"
-            ] = "Phase 2.2 rollback partially completed. Manual intervention may be required."
+            rollback_results["message"] = (
+                "Phase 2.2 rollback partially completed. Manual intervention may be required."
+            )
 
         return rollback_results
 

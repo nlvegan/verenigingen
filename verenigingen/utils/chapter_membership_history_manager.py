@@ -472,7 +472,13 @@ class ChapterMembershipHistoryManager:
 
             # Get unique chapters the member has been associated with
             chapters = list(
-                set([m.chapter_name for m in membership_history if hasattr(m, "chapter_name") and m.chapter_name])
+                set(
+                    [
+                        m.chapter_name
+                        for m in membership_history
+                        if hasattr(m, "chapter_name") and m.chapter_name
+                    ]
+                )
             )
 
             return {

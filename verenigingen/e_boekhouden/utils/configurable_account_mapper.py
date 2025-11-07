@@ -117,7 +117,7 @@ class ConfigurableAccountMapper:
                 ["account_type", "=", "Bank"],
                 ["is_group", "=", 0],
                 ["disabled", "=", 0],
-                ["name", "like", f"%{bank_name}%"]
+                ["name", "like", f"%{bank_name}%"],
             ],
             fieldname="name",
             order_by="name",

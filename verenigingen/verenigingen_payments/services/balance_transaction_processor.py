@@ -192,9 +192,9 @@ class BalanceTransactionProcessor:
             if existing_bt:
                 result["status"] = "already_processed"
                 result["bank_transaction"] = existing_bt
-                result[
-                    "message"
-                ] = f"Bank Transaction {existing_bt} already exists (reference_number: {transaction_id})"
+                result["message"] = (
+                    f"Bank Transaction {existing_bt} already exists (reference_number: {transaction_id})"
+                )
                 return result
 
             # Strategy 2: Check by payment ID in reference_number (if available)
@@ -207,9 +207,9 @@ class BalanceTransactionProcessor:
                 if existing_bt_by_payment:
                     result["status"] = "already_processed"
                     result["bank_transaction"] = existing_bt_by_payment
-                    result[
-                        "message"
-                    ] = f"Bank Transaction {existing_bt_by_payment} already exists (payment ID: {payment_id})"
+                    result["message"] = (
+                        f"Bank Transaction {existing_bt_by_payment} already exists (payment ID: {payment_id})"
+                    )
                     frappe.logger().info(
                         f"⏭️ Skipping balance transaction {transaction_id} - "
                         f"Bank Transaction {existing_bt_by_payment} already created from payment {payment_id}"
@@ -225,9 +225,9 @@ class BalanceTransactionProcessor:
             if existing_bt_by_txid:
                 result["status"] = "already_processed"
                 result["bank_transaction"] = existing_bt_by_txid
-                result[
-                    "message"
-                ] = f"Bank Transaction {existing_bt_by_txid} already exists (transaction_id field)"
+                result["message"] = (
+                    f"Bank Transaction {existing_bt_by_txid} already exists (transaction_id field)"
+                )
                 frappe.logger().info(
                     f"⏭️ Skipping - Bank Transaction {existing_bt_by_txid} found by transaction_id field"
                 )

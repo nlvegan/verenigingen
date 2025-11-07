@@ -1063,9 +1063,7 @@ def run_pre_implementation_tests():
         if customer_coverage > 70:
             results["recommendations"].append("✅ Ready to implement customer financial status checks")
         else:
-            results["recommendations"].append(
-                "⚠️ Consider customer data cleanup before financial validations"
-            )
+            results["recommendations"].append("⚠️ Consider customer data cleanup before financial validations")
 
         if due_30_days > 100:
             results["recommendations"].append("🚨 Implement batch processing limits immediately")

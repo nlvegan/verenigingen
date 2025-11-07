@@ -107,11 +107,13 @@ def quick_system_validation():
         total_issues = len(results["issues"])
 
         if results["success"]:
-            results["summary"] = f"✅ All {total_validations} validations passed - System ready for production"
+            results["summary"] = (
+                f"✅ All {total_validations} validations passed - System ready for production"
+            )
         else:
-            results[
-                "summary"
-            ] = f"⚠️ Found {total_issues} issues out of {total_validations + total_issues} checks"
+            results["summary"] = (
+                f"⚠️ Found {total_issues} issues out of {total_validations + total_issues} checks"
+            )
 
         results["cleanup_status"] = "SUCCESS" if results["success"] else "NEEDS_ATTENTION"
 
@@ -160,8 +162,8 @@ def test_api_endpoints():
             results["broken_endpoints"].append(endpoint_name)
             results["success"] = False
 
-    results[
-        "summary"
-    ] = f"Working: {len(results['working_endpoints'])}, Broken: {len(results['broken_endpoints'])}"
+    results["summary"] = (
+        f"Working: {len(results['working_endpoints'])}, Broken: {len(results['broken_endpoints'])}"
+    )
 
     return results
