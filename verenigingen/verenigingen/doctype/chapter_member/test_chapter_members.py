@@ -10,17 +10,20 @@ from verenigingen.tests.fixtures.secure_test_data_factory import SecureTestDataF
 
 class TestChapterMemberIntegration(EnhancedTestCase):
     def setUp(self):
-        # Generate a unique identifier using only alphanumeric characters
-        self.unique_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
+        super().setUp()  # EnhancedTestCase handles permissions and factory setup
 
-        # Clean up any existing test data
-        self.cleanup_test_data()
+        # Generate a unique identifier using timestamp + random to avoid collisions
+        import time
+
+        timestamp = str(int(time.time() * 1000000) % 1000000)
+        rand_suffix = random.randint(100, 999)
+        self.unique_id = f"{timestamp}{rand_suffix}"
 
         # Initialize secure test data factory for proper data creation
         self.factory = SecureTestDataFactory(
             test_user="Administrator",
             seed=hash(self.unique_id) % 2**16,  # Use unique_id for deterministic seed
-            cleanup_on_exit=False,  # We'll handle cleanup manually
+            cleanup_on_exit=False,  # EnhancedTestCase handles cleanup via database rollback
         )
 
         # Create test role
@@ -73,44 +76,8 @@ class TestChapterMemberIntegration(EnhancedTestCase):
         )
 
     def tearDown(self):
-        # Clean up factory-created records first
-        if hasattr(self, "factory"):
-            self.factory.cleanup_with_verification()
-        # Then clean up any remaining test data
-        self.cleanup_test_data()
-
-    def cleanup_test_data(self):
-        # Delete any test volunteers
-        for volunteer in frappe.get_all(
-            "Volunteer", filters={"email": ["like", f"%{self.unique_id}@example.org"]}
-        ):
-            try:
-                frappe.delete_doc("Volunteer", volunteer.name, force=True)
-            except Exception as e:
-                print(f"Error cleaning up volunteer {volunteer.name}: {str(e)}")
-
-        # Delete any test roles
-        for role in frappe.get_all("Chapter Role", filters={"role_name": ["like", f"%{self.unique_id}"]}):
-            try:
-                frappe.delete_doc("Chapter Role", role.name, force=True)
-            except Exception as e:
-                print(f"Error cleaning up role {role.name}: {str(e)}")
-
-        # Delete any test chapters
-        for chapter in frappe.get_all(
-            "Chapter", filters={"name": ["like", f"Test Chapter {self.unique_id}%"]}
-        ):
-            try:
-                frappe.delete_doc("Chapter", chapter.name, force=True)
-            except Exception as e:
-                print(f"Error cleaning up chapter {chapter.name}: {str(e)}")
-
-        # Delete any test members
-        for member in frappe.get_all("Member", filters={"email": ["like", f"%{self.unique_id}@example.com"]}):
-            try:
-                frappe.delete_doc("Member", member.name, force=True)
-            except Exception as e:
-                print(f"Error cleaning up member {member.name}: {str(e)}")
+        # EnhancedTestCase handles cleanup automatically via database rollback
+        super().tearDown()
 
     def test_add_member_method(self):
         """Test directly adding a member to a chapter"""
