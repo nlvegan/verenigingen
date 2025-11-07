@@ -15,11 +15,15 @@ class TestChapter(EnhancedTestCase):
         """Set up test data"""
         super().setUp()  # EnhancedTestCase handles permissions and cleanup
 
-        # Generate unique identifier
-        self.unique_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
+        # Generate unique identifier for test class
+        self.base_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
 
         # Create test data using Enhanced Test Factory
         self.create_test_prerequisites()
+
+    def get_unique_id(self):
+        """Get a unique identifier for each test method call"""
+        return f"{self.base_id}-{random.randint(1000, 9999)}"
 
     def tearDown(self):
         """Clean up test data"""
@@ -29,16 +33,14 @@ class TestChapter(EnhancedTestCase):
     def cleanup_test_data(self):
         """Clean up test data"""
         # Delete test chapters
-        for chapter in frappe.get_all(
-            "Chapter", filters={"name": ["like", f"Test Chapter {self.unique_id}%"]}
-        ):
+        for chapter in frappe.get_all("Chapter", filters={"name": ["like", f"%{self.base_id}%"]}):
             try:
                 frappe.delete_doc("Chapter", chapter.name, force=True)
             except Exception as e:
                 print(f"Error cleaning up chapter {chapter.name}: {str(e)}")
 
         # Delete test members
-        for member in frappe.get_all("Member", filters={"email": ["like", f"%{self.unique_id}@example.com"]}):
+        for member in frappe.get_all("Member", filters={"email": ["like", f"%{self.base_id}@example.com"]}):
             try:
                 frappe.delete_doc("Member", member.name, force=True)
             except Exception as e:
@@ -67,8 +69,8 @@ class TestChapter(EnhancedTestCase):
             {
                 "doctype": "Member",
                 "first_name": "Test",
-                "last_name": f"Head {self.unique_id}",
-                "email": f"testhead{self.unique_id}@example.com",
+                "last_name": f"Head {self.base_id}",
+                "email": f"testhead{self.base_id}@example.com",
                 "contact_number": "+31612345678",
                 "payment_method": "Bank Transfer",
             }
@@ -77,10 +79,11 @@ class TestChapter(EnhancedTestCase):
 
     def test_chapter_creation(self):
         """Test creating a basic chapter"""
+        unique_id = self.get_unique_id()
         chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
-                "name": f"Test Chapter {self.unique_id}",
+                "name": f"Test Chapter {unique_id}",
                 "region": self.test_region,
                 "introduction": "Test chapter for unit tests",
                 "published": 1,
@@ -90,7 +93,7 @@ class TestChapter(EnhancedTestCase):
         chapter.insert()  # EnhancedTestCase handles permissions
 
         # Verify chapter was created correctly
-        self.assertEqual(chapter.name, f"Test Chapter {self.unique_id}")
+        self.assertEqual(chapter.name, f"Test Chapter {unique_id}")
         self.assertEqual(chapter.region, self.test_region)
         # Note: chapter_head may not be set if the field doesn't exist or isn't required
         if hasattr(chapter, "chapter_head") and chapter.chapter_head:
@@ -104,11 +107,12 @@ class TestChapter(EnhancedTestCase):
     def test_chapter_validation(self):
         """Test chapter validation"""
         # Test missing required fields
+        unique_id = self.get_unique_id()
         with self.assertRaises(frappe.ValidationError):
             chapter = frappe.get_doc(
                 {
                     "doctype": "Chapter",
-                    "name": f"Invalid Chapter {self.unique_id}",
+                    "name": f"Invalid Chapter {unique_id}",
                     # Missing region
                     "introduction": "Test chapter",
                 }
@@ -117,10 +121,11 @@ class TestChapter(EnhancedTestCase):
 
     def test_postal_code_validation(self):
         """Test postal code validation and formatting"""
+        unique_id = self.get_unique_id()
         chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
-                "name": f"Test Chapter {self.unique_id}",
+                "name": f"Test Chapter {unique_id}",
                 "region": self.test_region,
                 "introduction": "Test chapter",
                 "postal_codes": "1000-1999, 2000, 3000-3099",
@@ -135,11 +140,12 @@ class TestChapter(EnhancedTestCase):
 
     def test_chapter_head_assignment(self):
         """Test chapter head assignment and validation"""
+        unique_id = self.get_unique_id()
         chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
-                "name": f"Test Chapter {self.unique_id}",
-                "region": "Test Region",
+                "name": f"Test Chapter {unique_id}",
+                "region": self.test_region,
                 "introduction": "Test chapter",
                 "chapter_head": self.test_member.name,
             }
@@ -155,8 +161,8 @@ class TestChapter(EnhancedTestCase):
             {
                 "doctype": "Member",
                 "first_name": "New",
-                "last_name": f"Head {self.unique_id}",
-                "email": f"newhead{self.unique_id}@example.com",
+                "last_name": f"Head {unique_id}",
+                "email": f"newhead{unique_id}@example.com",
                 "contact_number": "+31612345679",
                 "payment_method": "Bank Transfer",
             }
@@ -175,11 +181,12 @@ class TestChapter(EnhancedTestCase):
 
     def test_chapter_member_management(self):
         """Test chapter member management"""
+        unique_id = self.get_unique_id()
         chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
-                "name": f"Test Chapter {self.unique_id}",
-                "region": "Test Region",
+                "name": f"Test Chapter {unique_id}",
+                "region": self.test_region,
                 "introduction": "Test chapter",
             }
         )
@@ -192,8 +199,8 @@ class TestChapter(EnhancedTestCase):
                 {
                     "doctype": "Member",
                     "first_name": f"Member{i}",
-                    "last_name": f"Test {self.unique_id}",
-                    "email": f"member{i}{self.unique_id}@example.com",
+                    "last_name": f"Test {unique_id}",
+                    "email": f"member{i}{unique_id}@example.com",
                     "contact_number": f"+3161234567{i}",
                     "payment_method": "Bank Transfer",
                     "primary_chapter": chapter.name,
@@ -213,12 +220,13 @@ class TestChapter(EnhancedTestCase):
 
     def test_board_member_chapter_status_field(self):
         """Test that board member addition sets chapter member status field correctly"""
+        unique_id = self.get_unique_id()
         # Create test volunteer and role
         volunteer = frappe.get_doc(
             {
                 "doctype": "Volunteer",
-                "volunteer_name": f"Board Test Volunteer {self.unique_id}",
-                "email": f"boardvol{self.unique_id}@example.com",
+                "volunteer_name": f"Board Test Volunteer {unique_id}",
+                "email": f"boardvol{unique_id}@example.com",
                 "member": self.test_member.name,
                 "status": "Active",
                 "start_date": today(),
@@ -229,7 +237,7 @@ class TestChapter(EnhancedTestCase):
         role = frappe.get_doc(
             {
                 "doctype": "Chapter Role",
-                "role_name": f"Board Role {self.unique_id}",
+                "role_name": f"Board Role {unique_id}",
                 "permissions_level": "Admin",
                 "is_active": 1,
             }
@@ -240,7 +248,7 @@ class TestChapter(EnhancedTestCase):
         chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
-                "name": f"Test Chapter Board {self.unique_id}",
+                "name": f"Test Chapter Board {unique_id}",
                 "region": self.test_region,
                 "introduction": "Test chapter for board member status",
             }
@@ -268,11 +276,12 @@ class TestChapter(EnhancedTestCase):
 
     def test_chapter_statistics(self):
         """Test chapter statistics functionality"""
+        unique_id = self.get_unique_id()
         chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
-                "name": f"Test Chapter {self.unique_id}",
-                "region": "Test Region",
+                "name": f"Test Chapter {unique_id}",
+                "region": self.test_region,
                 "introduction": "Test chapter",
             }
         )
@@ -290,13 +299,14 @@ class TestChapter(EnhancedTestCase):
 
     def test_chapter_contact_info(self):
         """Test chapter contact information"""
+        unique_id = self.get_unique_id()
         chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
-                "name": f"Test Chapter {self.unique_id}",
-                "region": "Test Region",
+                "name": f"Test Chapter {unique_id}",
+                "region": self.test_region,
                 "introduction": "Test chapter",
-                "email": f"chapter{self.unique_id}@example.org",
+                "email": f"chapter{unique_id}@example.org",
                 "phone": "+31612345678",
                 "website": "https://example.org",
             }
@@ -304,18 +314,19 @@ class TestChapter(EnhancedTestCase):
         chapter.insert()  # EnhancedTestCase handles permissions
 
         # Verify contact information
-        self.assertEqual(chapter.email, f"chapter{self.unique_id}@example.org")
+        self.assertEqual(chapter.email, f"chapter{unique_id}@example.org")
         self.assertEqual(chapter.phone, "+31612345678")
         self.assertEqual(chapter.website, "https://example.org")
 
     def test_chapter_publication_status(self):
         """Test chapter publication status"""
+        unique_id = self.get_unique_id()
         # Create unpublished chapter
         chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
-                "name": f"Test Chapter {self.unique_id}",
-                "region": "Test Region",
+                "name": f"Test Chapter {unique_id}",
+                "region": self.test_region,
                 "introduction": "Test chapter",
                 "published": 0,
             }
@@ -335,11 +346,12 @@ class TestChapter(EnhancedTestCase):
 
     def test_chapter_location_info(self):
         """Test chapter location information"""
+        unique_id = self.get_unique_id()
         chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
-                "name": f"Test Chapter {self.unique_id}",
-                "region": "Test Region",
+                "name": f"Test Chapter {unique_id}",
+                "region": self.test_region,
                 "introduction": "Test chapter",
                 "city": "Amsterdam",
                 "state": "North Holland",
@@ -355,12 +367,13 @@ class TestChapter(EnhancedTestCase):
 
     def test_chapter_matching_by_postal_code(self):
         """Test chapter matching functionality by postal code"""
+        unique_id = self.get_unique_id()
         # Create chapter with specific postal codes
         chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
-                "name": f"Test Chapter {self.unique_id}",
-                "region": "Test Region",
+                "name": f"Test Chapter {unique_id}",
+                "region": self.test_region,
                 "introduction": "Test chapter",
                 "postal_codes": "1000-1999",
             }
@@ -382,11 +395,12 @@ class TestChapter(EnhancedTestCase):
 
     def test_chapter_update_permissions(self):
         """Test chapter update and permission handling"""
+        unique_id = self.get_unique_id()
         chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
-                "name": f"Test Chapter {self.unique_id}",
-                "region": "Test Region",
+                "name": f"Test Chapter {unique_id}",
+                "region": self.test_region,
                 "introduction": "Test chapter",
             }
         )
@@ -404,11 +418,12 @@ class TestChapter(EnhancedTestCase):
 
     def test_chapter_member_roster_management(self):
         """Test chapter member roster management with new structure"""
+        unique_id = self.get_unique_id()
         chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
-                "name": f"Test Chapter {self.unique_id}",
-                "region": "Test Region",
+                "name": f"Test Chapter {unique_id}",
+                "region": self.test_region,
                 "introduction": "Test chapter",
             }
         )
@@ -421,8 +436,8 @@ class TestChapter(EnhancedTestCase):
                 {
                     "doctype": "Member",
                     "first_name": "Roster",
-                    "last_name": f"Member{i} {self.unique_id}",
-                    "email": f"roster{i}{self.unique_id}@example.com",
+                    "last_name": f"Member{i} {unique_id}",
+                    "email": f"roster{i}{unique_id}@example.com",
                     "contact_number": f"+3161234568{i}",
                     "payment_method": "Bank Transfer",
                 }
@@ -458,11 +473,12 @@ class TestChapter(EnhancedTestCase):
 
     def test_chapter_board_management(self):
         """Test chapter board member management with automatic member addition"""
+        unique_id = self.get_unique_id()
         chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
-                "name": f"Test Chapter {self.unique_id}",
-                "region": "Test Region",
+                "name": f"Test Chapter {unique_id}",
+                "region": self.test_region,
                 "introduction": "Test chapter",
             }
         )
@@ -472,8 +488,8 @@ class TestChapter(EnhancedTestCase):
         volunteer = frappe.get_doc(
             {
                 "doctype": "Volunteer",
-                "volunteer_name": f"Board Volunteer {self.unique_id}",
-                "email": f"board{self.unique_id}@organization.org",
+                "volunteer_name": f"Board Volunteer {unique_id}",
+                "email": f"board{unique_id}@organization.org",
                 "member": self.test_member.name,
                 "status": "Active",
                 "start_date": today(),
@@ -538,11 +554,12 @@ class TestChapter(EnhancedTestCase):
 
     def test_board_manager_functionality(self):
         """Test BoardManager API for adding/removing board members"""
+        unique_id = self.get_unique_id()
         chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
-                "name": f"Test BoardManager {self.unique_id}",
-                "region": "Test Region",
+                "name": f"Test BoardManager {unique_id}",
+                "region": self.test_region,
                 "introduction": "Test chapter for BoardManager",
             }
         )
@@ -552,8 +569,8 @@ class TestChapter(EnhancedTestCase):
         volunteer = frappe.get_doc(
             {
                 "doctype": "Volunteer",
-                "volunteer_name": f"API Test Volunteer {self.unique_id}",
-                "email": f"apitest{self.unique_id}@organization.org",
+                "volunteer_name": f"API Test Volunteer {unique_id}",
+                "email": f"apitest{unique_id}@organization.org",
                 "member": self.test_member.name,
                 "status": "Active",
                 "start_date": today(),
@@ -562,7 +579,7 @@ class TestChapter(EnhancedTestCase):
         volunteer.insert()  # EnhancedTestCase handles permissions
 
         # Create test role
-        role_name = f"Test Role {self.unique_id}"
+        role_name = f"Test Role {unique_id}"
         if not frappe.db.exists("Chapter Role", role_name):
             role = frappe.get_doc(
                 {
@@ -612,10 +629,11 @@ class TestChapter(EnhancedTestCase):
 
     def test_chapter_search_and_filtering(self):
         """Test chapter search and filtering capabilities"""
+        unique_id = self.get_unique_id()
         chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
-                "name": f"Test Chapter {self.unique_id}",
+                "name": f"Test Chapter {unique_id}",
                 "region": "North Region",
                 "introduction": "Test chapter for searching",
                 "published": 1,
@@ -635,17 +653,18 @@ class TestChapter(EnhancedTestCase):
         self.assertIn(chapter.name, chapter_names, "Should find published chapters")
 
         # Test search by name pattern
-        pattern_chapters = frappe.get_all("Chapter", filters={"name": ["like", f"%{self.unique_id}%"]})
+        pattern_chapters = frappe.get_all("Chapter", filters={"name": ["like", f"%{unique_id}%"]})
         self.assertGreater(len(pattern_chapters), 0, "Should find chapters by name pattern")
 
     def test_chapter_data_validation_edge_cases(self):
         """Test chapter data validation edge cases"""
+        unique_id = self.get_unique_id()
         # Test empty/null fields
         try:
             chapter = frappe.get_doc(
                 {
                     "doctype": "Chapter",
-                    "name": f"Empty Test {self.unique_id}",
+                    "name": f"Empty Test {unique_id}",
                     "region": "",  # Empty required field
                     "introduction": "Test chapter",
                 }
@@ -660,8 +679,8 @@ class TestChapter(EnhancedTestCase):
         chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
-                "name": f"Long Text Test {self.unique_id}",
-                "region": "Test Region",
+                "name": f"Long Text Test {unique_id}",
+                "region": self.test_region,
                 "introduction": long_text,
             }
         )
@@ -676,11 +695,12 @@ class TestChapter(EnhancedTestCase):
 
     def test_chapter_deletion_constraints(self):
         """Test chapter deletion with constraints"""
+        unique_id = self.get_unique_id()
         chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
-                "name": f"Delete Test {self.unique_id}",
-                "region": "Test Region",
+                "name": f"Delete Test {unique_id}",
+                "region": self.test_region,
                 "introduction": "Test chapter for deletion",
             }
         )
@@ -691,8 +711,8 @@ class TestChapter(EnhancedTestCase):
             {
                 "doctype": "Member",
                 "first_name": "Linked",
-                "last_name": f"Member {self.unique_id}",
-                "email": f"linked{self.unique_id}@example.com",
+                "last_name": f"Member {unique_id}",
+                "email": f"linked{unique_id}@example.com",
                 "contact_number": "+31612345679",
                 "payment_method": "Bank Transfer",
                 "primary_chapter": chapter.name,
@@ -722,10 +742,11 @@ class TestChapter(EnhancedTestCase):
 
     def test_chapter_geographical_features(self):
         """Test chapter geographical and location features"""
+        unique_id = self.get_unique_id()
         chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
-                "name": f"Test Chapter {self.unique_id}",
+                "name": f"Test Chapter {unique_id}",
                 "region": "Geographic Test Region",
                 "introduction": "Test chapter",
                 "postal_codes": "1000-1999,2500,3000-3099",
