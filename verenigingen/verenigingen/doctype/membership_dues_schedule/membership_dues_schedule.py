@@ -1,6 +1,8 @@
 # Copyright (c) 2025, Verenigingen and contributors
 # For license information, please see license.txt
 
+import re
+import sys
 from datetime import datetime, timedelta
 
 import frappe
@@ -18,6 +20,19 @@ from verenigingen.utils.security.api_security_framework import (
     standard_api,
 )
 from verenigingen.utils.validation_utilities import DateRangeValidator, DocumentExistenceValidator
+
+# Error message length constants
+MAX_USER_ERROR_LENGTH = 200  # For user-facing error messages
+MAX_DB_ERROR_LENGTH = 255  # For database field storage
+MAX_LOG_ERROR_LENGTH = 100  # For abbreviated log messages
+
+# Database deadlock error patterns (MySQL/MariaDB)
+DEADLOCK_PATTERNS = [
+    "deadlock",  # Generic deadlock message
+    "1213",  # Deadlock found when trying to get lock
+    "1205",  # Lock wait timeout exceeded
+    "3058",  # InnoDB deadlock (newer versions)
+]
 
 
 class MembershipDuesSchedule(Document):
@@ -935,6 +950,54 @@ class MembershipDuesSchedule(Document):
             # Don't block generation on validation errors - continue gracefully
             return {"valid": True, "reason": "Type validation error - allowing generation"}
 
+    @staticmethod
+    def _deduplicate_error_message(error_msg):
+        """
+        Remove repetitive error prefixes from nested exception handling.
+
+        Uses regex for efficient single-pass deduplication of patterns like:
+        - "Invoice generation failed: Invoice generation failed: ..."
+        - "Invoice gen failed: Invoice gen failed: ..."
+
+        Args:
+            error_msg (str): Error message potentially containing repeated prefixes
+
+        Returns:
+            str: Cleaned error message with deduplicated prefixes
+        """
+        if not error_msg:
+            return error_msg
+
+        # Pattern matches one or more occurrences of "Invoice gen(eration)? failed:" prefix
+        # and replaces with a single occurrence
+        cleaned = re.sub(
+            r"(Invoice gen(?:eration)? failed:\s*)+", "Invoice generation failed: ", str(error_msg)
+        )
+
+        return cleaned.strip()
+
+    @staticmethod
+    def _is_deadlock_error(error_msg):
+        """
+        Check if error message indicates a database deadlock.
+
+        Covers multiple MySQL/MariaDB deadlock error codes:
+        - 1213: Deadlock found when trying to get lock
+        - 1205: Lock wait timeout exceeded
+        - 3058: InnoDB deadlock (newer versions)
+
+        Args:
+            error_msg (str): Error message to check
+
+        Returns:
+            bool: True if error is a deadlock, False otherwise
+        """
+        if not error_msg:
+            return False
+
+        error_lower = str(error_msg).lower()
+        return any(pattern in error_lower for pattern in DEADLOCK_PATTERNS)
+
     def generate_invoice(self, force=False):
         """Generate invoice for the current period with enhanced coverage tracking and concurrency protection"""
         from frappe.utils.redis_wrapper import RedisWrapper
@@ -1062,22 +1125,31 @@ class MembershipDuesSchedule(Document):
                 )
 
         except Exception as e:
-            # Log full error details first
+            # Extract and clean root cause error message
+            error_msg = self._deduplicate_error_message(str(e))
+
+            # Log full error details with safe error handling
             full_error_details = (
-                f"Invoice generation failed for {self.name}: {str(e)}\nTraceback: {frappe.get_traceback()}"
+                f"Schedule: {self.name}\n" f"Error: {error_msg}\n\n" f"Traceback:\n{frappe.get_traceback()}"
             )
 
             try:
-                frappe.log_error(full_error_details, "Invoice Generation Failure - Full Details")
+                frappe.log_error(title=f"Invoice Gen Fail - {self.name[:50]}", message=full_error_details)
             except Exception as log_error:
-                # If logging fails, attempt to log the logging failure
-                # Use print as absolute fallback to avoid infinite loops
-                print(f"Critical: Failed to log invoice generation error: {str(log_error)}")
-                print(f"Original error was: {full_error_details}")
+                # If logging fails, use logger as fallback
+                try:
+                    frappe.logger().error(
+                        f"Failed to log invoice generation error for {self.name}: {str(log_error)}\n"
+                        f"Original error: {error_msg}"
+                    )
+                except Exception:
+                    # Absolute last resort - print to stderr
+                    print(
+                        f"CRITICAL: All logging failed for {self.name} - Error: {error_msg}", file=sys.stderr
+                    )
 
             # Create user-friendly shortened message for display
-            # Use 200 chars to avoid truncating dates/amounts in error messages
-            user_error_msg = f"Invoice gen failed for {self.name}: {str(e)[:200]}"
+            user_error_msg = f"Invoice gen failed for {self.name}: {error_msg[:MAX_USER_ERROR_LENGTH]}"
 
             # Re-raise exception to maintain existing error handling behavior
             raise frappe.ValidationError(user_error_msg)
@@ -1109,21 +1181,68 @@ class MembershipDuesSchedule(Document):
         """
         # Get or initialize retry tracking fields
         retry_count = getattr(self, "custom_invoice_retry_count", 0) or 0
+        deadlock_count = getattr(self, "custom_deadlock_count", 0) or 0
 
-        # Increment retry count
-        retry_count += 1
+        # ✅ SPECIAL HANDLING: Deadlocks are transient - don't count them as retries
+        # They should be retried immediately in the next batch without penalty
+        is_deadlock = self._is_deadlock_error(error_message)
+
+        if not is_deadlock:
+            # Increment retry count for real failures
+            retry_count += 1
+        else:
+            # Track deadlocks separately for monitoring
+            deadlock_count += 1
+            frappe.logger().info(
+                f"Deadlock error for {self.name} (#{deadlock_count}) - not incrementing retry count (transient error)"
+            )
+
+            # Alert if excessive deadlocks indicate systemic issue
+            if deadlock_count > 10:
+                try:
+                    frappe.log_error(
+                        title=f"Excessive Deadlocks - {self.name[:50]}",
+                        message=f"Schedule {self.name} has experienced {deadlock_count} deadlocks. "
+                        f"This may indicate database contention issues requiring investigation.\n\n"
+                        f"Latest error: {error_message}",
+                    )
+                except Exception:
+                    frappe.logger().warning(f"Excessive deadlocks for {self.name}: {deadlock_count}")
 
         # Update retry tracking using secure operations framework
         from verenigingen.utils.secure_operations import secure_document_operation
 
-        # Log full error details before truncation
-        full_error_details = f"Invoice generation failure for {self.name}: {error_message}\nTraceback: {frappe.get_traceback()}"
-        frappe.log_error(full_error_details, "Invoice Generation Failure - Full Details")
+        # Clean up error message to avoid repetitive prefixes
+        clean_error = self._deduplicate_error_message(error_message)
+
+        # Log full error details (with safe error handling)
+        full_error_details = (
+            f"Schedule: {self.name}\n"
+            f"Retry Count: {retry_count}\n"
+            f"Deadlock Count: {deadlock_count}\n"
+            f"Is Deadlock: {is_deadlock}\n"
+            f"Error: {clean_error}\n\n"
+            f"Traceback:\n{frappe.get_traceback()}"
+        )
+        try:
+            frappe.log_error(
+                title=f"Invoice Failure #{retry_count} - {self.name[:40]}", message=full_error_details
+            )
+        except Exception as log_err:
+            try:
+                frappe.logger().error(
+                    f"Failed to log invoice generation error for {self.name}: {str(log_err)}\n"
+                    f"Original error: {clean_error}"
+                )
+            except Exception:
+                # Absolute last resort - print to stderr
+                print(f"CRITICAL: All logging failed for {self.name} - Error: {clean_error}", file=sys.stderr)
 
         # Update the document fields before saving
         self.custom_invoice_retry_count = retry_count
+        self.custom_deadlock_count = deadlock_count
         self.custom_last_invoice_failure_date = today()
-        self.custom_last_invoice_error = error_message[:255]
+        self.custom_last_invoice_error = clean_error[:MAX_DB_ERROR_LENGTH]
 
         # Use secure document operation for tracking updates
         retry_update_result = secure_document_operation(
@@ -1181,6 +1300,7 @@ class MembershipDuesSchedule(Document):
 
             # Reset error tracking using secure operations
             self.custom_invoice_retry_count = 0
+            self.custom_deadlock_count = 0
             self.custom_last_invoice_failure_date = None
             self.custom_last_invoice_error = None
             self.custom_requires_manual_review = 0
@@ -1255,6 +1375,9 @@ class MembershipDuesSchedule(Document):
             "account.*setup.*incomplete",
         ]
 
+        # ✅ IMPORTANT: Deadlocks are transient and should be retried, not marked for manual review
+        # They're handled separately below with immediate retry logic
+
         # ✅ NEW: Patterns that suggest immediate manual review (enhanced)
         critical_manual_review_patterns = [
             # Security and permissions
@@ -1267,7 +1390,6 @@ class MembershipDuesSchedule(Document):
             "database.*corruption",
             "data.*integrity.*critical",
             "system.*failure",
-            "deadlock",
             "timeout.*critical",
             # Customer and accounting (non-recoverable)
             "customer.*not.*exists",
@@ -1281,7 +1403,16 @@ class MembershipDuesSchedule(Document):
             "legal.*constraint",
         ]
 
-        error_lower = error_message.lower()
+        # ✅ SPECIAL CASE: Deadlocks are transient database locking issues
+        # Don't auto-advance (which would skip the invoice) - instead flag for manual review
+        # so they can be retried in the next batch run when lock contention clears
+        if self._is_deadlock_error(error_message):
+            frappe.logger().info(
+                f"Deadlock detected for schedule {self.name} - flagging for retry in next batch"
+            )
+            # Return False to prevent auto-advance (which would skip this invoice)
+            # The schedule will be retried in the next batch run
+            return False
 
         # ✅ ENHANCED: Check critical issues first
         for pattern in critical_manual_review_patterns:
@@ -2986,28 +3117,64 @@ def _process_invoice_chunk(schedule_names, chunk_id, total_chunks, cutoff_date, 
                     schedule._clear_retry_tracking()
                 else:
                     error_msg = f"Schedule {schedule_name} returned None from generate_invoice()"
-                    frappe.log_error(error_msg, f"Chunk {chunk_id} - Invoice Generation Failed")
+                    frappe.log_error(title=f"Chunk {chunk_id} Invoice Gen Failed", message=error_msg)
                     results["errors"].append(error_msg)
 
             except frappe.ValidationError as ve:
                 recovery_result = schedule._handle_invoice_generation_failure(str(ve))
                 error_msg = (
                     f"Schedule {schedule_name} validation failed (retry {recovery_result['retry_count']}/3): "
-                    f"{str(ve)[:100]}"
+                    f"{str(ve)[:MAX_LOG_ERROR_LENGTH]}"
                 )
-                frappe.log_error(error_msg, f"Chunk {chunk_id} - Validation Error")
+                try:
+                    frappe.log_error(
+                        title=f"Chunk {chunk_id} Validation",
+                        message=f"Schedule: {schedule_name}\nRetry: {recovery_result['retry_count']}/3\n\n{str(ve)}\n\n{frappe.get_traceback()}",
+                    )
+                except Exception as log_err:
+                    try:
+                        frappe.logger().error(f"Validation error for {schedule_name}: {str(ve)}")
+                    except Exception:
+                        print(
+                            f"CRITICAL: Failed to log validation error for {schedule_name}", file=sys.stderr
+                        )
                 results["errors"].append(error_msg)
 
             except Exception as e:
-                error_msg = f"Unexpected error for {schedule_name}: {str(e)[:100]}"
-                frappe.log_error(
-                    f"{error_msg}\n{frappe.get_traceback()}", f"Chunk {chunk_id} - Unexpected Error"
-                )
+                error_msg = f"Unexpected error for {schedule_name}: {str(e)[:MAX_LOG_ERROR_LENGTH]}"
+                try:
+                    frappe.log_error(
+                        title=f"Chunk {chunk_id} Error",
+                        message=f"Schedule: {schedule_name}\n\n{str(e)}\n\n{frappe.get_traceback()}",
+                    )
+                except Exception as log_err:
+                    try:
+                        frappe.logger().error(f"Unexpected error for {schedule_name}: {str(e)}")
+                    except Exception:
+                        print(f"CRITICAL: Failed to log error for {schedule_name}", file=sys.stderr)
                 results["errors"].append(error_msg)
 
         except Exception as outer_e:
-            error_msg = f"Error loading schedule {schedule_name}: {str(outer_e)[:100]}"
-            frappe.log_error(error_msg, f"Chunk {chunk_id} - Schedule Load Error")
+            error_msg = f"Error loading schedule {schedule_name}: {str(outer_e)[:MAX_LOG_ERROR_LENGTH]}"
+            # Safe error logging that prevents cascading failures
+            try:
+                frappe.log_error(
+                    title=f"Chunk {chunk_id} Load Error",
+                    message=f"Schedule: {schedule_name}\nError: {str(outer_e)}\n\n{frappe.get_traceback()}",
+                )
+            except Exception as log_error:
+                # If error logging fails, use logger instead
+                try:
+                    frappe.logger().error(
+                        f"Failed to log error for {schedule_name}: {str(log_error)}\n"
+                        f"Original error: {str(outer_e)}"
+                    )
+                except Exception:
+                    # Absolute last resort - print to stderr
+                    print(
+                        f"CRITICAL: All logging failed for chunk {chunk_id}, schedule {schedule_name}",
+                        file=sys.stderr,
+                    )
             results["errors"].append(error_msg)
 
     # Commit this chunk's work

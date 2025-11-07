@@ -29,8 +29,33 @@ class EBoekhoudenPartyExtractor:
 
         self.company = company
 
+        # Bank internal transaction patterns (no party needed)
+        self.bank_internal_patterns = [
+            # Credit interest (interest earned)
+            r"^CREDITRENTE\s+\d{2}-\d{2}-\d{2}\s+TOT\s+\d{2}-\d{2}-\d{2}",
+            r"^Credit\s+(?:interest|rente)",
+            r"^Rente\s+credit",
+            # Debit interest (interest charged)
+            r"^DEBETRENTE\s+\d{2}-\d{2}-\d{2}\s+TOT\s+\d{2}-\d{2}-\d{2}",
+            r"^Debit\s+(?:interest|rente)",
+            r"^Rente\s+debet",
+            # Bank fees and charges
+            r"^BANKKOSTEN",
+            r"^Bank\s+(?:kosten|charges|fees)",
+            r"^Administratiekosten",
+            r"^Transactiekosten",
+            r"^Servicekosten",
+            # Other bank internal operations
+            r"^Afsluitprovisie",
+            r"^Valutacompensatie",
+            r"^Rekening\s+correctie",
+        ]
+
         # Dutch banking description patterns (adapted from MT940 logic)
         self.party_patterns = [
+            # SEPA format: "NL##BANK#### BIC#### [Party Name] ..."
+            # Example: "NL76ASNB0706938801 ASNBNL21 Elise Hiddinga TRIOD OS NL ..."
+            r"NL\d{2}[A-Z]{4}\d+\s+[A-Z]{6,11}\s+([A-Z][a-zA-Z\s&\.\-\,]{2,40?})(?:\s+[A-Z]{2,}|\s+\d)",
             # Dutch patterns: "van/naar [Party Name]"
             r"(?:van|from|naar|to)\s+([A-Za-z][A-Za-z\s&\.\-\,]{2,40})",
             # Payment description patterns: "[Party] payment/betaling"
@@ -75,10 +100,16 @@ class EBoekhoudenPartyExtractor:
             Dict with party_type, party_name, relation_id (if available)
         """
         try:
-            # Get mutation details
-            mutation_type = mutation.get("MutatieType") or mutation.get("mutationType", 0)
-            description = mutation.get("Omschrijving") or mutation.get("description", "")
-            relation_id = mutation.get("RelatieCode") or mutation.get("relationId")
+            # Get mutation details - support both SOAP and REST API field names
+            mutation_type = (
+                mutation.get("type")
+                or mutation.get("mutationType")  # REST API
+                or mutation.get("MutatieType", 0)  # Alternative REST  # SOAP API
+            )
+            description = mutation.get("description") or mutation.get(  # REST API
+                "Omschrijving", ""
+            )  # SOAP API
+            relation_id = mutation.get("relationId") or mutation.get("RelatieCode")  # REST API  # SOAP API
 
             # Only process Types 5 & 6 (Money Received/Paid)
             if int(mutation_type) not in [5, 6]:
@@ -86,6 +117,21 @@ class EBoekhoudenPartyExtractor:
 
             # Clean up the description first
             cleaned_description = self._clean_description(description)
+
+            # Check if this is a bank internal transaction (interest, fees, etc.)
+            if self._is_bank_internal_transaction(cleaned_description):
+                # For bank internal transactions, the party should be the bank itself
+                # We'll extract the bank name from the bank account later in the processor
+                return {
+                    "party_type": "Supplier",  # Banks are suppliers for fees/charges
+                    "party_name": None,  # Will be set to bank name by processor
+                    "relation_id": None,
+                    "original_description": description,
+                    "cleaned_description": cleaned_description,
+                    "extraction_method": "bank_internal",
+                    "is_bank_internal": True,
+                    "bank_is_party": True,  # Signal to use bank as party
+                }
 
             # Try to extract party name from description
             extracted_party_name = self._extract_party_name_from_description(cleaned_description)
@@ -159,6 +205,27 @@ class EBoekhoudenPartyExtractor:
             )
             return None
 
+    def _is_bank_internal_transaction(self, description: str) -> bool:
+        """
+        Check if description matches bank internal transaction patterns.
+        These transactions (interest, fees, etc.) don't have external parties.
+
+        Args:
+            description: Cleaned transaction description
+
+        Returns:
+            True if this is a bank internal transaction
+        """
+        if not description:
+            return False
+
+        # Check against all bank internal patterns
+        for pattern in self.bank_internal_patterns:
+            if re.match(pattern, description, re.IGNORECASE):
+                return True
+
+        return False
+
     def _clean_description(self, description: str) -> str:
         """Clean up mutation description using MT940-style patterns"""
         if not description:
@@ -177,11 +244,30 @@ class EBoekhoudenPartyExtractor:
         return cleaned
 
     def _extract_party_name_from_description(self, description: str) -> Optional[str]:
-        """Extract party name from description using pattern matching"""
+        """
+        Extract party name from description using bank transaction parser.
+
+        Uses the existing BankTransactionParser which handles SEPA formats properly.
+        """
         if not description:
             return None
 
-        # Try each pattern to extract party name
+        # First try using the BankTransactionParser (handles SEPA, MT940 formats)
+        try:
+            from verenigingen.e_boekhouden.utils.bank_transaction_parser import BankTransactionParser
+
+            parser = BankTransactionParser()
+            parsed = parser.parse_description(description)
+
+            if parsed and parsed.get("party_name"):
+                party_name = parsed.get("party_name")
+                # Validate the extracted name
+                if self._is_valid_party_name(party_name):
+                    return party_name
+        except Exception as e:
+            frappe.logger().debug(f"BankTransactionParser extraction failed: {str(e)}")
+
+        # Fallback to pattern matching for non-SEPA formats
         for pattern in self.party_patterns:
             match = re.search(pattern, description, re.IGNORECASE)
             if match:
@@ -250,7 +336,10 @@ class EBoekhoudenPartyExtractor:
 
     def _determine_party_type(self, mutation: Dict[str, Any], party_name: str) -> str:
         """Determine whether party should be Customer or Supplier based on context"""
-        mutation_type = int(mutation.get("MutatieType") or mutation.get("mutationType", 0))
+        # Support both SOAP and REST API field names
+        mutation_type = int(
+            mutation.get("type") or mutation.get("mutationType") or mutation.get("MutatieType", 0)
+        )
 
         # Type 5 = Money Received (from customers)
         # Type 6 = Money Paid (to suppliers)
@@ -260,7 +349,7 @@ class EBoekhoudenPartyExtractor:
             return "Supplier"
 
         # Fallback based on description patterns
-        description = (mutation.get("Omschrijving") or mutation.get("description", "")).lower()
+        description = (mutation.get("description") or mutation.get("Omschrijving", "")).lower()
 
         # Income-related terms suggest customer
         if any(term in description for term in ["ontvangen", "received", "contribution", "contributie"]):

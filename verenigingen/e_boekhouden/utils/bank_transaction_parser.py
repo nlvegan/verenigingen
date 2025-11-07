@@ -22,6 +22,7 @@ class BankTransactionParser:
     """Parse Dutch bank transaction descriptions to extract party information"""
 
     # Common Dutch bank BIC codes
+    # BIC format: 4 chars (bank) + 2 chars (country) + 2 chars (location)
     BIC_PATTERNS = [
         r"ABNANL2A",  # ABN AMRO
         r"RABONL2U",  # Rabobank
@@ -32,19 +33,52 @@ class BankTransactionParser:
         r"BUNQNL2A",  # Bunq
         r"REVOLT21",  # Revolut
         r"KNABNL2H",  # Knab
-        r"\w{6}NL\w{2}",  # Generic Dutch BIC pattern (6 chars + NL + 2 chars)
+        r"COBANL2\w",  # Commerzbank
+        r"\w{4}NL\w{2}",  # Generic Dutch BIC pattern (4 chars + NL + 2 chars)
     ]
 
     # Keywords that typically follow the party name
+    # Based on analysis of 50+ real SEPA transactions from Bank Transaction table
+    # These patterns are ordered by frequency (most common first)
     TERMINATOR_KEYWORDS = [
-        "TRIODOS",
-        "NOTPROVIDED",
-        "REF",
-        "ERE F",
-        "EREF",
-        "IBAN",
-        r"\d{8}",  # Date patterns (YYYYMMDD)
-        r"\d{10,}",  # Long reference numbers
+        # TRIODOS bank keywords (most common - 50% of transactions)
+        # Appears in various split forms: "TRIODOS", "TRIOD OS", "TRIO DOS", "TRI ODOS", "TR IODOS"
+        r"TRIOD\s*OS",  # "TRIOD OS" (most common split)
+        r"TRIO\s*DOS",  # "TRIO DOS"
+        r"TRI\s*ODOS",  # "TRI ODOS"
+        r"TR\s*IODOS",  # "TR IODOS"
+        r"TRIODOS",  # "TRIODOS" (full, unsplit)
+        # EREF field codes (30% of transactions)
+        # Appears as: "EREF", "ER EF", "ERE F"
+        r"ER\s+EF",  # "ER EF" (space in middle)
+        r"ERE\s+F",  # "ERE F" (space after 3 chars)
+        r"EREF",  # "EREF" (full form)
+        # SEPA Direct Debit field codes (15% of transactions)
+        r"\bSD\b",  # Sepa Direct debit reference
+        r"\bMD\b",  # Mandate reference
+        r"\bEB\d",  # E-Boekhouden invoice codes (EB0, EB1, etc.)
+        r"\bREMI\b",  # Remittance information
+        r"\bUSTD\b",  # Unstructured remittance info
+        # SEPA creditor identifiers (10% of transactions)
+        r"NL\d{2}ZZZ\d+",  # Dutch SEPA creditor ID format (e.g., NL48ZZZ342764500000)
+        # Generic reference patterns
+        r"\bIBAN\b",  # IBAN keyword
+        r"\bKREF\b",  # Customer Reference
+        r"\bMREF\b",  # Mandate Reference
+        r"\bSVWZ\b",  # Purpose
+        r"\bNOTPROVIDED\b",  # Not provided keyword
+        r"\bREF\b",  # Generic reference
+        # Dutch common words that indicate start of description (not party name)
+        r"\bBETALINGEN\b",  # Payments
+        r"\bFACTUUR\b",  # Invoice
+        # Alphanumeric reference codes (look like reference numbers, not names)
+        # Example: "CJ6CDXPK", "7Q88357X3C", "PVD93JPHC2DW44G6"
+        r"\b[A-Z]{2}\d[A-Z0-9]{5,}\b",  # 2 letters + digit + 5+ alphanum
+        # Numeric patterns (dates and references)
+        r"\d{8}(?!\d)",  # 8-digit dates (YYYYMMDD) - negative lookahead to avoid matching longer numbers
+        r"\d{10,}",  # Long reference numbers (10+ digits)
+        r"\d+\.\d{6,}",  # High-precision decimal amounts (e.g., "1.20824473")
+        r"[A-Z]\d{10,}",  # Single letter followed by long number (e.g., "F2510655428")
     ]
 
     def __init__(self):
@@ -77,30 +111,59 @@ class BankTransactionParser:
         party_name = None
         remainder = description
 
+        # Determine starting position for party name extraction
         if bic_match:
             # Start after the BIC code
             start_pos = bic_match.end()
-            text_after_bic = description[start_pos:].strip()
+        elif iban_match:
+            # No BIC, but have IBAN - start after IBAN
+            start_pos = iban_match.end()
+        else:
+            # No IBAN or BIC - start from beginning
+            start_pos = 0
+
+        if start_pos < len(description):
+            text_to_parse = description[start_pos:].strip()
 
             # Find the first terminator keyword
-            terminator_match = self.terminator_regex.search(text_after_bic)
+            terminator_match = self.terminator_regex.search(text_to_parse)
 
             if terminator_match:
-                # Party name is between BIC and terminator
-                party_name = text_after_bic[: terminator_match.start()].strip()
-                remainder = text_after_bic[terminator_match.start() :].strip()
+                # Party name is between start position and terminator
+                party_name = text_to_parse[: terminator_match.start()].strip()
+                remainder = text_to_parse[terminator_match.start() :].strip()
             else:
                 # No terminator found, take first 50 chars as party name
-                party_name = text_after_bic[:50].strip()
-                remainder = text_after_bic[50:].strip() if len(text_after_bic) > 50 else ""
+                party_name = text_to_parse[:50].strip()
+                remainder = text_to_parse[50:].strip() if len(text_to_parse) > 50 else ""
 
             # Clean up party name
             if party_name:
                 # Remove extra whitespace
                 party_name = " ".join(party_name.split())
 
-                # Remove trailing punctuation
-                party_name = party_name.rstrip(".,;:-")
+                # Remove trailing punctuation EXCEPT periods (keep "B.V." intact)
+                party_name = party_name.rstrip(",;:-")
+
+                # Remove trailing bank/SEPA codes (uppercase abbreviations)
+                # Examples: "TRIOD OS NL", "ING NL", "RABO NL", "SEPA", etc.
+                # Keep person/company names but remove 2-5 letter uppercase codes at the end
+                # Pattern: remove sequences of 2-5 uppercase letter words at the end
+                party_name = re.sub(r"(\s+[A-Z]{2,5}){1,3}$", "", party_name).strip()
+
+                # Remove single uppercase letters at the end followed by numbers
+                # Example: "Simpel F2510655428" -> "Simpel"
+                party_name = re.sub(r"\s+[A-Z]\d+.*$", "", party_name).strip()
+
+                # Remove alphanumeric codes at the end (reference codes)
+                # Example: "Shurgard NL CJ6CDXPK" -> "Shurgard NL" or just "Shurgard"
+                # Look for patterns like "CJ6CDXPK" (mixed case alphanumeric)
+                party_name = re.sub(r"\s+[A-Z]{2}\d[A-Z0-9]+$", "", party_name).strip()
+
+                # Remove "NL" at the end if it's standalone (not part of company name)
+                # "Shurgard NL" -> "Shurgard" (but keep "ODIDO NETHERLANDS B.V.")
+                if party_name.endswith(" NL") and not "NETHERLANDS" in party_name.upper():
+                    party_name = party_name[:-3].strip()
 
                 # Limit length
                 if len(party_name) > 100:
@@ -318,7 +381,7 @@ class BankTransactionParser:
 
     def _create_party(self, party_name: str, party_type: str, iban: Optional[str] = None) -> Tuple[str, bool]:
         """
-        Create a new Customer or Supplier.
+        Create a new Customer or Supplier using RelationMigrationService for consistency.
 
         Args:
             party_name: Party name
@@ -329,35 +392,62 @@ class BankTransactionParser:
             Tuple of (party_name, True)
         """
         try:
-            doc = frappe.new_doc(party_type)
+            from verenigingen.e_boekhouden.services.relation_migration_service import RelationMigrationService
 
-            if party_type == "Customer":
-                doc.customer_name = party_name
-                doc.customer_type = "Individual"
-                doc.customer_group = "Individual"  # Default group
-                doc.territory = "Netherlands"  # Default territory
-            else:  # Supplier
-                doc.supplier_name = party_name
-                doc.supplier_group = "All Supplier Groups"  # Default group
-                doc.supplier_type = "Individual"
+            service = RelationMigrationService()
 
-            # Mark as created from bank transaction
-            doc.append("notes", {"note": f"Auto-created from E-Boekhouden bank transaction"})
+            # Create minimal party data for the service
+            party_data = {
+                "name": party_name,
+                "companyName": party_name if party_name.endswith(("B.V.", "N.V.", "BV", "NV")) else "",
+                "contactName": party_name if not party_name.endswith(("B.V.", "N.V.", "BV", "NV")) else "",
+            }
 
-            doc.insert(ignore_permissions=False)
+            # Determine if company or individual based on name patterns
+            is_company = bool(party_data["companyName"])
+
+            # Use service's unified _create_party method
+            created = service._create_party(
+                party_type=party_type,
+                party_data=party_data,
+                display_name=party_name,
+                is_company=is_company,
+                relation_id=None,  # No relation ID from bank transactions
+                email=None,
+                contact_name=None,
+                vat_number=None,
+            )
+
+            if not created:
+                # Party already exists
+                name_field = f"{party_type.lower()}_name"
+                existing_name = frappe.db.get_value(party_type, {name_field: party_name}, "name")
+                return existing_name, False
+
+            # Get the created party name
+            name_field = f"{party_type.lower()}_name"
+            created_party_name = frappe.db.get_value(party_type, {name_field: party_name}, "name")
 
             # If IBAN provided, create bank account
-            if iban:
-                self._create_bank_account(doc.name, party_type, iban)
+            if iban and created_party_name:
+                self._create_bank_account(created_party_name, party_type, iban)
 
-            frappe.logger().info(f"Created new {party_type}: {doc.name} from bank transaction")
+            frappe.logger().info(f"Created new {party_type}: {created_party_name} from bank transaction")
 
-            return doc.name, True
+            return created_party_name, True
 
         except Exception as e:
-            frappe.logger().error(f"Failed to create {party_type} '{party_name}': {str(e)}")
-            # Fall back to generic party
-            return self._get_or_create_generic_party(party_type)
+            error_msg = f"Failed to create {party_type} '{party_name}': {str(e)}"
+            frappe.logger().error(error_msg)
+            frappe.logger().error(f"Full traceback: {frappe.get_traceback()}")
+
+            # Fail fast - re-raise with context
+            frappe.throw(
+                f"Cannot create {party_type} '{party_name}' from bank transaction. "
+                f"Error: {str(e)}\n\n"
+                f"Enable auto-create in E-Boekhouden Settings or create the party manually.",
+                title=f"{party_type} Creation Failed",
+            )
 
     def _create_bank_account(self, party: str, party_type: str, iban: str) -> None:
         """Create bank account for party"""
@@ -373,6 +463,8 @@ class BankTransactionParser:
                 bank_account.insert(ignore_permissions=False)
 
         except Exception as e:
+            # Bank account creation is optional - log but don't fail
+            # (Party was created successfully, bank account is just a nice-to-have)
             frappe.logger().warning(f"Could not create bank account for {party}: {str(e)}")
 
     def _get_or_create_generic_party(self, party_type: str) -> Tuple[str, bool]:
@@ -410,9 +502,13 @@ class BankTransactionParser:
             return doc.name, True
 
         except Exception as e:
-            frappe.logger().error(f"Failed to create generic {party_type}: {str(e)}")
-            # Return a hardcoded name as last resort
-            return generic_name, False
+            # Fail fast - if we can't even create a generic party, something is very wrong
+            frappe.throw(
+                f"Cannot create generic {party_type} '{generic_name}'. "
+                f"Error: {str(e)}\n\n"
+                f"This indicates a serious configuration issue. Check DocType permissions and required fields.",
+                title="Generic Party Creation Failed",
+            )
 
 
 def parse_bank_transaction(description: str) -> Dict[str, Optional[str]]:

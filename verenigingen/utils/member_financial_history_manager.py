@@ -88,6 +88,14 @@ class MemberFinancialHistoryManager:
                     )
                     return False
 
+                # Check if builder returned None (invoice not found, customer mismatch, etc.)
+                if entry_data is None:
+                    frappe.logger("financial_history").debug(
+                        f"Entry builder returned None for {entry_id} in {self.member.name} {self.history_field} "
+                        f"(likely invoice not found or customer mismatch)"
+                    )
+                    return False
+
                 if existing_idx is not None:
                     # Update existing entry with change detection
                     existing_entry = history_list[existing_idx]

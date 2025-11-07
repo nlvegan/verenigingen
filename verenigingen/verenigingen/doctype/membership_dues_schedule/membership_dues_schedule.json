@@ -55,6 +55,7 @@
   "billing_schedule_notes",
   "section_error_recovery",
   "custom_invoice_retry_count",
+  "custom_deadlock_count",
   "custom_last_invoice_failure_date",
   "column_break_error_recovery",
   "custom_last_invoice_error",
@@ -379,6 +380,14 @@
    "fieldname": "custom_invoice_retry_count",
    "fieldtype": "Int",
    "label": "Retry Count",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Number of database deadlock errors encountered (transient, not counted as retries)",
+   "fieldname": "custom_deadlock_count",
+   "fieldtype": "Int",
+   "label": "Deadlock Count",
    "read_only": 1
   },
   {

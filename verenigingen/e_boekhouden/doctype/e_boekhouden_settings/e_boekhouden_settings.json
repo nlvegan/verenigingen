@@ -13,12 +13,6 @@
     "column_break_6",
     "connection_status",
     "last_tested",
-    "soap_credentials_section",
-    "soap_username",
-    "soap_security_code1",
-    "column_break_soap",
-    "soap_security_code2",
-    "soap_guid",
     "mapping_section",
     "default_company",
     "default_cost_center",
@@ -28,6 +22,8 @@
     "payment_gateway_section",
     "payment_gateway_virtual_account",
     "payment_gateway_invoice_prefix",
+    "party_creation_section",
+    "auto_create_parties_from_bank_transactions",
     "account_groups_section",
     "account_group_mappings",
     "account_group_type_mappings",
@@ -95,40 +91,6 @@
       "read_only": 1
     },
     {
-      "fieldname": "soap_credentials_section",
-      "fieldtype": "Section Break",
-      "label": "SOAP API Credentials",
-      "collapsible": 1
-    },
-    {
-      "fieldname": "soap_username",
-      "fieldtype": "Data",
-      "label": "SOAP Username",
-      "description": "E-Boekhouden SOAP API username"
-    },
-    {
-      "fieldname": "soap_security_code1",
-      "fieldtype": "Password",
-      "label": "Security Code 1",
-      "description": "First security code for SOAP API"
-    },
-    {
-      "fieldname": "column_break_soap",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "soap_security_code2",
-      "fieldtype": "Password",
-      "label": "Security Code 2 (GUID)",
-      "description": "Second security code (GUID format) for SOAP API"
-    },
-    {
-      "fieldname": "soap_guid",
-      "fieldtype": "Data",
-      "label": "Administration GUID",
-      "description": "Optional: GUID for specific administration/company"
-    },
-    {
       "fieldname": "mapping_section",
       "fieldtype": "Section Break",
       "label": "Default Mapping Settings"
@@ -185,6 +147,20 @@
       "label": "Gateway Invoice Prefix",
       "description": "Invoice number prefix for gateway invoices (e.g., 'MOL-NL-R' for Mollie). Adjustments for invoices with this prefix will be skipped.",
       "depends_on": "eval:doc.payment_gateway_virtual_account"
+    },
+    {
+      "fieldname": "party_creation_section",
+      "fieldtype": "Section Break",
+      "label": "Automatic Party Creation",
+      "description": "Configure automatic creation of Customers/Suppliers from bank transaction data",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "auto_create_parties_from_bank_transactions",
+      "fieldtype": "Check",
+      "label": "Auto-create Customers/Suppliers from Bank Transactions",
+      "default": 0,
+      "description": "When enabled, automatically creates new Customer or Supplier records from bank transaction party names if no match is found. Uses IBAN-based matching and fuzzy name matching to avoid duplicates. Disable for manual party management."
     },
     {
       "fieldname": "account_groups_section",

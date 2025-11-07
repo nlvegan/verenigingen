@@ -150,19 +150,17 @@ class PaymentProcessor(BaseTransactionProcessor):
 
     def _process_money_transfer(self, mutation: Dict[str, Any]) -> Optional[frappe.model.document.Document]:
         """
-        Process Type 5/6 money transfers with party extraction from bank transaction description.
+        Process Type 5/6 money transfers by creating Journal Entry with Bank Transaction.
 
-        Extracts party information from the bank transaction description and creates
-        a proper Payment Entry with party reference instead of a Journal Entry.
+        Type 5/6 are direct bank transfers without invoices, so we create Journal Entries
+        with proper row accounts (income/expense) and Bank Transactions for reconciliation.
 
         Args:
             mutation: Type 5 (Money Received) or Type 6 (Money Paid) mutation
 
         Returns:
-            Payment Entry document if successful, None otherwise
+            Journal Entry document if successful, None otherwise
         """
-        from ..bank_transaction_parser import get_party_for_transaction
-
         mutation_id = mutation.get("id")
         mutation_type = mutation.get("type", 0)
         description = mutation.get("description", "")
@@ -181,19 +179,6 @@ class PaymentProcessor(BaseTransactionProcessor):
             f"Processing money transfer: ID={mutation_id}, Type={mutation_type}, Amount={amount}"
         )
 
-        # Extract party from description
-        try:
-            party, party_type = get_party_for_transaction(description, mutation_type)
-            self.debug_info.append(f"Extracted party: {party} ({party_type}) from description")
-        except Exception as e:
-            self.debug_info.append(f"Failed to extract party: {str(e)}, falling back to legacy")
-            # Fall back to legacy Journal Entry approach
-            from ..eboekhouden_rest_full_migration import _create_money_transfer_payment_entry
-
-            return _create_money_transfer_payment_entry(
-                mutation, self.company, self.cost_center, self.debug_info
-            )
-
         # Get bank account from main ledger
         ledger_id = mutation.get("ledgerId")
         bank_account = None
@@ -204,91 +189,228 @@ class PaymentProcessor(BaseTransactionProcessor):
             )
 
         if not bank_account:
-            self.debug_info.append(f"Could not find bank account for ledger {ledger_id}")
-            # Fall back to legacy approach
-            from ..eboekhouden_rest_full_migration import _create_money_transfer_payment_entry
+            self.debug_info.append(f"Could not find bank account for ledger {ledger_id}, using fallback")
+            from ..eboekhouden_rest_full_migration import _get_appropriate_payment_account
 
-            return _create_money_transfer_payment_entry(
-                mutation, self.company, self.cost_center, self.debug_info
-            )
+            bank_account = _get_appropriate_payment_account(self.company, self.debug_info)["erpnext_account"]
 
         self.debug_info.append(f"Using bank account: {bank_account}")
 
-        # Create Payment Entry
+        # Get target account (income/expense) from rows
+        target_account = None
+        if rows and len(rows) > 0:
+            row_ledger_id = rows[0].get("ledgerId")
+            from ..eboekhouden_rest_full_migration import get_erpnext_account_from_ledger_id
+
+            target_account = get_erpnext_account_from_ledger_id(
+                row_ledger_id, self.company, self.debug_info, auto_create=True
+            )
+            if target_account:
+                self.debug_info.append(
+                    f"Mapped row ledger {row_ledger_id} to target account: {target_account}"
+                )
+
+        if not target_account:
+            # Create appropriate account based on mutation type
+            from ..eboekhouden_rest_full_migration import (
+                _get_ledger_code_from_id,
+                create_invoice_line_for_tegenrekening,
+            )
+
+            ledger_code = None
+            if rows:
+                ledger_code = _get_ledger_code_from_id(rows[0].get("ledgerId"), self.debug_info)
+
+            if mutation_type == 5:  # Money Received - need income account
+                line_dict = create_invoice_line_for_tegenrekening(
+                    tegenrekening_code=ledger_code,
+                    amount=abs(amount),
+                    description=description,
+                    transaction_type="sales",
+                )
+                target_account = line_dict.get("income_account")
+            else:  # Money Paid - need expense account
+                line_dict = create_invoice_line_for_tegenrekening(
+                    tegenrekening_code=ledger_code,
+                    amount=abs(amount),
+                    description=description,
+                    transaction_type="purchase",
+                )
+                target_account = line_dict.get("expense_account")
+
+            self.debug_info.append(f"Created/mapped target account: {target_account}")
+
+        # Extract party information from description for Bank Transaction
+        party_info = None
         try:
-            pe = frappe.new_doc("Payment Entry")
-            pe.company = self.company
-            pe.posting_date = posting_date
-            pe.eboekhouden_mutation_nr = str(mutation_id)
-            pe.reference_no = f"EB-{mutation_id}"
-            pe.reference_date = posting_date
+            from ..party_extractor import EBoekhoudenPartyExtractor
 
-            # Set payment type and accounts based on mutation type
+            party_extractor = EBoekhoudenPartyExtractor(self.company)
+            party_info = party_extractor.extract_party_from_mutation(mutation)
+
+            if party_info:
+                # Check if this is a bank internal transaction
+                if party_info.get("is_bank_internal"):
+                    self.debug_info.append(
+                        f"🏦 Bank internal transaction detected: {party_info.get('cleaned_description')} "
+                        f"(no party needed - interest/fees/charges)"
+                    )
+                else:
+                    self.debug_info.append(
+                        f"Extracted party: {party_info.get('party_name')} ({party_info.get('party_type')}) "
+                        f"via {party_info.get('extraction_method')}"
+                    )
+            else:
+                self.debug_info.append("No party information extracted from mutation")
+        except Exception as e:
+            # Party extraction failure is critical - we need to know the party
+            error_msg = f"Failed to extract party information from mutation {mutation_id}: {str(e)}"
+            self.debug_info.append(f"❌ {error_msg}")
+            frappe.log_error(
+                title=f"Party Extraction Error - Mutation {mutation_id}",
+                message=f"{error_msg}\n\n{frappe.get_traceback()}\n\nMutation:\n{frappe.as_json(mutation)}",
+            )
+            raise  # Re-raise to fail fast
+
+        # Create Journal Entry with Bank Transaction
+        try:
+            je = frappe.new_doc("Journal Entry")
+            je.company = self.company
+            je.posting_date = posting_date
+            je.voucher_type = "Journal Entry"
+            je.eboekhouden_mutation_nr = str(mutation_id)
+            je.user_remark = description
+            je.cheque_no = f"EB-{mutation_id}"
+            je.cheque_date = posting_date
+
             if mutation_type == 5:  # Money Received
-                pe.payment_type = "Receive"
-                pe.mode_of_payment = "Bank Transfer"
-                pe.party_type = party_type
-                pe.party = party
+                # Bank account debited (money comes in)
+                bank_entry = {
+                    "account": bank_account,
+                    "debit_in_account_currency": abs(amount),
+                    "credit_in_account_currency": 0,
+                    "cost_center": self.cost_center,
+                    "user_remark": f"Money received - {description}",
+                }
 
-                # For Receive: paid_from = receivable account, paid_to = bank account
-                pe.paid_from = frappe.db.get_value("Company", self.company, "default_receivable_account")
-                pe.paid_to = bank_account
+                # Try to assign party to bank account entry if appropriate
+                if party_info:
+                    party_assignment = party_extractor.resolve_party_for_journal_entry(
+                        party_info, bank_account
+                    )
+                    if party_assignment:
+                        bank_entry["party_type"] = party_assignment[0]
+                        bank_entry["party"] = party_assignment[1]
+                        self.debug_info.append(
+                            f"Assigned {party_assignment[0]} '{party_assignment[1]}' to bank account entry"
+                        )
 
-            else:  # Type 6 - Money Paid
-                pe.payment_type = "Pay"
-                pe.mode_of_payment = "Bank Transfer"
-                pe.party_type = party_type
-                pe.party = party
+                je.append("accounts", bank_entry)
 
-                # For Pay: paid_from = bank account, paid_to = payable account
-                pe.paid_from = bank_account
-                pe.paid_to = frappe.db.get_value("Company", self.company, "default_payable_account")
+                # Income account credited
+                income_entry = {
+                    "account": target_account,
+                    "debit_in_account_currency": 0,
+                    "credit_in_account_currency": abs(amount),
+                    "cost_center": self.cost_center,
+                    "user_remark": f"Income - {description}",
+                }
 
-            # Set amounts
-            pe.paid_amount = abs(amount)
-            pe.received_amount = abs(amount)
-            pe.source_exchange_rate = 1.0
-            pe.target_exchange_rate = 1.0
+                # Try to assign party to income account entry if appropriate
+                if party_info:
+                    party_assignment = party_extractor.resolve_party_for_journal_entry(
+                        party_info, target_account
+                    )
+                    if party_assignment:
+                        income_entry["party_type"] = party_assignment[0]
+                        income_entry["party"] = party_assignment[1]
+                        self.debug_info.append(
+                            f"Assigned {party_assignment[0]} '{party_assignment[1]}' to income account entry"
+                        )
 
-            # Set remarks
-            pe.remarks = description
+                je.append("accounts", income_entry)
 
-            # Save and submit
-            pe.insert(ignore_permissions=False)
+                self.debug_info.append(
+                    f"Money Received: Bank {bank_account} debited, Income {target_account} credited: {abs(amount)}"
+                )
+            else:  # Money Paid (type 6)
+                # Bank account credited (money goes out)
+                bank_entry = {
+                    "account": bank_account,
+                    "debit_in_account_currency": 0,
+                    "credit_in_account_currency": abs(amount),
+                    "cost_center": self.cost_center,
+                    "user_remark": f"Money paid - {description}",
+                }
 
-            # Create Bank Transaction before submitting (same pattern as Type 3/4)
-            bank_transaction_name = self._create_bank_transaction_for_money_transfer(
-                mutation, pe, bank_account
+                # Try to assign party to bank account entry if appropriate
+                if party_info:
+                    party_assignment = party_extractor.resolve_party_for_journal_entry(
+                        party_info, bank_account
+                    )
+                    if party_assignment:
+                        bank_entry["party_type"] = party_assignment[0]
+                        bank_entry["party"] = party_assignment[1]
+                        self.debug_info.append(
+                            f"Assigned {party_assignment[0]} '{party_assignment[1]}' to bank account entry"
+                        )
+
+                je.append("accounts", bank_entry)
+
+                # Expense account debited
+                expense_entry = {
+                    "account": target_account,
+                    "debit_in_account_currency": abs(amount),
+                    "credit_in_account_currency": 0,
+                    "cost_center": self.cost_center,
+                    "user_remark": f"Expense - {description}",
+                }
+
+                # Try to assign party to expense account entry if appropriate
+                if party_info:
+                    party_assignment = party_extractor.resolve_party_for_journal_entry(
+                        party_info, target_account
+                    )
+                    if party_assignment:
+                        expense_entry["party_type"] = party_assignment[0]
+                        expense_entry["party"] = party_assignment[1]
+                        self.debug_info.append(
+                            f"Assigned {party_assignment[0]} '{party_assignment[1]}' to expense account entry"
+                        )
+
+                je.append("accounts", expense_entry)
+
+                self.debug_info.append(
+                    f"Money Paid: Bank {bank_account} credited, Expense {target_account} debited: {abs(amount)}"
+                )
+
+            # Insert Journal Entry
+            je.insert()
+
+            # Create Bank Transaction with party information
+            bank_transaction_name = self._create_bank_transaction_for_journal_entry(
+                mutation, je, bank_account, party_info
             )
 
             if bank_transaction_name:
-                # Link Bank Transaction to Payment Entry
-                self._link_bank_transaction_to_payment(bank_transaction_name, pe.name)
-                self.debug_info.append(f"✅ Created and linked Bank Transaction: {bank_transaction_name}")
+                self.debug_info.append(f"✅ Created Bank Transaction: {bank_transaction_name}")
             else:
                 self.debug_info.append(f"⚠️ Bank Transaction creation failed/skipped")
 
-            # Submit Payment Entry (commits both PE and BT atomically)
-            pe.submit()
+            # Submit Journal Entry
+            je.submit()
 
-            self.debug_info.append(f"✅ Created Payment Entry: {pe.name}")
-            return pe
+            self.debug_info.append(f"✅ Created and submitted Journal Entry: {je.name}")
+            return je
 
         except Exception as e:
-            error_msg = f"Failed to create Payment Entry: {str(e)}"
+            error_msg = f"Failed to create Journal Entry: {str(e)}"
             self.debug_info.append(f"❌ {error_msg}")
             frappe.log_error(
-                title=f"Money Transfer Payment Entry Error - Mutation {mutation_id}",
+                title=f"Money Transfer Journal Entry Error - Mutation {mutation_id}",
                 message=f"{error_msg}\n\nMutation:\n{frappe.as_json(mutation)}",
             )
-
-            # Fall back to legacy Journal Entry approach
-            self.debug_info.append("Falling back to legacy Journal Entry approach")
-            from ..eboekhouden_rest_full_migration import _create_money_transfer_payment_entry
-
-            return _create_money_transfer_payment_entry(
-                mutation, self.company, self.cost_center, self.debug_info
-            )
+            raise
 
     def _is_payment_gateway_adjustment(self, mutation: Dict[str, Any]) -> bool:
         """
@@ -491,85 +613,12 @@ class PaymentProcessor(BaseTransactionProcessor):
                 )
 
         except Exception as e:
-            self.debug_info.append(f"❌ Gateway payment {mutation_id}: Error adjusting amount: {str(e)}")
+            # Gateway amount adjustment errors are not critical - log and continue with original
+            self.debug_info.append(f"⚠️ Gateway payment {mutation_id}: Error adjusting amount: {str(e)}")
+            self.debug_info.append(f"⚠️ Continuing with original mutation amount")
 
-        # If adjustment failed, return original
+        # If adjustment failed or not applicable, return original
         return mutation
-
-    def _create_bank_transaction_for_money_transfer(
-        self, mutation: Dict[str, Any], payment_entry: frappe._dict, bank_account: str
-    ) -> Optional[str]:
-        """
-        Create Bank Transaction for Type 5/6 money transfer mutations.
-
-        Args:
-            mutation: E-Boekhouden mutation data
-            payment_entry: Created Payment Entry document (draft state)
-            bank_account: Bank account used in Payment Entry
-
-        Returns:
-            Bank Transaction name if created, None on failure
-        """
-        from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
-            get_bank_transaction_creator,
-        )
-
-        try:
-            mutation_id = mutation.get("id")
-
-            # Check if Bank Transaction already exists (idempotency)
-            existing_bt = frappe.db.get_value(
-                "Bank Transaction", {"reference_number": f"EB-{mutation_id}"}, "name"
-            )
-
-            if existing_bt:
-                self.debug_info.append(f"Bank Transaction {existing_bt} already exists, skipping")
-                return existing_bt
-
-            creator = get_bank_transaction_creator()
-
-            # Get amount from Payment Entry
-            amount = payment_entry.paid_amount or payment_entry.received_amount
-
-            # Validate non-zero amount
-            if not amount or amount < 0.01:
-                self.debug_info.append(f"Skipping Bank Transaction for zero/near-zero amount: {amount}")
-                return None
-
-            # Determine sign from payment type
-            bank_transaction_amount = amount if payment_entry.payment_type == "Receive" else -amount
-
-            # Use bank description
-            bt_description = mutation.get("description", "")
-            bt_reference = f"EB-{mutation_id}"
-
-            # Create Bank Transaction
-            transaction_data = {
-                "date": payment_entry.posting_date,
-                "amount": bank_transaction_amount,
-                "currency": "EUR",
-                "description": bt_description,
-                "reference_number": bt_reference,
-                "party_type": payment_entry.party_type if payment_entry.party else None,
-                "party": payment_entry.party if payment_entry.party else None,
-            }
-
-            bank_transaction_name = creator.create_from_dict(
-                transaction_data=transaction_data,
-                bank_account=bank_account,
-                company=self.company,
-                source_type="E-Boekhouden Import",
-            )
-
-            return bank_transaction_name
-
-        except Exception as e:
-            self.debug_info.append(f"ERROR creating Bank Transaction: {str(e)}")
-            frappe.log_error(
-                f"Failed to create Bank Transaction for Type 5/6 mutation {mutation.get('id')}: {str(e)}",
-                "E-Boekhouden Type 5/6 Bank Transaction Creation",
-            )
-            return None
 
     def _link_bank_transaction_to_payment(self, bank_transaction_name: str, payment_entry_name: str):
         """
@@ -586,7 +635,8 @@ class PaymentProcessor(BaseTransactionProcessor):
 
             # Check if already linked
             already_linked = frappe.db.exists(
-                "Bank Transaction Payments", {"parent": bank_transaction_name, "payment_entry": payment_entry_name}
+                "Bank Transaction Payments",
+                {"parent": bank_transaction_name, "payment_entry": payment_entry_name},
             )
 
             if already_linked:
@@ -611,7 +661,9 @@ class PaymentProcessor(BaseTransactionProcessor):
             # Save the Bank Transaction
             bt.save(ignore_permissions=False)
 
-            self.debug_info.append(f"Linked Bank Transaction {bank_transaction_name} to Payment Entry {payment_entry_name}")
+            self.debug_info.append(
+                f"Linked Bank Transaction {bank_transaction_name} to Payment Entry {payment_entry_name}"
+            )
 
         except Exception as e:
             error_msg = f"Failed to link Bank Transaction to Payment Entry: {str(e)}"
@@ -621,3 +673,430 @@ class PaymentProcessor(BaseTransactionProcessor):
                 "E-Boekhouden Bank Transaction Linking",
             )
             raise
+
+    def _create_bank_transaction_for_journal_entry(
+        self,
+        mutation: Dict[str, Any],
+        journal_entry: frappe._dict,
+        bank_account: str,
+        party_info: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        """
+        Create Bank Transaction for Journal Entry and link it via payment_entries table.
+
+        Args:
+            mutation: E-Boekhouden mutation data
+            journal_entry: Created Journal Entry document (draft state)
+            bank_account: Bank account used in Journal Entry
+            party_info: Optional party information extracted from mutation
+
+        Returns:
+            Bank Transaction name if created, None on failure
+        """
+        from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+            get_bank_transaction_creator,
+        )
+
+        try:
+            mutation_id = mutation.get("id")
+            mutation_type = mutation.get("type", 0)
+
+            # Get amount from Journal Entry first (needed for both new and existing BT)
+            amount = 0
+            for account_entry in journal_entry.accounts:
+                if account_entry.account == bank_account:
+                    # Bank account debit = money in (positive), credit = money out (negative)
+                    amount = (
+                        account_entry.debit_in_account_currency - account_entry.credit_in_account_currency
+                    )
+                    break
+
+            # Validate non-zero amount
+            if not amount or abs(amount) < 0.01:
+                self.debug_info.append(f"Skipping Bank Transaction for zero/near-zero amount: {amount}")
+                return None
+
+            # Check if Bank Transaction already exists (idempotency)
+            existing_bt = frappe.db.get_value(
+                "Bank Transaction",
+                {"reference_number": f"EB-{mutation_id}"},
+                ["name", "status", "party_type", "party"],
+                as_dict=True,
+            )
+
+            if existing_bt:
+                bt_name = existing_bt.get("name")
+                self.debug_info.append(
+                    f"Bank Transaction {bt_name} already exists "
+                    f"(Status: {existing_bt.get('status')}, "
+                    f"Party: {existing_bt.get('party_type')} - {existing_bt.get('party') or 'None'})"
+                )
+
+                # Handle party update based on overwrite_existing setting
+                if self.overwrite_existing:
+                    # Overwrite mode: Delete existing BT and recreate with new party info
+                    # This ensures clean slate when re-importing
+                    if party_info:
+                        self.debug_info.append(
+                            f"Overwrite mode: Deleting existing Bank Transaction {bt_name} to recreate with updated party"
+                        )
+                        try:
+                            bt_doc = frappe.get_doc("Bank Transaction", bt_name)
+                            if bt_doc.docstatus == 1:
+                                bt_doc.cancel()
+                            frappe.delete_doc("Bank Transaction", bt_name, force=True)
+                            existing_bt = None  # Mark as deleted so new BT will be created below
+                        except Exception as e:
+                            self.debug_info.append(f"Error deleting Bank Transaction {bt_name}: {str(e)}")
+                else:
+                    # Update mode: Only update party if BT has no party or has generic party
+                    existing_party = existing_bt.get("party")
+                    is_generic_party = existing_party and "Bank Transfer" in existing_party
+
+                    if party_info and (not existing_party or is_generic_party):
+                        self._update_bank_transaction_party(bt_name, party_info)
+
+                # Link to Journal Entry if BT still exists and not already reconciled
+                if existing_bt:  # Check if BT wasn't deleted above
+                    if existing_bt.get("status") != "Reconciled":
+                        self._link_bank_transaction_to_journal_entry(bt_name, journal_entry.name, abs(amount))
+                    else:
+                        self.debug_info.append(f"Bank Transaction {bt_name} already reconciled")
+
+                    return bt_name
+                # If BT was deleted (overwrite mode), fall through to create new one below
+
+            creator = get_bank_transaction_creator()
+
+            # Use bank description
+            bt_description = mutation.get("description", "")
+            bt_reference = f"EB-{mutation_id}"
+
+            # Extract party information if available
+            party_type = None
+            party_name = None
+
+            if party_info:
+                # Handle bank internal transactions - use bank as party
+                if party_info.get("is_bank_internal"):
+                    # Extract bank name from the bank account
+                    bank_name = self._extract_bank_name_from_account(bank_account)
+                    if bank_name:
+                        party_type = "Supplier"
+                        party_name = bank_name
+                        self.debug_info.append(
+                            f"🏦 Bank internal transaction: Using bank '{bank_name}' as Supplier"
+                        )
+                    else:
+                        self.debug_info.append(
+                            f"🏦 Bank internal transaction: Could not extract bank name, creating without party"
+                        )
+                else:
+                    self.debug_info.append(f"Party info available: {party_info}")
+
+                    # First try relation_id (most reliable)
+                    relation_id = party_info.get("relation_id")
+                    if relation_id:
+                        try:
+                            # Check if we have a mapping from relation_id to Customer/Supplier
+                            expected_party_type = party_info.get("party_type")
+
+                            # Look up by E-Boekhouden relation ID
+                            party_name = frappe.db.get_value(
+                                expected_party_type, {"eboekhouden_relation_id": str(relation_id)}, "name"
+                            )
+
+                            if party_name:
+                                party_type = expected_party_type
+                                self.debug_info.append(
+                                    f"Resolved party via relation_id {relation_id} to {party_type}: {party_name}"
+                                )
+                        except Exception as e:
+                            # Relation ID lookup error - log and continue to try name matching
+                            self.debug_info.append(f"⚠️ Relation ID lookup error: {str(e)}")
+                            self.debug_info.append(f"⚠️ Trying party name matching instead")
+
+                    # If relation_id didn't work, try party name (with optional auto-create)
+                    if not party_name:
+                        extracted_name = party_info.get("party_name")
+                        if extracted_name:
+                            try:
+                                expected_party_type = party_info.get("party_type")
+
+                                # Check if auto-create is enabled
+                                settings = frappe.get_single("E-Boekhouden Settings")
+                                auto_create = settings.get("auto_create_parties_from_bank_transactions", 0)
+
+                                if auto_create:
+                                    # Use BankTransactionParser's find_or_create_party method
+                                    from verenigingen.e_boekhouden.utils.bank_transaction_parser import (
+                                        BankTransactionParser,
+                                    )
+
+                                    parser = BankTransactionParser()
+
+                                    # Extract IBAN from description for IBAN-based matching
+                                    iban = None
+                                    if party_info.get("extraction_method") == "description_pattern":
+                                        parsed_desc = parser.parse_description(bt_description)
+                                        iban = parsed_desc.get("iban")
+
+                                    party_name, created_new = parser.find_or_create_party(
+                                        extracted_name, expected_party_type, iban
+                                    )
+
+                                    if created_new:
+                                        self.debug_info.append(
+                                            f"✅ Created new {expected_party_type}: '{party_name}' from bank transaction"
+                                        )
+                                    else:
+                                        self.debug_info.append(
+                                            f"✅ Matched existing {expected_party_type}: '{party_name}'"
+                                        )
+                                    party_type = expected_party_type
+                                else:
+                                    # Auto-create disabled - just try to match existing
+                                    field_name = (
+                                        "customer_name"
+                                        if expected_party_type == "Customer"
+                                        else "supplier_name"
+                                    )
+                                    party_name = frappe.db.get_value(
+                                        expected_party_type, {field_name: extracted_name}, "name"
+                                    )
+
+                                    if party_name:
+                                        party_type = expected_party_type
+                                        self.debug_info.append(
+                                            f"Resolved party via name '{extracted_name}' to {party_type}: {party_name}"
+                                        )
+                                    else:
+                                        self.debug_info.append(
+                                            f"Party '{extracted_name}' not found in {expected_party_type}, "
+                                            f"Bank Transaction will be created without party link "
+                                            f"(auto-create disabled)"
+                                        )
+                            except Exception as e:
+                                # Party resolution error is critical if auto-create is enabled
+                                error_msg = f"Failed to resolve/create party '{extracted_name}': {str(e)}"
+                                self.debug_info.append(f"❌ {error_msg}")
+                                frappe.log_error(
+                                    title=f"Party Resolution Error - Mutation {mutation.get('id')}",
+                                    message=f"{error_msg}\n\n{frappe.get_traceback()}",
+                                )
+                                # If auto-create is enabled, fail fast. If disabled, continue without party.
+                                if auto_create:
+                                    raise  # Fail fast when auto-create should have worked
+
+            # Create Bank Transaction with party information if available
+            transaction_data = {
+                "date": journal_entry.posting_date,
+                "amount": amount,  # Already has correct sign from debit/credit
+                "currency": "EUR",
+                "description": bt_description,
+                "reference_number": bt_reference,
+                "party_type": party_type,
+                "party": party_name,
+            }
+
+            bank_transaction_name = creator.create_from_dict(
+                transaction_data=transaction_data,
+                bank_account=bank_account,
+                company=self.company,
+                source_type="E-Boekhouden Import",
+            )
+
+            if bank_transaction_name:
+                # Get BT status after creation
+                bt_status = frappe.db.get_value(
+                    "Bank Transaction", bank_transaction_name, ["status", "party_type", "party"], as_dict=True
+                )
+
+                self.debug_info.append(
+                    f"✅ Created Bank Transaction: {bank_transaction_name} "
+                    f"(Status: {bt_status.get('status')}, "
+                    f"Party: {bt_status.get('party_type')} - {bt_status.get('party') or 'None'})"
+                )
+
+                # Link Bank Transaction to Journal Entry
+                self._link_bank_transaction_to_journal_entry(
+                    bank_transaction_name, journal_entry.name, abs(amount)
+                )
+
+            return bank_transaction_name
+
+        except Exception as e:
+            self.debug_info.append(f"ERROR creating Bank Transaction: {str(e)}")
+            frappe.log_error(
+                f"Failed to create Bank Transaction for Type {mutation_type} mutation {mutation.get('id')}: {str(e)}",
+                "E-Boekhouden Journal Entry Bank Transaction Creation",
+            )
+            return None
+
+    def _extract_bank_name_from_account(self, bank_account: str) -> Optional[str]:
+        """
+        Extract bank name from ERPNext bank account name.
+
+        Bank accounts typically follow format: "1100 - Triodos - 19.83.96.716 - Algemeen - NVV"
+        We want to extract "Triodos" as the bank name.
+
+        Args:
+            bank_account: ERPNext bank account name
+
+        Returns:
+            Bank name as string or None
+        """
+        if not bank_account:
+            return None
+
+        try:
+            # Split by dash and get the second part (bank name)
+            parts = bank_account.split(" - ")
+            if len(parts) >= 2:
+                bank_name = parts[1].strip()
+
+                # Check if this bank exists as a Supplier
+                existing_bank = frappe.db.get_value("Supplier", {"supplier_name": bank_name}, "name")
+                if existing_bank:
+                    return existing_bank
+
+                # Return the extracted name even if supplier doesn't exist yet
+                # The bank transaction creator can handle creating it if needed
+                return bank_name
+
+        except Exception as e:
+            frappe.logger().warning(f"Could not extract bank name from '{bank_account}': {str(e)}")
+
+        return None
+
+    def _link_bank_transaction_to_journal_entry(
+        self, bank_transaction_name: str, journal_entry_name: str, allocated_amount: float
+    ):
+        """
+        Link Bank Transaction to Journal Entry for proper reconciliation.
+
+        Args:
+            bank_transaction_name: Bank Transaction name
+            journal_entry_name: Journal Entry name (draft state)
+            allocated_amount: Amount to allocate (absolute value)
+        """
+        try:
+            # Get Bank Transaction document
+            bt = frappe.get_doc("Bank Transaction", bank_transaction_name)
+
+            # Check if already linked
+            already_linked = frappe.db.exists(
+                "Bank Transaction Payments",
+                {"parent": bank_transaction_name, "payment_entry": journal_entry_name},
+            )
+
+            if already_linked:
+                self.debug_info.append(f"Bank Transaction {bank_transaction_name} already linked to JE")
+                return
+
+            # Add to Bank Transaction Payments child table
+            bt.append(
+                "payment_entries",
+                {
+                    "payment_document": "Journal Entry",
+                    "payment_entry": journal_entry_name,
+                    "allocated_amount": allocated_amount,
+                },
+            )
+
+            # Update Bank Transaction status and amounts
+            bt.status = "Reconciled"
+            bt.allocated_amount = allocated_amount
+            bt.unallocated_amount = 0.0
+
+            # Save the Bank Transaction
+            bt.save(ignore_permissions=False)
+
+            self.debug_info.append(
+                f"✅ Reconciled Bank Transaction {bank_transaction_name} with Journal Entry {journal_entry_name} "
+                f"(Status: Reconciled, Allocated: {allocated_amount:.2f})"
+            )
+
+        except Exception as e:
+            error_msg = f"Failed to link Bank Transaction to Journal Entry: {str(e)}"
+            self.debug_info.append(f"ERROR: {error_msg}")
+            frappe.log_error(
+                f"Bank Transaction linking to JE failed: {error_msg}",
+                "E-Boekhouden Bank Transaction JE Linking",
+            )
+            raise
+
+    def _update_bank_transaction_party(self, bank_transaction_name: str, party_info: Dict[str, Any]):
+        """
+        Update Bank Transaction with party information when it exists but doesn't have party data.
+
+        Args:
+            bank_transaction_name: Bank Transaction name
+            party_info: Party information from mutation extraction
+        """
+        try:
+            extracted_name = party_info.get("party_name")
+            if not extracted_name:
+                return
+
+            expected_party_type = party_info.get("party_type")
+
+            # Check if auto-create is enabled
+            settings = frappe.get_single("E-Boekhouden Settings")
+            auto_create = settings.get("auto_create_parties_from_bank_transactions", 0)
+
+            party_name = None
+            party_type = None
+
+            if auto_create:
+                # Use BankTransactionParser's find_or_create_party method
+                from verenigingen.e_boekhouden.utils.bank_transaction_parser import BankTransactionParser
+
+                parser = BankTransactionParser()
+
+                # Try to extract IBAN from original description
+                bt = frappe.get_doc("Bank Transaction", bank_transaction_name)
+                iban = None
+                if bt.description:
+                    parsed_desc = parser.parse_description(bt.description)
+                    iban = parsed_desc.get("iban")
+
+                party_name, created_new = parser.find_or_create_party(
+                    extracted_name, expected_party_type, iban
+                )
+
+                if created_new:
+                    self.debug_info.append(
+                        f"✅ Created new {expected_party_type}: '{party_name}' for existing Bank Transaction"
+                    )
+                else:
+                    self.debug_info.append(
+                        f"✅ Matched existing {expected_party_type}: '{party_name}' for existing Bank Transaction"
+                    )
+                party_type = expected_party_type
+            else:
+                # Auto-create disabled - just try to match existing
+                field_name = "customer_name" if expected_party_type == "Customer" else "supplier_name"
+                party_name = frappe.db.get_value(expected_party_type, {field_name: extracted_name}, "name")
+
+                if party_name:
+                    party_type = expected_party_type
+                    self.debug_info.append(
+                        f"✅ Matched party '{extracted_name}' to {party_type}: {party_name} for existing Bank Transaction"
+                    )
+
+            # Update Bank Transaction if we found/created a party
+            if party_name and party_type:
+                frappe.db.set_value(
+                    "Bank Transaction", bank_transaction_name, {"party_type": party_type, "party": party_name}
+                )
+                self.debug_info.append(
+                    f"Updated Bank Transaction {bank_transaction_name} with party: {party_type} - {party_name}"
+                )
+
+        except Exception as e:
+            self.debug_info.append(f"ERROR updating Bank Transaction party: {str(e)}")
+            frappe.log_error(
+                f"Failed to update Bank Transaction party: {str(e)}",
+                "E-Boekhouden Bank Transaction Party Update",
+            )

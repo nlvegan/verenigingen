@@ -27,7 +27,13 @@ class TransactionCoordinator:
     eboekhouden_rest_full_migration.py file by providing a clean interface.
     """
 
-    def __init__(self, company: str, cost_center: Optional[str] = None, mutation_type: Optional[int] = None):
+    def __init__(
+        self,
+        company: str,
+        cost_center: Optional[str] = None,
+        mutation_type: Optional[int] = None,
+        overwrite_existing: bool = False,
+    ):
         """
         Initialize the coordinator with company context.
 
@@ -35,10 +41,12 @@ class TransactionCoordinator:
             company: The ERPNext company name
             cost_center: Optional default cost center
             mutation_type: Optional mutation type to filter processors (for batch imports)
+            overwrite_existing: Whether to delete and recreate existing documents (default: False = update only)
         """
         self.company = company
         self.cost_center = cost_center or self._get_default_cost_center()
         self.mutation_type = mutation_type
+        self.overwrite_existing = overwrite_existing
 
         # Define which processor classes handle which mutation types
         # This allows filtering processors when processing type-specific batches
@@ -87,11 +95,11 @@ class TransactionCoordinator:
         """
         # Create all possible processors
         all_processors = [
-            InvoiceProcessor(self.company, self.cost_center),
-            PaymentProcessor(self.company, self.cost_center),
-            StockProcessor(self.company, self.cost_center),
-            JournalProcessor(self.company, self.cost_center),
-            OpeningBalanceProcessor(self.company, self.cost_center),
+            InvoiceProcessor(self.company, self.cost_center, self.overwrite_existing),
+            PaymentProcessor(self.company, self.cost_center, self.overwrite_existing),
+            StockProcessor(self.company, self.cost_center, self.overwrite_existing),
+            JournalProcessor(self.company, self.cost_center, self.overwrite_existing),
+            OpeningBalanceProcessor(self.company, self.cost_center, self.overwrite_existing),
         ]
 
         # If mutation_type specified, filter to relevant processors only

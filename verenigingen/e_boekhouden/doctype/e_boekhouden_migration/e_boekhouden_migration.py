@@ -2446,7 +2446,9 @@ def import_single_mutation(migration_name, mutation_id, overwrite_existing=True)
         if use_new_processors:
             try:
                 # Try new processor approach
-                coordinator = TransactionCoordinator(company, cost_center)
+                coordinator = TransactionCoordinator(
+                    company, cost_center, overwrite_existing=overwrite_existing
+                )
                 created_doc = coordinator.process_mutation(mutation_data)
 
                 # ALWAYS capture debug info from coordinator, regardless of result

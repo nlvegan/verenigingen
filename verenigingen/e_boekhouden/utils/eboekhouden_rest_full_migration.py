@@ -2331,9 +2331,7 @@ def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
                     # Ensure the account is configured as Receivable type
                     ensure_account_type_is_correct(receivable_account, "Receivable", debug_info)
                     si.debit_to = receivable_account
-                    debug_info.append(
-                        f"Set receivable account from ledger mapping: {receivable_account}"
-                    )
+                    debug_info.append(f"Set receivable account from ledger mapping: {receivable_account}")
         else:
             # Use standard ledger mapping for non-WooCommerce/FactuurSturen invoices
             account_mapping = _resolve_account_mapping(ledger_id, debug_info)
@@ -2342,9 +2340,7 @@ def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
                 # Ensure the account is configured as Receivable type
                 ensure_account_type_is_correct(receivable_account, "Receivable", debug_info)
                 si.debit_to = receivable_account
-                debug_info.append(
-                    f"Set receivable account from ledger mapping: {receivable_account}"
-                )
+                debug_info.append(f"Set receivable account from ledger mapping: {receivable_account}")
             else:
                 debug_info.append(f"WARNING: No account mapping found for ledger ID {ledger_id}")
     else:
@@ -2679,13 +2675,13 @@ def _fetch_and_create_missing_ledger_mapping(ledger_id, company, debug_info):
                 if account_name:
                     # Check if mapping was created by another concurrent call
                     existing = frappe.db.get_value(
-                        "E-Boekhouden Ledger Mapping",
-                        {"ledger_id": str(ledger_id)},
-                        "erpnext_account"
+                        "E-Boekhouden Ledger Mapping", {"ledger_id": str(ledger_id)}, "erpnext_account"
                     )
 
                     if existing:
-                        debug_info.append(f"Mapping already exists (created by concurrent call): {ledger_id} -> {existing}")
+                        debug_info.append(
+                            f"Mapping already exists (created by concurrent call): {ledger_id} -> {existing}"
+                        )
                         return existing
 
                     # Create ledger mapping only if still missing
@@ -2703,9 +2699,7 @@ def _fetch_and_create_missing_ledger_mapping(ledger_id, company, debug_info):
                         # Another process created it between our check and insert
                         debug_info.append(f"Mapping created by concurrent call during insert: {ledger_id}")
                         return frappe.db.get_value(
-                            "E-Boekhouden Ledger Mapping",
-                            {"ledger_id": str(ledger_id)},
-                            "erpnext_account"
+                            "E-Boekhouden Ledger Mapping", {"ledger_id": str(ledger_id)}, "erpnext_account"
                         )
                 else:
                     debug_info.append(f"No account found for ledger code {ledger_code}")
@@ -2893,9 +2887,7 @@ def _create_purchase_invoice(mutation_detail, company, cost_center, debug_info):
             # Ensure the account is configured as Payable type
             ensure_account_type_is_correct(payable_account, "Payable", debug_info)
             pi.credit_to = payable_account
-            debug_info.append(
-                f"Set payable account from ledger mapping: {payable_account}"
-            )
+            debug_info.append(f"Set payable account from ledger mapping: {payable_account}")
         else:
             debug_info.append(f"WARNING: No account mapping found for ledger ID {ledger_id}")
     else:
@@ -3211,7 +3203,9 @@ def _create_money_transfer_payment_entry(mutation, company, cost_center, debug_i
     if rows and len(rows) > 0:
         row_ledger_id = rows[0].get("ledgerId")
         # Get target account from ledger mapping (with auto-create if missing)
-        target_account = get_erpnext_account_from_ledger_id(row_ledger_id, company, debug_info, auto_create=True)
+        target_account = get_erpnext_account_from_ledger_id(
+            row_ledger_id, company, debug_info, auto_create=True
+        )
         if target_account:
             debug_info.append(f"Mapped row ledger {row_ledger_id} to target account: {target_account}")
 
@@ -3412,7 +3406,9 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
                 continue
 
             # Get row account mapping (with auto-create if missing)
-            row_account = get_erpnext_account_from_ledger_id(row_ledger_id, company, debug_info, auto_create=True)
+            row_account = get_erpnext_account_from_ledger_id(
+                row_ledger_id, company, debug_info, auto_create=True
+            )
 
             if not row_account:
                 # Get ledger code instead of ledger ID
@@ -3433,7 +3429,9 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
             # For memorial bookings, create paired entries
             if is_memorial_booking and ledger_id:
                 # Get main account mapping (with auto-create if missing)
-                main_account = get_erpnext_account_from_ledger_id(ledger_id, company, debug_info, auto_create=True)
+                main_account = get_erpnext_account_from_ledger_id(
+                    ledger_id, company, debug_info, auto_create=True
+                )
 
                 if main_account:
                     abs_amount = abs(row_amount)
@@ -3532,7 +3530,9 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
         # (partial refunds, adjustments, timing differences between credit note and refund).
         if mutation_type in [3, 4] and ledger_id and not is_memorial_booking:
             # Get main account mapping (with auto-create if missing)
-            main_account = get_erpnext_account_from_ledger_id(ledger_id, company, debug_info, auto_create=True)
+            main_account = get_erpnext_account_from_ledger_id(
+                ledger_id, company, debug_info, auto_create=True
+            )
 
             if main_account:
                 # Calculate the offsetting amount (opposite of row totals)
@@ -4328,7 +4328,10 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
 
     # PHASE 3: Add Bank Transaction statistics for payment types
     # Only show stats if we actually imported something (skip if all were skipped/existing)
-    if type_name in ["Customer Payments", "Supplier Payments", "Money Received", "Money Paid"] and imported > 0:
+    if (
+        type_name in ["Customer Payments", "Supplier Payments", "Money Received", "Money Paid"]
+        and imported > 0
+    ):
         try:
             # Query Payment Entries created in this batch and check for Bank Transactions
             mutation_ids = [str(m.get("id")) for m in mutations] if mutations else []
@@ -4356,22 +4359,40 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
                     without_bt = total - with_bt
                     success_rate = (with_bt / total * 100) if total > 0 else 0
 
-                    summary_content += f"BANK TRANSACTION STATUS:\n"
-                    summary_content += f"• Payment Entries in batch: {total} (of {len(mutations)} mutations processed)\n"
-                    summary_content += f"  - Newly created: {imported - (len(mutations) - total)}\n"
-                    summary_content += f"  - Previously imported: {skipped if total > imported else min(skipped, total - imported)}\n"
-                    summary_content += f"  - Created as Journal Entry instead: {len(mutations) - total}\n"
-                    summary_content += f"• With Bank Transactions: {with_bt} ({success_rate:.1f}%)\n"
-                    summary_content += f"• WITHOUT Bank Transactions: {without_bt}\n"
-
-                    if without_bt > 0:
+                    # If no Payment Entries were created, show a different message
+                    if total == 0:
+                        summary_content += f"PAYMENT ENTRY STATUS:\n"
                         summary_content += (
-                            f"  ⚠️  WARNING: {without_bt} Payment Entries missing Bank Transactions!\n"
+                            f"• No Payment Entries created ({len(mutations)} mutations processed)\n"
                         )
+                        summary_content += (
+                            f"• All {len(mutations)} mutations created as Journal Entries instead\n"
+                        )
+                        summary_content += (
+                            "  ℹ️  This is expected for type 5/6 (Money Received/Paid) transactions\n"
+                        )
+                        summary_content += "     which are direct bank transfers without invoices.\n\n"
                     else:
-                        summary_content += "  ✓ All Payment Entries have Bank Transactions\n"
+                        # Show detailed breakdown when Payment Entries exist
+                        je_count = len(mutations) - total
+                        summary_content += f"BANK TRANSACTION STATUS:\n"
+                        summary_content += (
+                            f"• Payment Entries in batch: {total} (of {len(mutations)} mutations processed)\n"
+                        )
+                        if je_count > 0:
+                            summary_content += f"  - Created as Payment Entry: {total}\n"
+                            summary_content += f"  - Created as Journal Entry instead: {je_count}\n"
+                        summary_content += f"• With Bank Transactions: {with_bt} ({success_rate:.1f}%)\n"
+                        summary_content += f"• WITHOUT Bank Transactions: {without_bt}\n"
 
-                    summary_content += "\n"
+                        if without_bt > 0:
+                            summary_content += (
+                                f"  ⚠️  WARNING: {without_bt} Payment Entries missing Bank Transactions!\n"
+                            )
+                        else:
+                            summary_content += "  ✓ All Payment Entries have Bank Transactions\n"
+
+                        summary_content += "\n"
         except Exception as bt_stats_error:
             # Don't fail the summary if Bank Transaction stats fail
             summary_content += (

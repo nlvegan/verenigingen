@@ -14,16 +14,18 @@ import frappe
 class BaseTransactionProcessor(ABC):
     """Abstract base class for processing different types of eBoekhouden transactions"""
 
-    def __init__(self, company: str, cost_center: Optional[str] = None):
+    def __init__(self, company: str, cost_center: Optional[str] = None, overwrite_existing: bool = False):
         """
         Initialize the processor with company context
 
         Args:
             company: The ERPNext company name
             cost_center: Optional default cost center
+            overwrite_existing: Whether to delete and recreate existing documents (default: False = update only)
         """
         self.company = company
         self.cost_center = cost_center or self._get_default_cost_center()
+        self.overwrite_existing = overwrite_existing
         self.debug_info = []
 
     def _get_default_cost_center(self) -> Optional[str]:
