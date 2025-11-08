@@ -258,26 +258,14 @@ class TestMemberLifecycleComplete(EnhancedTestCase):
         else:
             user = frappe.get_doc("User", member.email)
         
-        # Create customer record
-        customer_name = f"{member.first_name} {member.last_name}"
-        if not frappe.db.exists("Customer", customer_name):
-            customer = frappe.get_doc({
-                "doctype": "Customer",
-                "customer_name": customer_name,
-                "customer_type": "Individual",
-                "customer_group": frappe.db.get_value("Customer Group", 
-                                                     {"is_group": 0}, "name") or "All Customer Groups",
-                "territory": "All Territories"
-            })
-            customer.insert()
-            self.created_docs.append(("Customer", customer.name))
-            
-            # Link to member
+        # Create customer record using Member's create_customer method
+        # This ensures proper ERPNext account setup with currency
+        if not member.customer:
+            member.create_customer()
             member.reload()
-            member.customer = customer.name
-            member.save()
-        else:
-            customer = frappe.get_doc("Customer", customer_name)
+            self.created_docs.append(("Customer", member.customer))
+
+        customer = frappe.get_doc("Customer", member.customer)
         
         # Verify creation
         self.assertEqual(member.user, user.name)
@@ -310,10 +298,26 @@ class TestMemberLifecycleComplete(EnhancedTestCase):
         
     def _stage_4_process_payment(self, member, membership):
         """Stage 4: Process initial membership payment"""
-        # Create sales invoice
+        # Get company
+        company = frappe.defaults.get_user_default("Company") or frappe.db.get_value("Company", {}, "name")
+
+        # Get default receivables account
+        debit_to = frappe.db.get_value(
+            "Account",
+            {
+                "account_type": "Receivable",
+                "company": company
+            },
+            "name"
+        )
+
+        # Create sales invoice with proper account setup
         invoice = frappe.get_doc({
             "doctype": "Sales Invoice",
             "customer": member.customer,
+            "company": company,
+            "currency": "EUR",
+            "debit_to": debit_to,
             "posting_date": today(),
             "due_date": add_days(today(), 30),
             "items": [{
@@ -323,11 +327,7 @@ class TestMemberLifecycleComplete(EnhancedTestCase):
                 "rate": self.test_env["membership_type"].amount
             }]
         })
-        
-        # Set company if not set
-        if not invoice.company:
-            invoice.company = frappe.defaults.get_user_default("Company") or frappe.db.get_value("Company", {}, "name")
-            
+
         invoice.insert()
         invoice.submit()
         self.created_docs.append(("Sales Invoice", invoice.name))

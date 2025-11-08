@@ -234,7 +234,7 @@ class VereningingenTestCase(FrappeTestCase):
     def _setup_test_mocks(self):
         """Set up mocks for problematic validations during tests"""
         self._active_mocks = []
-        
+
         # Mock Mollie validation that interferes with tests
         mollie_validator_mock = patch(
             'verenigingen.integrations.mollie.utils.data_validator.validate_mollie_customer_data',
@@ -242,7 +242,7 @@ class VereningingenTestCase(FrappeTestCase):
         )
         mollie_validator_mock.start()
         self._active_mocks.append(mollie_validator_mock)
-        
+
         # Mock CSRF validation in test environment
         csrf_mock = patch(
             'verenigingen.utils.security.csrf_protection.CSRFProtection.validate_request',
@@ -250,6 +250,18 @@ class VereningingenTestCase(FrappeTestCase):
         )
         csrf_mock.start()
         self._active_mocks.append(csrf_mock)
+
+        # Mock rate limiting to bypass limits in tests
+        def mock_rate_limit_validation(self, profile, operation_key):
+            """Mock rate limit validation - always passes in tests"""
+            return True
+
+        rate_limit_mock = patch(
+            'verenigingen.utils.security.api_security_framework.APISecurityFramework.validate_rate_limits',
+            mock_rate_limit_validation
+        )
+        rate_limit_mock.start()
+        self._active_mocks.append(rate_limit_mock)
         
     def _cleanup_test_mocks(self):
         """Clean up test mocks"""

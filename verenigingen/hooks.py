@@ -510,10 +510,8 @@ doc_events = {
             "verenigingen.utils.cache_invalidation.on_document_update",
             "verenigingen.utils.performance_event_handlers.on_sepa_mandate_change",  # Safe performance optimization
         ],
-        "on_update": [
-            "verenigingen.utils.cache_invalidation.on_document_update",
-            "verenigingen.utils.performance_event_handlers.on_sepa_mandate_change",  # Safe performance optimization
-        ],
+        # Note: on_update removed - after_save already covers all updates (insert + update)
+        # Having both caused redundant calls (2x rate limit consumption per save)
         "on_submit": "verenigingen.utils.cache_invalidation.on_document_submit",
         "on_cancel": "verenigingen.utils.cache_invalidation.on_document_cancel",
         "on_trash": "verenigingen.utils.cache_invalidation.on_document_update",

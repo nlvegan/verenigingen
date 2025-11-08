@@ -1197,7 +1197,7 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
             "iban": iban,
             "status": status,
             "mandate_reference": f"MNDTEST{random_string(8)}",
-            "signature_date": getdate(),
+            "sign_date": getdate(),
             "mandate_type": "Recurring"
         })
         sepa_mandate.insert()

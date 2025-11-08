@@ -433,7 +433,7 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         sepa_mandate.iban = "NL13TEST0123456789"  # Valid test IBAN
         sepa_mandate.bic = "ABNANL2A"
         sepa_mandate.status = "Active"
-        sepa_mandate.signature_date = today()
+        sepa_mandate.sign_date = today()
         sepa_mandate.save()
         self.track_doc("SEPA Mandate", sepa_mandate.name)
         

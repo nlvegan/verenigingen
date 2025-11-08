@@ -62,18 +62,24 @@ class TestSEPAMandateLifecycle(VereningingenTestCase):
         # 1. Create member with SEPA mandate
         member = self.create_test_member(
             first_name="Dues",
-            last_name="TestMember", 
+            last_name="TestMember",
             email="dues@example.com"
         )
-        
+
         mandate = self.create_test_sepa_mandate(member=member.name)
-        
-        # 2. Create membership dues schedule
-        dues_schedule = self.create_test_membership_dues_schedule(
+
+        # 2. Create membership first (required before dues schedule)
+        membership_type = self.create_test_membership_type()
+        membership = self.create_test_membership(
             member=member.name,
-            payment_method="SEPA Direct Debit",
-            dues_rate=25.00
+            membership_type=membership_type.name
         )
+        membership.submit()  # Must be submitted to become active
+
+        # 3. Get the auto-created dues schedule (created when membership was submitted)
+        dues_schedule_name = membership.get_dues_schedule()
+        self.assertIsNotNone(dues_schedule_name, "Dues schedule should have been created automatically")
+        dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedule_name)
         
         # 3. Verify integration
         self.assertEqual(dues_schedule.member, member.name, 
@@ -192,7 +198,7 @@ class TestSEPAMandateLifecycle(VereningingenTestCase):
         
         mandate2 = self.create_test_sepa_mandate(
             member=member.name,
-            iban="NL91ABNA0417164399"  # Different IBAN
+            iban="NL02ABNA0123456789"  # Different valid IBAN
         )
         
         # 4. Verify both mandates have different patterns

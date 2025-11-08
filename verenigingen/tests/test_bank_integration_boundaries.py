@@ -396,13 +396,13 @@ class TestDutchBankingComplianceIntegration(EnhancedTestCase):
             iban="NL91 ABNA 0417 1643 00",
             mandate_type="RCUR",  # Recurring
             status="active",
-            signature_date=frappe.utils.today()
+            sign_date=frappe.utils.today()
         )
 
         # Verify mandate compliance
         self.assertIsNotNone(mandate.mandate_id)
         self.assertEqual(mandate.status, "active")
-        self.assertIsNotNone(mandate.signature_date)
+        self.assertIsNotNone(mandate.sign_date)
         self.assertTrue(mandate.is_active)
 
         # Test mandate lifecycle - suspension

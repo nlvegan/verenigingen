@@ -129,7 +129,7 @@ class TestMemberWhitelistMethods(VereningingenTestCase):
                 "iban": member.iban,
                 "bank_account_name": member.bank_account_name,
                 "status": "Active",
-                "signature_date": today()}
+                "sign_date": today()}
         )
         mandate.insert()
         self.track_doc("SEPA Mandate", mandate.name)

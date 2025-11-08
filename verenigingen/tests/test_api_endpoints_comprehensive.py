@@ -290,7 +290,7 @@ class TestPaymentProcessingAPIEndpoints(EnhancedTestCase):
             "iban": "NL91ABNA0417164300",
             "account_holder_name": "Payment API Test",
             "bic": "ABNANL2A",
-            "signature_date": today()
+            "sign_date": today()
         }
 
         result = self.call_api_method(
