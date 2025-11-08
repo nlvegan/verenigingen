@@ -695,29 +695,39 @@ class Chapter(Document):
             old_doc: Previous version of the document (for name change detection)
         """
         try:
-            # Check if department exists with current chapter name
-            department_exists = frappe.db.exists("Department", self.name)
+            # Get company first to check for existing department
+            company = frappe.db.get_single_value("Verenigingen Settings", "company")
+            if not company:
+                # Fallback to global default if not set
+                company = frappe.db.get_single_value("Global Defaults", "default_company")
+
+            # Check if department exists with current chapter name and company
+            # Note: Department autoname creates "{department_name} - {company_abbr}",
+            # so we check by department_name field, not by name
+            department_exists = frappe.db.exists(
+                "Department", {"department_name": self.name, "company": company}
+            )
 
             # Map chapter status to department disabled status
             is_disabled = 0 if self.status == "Active" else 1
 
             if department_exists:
                 # Update existing department (rename handled in after_rename hook)
-                dept_doc = frappe.get_doc("Department", self.name)
+                # Get the actual department name (after autoname)
+                actual_dept_name = frappe.db.get_value(
+                    "Department", {"department_name": self.name, "company": company}, "name"
+                )
+                dept_doc = frappe.get_doc("Department", actual_dept_name)
 
                 # Update status if changed
                 if dept_doc.disabled != is_disabled:
                     dept_doc.disabled = is_disabled
                     dept_doc.save(ignore_permissions=True)
-                    frappe.logger().info(f"Updated Department {self.name} disabled status to {is_disabled}")
+                    frappe.logger().info(
+                        f"Updated Department {actual_dept_name} disabled status to {is_disabled}"
+                    )
             else:
-                # Get company from Verenigingen Settings
-                company = frappe.db.get_single_value("Verenigingen Settings", "company")
-                if not company:
-                    # Fallback to global default if not set
-                    company = frappe.db.get_single_value("Global Defaults", "default_company")
-
-                # Create new department
+                # Create new department (company already retrieved above)
                 dept_doc = frappe.get_doc(
                     {
                         "doctype": "Department",

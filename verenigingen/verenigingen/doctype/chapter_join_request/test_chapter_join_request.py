@@ -251,19 +251,20 @@ class TestChapterJoinRequest(EnhancedTestCase):
 
     def test_already_member_validation(self):
         """Test that existing members cannot create duplicate requests"""
-        # TODO: Chapter/Department integration incompatible with test rollback infrastructure
-        # Issue: Chapter.after_insert() creates Department via _sync_department()
-        # Department autoname creates "Chapter Name - CompanyAbbr" (e.g., "Test Chapter - NVV")
-        # Test rollback removes Department but Chapter.department field still references it
-        # Requires architectural fix:
-        #   1. Fix _sync_department() to store actual Department name (after autoname)
-        #   2. Ensure Department persists across test rollbacks OR
-        #   3. Refactor test infrastructure to handle ERPNext master data dependencies
-        # Related: Chapter.py:737 uses self.name instead of dept_doc.name
-        self.skipTest("Chapter/Department integration requires test infrastructure refactor - see TODO")
-
         # First, manually add member to chapter
         chapter = frappe.get_doc("Chapter", self.test_chapter.name)
+        chapter.reload()  # Ensure fresh data
+
+        # Ensure Department sync is up to date (may have been created by previous test)
+        chapter._sync_department()
+
+        # Clear any members from previous tests (no per-method rollback)
+        chapter.members = []
+
+        # Verify member exists before adding
+        if not frappe.db.exists("Member", self.test_member.name):
+            self.fail(f"Test member {self.test_member.name} does not exist")
+
         chapter.append(
             "members",
             {"member": self.test_member.name, "status": "Active", "enabled": 1, "chapter_join_date": today()},
