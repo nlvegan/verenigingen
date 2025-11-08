@@ -338,7 +338,10 @@ class PaymentEntryHandler:
 
             # Ensure fiscal year exists before submission
             try:
-                ensure_fiscal_year_exists(pe.posting_date, self.company, self.debug_info)
+                debug_info = []
+                ensure_fiscal_year_exists(pe.posting_date, self.company, debug_info)
+                for msg in debug_info:
+                    self._log(msg)
             except Exception as fy_error:
                 self._log(f"WARNING: Could not ensure fiscal year: {str(fy_error)}")
                 # Continue anyway - the submit() will give a clearer error message
@@ -1032,8 +1035,8 @@ class PaymentEntryHandler:
 
         Priority order:
         1. Invoice-specific accounts (if invoices found - most reliable)
-        2. API row ledger data (if no invoices)
-        3. Party default accounts (last resort)
+        2. API row ledger data (ONLY for invoice mutations types 1 & 2)
+        3. Party default accounts (fallback for payment mutations types 3 & 4)
         """
         # PRIORITY 1: Use existing invoice accounts if we have matching invoices
         invoice_account = self._get_account_from_matched_invoices(party_type, party)
@@ -1041,8 +1044,20 @@ class PaymentEntryHandler:
             self._log(f"Using matched invoice account: {invoice_account}")
             return invoice_account
 
-        # PRIORITY 2: Fall back to API row ledger data
-        return self._get_party_account_from_api_rows(mutation, party_type, party)
+        # PRIORITY 2: For invoice mutations (types 1 & 2), use API row ledger data
+        # For payment mutations (types 3 & 4), skip API row data as it contains
+        # control accounts (Crediteuren/Debiteuren) which are not valid for Payment Entries
+        mutation_type = mutation.get("type")
+        if mutation_type in [1, 2]:
+            # Invoice mutations - row ledgers contain correct party accounts
+            return self._get_party_account_from_api_rows(mutation, party_type, party)
+        else:
+            # Payment mutations (types 3 & 4) - skip API row data, use party/invoice defaults
+            self._log(
+                f"Payment mutation (type {mutation_type}) - skipping API row ledger, "
+                f"using party/invoice account fallback"
+            )
+            return self._get_party_account_from_api_rows(mutation, party_type, party, skip_api_rows=True)
 
     def _get_account_from_matched_invoices(self, party_type: str, party: str) -> Optional[str]:
         """
@@ -1091,18 +1106,27 @@ class PaymentEntryHandler:
                     return account
         return None
 
-    def _get_party_account_from_api_rows(self, mutation: Dict, party_type: str, party: str) -> str:
+    def _get_party_account_from_api_rows(
+        self, mutation: Dict, party_type: str, party: str, skip_api_rows: bool = False
+    ) -> str:
         """
         Get party account using API row ledger data with intelligent fallbacks.
 
         Priority order:
-        1. API row ledger data
+        1. API row ledger data (only for invoice mutations, skipped for payment mutations)
         2. Party default accounts (fallback)
+
+        Args:
+            mutation: E-Boekhouden mutation data
+            party_type: "Customer" or "Supplier"
+            party: Party name
+            skip_api_rows: If True, skip API row ledger lookup (for payment mutations)
         """
         # PRIORITY 1: Get receivable/payable account from API row ledger data
+        # Skip for payment mutations (types 3 & 4) as they contain control accounts
         rows = mutation.get("rows", [])
 
-        if rows and len(rows) > 0:
+        if not skip_api_rows and rows and len(rows) > 0:
             row_ledger_id = rows[0].get("ledgerId")
             if row_ledger_id:
                 mapping_result = frappe.db.get_value(
@@ -1123,6 +1147,8 @@ class PaymentEntryHandler:
                     return mapping_result
                 else:
                     self._log(f"WARNING: No mapping found for API row ledger {row_ledger_id}")
+        elif skip_api_rows:
+            self._log("Skipping API row ledger lookup (payment mutation)")
 
         # PRIORITY 2: Fall back to existing invoice/party logic only if API data unavailable
         self._log("FALLBACK: API row ledger data not available, using invoice/party lookup")

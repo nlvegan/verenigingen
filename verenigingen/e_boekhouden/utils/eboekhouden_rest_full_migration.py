@@ -2328,19 +2328,39 @@ def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
                 account_mapping = _resolve_account_mapping(ledger_id, debug_info)
                 if account_mapping and account_mapping.get("erpnext_account"):
                     receivable_account = account_mapping["erpnext_account"]
-                    # Ensure the account is configured as Receivable type
-                    ensure_account_type_is_correct(receivable_account, "Receivable", debug_info)
-                    si.debit_to = receivable_account
-                    debug_info.append(f"Set receivable account from ledger mapping: {receivable_account}")
+
+                    # Check if this is a group/control account (not allowed in invoices/payments)
+                    is_group = frappe.db.get_value("Account", receivable_account, "is_group")
+
+                    if is_group:
+                        debug_info.append(
+                            f"WARNING: Ledger {ledger_id} maps to group/control account '{receivable_account}'. "
+                            f"Cannot use control accounts in invoices - will use party default receivable account instead."
+                        )
+                    else:
+                        # Ensure the account is configured as Receivable type
+                        ensure_account_type_is_correct(receivable_account, "Receivable", debug_info)
+                        si.debit_to = receivable_account
+                        debug_info.append(f"Set receivable account from ledger mapping: {receivable_account}")
         else:
             # Use standard ledger mapping for non-WooCommerce/FactuurSturen invoices
             account_mapping = _resolve_account_mapping(ledger_id, debug_info)
             if account_mapping and account_mapping.get("erpnext_account"):
                 receivable_account = account_mapping["erpnext_account"]
-                # Ensure the account is configured as Receivable type
-                ensure_account_type_is_correct(receivable_account, "Receivable", debug_info)
-                si.debit_to = receivable_account
-                debug_info.append(f"Set receivable account from ledger mapping: {receivable_account}")
+
+                # Check if this is a group/control account (not allowed in invoices/payments)
+                is_group = frappe.db.get_value("Account", receivable_account, "is_group")
+
+                if is_group:
+                    debug_info.append(
+                        f"WARNING: Ledger {ledger_id} maps to group/control account '{receivable_account}'. "
+                        f"Cannot use control accounts in invoices - will use party default receivable account instead."
+                    )
+                else:
+                    # Ensure the account is configured as Receivable type
+                    ensure_account_type_is_correct(receivable_account, "Receivable", debug_info)
+                    si.debit_to = receivable_account
+                    debug_info.append(f"Set receivable account from ledger mapping: {receivable_account}")
             else:
                 debug_info.append(f"WARNING: No account mapping found for ledger ID {ledger_id}")
     else:
@@ -2884,10 +2904,20 @@ def _create_purchase_invoice(mutation_detail, company, cost_center, debug_info):
         account_mapping = _resolve_account_mapping(ledger_id, debug_info)
         if account_mapping and account_mapping.get("erpnext_account"):
             payable_account = account_mapping["erpnext_account"]
-            # Ensure the account is configured as Payable type
-            ensure_account_type_is_correct(payable_account, "Payable", debug_info)
-            pi.credit_to = payable_account
-            debug_info.append(f"Set payable account from ledger mapping: {payable_account}")
+
+            # Check if this is a group/control account (not allowed in invoices/payments)
+            is_group = frappe.db.get_value("Account", payable_account, "is_group")
+
+            if is_group:
+                debug_info.append(
+                    f"WARNING: Ledger {ledger_id} maps to group/control account '{payable_account}'. "
+                    f"Cannot use control accounts in invoices - will use party default payable account instead."
+                )
+            else:
+                # Ensure the account is configured as Payable type
+                ensure_account_type_is_correct(payable_account, "Payable", debug_info)
+                pi.credit_to = payable_account
+                debug_info.append(f"Set payable account from ledger mapping: {payable_account}")
         else:
             debug_info.append(f"WARNING: No account mapping found for ledger ID {ledger_id}")
     else:

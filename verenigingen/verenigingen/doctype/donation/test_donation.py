@@ -28,6 +28,14 @@ class TestDonation(EnhancedTestCase):
         """Set up test data using Enhanced Test Factory properly"""
         super().setUp()
 
+        # Get any existing company or use default
+        companies = frappe.get_all("Company", limit=1)
+        if companies:
+            self.test_company = companies[0].name
+        else:
+            # Fallback to a simple company name that tests can use
+            self.test_company = "_Test Company"
+
         # Create test donor using proper schema understanding
         self.test_donor = self.create_test_donor()
 
@@ -66,7 +74,7 @@ class TestDonation(EnhancedTestCase):
             donation.donor = self.test_donor.name
             donation.amount = 100
             donation.donation_date = frappe.utils.today()
-            donation.company = "_Test Company"
+            donation.company = self.test_company
 
             # The mode_of_payment field is required per new schema
             if not frappe.db.exists("Mode of Payment", "Test Payment"):
@@ -110,7 +118,7 @@ class TestDonation(EnhancedTestCase):
             donation.donor = self.test_donor.name
             donation.amount = 100
             donation.donation_date = frappe.utils.today()
-            donation.company = "_Test Company"
+            donation.company = self.test_company
             donation.mode_of_payment = "Test Payment"
             donation.donation_agreement = agreement.name  # New linking field
             donation.insert()
@@ -130,7 +138,7 @@ class TestDonation(EnhancedTestCase):
         try:
             settings = frappe.get_doc("Verenigingen Settings")
             if settings:
-                settings.company = "_Test Company"
+                settings.company = self.test_company
                 settings.save()
         except frappe.DoesNotExistError:
             # Settings don't exist, that's fine for basic tests
