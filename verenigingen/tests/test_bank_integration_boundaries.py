@@ -593,7 +593,7 @@ class TestBankReconciliationReporting(EnhancedTestCase):
         payment.submit()
 
         # Generate reconciliation report
-        from verenigingen.reports.bank_reconciliation_report import execute
+        from verenigingen.reports.bank_reconciliation_report.bank_reconciliation_report import execute
 
         filters = {
             "company": self.test_company,

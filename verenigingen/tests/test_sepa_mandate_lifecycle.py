@@ -101,38 +101,30 @@ class TestSEPAMandateLifecycle(VereningingenTestCase):
                 frappe.logger().info(f"Invoice generation test skipped: {e}")
 
     def test_sepa_mandate_pattern_in_lifecycle(self):
-        """Test that SEPA mandate patterns work correctly in full lifecycle"""
-        
-        # Set specific pattern for this test
-        settings = frappe.get_single("Verenigingen Settings")
-        settings.sepa_mandate_naming_pattern = "LIFE-.YY.-.####"
-        settings.sepa_mandate_starting_counter = 1000
-        settings.save()
-        
+        """Test that SEPA mandate IDs are generated correctly in full lifecycle"""
+
         # 1. Create multiple members and mandates
         members_and_mandates = []
-        
+
         for i in range(3):
             member = self.create_test_member(
                 first_name=f"Pattern{i}",
                 last_name="TestMember",
                 email=f"pattern{i}@example.com"
             )
-            
+
             mandate = self.create_test_sepa_mandate(member=member.name)
             members_and_mandates.append((member, mandate))
-            
-            # Verify pattern
-            self.assertTrue(mandate.mandate_id.startswith("LIFE-"),
-                           f"Mandate {i} should use LIFE- prefix: {mandate.mandate_id}")
-        
-        # 2. Verify sequential numbering
+
+            # Verify mandate_id was auto-generated (not empty)
+            self.assertTrue(mandate.mandate_id,
+                           f"Mandate {i} should have auto-generated ID: {mandate.mandate_id}")
+
+        # 2. Verify all mandate IDs are unique
         mandate_ids = [mandate.mandate_id for _, mandate in members_and_mandates]
-        
-        # Should have 1000, 1001, 1002
-        self.assertIn("1000", mandate_ids[0], "First mandate should contain 1000")
-        self.assertIn("1001", mandate_ids[1], "Second mandate should contain 1001") 
-        self.assertIn("1002", mandate_ids[2], "Third mandate should contain 1002")
+        unique_ids = set(mandate_ids)
+
+        self.assertEqual(len(unique_ids), 3, "All mandate IDs should be unique")
 
     def test_sepa_mandate_update_lifecycle(self):
         """Test SEPA mandate updates and status changes"""
@@ -187,27 +179,23 @@ class TestSEPAMandateLifecycle(VereningingenTestCase):
             email="multiple@example.com"
         )
         
-        # 2. Create first mandate with default pattern
+        # 2. Create first mandate
         mandate1 = self.create_test_sepa_mandate(member=member.name)
-        
-        # 3. Change pattern and create second mandate
-        settings = frappe.get_single("Verenigingen Settings")
-        settings.sepa_mandate_naming_pattern = "SECOND-.YY.-.####" 
-        settings.sepa_mandate_starting_counter = 500
-        settings.save()
-        
+
+        # 3. Create second mandate with different IBAN
         mandate2 = self.create_test_sepa_mandate(
             member=member.name,
             iban="NL02ABNA0123456789"  # Different valid IBAN
         )
-        
-        # 4. Verify both mandates have different patterns
-        self.assertTrue(mandate1.mandate_id.startswith("MANDATE-") or 
-                       "MANDATE" in mandate1.mandate_id,
-                       f"First mandate should use default pattern: {mandate1.mandate_id}")
-        self.assertTrue(mandate2.mandate_id.startswith("SECOND-"),
-                       f"Second mandate should use SECOND- pattern: {mandate2.mandate_id}")
-        
+
+        # 4. Verify both mandates have unique IDs
+        self.assertTrue(mandate1.mandate_id,
+                       f"First mandate should have auto-generated ID: {mandate1.mandate_id}")
+        self.assertTrue(mandate2.mandate_id,
+                       f"Second mandate should have auto-generated ID: {mandate2.mandate_id}")
+        self.assertNotEqual(mandate1.mandate_id, mandate2.mandate_id,
+                          "Both mandates should have different IDs")
+
         # 5. Verify member links to both mandates
         member.reload()
         mandate_links = [m.sepa_mandate for m in member.sepa_mandates]

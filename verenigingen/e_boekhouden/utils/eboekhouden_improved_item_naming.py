@@ -6,6 +6,38 @@ import frappe
 from frappe.utils import flt
 
 
+def _ensure_item_group_exists(item_group_name):
+    """
+    Ensure an Item Group exists, creating it if necessary.
+
+    Args:
+        item_group_name: Name of the item group to ensure exists
+
+    Returns:
+        The item group name if it exists/was created, or "Services" as fallback
+    """
+    if not item_group_name:
+        return "Services"
+
+    # Check if it already exists
+    if frappe.db.exists("Item Group", item_group_name):
+        return item_group_name
+
+    # Create the item group
+    try:
+        item_group = frappe.new_doc("Item Group")
+        item_group.item_group_name = item_group_name
+        item_group.parent_item_group = "All Item Groups"  # Standard parent
+        item_group.is_group = 0  # Leaf node, not a group
+        item_group.insert(ignore_permissions=True)
+        frappe.logger().info(f"Created missing Item Group: {item_group_name}")
+        return item_group_name
+    except Exception as e:
+        frappe.logger().warning(f"Could not create Item Group '{item_group_name}': {str(e)}. Using 'Services' instead.")
+        # Fall back to "Services" which should always exist
+        return "Services"
+
+
 def map_unit_of_measure(unit):
     """Map Dutch units to ERPNext UOMs"""
     uom_mapping = {
@@ -179,13 +211,43 @@ def get_or_create_item_improved(
         frappe.logger().debug(f"No item mapping found for account {account_code}: {str(e)}")
 
     # If no mapping, create item based on account information
+    # First, check if account_code is actually a ledger ID that needs mapping
     try:
-        account_info = frappe.db.get_value(
-            "Account",
-            {"account_number": account_code, "company": company},
-            ["account_name", "account_type", "root_type"],
-            as_dict=True,
-        )
+        # Try to get ledger mapping if account_code looks like a ledger ID (numeric and > 1000000)
+        if account_code and str(account_code).isdigit() and int(account_code) > 1000000:
+            # This looks like a ledger ID, try to get the mapping
+            from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
+                _fetch_and_create_missing_ledger_mapping,
+            )
+
+            debug_info = []
+            try:
+                _fetch_and_create_missing_ledger_mapping(str(account_code), company, debug_info)
+                frappe.logger().info(f"Auto-created ledger mapping for ledger ID {account_code}: {debug_info}")
+            except Exception as map_err:
+                frappe.logger().warning(
+                    f"Could not auto-create ledger mapping for {account_code}: {str(map_err)}"
+                )
+
+            # Now try to get the ERPNext account from the mapping
+            ledger_mapping = frappe.db.get_value(
+                "E-Boekhouden Ledger Mapping", {"ledger_id": str(account_code)}, "erpnext_account"
+            )
+            if ledger_mapping:
+                # Use the mapped account for lookup
+                account_info = frappe.db.get_value(
+                    "Account", ledger_mapping, ["account_name", "account_type", "root_type"], as_dict=True
+                )
+            else:
+                account_info = None
+        else:
+            # Regular account code lookup by account_number
+            account_info = frappe.db.get_value(
+                "Account",
+                {"account_number": account_code, "company": company},
+                ["account_name", "account_type", "root_type"],
+                as_dict=True,
+            )
     except Exception as e:
         frappe.log_error(
             title="E-Boekhouden Item Creation: Account Lookup Failed",
@@ -251,6 +313,9 @@ def get_or_create_item_improved(
 
     # Step 5: Smart item group determination
     item_group = determine_smart_item_group(description, btw_code, account_code, price, account_info)
+
+    # Ensure the item group exists before using it
+    item_group = _ensure_item_group_exists(item_group)
 
     # Create new item with enhanced categorization
     try:

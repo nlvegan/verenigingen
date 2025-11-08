@@ -64,6 +64,41 @@ def get_full_last_name(last_name, tussenvoegsel=None):
     return f"{tussenvoegsel} {last_name}".strip()
 
 
+def get_sort_name(first_name, tussenvoegsel=None, last_name=None):
+    """
+    Generate sorting name for Dutch names following Dutch alphabetization rules.
+
+    Dutch names are sorted by surname without tussenvoegsel, with tussenvoegsel
+    appearing after the first name.
+
+    Examples:
+        - "Jan van der Berg" → "Berg, Jan van der"
+        - "Anna ter Beek" → "Beek, Anna ter"
+        - "Maria de Jong" → "Jong, Maria de"
+        - "Piet Jansen" (no tussenvoegsel) → "Jansen, Piet"
+
+    Args:
+        first_name: First name
+        tussenvoegsel: Dutch name particle (van, de, ter, etc.)
+        last_name: Surname (without tussenvoegsel)
+
+    Returns:
+        Formatted sort name string
+    """
+    if not last_name:
+        return first_name or ""
+
+    if not first_name:
+        return get_full_last_name(last_name, tussenvoegsel)
+
+    # If tussenvoegsel exists, sort by bare last name with tussenvoegsel after first name
+    if tussenvoegsel and tussenvoegsel.strip():
+        return f"{last_name}, {first_name} {tussenvoegsel.strip()}"
+
+    # No tussenvoegsel: simple "Last, First" format
+    return f"{last_name}, {first_name}"
+
+
 @frappe.whitelist()
 def format_dutch_full_name(first_name, middle_name=None, tussenvoegsel=None, last_name=None):
     """
