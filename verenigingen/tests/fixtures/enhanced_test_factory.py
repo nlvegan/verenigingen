@@ -2633,7 +2633,29 @@ class EnhancedTestCase(FrappeTestCase):
                         frappe.logger().warning(f"Failed to create fiscal year {fy_name}: {fy_error}")
             
             # Don't set default fiscal year on company - ERPNext handles this automatically
-                
+
+            # Ensure Department infrastructure for Chapter/Department integration
+            # Chapter.after_insert() calls _sync_department() which requires:
+            # 1. Company (already ensured above)
+            # 2. Parent department "All Departments" (ERPNext default root)
+            test_company = self._get_test_company()
+            if test_company:
+                parent_dept_name = "All Departments"
+                if not frappe.db.exists("Department", parent_dept_name):
+                    try:
+                        parent_dept = frappe.get_doc({
+                            "doctype": "Department",
+                            "department_name": parent_dept_name,
+                            "is_group": 1,  # Root department is a group
+                            "parent_department": None,  # Root has no parent
+                            "company": test_company
+                        })
+                        parent_dept.insert()
+                        self.factory.track_document("Department", parent_dept.name, priority=1)
+                        frappe.logger().info(f"Created parent department: {parent_dept_name}")
+                    except Exception as dept_error:
+                        frappe.logger().warning(f"Failed to create parent department {parent_dept_name}: {dept_error}")
+
             # Ensure default donation type exists
             if not frappe.db.exists("Donation Type", "General"):
                 donation_type = frappe.get_doc({

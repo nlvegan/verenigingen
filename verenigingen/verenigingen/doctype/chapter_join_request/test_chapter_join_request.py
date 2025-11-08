@@ -251,10 +251,16 @@ class TestChapterJoinRequest(EnhancedTestCase):
 
     def test_already_member_validation(self):
         """Test that existing members cannot create duplicate requests"""
-        # TODO: This test requires complex ERPNext Department setup
-        # Chapter.save() fails with LinkValidationError: Could not find Department
-        # Same issue as other Chapter-related tests - needs investigation of Chapter/Department setup
-        self.skipTest("Complex ERPNext Department setup required for Chapter.save()")
+        # TODO: Chapter/Department integration incompatible with test rollback infrastructure
+        # Issue: Chapter.after_insert() creates Department via _sync_department()
+        # Department autoname creates "Chapter Name - CompanyAbbr" (e.g., "Test Chapter - NVV")
+        # Test rollback removes Department but Chapter.department field still references it
+        # Requires architectural fix:
+        #   1. Fix _sync_department() to store actual Department name (after autoname)
+        #   2. Ensure Department persists across test rollbacks OR
+        #   3. Refactor test infrastructure to handle ERPNext master data dependencies
+        # Related: Chapter.py:737 uses self.name instead of dept_doc.name
+        self.skipTest("Chapter/Department integration requires test infrastructure refactor - see TODO")
 
         # First, manually add member to chapter
         chapter = frappe.get_doc("Chapter", self.test_chapter.name)

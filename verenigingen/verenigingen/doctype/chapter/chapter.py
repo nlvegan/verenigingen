@@ -729,12 +729,22 @@ class Chapter(Document):
                 )
                 dept_doc.insert(ignore_permissions=True)
                 frappe.logger().info(
-                    f"Created Department {self.name} for chapter (disabled={is_disabled}, company={company})"
+                    f"Created Department {dept_doc.name} for chapter {self.name} (disabled={is_disabled}, company={company})"
                 )
 
             # Update the chapter's department field to show the link
-            if self.department != self.name:
-                frappe.db.set_value("Chapter", self.name, "department", self.name, update_modified=False)
+            # Get the actual department name (after autoname, e.g., "Test Chapter - TC")
+            if department_exists:
+                actual_dept_name = frappe.db.get_value(
+                    "Department", {"department_name": self.name, "company": company}, "name"
+                )
+            else:
+                actual_dept_name = dept_doc.name  # Just created, use the autoname'd name
+
+            if actual_dept_name and self.department != actual_dept_name:
+                frappe.db.set_value(
+                    "Chapter", self.name, "department", actual_dept_name, update_modified=False
+                )
 
         except Exception as e:
             # Don't block chapter save if department sync fails
