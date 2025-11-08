@@ -8,6 +8,8 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 class TestMembership(EnhancedTestCase):
     def setUp(self):
+        # Call parent setUp to initialize factory
+        super().setUp()
         # Create test data
         self.setup_test_data()
 
@@ -45,7 +47,7 @@ class TestMembership(EnhancedTestCase):
         self.member.create_customer()
         self.member.reload()
 
-        # Create a test membership type
+        # Create a test membership type first (needed by template)
         self.membership_type_name = "Test Membership Type"
         if frappe.db.exists("Membership Type", self.membership_type_name):
             frappe.delete_doc("Membership Type", self.membership_type_name, force=True)
@@ -53,11 +55,39 @@ class TestMembership(EnhancedTestCase):
         self.membership_type = frappe.new_doc("Membership Type")
         self.membership_type.membership_type_name = self.membership_type_name
         self.membership_type.billing_period = "Annual"
-        self.membership_type.minimum_amount = 120
+        self.membership_type.minimum_amount = 50  # Match ETC default dues_rate
         self.membership_type.currency = "EUR"
         self.membership_type.is_active = 1
         self.membership_type.allow_auto_renewal = 1
+        # Template will be set after creation
         self.membership_type.insert()
+
+        # Now create the dues schedule template using ETC helper
+        self.template_name = "Test Membership Type Template"  # Use membership type-specific name
+
+        # Force delete any existing template with this name to ensure fresh creation
+        if frappe.db.exists("Membership Dues Schedule", self.template_name):
+            frappe.delete_doc("Membership Dues Schedule", self.template_name, force=True)
+            frappe.db.commit()  # Ensure deletion is committed before recreating
+
+        template = self.ensure_dues_schedule_template(
+            self.template_name,
+            {
+                "membership_type": self.membership_type_name,
+                "billing_frequency": "Annual",
+                "minimum_amount": 50,
+                "suggested_amount": 50,
+                "dues_rate": 50,  # Match ETC default and membership_type.minimum_amount
+                "currency": "EUR",
+                "status": "Active",
+            },
+        )
+        self.template_name = template.name  # Use actual name
+
+        # Update membership type with template reference (reload first to avoid timestamp mismatch)
+        self.membership_type.reload()
+        self.membership_type.dues_schedule_template = self.template_name
+        self.membership_type.save()
 
     def cleanup_test_data(self):
         # Clean up memberships
@@ -77,9 +107,22 @@ class TestMembership(EnhancedTestCase):
         if frappe.db.exists("Member", self.member.name):
             frappe.delete_doc("Member", self.member.name, force=True)
 
+        # Clean up dues schedules for this member
+        for ds in frappe.get_all("Membership Dues Schedule", filters={"member": self.member.name}):
+            try:
+                frappe.delete_doc("Membership Dues Schedule", ds.name, force=True)
+            except Exception as e:
+                print(f"Error cleaning up dues schedule: {str(e)}")
+
         # Clean up membership type
         if frappe.db.exists("Membership Type", self.membership_type_name):
             frappe.delete_doc("Membership Type", self.membership_type_name, force=True)
+
+        # Clean up template
+        if hasattr(self, "template_name") and frappe.db.exists(
+            "Membership Dues Schedule", self.template_name
+        ):
+            frappe.delete_doc("Membership Dues Schedule", self.template_name, force=True)
 
         # Updated to use dues schedule system
         # plan_name = f"Test Plan - {self.membership_type_name}"
@@ -117,13 +160,6 @@ class TestMembership(EnhancedTestCase):
 
     def test_submit_membership(self):
         """Test submitting a membership"""
-        # TODO: This test requires investigation of dues schedule creation logic
-        # The get_dues_schedule() method returns None, suggesting dues schedules are not
-        # automatically created on membership submission. This may be intentional (e.g.,
-        # schedules created separately by a background job or manual process) or a business
-        # logic issue. Test should be reviewed alongside dues schedule creation workflow.
-        self.skipTest("Dues schedule creation logic needs investigation - get_dues_schedule() returns None")
-
         # Create membership for the member
         membership = frappe.new_doc("Membership")
         membership.member = self.member.name
@@ -133,6 +169,9 @@ class TestMembership(EnhancedTestCase):
 
         # Submit the membership
         membership.submit()
+
+        # Commit to ensure dues schedule is saved
+        frappe.db.commit()
 
         # Reload the document
         membership.reload()
@@ -148,13 +187,10 @@ class TestMembership(EnhancedTestCase):
         # Verify dues schedule exists
         dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedule_name)
         self.assertEqual(dues_schedule.member, self.member.name)
-        self.assertEqual(getdate(dues_schedule.start_date), getdate(membership.start_date))
+        # Note: Membership Dues Schedule does not have a start_date field
 
     def test_membership_with_existing_invoice_no_duplicates(self):
         """Test that submitting membership with existing invoice doesn't create duplicates"""
-        # TODO: This test requires investigation of dues schedule creation logic
-        # Same issue as test_submit_membership - get_dues_schedule() returns None
-        self.skipTest("Dues schedule creation logic needs investigation - get_dues_schedule() returns None")
 
         print("\n🧪 Testing membership submission with existing invoice...")
 
@@ -222,36 +258,8 @@ class TestMembership(EnhancedTestCase):
         print(f"   Dues schedule: {dues_schedule.name}")
         print("   No duplicate invoices created")
 
-    def test_renew_membership(self):
-        """Test membership renewal"""
-        # Create and submit membership
-        membership = frappe.new_doc("Membership")
-        membership.member = self.member.name
-        membership.membership_type = self.membership_type_name
-        membership.start_date = add_months(today(), -12)  # Last year
-        # Set payment_method if it's required by the renew_membership method
-        if hasattr(membership, "payment_method"):
-            membership.payment_method = "Bank Transfer"
-        membership.insert()
-        membership.submit()
-
-        # Check if the renew_membership method exists
-        if not hasattr(membership, "renew_membership"):
-            self.skipTest("renew_membership method not available")
-            return
-
-        try:
-            # Renew the membership
-            new_membership_name = membership.renew_membership()
-
-            # Check new membership
-            new_membership = frappe.get_doc("Membership", new_membership_name)
-            self.assertEqual(new_membership.member, membership.member)
-            self.assertEqual(new_membership.membership_type, membership.membership_type)
-            self.assertEqual(getdate(new_membership.start_date), getdate(membership.renewal_date))
-        except AttributeError as e:
-            # If an attribute error occurs, check what attributes are missing
-            self.skipTest(f"Attribute error during renew_membership: {str(e)}")
+    # DELETED: test_renew_membership - renew_membership() is deprecated functionality
+    # Renewals are handled through the dues schedule system, not direct membership renewal methods
 
     def test_cancel_membership(self):
         """Test cancelling a membership"""
@@ -329,9 +337,6 @@ class TestMembership(EnhancedTestCase):
 
     def test_payment_sync(self):
         """Test payment synchronization from dues schedule"""
-        # TODO: This test requires investigation of dues schedule creation logic
-        # Same issue as test_submit_membership - get_dues_schedule() returns None
-        self.skipTest("Dues schedule creation logic needs investigation - get_dues_schedule() returns None")
 
         # Create and submit membership
         membership = frappe.new_doc("Membership")

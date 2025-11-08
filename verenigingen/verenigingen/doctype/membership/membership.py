@@ -294,7 +294,8 @@ class Membership(Document):
             return None
 
         repo = DuesScheduleRepository()
-        schedule_info = repo.get_active_schedule(self.member, fields=["name"])
+        # Don't pass fields param - get full object with all financial fields
+        schedule_info = repo.get_active_schedule(self.member)
         return schedule_info.name if schedule_info else None
 
     def validate_existing_memberships(self):
