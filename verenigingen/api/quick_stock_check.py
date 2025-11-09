@@ -17,7 +17,7 @@ from verenigingen.utils.security.rate_limiting import rate_limit
 
 
 @frappe.whitelist()
-@rate_limit(calls=10, period=60)  # 10 calls per minute
+@rate_limit("stock_check")  # Correct signature: operation name only
 @require_role(["System Manager", "Accounts Manager", "Verenigingen Administrator"])
 @validate_csrf_token
 def find_stock_account_mutations():

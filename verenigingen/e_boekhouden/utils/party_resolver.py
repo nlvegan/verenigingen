@@ -233,9 +233,30 @@ class EBoekhoudenPartyResolver:
         customer.customer_group = "All Customer Groups"
         customer.territory = "All Territories"
 
+        # Check if a customer with this name already exists (different relation)
+        # This handles cases where same person/company has multiple relation IDs
+        proposed_name = customer_name[:140]  # ERPNext name field limit
+        existing_with_name = frappe.db.exists("Customer", proposed_name)
+
+        if existing_with_name:
+            # Check if it's the same relation but somehow missed in the earlier check
+            existing_relation_code = frappe.db.get_value(
+                "Customer", proposed_name, "eboekhouden_relation_code"
+            )
+            if existing_relation_code == str(relation_details["id"]):
+                # It's the same customer, return it instead of creating duplicate
+                debug_info.append(f"Customer {proposed_name} already exists with same relation code")
+                return proposed_name
+            else:
+                # Different relation, make name unique by appending relation ID
+                proposed_name = f"{customer_name[:120]} ({relation_details['id']})"
+                debug_info.append(
+                    f"Customer name '{customer_name}' exists with different relation, using unique name: {proposed_name}"
+                )
+
         # Force the document name to use the customer name instead of auto-generated ID
         # This prevents "E-Boekhouden Relation 123" showing in UI
-        customer.name = customer_name[:140]  # ERPNext name field limit
+        customer.name = proposed_name
 
         # Store relation ID for future matching
         customer.eboekhouden_relation_code = str(relation_details["id"])
@@ -366,9 +387,30 @@ class EBoekhoudenPartyResolver:
         supplier.supplier_type = supplier_type
         supplier.supplier_group = "All Supplier Groups"
 
+        # Check if a supplier with this name already exists (different relation)
+        # This handles cases where same person/company has multiple relation IDs
+        proposed_name = supplier_name[:140]  # ERPNext name field limit
+        existing_with_name = frappe.db.exists("Supplier", proposed_name)
+
+        if existing_with_name:
+            # Check if it's the same relation but somehow missed in the earlier check
+            existing_relation_code = frappe.db.get_value(
+                "Supplier", proposed_name, "eboekhouden_relation_code"
+            )
+            if existing_relation_code == str(relation_details["id"]):
+                # It's the same supplier, return it instead of creating duplicate
+                debug_info.append(f"Supplier {proposed_name} already exists with same relation code")
+                return proposed_name
+            else:
+                # Different relation, make name unique by appending relation ID
+                proposed_name = f"{supplier_name[:120]} ({relation_details['id']})"
+                debug_info.append(
+                    f"Supplier name '{supplier_name}' exists with different relation, using unique name: {proposed_name}"
+                )
+
         # Force the document name to use the supplier name instead of auto-generated ID
         # This prevents "E-Boekhouden Relation 123" showing in UI
-        supplier.name = supplier_name[:140]  # ERPNext name field limit
+        supplier.name = proposed_name
 
         # Store relation ID
         supplier.eboekhouden_relation_code = str(relation_details["id"])

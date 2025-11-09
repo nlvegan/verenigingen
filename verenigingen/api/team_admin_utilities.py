@@ -14,7 +14,7 @@ from verenigingen.utils.validation.api_validators import require_roles
 
 
 @frappe.whitelist()
-@critical_api(operation_type=OperationType.ADMINISTRATIVE)
+@critical_api(operation_type=OperationType.ADMIN)  # Fixed: ADMIN not ADMINISTRATIVE
 @handle_api_error
 @require_roles(["System Manager", "Verenigingen Administrator"])
 def fix_all_missing_assignment_history():
