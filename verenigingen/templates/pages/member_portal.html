@@ -413,6 +413,20 @@
                             </div>
                         </a>
 
+                        {% if is_board_member %}
+                        <a href="/chapter_dashboard" class="portal-link-card">
+                            <div class="flex items-center">
+                                <div class="portal-link-icon">
+                                    <i class="fa fa-dashboard text-warning-600"></i>
+                                </div>
+                                <div class="flex-1">
+                                    <div class="portal-link-title">{{ _("Chapter Dashboard") }}</div>
+                                    <div class="portal-link-description">{{ _("Manage your chapter board responsibilities") }}</div>
+                                </div>
+                            </div>
+                        </a>
+                        {% endif %}
+
                         {% if user_teams %}
                         <a href="/my_teams" class="portal-link-card">
                             <div class="flex items-center">

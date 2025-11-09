@@ -113,6 +113,9 @@ def get_context(context):
     # Get quick actions based on member status
     context.quick_actions = get_quick_actions(context.member, membership, context.volunteer)
 
+    # Check if user is a board member of any chapter
+    context.is_board_member = is_user_board_member()
+
     return context
 
 
@@ -538,3 +541,41 @@ def get_user_teams(volunteer_name):
     )
 
     return teams
+
+
+def is_user_board_member():
+    """Check if current user is a board member of any chapter"""
+    from verenigingen.utils.constants import Roles
+
+    user_email = frappe.session.user
+
+    # Admin users have board access
+    admin_roles = [Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN]
+    if any(role in frappe.get_roles() for role in admin_roles):
+        return True
+
+    # Find member record for current user
+    member = frappe.db.get_value("Member", {"email": user_email}, "name")
+    if not member:
+        return False
+
+    # Get volunteer record
+    volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")
+    if not volunteer:
+        return False
+
+    # Check if volunteer is on any chapter board
+    board_positions = frappe.db.sql(
+        """
+        SELECT COUNT(*) as count
+        FROM `tabChapter Board Member` cbm
+        INNER JOIN `tabChapter` c ON c.name = cbm.parent
+        WHERE cbm.volunteer = %(volunteer)s
+        AND cbm.is_active = 1
+        AND cbm.parenttype = 'Chapter'
+    """,
+        {"volunteer": volunteer},
+        as_dict=True,
+    )
+
+    return board_positions and board_positions[0].count > 0
