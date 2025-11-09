@@ -123,9 +123,9 @@
    "description": "Role profile assigned to all board members (unless overridden by role-specific configuration)",
    "fieldname": "default_board_role_profile",
    "fieldtype": "Link",
+   "ignore_user_permissions": 1,
    "label": "Default Board Role Profile",
-   "options": "Role Profile",
-   "ignore_user_permissions": 1
+   "options": "Role Profile"
   },
   {
    "default": "0",
@@ -216,7 +216,7 @@
   }
  ],
  "links": [],
- "modified": "2025-11-03 10:27:49.344083",
+ "modified": "2025-11-09 18:08:44.255375",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Chapter",
@@ -233,12 +233,6 @@
    "report": 1,
    "role": "Verenigingen Administrator",
    "share": 1,
-   "write": 1
-  },
-  {
-   "permlevel": 1,
-   "read": 1,
-   "role": "Verenigingen Administrator",
    "write": 1
   },
   {

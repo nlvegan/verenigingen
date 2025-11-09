@@ -12,6 +12,60 @@ from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 
+def get_filters():
+    """Define available filters for the report"""
+    return [
+        {
+            "fieldname": "chapter",
+            "label": _("Chapter"),
+            "fieldtype": "Link",
+            "options": "Chapter",
+            "width": 150,
+        },
+        {
+            "fieldname": "member",
+            "label": _("Member"),
+            "fieldtype": "Link",
+            "options": "Member",
+            "width": 150,
+        },
+        {
+            "fieldname": "from_date",
+            "label": _("From Date"),
+            "fieldtype": "Date",
+            "default": add_days(today(), -365),
+        },
+        {
+            "fieldname": "to_date",
+            "label": _("To Date"),
+            "fieldtype": "Date",
+            "default": today(),
+        },
+        {
+            "fieldname": "billing_frequency",
+            "label": _("Billing Frequency"),
+            "fieldtype": "Select",
+            "options": "\nDaily\nMonthly\nQuarterly\nAnnual\nCustom",
+        },
+        {
+            "fieldname": "gap_severity",
+            "label": _("Gap Severity"),
+            "fieldtype": "Select",
+            "options": "\nMinor\nModerate\nSignificant\nCritical",
+        },
+        {
+            "fieldname": "show_only_gaps",
+            "label": _("Show Only Members with Gaps"),
+            "fieldtype": "Check",
+        },
+        {
+            "fieldname": "show_only_catchup_required",
+            "label": _("Show Only Members Requiring Catch-up"),
+            "fieldtype": "Check",
+        },
+    ]
+
+
 def execute(filters=None):
     """Main report execution function"""
     if not filters:
@@ -137,9 +191,11 @@ def get_data(filters):
     conditions, params = build_conditions(filters)
 
     # Get active members with their membership information
+    # Note: DISTINCT is used because members can belong to multiple chapters
+    # When filtering by chapter, we want each member only once
     members_data = frappe.db.sql(
         f"""
-        SELECT
+        SELECT DISTINCT
             m.name as member,
             CONCAT(m.first_name, ' ', COALESCE(m.last_name, '')) as member_name,
             m.status as membership_status,
@@ -155,6 +211,7 @@ def get_data(filters):
         FROM `tabMember` m
         LEFT JOIN `tabMembership` mb ON mb.member = m.name AND mb.status = 'Active' AND mb.docstatus = 1
         LEFT JOIN `tabMembership Dues Schedule` mds ON mds.member = m.name AND mds.status = 'Active'
+        LEFT JOIN `tabChapter Member` cm ON cm.member = m.name AND cm.parenttype = 'Chapter' AND cm.enabled = 1
         WHERE {conditions}
         ORDER BY m.name
     """,
@@ -198,7 +255,7 @@ def build_conditions(filters):
         params.append(filters["member"])
 
     if filters.get("chapter"):
-        conditions.append("m.chapter = %s")
+        conditions.append("cm.parent = %s")
         params.append(filters["chapter"])
 
     if filters.get("billing_frequency"):
@@ -1022,8 +1079,6 @@ def generate_catchup_invoices(members, from_date=None, to_date=None):
                 if is_current_period and not member_end_date:
                     # This period ends around today and member hasn't indicated end date
                     # Extend to proper billing period end
-                    from verenigingen.services.billing.coverage_calculator import CoverageCalculator
-
                     proper_end = CoverageCalculator.calculate_period_end_date(
                         period_start, schedule_doc.billing_frequency
                     )

@@ -45,15 +45,15 @@
         </div>
     {% elif has_data %}
         <!-- Dashboard Header -->
-        <div class="bg-accent-600 px-8 py-6 mb-8 shadow-lg rounded-xl" style="background: linear-gradient(135deg, #663399 0%, #5c2e8a 100%);">
+        <div class="bg-primary-600 text-primary-contrast px-8 py-6 mb-8 shadow-lg rounded-xl">
             <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                    <h1 class="text-3xl font-bold m-0 flex items-center gap-2 text-white">
+                    <h1 class="text-3xl font-bold m-0 flex items-center gap-2">
                         <span class="text-4xl">🏛️</span>
-                        <span class="text-white">{{ selected_chapter.upper() if selected_chapter else 'CHAPTER' }} DASHBOARD</span>
+                        <span>{{ selected_chapter.upper() if selected_chapter else 'CHAPTER' }} DASHBOARD</span>
                     </h1>
                     <div class="mt-2">
-                        <span class="bg-white text-accent-700 px-3 py-1 rounded-full text-sm font-semibold mr-2">
+                        <span class="bg-white text-primary-700 px-3 py-1 rounded-full text-sm font-semibold mr-2">
                             {{ user_board_role.role if user_board_role else 'Board Member' }}
                         </span>
                         {% if user_board_role and user_board_role.since %}
@@ -83,18 +83,18 @@
 
         <!-- Key Metrics Cards -->
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <div class="bg-white rounded-xl p-6 flex items-center gap-4 shadow-sm border-l-4 border-green-500 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 cursor-pointer">
+            <div class="bg-white rounded-xl p-6 flex items-center gap-4 shadow-sm border-l-4 border-success-500 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 cursor-pointer">
                 <div class="text-4xl opacity-80">👥</div>
                 <div>
                     <h3 class="text-3xl font-bold m-0 text-gray-700">{{ dashboard_data.key_metrics.members.active if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.members else 0 }}</h3>
                     <p class="mt-1 text-gray-600 font-medium mb-0">Active Members</p>
                     {% if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.members and dashboard_data.key_metrics.members.new_this_month > 0 %}
-                        <small class="text-xs font-semibold uppercase tracking-wide text-green-600">+{{ dashboard_data.key_metrics.members.new_this_month }} this month</small>
+                        <small class="text-xs font-semibold uppercase tracking-wide text-success-600">+{{ dashboard_data.key_metrics.members.new_this_month }} this month</small>
                     {% endif %}
                 </div>
             </div>
 
-            <div class="bg-white rounded-xl p-6 flex items-center gap-4 shadow-sm border-l-4 border-yellow-500 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 cursor-pointer">
+            <div class="bg-white rounded-xl p-6 flex items-center gap-4 shadow-sm border-l-4 border-warning-500 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 cursor-pointer">
                 <div class="text-4xl opacity-80">⏳</div>
                 <div>
                     <h3 class="text-3xl font-bold m-0 text-gray-700">{{ dashboard_data.key_metrics.members.pending if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.members else 0 }}</h3>
@@ -102,27 +102,18 @@
                     {% if dashboard_data and dashboard_data.pending_actions and dashboard_data.pending_actions.membership_applications %}
                         {% set overdue_count = dashboard_data.pending_actions.membership_applications | selectattr('is_overdue') | list | length %}
                         {% if overdue_count > 0 %}
-                            <small class="text-xs font-semibold uppercase tracking-wide text-red-600">{{ overdue_count }} overdue</small>
+                            <small class="text-xs font-semibold uppercase tracking-wide text-danger-600">{{ overdue_count }} overdue</small>
                         {% endif %}
                     {% endif %}
                 </div>
             </div>
 
-            <div class="bg-white rounded-xl p-6 flex items-center gap-4 shadow-sm border-l-4 border-blue-500 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 cursor-pointer">
+            <div class="bg-white rounded-xl p-6 flex items-center gap-4 shadow-sm border-l-4 border-primary-500 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 cursor-pointer">
                 <div class="text-4xl opacity-80">💰</div>
                 <div>
                     <h3 class="text-3xl font-bold m-0 text-gray-700">€{{ "%.0f"|format(dashboard_data.key_metrics.expenses.pending_amount) if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.expenses else "0" }}</h3>
                     <p class="mt-1 text-gray-600 font-medium mb-0">Pending Expenses</p>
                     <small class="text-xs font-semibold uppercase tracking-wide text-gray-600">€{{ "%.0f"|format(dashboard_data.key_metrics.expenses.ytd_total) if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.expenses else "0" }} YTD</small>
-                </div>
-            </div>
-
-            <div class="bg-white rounded-xl p-6 flex items-center gap-4 shadow-sm border-l-4 border-purple-500 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 cursor-pointer">
-                <div class="text-4xl opacity-80">📅</div>
-                <div>
-                    <h3 class="text-3xl font-bold m-0 text-gray-700">{{ dashboard_data.key_metrics.activities.this_month if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.activities else 0 }}</h3>
-                    <p class="mt-1 text-gray-600 font-medium mb-0">Activities This Month</p>
-                    <small class="text-xs font-semibold uppercase tracking-wide text-gray-600">{{ dashboard_data.key_metrics.activities.upcoming if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.activities else 0 }} upcoming</small>
                 </div>
             </div>
         </div>
@@ -132,47 +123,53 @@
 
                 <!-- Member Management Section -->
                 <div class="bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-lg transition-shadow duration-300">
-                    <div class="px-6 py-4 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-3" style="background-color: rgba(207, 49, 49, 0.05); border-color: rgba(207, 49, 49, 0.2);">
-                        <h3 class="flex items-center m-0 text-lg font-semibold text-red-600">👥 Chapter Members</h3>
+                    <div class="px-6 py-4 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-primary-50 border-primary-200">
+                        <h3 class="flex items-center m-0 text-lg font-semibold text-primary-600">👥 Chapter Members</h3>
                         <div class="flex gap-2">
-                            <button class="inline-flex items-center justify-center px-3 py-1.5 text-sm rounded-lg font-medium bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm" onclick="viewAllMembers()">
+                            <button class="inline-flex items-center justify-center px-3 py-1.5 text-sm rounded-lg font-medium bg-primary-600 text-white hover:bg-primary-700 shadow-sm" onclick="viewAllMembers()">
                                 <i class="fa fa-list mr-1"></i> View All
                             </button>
                         </div>
                     </div>
                     <div class="p-6">
-                        <div class="grid grid-cols-3 gap-4 mb-6 pb-6 border-b border-gray-200">
+                        <div class="grid grid-cols-4 gap-4 mb-6 pb-6 border-b border-gray-200">
                             <div class="text-center p-4 bg-gray-50 rounded-lg border border-gray-200">
                                 <span class="block text-sm text-gray-600 mb-2 font-medium">Active:</span>
-                                <span class="text-3xl font-bold text-green-600">{{ dashboard_data.key_metrics.members.active if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.members else 0 }}</span>
+                                <span class="text-3xl font-bold text-success-600">{{ dashboard_data.key_metrics.members.active if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.members else 0 }}</span>
                             </div>
                             <div class="text-center p-4 bg-gray-50 rounded-lg border border-gray-200">
                                 <span class="block text-sm text-gray-600 mb-2 font-medium">Pending:</span>
                                 <span class="text-3xl font-bold text-yellow-600">{{ dashboard_data.key_metrics.members.pending if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.members else 0 }}</span>
                             </div>
                             <div class="text-center p-4 bg-gray-50 rounded-lg border border-gray-200">
-                                <span class="block text-sm text-gray-600 mb-2 font-medium">Inactive:</span>
-                                <span class="text-3xl font-bold text-gray-500">{{ dashboard_data.key_metrics.members.inactive if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.members else 0 }}</span>
+                                <span class="block text-sm text-gray-600 mb-2 font-medium">Terminated:</span>
+                                <span class="text-3xl font-bold text-danger-600">{{ dashboard_data.key_metrics.members.terminated if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.members else 0 }}</span>
+                            </div>
+                            <div class="text-center p-4 bg-gray-50 rounded-lg border border-gray-200">
+                                <span class="block text-sm text-gray-600 mb-2 font-medium">Total:</span>
+                                <span class="text-3xl font-bold text-primary-600">{{ dashboard_data.key_metrics.members.total if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.members else 0 }}</span>
                             </div>
                         </div>
 
                         {% if dashboard_data and dashboard_data.member_overview and dashboard_data.member_overview.recent_members %}
-                            <div>
-                                <h4 class="text-lg font-semibold text-gray-800 mb-4">Recent Activity</h4>
-                                <ul class="list-none p-0 m-0 space-y-3">
+                            <div class="max-h-96 overflow-y-auto">
+                                <h4 class="text-lg font-semibold text-gray-800 mb-4">All Members ({{ dashboard_data.member_overview.recent_members|length }})</h4>
+                                <ul class="list-none p-0 m-0 space-y-2">
                                     {% for member in dashboard_data.member_overview.recent_members %}
-                                        <li class="py-4 px-4 bg-gray-50 rounded-lg flex flex-wrap items-center gap-3">
-                                            <strong class="text-gray-900 flex-shrink-0">{{ member.full_name }}</strong>
-                                            {% if member.status == 'Pending' %}
-                                                <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wide bg-yellow-100 text-yellow-700">Pending Approval</span>
-                                            {% elif member.enabled == 0 %}
-                                                <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wide bg-gray-200 text-gray-700">Left Chapter</span>
-                                            {% else %}
-                                                <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wide bg-green-100 text-green-700">Joined</span>
-                                            {% endif %}
-                                            <small class="text-gray-500 text-xs ml-auto">
-                                                {{ format_date(member.chapter_join_date) }}
-                                            </small>
+                                        <li class="py-3 px-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                                            <a href="/app/member/{{ member.member }}" class="flex flex-wrap items-center gap-3 no-underline">
+                                                <strong class="text-gray-900 flex-shrink-0 hover:text-primary-600">{{ member.full_name }}</strong>
+                                                {% if member.status == 'Pending' %}
+                                                    <span class="inline-block px-2 py-1 rounded-full text-xs font-semibold uppercase tracking-wide bg-warning-100 text-warning-700">Pending</span>
+                                                {% elif member.enabled == 0 %}
+                                                    <span class="inline-block px-2 py-1 rounded-full text-xs font-semibold uppercase tracking-wide bg-danger-100 text-danger-700">Terminated</span>
+                                                {% else %}
+                                                    <span class="inline-block px-2 py-1 rounded-full text-xs font-semibold uppercase tracking-wide bg-success-100 text-success-700">Active</span>
+                                                {% endif %}
+                                                <small class="text-gray-500 text-xs ml-auto">
+                                                    Joined {{ format_date(member.chapter_join_date) }}
+                                                </small>
+                                            </a>
                                         </li>
                                     {% endfor %}
                                 </ul>
@@ -183,7 +180,7 @@
 
                 <!-- Pending Actions Section -->
                 {% if dashboard_data and dashboard_data.pending_actions and dashboard_data.pending_actions.total_pending > 0 %}
-                <div class="bg-white rounded-xl shadow-sm overflow-hidden border-l-4 border-red-500">
+                <div class="bg-white rounded-xl shadow-sm overflow-hidden border-l-4 border-danger-500">
                     <div class="bg-gray-50 px-6 py-4 border-b border-gray-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
                         <h3 class="m-0 text-lg font-semibold text-gray-800">⚠️ Requires Your Attention</h3>
                         <div class="bg-red-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
@@ -198,7 +195,7 @@
                                 <h4 class="text-lg font-semibold text-gray-800 mb-4">🆕 New Member Applications ({{ dashboard_data.pending_actions.membership_applications|length if dashboard_data and dashboard_data.pending_actions and dashboard_data.pending_actions.membership_applications else 0 }})</h4>
                                 <ul class="list-none p-0 m-0 space-y-3">
                                     {% for app in dashboard_data.pending_actions.membership_applications %}
-                                        <li class="py-4 px-4 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-3 {{ 'bg-red-50 border-l-4 border-red-500' if app.is_overdue else 'bg-gray-50' }}">
+                                        <li class="py-4 px-4 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-3 {{ 'bg-danger-50 border-l-4 border-danger-500' if app.is_overdue else 'bg-gray-50' }}">
                                             <div class="flex flex-col gap-1">
                                                 <strong class="text-gray-900 text-base">{{ app.full_name }}</strong>
                                                 <small class="text-gray-600 text-sm">Applied {{ app.days_pending }} days ago</small>
@@ -238,8 +235,8 @@
 
                 <!-- Board Information Section -->
                 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
-                    <div class="px-6 py-4 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-3" style="background-color: rgba(207, 49, 49, 0.05); border-color: rgba(207, 49, 49, 0.2);">
-                        <h3 class="m-0 text-lg font-semibold text-red-600">👨‍💼 Board Members</h3>
+                    <div class="px-6 py-4 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-primary-50 border-primary-200">
+                        <h3 class="m-0 text-lg font-semibold text-primary-600">👨‍💼 Board Members</h3>
                         {% if user_board_role and user_board_role.permissions.can_manage_board %}
                             <div class="flex gap-2">
                                 <button class="inline-flex items-center justify-center px-3 py-1.5 text-sm rounded-lg font-medium bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 shadow-sm" onclick="manageBoardMembers()">
@@ -252,7 +249,7 @@
                         {% if dashboard_data.board_info.members %}
                             <ul class="list-none p-0 m-0 space-y-3">
                                 {% for board_member in dashboard_data.board_info.members %}
-                                    <li class="py-4 px-4 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-2 {{ 'bg-blue-50 border-l-4 border-blue-500' if board_member.is_current_user else 'bg-gray-50' }}">
+                                    <li class="py-4 px-4 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-2 {{ 'bg-primary-50 border-l-4 border-primary-500' if board_member.is_current_user else 'bg-gray-50' }}">
                                         <div class="flex flex-wrap items-center gap-2">
                                             <strong class="text-gray-900">{{ board_member.volunteer_name }}</strong>
                                             <span class="text-gray-600 font-normal">({{ board_member.role }})</span>
@@ -275,8 +272,8 @@
                 <!-- Financial Summary Section -->
                 {% if user_board_role and user_board_role.permissions.can_view_finances %}
                 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
-                    <div class="px-6 py-4 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-3" style="background-color: rgba(1, 121, 111, 0.05); border-color: rgba(1, 121, 111, 0.2);">
-                        <h3 class="m-0 text-lg font-semibold text-teal-600">💰 Chapter Finances</h3>
+                    <div class="px-6 py-4 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-success-50 border-success-200">
+                        <h3 class="m-0 text-lg font-semibold text-success-600">💰 Chapter Finances</h3>
                         <div class="flex gap-2">
                             <button class="inline-flex items-center justify-center px-3 py-1.5 text-sm rounded-lg font-medium bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 shadow-sm" onclick="viewFinancialReports()">
                                 <i class="fa fa-chart-bar mr-1"></i> Reports
@@ -331,20 +328,96 @@
                 </div>
                 {% endif %}
 
+                <!-- Membership Dues Payment Status Section -->
+                {% if dashboard_data.dues_payment_status %}
+                <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+                    <div class="px-6 py-4 border-b bg-success-50 border-success-200">
+                        <h3 class="m-0 text-lg font-semibold text-success-600">💳 Membership Dues Payment Status</h3>
+                    </div>
+                    <div class="p-6">
+                        <div class="grid grid-cols-1 md:grid-cols-6 gap-4 mb-6">
+                            <a href="/app/query-report/Membership Dues Coverage Analysis?chapter={{ chapter_name|urlencode }}&show_only_gaps=0"
+                               class="text-center p-4 bg-success-50 rounded-lg border border-success-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
+                                <span class="block text-sm text-gray-600 mb-2 font-medium">Up to Date:</span>
+                                <span class="text-3xl font-bold text-success-600">{{ dashboard_data.dues_payment_status.up_to_date }}</span>
+                            </a>
+                            <a href="/app/query-report/Members Without Active Memberships?chapter={{ chapter_name|urlencode }}"
+                               class="text-center p-4 bg-primary-50 rounded-lg border border-primary-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
+                                <span class="block text-sm text-gray-600 mb-2 font-medium">No Dues Schedule set:</span>
+                                <span class="text-3xl font-bold text-primary-600">{{ dashboard_data.dues_payment_status.no_active_membership }}</span>
+                                <span class="block text-xs text-gray-500 mt-1">Members who don't pay any dues.</span>
+                            </a>
+                            <a href="/app/sales-invoice?status=Unpaid&custom_member_chapter={{ chapter_name|urlencode }}&is_membership_invoice=1"
+                               class="text-center p-4 bg-warning-50 rounded-lg border border-warning-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
+                                <span class="block text-sm text-gray-600 mb-2 font-medium">Members with unpaid dues:</span>
+                                <span class="text-3xl font-bold text-yellow-600">{{ dashboard_data.dues_payment_status.unpaid }}</span>
+                                <span class="block text-xs text-gray-500 mt-1">€{{ "%.2f"|format(dashboard_data.dues_payment_status.unpaid_amount) }}</span>
+                            </a>
+                            <a href="/app/query-report/Membership Dues Coverage Analysis?chapter={{ chapter_name|urlencode }}&show_only_gaps=1"
+                               class="text-center p-4 bg-warning-50 rounded-lg border border-warning-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
+                                <span class="block text-sm text-gray-600 mb-2 font-medium">Lapsed:</span>
+                                <span class="text-3xl font-bold text-warning-600">{{ dashboard_data.dues_payment_status.lapsed }}</span>
+                                <span class="block text-xs text-gray-500 mt-1">Coverage Expired</span>
+                            </a>
+                            <a href="/app/sales-invoice?status=Overdue&custom_member_chapter={{ chapter_name|urlencode }}&is_membership_invoice=1"
+                               class="text-center p-4 bg-danger-50 rounded-lg border border-danger-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
+                                <span class="block text-sm text-gray-600 mb-2 font-medium">Overdue:</span>
+                                <span class="text-3xl font-bold text-danger-600">{{ dashboard_data.dues_payment_status.overdue }}</span>
+                                <span class="block text-xs text-gray-500 mt-1">€{{ "%.2f"|format(dashboard_data.dues_payment_status.total_overdue_amount) }}</span>
+                            </a>
+                            <a href="/app/query-report/Membership Dues Coverage Analysis?chapter={{ chapter_name|urlencode }}"
+                               class="text-center p-4 bg-gray-50 rounded-lg border border-gray-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
+                                <span class="block text-sm text-gray-600 mb-2 font-medium">Total Members:</span>
+                                <span class="text-3xl font-bold text-gray-700">{{ dashboard_data.dues_payment_status.total_members }}</span>
+                            </a>
+                        </div>
+
+                        {% if dashboard_data.dues_payment_status.overdue > 0 %}
+                        <div class="bg-gray-50 rounded-lg p-4">
+                            <h4 class="m-0 mb-4 text-base font-semibold text-gray-800">Overdue Breakdown</h4>
+                            <div class="grid grid-cols-3 gap-4">
+                                <div class="text-center">
+                                    <span class="block text-xs text-gray-600 mb-1">30-60 days:</span>
+                                    <strong class="text-lg text-warning-600">{{ dashboard_data.dues_payment_status.overdue_breakdown.overdue_30_days }}</strong>
+                                </div>
+                                <div class="text-center">
+                                    <span class="block text-xs text-gray-600 mb-1">60-90 days:</span>
+                                    <strong class="text-lg text-danger-500">{{ dashboard_data.dues_payment_status.overdue_breakdown.overdue_60_days }}</strong>
+                                </div>
+                                <div class="text-center">
+                                    <span class="block text-xs text-gray-600 mb-1">90+ days:</span>
+                                    <strong class="text-lg text-danger-700">{{ dashboard_data.dues_payment_status.overdue_breakdown.overdue_90_plus_days }}</strong>
+                                </div>
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endif %}
+
                 <!-- Recent Activity Section -->
                 {% if dashboard_data.recent_activity %}
                 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
-                    <div class="px-6 py-4 border-b" style="background-color: rgba(1, 121, 111, 0.05); border-color: rgba(1, 121, 111, 0.2);">
-                        <h3 class="m-0 text-lg font-semibold text-teal-600">📋 Recent Activity</h3>
+                    <div class="px-6 py-4 border-b bg-success-50 border-success-200">
+                        <h3 class="m-0 text-lg font-semibold text-success-600">📋 Recent Activity</h3>
                     </div>
                     <div class="p-6">
                         <ul class="list-none p-0 m-0 space-y-3">
                             {% for activity in dashboard_data.recent_activity[:5] %}
-                                <li class="py-4 px-4 bg-gray-50 rounded-lg border-l-4 border-blue-400">
-                                    <p class="m-0 mb-2 text-gray-900">{{ activity.description }}</p>
-                                    <small class="text-gray-500 text-xs">
-                                        {{ format_datetime(activity.timestamp) }}
-                                    </small>
+                                <li class="py-4 px-4 bg-gray-50 rounded-lg border-l-4 border-primary-400 hover:bg-gray-100 transition-colors">
+                                    {% if activity.member %}
+                                        <a href="/app/member/{{ activity.member }}" class="block no-underline">
+                                            <p class="m-0 mb-2 text-gray-900 hover:text-primary-600">{{ activity.description }}</p>
+                                            <small class="text-gray-500 text-xs">
+                                                {{ format_datetime(activity.timestamp) }}
+                                            </small>
+                                        </a>
+                                    {% else %}
+                                        <p class="m-0 mb-2 text-gray-900">{{ activity.description }}</p>
+                                        <small class="text-gray-500 text-xs">
+                                            {{ format_datetime(activity.timestamp) }}
+                                        </small>
+                                    {% endif %}
                                 </li>
                             {% endfor %}
                         </ul>
@@ -367,7 +440,7 @@
 <!-- Loading overlay -->
 <div id="loading-overlay" class="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50" style="display: none;">
     <div class="bg-white p-8 rounded-xl text-center">
-        <i class="fa fa-spinner fa-spin text-3xl text-indigo-600 mb-4"></i>
+        <i class="fa fa-spinner fa-spin text-3xl text-primary-600 mb-4"></i>
         <p class="text-gray-700">Loading...</p>
     </div>
 </div>
@@ -407,7 +480,7 @@
 }
 
 .dashboard-card.urgent {
-    @apply border-l-4 border-red-500;
+    @apply border-l-4 border-danger-500;
 }
 
 .card-header {
@@ -436,7 +509,7 @@
 }
 
 .stat-value.active {
-    @apply text-green-600;
+    @apply text-success-600;
 }
 
 .stat-value.pending {
@@ -453,11 +526,11 @@
 }
 
 .status-badge.active {
-    @apply bg-green-100 text-green-700;
+    @apply bg-success-100 text-success-700;
 }
 
 .status-badge.pending {
-    @apply bg-yellow-100 text-yellow-700;
+    @apply bg-warning-100 text-warning-700;
 }
 
 .status-badge.inactive {
@@ -484,7 +557,7 @@
 }
 
 .pending-item.overdue {
-    @apply bg-red-50 border-l-4 border-red-500;
+    @apply bg-danger-50 border-l-4 border-danger-500;
 }
 
 .overdue-label {
@@ -505,7 +578,7 @@
 }
 
 .board-item.current-user {
-    @apply bg-blue-50 border-l-4 border-blue-500;
+    @apply bg-primary-50 border-l-4 border-primary-500;
 }
 
 .you-indicator {
@@ -552,7 +625,7 @@
 
 .timeline-item:before {
     content: "";
-    @apply absolute left-0 top-4 w-2 h-2 bg-blue-500 rounded-full;
+    @apply absolute left-0 top-4 w-2 h-2 bg-primary-500 rounded-full;
 }
 
 .timeline-item:last-child {
@@ -616,7 +689,7 @@
 }
 
 .btn-chapter-primary {
-    @apply bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm hover:shadow-md;
+    @apply bg-primary-600 text-white hover:bg-primary-700 shadow-sm hover:shadow-md;
 }
 
 .btn-chapter-success {
@@ -639,7 +712,7 @@
         $('#chapter-select').on('change', function() {
             const selectedChapter = $(this).val();
             if (selectedChapter) {
-                window.location.href = '/chapter-dashboard?chapter=' + encodeURIComponent(selectedChapter);
+                window.location.href = '/chapter_dashboard?chapter=' + encodeURIComponent(selectedChapter);
             }
         });
 

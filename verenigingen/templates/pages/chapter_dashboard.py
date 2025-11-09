@@ -15,6 +15,12 @@ from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import cache_with_ttl, validate_user_logged_in
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
+# Business rule constants for overdue categorization
+OVERDUE_THRESHOLD_CRITICAL = 90  # Days overdue: critical (90+ days)
+OVERDUE_THRESHOLD_SEVERE = 60  # Days overdue: severe (60-89 days)
+OVERDUE_THRESHOLD_MODERATE = 30  # Days overdue: moderate (30-59 days)
+OVERDUE_APPLICATION_DAYS = 7  # Applications pending > 7 days are considered overdue
+
 
 def serialize_dates(obj):
     """Recursively convert date/datetime objects to strings for JSON serialization"""
@@ -74,10 +80,12 @@ def get_context(context):
     # Set context variables
     if hasattr(context, "selected_chapter"):
         context.selected_chapter = selected_chapter
+        context.chapter_name = selected_chapter  # Add for template URL generation
         context.user_chapters = user_chapters
         context.user_board_role = get_user_board_role(selected_chapter)
     else:
         context["selected_chapter"] = selected_chapter
+        context["chapter_name"] = selected_chapter  # Add for template URL generation
         context["user_chapters"] = user_chapters
         context["user_board_role"] = get_user_board_role(selected_chapter)
 
@@ -108,12 +116,10 @@ def get_user_board_chapters() -> List[Dict[str, Any]]:
     """Get chapters where current user is a board member"""
     user_email = frappe.session.user
 
-    # Admin users can see all chapters
+    # Admin users can see all chapters (published or not)
     admin_roles = [Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN]
     if any(role in frappe.get_roles() for role in admin_roles):
-        chapters = frappe.get_all(
-            "Chapter", fields=["name", "region"], filters={"published": 1}, order_by="name"
-        )
+        chapters = frappe.get_all("Chapter", fields=["name", "region"], order_by="name")
         # Transform to match the structure expected by the rest of the code
         return [{"chapter_name": ch["name"], "region": ch.get("region")} for ch in chapters]
 
@@ -249,6 +255,7 @@ def _get_chapter_dashboard_data_internal(chapter_name: str) -> Dict[str, Any]:
         "member_overview": get_member_overview(chapter_name),
         "pending_actions": get_pending_actions(chapter_name),
         "financial_summary": get_financial_summary(chapter_name),
+        "dues_payment_status": get_dues_payment_status(chapter_name),
         "board_info": get_board_information(chapter_name),
         "recent_activity": get_recent_activity(chapter_name),
         "last_updated": now_datetime().strftime("%Y-%m-%d %H:%M:%S"),
@@ -261,7 +268,7 @@ def _get_chapter_dashboard_data_internal(chapter_name: str) -> Dict[str, Any]:
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 @api_response_handler
-@cache_with_ttl(ttl=300)  # Cache for 5 minutes - dashboard data changes frequently
+@cache_with_ttl(ttl=120)  # Cache for 2 minutes - balance between freshness and performance
 def get_chapter_dashboard_data(chapter_name: str) -> Dict[str, Any]:
     """Get comprehensive dashboard data for chapter board members (API endpoint)"""
     return _get_chapter_dashboard_data_internal(chapter_name)
@@ -295,9 +302,11 @@ def get_chapter_key_metrics(chapter_name: str) -> Dict[str, Any]:
 
         # Calculate statistics in Python for better maintainability
         total_members = len(members)
-        active_members = sum(1 for m in members if (m.status in ["Active", None]) and m.enabled == 1)
+        active_members = sum(1 for m in members if m.status == "Active" and m.enabled == 1)
         pending_members = sum(1 for m in members if m.status == "Pending")
         inactive_members = sum(1 for m in members if m.enabled == 0)
+        # Terminated members are those who left (enabled=0)
+        terminated_members = inactive_members
 
         # Calculate new members (last 30 days)
         from frappe.utils import add_days, getdate
@@ -313,6 +322,7 @@ def get_chapter_key_metrics(chapter_name: str) -> Dict[str, Any]:
             "pending_members": pending_members,
             "new_this_month": new_this_month,
             "inactive_members": inactive_members,
+            "terminated_members": terminated_members,
         }
     except Exception as e:
         frappe.log_error(f"Error calculating member statistics for {chapter_name}: {str(e)}")
@@ -322,52 +332,102 @@ def get_chapter_key_metrics(chapter_name: str) -> Dict[str, Any]:
             "pending_members": 0,
             "new_this_month": 0,
             "inactive_members": 0,
+            "terminated_members": 0,
         }
 
     # Expense statistics (basic for now)
     expense_stats = get_basic_expense_stats(chapter_name)
-
-    # Activity statistics (placeholder for now)
-    activity_stats = {"this_month": 2, "upcoming": 1, "last_activity": "1 week ago"}
 
     return {
         "members": {
             "active": int(member_stats["active_members"] or 0),
             "pending": int(member_stats["pending_members"] or 0),
             "inactive": int(member_stats["inactive_members"] or 0),
+            "terminated": int(member_stats["terminated_members"] or 0),
             "new_this_month": int(member_stats["new_this_month"] or 0),
             "total": int(member_stats["total_members"] or 0),
         },
         "expenses": expense_stats,
-        "activities": activity_stats,
     }
 
 
 def get_basic_expense_stats(chapter_name: str) -> Dict[str, Any]:
-    """Get basic expense statistics (placeholder for full implementation)"""
-    # This is a simplified version - can be enhanced with actual expense data
-    return {"pending_amount": 234.30, "pending_count": 2, "ytd_total": 1204.85, "this_month": 234.30}
+    """Get basic expense statistics for the chapter"""
+    try:
+        # Get pending expense amount and count for this chapter
+        pending_expenses = frappe.get_all(
+            "Volunteer Expense", filters={"chapter": chapter_name, "status": "Submitted"}, fields=["amount"]
+        )
+
+        pending_amount = sum(exp.amount or 0 for exp in pending_expenses)
+        pending_count = len(pending_expenses)
+
+        # Get YTD total for this chapter
+        from frappe.utils import getdate
+
+        today = getdate()
+        year_start = today.replace(month=1, day=1)
+
+        ytd_expenses = frappe.get_all(
+            "Volunteer Expense",
+            filters={
+                "chapter": chapter_name,
+                "status": ["in", ["Approved", "Reimbursed"]],
+                "expense_date": [">=", year_start],
+            },
+            fields=["amount"],
+        )
+
+        ytd_total = sum(exp.amount or 0 for exp in ytd_expenses)
+
+        # Get this month's total
+        month_start = today.replace(day=1)
+
+        month_expenses = frappe.get_all(
+            "Volunteer Expense",
+            filters={
+                "chapter": chapter_name,
+                "status": ["in", ["Submitted", "Approved", "Reimbursed"]],
+                "expense_date": [">=", month_start],
+            },
+            fields=["amount"],
+        )
+
+        this_month = sum(exp.amount or 0 for exp in month_expenses)
+
+        return {
+            "pending_amount": pending_amount,
+            "pending_count": pending_count,
+            "ytd_total": ytd_total,
+            "this_month": this_month,
+        }
+    except Exception as e:
+        frappe.log_error(f"Error calculating expense statistics for {chapter_name}: {str(e)}")
+        return {"pending_amount": 0, "pending_count": 0, "ytd_total": 0, "this_month": 0}
 
 
 def get_member_overview(chapter_name: str) -> Dict[str, Any]:
-    """Get member overview with recent activities"""
+    """Get member overview with all members"""
 
-    # Get recent member activities - modernized with efficient batch queries
+    # Get all chapter members - modernized with efficient batch queries
     try:
-        # Get recent chapter members with member names in one query
+        # Get all chapter members ordered by name
         recent_chapter_members = frappe.get_all(
             "Chapter Member",
             filters={"parent": chapter_name},
             fields=["member", "status", "chapter_join_date", "enabled", "leave_reason"],
-            order_by="modified desc",
-            limit=10,
+            order_by="member asc",
+            limit_page_length=0,
         )
 
         # Batch fetch member names to avoid N+1 queries
         member_ids = [rcm.member for rcm in recent_chapter_members if rcm.member]
         if member_ids:
             members_data = frappe.get_all(
-                "Member", filters={"name": ["in", member_ids]}, fields=["name", "full_name"]
+                "Member",
+                filters={"name": ["in", member_ids]},
+                fields=["name", "full_name"],
+                limit_page_length=0,
             )
             member_names = {m.name: m.full_name for m in members_data}
         else:
@@ -398,6 +458,7 @@ def get_member_overview(chapter_name: str) -> Dict[str, Any]:
             filters={"parent": chapter_name, "status": "Pending"},
             fields=["member", "chapter_join_date"],
             order_by="chapter_join_date asc",
+            limit_page_length=0,
         )
 
         # Batch fetch member details
@@ -407,6 +468,7 @@ def get_member_overview(chapter_name: str) -> Dict[str, Any]:
                 "Member",
                 filters={"name": ["in", member_ids]},
                 fields=["name", "full_name", "application_date"],
+                limit_page_length=0,
             )
             member_details = {m.name: m for m in members_data}
         else:
@@ -439,7 +501,7 @@ def get_member_overview(chapter_name: str) -> Dict[str, Any]:
         pending_applications = []
 
     return {
-        "recent_members": recent_members[:5],  # Limit to 5 for dashboard
+        "recent_members": recent_members,  # Return all members (no limit)
         "pending_applications": pending_applications,
         "total_pending": len(pending_applications),
     }
@@ -451,9 +513,9 @@ def get_pending_actions(chapter_name: str) -> Dict[str, Any]:
     # Get pending membership applications
     pending_apps = get_member_overview(chapter_name)["pending_applications"]
 
-    # Mark overdue applications (more than 7 days)
+    # Mark overdue applications (more than threshold days)
     for app in pending_apps:
-        app["is_overdue"] = (app.get("days_pending", 0) or 0) > 7
+        app["is_overdue"] = (app.get("days_pending", 0) or 0) > OVERDUE_APPLICATION_DAYS
 
     # Get pending expense approvals (placeholder)
     pending_expenses = []  # Will be implemented when expense system is fully integrated
@@ -471,16 +533,201 @@ def get_pending_actions(chapter_name: str) -> Dict[str, Any]:
 
 def get_financial_summary(chapter_name: str) -> Dict[str, Any]:
     """Get financial summary for the chapter"""
-    # Placeholder implementation - to be enhanced with actual financial data
-    return {
-        "this_month": {
-            "expenses_submitted": 234.30,
-            "expenses_approved": 189.50,
-            "pending_approval": 67.50,
-            "claims_count": 4,
-        },
-        "ytd": {"total_expenses": 1204.85, "average_claim": 43.75, "total_claims": 28},
-    }
+    try:
+        from frappe.utils import getdate
+
+        today = getdate()
+        month_start = today.replace(day=1)
+        year_start = today.replace(month=1, day=1)
+
+        # This month's expenses
+        submitted_this_month = frappe.get_all(
+            "Volunteer Expense",
+            filters={"chapter": chapter_name, "status": "Submitted", "expense_date": [">=", month_start]},
+            fields=["amount"],
+        )
+
+        approved_this_month = frappe.get_all(
+            "Volunteer Expense",
+            filters={
+                "chapter": chapter_name,
+                "status": ["in", ["Approved", "Reimbursed"]],
+                "expense_date": [">=", month_start],
+            },
+            fields=["amount"],
+        )
+
+        pending_this_month = frappe.get_all(
+            "Volunteer Expense",
+            filters={"chapter": chapter_name, "status": "Submitted", "expense_date": [">=", month_start]},
+            fields=["amount"],
+        )
+
+        # YTD expenses
+        ytd_expenses = frappe.get_all(
+            "Volunteer Expense",
+            filters={
+                "chapter": chapter_name,
+                "status": ["in", ["Approved", "Reimbursed"]],
+                "expense_date": [">=", year_start],
+            },
+            fields=["amount"],
+        )
+
+        expenses_submitted = sum(exp.amount or 0 for exp in submitted_this_month)
+        expenses_approved = sum(exp.amount or 0 for exp in approved_this_month)
+        pending_approval = sum(exp.amount or 0 for exp in pending_this_month)
+
+        ytd_total = sum(exp.amount or 0 for exp in ytd_expenses)
+        ytd_count = len(ytd_expenses)
+        average_claim = ytd_total / ytd_count if ytd_count > 0 else 0
+
+        return {
+            "this_month": {
+                "expenses_submitted": expenses_submitted,
+                "expenses_approved": expenses_approved,
+                "pending_approval": pending_approval,
+                "claims_count": len(submitted_this_month) + len(approved_this_month),
+            },
+            "ytd": {"total_expenses": ytd_total, "average_claim": average_claim, "total_claims": ytd_count},
+        }
+    except Exception as e:
+        frappe.log_error(f"Error calculating financial summary for {chapter_name}: {str(e)}")
+        return {
+            "this_month": {
+                "expenses_submitted": 0,
+                "expenses_approved": 0,
+                "pending_approval": 0,
+                "claims_count": 0,
+            },
+            "ytd": {"total_expenses": 0, "average_claim": 0, "total_claims": 0},
+        }
+
+
+def get_dues_payment_status(chapter_name: str) -> Dict[str, Any]:
+    """Get membership dues payment status for chapter members"""
+    try:
+        from frappe.utils import getdate
+
+        today = getdate()
+
+        # Get all chapter members with their payment status, membership, and dues schedule info
+        # Note: Sales Invoices link via 'member' field (custom field on Sales Invoice)
+        # We use custom_coverage_end_date IS NOT NULL as indicator for membership invoices
+        result = frappe.db.sql(
+            """
+            SELECT
+                cm.member,
+                m.full_name,
+                m.status as member_status,
+                MAX(si.custom_coverage_end_date) as latest_coverage_end,
+                MIN(CASE WHEN si.status = 'Overdue' AND si.custom_coverage_end_date IS NOT NULL
+                    THEN si.due_date END) as earliest_overdue_date,
+                SUM(CASE WHEN si.status = 'Overdue' AND si.custom_coverage_end_date IS NOT NULL
+                    THEN si.outstanding_amount ELSE 0 END) as overdue_amount,
+                SUM(CASE WHEN si.status = 'Unpaid' AND si.custom_coverage_end_date IS NOT NULL
+                    THEN si.outstanding_amount ELSE 0 END) as unpaid_amount,
+                COUNT(CASE WHEN si.status = 'Overdue' AND si.custom_coverage_end_date IS NOT NULL
+                    THEN 1 END) as overdue_invoice_count,
+                COUNT(CASE WHEN si.status = 'Unpaid' AND si.custom_coverage_end_date IS NOT NULL
+                    THEN 1 END) as unpaid_invoice_count,
+                COUNT(CASE WHEN si.custom_coverage_end_date IS NOT NULL THEN 1 END) as total_invoices,
+                COUNT(DISTINCT CASE WHEN mem.status = 'Active' AND mem.docstatus = 1
+                    THEN mem.name END) as active_memberships,
+                COUNT(DISTINCT CASE WHEN mds.status = 'Active'
+                    THEN mds.name END) as active_schedules
+            FROM `tabChapter Member` cm
+            INNER JOIN `tabMember` m ON m.name = cm.member
+            LEFT JOIN `tabSales Invoice` si ON si.member = cm.member AND si.docstatus = 1
+            LEFT JOIN `tabMembership` mem ON mem.member = cm.member
+            LEFT JOIN `tabMembership Dues Schedule` mds ON mds.member = cm.member
+            WHERE cm.parent = %(chapter)s AND cm.enabled = 1
+            GROUP BY cm.member, m.full_name, m.status
+        """,
+            {"chapter": chapter_name},
+            as_dict=True,
+        )
+
+        # Categorize members
+        up_to_date = 0
+        no_active_membership = 0  # Active chapter members without active membership+schedule
+        unpaid = 0
+        overdue = 0
+        lapsed = 0  # Members with expired coverage and no unpaid/overdue invoices
+        overdue_30_days = 0
+        overdue_60_days = 0
+        overdue_90_plus_days = 0
+        total_overdue_amount = 0
+        total_unpaid_amount = 0
+
+        for member in result:
+            # Priority order for categorization:
+            # 1. Active member without membership infrastructure (needs attention)
+            if (
+                member.member_status == "Active"
+                and member.active_memberships == 0
+                and member.active_schedules == 0
+            ):
+                no_active_membership += 1
+            # 2. Has overdue invoices (critical)
+            elif member.overdue_invoice_count > 0:
+                overdue += 1
+                total_overdue_amount += member.overdue_amount or 0
+
+                # Calculate overdue severity based on actual due date (not coverage date)
+                if member.earliest_overdue_date:
+                    days_overdue = (today - member.earliest_overdue_date).days
+                    if days_overdue > OVERDUE_THRESHOLD_CRITICAL:
+                        overdue_90_plus_days += 1
+                    elif days_overdue > OVERDUE_THRESHOLD_SEVERE:
+                        overdue_60_days += 1
+                    elif days_overdue > OVERDUE_THRESHOLD_MODERATE:
+                        overdue_30_days += 1
+            # 3. Has unpaid invoices (important)
+            elif member.unpaid_invoice_count > 0:
+                unpaid += 1
+                total_unpaid_amount += member.unpaid_amount or 0
+            # 4. Coverage is current (good standing)
+            elif member.latest_coverage_end and member.latest_coverage_end >= today:
+                up_to_date += 1
+            # 5. Has invoices but coverage expired (lapsed)
+            elif member.total_invoices > 0:
+                lapsed += 1
+            # 6. Everything else (terminated, no invoices, etc.) - don't count separately
+            # These fall through and aren't categorized as they're not actionable
+
+        return {
+            "total_members": len(result),
+            "up_to_date": up_to_date,
+            "no_active_membership": no_active_membership,
+            "unpaid": unpaid,
+            "unpaid_amount": total_unpaid_amount,
+            "overdue": overdue,
+            "lapsed": lapsed,
+            "overdue_breakdown": {
+                "overdue_30_days": overdue_30_days,
+                "overdue_60_days": overdue_60_days,
+                "overdue_90_plus_days": overdue_90_plus_days,
+            },
+            "total_overdue_amount": total_overdue_amount,
+        }
+    except Exception as e:
+        frappe.log_error(f"Error calculating dues payment status for {chapter_name}: {str(e)}")
+        return {
+            "total_members": 0,
+            "up_to_date": 0,
+            "no_active_membership": 0,
+            "unpaid": 0,
+            "unpaid_amount": 0,
+            "overdue": 0,
+            "lapsed": 0,
+            "overdue_breakdown": {
+                "overdue_30_days": 0,
+                "overdue_60_days": 0,
+                "overdue_90_plus_days": 0,
+            },
+            "total_overdue_amount": 0,
+        }
 
 
 def get_board_information(chapter_name: str) -> Dict[str, Any]:
@@ -518,71 +765,92 @@ def get_recent_activity(chapter_name: str) -> List[Dict[str, Any]]:
     """Get recent chapter activities"""
     activities = []
 
-    # Get recent member changes from comments/activity
-    recent_comments = frappe.get_all(
-        "Comment",
-        filters={"reference_doctype": "Chapter", "reference_name": chapter_name, "comment_type": "Info"},
-        fields=["content", "creation", "owner"],
-        order_by="creation desc",
-        limit=5,
-    )
-
-    for comment in recent_comments:
-        activities.append(
-            {
-                "type": "system",
-                "description": comment.content,
-                "timestamp": comment.creation,
-                "user": comment.owner,
-            }
-        )
-
-    # Add member join activities - modernized with efficient batch queries
+    # Get member join/leave activities - use actual chapter_join_date, not comment creation time
     try:
         from frappe.utils import add_days, getdate
 
-        thirty_days_ago = add_days(getdate(), -30)
+        # Look back 2 months (60 days) for recent activity
+        sixty_days_ago = add_days(getdate(), -60)
 
-        # Get recent chapter member joins
-        recent_chapter_joins = frappe.get_all(
-            "Chapter Member",
-            filters={"parent": chapter_name, "chapter_join_date": [">=", thirty_days_ago]},
-            fields=["member", "chapter_join_date", "status"],
-            order_by="chapter_join_date desc",
-            limit=5,
+        # Get recent chapter member changes (joins, leaves, applications)
+        # Get both recent joins AND recent terminations
+        recent_chapter_activities = frappe.db.sql(
+            """
+            SELECT member, chapter_join_date, status, enabled, leave_reason, modified
+            FROM `tabChapter Member`
+            WHERE parent = %(chapter)s
+            AND (
+                chapter_join_date >= %(sixty_days_ago)s
+                OR (enabled = 0 AND modified >= %(sixty_days_ago)s)
+            )
+            ORDER BY COALESCE(chapter_join_date, modified) DESC
+            LIMIT 10
+            """,
+            {"chapter": chapter_name, "sixty_days_ago": sixty_days_ago},
+            as_dict=True,
         )
 
         # Batch fetch member names
-        member_ids = [rcj.member for rcj in recent_chapter_joins if rcj.member]
+        member_ids = [rcj.member for rcj in recent_chapter_activities if rcj.member]
         if member_ids:
             members_data = frappe.get_all(
-                "Member", filters={"name": ["in", member_ids]}, fields=["name", "full_name"]
+                "Member",
+                filters={"name": ["in", member_ids]},
+                fields=["name", "full_name"],
+                limit_page_length=0,
             )
             member_names = {m.name: m.full_name for m in members_data}
         else:
             member_names = {}
 
-        # Combine the data
+        # Combine the data and create activity descriptions
         recent_joins = []
-        for rcj in recent_chapter_joins:
+        for rcj in recent_chapter_activities:
+            full_name = member_names.get(rcj.member, "Unknown")
+
+            # Determine activity type and description
+            if rcj.enabled == 0:
+                # Member left the chapter
+                activity_desc = f"{full_name} left the chapter"
+                if rcj.leave_reason:
+                    activity_desc += f" ({rcj.leave_reason})"
+                activity_type = "member_leave"
+            elif rcj.status == "Pending":
+                activity_desc = f"{full_name} applied to join (pending approval)"
+                activity_type = "member_application"
+            else:
+                activity_desc = f"{full_name} joined the chapter"
+                activity_type = "member_join"
+
+            # Use chapter_join_date if available, otherwise fall back to modified
+            # This ensures we show the actual join date, not when the record was created/updated
+            timestamp = rcj.chapter_join_date if rcj.chapter_join_date else rcj.modified
+
             recent_joins.append(
                 {
-                    "full_name": member_names.get(rcj.member, "Unknown"),
+                    "member": rcj.member,
+                    "full_name": full_name,
                     "chapter_join_date": rcj.chapter_join_date,
+                    "timestamp": timestamp,
                     "status": rcj.status,
+                    "enabled": rcj.enabled,
+                    "activity_type": activity_type,
+                    "activity_desc": activity_desc,
                 }
             )
     except Exception as e:
-        frappe.log_error(f"Error fetching recent joins for {chapter_name}: {str(e)}")
+        frappe.log_error(f"Error fetching recent member activities for {chapter_name}: {str(e)}")
         recent_joins = []
 
     for join in recent_joins:
         activities.append(
             {
-                "type": "member_join",
-                "description": f"{join['full_name']} joined the chapter ({join['status']})",
-                "timestamp": join.get("chapter_join_date"),
+                "type": join.get("activity_type", "member_join"),
+                "description": join.get("activity_desc", f"{join['full_name']} joined the chapter"),
+                "timestamp": join.get("timestamp"),
                 "user": "System",
+                "member": join.get("member"),
+                "full_name": join.get("full_name"),
             }
         )
 

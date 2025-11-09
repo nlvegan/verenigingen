@@ -115,7 +115,7 @@ function setupAutoRefresh() {
 // Member Management Functions
 function viewAllMembers() {
 	showLoading();
-	window.location.href = `/app/report/chapter-members?chapter=${encodeURIComponent(selectedChapter)}`;
+	window.location.href = `/app/report/chapter_members?chapter=${encodeURIComponent(selectedChapter)}`;
 }
 
 function addNewMember() {
@@ -240,7 +240,7 @@ function viewFinancialReports() {
 		return;
 	}
 
-	window.location.href = '/app/report/chapter-expense-report';
+	window.location.href = '/app/report/chapter_expense_report';
 }
 
 function _approveExpense(expenseId, amount) {

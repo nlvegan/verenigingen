@@ -58,7 +58,6 @@ def get_columns(filters):
         _("Email") + ":Data:200",
         _("Member Status") + ":Data:100",
         _("Member Since") + ":Date:100",
-        # _("Chapter") + ":Data:120",  # Skip chapter for now - it's a computed field
         _("Last Membership ID") + ":Link/Membership:120",
         _("Last Membership Type") + ":Data:120",
         _("Last Membership Status") + ":Data:120",
@@ -66,6 +65,10 @@ def get_columns(filters):
         _("Days Since Last Membership") + ":Int:80",
         _("Contact Number") + ":Data:120",
     ]
+
+    # Add chapter column when filtering by chapter
+    if filters and filters.get("chapter"):
+        columns.insert(5, _("Chapter") + ":Link/Chapter:120")
 
     # Add dues schedule columns if requested
     if filters and filters.get("include_dues_schedule_info"):
@@ -92,47 +95,64 @@ def get_data(filters):
     required_member_fields = ["name", "full_name", "email", "status", "member_since"]
     required_membership_fields = ["member", "status", "membership_type", "start_date", "creation"]
     required_schedule_fields = ["member", "status", "next_invoice_date", "billing_frequency", "dues_rate"]
+    required_chapter_member_fields = ["member", "parent", "enabled", "status"]
 
-    if not all(
-        [
-            validate_doctype_fields("Member", required_member_fields),
-            validate_doctype_fields("Membership", required_membership_fields),
-            validate_doctype_fields("Membership Dues Schedule", required_schedule_fields),
-        ]
-    ):
+    validations = [
+        validate_doctype_fields("Member", required_member_fields),
+        validate_doctype_fields("Membership", required_membership_fields),
+        validate_doctype_fields("Membership Dues Schedule", required_schedule_fields),
+    ]
+
+    # Add chapter member validation if chapter filter is used
+    if filters.get("chapter"):
+        validations.append(validate_doctype_fields("Chapter Member", required_chapter_member_fields))
+
+    if not all(validations):
         frappe.logger().error("Field validation failed in members_without_active_memberships report")
         return []  # Return empty data if validation fails
 
     # Build dynamic WHERE conditions based on filters
     where_conditions = ["m.docstatus != 2"]  # Exclude cancelled member records
 
-    # Handle member status filters
-    status_conditions = []
-
-    if not filters.get("include_terminated"):
-        status_conditions.append("m.status != 'Terminated'")
-
-    if not filters.get("include_suspended"):
-        status_conditions.append("m.status != 'Suspended'")
-
     # Build query parameters for safe SQL execution
     query_params = {}
 
-    # Specific status filter takes precedence
+    # Specific status filter takes precedence over include/exclude filters
     if filters.get("member_status"):
-        status_conditions = ["m.status = %(member_status)s"]
+        where_conditions.append("m.status = %(member_status)s")
         query_params["member_status"] = filters.get("member_status")
+    else:
+        # Build status exclusion list based on filters
+        # Always exclude: Rejected, Deceased (these should never show in this report)
+        excluded_statuses = ["'Rejected'", "'Deceased'"]
 
-    if status_conditions:
-        where_conditions.extend(status_conditions)
+        # Conditionally exclude Terminated and Banned based on include_terminated filter
+        if not filters.get("include_terminated"):
+            excluded_statuses.extend(["'Terminated'", "'Banned'"])
 
-    # Chapter filter (skip for now since it's HTML field)
-    # Note: This would need parameterization if enabled
-    # if filters.get("chapter"):
-    #     where_conditions.append("m.current_chapter_display LIKE %(chapter_filter)s")
-    #     query_params["chapter_filter"] = f"%{filters.get('chapter')}%"
+        # Conditionally exclude Suspended based on include_suspended filter
+        if not filters.get("include_suspended"):
+            excluded_statuses.append("'Suspended'")
+
+        if excluded_statuses:
+            where_conditions.append(f"m.status NOT IN ({', '.join(excluded_statuses)})")
 
     where_clause = " AND ".join(where_conditions)
+
+    # Add chapter filter if specified
+    chapter_join = ""
+    chapter_select = ""
+    if filters.get("chapter"):
+        chapter_join = """
+        INNER JOIN `tabChapter Member` cm ON m.name = cm.member
+        INNER JOIN `tabChapter` c ON c.name = cm.parent
+        """
+        chapter_select = "c.name as chapter,"
+        where_conditions.append("c.name = %(chapter)s")
+        where_conditions.append("cm.enabled = 1")
+        where_conditions.append("cm.status = 'Active'")
+        query_params["chapter"] = filters.get("chapter")
+        where_clause = " AND ".join(where_conditions)
 
     # Get all members without active memberships
     sql_query = f"""
@@ -142,6 +162,7 @@ def get_data(filters):
             m.email,
             m.status as member_status,
             m.member_since,
+            {chapter_select}
             last_membership.name as last_membership_id,
             last_membership.membership_type as last_membership_type,
             last_membership.status as last_membership_status,
@@ -153,6 +174,7 @@ def get_data(filters):
             END as days_since_last_membership,
             m.contact_number
         FROM `tabMember` m
+        {chapter_join}
         LEFT JOIN (
             SELECT
                 member,

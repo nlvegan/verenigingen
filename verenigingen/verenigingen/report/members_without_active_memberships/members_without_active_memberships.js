@@ -43,24 +43,24 @@ frappe.query_reports['Members Without Active Memberships'] = {
 	filters: [
 		{
 			fieldname: 'include_terminated',
-			label: __('Include Terminated Members'),
+			label: __('Include Terminated/Banned Members'),
 			fieldtype: 'Check',
 			default: 0,
-			description: 'Include members with status \'Terminated\''
+			description: 'Include members with status \'Terminated\' or \'Banned\' (Note: Rejected and Deceased members are always excluded)'
 		},
 		{
 			fieldname: 'include_suspended',
 			label: __('Include Suspended Members'),
 			fieldtype: 'Check',
-			default: 1,
-			description: 'Include members with status \'Suspended\''
+			default: 0,
+			description: 'Include members with status \'Suspended\' (Note: Rejected and Deceased members are always excluded)'
 		},
 		{
 			fieldname: 'member_status',
 			label: __('Member Status'),
 			fieldtype: 'Select',
-			options: 'Active\nPending\nSuspended\nTerminated',
-			description: 'Filter by specific member status'
+			options: '\nActive\nPending\nExpired\nSuspended\nTerminated',
+			description: 'Filter by specific member status (overrides include/exclude filters above)'
 		},
 		{
 			fieldname: 'include_dues_schedule_info',
@@ -69,15 +69,14 @@ frappe.query_reports['Members Without Active Memberships'] = {
 			default: 0,
 			description:
         'Add columns showing dues schedule status, next invoice date, and coverage gaps'
+		},
+		{
+			fieldname: 'chapter',
+			label: __('Chapter'),
+			fieldtype: 'Link',
+			options: 'Chapter',
+			description: 'Filter by specific chapter membership'
 		}
-		// Chapter filter disabled - field is computed/HTML
-		// {
-		// 	"fieldname": "chapter",
-		// 	"label": __("Chapter"),
-		// 	"fieldtype": "Link",
-		// 	"options": "Chapter",
-		// 	"description": "Filter by specific chapter"
-		// }
 	],
 
 	formatter(value, row, column, data, default_formatter) {
