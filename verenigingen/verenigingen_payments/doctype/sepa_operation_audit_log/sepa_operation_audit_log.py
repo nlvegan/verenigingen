@@ -44,7 +44,9 @@ class SEPAOperationAuditLog(Document):
 
     def on_update(self):
         """Prevent updates to audit logs - they must be immutable for compliance"""
-        if not self.is_new():
+        # Check if this is a genuine update (not the initial insert)
+        # During insert, _doc_before_save is None; during update, it exists
+        if self._doc_before_save:
             frappe.throw(_("Audit log entries cannot be modified - compliance requirement"))
 
     def on_cancel(self):

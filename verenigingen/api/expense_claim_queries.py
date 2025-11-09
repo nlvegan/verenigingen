@@ -106,7 +106,7 @@ def get_user_accessible_chapters_for_expenses(
             {search_condition}
         ORDER BY name
         LIMIT %(start)s, %(page_len)s
-    """
+    """  # nosec B608  # Safe: chapter_names escaped, search_condition static, user input parameterized
 
     return frappe.db.sql(
         query,
@@ -174,7 +174,7 @@ def get_chapter_expense_approvers(
             {search_condition}
         ORDER BY u.full_name
         LIMIT %(start)s, %(page_len)s
-    """
+    """  # nosec B608  # Safe: search_condition is static string, all user input parameterized
 
     return frappe.db.sql(
         query,
