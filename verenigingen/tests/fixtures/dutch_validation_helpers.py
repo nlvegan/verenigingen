@@ -201,11 +201,14 @@ def validate_dutch_iban(iban):
     if len(iban_clean) != 18:
         return {"is_valid": False, "error": "Dutch IBAN must be exactly 18 characters"}
 
-    # Check if rest are digits/letters
-    if not iban_clean[2:].replace("ABCD", "").replace("EFGH", "").replace("IJKL", "").replace("MNOP", "").replace("QRST", "").replace("UVWX", "").replace("YZ", "").isdigit():
-        # More precise check - allow only digits for Dutch IBANs after NL
-        if not iban_clean[2:].isdigit():
-            return {"is_valid": False, "error": "Dutch IBAN should contain only digits after country code"}
+    # Dutch IBAN format: NL + 2 check digits + 4 letter bank code + 10 digit account number
+    # Validate structure: NL + 2 digits + 4 letters + 10 digits
+    if not iban_clean[2:4].isdigit():
+        return {"is_valid": False, "error": "Check digits must be numeric"}
+    if not iban_clean[4:8].isalpha():
+        return {"is_valid": False, "error": "Bank code must be 4 letters"}
+    if not iban_clean[8:].isdigit():
+        return {"is_valid": False, "error": "Account number must be 10 digits"}
 
     # Perform mod-97 validation
     # Move first 4 characters to end and replace letters with numbers

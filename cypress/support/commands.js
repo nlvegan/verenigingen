@@ -1122,3 +1122,137 @@ Cypress.Commands.add("test_centralized_config_access", () => {
       });
   });
 });
+
+// ============================================================================
+// Membership Termination Request Commands
+// ============================================================================
+
+/**
+ * Create a test termination request with realistic data
+ */
+Cypress.Commands.add("createTerminationRequest", (memberName, options = {}) => {
+  const defaults = {
+    termination_type: "Voluntary",
+    termination_reason: "Test termination reason",
+    member_request_date: new Date().toISOString().split('T')[0],
+    apply_grace_period: false
+  };
+
+  const data = { ...defaults, ...options, member: memberName };
+
+  return cy.window().then((win) => {
+    return win.frappe.call({
+      method: "frappe.client.insert",
+      args: {
+        doc: {
+          doctype: "Membership Termination Request",
+          ...data
+        }
+      }
+    }).then((r) => {
+      cy.log(`Created termination request: ${r.message.name}`);
+      return r.message;
+    });
+  });
+});
+
+/**
+ * Submit termination request for approval
+ */
+Cypress.Commands.add("submitTerminationForApproval", (requestName) => {
+  return cy.window().then((win) => {
+    return win.frappe.call({
+      method: `verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.submit_for_approval`,
+      args: {
+        docname: requestName
+      }
+    }).then((r) => {
+      cy.log(`Submitted ${requestName} for approval`);
+      return r.message;
+    });
+  });
+});
+
+/**
+ * Approve or reject a termination request
+ */
+Cypress.Commands.add("approveTerminationRequest", (requestName, decision = "approved", notes = "") => {
+  return cy.window().then((win) => {
+    return win.frappe.call({
+      method: `verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.approve_request`,
+      args: {
+        docname: requestName,
+        decision: decision,
+        notes: notes
+      }
+    }).then((r) => {
+      cy.log(`${decision} termination request ${requestName}`);
+      return r.message;
+    });
+  });
+});
+
+/**
+ * Execute a termination request
+ */
+Cypress.Commands.add("executeTermination", (requestName) => {
+  return cy.window().then((win) => {
+    return win.frappe.call({
+      method: `verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.execute_termination`,
+      args: {
+        docname: requestName
+      }
+    }).then((r) => {
+      cy.log(`Executed termination ${requestName}`);
+      return r.message;
+    });
+  });
+});
+
+/**
+ * Get termination impact preview
+ */
+Cypress.Commands.add("getTerminationPreview", (requestName) => {
+  return cy.window().then((win) => {
+    return win.frappe.call({
+      method: `verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.get_termination_preview`,
+      args: {
+        docname: requestName
+      }
+    }).then((r) => {
+      return r.message;
+    });
+  });
+});
+
+/**
+ * Verify termination audit trail
+ */
+Cypress.Commands.add("verifyTerminationAuditTrail", (requestName, expectedActions) => {
+  cy.visit(`/app/membership-termination-request/${requestName}`);
+
+  cy.get('[data-fieldname="audit_trail"]').scrollIntoView();
+
+  expectedActions.forEach((action) => {
+    cy.get('[data-fieldname="audit_trail"]').should('contain', action);
+  });
+});
+
+/**
+ * Check if member status is terminated
+ */
+Cypress.Commands.add("verifyMemberTerminated", (memberName) => {
+  return cy.window().then((win) => {
+    return win.frappe.call({
+      method: "frappe.client.get_value",
+      args: {
+        doctype: "Member",
+        filters: { name: memberName },
+        fieldname: "status"
+      }
+    }).then((r) => {
+      expect(r.message.status).to.equal("Terminated");
+      cy.log(`Verified member ${memberName} is terminated`);
+    });
+  });
+});

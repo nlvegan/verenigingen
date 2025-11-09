@@ -1,0 +1,58 @@
+{
+  "test_members": [
+    {
+      "first_name": "Voluntary",
+      "last_name": "Termination",
+      "email": "voluntary.test@verenigingen.test",
+      "status": "Active",
+      "membership_type": "Individual"
+    },
+    {
+      "first_name": "Disciplinary",
+      "last_name": "Action",
+      "email": "disciplinary.test@verenigingen.test",
+      "status": "Active",
+      "membership_type": "Individual"
+    },
+    {
+      "first_name": "Non",
+      "last_name": "Payment",
+      "email": "nonpayment.test@verenigingen.test",
+      "status": "Active",
+      "membership_type": "Individual"
+    }
+  ],
+  "voluntary_termination": {
+    "termination_type": "Voluntary",
+    "termination_reason": "Member relocating to another country for work",
+    "apply_grace_period": true
+  },
+  "disciplinary_termination": {
+    "termination_type": "Disciplinary Action",
+    "termination_reason": "Violation of code of conduct - harassment reported",
+    "disciplinary_documentation": "See incident report #2025-001 dated 2025-10-15. Multiple witnesses confirmed behavior.",
+    "requires_secondary_approval": 1
+  },
+  "policy_violation_termination": {
+    "termination_type": "Policy Violation",
+    "termination_reason": "Repeated violations of membership terms after warnings",
+    "disciplinary_documentation": "Written warnings issued on 2025-08-01 and 2025-09-15. No improvement observed.",
+    "requires_secondary_approval": 1
+  },
+  "expulsion_termination": {
+    "termination_type": "Expulsion",
+    "termination_reason": "Serious misconduct - unauthorized use of organization resources",
+    "disciplinary_documentation": "Investigation report attached. Board resolution 2025-10-20 approving expulsion.",
+    "requires_secondary_approval": 1
+  },
+  "nonpayment_termination": {
+    "termination_type": "Non-payment",
+    "termination_reason": "Membership dues unpaid for 6+ months despite multiple reminders",
+    "apply_grace_period": false
+  },
+  "deceased_termination": {
+    "termination_type": "Deceased",
+    "termination_reason": "Notification received from family member",
+    "member_request_date": "2025-10-25"
+  }
+}
