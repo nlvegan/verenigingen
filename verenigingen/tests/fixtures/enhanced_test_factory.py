@@ -3991,7 +3991,7 @@ class EnhancedTestCase(FrappeTestCase):
         """Bridge to SEPA test factory for mandate creation"""
         try:
             from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
-            sepa_factory = SEPATestDataFactory(seed=self.factory._seed, use_faker=self.factory.use_faker)
+            sepa_factory = SEPATestDataFactory(seed=self.factory.seed, use_faker=self.factory.use_faker)
             return sepa_factory.create_test_sepa_mandate(member=member_name, iban=iban, **kwargs)
         except ImportError:
             # Fallback implementation

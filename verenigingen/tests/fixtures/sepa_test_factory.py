@@ -64,9 +64,13 @@ class SEPATestDataFactory(EnhancedTestDataFactory):
         return iban
     
     def generate_mandate_id(self) -> str:
-        """Generate test mandate ID following Dutch conventions"""
+        """Generate test mandate ID following Dutch conventions with timestamp uniqueness"""
+        import time
+        # Combine sequence with microsecond timestamp for uniqueness across factory instances
         seq = self.get_next_sequence('mandate')
-        return f"TST{seq:06d}"  # TST prefix for test mandates
+        # Use last 3 digits of microseconds for sub-second uniqueness
+        timestamp_suffix = int(time.time() * 1000) % 1000
+        return f"TST{seq:03d}{timestamp_suffix:03d}"  # TST prefix with seq + timestamp
     
     def create_test_sepa_mandate(self, member: str = None, iban: str = None, 
                                 mandate_id: str = None, status: str = "Active",
