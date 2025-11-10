@@ -40776,5 +40776,53 @@
     "apply_batch_limits_to": "Both",
     "audit_level": "comprehensive",
     "alert_on_execution": 1
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "calculate_subscription_start_date",
+    "operation_name": "calculate_subscription_start_date",
+    "operation_type": "member_data",
+    "description": "Calculate optimal subscription start date based on member payment status",
+    "enabled": 1,
+    "security_level": "medium",
+    "business_context": "Member portal endpoint for smart subscription date calculation considering overdue payments and quarterly/yearly payment schedules",
+    "required_roles": "Verenigingen Member\nVerenigingen Staff\nVerenigingen Administrator",
+    "rate_limit_calls": 100,
+    "rate_limit_period_seconds": 60,
+    "rate_limit_scope": "per_user",
+    "audit_level": "standard",
+    "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "bank_details_calculate_subscription_start_date",
+    "operation_name": "bank_details_calculate_subscription_start_date",
+    "operation_type": "member_data",
+    "description": "Bank details page endpoint for subscription start date calculation",
+    "enabled": 1,
+    "security_level": "medium",
+    "business_context": "Member self-service portal endpoint for calculating subscription start dates",
+    "required_roles": "Verenigingen Member\nVerenigingen Staff",
+    "rate_limit_calls": 100,
+    "rate_limit_period_seconds": 60,
+    "rate_limit_scope": "per_user",
+    "audit_level": "standard",
+    "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "api_calculate_subscription_start_date",
+    "operation_name": "api_calculate_subscription_start_date",
+    "operation_type": "member_data",
+    "description": "API endpoint for subscription start date calculation",
+    "enabled": 1,
+    "security_level": "medium",
+    "business_context": "API endpoint for external integrations requiring subscription date calculation",
+    "required_roles": "Verenigingen Member\nVerenigingen Staff\nVerenigingen Administrator",
+    "rate_limit_calls": 100,
+    "rate_limit_period_seconds": 60,
+    "rate_limit_scope": "per_user",
+    "audit_level": "standard",
+    "alert_on_execution": 0
   }
 ]

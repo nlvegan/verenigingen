@@ -9,6 +9,17 @@ import frappe
 from frappe import _
 from frappe.utils import getdate
 
+from verenigingen.integrations.mollie.utils.common_helpers import (
+    convert_frequency_to_mollie_interval,
+    create_error_response,
+    create_success_response,
+    format_mollie_amount,
+    format_mollie_amount_string,
+    get_member_by_customer_id,
+    get_member_by_subscription_id,
+    get_members_by_customer,
+    log_mollie_error,
+)
 from verenigingen.utils.member_utils import validate_member_ownership
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
@@ -153,7 +164,7 @@ class MollieGateway(PaymentGateway):
             description = form_data.get("description_override", f"Donation {donation.name}")
 
             payment_data = {
-                "amount": {"value": f"{float(donation.amount):.2f}", "currency": currency},
+                "amount": format_mollie_amount(donation.amount, currency),
                 "description": description,
                 "redirectUrl": redirect_url,
                 "webhookUrl": webhook_url,
@@ -182,7 +193,7 @@ class MollieGateway(PaymentGateway):
                     {
                         "subscription_setup": "true",
                         "subscription_interval": subscription_interval,
-                        "subscription_amount": f"{float(donation.amount):.2f}",
+                        "subscription_amount": format_mollie_amount_string(donation.amount),
                         "subscription_currency": currency,
                     }
                 )
@@ -384,8 +395,8 @@ class MollieGateway(PaymentGateway):
                 return {"status": "processed", "payment_status": "pending"}
 
         except Exception as e:
-            frappe.log_error(f"Mollie webhook processing failed: {str(e)}", "Mollie Webhook Error")
-            return {"status": "error", "message": str(e)}
+            log_mollie_error("Webhook Processing", e)
+            return create_error_response(str(e))
 
     def get_payment_status(self, payment_id):
         """
@@ -452,8 +463,12 @@ class MollieGateway(PaymentGateway):
             return self.process_payment(donation, form_data)
 
         except Exception as e:
-            frappe.log_error(f"Error creating new Mollie payment: {str(e)}", "Mollie Payment Recreation")
-            return {"status": "error", "message": _("Could not create new payment. Please try again.")}
+            log_mollie_error(
+                "Payment Recreation",
+                e,
+                {"donation": donation.name if hasattr(donation, "name") else "Unknown"},
+            )
+            return create_error_response(_("Could not create new payment. Please try again."))
 
     def _get_mollie_settings(self):
         """Get Mollie settings configuration"""
@@ -528,10 +543,9 @@ class MollieGateway(PaymentGateway):
             }
 
             mollie_subscription_data = {
-                "amount": {
-                    "currency": subscription_data.get("currency", "EUR"),
-                    "value": f"{float(subscription_data['amount']):.2f}",
-                },
+                "amount": format_mollie_amount(
+                    subscription_data["amount"], subscription_data.get("currency", "EUR")
+                ),
                 "interval": interval_mapping.get(subscription_data.get("interval", "1 month"), "1 month"),
                 "description": subscription_data.get(
                     "description", f"Membership dues for {member.first_name} {member.last_name}"
@@ -607,13 +621,15 @@ class MollieGateway(PaymentGateway):
                     "message": _("Subscription status retrieved successfully"),
                 }
             else:
-                return {"status": "error", "message": _("Could not retrieve subscription status")}
+                return create_error_response(_("Could not retrieve subscription status"))
 
         except Exception as e:
-            frappe.log_error(
-                f"Error getting Mollie subscription status: {str(e)}", "Mollie Subscription Status"
+            log_mollie_error(
+                "Subscription Status Retrieval",
+                e,
+                {"member": member.name if hasattr(member, "name") else "Unknown"},
             )
-            return {"status": "error", "message": f"Error retrieving subscription status: {str(e)}"}
+            return create_error_response(f"Error retrieving subscription status: {str(e)}")
 
     def cancel_subscription(self, member):
         """
@@ -630,7 +646,7 @@ class MollieGateway(PaymentGateway):
             subscription_id = getattr(member, "mollie_subscription_id", None)
 
             if not (customer_id and subscription_id):
-                return {"status": "error", "message": _("No active subscription found for this member")}
+                return create_error_response(_("No active subscription found for this member"))
 
             success = self.settings.cancel_subscription(customer_id, subscription_id)
 
@@ -639,16 +655,13 @@ class MollieGateway(PaymentGateway):
                 member.db_set("subscription_status", "cancelled")
                 member.db_set("subscription_cancelled_date", frappe.utils.today())
 
-                return {"status": "success", "message": _("Subscription cancelled successfully")}
+                return create_success_response(_("Subscription cancelled successfully"))
             else:
-                return {"status": "error", "message": _("Failed to cancel subscription")}
+                return create_error_response(_("Failed to cancel subscription"))
 
         except Exception as e:
-            frappe.log_error(
-                f"Error cancelling Mollie subscription for {member.name}: {str(e)}",
-                "Mollie Subscription Cancel",
-            )
-            return {"status": "error", "message": f"Error cancelling subscription: {str(e)}"}
+            log_mollie_error("Subscription Cancellation", e, {"member": member.name})
+            return create_error_response(f"Error cancelling subscription: {str(e)}")
 
     def update_subscription(self, customer_id, subscription_id, update_data):
         """
@@ -691,7 +704,7 @@ class MollieGateway(PaymentGateway):
                 f"Error updating Mollie subscription {subscription_id}: {str(e)}",
                 "Mollie Subscription Update",
             )
-            return {"status": "error", "message": f"Error updating subscription: {str(e)}"}
+            return create_error_response(f"Error updating subscription: {str(e)}")
 
 
 class SEPAGateway(PaymentGateway):
@@ -702,14 +715,14 @@ class SEPAGateway(PaymentGateway):
         iban = form_data.get("donor_iban", "").replace(" ", "").upper()
 
         if not iban:
-            return {"status": "error", "message": "IBAN is required for SEPA payments"}
+            return create_error_response("IBAN is required for SEPA payments")
 
         # Validate IBAN format with comprehensive validation
         from verenigingen.utils.validation.iban_validator import validate_iban
 
         validation_result = validate_iban(iban)
         if not validation_result["valid"]:
-            return {"status": "error", "message": validation_result["message"]}
+            return create_error_response(validation_result["message"])
 
         # Create or update SEPA mandate
         mandate = self._create_sepa_mandate(donation, iban, form_data)
@@ -726,7 +739,7 @@ class SEPAGateway(PaymentGateway):
                 "message": _("SEPA mandate created successfully"),
             }
         else:
-            return {"status": "error", "message": "Failed to create SEPA mandate"}
+            return create_error_response("Failed to create SEPA mandate")
 
     def handle_webhook(self, payload):
         """SEPA doesn't use webhooks - batch processing"""
@@ -895,15 +908,8 @@ def _activate_subscription_after_first_payment(gateway, member_name, member_cust
 
         dues_schedule = dues_schedules[0]
 
-        # Convert billing frequency to Mollie interval format
-        frequency_map = {
-            "Monthly": "1 month",
-            "Quarterly": "3 months",
-            "Semi-Annual": "6 months",
-            "Annual": "12 months",
-        }
-
-        interval = frequency_map.get(dues_schedule["billing_frequency"], "1 month")
+        # Convert billing frequency to Mollie interval format using consolidated utility
+        interval = convert_frequency_to_mollie_interval(dues_schedule["billing_frequency"])
 
         # Create subscription data
         subscription_data = {
@@ -945,7 +951,7 @@ def _activate_subscription_after_first_payment(gateway, member_name, member_cust
             f"Error activating subscription for member {member_name}: {str(e)}",
             "Mollie Subscription Activation",
         )
-        return {"status": "error", "message": str(e)}
+        return create_error_response(str(e))
 
 
 def retry_failed_subscription_activations():
@@ -988,11 +994,9 @@ def retry_failed_subscription_activations():
             customer_name = payment_info["party"]
             payment_id = payment_info["reference_no"]
 
-            # Find member for this customer
-            members = frappe.get_all(
-                "Member",
-                filters={"customer": customer_name},
-                fields=["name", "mollie_subscription_id", "subscription_status"],
+            # Find member for this customer using consolidated utility
+            members = get_members_by_customer(
+                customer_name, fields=["name", "mollie_subscription_id", "subscription_status"]
             )
 
             if not members:
@@ -1102,12 +1106,14 @@ def _activate_direct_subscription_after_first_payment(gateway, payment):
         donation_id = payment.metadata.get("donation_id")
 
         if not (subscription_interval and subscription_amount):
-            return {"status": "error", "reason": "Missing subscription details in payment metadata"}
+            return create_error_response(
+                "Missing subscription details in payment metadata", {"reason": "missing_subscription_details"}
+            )
 
         # Get customer ID from payment
         customer_id = payment.customer_id
         if not customer_id:
-            return {"status": "error", "reason": "No customer ID found in payment"}
+            return create_error_response("No customer ID found in payment", {"reason": "missing_customer_id"})
 
         # Create subscription data
         subscription_data = {
@@ -1164,7 +1170,7 @@ def _activate_direct_subscription_after_first_payment(gateway, payment):
             f"Error creating direct subscription after first payment: {str(e)}",
             "Mollie Direct Subscription Creation",
         )
-        return {"status": "error", "message": str(e)}
+        return create_error_response(str(e))
 
 
 def _activate_donation_subscription_after_first_payment(gateway, payment):
@@ -1194,12 +1200,12 @@ def _activate_donation_subscription_after_first_payment(gateway, payment):
         # Get customer ID from payment
         customer_id = payment.customer_id
         if not customer_id:
-            return {"status": "error", "reason": "No customer ID found in payment"}
+            return create_error_response("No customer ID found in payment", {"reason": "missing_customer_id"})
 
         # Create subscription data based on agreement
         subscription_data = {
-            "amount": {"currency": "EUR", "value": f"{float(agreement.amount):.2f}"},
-            "interval": _convert_frequency_to_mollie_interval(agreement.recurring_frequency),
+            "amount": format_mollie_amount(agreement.amount),
+            "interval": convert_frequency_to_mollie_interval(agreement.recurring_frequency),
             "description": f"Recurring donation - {donation.donation_category or donation.donation_purpose_type}",
             "startDate": agreement.next_due_date.strftime("%Y-%m-%d") if agreement.next_due_date else None,
             "metadata": {
@@ -1236,22 +1242,7 @@ def _activate_donation_subscription_after_first_payment(gateway, payment):
             f"Error creating donation subscription after first payment: {str(e)}",
             "Mollie Donation Subscription Creation",
         )
-        return {"status": "error", "message": str(e)}
-
-
-def _convert_frequency_to_mollie_interval(frequency):
-    """Convert Donation Agreement frequency to Mollie interval format"""
-    frequency_map = {
-        "Monthly": "1 month",
-        "Quarterly": "3 months",
-        "Semi-Annual": "6 months",
-        "Annual": "12 months",
-        "1 month": "1 month",  # Direct mapping
-        "3 months": "3 months",
-        "6 months": "6 months",
-        "12 months": "12 months",
-    }
-    return frequency_map.get(frequency, "1 month")
+        return create_error_response(str(e))
 
 
 @frappe.whitelist()
@@ -1386,7 +1377,7 @@ def mollie_subscription_webhook():
                     "headers": dict(frappe.request.headers),
                 },
             )
-            return {"status": "error", "message": "Webhook authentication failed", "details": str(auth_error)}
+            return create_error_response("Webhook authentication failed", {"details": str(auth_error)})
 
         # Enhanced logging for webhook debugging
         frappe.logger().info("🔄 Mollie subscription webhook received and authenticated")
@@ -1429,7 +1420,7 @@ def mollie_subscription_webhook():
                         f"Mollie subscription webhook parsing failed: Neither JSON nor form-encoded\nJSON error: {str(json_error)}\nForm error: {str(form_error)}\nFull payload: {repr(payload)}",
                         "Mollie Subscription Webhook Parsing Error",
                     )
-                    return {"status": "error", "message": "Invalid payload format"}
+                    return create_error_response("Invalid payload format")
             else:
                 # Check if payload looks truncated (ends with incomplete JSON)
                 is_truncated = (
@@ -1451,7 +1442,7 @@ def mollie_subscription_webhook():
                     f"Mollie subscription webhook JSON parsing failed: {error_msg}\nFull payload: {repr(payload)}",
                     "Mollie Subscription Webhook JSON Error",
                 )
-                return {"status": "error", "message": "Invalid JSON payload"}
+                return create_error_response("Invalid JSON payload")
 
         # Extract subscription information - handle both JSON event format and legacy format
         subscription_id = None
@@ -1502,11 +1493,11 @@ def mollie_subscription_webhook():
             )
             return {"status": "ignored", "reason": "No customer found for subscription"}
 
-        # Find the member linked to this customer
+        # Find the member linked to this customer using consolidated utility
         customer_name = customers_with_subscription[0]["name"]
         customer_id = customers_with_subscription[0]["custom_mollie_customer_id"]
 
-        members = frappe.get_all("Member", filters={"customer": customer_name}, fields=["name"])
+        members = get_members_by_customer(customer_name, fields=["name"])
 
         if not members:
             frappe.log_error(
@@ -1579,7 +1570,7 @@ def mollie_subscription_webhook():
 
     except Exception as e:
         frappe.log_error(f"Mollie subscription webhook error: {str(e)}", "Mollie Subscription Webhook")
-        return {"status": "error", "message": str(e)}
+        return create_error_response(str(e))
 
 
 def _process_subscription_payment(gateway, member_name, member_customer, payment_id, subscription_id):
@@ -1816,33 +1807,55 @@ def get_payment_status(donation_id):
 
     except Exception as e:
         frappe.log_error(f"Payment status check error: {str(e)}", "Payment Gateway Status")
-        return {"status": "error", "message": str(e)}
+        return create_error_response(str(e))
 
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def create_member_subscription(member_id, amount, interval="1 month", description=None):
-    """Create Mollie subscription for a member"""
+def create_member_subscription(member_id, amount, interval="1 month", description=None, start_date=None):
+    """Create Mollie subscription for a member with optional start date"""
     if not frappe.has_permission("Member", "write"):
         frappe.throw(_("Insufficient permissions"))
 
     try:
         member = frappe.get_doc("Member", member_id)
 
-        # Prepare subscription data
-        subscription_data = {
-            "amount": amount,
-            "interval": interval,
-            "currency": "EUR",
-            "description": description or f"Membership dues for {member.first_name} {member.last_name}",
-        }
+        # Check if member already has an active subscription
+        if member.mollie_subscription_id:
+            return {
+                "status": "error",
+                "message": _(
+                    "You already have an active Mollie subscription. Please cancel the existing subscription first if you want to create a new one."
+                ),
+                "existing_subscription_id": member.mollie_subscription_id,
+            }
 
-        # Create subscription
-        gateway = PaymentGatewayFactory.get_gateway("Mollie", "Default")
-        result = gateway.create_subscription(member, subscription_data)
+        # Get Mollie customer ID from member
+        if not member.mollie_customer_id:
+            return {
+                "status": "error",
+                "message": _("No Mollie customer ID found. Please set up payment details first."),
+            }
 
-        if result["status"] == "success":
-            # Update member payment method
+        # Use existing MollieDebugService for subscription creation
+        # This handles mandate auto-selection and all the edge cases
+        from verenigingen.services.mollie_debug_service import MollieDebugService
+
+        debug_service = MollieDebugService()
+
+        # Create subscription using the existing service method
+        result = debug_service.create_subscription(
+            customer_id=member.mollie_customer_id,
+            amount=float(amount),
+            interval=interval,
+            description=description or f"Membership dues for {member.first_name} {member.last_name}",
+            mandate_id=None,  # Let Mollie auto-select active mandate
+            start_date=start_date,
+        )
+
+        # If successful, update member record
+        if result.get("status") == "success" and result.get("subscription_id"):
+            member.db_set("mollie_subscription_id", result["subscription_id"])
             member.db_set("payment_method", "Mollie")
 
         return result
@@ -1851,7 +1864,7 @@ def create_member_subscription(member_id, amount, interval="1 month", descriptio
         frappe.log_error(
             f"Error creating subscription for member {member_id}: {str(e)}", "Member Subscription"
         )
-        return {"status": "error", "message": str(e)}
+        return create_error_response(str(e))
 
 
 @frappe.whitelist()
@@ -1873,7 +1886,7 @@ def cancel_member_subscription(member_id):
         frappe.log_error(
             f"Error cancelling subscription for member {member_id}: {str(e)}", "Member Subscription Cancel"
         )
-        return {"status": "error", "message": str(e)}
+        return create_error_response(str(e))
 
 
 @frappe.whitelist()
@@ -1899,7 +1912,7 @@ def get_member_subscription_status(member_id):
             f"Error getting subscription status for member {member_id}: {str(e)}",
             "Member Subscription Status",
         )
-        return {"status": "error", "message": str(e)}
+        return create_error_response(str(e))
 
 
 @frappe.whitelist()
@@ -1935,15 +1948,13 @@ def manual_payment_confirmation(donation_id, payment_reference, notes=None):
 def cancel_mollie_subscription_by_id(subscription_id):
     """Cancel Mollie subscription by subscription ID"""
     try:
-        # Find member with this subscription ID
-        members = frappe.get_all(
-            "Member", filters={"mollie_subscription_id": subscription_id}, fields=["name"], limit=1
-        )
+        # Find member with this subscription ID using consolidated utility
+        member = get_member_by_subscription_id(subscription_id, fields=["name"])
 
-        if not members:
-            return {"status": "error", "message": "No member found for subscription ID"}
+        if not member:
+            return create_error_response("No member found for subscription ID")
 
-        member_id = members[0].name
+        member_id = member["name"]
         return cancel_member_subscription(member_id)
 
     except Exception as e:
@@ -1951,7 +1962,7 @@ def cancel_mollie_subscription_by_id(subscription_id):
             f"Error cancelling subscription by ID {subscription_id}: {str(e)}",
             "Mollie Subscription Cancellation",
         )
-        return {"status": "error", "message": str(e)}
+        return create_error_response(str(e))
 
 
 @frappe.whitelist()
@@ -1959,29 +1970,23 @@ def cancel_mollie_subscription_by_id(subscription_id):
 def update_mollie_subscription_amount(subscription_id, new_amount):
     """Update Mollie subscription amount"""
     try:
-        # Find member with this subscription ID
-        members = frappe.get_all(
-            "Member",
-            filters={"mollie_subscription_id": subscription_id},
-            fields=["name", "mollie_customer_id"],
-            limit=1,
-        )
+        # Find member with this subscription ID using consolidated utility
+        member_data = get_member_by_subscription_id(subscription_id, fields=["name", "mollie_customer_id"])
 
-        if not members:
-            return {"status": "error", "message": "No member found for subscription ID"}
+        if not member_data:
+            return create_error_response("No member found for subscription ID")
 
-        member_data = members[0]
-        customer_id = member_data.mollie_customer_id
+        customer_id = member_data["mollie_customer_id"]
 
         if not customer_id:
-            return {"status": "error", "message": "No Mollie customer ID found"}
+            return create_error_response("No Mollie customer ID found")
 
         # Get Mollie gateway
         gateway = PaymentGatewayFactory.get_gateway("Mollie", "Default")
 
         # Update subscription amount via Mollie API
         result = gateway.update_subscription(
-            customer_id, subscription_id, {"amount": {"value": f"{new_amount:.2f}", "currency": "EUR"}}
+            customer_id, subscription_id, {"amount": format_mollie_amount(new_amount)}
         )
 
         if result.get("status") == "success":
@@ -1999,16 +2004,16 @@ def update_mollie_subscription_amount(subscription_id, new_amount):
 
             return {
                 "status": "success",
-                "message": f"Subscription amount updated to €{new_amount:.2f}",
+                "message": f"Subscription amount updated to €{format_mollie_amount_string(new_amount)}",
                 "subscription_id": subscription_id,
                 "new_amount": new_amount,
             }
         else:
-            return {"status": "error", "message": result.get("message", "Failed to update subscription")}
+            return create_error_response(result.get("message", "Failed to update subscription"))
 
     except Exception as e:
         frappe.log_error(
             f"Error updating subscription amount for {subscription_id}: {str(e)}",
             "Mollie Subscription Update",
         )
-        return {"status": "error", "message": str(e)}
+        return create_error_response(str(e))

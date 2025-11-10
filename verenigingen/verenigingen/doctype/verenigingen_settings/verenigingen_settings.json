@@ -50,6 +50,7 @@
   "grace_period_notification_days",
   "max_fee_adjustments_per_year",
   "auto_submit_membership_invoices",
+  "mollie_subscription_description_template",
   "column_break_membership",
   "max_rate_change_percent",
   "membership_payment_account",
@@ -690,6 +691,13 @@
    "fieldname": "auto_submit_membership_invoices",
    "fieldtype": "Check",
    "label": "Auto-Submit Membership Invoices"
+  },
+  {
+   "default": "Contribution payment for member MEMBER_ID",
+   "description": "Template for Mollie subscription description. Use MEMBER_ID as placeholder for member ID (e.g., 'Contribution payment for member MEMBER_ID')",
+   "fieldname": "mollie_subscription_description_template",
+   "fieldtype": "Data",
+   "label": "Mollie Subscription Description Template"
   },
   {
    "description": "Default item group for membership items",

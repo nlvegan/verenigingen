@@ -20,7 +20,61 @@ from verenigingen.utils.security.api_security_framework import (
     OperationType,
     development_only_api,
     high_security_api,
+    standard_api,
 )
+
+
+def parse_mollie_customer_ids(customer_id_string, max_ids=10):
+    """
+    Safely parse and validate comma-separated Mollie customer IDs.
+
+    Args:
+        customer_id_string: String containing comma-separated customer IDs
+        max_ids: Maximum number of IDs allowed (default 10, security limit)
+
+    Returns:
+        List of validated customer ID strings
+
+    Raises:
+        None - logs errors but returns empty list or truncated list on invalid input
+    """
+    if not customer_id_string:
+        return []
+
+    if not isinstance(customer_id_string, str):
+        frappe.log_error(
+            f"Invalid mollie_customer_id type: {type(customer_id_string).__name__}",
+            "Mollie Customer ID Validation",
+        )
+        return []
+
+    # Split on commas and strip whitespace
+    customer_ids = [cid.strip() for cid in customer_id_string.split(",") if cid.strip()]
+
+    # Enforce maximum limit to prevent DoS
+    if len(customer_ids) > max_ids:
+        frappe.log_error(
+            f"Too many customer IDs ({len(customer_ids)}) exceeds limit of {max_ids}. Truncating.",
+            "Mollie Customer ID Validation",
+        )
+        customer_ids = customer_ids[:max_ids]
+
+    # Validate format - Mollie customer IDs match pattern: cst_[A-Za-z0-9]{10}
+    import re
+
+    customer_id_pattern = re.compile(r"^cst_[A-Za-z0-9]{10}$")
+    validated_ids = []
+
+    for cid in customer_ids:
+        if customer_id_pattern.match(cid):
+            validated_ids.append(cid)
+        else:
+            frappe.log_error(
+                f"Invalid Mollie customer ID format: {cid}. Expected pattern: cst_[A-Za-z0-9]{{10}}",
+                "Mollie Customer ID Validation",
+            )
+
+    return validated_ids
 
 
 def get_context(context):
@@ -55,18 +109,21 @@ def get_context(context):
     mollie_customers = []
 
     # Check member record for Mollie customer ID (regardless of payment method)
+    # Support comma-separated customer IDs for members with multiple Mollie accounts
     if context.member.mollie_customer_id:
-        mollie_customers.append(
-            {
-                "customer_id": context.member.mollie_customer_id,
-                "subscription_id": context.member.mollie_subscription_id,
-                "status": context.member.subscription_status,
-                "next_payment_date": context.member.next_payment_date,
-                "cancelled_date": context.member.subscription_cancelled_date,
-                "source": "member",
-                "payment_method": context.member.payment_method,  # Track what it's used for
-            }
-        )
+        customer_ids = parse_mollie_customer_ids(context.member.mollie_customer_id, max_ids=5)
+        for customer_id in customer_ids:
+            mollie_customers.append(
+                {
+                    "customer_id": customer_id,
+                    "subscription_id": context.member.mollie_subscription_id,
+                    "status": context.member.subscription_status,
+                    "next_payment_date": context.member.next_payment_date,
+                    "cancelled_date": context.member.subscription_cancelled_date,
+                    "source": "member",
+                    "payment_method": context.member.payment_method,  # Track what it's used for
+                }
+            )
 
     # Check donor record for Mollie customer ID
     donor_records = frappe.get_all(
@@ -94,6 +151,20 @@ def get_context(context):
     context.mollie_customers = mollie_customers
     # Keep legacy field for backward compatibility
     context.mollie_subscription = mollie_customers[0] if mollie_customers else None
+
+    # Get active dues schedule for displaying current rate
+    if context.member.current_dues_schedule:
+        try:
+            schedule = frappe.get_doc("Membership Dues Schedule", context.member.current_dues_schedule)
+            context.active_dues_schedule = {
+                "name": schedule.name,
+                "amount": schedule.dues_rate,  # Use dues_rate instead of amount
+                "billing_frequency": schedule.billing_frequency,
+            }
+        except Exception:
+            context.active_dues_schedule = None
+    else:
+        context.active_dues_schedule = None
 
     return context
 
@@ -384,19 +455,22 @@ def get_subscription_details():
         member = frappe.get_doc("Member", member_name)
 
         # Collect all Mollie customer IDs (member + donor)
+        # Support comma-separated customer IDs for members with multiple Mollie accounts
         mollie_customer_ids = []
 
         # Check member record for Mollie customer ID
         if member.mollie_customer_id:
-            mollie_customer_ids.append(
-                {
-                    "customer_id": member.mollie_customer_id,
-                    "subscription_id": member.mollie_subscription_id,
-                    "source": "member",
-                    "local_status": member.subscription_status,
-                    "local_cancelled_date": member.subscription_cancelled_date,
-                }
-            )
+            customer_ids = parse_mollie_customer_ids(member.mollie_customer_id, max_ids=5)
+            for customer_id in customer_ids:
+                mollie_customer_ids.append(
+                    {
+                        "customer_id": customer_id,
+                        "subscription_id": member.mollie_subscription_id,
+                        "source": "member",
+                        "local_status": member.subscription_status,
+                        "local_cancelled_date": member.subscription_cancelled_date,
+                    }
+                )
 
         # Check donor record for Mollie customer ID
         donor_records = frappe.get_all(
@@ -428,100 +502,116 @@ def get_subscription_details():
 
             for customer_info in mollie_customer_ids:
                 customer_id = customer_info["customer_id"]
-                subscription_id = customer_info.get("subscription_id")
 
-                if subscription_id:
-                    # Get subscription data for member subscriptions
-                    from verenigingen.verenigingen_payments.utils.payment_gateways import (
-                        get_member_subscription_status,
+                # Use existing MollieDebugService to fetch ALL subscriptions (not just active)
+                # This avoids relying on stored subscription_id which may point to canceled subscriptions
+                try:
+                    from verenigingen.services.mollie_debug_service import MollieDebugService
+
+                    debug_service = MollieDebugService()
+
+                    # Fetch ALL subscriptions for this customer (active_only=False)
+                    subscriptions_result = debug_service.list_subscriptions(
+                        customer_id=customer_id,
+                        limit=250,
+                        active_only=False,  # Get both active AND canceled subscriptions
                     )
 
-                    subscription_data = get_member_subscription_status(member_name)
-
-                    if subscription_data.get("status") not in ["error", "no_subscription"]:
-                        subscription_info = {
-                            "customer_id": customer_id,
-                            "subscription_id": subscription_id,
-                            "source": customer_info["source"],
-                            "subscription": {
-                                "id": subscription_data.get("id"),
-                                "status": subscription_data.get("status"),
-                                "amount": subscription_data.get("amount"),
-                                "currency": subscription_data.get("currency", "EUR"),
-                                "interval": subscription_data.get("interval"),
-                                "next_payment_date": subscription_data.get("next_payment_date"),
-                                "is_active": subscription_data.get("is_active"),
-                                "is_canceled": subscription_data.get("is_canceled"),
-                                "description": subscription_data.get("description"),
-                            },
-                            "member_status": {
-                                "local_status": customer_info.get("local_status"),
-                                "cancelled_date": customer_info.get("local_cancelled_date"),
-                            },
-                        }
-                        all_subscriptions.append(subscription_info)
-                else:
-                    # For donor records, query Mollie API directly for all subscriptions
-                    try:
-                        from verenigingen.integrations.mollie.core.client import MollieClient
-
-                        mollie_client = MollieClient()
-
-                        # Get all subscriptions for this customer
-                        mollie_instance = mollie_client._get_mollie_client()
-                        customer_obj = mollie_instance.customers.get(customer_id)
-                        subscriptions = customer_obj.subscriptions.list()
-
-                        # Filter for active subscriptions only
-                        active_subscriptions = [sub for sub in subscriptions if sub.status == "active"]
-
-                        if active_subscriptions:
-                            for sub in active_subscriptions:
-                                subscription_info = {
-                                    "customer_id": customer_id,
-                                    "subscription_id": sub.id,
-                                    "source": customer_info["source"],
-                                    "donor_name": customer_info.get("donor_name"),
-                                    "subscription": {
-                                        "id": sub.id,
-                                        "status": sub.status,
-                                        "amount": float(sub.amount.get("value", 0)),
-                                        "currency": sub.amount.get("currency", "EUR"),
-                                        "interval": sub.interval,
-                                        "next_payment_date": getattr(sub, "next_payment_date", None),
-                                        "is_active": sub.status == "active",
-                                        "is_canceled": sub.status == "canceled",
-                                        "description": sub.description,
-                                    },
-                                }
-                                all_subscriptions.append(subscription_info)
-                        else:
-                            # Customer exists but no active subscriptions
-                            customer_only_info = {
-                                "customer_id": customer_id,
-                                "source": customer_info["source"],
-                                "donor_name": customer_info.get("donor_name"),
-                                "subscription": None,
-                                "has_customer_only": True,
-                                "note": "Customer found but no active subscriptions",
-                            }
-                            all_subscriptions.append(customer_only_info)
-
-                    except Exception as mollie_error:
-                        frappe.log_error(
-                            f"Error querying donor Mollie subscriptions for {customer_id}: {str(mollie_error)}",
-                            "Donor Mollie Query",
-                        )
-                        # Fallback to customer-only info
+                    if subscriptions_result.get("error"):
+                        # API error - add customer-only info with error
                         customer_only_info = {
                             "customer_id": customer_id,
                             "source": customer_info["source"],
-                            "donor_name": customer_info.get("donor_name"),
                             "subscription": None,
                             "has_customer_only": True,
-                            "error": "Could not fetch subscription data",
+                            "error": subscriptions_result["error"],
                         }
+                        if customer_info.get("donor_name"):
+                            customer_only_info["donor_name"] = customer_info["donor_name"]
                         all_subscriptions.append(customer_only_info)
+                        continue
+
+                    # Process each subscription returned by the service
+                    subscriptions = subscriptions_result.get("subscriptions", [])
+
+                    if not subscriptions:
+                        # Customer exists but has no subscriptions
+                        customer_only_info = {
+                            "customer_id": customer_id,
+                            "source": customer_info["source"],
+                            "subscription": None,
+                            "has_customer_only": True,
+                            "note": "Customer found but no subscriptions",
+                        }
+                        if customer_info.get("donor_name"):
+                            customer_only_info["donor_name"] = customer_info["donor_name"]
+                        all_subscriptions.append(customer_only_info)
+                    else:
+                        # Add each subscription to the results
+                        for sub in subscriptions:
+                            # Parse amount - MollieDebugService returns formatted string like "EUR 25.00"
+                            # We need to extract the numeric value and currency
+                            amount_value = 0.0
+                            currency = "EUR"
+
+                            amount_field = sub.get("amount")
+                            if isinstance(amount_field, str):
+                                # Format: "EUR 25.00" or "25.00 EUR"
+                                parts = amount_field.split()
+                                if len(parts) >= 2:
+                                    # Try to parse - could be "EUR 25.00" or "25.00 EUR"
+                                    try:
+                                        amount_value = float(parts[1] if parts[0].isalpha() else parts[0])
+                                        currency = parts[0] if parts[0].isalpha() else parts[1]
+                                    except (ValueError, IndexError):
+                                        frappe.log_error(f"Failed to parse amount string: {amount_field}")
+                            elif isinstance(amount_field, dict):
+                                # Fallback if format changes - handle raw Mollie format
+                                amount_value = float(amount_field.get("value", 0))
+                                currency = amount_field.get("currency", "EUR")
+
+                            subscription_info = {
+                                "customer_id": customer_id,
+                                "subscription_id": sub.get("id"),
+                                "source": customer_info["source"],
+                                "subscription": {
+                                    "id": sub.get("id"),
+                                    "status": sub.get("status"),
+                                    "amount": amount_value,
+                                    "currency": currency,
+                                    "interval": sub.get("interval"),
+                                    "next_payment_date": sub.get("next_payment_date"),
+                                    "is_active": sub.get("status") == "active",
+                                    "is_canceled": sub.get("status") == "canceled",
+                                    "description": sub.get("description"),
+                                },
+                                "member_status": {
+                                    "local_status": customer_info.get("local_status"),
+                                    "cancelled_date": customer_info.get("local_cancelled_date"),
+                                },
+                            }
+                            # Add source-specific metadata
+                            if customer_info["source"] == "donor":
+                                subscription_info["donor_name"] = customer_info.get("donor_name")
+
+                            all_subscriptions.append(subscription_info)
+
+                except Exception as mollie_error:
+                    frappe.log_error(
+                        f"Error querying Mollie subscriptions for {customer_id}: {str(mollie_error)}",
+                        "Mollie Subscription Query",
+                    )
+                    # Fallback to customer-only info
+                    customer_only_info = {
+                        "customer_id": customer_id,
+                        "source": customer_info["source"],
+                        "subscription": None,
+                        "has_customer_only": True,
+                        "error": "Could not fetch subscription data",
+                    }
+                    if customer_info.get("donor_name"):
+                        customer_only_info["donor_name"] = customer_info["donor_name"]
+                    all_subscriptions.append(customer_only_info)
 
             return {
                 "status": "success",
@@ -613,12 +703,14 @@ def cancel_specific_subscription():
         validate_member_ownership(member_name, _("You can only cancel your own subscriptions"))
 
         # Verify the customer ID belongs to this member (member or donor record)
+        # Support comma-separated customer IDs
         member = frappe.get_doc("Member", member_name)
         authorized_customer_ids = []
 
-        # Check member record
+        # Check member record - handle comma-separated customer IDs with validation
         if member.mollie_customer_id:
-            authorized_customer_ids.append(member.mollie_customer_id)
+            customer_ids = parse_mollie_customer_ids(member.mollie_customer_id, max_ids=5)
+            authorized_customer_ids.extend(customer_ids)
 
         # Check donor records
         donor_records = frappe.get_all(
@@ -627,42 +719,116 @@ def cancel_specific_subscription():
             fields=["mollie_customer_id"],
         )
         for donor in donor_records:
-            authorized_customer_ids.append(donor.mollie_customer_id)
+            # Donor records may also have comma-separated IDs
+            if donor.mollie_customer_id:
+                donor_customer_ids = parse_mollie_customer_ids(donor.mollie_customer_id, max_ids=5)
+                authorized_customer_ids.extend(donor_customer_ids)
 
         if customer_id not in authorized_customer_ids:
             frappe.throw(_("You are not authorized to cancel subscriptions for this customer"))
 
-        # Cancel the subscription using the MollieClient
-        from verenigingen.integrations.mollie.core.client import MollieClient
+        # Cancel the subscription using MollieDebugService (reuses existing tested code)
+        from verenigingen.services.mollie_debug_service import MollieDebugService
 
         frappe.logger().info(
-            f"Attempting to cancel subscription {subscription_id} for customer {customer_id}"
+            f"User {frappe.session.user} cancelling subscription {subscription_id} for customer {customer_id}"
         )
 
-        mollie_client = MollieClient()
-
-        try:
-            cancelled_subscription = mollie_client.cancel_subscription(customer_id, subscription_id)
-            frappe.logger().info(f"Mollie client returned: {cancelled_subscription}")
-        except Exception as mollie_error:
-            frappe.logger().error(f"Mollie client error: {str(mollie_error)}")
-            raise
-
-        frappe.logger().info(
-            f"Successfully cancelled subscription {subscription_id} for customer {customer_id}"
+        debug_service = MollieDebugService()
+        result = debug_service.admin_cancel_subscription(
+            customer_id=customer_id,
+            subscription_id=subscription_id,
+            reason=f"User-initiated cancellation via bank details page by {frappe.session.user}",
         )
 
-        return {
-            "status": "success",
-            "message": _("Subscription cancelled successfully"),
-            "subscription_id": subscription_id,
-            "customer_id": customer_id,
-        }
+        # If cancellation was successful, clear the subscription ID from member record
+        if result.get("status") == "success":
+            # Check if this subscription ID matches the member's subscription
+            if member.mollie_subscription_id == subscription_id:
+                member.db_set("mollie_subscription_id", None)
+                frappe.logger().info(
+                    f"Cleared mollie_subscription_id from member {member_name} after successful cancellation"
+                )
+
+        return result
 
     except Exception as e:
         error_msg = f"Error cancelling subscription {subscription_id}: {str(e)}"
         frappe.log_error(error_msg)
         frappe.throw(_(f"Failed to cancel subscription: {str(e)}"))
+
+
+@frappe.whitelist(allow_guest=False)
+@standard_api(operation_type=OperationType.MEMBER_DATA)
+def calculate_subscription_start_date(member_id=None):
+    """
+    Calculate the optimal start date for a Mollie subscription based on member's payment status.
+
+    Logic:
+    - If member is fully up-to-date with payments: schedule for next period (min 2 months ahead)
+    - If member has unpaid invoices for current period: try to schedule ASAP (current period if possible)
+    - Returns the 25th (or configured day) of the first eligible month from Mollie Settings
+
+    Returns:
+        dict: {"start_date": "YYYY-MM-DD", "reason": "explanation"}
+    """
+    try:
+        # Get member
+        if not member_id:
+            member_id = get_current_user_member_name_required()
+        else:
+            validate_member_ownership(member_id)
+
+        member_doc = frappe.get_doc("Member", member_id)
+
+        # Check if member has unpaid invoices for current/past periods
+        has_overdue = False
+        if member_doc.customer:
+            from verenigingen.utils.constants import PaymentStatus
+
+            overdue_count = frappe.db.count(
+                "Sales Invoice",
+                {"customer": member_doc.customer, "status": PaymentStatus.INVOICE_OVERDUE, "docstatus": 1},
+            )
+            has_overdue = overdue_count > 0
+
+        # Get Mollie settings
+        mollie_settings = frappe.get_single("Mollie Settings")
+
+        # Determine min_months_ahead based on payment status
+        if has_overdue:
+            # Member is behind - try to schedule ASAP
+            min_months_ahead = 0
+            reason = "Member has overdue payments - scheduling for earliest available period"
+        else:
+            # Member is up-to-date - schedule for next period
+            min_months_ahead = 2
+            reason = "Member is up-to-date - scheduling for next payment period"
+
+        # Calculate start date using Mollie Settings logic
+        start_date = mollie_settings.get_next_payment_date_for_scheduled_months(min_months_ahead)
+
+        if not start_date:
+            # No quarterly/yearly months configured - use monthly default
+            from datetime import datetime
+
+            from dateutil.relativedelta import relativedelta
+
+            payment_day = (
+                int(mollie_settings.payment_day_of_month) if mollie_settings.payment_day_of_month else 25
+            )
+            today = datetime.now().date()
+            next_month = today + relativedelta(months=1)
+            start_date = datetime(next_month.year, next_month.month, min(payment_day, 28)).strftime(
+                "%Y-%m-%d"
+            )
+            reason += " (using monthly default - no quarterly/yearly months configured)"
+
+        return {"status": "success", "start_date": start_date, "reason": reason, "has_overdue": has_overdue}
+
+    except Exception as e:
+        frappe.log_error(f"Error calculating subscription start date: {str(e)}")
+        return {"status": "error", "error": str(e)}
 
 
 @frappe.whitelist(allow_guest=False)

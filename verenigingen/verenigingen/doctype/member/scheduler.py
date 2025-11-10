@@ -383,6 +383,7 @@ def update_all_membership_durations():
                         member.flags.ignore_version = True
                         member.flags.ignore_links = True
                         member.flags.ignore_validate_update_after_submit = True
+                        member.flags.ignore_activity_log = True
 
                         duration_result = secure_document_operation(
                             operation="save",
@@ -866,9 +867,9 @@ def run_final_comprehensive_chapter_assignment_test():
         }
 
         results["success"] = results["summary"]["overall_success"]
-        results["message"] = (
-            f"Comprehensive test completed: {passed_test_groups}/{total_test_groups} test groups passed"
-        )
+        results[
+            "message"
+        ] = f"Comprehensive test completed: {passed_test_groups}/{total_test_groups} test groups passed"
 
         return results
 

@@ -27,10 +27,10 @@ def validate_member_exists(member_id: str | None) -> str:
     return member
 
 
+@frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 @handle_api_error
 @performance_monitor()
-@frappe.whitelist()
-@high_security_api  # Payment data access
 def get_dashboard_data(member=None):
     """Get payment dashboard summary data"""
     # Get actual member ID
@@ -98,14 +98,17 @@ def get_dashboard_data(member=None):
 
     # Check if mandate is expiring soon
     mandate_expiring_soon = False
-    active_mandate = member_doc.get_active_sepa_mandate()
-    if active_mandate and active_mandate.expiry_date:
-        days_to_expiry = (getdate(active_mandate.expiry_date) - getdate(today())).days
-        mandate_expiring_soon = 0 < days_to_expiry <= 30
+    active_mandates = member_doc.get_active_sepa_mandates()
+    if active_mandates:
+        # Get the first active mandate
+        active_mandate = frappe.get_doc("SEPA Mandate", active_mandates[0].name)
+        if active_mandate.expiry_date:
+            days_to_expiry = (getdate(active_mandate.expiry_date) - getdate(today())).days
+            mandate_expiring_soon = 0 < days_to_expiry <= 30
 
     return {
-        "total_paid_year": flt(total_paid_year, 2),
-        "payment_count": payment_count,
+        "total_paid_year": flt(total_paid_year, 2) if total_paid_year else 0.0,
+        "payment_count": payment_count or 0,
         "has_failed_payments": has_failed_payments,
         "next_payment": next_payment,
         "mandate_expiring_soon": mandate_expiring_soon,
@@ -113,7 +116,7 @@ def get_dashboard_data(member=None):
 
 
 @frappe.whitelist()
-@high_security_api  # Payment method access
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_payment_method(member=None):
     """Get active payment method details"""
     # Get actual member ID
@@ -121,9 +124,11 @@ def get_payment_method(member=None):
     member = validate_member_exists(member)
 
     member_doc = frappe.get_doc("Member", member)
-    active_mandate = member_doc.get_active_sepa_mandate()
+    active_mandates = member_doc.get_active_sepa_mandates()
 
-    if active_mandate:
+    if active_mandates:
+        # Get the first active mandate details
+        active_mandate = frappe.get_doc("SEPA Mandate", active_mandates[0].name)
         from verenigingen.utils.validation.iban_validator import format_iban
 
         return {
@@ -142,9 +147,9 @@ def get_payment_method(member=None):
     return {"has_active_mandate": False}
 
 
-@handle_api_error
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
+@handle_api_error
 def get_payment_history(member=None, year=None, status=None, **kwargs):
     """Get payment history for member"""
     # Get actual member ID
@@ -155,6 +160,12 @@ def get_payment_history(member=None, year=None, status=None, **kwargs):
 
     if not member_doc.customer:
         return []
+
+    # Pagination support with constants for limits
+    limit = frappe.utils.cint(kwargs.get("limit", Limits.DEFAULT_PAGE_SIZE * 5))  # 100 default
+    offset = frappe.utils.cint(kwargs.get("offset", 0))
+    if limit > Limits.MAX_PAGE_SIZE:
+        limit = Limits.MAX_PAGE_SIZE  # Max limit for performance
 
     # Build filters
     filters = {"party_type": "Customer", "party": member_doc.customer, "docstatus": 1}
@@ -178,12 +189,6 @@ def get_payment_history(member=None, year=None, status=None, **kwargs):
         limit=limit,
         start=offset,
     )
-
-    # Pagination support with constants for limits
-    limit = frappe.utils.cint(kwargs.get("limit", Limits.DEFAULT_PAGE_SIZE * 5))  # 100 default
-    offset = frappe.utils.cint(kwargs.get("offset", 0))
-    if limit > Limits.MAX_PAGE_SIZE:
-        limit = Limits.MAX_PAGE_SIZE  # Max limit for performance
 
     # Get sales invoices with membership info through dues schedule
     invoice_conditions = "si.customer = %(customer)s AND si.docstatus = 1"
@@ -317,9 +322,9 @@ def get_mandate_history(member=None):
     return mandates
 
 
-@handle_api_error
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
+@handle_api_error
 def get_payment_schedule(member=None):
     """Get upcoming payment schedule"""
     # Get actual member ID

@@ -7,6 +7,10 @@ import frappe
 from frappe import _
 
 from verenigingen.integrations.mollie.core.client import MollieClient
+from verenigingen.integrations.mollie.utils.common_helpers import (
+    format_mollie_amount,
+    format_mollie_response_amount,
+)
 from verenigingen.utils.security.api_security_framework import OperationType
 
 
@@ -1091,25 +1095,6 @@ class MollieDebugService:
 
         return result
 
-    def _format_mollie_amount(self, amount_obj):
-        """
-        Format Mollie amount object to human-readable string.
-
-        Args:
-            amount_obj: Mollie amount object (dict or other)
-
-        Returns:
-            str: Formatted amount string (e.g., "EUR 25.00")
-        """
-        try:
-            if not amount_obj:
-                return "Unknown"
-            if isinstance(amount_obj, dict):
-                return f"{amount_obj.get('currency', 'EUR')} {amount_obj.get('value', '0')}"
-            return str(amount_obj)
-        except Exception:
-            return "Error parsing amount"
-
     def _sanitize_error_message(self, error_msg: str) -> str:
         """
         Sanitize error messages to prevent information disclosure.
@@ -1206,7 +1191,7 @@ class MollieDebugService:
             # Note: webhookUrl intentionally omitted to use Mollie dashboard webhook settings
             # This ensures webhooks go to the correct environment (production/test)
             subscription_data = {
-                "amount": {"value": f"{amount_float:.2f}", "currency": "EUR"},
+                "amount": format_mollie_amount(amount_float),
                 "interval": interval,
                 "description": description,
                 "metadata": {
@@ -1244,7 +1229,7 @@ class MollieDebugService:
             result["status"] = "success"
             result["subscription_id"] = subscription.id
             result["subscription_status"] = subscription.status
-            result["amount"] = self._format_mollie_amount(subscription.amount)
+            result["amount"] = format_mollie_response_amount(subscription.amount)
             result["interval"] = subscription.interval
             result["description"] = subscription.description
             result["webhook_url"] = getattr(subscription, "webhookUrl", "Using dashboard webhook")
@@ -1376,7 +1361,7 @@ class MollieDebugService:
 
             # Build subscription data
             subscription_data = {
-                "amount": {"value": f"{amount_float:.2f}", "currency": "EUR"},
+                "amount": format_mollie_amount(amount_float),
                 "interval": mollie_interval,
                 "description": description,
                 "metadata": {
@@ -1419,7 +1404,7 @@ class MollieDebugService:
             result["status"] = "success"
             result["subscription_id"] = subscription.id
             result["subscription_status"] = subscription.status
-            result["amount"] = self._format_mollie_amount(subscription.amount)
+            result["amount"] = format_mollie_response_amount(subscription.amount)
             result["interval"] = subscription.interval
             result["description"] = subscription.description
             result["webhook_url"] = getattr(subscription, "webhookUrl", "Using dashboard webhook")
@@ -1513,7 +1498,7 @@ class MollieDebugService:
                     continue
 
                 # Use helper method for consistent amount formatting
-                amount_str = self._format_mollie_amount(sub.amount)
+                amount_str = format_mollie_response_amount(sub.amount)
 
                 result["subscriptions"].append(
                     {
@@ -1774,7 +1759,7 @@ class MollieDebugService:
 
             # Build payment data (amount as dict, not Money object)
             payment_data = {
-                "amount": {"value": f"{amount_float:.2f}", "currency": "EUR"},
+                "amount": format_mollie_amount(amount_float),
                 "description": description[:255],  # Mollie has 255 char limit
                 "redirectUrl": redirect_url,
                 "webhookUrl": webhook_url,
@@ -1795,7 +1780,7 @@ class MollieDebugService:
             result["status"] = "success"
             result["payment_id"] = payment.id
             result["payment_status"] = payment.status
-            result["amount"] = self._format_mollie_amount(payment.amount)
+            result["amount"] = format_mollie_response_amount(payment.amount)
             result["description"] = payment.description
             result["checkout_url"] = payment.checkout_url
             result["customer_id"] = customer_id
@@ -2024,9 +2009,9 @@ class MollieDebugService:
                                         f"for member {member.name}"
                                     )
                         else:
-                            member_result["membership_note"] = (
-                                "No submitted membership found (member end date still updated)"
-                            )
+                            member_result[
+                                "membership_note"
+                            ] = "No submitted membership found (member end date still updated)"
 
                 except Exception as member_error:
                     member_result["error"] = str(member_error)

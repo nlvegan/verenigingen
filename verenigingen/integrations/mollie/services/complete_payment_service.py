@@ -20,6 +20,11 @@ from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_
 
 from ..core.client import MollieClient
 from ..exceptions import MolliePaymentError, MollieValidationError, MollieWebhookError
+from ..utils.common_helpers import (
+    format_mollie_amount,
+    format_mollie_amount_string,
+    get_member_by_customer_id,
+)
 from .webhook_wrapper_service_unified import UnifiedWebhookWrapperService
 
 
@@ -134,7 +139,7 @@ class CompletePaymentService:
                 {
                     "subscription_setup": "true",
                     "subscription_interval": form_data.get("subscription_interval", "1 month"),
-                    "subscription_amount": f"{float(donation_doc.amount):.2f}",
+                    "subscription_amount": format_mollie_amount_string(donation_doc.amount),
                     "customer_id": customer_result["customer_id"],
                 }
             )
@@ -358,10 +363,8 @@ class CompletePaymentService:
 
     def _prepare_payment_data(self, donation_doc: Any, form_data: Dict[str, Any]) -> Dict[str, Any]:
         """Prepare payment data for Mollie API."""
-        amount_str = f"{float(form_data['amount']):.2f}"
-
         payment_data = {
-            "amount": {"currency": form_data["currency"], "value": amount_str},
+            "amount": format_mollie_amount(form_data["amount"], form_data["currency"]),
             "description": f"Donation {donation_doc.name}",
             "redirectUrl": form_data["return_url"],
             "webhookUrl": self.client.get_webhook_url(),
