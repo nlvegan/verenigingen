@@ -285,7 +285,7 @@ def get_recent_activity(member):
         status = "paid" if invoice.outstanding_amount == 0 else "due"
         activity.append(
             {
-                "title": _("Invoice Generated"),
+                "title": _("Dues invoice generated"),
                 "description": f"Invoice {invoice.name}",
                 "date": invoice.posting_date,
                 "amount": invoice.grand_total,
