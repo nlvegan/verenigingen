@@ -35,6 +35,8 @@
   "column_break_hzjj",
   "enable_email_group_sync",
   "enable_email_analytics",
+  "board_documents_section",
+  "board_document_categories",
   "monitoring_section",
   "stuck_schedule_notification_emails",
   "column_break_ybid",
@@ -758,6 +760,20 @@
    "fieldname": "enable_email_analytics",
    "fieldtype": "Check",
    "label": "Enable Email Analytics"
+  },
+  {
+   "collapsible": 1,
+   "description": "Configure custom categories for board documents",
+   "fieldname": "board_documents_section",
+   "fieldtype": "Section Break",
+   "label": "Board Document Categories"
+  },
+  {
+   "description": "Define custom categories for organizing board documents. Default categories (Policy, Meeting Minutes, Financial Report, Other) are always available.",
+   "fieldname": "board_document_categories",
+   "fieldtype": "Table",
+   "label": "Custom Document Categories",
+   "options": "Board Document Category"
   },
   {
    "description": "Default receivable account for payment plans and member transactions",

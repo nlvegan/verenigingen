@@ -143,6 +143,9 @@ class Chapter(Document):
 
     def before_save(self):
         """Before save hook - streamlined with safe manager operations"""
+        # Auto-populate uploaded_by and upload_date for board documents
+        self._populate_board_document_fields()
+
         old_doc = self.get_doc_before_save()
         if old_doc:
             self._safe_manager_operation(
@@ -670,6 +673,43 @@ class Chapter(Document):
 
         except Exception as e:
             frappe.log_error(f"Error auto-fixing chapter fields: {str(e)}")
+
+    def _populate_board_document_fields(self):
+        """Auto-populate uploaded_by and upload_date fields for board documents"""
+        try:
+            import re
+
+            from verenigingen.utils.file_storage import organize_existing_chapter_document
+
+            for doc in self.board_documents:
+                # Set uploaded_by if not already set
+                if not doc.uploaded_by:
+                    doc.uploaded_by = frappe.session.user
+
+                # Set upload_date if not already set
+                if not doc.upload_date:
+                    doc.upload_date = today()
+
+                # Organize file into hierarchical structure
+                if doc.document_file:
+                    # Extract year from document name
+                    year_match = re.search(r"\b(20\d{2})\b", doc.document_name)
+                    year = year_match.group(1) if year_match else "Other"
+
+                    # Move file to hierarchical structure
+                    new_file_url = organize_existing_chapter_document(
+                        file_url=doc.document_file,
+                        chapter_name=self.name,
+                        category=doc.document_type or "Other",
+                        year=year,
+                    )
+
+                    # Update file URL if it changed
+                    if new_file_url != doc.document_file:
+                        doc.document_file = new_file_url
+
+        except Exception as e:
+            frappe.log_error(f"Error populating board document fields: {str(e)}")
 
     def _ensure_route(self):
         """Ensure route is set"""

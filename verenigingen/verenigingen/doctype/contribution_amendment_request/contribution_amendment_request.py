@@ -263,6 +263,53 @@ class ContributionAmendmentRequest(Document):
             self.requested_by = None
             self.requested_by = frappe.session.user
 
+    def _check_respects_minimum_fee(self):
+        """
+        Check if requested amount respects minimum fee requirements.
+
+        Returns:
+            bool: True if requested amount meets minimum fee requirements, False otherwise
+        """
+        if not self.requested_amount or not self.membership:
+            return False
+
+        try:
+            membership = frappe.get_doc("Membership", self.membership)
+            if not membership.membership_type:
+                return True  # No membership type means no minimum to enforce
+
+            membership_type = frappe.get_doc("Membership Type", membership.membership_type)
+            if not membership_type.dues_schedule_template:
+                return True  # No template means no minimum to enforce
+
+            template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+            if not template.suggested_amount:
+                return True  # No suggested amount means no minimum to enforce
+
+            base_amount = template.suggested_amount
+
+            # Calculate minimum fee (configurable percentage of base or absolute minimum)
+            minimum_fee = max(base_amount * MINIMUM_FEE_PERCENTAGE, ABSOLUTE_MINIMUM_FEE)
+
+            # Check if member is a student (gets higher minimum percentage)
+            if self.member:
+                member = frappe.get_doc("Member", self.member)
+                if getattr(member, "student_status", 0):
+                    minimum_fee = max(base_amount * STUDENT_MINIMUM_FEE_PERCENTAGE, ABSOLUTE_MINIMUM_FEE)
+
+            # CRITICAL: Ensure minimum respects template's minimum_amount and membership type minimum
+            # This ensures backend validation matches portal UX
+            template_minimum = float(template.minimum_amount or 0)
+            membership_type_minimum = float(membership_type.minimum_amount or 0)
+            minimum_fee = max(minimum_fee, template_minimum, membership_type_minimum)
+
+            # Return True if requested amount meets or exceeds minimum
+            return self.requested_amount >= minimum_fee
+
+        except Exception as e:
+            frappe.logger().warning(f"Error checking minimum fee for amendment {self.name}: {str(e)}")
+            return False  # If we can't determine minimum, require manual approval
+
     def before_insert(self):
         """Set approval status for certain cases with enhanced rules"""
         # Run all validations first before determining approval status
@@ -297,44 +344,30 @@ class ContributionAmendmentRequest(Document):
             # Check if this is a member self-request
             is_member_request = frappe.session.user in (member.user, member.email)
 
-            # Auto-approve fee increases by current member (with limits)
-            if (
-                auto_approve_increases
-                and is_member_request
-                and self.requested_amount > self.current_amount
-                and self.requested_amount <= max_auto_approve_amount
-            ):
-                self.status = "Approved"
-                self.approved_by = frappe.session.user
-                self.approved_date = now_datetime()
-                self.internal_notes = "Auto-approved: Fee increase by member within limits"
+            # Check if requested amount respects minimum fee requirements
+            respects_minimum = self._check_respects_minimum_fee()
 
-            # Auto-approve small adjustments (less than 5% change)
-            elif (
-                auto_approve_member_requests
-                and is_member_request
-                and abs(self.requested_amount - self.current_amount)
-                <= (self.current_amount * SMALL_ADJUSTMENT_THRESHOLD)
-            ):
+            # AUTO-APPROVE ALL DUES RATE CHANGES that respect minimums
+            # regardless of who requests them or whether they're increases/decreases
+            if respects_minimum:
                 self.status = "Approved"
                 self.approved_by = frappe.session.user
                 self.approved_date = now_datetime()
-                self.internal_notes = "Auto-approved: Small adjustment within 5% threshold"
+                self.internal_notes = "Auto-approved: Dues rate change respects minimum requirements"
 
             # Otherwise require manual approval
             else:
                 self.status = "Pending Approval"
                 approval_reason = []
-                if not auto_approve_increases:
-                    approval_reason.append("fee increases require approval")
-                if not is_member_request:
-                    approval_reason.append("non-member request")
-                if self.requested_amount > max_auto_approve_amount:
-                    approval_reason.append(f"amount exceeds limit (€{max_auto_approve_amount})")
-                if self.requested_amount < self.current_amount:
-                    approval_reason.append("fee decrease")
+                if not respects_minimum:
+                    approval_reason.append("requested amount below minimum fee")
 
                 self.internal_notes = f"Requires approval: {', '.join(approval_reason)}"
+
+        # MEMBERSHIP TYPE CHANGES always require approval
+        elif self.amendment_type == "Membership Type Change":
+            self.status = "Pending Approval"
+            self.internal_notes = "Requires approval: Membership type changes require manual review"
 
     def after_insert(self):
         """Handle post-insertion tasks"""
@@ -631,12 +664,9 @@ class ContributionAmendmentRequest(Document):
 
             if is_pure_fee_change:
                 # For pure fee changes, just update the existing dues schedule
-                # Look for Active or Paused schedules (Paused schedules can still be amended)
-                repo = DuesScheduleRepository()
-                existing_schedule_info = repo.get_active_or_paused_schedule(self.member, fields=["name"])
-
-                if existing_schedule_info:
-                    existing_schedule = existing_schedule_info.name
+                # Use the current_dues_schedule field that was populated during set_current_details()
+                if self.current_dues_schedule:
+                    existing_schedule = self.current_dues_schedule
                     # Update the existing schedule
                     schedule_doc = frappe.get_doc("Membership Dues Schedule", existing_schedule)
                     schedule_doc.dues_rate = self.requested_amount
@@ -681,10 +711,14 @@ class ContributionAmendmentRequest(Document):
                         f"Updated existing dues schedule {existing_schedule} with new fee amount."
                     )
                 else:
-                    # No existing schedule, create a new one
-                    dues_schedule_name = self.create_dues_schedule_for_amendment()
-                    self.new_dues_schedule = dues_schedule_name
-                    self.processing_notes = f"Created new dues schedule {dues_schedule_name} for fee change."
+                    # SHOULD NEVER HAPPEN: Member has no dues schedule at all
+                    # This indicates a data integrity issue - member has active membership but no schedule
+                    frappe.throw(
+                        _(
+                            "Cannot apply fee change: Member {0} has no active dues schedule. "
+                            "Please create a dues schedule first or contact system administrator."
+                        ).format(self.member)
+                    )
             else:
                 # For membership type changes or other complex changes, create new schedule
                 dues_schedule_name = self.create_dues_schedule_for_amendment()
@@ -772,6 +806,13 @@ class ContributionAmendmentRequest(Document):
                             existing_schedule_info.name, self.name, error_details
                         )
                     )
+
+                # CRITICAL FIX: Commit the cancellation immediately so the validation check
+                # in the new schedule creation doesn't see the cancelled schedule as still Active
+                frappe.db.commit()
+                frappe.logger().info(
+                    f"Committed cancellation of schedule {existing_schedule_info.name} before creating new one"
+                )
 
             # Create new dues schedule
             dues_schedule = frappe.new_doc("Membership Dues Schedule")
@@ -1076,8 +1117,9 @@ class ContributionAmendmentRequest(Document):
             return {"html": "<p>No preview available</p>"}
 
         try:
-            membership = frappe.get_doc("Membership", self.membership)
-            current_amount = membership.get_billing_amount()
+            # Use the current_amount that was already populated from the actual dues schedule
+            # Don't rely on membership.get_billing_amount() which might be outdated
+            current_amount = self.current_amount or 0
             new_amount = self.requested_amount or current_amount
 
             difference = new_amount - current_amount

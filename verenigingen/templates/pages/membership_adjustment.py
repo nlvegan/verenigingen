@@ -222,6 +222,10 @@ def get_minimum_fee(member, membership_type, membership=None):
     template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
     base_amount = template.suggested_amount or 0
 
+    # CRITICAL: Use template's minimum_amount as the absolute floor
+    # This ensures portal matches backend validation
+    template_minimum = flt(template.minimum_amount or 0)
+
     # For quarterly memberships, we need to consider the quarterly amount
     if membership and (
         "kwartaal" in membership.membership_type.lower() or "quarter" in membership.membership_type.lower()
@@ -240,8 +244,8 @@ def get_minimum_fee(member, membership_type, membership=None):
         if member.annual_income in ["Under €25,000", "€25,000 - €40,000"]:
             base_minimum = max(base_minimum, flt(membership_type.minimum_amount * 0.4))  # Low income 40%
 
-    # Ensure minimum is at least €5
-    return max(base_minimum, 5.0)
+    # Ensure minimum respects template minimum_amount, membership type minimum, and €5 floor
+    return max(base_minimum, template_minimum, flt(membership_type.minimum_amount or 0), 5.0)
 
 
 def get_fee_adjustment_settings():

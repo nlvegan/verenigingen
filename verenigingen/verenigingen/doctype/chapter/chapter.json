@@ -20,6 +20,8 @@
   "contact_email",
   "board_section",
   "board_members",
+  "board_documents_section",
+  "board_documents",
   "chapter_information_section",
   "introduction",
   "meetup_embed_html",
@@ -112,6 +114,19 @@
    "fieldtype": "Table",
    "label": "Board Members",
    "options": "Chapter Board Member"
+  },
+  {
+   "collapsible": 1,
+   "description": "Board documents including policies, meeting minutes, and financial reports",
+   "fieldname": "board_documents_section",
+   "fieldtype": "Section Break",
+   "label": "Board Documents"
+  },
+  {
+   "fieldname": "board_documents",
+   "fieldtype": "Table",
+   "label": "Board Documents",
+   "options": "Chapter Board Document"
   },
   {
    "description": "Configure which role profiles are automatically assigned to chapter board members",
@@ -215,8 +230,9 @@
    "label": "Chapter information"
   }
  ],
+ "js": "public/js/chapter_board_document.js",
  "links": [],
- "modified": "2025-11-09 18:08:44.255375",
+ "modified": "2025-11-10 14:00:00.000000",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Chapter",

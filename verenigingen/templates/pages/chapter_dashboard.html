@@ -425,6 +425,104 @@
                 </div>
                 {% endif %}
 
+                <!-- Board Documents Section -->
+                {% if dashboard_data.board_documents and dashboard_data.board_documents.total_count > 0 %}
+                <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+                    <div class="px-6 py-4 border-b bg-primary-50 border-primary-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                        <h3 class="m-0 text-lg font-semibold text-primary-600">📄 Board Documents</h3>
+                        <div class="bg-primary-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
+                            {{ dashboard_data.board_documents.total_count }} documents
+                        </div>
+                    </div>
+                    <div class="p-6">
+                        {% for doc_type, years_dict in dashboard_data.board_documents.by_type_and_year.items() %}
+                            {% if years_dict %}
+                                <div class="mb-6 last:mb-0">
+                                    <!-- Document Type Folder -->
+                                    <div class="border border-gray-200 rounded-lg overflow-hidden">
+                                        <button onclick="toggleFolder('folder-{{ doc_type|replace(' ', '-')|lower }}')"
+                                                class="w-full px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors flex items-center justify-between cursor-pointer border-none text-left">
+                                            <h4 class="m-0 text-base font-semibold text-gray-800 flex items-center gap-2">
+                                                <i class="fa fa-folder text-warning-600"></i>
+                                                {% if dashboard_data.board_documents.category_icons %}
+                                                    {{ dashboard_data.board_documents.category_icons.get(doc_type, '📎') }}
+                                                {% else %}
+                                                    {% if doc_type == "Policy" %}📋
+                                                    {% elif doc_type == "Meeting Minutes" %}📝
+                                                    {% elif doc_type == "Financial Report" %}💰
+                                                    {% else %}📎{% endif %}
+                                                {% endif %}
+                                                {{ doc_type }}
+                                                {% set doc_count = namespace(total=0) %}
+                                                {% for year, docs in years_dict.items() %}
+                                                    {% set doc_count.total = doc_count.total + docs|length %}
+                                                {% endfor %}
+                                                <span class="text-sm text-gray-500 font-normal">({{ doc_count.total }} documents)</span>
+                                            </h4>
+                                            <i class="fa fa-chevron-down text-gray-500 transition-transform" id="icon-folder-{{ doc_type|replace(' ', '-')|lower }}"></i>
+                                        </button>
+
+                                        <!-- Years folders inside document type -->
+                                        <div id="folder-{{ doc_type|replace(' ', '-')|lower }}" class="folder-content" style="display: none;">
+                                            {% for year, documents in years_dict.items() %}
+                                                <div class="border-t border-gray-200">
+                                                    <button onclick="toggleFolder('year-{{ doc_type|replace(' ', '-')|lower }}-{{ year }}')"
+                                                            class="w-full px-6 py-2 bg-white hover:bg-gray-50 transition-colors flex items-center justify-between cursor-pointer border-none text-left">
+                                                        <span class="text-sm font-medium text-gray-700 flex items-center gap-2">
+                                                            <i class="fa fa-folder-open text-warning-500"></i>
+                                                            {{ year }}
+                                                            <span class="text-xs text-gray-500 font-normal">({{ documents|length }})</span>
+                                                        </span>
+                                                        <i class="fa fa-chevron-down text-gray-400 transition-transform text-sm" id="icon-year-{{ doc_type|replace(' ', '-')|lower }}-{{ year }}"></i>
+                                                    </button>
+
+                                                    <!-- Documents in year -->
+                                                    <div id="year-{{ doc_type|replace(' ', '-')|lower }}-{{ year }}" class="folder-content" style="display: none;">
+                                                        <ul class="list-none p-0 m-0">
+                                                            {% for doc in documents %}
+                                                                <li class="py-3 px-8 bg-gray-50 hover:bg-gray-100 transition-colors border-t border-gray-100">
+                                                                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
+                                                                        <div class="flex-1">
+                                                                            <a href="{{ doc.document_file }}" target="_blank" class="text-gray-900 font-medium hover:text-primary-600 no-underline flex items-center gap-2">
+                                                                                <i class="fa fa-file-pdf-o text-danger-600"></i>
+                                                                                {{ doc.document_name }}
+                                                                            </a>
+                                                                            {% if doc.description %}
+                                                                                <p class="text-sm text-gray-600 mt-1 mb-0 ml-6">{{ doc.description }}</p>
+                                                                            {% endif %}
+                                                                        </div>
+                                                                        <div class="flex flex-col md:items-end gap-1">
+                                                                            <small class="text-gray-500 text-xs">
+                                                                                Uploaded: {{ format_date(doc.upload_date) }}
+                                                                            </small>
+                                                                            {% if doc.uploaded_by %}
+                                                                                <small class="text-gray-400 text-xs">
+                                                                                    By: {{ doc.uploaded_by }}
+                                                                                </small>
+                                                                            {% endif %}
+                                                                        </div>
+                                                                    </div>
+                                                                </li>
+                                                            {% endfor %}
+                                                        </ul>
+                                                    </div>
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endif %}
+                        {% endfor %}
+
+                        <div class="mt-6 pt-6 border-t border-gray-200">
+                            <a href="/app/chapter/{{ chapter_name }}" class="inline-flex items-center justify-center px-4 py-2 text-sm rounded-lg font-medium bg-primary-600 text-white hover:bg-primary-700 shadow-sm no-underline">
+                                <i class="fa fa-upload mr-2"></i> Upload New Document
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
             </div>
         </div>
 
@@ -718,6 +816,30 @@
 
         // Auto-refresh is handled in chapter_dashboard.js
     });
+
+    // Function to open chapter in desk
+    function viewAllMembers() {
+        const chapterName = '{{ selected_chapter }}';
+        if (chapterName) {
+            window.open('/app/chapter/' + encodeURIComponent(chapterName), '_blank');
+        }
+    }
+
+    // Function to toggle folder visibility
+    function toggleFolder(folderId) {
+        const folder = document.getElementById(folderId);
+        const icon = document.getElementById('icon-' + folderId);
+
+        if (folder && icon) {
+            if (folder.style.display === 'none' || folder.style.display === '') {
+                folder.style.display = 'block';
+                icon.style.transform = 'rotate(180deg)';
+            } else {
+                folder.style.display = 'none';
+                icon.style.transform = 'rotate(0deg)';
+            }
+        }
+    }
 
     // Pass dashboard data to JavaScript
     window.dashboardData = {{ dashboard_data | tojson | safe if dashboard_data else '{}' }};

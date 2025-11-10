@@ -257,6 +257,7 @@ def _get_chapter_dashboard_data_internal(chapter_name: str) -> Dict[str, Any]:
         "financial_summary": get_financial_summary(chapter_name),
         "dues_payment_status": get_dues_payment_status(chapter_name),
         "board_info": get_board_information(chapter_name),
+        "board_documents": get_chapter_board_documents(chapter_name),
         "recent_activity": get_recent_activity(chapter_name),
         "last_updated": now_datetime().strftime("%Y-%m-%d %H:%M:%S"),
     }
@@ -759,6 +760,82 @@ def get_board_information(chapter_name: str) -> Dict[str, Any]:
         "total_count": len(board_members),
         "next_meeting": None,  # Placeholder for meeting management
     }
+
+
+def get_available_document_categories() -> Dict[str, str]:
+    """Get all available document categories (default + custom from settings)"""
+    # Default categories
+    categories = {"Policy": "📋", "Meeting Minutes": "📝", "Financial Report": "💰", "Other": "📎"}
+
+    # Add custom categories from settings
+    try:
+        settings = frappe.get_single("Verenigingen Settings")
+        if settings and hasattr(settings, "board_document_categories"):
+            for custom_cat in settings.board_document_categories:
+                if custom_cat.category_name:
+                    categories[custom_cat.category_name] = custom_cat.category_icon or "📎"
+    except Exception as e:
+        frappe.log_error(f"Error loading custom document categories: {str(e)}")
+
+    return categories
+
+
+def get_chapter_board_documents(chapter_name: str) -> Dict[str, Any]:
+    """Get board documents organized by type and year"""
+    import re
+    from collections import defaultdict
+
+    try:
+        chapter = frappe.get_doc("Chapter", chapter_name)
+
+        # Get available categories (default + custom)
+        available_categories = get_available_document_categories()
+
+        # Organize documents by type and year
+        documents_by_type_and_year = {cat: defaultdict(list) for cat in available_categories.keys()}
+
+        for doc in chapter.board_documents:
+            doc_type = doc.document_type or "Other"
+
+            # Extract year from document name (look for 4-digit year)
+            year_match = re.search(r"\b(20\d{2})\b", doc.document_name)
+            year = year_match.group(1) if year_match else "Other"
+
+            doc_data = {
+                "document_name": doc.document_name,
+                "document_file": doc.document_file,
+                "upload_date": doc.upload_date,
+                "uploaded_by": doc.uploaded_by,
+                "description": doc.description,
+                "year": year,
+            }
+
+            documents_by_type_and_year[doc_type][year].append(doc_data)
+
+        # Sort documents within each year by name (descending)
+        # Sort years in descending order (newest first)
+        organized_docs = {}
+        for doc_type, years_dict in documents_by_type_and_year.items():
+            organized_docs[doc_type] = {}
+            for year in sorted(years_dict.keys(), reverse=True):
+                organized_docs[doc_type][year] = sorted(
+                    years_dict[year], key=lambda x: x["document_name"], reverse=True
+                )
+
+        return {
+            "by_type_and_year": organized_docs,
+            "total_count": len(chapter.board_documents),
+            "category_icons": available_categories,
+        }
+    except Exception as e:
+        frappe.log_error(f"Error fetching board documents for {chapter_name}: {str(e)}")
+        # Get available categories for error case too
+        available_categories = get_available_document_categories()
+        return {
+            "by_type_and_year": {cat: {} for cat in available_categories.keys()},
+            "total_count": 0,
+            "category_icons": available_categories,
+        }
 
 
 def get_recent_activity(chapter_name: str) -> List[Dict[str, Any]]:

@@ -86,7 +86,7 @@
 <div class="max-w-6xl mx-auto p-8">
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div class="lg:col-span-2">
-            <h2 class="text-3xl font-bold text-gray-800 mb-8">{{ _("Adjust Your Membership Fee") }}</h2>
+            <h2 class="text-3xl font-bold text-gray-800 mb-8">{{ _("Adjust Your Membership") }}</h2>
 
             {% if not can_adjust_fee %}
             <div class="bg-yellow-50 border border-yellow-200 text-yellow-800 p-4 rounded-lg mb-6">
@@ -102,10 +102,9 @@
                 <div class="flex items-center">
                     <i class="fa fa-info-circle mr-3"></i>
                     <div>
-                        <p class="font-medium">{{ _("Fee Adjustment Limits") }}</p>
+                        <p class="font-medium">{{ _("Dues Rate Adjustment Limits") }}</p>
                         <ul class="text-sm mt-2 space-y-1">
-                            <li>• {{ _("You can increase your fee up to") }} {{ maximum_fee_multiplier }}x {{ _("the base amount without approval") }}</li>
-                            <li>• {{ _("Fee decreases always require approval") }}</li>
+                            <li>• {{ _("You can increase your rate up to") }} {{ maximum_fee_multiplier }}x {{ _("the base amount without approval") }}</li>
                             <li>• {{ _("Adjustments allowed: {0} remaining of {1} per year").format(adjustments_remaining, settings.max_adjustments_per_year) }}</li>
                         </ul>
                     </div>
@@ -118,11 +117,11 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                         <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Membership Type") }}:</span> {{ membership_type.membership_type_name }}</p>
-                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Standard Fee") }}:</span> €{{ "%.2f"|format(standard_fee) }}</p>
-                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Your Current Fee") }}:</span> €{{ "%.2f"|format(current_fee.amount) }}</p>
+                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Standard Dues Rate") }}:</span> €{{ "%.2f"|format(standard_fee) }}</p>
+                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Your Current Rate") }}:</span> €{{ "%.2f"|format(current_fee.amount) }}</p>
                     </div>
                     <div>
-                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Minimum Allowed") }}:</span> €{{ "%.2f"|format(minimum_fee) }}</p>
+                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Minimum Rate") }}:</span> €{{ "%.2f"|format(minimum_fee) }}</p>
                     </div>
                 </div>
             </div>
@@ -158,27 +157,27 @@
 
             <!-- Fee Adjustment Form -->
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
-                <h4 class="text-lg font-semibold text-gray-800 mb-4">{{ _("Adjust Your Fee") }}</h4>
+                <h4 class="text-lg font-semibold text-gray-800 mb-4">{{ _("Adjust Your Dues Rate") }}</h4>
 
                 <div class="bg-primary-50 border-l-4 border-primary-400 p-4 rounded-r-lg mb-6">
                     <h6 class="font-medium text-primary-800 mb-2">{{ _("Important Information") }}</h6>
                     <ul class="text-sm text-primary-700 space-y-1">
-                        <li>{{ _("You can adjust your membership fee up to {0} times per year").format(settings.max_adjustments_per_year) }}</li>
-                        <li>{{ _("Minimum fee is €%.2f")|format(minimum_fee) }}</li>
-                        <li>{{ _("Maximum fee via this form is €%.2f")|format(minimum_fee * maximum_fee_multiplier) }}</li>
+                        <li>{{ _("You can adjust your dues rate up to {0} times per year").format(settings.max_adjustments_per_year) }}</li>
+                        <li>{{ _("Minimum rate is €%.2f")|format(minimum_fee) }}</li>
+                        <li>{{ _("Maximum rate via this form is €%.2f")|format(minimum_fee * maximum_fee_multiplier) }}</li>
                         <li>{{ _("For higher amounts, please contact us directly") }}</li>
                         {% if settings.require_approval_for_decreases %}
-                        <li>{{ _("Fee reductions require approval") }}</li>
+                        <li>{{ _("Rate reductions require approval") }}</li>
                         {% endif %}
                         {% if settings.require_approval_for_increases %}
-                        <li>{{ _("Fee increases require approval") }}</li>
+                        <li>{{ _("Rate increases require approval") }}</li>
                         {% endif %}
                     </ul>
                 </div>
 
                 <form id="fee-adjustment-form">
                     <div class="mb-6">
-                        <label for="new-fee-amount" class="block text-sm font-medium text-gray-700 mb-2">{{ _("New {0} Fee Amount").format(_(billing_frequency)) }}</label>
+                        <label for="new-fee-amount" class="block text-sm font-medium text-gray-700 mb-2">{{ _("New {0} Dues Rate").format(_(billing_frequency)) }}</label>
                         <div class="w-full mb-4">
                             <input type="range"
                                    id="fee-slider"
@@ -227,14 +226,14 @@
                         <textarea id="adjustment-reason"
                                   class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
                                   rows="3"
-                                  placeholder="{{ _('Please explain why you want to adjust your membership fee...') }}"
+                                  placeholder="{{ _('Please explain why you want to adjust your rate...') }}"
                                   required></textarea>
                     </div>
                     {% endif %}
 
                     <div>
                         <button type="submit" class="w-full bg-secondary-500 hover:bg-secondary-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-medium py-3 px-6 rounded-md transition-colors duration-200" id="submit-btn">
-                            {{ _("Submit Fee Adjustment") }}
+                            {{ _("Submit Rate Adjustment") }}
                         </button>
                     </div>
                 </form>
@@ -249,8 +248,8 @@
                     <h6 class="font-medium text-info-800 mb-2">{{ _("About Membership Type Changes") }}</h6>
                     <ul class="text-sm text-info-700 space-y-1">
                         <li>{{ _("All membership type changes require approval") }}</li>
-                        <li>{{ _("Your request will be reviewed by the membership committee") }}</li>
-                        <li>{{ _("Changes typically take effect at the next billing cycle") }}</li>
+                        <li>{{ _("Your request will be reviewed.") }}</li>
+                        <li>{{ _("Changes typically take effect at the next dues cycle") }}</li>
                     </ul>
                 </div>
 
@@ -267,12 +266,12 @@
         <div class="lg:col-span-1">
             <!-- Sidebar with help information -->
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
-                <h5 class="text-lg font-semibold text-gray-800 mb-3">{{ _("Why Adjust Your Fee?") }}</h5>
+                <h5 class="text-lg font-semibold text-gray-800 mb-3">{{ _("Why Adjust Your Rate?") }}</h5>
                 <p class="text-gray-600 mb-4">{{ _("We believe everyone should be able to contribute according to their ability. You can:") }}</p>
                 <ul class="text-sm text-gray-600 space-y-2">
-                    <li class="flex items-start"><span class="text-green-500 mr-2">•</span>{{ _("Increase your fee to provide extra support") }}</li>
-                    <li class="flex items-start"><span class="text-green-500 mr-2">•</span>{{ _("Reduce your fee if facing financial difficulties") }}</li>
-                    <li class="flex items-start"><span class="text-green-500 mr-2">•</span>{{ _("Set a fee that reflects your current situation") }}</li>
+                    <li class="flex items-start"><span class="text-green-500 mr-2">•</span>{{ _("Increase dues rate to provide extra support") }}</li>
+                    <li class="flex items-start"><span class="text-green-500 mr-2">•</span>{{ _("Reduce your rate if facing financial difficulties") }}</li>
+                    <li class="flex items-start"><span class="text-green-500 mr-2">•</span>{{ _("Set a rate that reflects your current situation") }}</li>
                 </ul>
             </div>
 
@@ -315,7 +314,7 @@
 
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                 <h5 class="text-lg font-semibold text-gray-800 mb-3">{{ _("Need Help?") }}</h5>
-                <p class="text-gray-600 mb-4">{{ _("If you have questions about fee adjustments or need financial assistance, please contact us.") }}</p>
+                <p class="text-gray-600 mb-4">{{ _("If you have questions about rate adjustments or need financial assistance, please contact us.") }}</p>
                 <a href="mailto:{{ member_contact_email }}" class="inline-flex items-center px-4 py-2 border border-primary-300 text-primary-700 rounded-md hover:bg-primary-50 transition-colors duration-200 text-sm">
                     {{ _("Contact Support") }}
                 </a>
@@ -567,7 +566,7 @@ $(document).ready(function() {
                     // Handle specific validation errors
                     showMessage(r.message.message, 'warning');
                     submitBtn.prop('disabled', false);
-                    submitBtn.text('{{ _("Submit Fee Adjustment") }}');
+                    submitBtn.text('{{ _("Submit Rate Adjustment") }}');
                 } else if (r.message === null || r.message === undefined) {
                     // Handle null response (redirect cases)
                     showMessage('{{ _("Your request was processed but we could not get the status. Please refresh the page to see the result.") }}', 'info');
@@ -579,7 +578,7 @@ $(document).ready(function() {
                     const errorMsg = (r.message && r.message.message) ? r.message.message : '{{ _("An error occurred. Please try again.") }}';
                     showMessage(errorMsg, 'danger');
                     submitBtn.prop('disabled', false);
-                    submitBtn.text('{{ _("Submit Fee Adjustment") }}');
+                    submitBtn.text('{{ _("Submit Rate Adjustment") }}');
                 }
             },
             error: function(r) {
@@ -598,7 +597,7 @@ $(document).ready(function() {
 
                 showMessage(errorMsg, 'danger');
                 submitBtn.prop('disabled', false);
-                submitBtn.text('{{ _("Submit Fee Adjustment") }}');
+                submitBtn.text('{{ _("Submit Rate Adjustment") }}');
             }
         });
     });

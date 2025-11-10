@@ -1,0 +1,87 @@
+{
+ "app": "verenigingen",
+ "creation": "2025-11-10 10:00:00.000000",
+ "doctype": "DocType",
+ "module": "Verenigingen",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "document_type",
+  "document_name",
+  "document_file",
+  "column_break_4",
+  "upload_date",
+  "uploaded_by",
+  "description"
+ ],
+ "fields": [
+  {
+   "fieldname": "document_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Document Type",
+   "options": "Policy\nMeeting Minutes\nFinancial Report\nOther",
+   "reqd": 1
+  },
+  {
+   "fieldname": "document_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Document Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "document_file",
+   "fieldtype": "Attach",
+   "in_list_view": 1,
+   "label": "Document File",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_4",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Today",
+   "fieldname": "upload_date",
+   "fieldtype": "Date",
+   "label": "Upload Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "uploaded_by",
+   "fieldtype": "Link",
+   "label": "Uploaded By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  }
+ ],
+ "istable": 1,
+ "name": "Chapter Board Document",
+ "permissions": [
+  {
+   "read": 1,
+   "role": "Verenigingen Chapter Board Member"
+  },
+  {
+   "read": 1,
+   "role": "Verenigingen Member"
+  },
+  {
+   "read": 1,
+   "role": "Verenigingen Administrator"
+  },
+  {
+   "read": 1,
+   "role": "System Manager"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1
+}
