@@ -1984,6 +1984,8 @@ def process_import_background(import_doc_name: str):
     frappe.flags.in_background_job = True
     # Disable notifications during bulk import
     frappe.flags.in_bulk_import = True
+    # Suppress version tracking to prevent activity log flooding during bulk operations
+    frappe.flags.ignore_version_changes = True
 
     frappe.logger().info(f"Starting background import processing for {import_doc_name}")
 

@@ -20,12 +20,17 @@
   "contact_email",
   "board_section",
   "board_members",
-  "board_documents_section",
-  "board_documents",
   "chapter_information_section",
   "introduction",
   "meetup_embed_html",
   "address",
+  "chapter_members_tab",
+  "chapter_members",
+  "members",
+  "chapter_documents_tab",
+  "board_documents_section",
+  "board_documents",
+  "chapter_configuration_tab",
   "board_role_profile_section",
   "default_board_role_profile",
   "enable_board_role_specific_profiles",
@@ -34,9 +39,7 @@
   "board_member_approval_limit",
   "column_break_expense",
   "financial_role_approval_limit",
-  "route",
-  "chapter_members",
-  "members"
+  "route"
  ],
  "fields": [
   {
@@ -116,7 +119,6 @@
    "options": "Chapter Board Member"
   },
   {
-   "collapsible": 1,
    "description": "Board documents including policies, meeting minutes, and financial reports",
    "fieldname": "board_documents_section",
    "fieldtype": "Section Break",
@@ -212,7 +214,6 @@
    "label": "Published"
   },
   {
-   "collapsible": 1,
    "fieldname": "chapter_members",
    "fieldtype": "Section Break",
    "label": "Chapter Members"
@@ -228,11 +229,25 @@
    "fieldname": "chapter_information_section",
    "fieldtype": "Section Break",
    "label": "Chapter information"
+  },
+  {
+   "fieldname": "chapter_members_tab",
+   "fieldtype": "Tab Break",
+   "label": "Chapter Members"
+  },
+  {
+   "fieldname": "chapter_documents_tab",
+   "fieldtype": "Tab Break",
+   "label": "Chapter Documents"
+  },
+  {
+   "fieldname": "chapter_configuration_tab",
+   "fieldtype": "Tab Break",
+   "label": "Chapter Configuration"
   }
  ],
- "js": "public/js/chapter_board_document.js",
  "links": [],
- "modified": "2025-11-10 14:00:00.000000",
+ "modified": "2025-11-10 15:21:53.847803",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Chapter",
