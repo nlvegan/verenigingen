@@ -264,7 +264,7 @@ def get_recent_activity(member):
     for payment in recent_payments:
         activity.append(
             {
-                "title": _("Payment Received"),
+                "title": _("Payment Made"),
                 "description": f"Payment Entry {payment.name}",
                 "date": payment.posting_date,
                 "amount": payment.paid_amount,

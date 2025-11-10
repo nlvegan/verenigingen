@@ -49,15 +49,17 @@ def sync_member_image_to_user(doc, method=None):
         frappe.flags.syncing_user_member_image = True
 
         # Get the User document
-        user_doc = frappe.get_doc("User", doc.user)
+        user_doc = frappe.get_doc("User", doc.user)  # ast-skip: doc is Member with user field
 
         # Update user_image field
-        user_doc.user_image = doc.image
+        user_doc.user_image = doc.image  # ast-skip: doc is Member with image field
 
         # Save without triggering validation (to avoid recursion)
         user_doc.save(ignore_permissions=True)
 
-        frappe.logger().info(f"Synced image from Member {doc.name} to User {doc.user}")
+        frappe.logger().info(
+            f"Synced image from Member {doc.name} to User {doc.user}"
+        )  # ast-skip: doc is Member
 
     except Exception as e:
         # Log error but don't block the member save
@@ -88,7 +90,9 @@ def sync_user_image_to_member(doc, method=None):
         frappe.flags.syncing_user_member_image = True
 
         # Find Member record linked to this user
-        member_name = frappe.db.get_value("Member", {"user": doc.name}, "name")
+        member_name = frappe.db.get_value(
+            "Member", {"user": doc.name}, "name"
+        )  # ast-skip: doc is User with name field
 
         if not member_name:
             # No linked member found - this is normal for non-member users
@@ -98,12 +102,14 @@ def sync_user_image_to_member(doc, method=None):
         member_doc = frappe.get_doc("Member", member_name)
 
         # Update image field
-        member_doc.image = doc.user_image
+        member_doc.image = doc.user_image  # ast-skip: doc is User with user_image field
 
         # Save without triggering validation (to avoid recursion)
         member_doc.save(ignore_permissions=True)
 
-        frappe.logger().info(f"Synced image from User {doc.name} to Member {member_name}")
+        frappe.logger().info(
+            f"Synced image from User {doc.name} to Member {member_name}"
+        )  # ast-skip: doc is User
 
     except Exception as e:
         # Log error but don't block the user save

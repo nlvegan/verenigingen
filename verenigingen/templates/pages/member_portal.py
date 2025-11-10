@@ -151,7 +151,7 @@ def get_member_activity(member_name):
         activities.append(
             {
                 "icon": "fa-money",
-                "description": _("Payment of {0} received").format(
+                "description": _("Payment of {0} made").format(
                     frappe.format_value(payment.paid_amount, {"fieldtype": "Currency"})
                 ),
                 "date": payment.posting_date,
