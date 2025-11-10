@@ -243,3 +243,170 @@ def parse_date(date_str: str) -> Optional[str]:
             continue
 
     return None
+
+
+# Payment Period and Membership Type Utilities
+
+
+def map_payment_period_to_billing_frequency(payment_period: str) -> str:
+    """
+    Map Dutch payment period terms to billing frequencies.
+
+    Args:
+        payment_period: Dutch payment period string (e.g., 'Maandelijks', 'Jaarlijks')
+
+    Returns:
+        Billing frequency (Monthly, Quarterly, Semi-Annual, Annual)
+        Defaults to Annual if not found
+
+    Example:
+        "Maandelijks" → "Monthly"
+        "Kwartaal" → "Quarterly"
+        "Jaarlijks" → "Annual"
+    """
+    # Payment period mapping (Dutch → English)
+    payment_period_mapping = {
+        "maandelijks": "Monthly",
+        "monthly": "Monthly",
+        "per maand": "Monthly",
+        "kwartaal": "Quarterly",
+        "quarterly": "Quarterly",
+        "per kwartaal": "Quarterly",
+        "driemaandelijks": "Quarterly",
+        "halfjaar": "Semi-Annual",
+        "halfjaarlijks": "Semi-Annual",
+        "semi-annual": "Semi-Annual",
+        "per halfjaar": "Semi-Annual",
+        "jaar": "Annual",
+        "jaarlijks": "Annual",
+        "annual": "Annual",
+        "per jaar": "Annual",
+    }
+
+    if not payment_period:
+        return "Annual"
+
+    # Normalize and lookup
+    normalized = payment_period.lower().strip()
+    return payment_period_mapping.get(normalized, "Annual")
+
+
+def determine_membership_type_from_payment_period(row_data: dict) -> str:
+    """
+    Determine membership type from payment period or settings default.
+
+    NOTE: CSV's membership_type column maps to Member.status, NOT Membership Type.
+    This function determines the Verenigingen Membership Type for billing purposes.
+
+    Args:
+        row_data: CSV row data with payment_period field
+
+    Returns:
+        Membership type name
+
+    Priority:
+        1. Map payment_period to membership type (Monthly/Quarterly/Annual) from settings
+        2. Settings default membership type
+        3. Fail loudly with clear error message
+
+    Raises:
+        frappe.ValidationError: If membership type cannot be determined
+
+    Example:
+        row_data = {"payment_period": "Maandelijks"}
+        → Returns settings.csv_monthly_membership_type
+    """
+    # Priority 1: Map payment period to membership type from settings
+    if row_data and row_data.get("payment_period"):
+        payment_period = row_data["payment_period"].lower().strip()
+        settings = frappe.get_single("Verenigingen Settings")
+
+        if payment_period in ["maandelijks", "monthly", "per maand"]:
+            if settings.csv_monthly_membership_type:
+                return settings.csv_monthly_membership_type
+            else:
+                frappe.throw(
+                    "Payment period is 'Maandelijks' but no CSV Monthly Membership Type is configured in Verenigingen Settings. "
+                    "Please set the 'CSV Monthly Membership Type' field."
+                )
+        elif payment_period in ["kwartaal", "quarterly", "per kwartaal", "driemaandelijks"]:
+            if settings.csv_quarterly_membership_type:
+                return settings.csv_quarterly_membership_type
+            else:
+                frappe.throw(
+                    "Payment period is 'Kwartaal' but no CSV Quarterly Membership Type is configured in Verenigingen Settings. "
+                    "Please set the 'CSV Quarterly Membership Type' field."
+                )
+        elif payment_period in ["halfjaar", "halfjaarlijks", "semi-annual", "per halfjaar"]:
+            frappe.throw(
+                f"Payment period '{payment_period}' maps to Semi-Annual membership, "
+                "but there is no CSV Semi-Annual Membership Type setting. "
+                "Please add this field to Verenigingen Settings or change the payment period."
+            )
+        elif payment_period in ["jaar", "jaarlijks", "annual", "per jaar"]:
+            if settings.csv_annual_membership_type:
+                return settings.csv_annual_membership_type
+            else:
+                frappe.throw(
+                    "Payment period is 'Jaarlijks' but no CSV Annual Membership Type is configured in Verenigingen Settings. "
+                    "Please set the 'CSV Annual Membership Type' field."
+                )
+
+    # Priority 2: Get default from settings
+    try:
+        settings = frappe.get_single("Verenigingen Settings")
+        if settings and settings.default_membership_type:
+            if not frappe.db.exists("Membership Type", settings.default_membership_type):
+                frappe.throw(
+                    f"Default membership type '{settings.default_membership_type}' from settings does not exist"
+                )
+            return settings.default_membership_type
+    except Exception as e:
+        frappe.logger().warning("Could not get default membership type from settings: %s", str(e))
+
+    # NO FALLBACK - fail loudly with member context
+    member_id = row_data.get("member_id", "") if row_data else ""
+    payment_period_value = row_data.get("payment_period") if row_data else None
+    frappe.throw(
+        f"Cannot determine membership type for member {member_id}. "
+        f"Payment period: '{payment_period_value}', no default membership type configured. "
+        f"Either provide a valid payment period in CSV or set a default membership type in Verenigingen Settings."
+    )
+
+
+def calculate_next_invoice_date(start_date, billing_frequency: str) -> str:
+    """
+    Calculate next invoice date based on start date and billing frequency.
+
+    Args:
+        start_date: Starting date for calculation (date object or string)
+        billing_frequency: Monthly, Quarterly, Semi-Annual, or Annual
+
+    Returns:
+        Next invoice date in YYYY-MM-DD format
+
+    Example:
+        calculate_next_invoice_date(date(2024, 1, 1), "Monthly")
+        → "2024-02-01"
+    """
+    from datetime import date
+
+    from dateutil.relativedelta import relativedelta
+
+    # Convert to date object if string
+    if isinstance(start_date, str):
+        start_date = getdate(start_date)
+
+    if billing_frequency == "Monthly":
+        next_date = start_date + relativedelta(months=1)
+    elif billing_frequency == "Quarterly":
+        next_date = start_date + relativedelta(months=3)
+    elif billing_frequency == "Semi-Annual":
+        next_date = start_date + relativedelta(months=6)
+    elif billing_frequency == "Annual":
+        next_date = start_date + relativedelta(months=12)
+    else:
+        # Default to annual
+        next_date = start_date + relativedelta(months=12)
+
+    return next_date.strftime("%Y-%m-%d")

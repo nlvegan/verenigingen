@@ -85,7 +85,7 @@ def test_enhanced_dues_amendment():
                 
                 # Test fee calculation priority
                 print("\n=== Testing Fee Calculation Priority ===")
-                from verenigingen.templates.pages.membership_fee_adjustment import get_effective_fee_for_member
+                from verenigingen.templates.pages.membership_adjustment import get_effective_fee_for_member
                 
                 effective_fee = get_effective_fee_for_member(member_doc, membership)
                 print(f"✓ Effective fee calculation:")

@@ -173,22 +173,24 @@ class MembershipDuesSchedule(Document):
             if not self.member:
                 frappe.throw("Individual schedules must specify a member")
             # Validate uniqueness - one active schedule per member
-            existing = frappe.db.get_value(
-                "Membership Dues Schedule",
-                {
-                    "member": self.member,
-                    "is_template": 0,
-                    "status": "Active",
-                    "name": ["!=", self.name or ""],
-                },
-                "name",
-            )
-            if existing:
-                frappe.throw(
-                    f"Member {self.member} already has an active dues schedule: <a href='/app/membership-dues-schedule/{existing}' target='_blank'>{existing}</a>. "
-                    f"Please edit the existing schedule or deactivate it before creating a new one.",
-                    title="Duplicate Dues Schedule",
+            # Skip check if this is from an amendment (amendment handles cancellation)
+            if not self.flags.get("from_amendment"):
+                existing = frappe.db.get_value(
+                    "Membership Dues Schedule",
+                    {
+                        "member": self.member,
+                        "is_template": 0,
+                        "status": "Active",
+                        "name": ["!=", self.name or ""],
+                    },
+                    "name",
                 )
+                if existing:
+                    frappe.throw(
+                        f"Member {self.member} already has an active dues schedule: <a href='/app/membership-dues-schedule/{existing}' target='_blank'>{existing}</a>. "
+                        f"Please edit the existing schedule or deactivate it before creating a new one.",
+                        title="Duplicate Dues Schedule",
+                    )
 
     def validate_member_membership(self):
         """Ensure the member has an active membership"""
@@ -2264,6 +2266,10 @@ class MembershipDuesSchedule(Document):
         Based on ERPNext's billing cycle consistency validation
         """
         if self.is_template or not self.member:
+            return
+
+        # Skip check if this is from an amendment (amendment handles old schedule cancellation)
+        if self.flags.get("from_amendment"):
             return
 
         existing_schedules = frappe.get_all(

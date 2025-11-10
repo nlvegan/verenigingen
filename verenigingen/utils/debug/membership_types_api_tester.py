@@ -21,7 +21,7 @@ def test_membership_types_api(test_user_email=None):
     original_user = frappe.session.user
     try:
         # Import and call the function
-        from verenigingen.templates.pages.membership_fee_adjustment import get_available_membership_types
+        from verenigingen.templates.pages.membership_adjustment import get_available_membership_types
 
         # Set test user session if provided
         if test_user_email:

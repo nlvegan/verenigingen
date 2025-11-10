@@ -18,13 +18,15 @@ from verenigingen.utils.account_creation_manager import queue_bulk_account_creat
 from verenigingen.utils.chapter_membership_manager import ChapterMembershipManager
 from verenigingen.utils.csv.csv_data_validator import CSVDataValidator
 from verenigingen.utils.csv.data_transformers import (
+    calculate_next_invoice_date,
     clean_phone_number,
     clean_value,
     convert_country_code,
     convert_membership_type,
+    determine_membership_type_from_payment_period,
+    map_payment_period_to_billing_frequency,
     parse_date,
 )
-from verenigingen.utils.csv.membership_dues_handler import MembershipDuesHandler
 from verenigingen.utils.csv.secure_csv_parser import SecureCSVParser
 from verenigingen.utils.csv_import_processor import CSVImportBackgroundProcessor
 from verenigingen.utils.safe_member_optimizer import safe_member_optimizer
@@ -1466,8 +1468,7 @@ class MijnroodCSVImport(Document):
     def _create_membership_unified_path(self, member_doc: Document, row_data: dict):
         """Create membership using unified normal approval workflow (Phase 3)."""
         # Determine membership type from payment period
-        handler = MembershipDuesHandler()
-        membership_type = handler.determine_membership_type(row_data)
+        membership_type = determine_membership_type_from_payment_period(row_data)
 
         if not membership_type:
             frappe.throw(
@@ -1498,19 +1499,16 @@ class MijnroodCSVImport(Document):
         return membership_doc.name if membership_doc else None
 
     def _map_payment_period_to_frequency(self, payment_period: str) -> str:
-        """Map Dutch payment period terms to billing frequencies using MembershipDuesHandler."""
-        handler = MembershipDuesHandler()
-        return handler.map_payment_period_to_frequency(payment_period)
+        """Map Dutch payment period terms to billing frequencies."""
+        return map_payment_period_to_billing_frequency(payment_period)
 
     def _determine_membership_type(self, row_data: dict) -> str:
-        """Determine membership type using MembershipDuesHandler."""
-        handler = MembershipDuesHandler()
-        return handler.determine_membership_type(row_data)
+        """Determine membership type from payment period."""
+        return determine_membership_type_from_payment_period(row_data)
 
     def _calculate_next_invoice_date(self, start_date, billing_frequency: str) -> str:
-        """Calculate next invoice date using MembershipDuesHandler."""
-        handler = MembershipDuesHandler()
-        return handler.calculate_next_invoice_date(start_date, billing_frequency)
+        """Calculate next invoice date based on billing frequency."""
+        return calculate_next_invoice_date(start_date, billing_frequency)
 
     def _validate_membership_type_exists(self, membership_type: str) -> bool:
         """Validate that a membership type exists before using it."""

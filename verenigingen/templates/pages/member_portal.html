@@ -74,7 +74,7 @@
                 </div>
                 <div class="text-center min-h-[80px] flex flex-col justify-center">
                     <h4 class="text-lg font-medium opacity-90 mb-2">{{ _("Since") }}</h4>
-                    <div class="text-2xl font-bold">{{ frappe.utils.formatdate(member.creation, "MMM yyyy") }}</div>
+                    <div class="text-2xl font-bold">{{ frappe.utils.formatdate(member.member_since or member.creation, "MMM yyyy") }}</div>
                 </div>
                 {% if volunteer %}
                 <div class="text-center min-h-[80px] flex flex-col justify-center">

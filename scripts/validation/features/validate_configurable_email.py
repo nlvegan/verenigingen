@@ -54,7 +54,7 @@ def check_settings_field():
 
 def check_fee_adjustment_controller():
     """Check if fee adjustment controller uses the configurable email"""
-    controller_path = "verenigingen/templates/pages/membership_fee_adjustment.py"
+    controller_path = "verenigingen/templates/pages/membership_adjustment.py"
 
     if not os.path.exists(controller_path):
         return False, "Fee adjustment controller not found"
@@ -82,7 +82,7 @@ def check_fee_adjustment_controller():
 
 def check_fee_adjustment_template():
     """Check if fee adjustment template uses the configurable email"""
-    template_path = "verenigingen/templates/pages/membership_fee_adjustment.html"
+    template_path = "verenigingen/templates/pages/membership_adjustment.html"
 
     if not os.path.exists(template_path):
         return False, "Fee adjustment template not found"

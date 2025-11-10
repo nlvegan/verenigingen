@@ -97,8 +97,8 @@ def check_javascript_form():
 
 def check_fee_adjustment_references():
     """Check if fee adjustment page was updated"""
-    py_path = "verenigingen/templates/pages/membership_fee_adjustment.py"
-    html_path = "verenigingen/templates/pages/membership_fee_adjustment.html"
+    py_path = "verenigingen/templates/pages/membership_adjustment.py"
+    html_path = "verenigingen/templates/pages/membership_adjustment.html"
 
     results = []
 

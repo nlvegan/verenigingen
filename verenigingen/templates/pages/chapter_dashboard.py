@@ -696,6 +696,20 @@ def get_dues_payment_status(chapter_name: str) -> Dict[str, Any]:
                 lapsed += 1
             # 6. Everything else (terminated, no invoices, etc.) - don't count separately
             # These fall through and aren't categorized as they're not actionable
+            else:
+                # DEBUG: Log first 10 uncategorized members
+                if (up_to_date + no_active_membership + unpaid + overdue + lapsed) < 10:
+                    frappe.log_error(
+                        f"Uncategorized member: {member.full_name}\n"
+                        f"Status: {member.member_status}\n"
+                        f"Total invoices: {member.total_invoices}\n"
+                        f"Active memberships: {member.active_memberships}\n"
+                        f"Active schedules: {member.active_schedules}\n"
+                        f"Latest coverage end: {member.latest_coverage_end}\n"
+                        f"Unpaid invoices: {member.unpaid_invoice_count}\n"
+                        f"Overdue invoices: {member.overdue_invoice_count}",
+                        f"Utrecht Uncategorized Member Debug",
+                    )
 
         return {
             "total_members": len(result),

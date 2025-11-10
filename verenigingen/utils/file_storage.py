@@ -38,6 +38,58 @@ def sanitize_path_component(component: str) -> str:
     return sanitized
 
 
+def _create_file_record(
+    file_url: str, filename: str, is_private: int, attached_to_doctype: str, attached_to_name: str
+):
+    """
+    Create File DocType record for permission management.
+
+    This ensures Frappe's permission system knows about the file and can control access.
+    Without this record, files will return "Forbidden" errors even to authorized users.
+
+    Args:
+        file_url: File URL path
+        filename: Original filename
+        is_private: Whether file is private
+        attached_to_doctype: Parent DocType (e.g., "Chapter")
+        attached_to_name: Parent document name
+    """
+    try:
+        # Check if File record already exists
+        existing_file = frappe.db.exists("File", {"file_url": file_url})
+        if existing_file:
+            frappe.logger().debug(f"File record already exists for {file_url}")
+            return existing_file
+
+        # Create new File record
+        file_doc = frappe.get_doc(
+            {
+                "doctype": "File",
+                "file_name": filename,
+                "file_url": file_url,
+                "is_private": is_private,
+                "attached_to_doctype": attached_to_doctype,
+                "attached_to_name": attached_to_name,
+                "folder": "Home/Attachments",  # Default folder for organized files
+            }
+        )
+
+        # Insert without triggering file system operations (file already saved)
+        file_doc.flags.ignore_file_validate = True
+        file_doc.insert(ignore_permissions=True)
+
+        frappe.logger().info(f"Created File record for chapter document: {file_url}")
+        return file_doc.name
+
+    except Exception as e:
+        # Log error but don't fail the file save operation
+        frappe.log_error(
+            f"Failed to create File record for {file_url}: {str(e)}",
+            "Chapter Document File Record Creation Error",
+        )
+        return None
+
+
 def get_chapter_document_path(chapter_name: str, category: str, year: str, filename: str) -> str:
     """
     Generate hierarchical file path for chapter documents.
@@ -107,6 +159,15 @@ def save_chapter_document(
         with open(base_path, "wb") as f:
             f.write(content)
 
+    # Create File DocType record for permission management
+    _create_file_record(
+        file_url=file_url,
+        filename=filename,
+        is_private=is_private,
+        attached_to_doctype="Chapter",
+        attached_to_name=chapter_name,
+    )
+
     return {"file_name": filename, "file_url": file_url}
 
 
@@ -165,11 +226,29 @@ def organize_existing_chapter_document(file_url: str, chapter_name: str, categor
         # Move file
         os.rename(current_full_path, new_full_path)
 
-        # Return new URL
+        # Determine new URL
         if is_private:
-            return f"/private/files/{relative_path}"
+            new_file_url = f"/private/files/{relative_path}"
         else:
-            return f"/files/{relative_path}"
+            new_file_url = f"/files/{relative_path}"
+
+        # Update or create File DocType record
+        existing_file = frappe.db.get_value("File", {"file_url": file_url}, "name")
+        if existing_file:
+            # Update existing File record with new URL
+            frappe.db.set_value("File", existing_file, "file_url", new_file_url, update_modified=False)
+            frappe.logger().info(f"Updated File record {existing_file} with new URL: {new_file_url}")
+        else:
+            # Create new File record if none exists
+            _create_file_record(
+                file_url=new_file_url,
+                filename=filename,
+                is_private=is_private,
+                attached_to_doctype="Chapter",
+                attached_to_name=chapter_name,
+            )
+
+        return new_file_url
 
     except Exception as e:
         error_msg = f"Failed to organize file into hierarchical structure. File: {file_url}, Error: {str(e)}"

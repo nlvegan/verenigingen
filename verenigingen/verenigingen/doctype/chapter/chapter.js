@@ -1767,3 +1767,41 @@ function apply_role_profiles_to_board_members(frm) {
 // Make apply_role_profiles_to_board_members globally accessible for dialog
 window.apply_role_profiles_to_board_members
   = apply_role_profiles_to_board_members;
+
+// ==================== CHAPTER BOARD DOCUMENT HANDLERS ====================
+
+/**
+ * Chapter Board Document Child Table Event Handlers
+ *
+ * Manages board document child table interactions including file uploads
+ * and automatic document naming from uploaded files.
+ */
+frappe.ui.form.on('Chapter Board Document', {
+	/**
+	 * Document File Field Change Handler
+	 *
+	 * Auto-populates document_name from uploaded filename if not already set.
+	 * Prevents validation errors when user attaches file before entering name.
+	 *
+	 * @param {Object} frm - Parent form object
+	 * @param {string} cdt - Child DocType name ('Chapter Board Document')
+	 * @param {string} cdn - Child document name/ID
+	 */
+	document_file(frm, cdt, cdn) {
+		// Auto-populate document_name from filename if not already set
+		const row = locals[cdt][cdn];
+
+		if (row.document_file && !row.document_name) {
+			// Extract filename from URL and remove extension
+			const filename = row.document_file.split('/').pop();
+			const name_without_ext = filename.replace(/\.[^/.]+$/, "");
+
+			// Clean up the name (replace hyphens/underscores with spaces, capitalize)
+			const cleaned_name = name_without_ext
+				.replace(/[-_]/g, ' ')
+				.replace(/\b\w/g, char => char.toUpperCase());
+
+			frappe.model.set_value(cdt, cdn, 'document_name', cleaned_name);
+		}
+	}
+});

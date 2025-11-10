@@ -78,7 +78,6 @@
   "csv_monthly_membership_type",
   "csv_quarterly_membership_type",
   "csv_annual_membership_type",
-  "use_unified_membership_creation",
   "sepa_settings_tab",
   "financial_section",
   "company_account_holder",
@@ -458,13 +457,6 @@
    "fieldtype": "Link",
    "label": "CSV Annual Membership Type",
    "options": "Membership Type"
-  },
-  {
-   "default": "0",
-   "description": "Enable unified membership creation path for CSV imports (uses Member.create_membership_on_approval() instead of legacy MembershipDuesHandler). Keep OFF during validation period.",
-   "fieldname": "use_unified_membership_creation",
-   "fieldtype": "Check",
-   "label": "Use Unified Membership Creation (BETA)"
   },
   {
    "description": "This chapter will be treated as the National Board with restricted access",

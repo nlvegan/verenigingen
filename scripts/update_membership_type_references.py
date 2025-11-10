@@ -29,7 +29,7 @@ def get_files_to_update():
     ]
     
     template_files = [
-        "verenigingen/templates/pages/membership_fee_adjustment.py",
+        "verenigingen/templates/pages/membership_adjustment.py",
         "verenigingen/templates/pages/financial_dashboard.py"
     ]
     

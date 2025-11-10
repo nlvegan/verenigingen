@@ -27562,7 +27562,7 @@
     "description": "Retrieve fee calculation info data",
     "enabled": 1,
     "security_level": "low",
-    "business_context": "System operations for verenigingen.templates.pages.membership_fee_adjustment module functionality",
+    "business_context": "System operations for verenigingen.templates.pages.membership_adjustment module functionality",
     "required_roles": "System Manager\nVerenigingen Staff\nVerenigingen Member",
     "rate_limit_calls": 180,
     "rate_limit_period_seconds": 3600,

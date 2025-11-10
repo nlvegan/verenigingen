@@ -96,13 +96,19 @@ class MemberManager(BaseManager):
             # Validate member data
             self._validate_member_data(member_doc, introduction, website_url)
 
+            # Determine enabled and status based on member's actual status
+            # Members who are Terminated, Deceased, or Suspended should be disabled in chapter
+            is_active_member = member_doc.status == "Active"
+            chapter_enabled = enabled if is_active_member else 0
+            chapter_status = "Active" if is_active_member else "Inactive"
+
             # Add to members table
             new_member = self.chapter_doc.append(
                 "members",
                 {
                     "member": member_id,
-                    "enabled": enabled,
-                    "status": "Active",  # Explicitly set to Active for direct adds
+                    "enabled": chapter_enabled,
+                    "status": chapter_status,
                     "chapter_join_date": join_date or today(),  # Use provided date or default to today
                 },
             )
@@ -135,8 +141,8 @@ class MemberManager(BaseManager):
                                 "members",
                                 {
                                     "member": member_id,
-                                    "enabled": enabled,
-                                    "status": "Active",
+                                    "enabled": chapter_enabled,
+                                    "status": chapter_status,
                                     "chapter_join_date": join_date or today(),
                                 },
                             )
@@ -169,8 +175,8 @@ class MemberManager(BaseManager):
                                 "members",
                                 {
                                     "member": member_id,
-                                    "enabled": enabled,
-                                    "status": "Active",
+                                    "enabled": chapter_enabled,
+                                    "status": chapter_status,
                                     "chapter_join_date": join_date or today(),
                                 },
                             )

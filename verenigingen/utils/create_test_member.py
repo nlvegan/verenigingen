@@ -137,7 +137,7 @@ def test_fee_adjustment_with_member(member_email="debug.feetest@test.invalid"):
 
         try:
             # Test 1: Get fee calculation info
-            from verenigingen.templates.pages.membership_fee_adjustment import get_fee_calculation_info
+            from verenigingen.templates.pages.membership_adjustment import get_fee_calculation_info
 
             fee_info = get_fee_calculation_info()
             results["tests"]["fee_calculation_info"] = {"status": "success", "data": fee_info}
@@ -146,7 +146,7 @@ def test_fee_adjustment_with_member(member_email="debug.feetest@test.invalid"):
 
         try:
             # Test 2: Submit fee adjustment
-            from verenigingen.templates.pages.membership_fee_adjustment import submit_fee_adjustment_request
+            from verenigingen.templates.pages.membership_adjustment import submit_fee_adjustment_request
 
             adjustment_result = submit_fee_adjustment_request(
                 new_amount=35.00, reason="Test fee adjustment via debug script"
@@ -157,7 +157,7 @@ def test_fee_adjustment_with_member(member_email="debug.feetest@test.invalid"):
 
         try:
             # Test 3: Get available membership types
-            from verenigingen.templates.pages.membership_fee_adjustment import get_available_membership_types
+            from verenigingen.templates.pages.membership_adjustment import get_available_membership_types
 
             types_result = get_available_membership_types()
             results["tests"]["membership_types"] = {"status": "success", "result": types_result}
@@ -185,7 +185,7 @@ def get_member_context_debug(member_email="debug.feetest@test.invalid"):
         frappe.session.user = member_email
 
         try:
-            from verenigingen.templates.pages.membership_fee_adjustment import get_context
+            from verenigingen.templates.pages.membership_adjustment import get_context
 
             # Create a mock context object
             context = frappe._dict()

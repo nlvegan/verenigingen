@@ -168,10 +168,10 @@ def test_api_accessibility():
     """Test 2: Verify API endpoints are accessible"""
     try:
         endpoints = [
-            "verenigingen.templates.pages.membership_fee_adjustment.submit_fee_adjustment_request",
-            "verenigingen.templates.pages.membership_fee_adjustment.get_fee_calculation_info",
-            "verenigingen.templates.pages.membership_fee_adjustment.get_available_membership_types",
-            "verenigingen.templates.pages.membership_fee_adjustment.submit_membership_type_change_request",
+            "verenigingen.templates.pages.membership_adjustment.submit_fee_adjustment_request",
+            "verenigingen.templates.pages.membership_adjustment.get_fee_calculation_info",
+            "verenigingen.templates.pages.membership_adjustment.get_available_membership_types",
+            "verenigingen.templates.pages.membership_adjustment.submit_membership_type_change_request",
         ]
 
         accessible_endpoints = []
@@ -221,7 +221,7 @@ def test_page_context_loading(test_email):
     try:
         frappe.session.user = test_email
 
-        from verenigingen.templates.pages.membership_fee_adjustment import get_context
+        from verenigingen.templates.pages.membership_adjustment import get_context
 
         context = frappe._dict()
         get_context(context)
@@ -261,7 +261,7 @@ def test_fee_adjustment_submission(test_email):
         frappe.session.user = test_email
 
         # Test fee adjustment submission
-        from verenigingen.templates.pages.membership_fee_adjustment import submit_fee_adjustment_request
+        from verenigingen.templates.pages.membership_adjustment import submit_fee_adjustment_request
 
         result = submit_fee_adjustment_request(
             new_amount=50.00, reason="Final comprehensive test - fee adjustment"
@@ -309,7 +309,7 @@ def test_membership_type_change(test_email):
         frappe.session.user = test_email
 
         # Get available membership types
-        from verenigingen.templates.pages.membership_fee_adjustment import get_available_membership_types
+        from verenigingen.templates.pages.membership_adjustment import get_available_membership_types
 
         types_result = get_available_membership_types()
 
@@ -332,9 +332,7 @@ def test_membership_type_change(test_email):
             return {"status": "warning", "details": "Could not find alternative membership type for testing"}
 
         # Test membership type change submission
-        from verenigingen.templates.pages.membership_fee_adjustment import (
-            submit_membership_type_change_request,
-        )
+        from verenigingen.templates.pages.membership_adjustment import submit_membership_type_change_request
 
         change_result = submit_membership_type_change_request(
             new_membership_type=new_type, reason="Final comprehensive test - membership type change"

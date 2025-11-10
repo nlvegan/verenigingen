@@ -392,7 +392,7 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
         print("\\n=== Testing: Member Portal Integration ===")
         
         # Simulate member portal fee adjustment
-        from verenigingen.templates.pages.membership_fee_adjustment import submit_fee_adjustment_request
+        from verenigingen.templates.pages.membership_adjustment import submit_fee_adjustment_request
         
         # Mock session user
         original_user = frappe.session.user
@@ -489,7 +489,7 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
         )
         
         # Test fee calculation
-        from verenigingen.templates.pages.membership_fee_adjustment import get_effective_fee_for_member
+        from verenigingen.templates.pages.membership_adjustment import get_effective_fee_for_member
         
         membership = self.create_test_membership(
             member=member_with_both.name,

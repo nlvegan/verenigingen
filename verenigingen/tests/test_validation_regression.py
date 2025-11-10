@@ -73,7 +73,7 @@ class TestValidationRegression(EnhancedTestCase):
             "api/membership_application_review.py",
             "api/payment_dashboard.py", 
             "api/membership_application.py",
-            "templates/pages/membership_fee_adjustment.py",
+            "templates/pages/membership_adjustment.py",
             "templates/pages/my_dues_schedule.py"
         ]
         
@@ -406,9 +406,9 @@ class TestRegressionPreventionFramework(EnhancedTestCase):
     
     def test_membership_fee_adjustment_javascript_fixed(self):
         """Regression test: membership fee adjustment JavaScript should not use server-side functions"""
-        
-        file_path = os.path.join(frappe.get_app_path("verenigingen"), 
-                                "templates/pages/membership_fee_adjustment.html")
+
+        file_path = os.path.join(frappe.get_app_path("verenigingen"),
+                                "templates/pages/membership_adjustment.html")
         
         if os.path.exists(file_path):
             with open(file_path, 'r', encoding='utf-8') as f:

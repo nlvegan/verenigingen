@@ -94,10 +94,10 @@ def test_api_endpoints():
     test_results = {"status": "success", "message": "API endpoints accessible", "endpoints": {}}
 
     endpoints = [
-        "verenigingen.templates.pages.membership_fee_adjustment.submit_fee_adjustment_request",
-        "verenigingen.templates.pages.membership_fee_adjustment.get_fee_calculation_info",
-        "verenigingen.templates.pages.membership_fee_adjustment.get_available_membership_types",
-        "verenigingen.templates.pages.membership_fee_adjustment.submit_membership_type_change_request",
+        "verenigingen.templates.pages.membership_adjustment.submit_fee_adjustment_request",
+        "verenigingen.templates.pages.membership_adjustment.get_fee_calculation_info",
+        "verenigingen.templates.pages.membership_adjustment.get_available_membership_types",
+        "verenigingen.templates.pages.membership_adjustment.submit_membership_type_change_request",
     ]
 
     for endpoint in endpoints:
@@ -253,7 +253,7 @@ def test_fee_adjustment_function():
             member_doc = frappe.get_doc("Member", member_name)
             frappe.session.user = member_doc.email
 
-            from verenigingen.templates.pages.membership_fee_adjustment import get_fee_calculation_info
+            from verenigingen.templates.pages.membership_adjustment import get_fee_calculation_info
 
             fee_info = get_fee_calculation_info()
 
@@ -268,7 +268,7 @@ def test_fee_adjustment_function():
         try:
             frappe.session.user = member_doc.email
 
-            from verenigingen.templates.pages.membership_fee_adjustment import submit_fee_adjustment_request
+            from verenigingen.templates.pages.membership_adjustment import submit_fee_adjustment_request
 
             # Try submitting a fee adjustment
             result = submit_fee_adjustment_request(new_amount=30.00, reason="Debug test fee adjustment")
@@ -284,7 +284,7 @@ def test_fee_adjustment_function():
         try:
             frappe.session.user = member_doc.email
 
-            from verenigingen.templates.pages.membership_fee_adjustment import get_available_membership_types
+            from verenigingen.templates.pages.membership_adjustment import get_available_membership_types
 
             types_result = get_available_membership_types()
 
@@ -480,13 +480,13 @@ def test_api_directly(member_email=None, new_amount=35.00, reason="Direct API te
             frappe.session.user = member_email
 
             # Test get_fee_calculation_info
-            from verenigingen.templates.pages.membership_fee_adjustment import get_fee_calculation_info
+            from verenigingen.templates.pages.membership_adjustment import get_fee_calculation_info
 
             fee_info = get_fee_calculation_info()
             results["tests"]["fee_info"] = {"status": "success", "data": fee_info}
 
             # Test submit_fee_adjustment_request
-            from verenigingen.templates.pages.membership_fee_adjustment import submit_fee_adjustment_request
+            from verenigingen.templates.pages.membership_adjustment import submit_fee_adjustment_request
 
             adjustment_result = submit_fee_adjustment_request(new_amount, reason)
             results["tests"]["fee_adjustment"] = {"status": "success", "result": adjustment_result}

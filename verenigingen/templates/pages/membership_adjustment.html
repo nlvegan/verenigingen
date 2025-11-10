@@ -546,7 +546,7 @@ $(document).ready(function() {
 
         // Submit request
         frappe.call({
-            method: 'verenigingen.templates.pages.membership_fee_adjustment.submit_fee_adjustment_request',
+            method: 'verenigingen.templates.pages.membership_adjustment.submit_fee_adjustment_request',
             args: {
                 new_amount: newAmount,
                 reason: reason || '',
@@ -627,7 +627,7 @@ $(document).ready(function() {
 
         // Get available membership types
         frappe.call({
-            method: 'verenigingen.templates.pages.membership_fee_adjustment.get_available_membership_types',
+            method: 'verenigingen.templates.pages.membership_adjustment.get_available_membership_types',
             args: {},
             callback: function(r) {
                 console.log('Membership types API response:', r);
@@ -815,7 +815,7 @@ $(document).ready(function() {
         }
 
         frappe.call({
-            method: 'verenigingen.templates.pages.membership_fee_adjustment.submit_membership_type_change_request',
+            method: 'verenigingen.templates.pages.membership_adjustment.submit_membership_type_change_request',
             args: args,
             callback: function(r) {
                 console.log('Membership type change response:', r);

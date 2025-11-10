@@ -336,7 +336,7 @@
 ./verenigingen/templates/pages/install_email_templates.py
 ./verenigingen/templates/pages/manage_donations.py
 ./verenigingen/templates/pages/membership_application.py
-./verenigingen/templates/pages/membership_fee_adjustment.py
+./verenigingen/templates/pages/membership_adjustment.py
 ./verenigingen/templates/pages/my_dues_schedule.py
 ./verenigingen/templates/pages/payment_success.py
 ./verenigingen/templates/pages/personal_details.py

@@ -44,7 +44,7 @@ def test_fee_calculation():
         membership_type.save()
         
         # Test fee calculation import
-        from verenigingen.templates.pages.membership_fee_adjustment import get_effective_fee_for_member
+        from verenigingen.templates.pages.membership_adjustment import get_effective_fee_for_member
         
         # Create a simple membership object
         membership = frappe.new_doc("Membership")
@@ -81,7 +81,7 @@ def test_dues_schedule_creation():
     
     try:
         # Test basic dues schedule creation
-        from verenigingen.templates.pages.membership_fee_adjustment import create_new_dues_schedule
+        from verenigingen.templates.pages.membership_adjustment import create_new_dues_schedule
         
         # Create test member and membership
         member = frappe.new_doc("Member")

@@ -807,15 +807,13 @@ class ContributionAmendmentRequest(Document):
                         )
                     )
 
-                # CRITICAL FIX: Commit the cancellation immediately so the validation check
-                # in the new schedule creation doesn't see the cancelled schedule as still Active
-                frappe.db.commit()
                 frappe.logger().info(
-                    f"Committed cancellation of schedule {existing_schedule_info.name} before creating new one"
+                    f"Cancelled schedule {existing_schedule_info.name}, proceeding to create new one"
                 )
 
             # Create new dues schedule
             dues_schedule = frappe.new_doc("Membership Dues Schedule")
+            dues_schedule.flags.from_amendment = True  # Flag to skip duplicate schedule check
             dues_schedule.schedule_name = f"Amendment {self.name} - {frappe.utils.random_string(6)}"
             dues_schedule.member = self.member
             dues_schedule.membership = membership.name
