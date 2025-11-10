@@ -1160,7 +1160,10 @@ function add_membership_review_button(frm) {
 }
 
 function add_membership_creation_button(frm) {
-	// Check if member has any active or pending memberships (exclude cancelled memberships)
+	// Check if member has any active or pending memberships OR active dues schedules
+	// Show button only when BOTH conditions are false (no membership AND no dues schedule)
+
+	// First check for memberships
 	frappe.call({
 		method: 'frappe.client.get_list',
 		args: {
@@ -1173,24 +1176,43 @@ function add_membership_creation_button(frm) {
 			fields: ['name'],
 			limit: 1
 		},
-		callback(r) {
-			if (!r.message || r.message.length === 0) {
-				// No active or pending memberships found, show create button
-				// (Cancelled memberships are ignored - member can create new membership after cancellation)
-				frm.add_custom_button(
-					__('Create Membership'),
-					() => {
-						frappe.new_doc('Membership', {
-							member: frm.doc.name,
-							member_name: frm.doc.full_name,
-							email: frm.doc.email,
-							mobile_no: frm.doc.contact_number,
-							start_date: frappe.datetime.get_today()
-						});
+		callback(membership_result) {
+			const has_membership = membership_result.message && membership_result.message.length > 0;
+
+			// Then check for dues schedules
+			frappe.call({
+				method: 'frappe.client.get_list',
+				args: {
+					doctype: 'Membership Dues Schedule',
+					filters: {
+						member: frm.doc.name,
+						is_template: 0,
+						status: ['in', ['Active', 'Paused']]
 					},
-					__('Create')
-				);
-			}
+					fields: ['name'],
+					limit: 1
+				},
+				callback(dues_result) {
+					const has_dues_schedule = dues_result.message && dues_result.message.length > 0;
+
+					// Show button only if member has neither membership nor dues schedule
+					if (!has_membership && !has_dues_schedule) {
+						frm.add_custom_button(
+							__('Create Membership'),
+							() => {
+								frappe.new_doc('Membership', {
+									member: frm.doc.name,
+									member_name: frm.doc.full_name,
+									email: frm.doc.email,
+									mobile_no: frm.doc.contact_number,
+									start_date: frappe.datetime.get_today()
+								});
+							},
+							__('Create')
+						);
+					}
+				}
+			});
 		}
 	});
 }
@@ -1414,17 +1436,7 @@ function add_member_id_management_buttons(frm) {
 		return;
 	}
 
-	if (!frm.doc.member_id) {
-		frm.add_custom_button(
-			__('Assign Member ID'),
-			() => {
-				assign_member_id_dialog(frm);
-			},
-			__('Member ID')
-		);
-	}
-
-	// Member ID Statistics and Preview Next ID buttons removed as requested
+	// Member ID Statistics, Preview Next ID, and Assign Member ID buttons removed as requested
 }
 
 function create_user_account_dialog(frm) {
@@ -1464,33 +1476,7 @@ function create_user_account_dialog(frm) {
 	);
 }
 
-function assign_member_id_dialog(frm) {
-	frappe.confirm(
-		__('Are you sure you want to assign a member ID to {0}?', [
-			frm.doc.full_name
-		]),
-		() => {
-			frm.call({
-				method: 'ensure_member_id',
-				doc: frm.doc,
-				callback(r) {
-					if (r.message && r.message.success) {
-						frm.reload_doc();
-						frappe.show_alert(
-							{
-								message: r.message.message,
-								indicator: 'green'
-							},
-							5
-						);
-					} else if (r.message && r.message.message) {
-						frappe.msgprint(r.message.message);
-					}
-				}
-			});
-		}
-	);
-}
+// assign_member_id_dialog function removed - member IDs are now auto-assigned
 
 function view_donations(frm) {
 	frappe.call({
@@ -1567,42 +1553,7 @@ function add_member_id_buttons(_frm) {
 		return; // User doesn't have permission
 	}
 
-	// Add "Assign Member ID" button if member doesn't have one
-	if (!frm.doc.member_id) {
-		frm.add_custom_button(
-			__('Assign Member ID'),
-			() => {
-				frappe.confirm(
-					__('Are you sure you want to assign a member ID to {0}?', [
-						frm.doc.full_name
-					]),
-					() => {
-						frm.call({
-							method: 'ensure_member_id',
-							doc: frm.doc,
-							callback(r) {
-								if (r.message && r.message.success) {
-									frm.reload_doc();
-									frappe.show_alert(
-										{
-											message: r.message.message,
-											indicator: 'green'
-										},
-										5
-									);
-								} else if (r.message && r.message.message) {
-									frappe.msgprint(r.message.message);
-								}
-							}
-						});
-					}
-				);
-			},
-			__('Member ID')
-		);
-	}
-
-	// Member ID Statistics and Preview Next ID buttons removed as requested
+	// Member ID Statistics, Preview Next ID, and Assign Member ID buttons removed as requested
 
 	// Add force assign button for System Managers
 	if (user_roles.includes('System Manager')) {

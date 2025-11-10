@@ -496,6 +496,7 @@ doc_events = {
             "verenigingen.utils.chapter_role_events.on_member_on_update",
             "verenigingen.utils.cache_invalidation.on_document_update",  # Cache invalidation
             "verenigingen.utils.performance_cache.on_member_update",  # Performance cache invalidation
+            "verenigingen.utils.user_member_image_sync.sync_member_image_to_user",  # Bidirectional image sync
         ],
     },
     # Chapter Member events for performance cache invalidation
@@ -532,7 +533,10 @@ doc_events = {
     },
     # Security framework cache invalidation
     "User": {
-        "on_update": "verenigingen.utils.security.cache_invalidation.invalidate_user_role_cache_on_user_update",
+        "on_update": [
+            "verenigingen.utils.security.cache_invalidation.invalidate_user_role_cache_on_user_update",
+            "verenigingen.utils.user_member_image_sync.sync_user_image_to_member",  # Bidirectional image sync
+        ],
         "after_insert": "verenigingen.utils.security.cache_invalidation.invalidate_user_role_cache_on_user_update",
     },
     "Role Profile": {

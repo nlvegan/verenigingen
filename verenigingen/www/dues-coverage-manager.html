@@ -5,14 +5,31 @@
 {% block head_include %}
 <meta name="csrf-token" content="{{ csrf_token }}">
 <link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+<script>
+// Load brand CSS dynamically
+if (typeof frappe !== 'undefined' && frappe.ready) {
+    frappe.ready(function() {
+        frappe.call({
+            method: 'verenigingen.verenigingen.doctype.brand_settings.brand_settings.get_brand_css_inline',
+            callback: function(r) {
+                if (r.message && r.message.success) {
+                    var style = document.createElement('style');
+                    style.innerHTML = r.message.css;
+                    document.head.appendChild(style);
+                }
+            }
+        });
+    });
+}
+</script>
 <style>
 .member-row:hover {
-    background-color: #f3f4f6;
+    background-color: var(--brand-bg-secondary, #f8f9fa);
 }
 .coverage-timeline {
     height: 40px;
     position: relative;
-    background: #e5e7eb;
+    background: var(--brand-bg-secondary, #e5e7eb);
     border-radius: 4px;
     overflow: hidden;
 }
@@ -28,13 +45,13 @@
     text-shadow: 0 1px 2px rgba(0,0,0,0.3);
 }
 .coverage-paid {
-    background-color: #10b981;
+    background-color: var(--brand-success, #10b981);
 }
 .coverage-outstanding {
-    background-color: #f59e0b;
+    background-color: var(--brand-warning, #f59e0b);
 }
 .coverage-gap {
-    background-color: #ef4444;
+    background-color: var(--brand-error, #ef4444);
 }
 </style>
 {% endblock %}
@@ -81,7 +98,7 @@
                 </div>
             </div>
             <div class="mt-4 flex gap-3">
-                <button onclick="loadCoverageData()" class="inline-flex items-center px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                <button onclick="loadCoverageData()" class="inline-flex items-center px-4 py-2 bg-primary-600 text-primary-contrast font-medium rounded-lg hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2">
                     <i class="fa fa-search mr-2"></i>
                     {{ _("Load Data") }}
                 </button>
@@ -94,10 +111,10 @@
 
         <!-- Summary Cards -->
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-blue-500">
+            <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-primary-500">
                 <div class="flex items-center mb-2">
-                    <div class="flex-shrink-0 bg-blue-100 rounded-lg p-3">
-                        <i class="fa fa-users text-2xl text-blue-600"></i>
+                    <div class="flex-shrink-0 bg-primary-100 rounded-lg p-3">
+                        <i class="fa fa-users text-2xl text-primary-600"></i>
                     </div>
                     <div class="ml-4">
                         <p class="text-sm font-medium text-gray-600">Total Members</p>
@@ -106,10 +123,10 @@
                 </div>
             </div>
 
-            <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-amber-500">
+            <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-warning-500" style="border-left-color: var(--brand-warning, #f59e0b);">
                 <div class="flex items-center mb-2">
-                    <div class="flex-shrink-0 bg-amber-100 rounded-lg p-3">
-                        <i class="fa fa-exclamation-triangle text-2xl text-amber-600"></i>
+                    <div class="flex-shrink-0 rounded-lg p-3" style="background-color: color-mix(in srgb, var(--brand-warning, #f59e0b) 20%, white);">
+                        <i class="fa fa-exclamation-triangle text-2xl" style="color: var(--brand-warning, #f59e0b);"></i>
                     </div>
                     <div class="ml-4">
                         <p class="text-sm font-medium text-gray-600">With Gaps</p>
@@ -118,10 +135,10 @@
                 </div>
             </div>
 
-            <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-red-500">
+            <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-danger-500" style="border-left-color: var(--brand-error, #dc3545);">
                 <div class="flex items-center mb-2">
-                    <div class="flex-shrink-0 bg-red-100 rounded-lg p-3">
-                        <i class="fa fa-file-invoice-dollar text-2xl text-red-600"></i>
+                    <div class="flex-shrink-0 rounded-lg p-3" style="background-color: color-mix(in srgb, var(--brand-error, #dc3545) 20%, white);">
+                        <i class="fa fa-file-invoice-dollar text-2xl" style="color: var(--brand-error, #dc3545);"></i>
                     </div>
                     <div class="ml-4">
                         <p class="text-sm font-medium text-gray-600">Catch-up Needed</p>
@@ -130,10 +147,10 @@
                 </div>
             </div>
 
-            <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-purple-500">
+            <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-secondary-500">
                 <div class="flex items-center mb-2">
-                    <div class="flex-shrink-0 bg-purple-100 rounded-lg p-3">
-                        <i class="fa fa-euro-sign text-2xl text-purple-600"></i>
+                    <div class="flex-shrink-0 bg-secondary-100 rounded-lg p-3">
+                        <i class="fa fa-euro-sign text-2xl text-secondary-600"></i>
                     </div>
                     <div class="ml-4">
                         <p class="text-sm font-medium text-gray-600">Total Outstanding</p>
@@ -153,10 +170,10 @@
                 <i class="fa fa-square mr-2"></i>
                 {{ _("Deselect All") }}
             </button>
-            <button onclick="generateSelectedInvoices()" class="inline-flex items-center px-4 py-2 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2">
+            <button onclick="generateSelectedInvoices()" class="inline-flex items-center px-4 py-2 bg-secondary-600 text-secondary-contrast font-medium rounded-lg hover:bg-secondary-700 focus:outline-none focus:ring-2 focus:ring-secondary-500 focus:ring-offset-2">
                 <i class="fa fa-file-invoice mr-2"></i>
                 {{ _("Generate Invoices for Selected") }}
-                <span id="selected-count" class="ml-2 bg-green-700 px-2 py-0.5 rounded-full text-xs font-bold">0</span>
+                <span id="selected-count" class="ml-2 bg-secondary-700 px-2 py-0.5 rounded-full text-xs font-bold">0</span>
             </button>
         </div>
 
@@ -193,7 +210,7 @@
         <div id="loading-spinner" class="hidden fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50">
             <div class="bg-white rounded-lg p-8 max-w-sm mx-4">
                 <div class="flex items-center justify-center mb-4">
-                    <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                    <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
                 </div>
                 <p class="text-center text-gray-700 font-medium" id="spinner-message">Loading coverage data...</p>
             </div>
@@ -294,7 +311,7 @@ function renderMembersTable(data) {
                 </td>
                 <td class="px-6 py-4">
                     <div>
-                        <a href="/app/member/${member.member}" class="text-blue-600 hover:text-blue-800 font-medium" target="_blank">${member.member_name}</a>
+                        <a href="/app/member/${member.member}" class="text-primary-600 hover:text-primary-700 font-medium" target="_blank">${member.member_name}</a>
                         <p class="text-xs text-gray-500">${member.member}</p>
                     </div>
                 </td>
@@ -302,13 +319,13 @@ function renderMembersTable(data) {
                     <span class="font-semibold" style="color: ${coverageColor}">${member.coverage_percentage.toFixed(1)}%</span>
                 </td>
                 <td class="px-6 py-4">
-                    <span class="font-semibold ${member.gap_days > 0 ? 'text-red-600' : 'text-green-600'}">${member.gap_days}</span>
+                    <span class="font-semibold" style="color: ${member.gap_days > 0 ? 'var(--brand-error, #dc3545)' : 'var(--brand-success, #28a745)'}">${member.gap_days}</span>
                 </td>
                 <td class="px-6 py-4">
-                    ${member.current_gaps !== 'No gaps' ? `<span class="px-2 py-1 text-xs font-semibold rounded" style="background-color: ${severityColor}20; color: ${severityColor}">${getHighestSeverity(member.current_gaps)}</span>` : '<span class="text-green-600">No gaps</span>'}
+                    ${member.current_gaps !== 'No gaps' ? `<span class="px-2 py-1 text-xs font-semibold rounded" style="background-color: ${severityColor}20; color: ${severityColor}">${getHighestSeverity(member.current_gaps)}</span>` : '<span style="color: var(--brand-success, #28a745)">No gaps</span>'}
                 </td>
                 <td class="px-6 py-4">
-                    ${hasCatchup ? `<span class="font-semibold text-red-600">€${member.catchup_amount.toFixed(2)}</span>` : '<span class="text-gray-400">—</span>'}
+                    ${hasCatchup ? `<span class="font-semibold" style="color: var(--brand-error, #dc3545)">€${member.catchup_amount.toFixed(2)}</span>` : '<span class="text-gray-400">—</span>'}
                 </td>
                 <td class="px-6 py-4">
                     <div class="coverage-timeline" title="Coverage visualization">
@@ -316,7 +333,7 @@ function renderMembersTable(data) {
                     </div>
                 </td>
                 <td class="px-6 py-4">
-                    <button onclick="viewMemberDetails('${member.member}')" class="text-blue-600 hover:text-blue-800 text-sm font-medium">
+                    <button onclick="viewMemberDetails('${member.member}')" class="text-primary-600 hover:text-primary-700 text-sm font-medium">
                         <i class="fa fa-eye mr-1"></i>Details
                     </button>
                 </td>
@@ -342,18 +359,18 @@ function renderCoverageTimeline(member) {
 }
 
 function getSeverityColor(gapsText) {
-    if (gapsText.includes('Critical')) return '#dc2626';
-    if (gapsText.includes('Significant')) return '#f59e0b';
-    if (gapsText.includes('Moderate')) return '#fb923c';
-    if (gapsText.includes('Minor')) return '#fbbf24';
-    return '#10b981';
+    if (gapsText.includes('Critical')) return 'var(--brand-error, #dc2626)';
+    if (gapsText.includes('Significant')) return 'var(--brand-warning, #f59e0b)';
+    if (gapsText.includes('Moderate')) return 'var(--brand-warning, #fb923c)';
+    if (gapsText.includes('Minor')) return 'var(--brand-warning, #fbbf24)';
+    return 'var(--brand-success, #10b981)';
 }
 
 function getCoverageColor(percentage) {
-    if (percentage >= 100) return '#10b981';
-    if (percentage >= 80) return '#fbbf24';
-    if (percentage >= 50) return '#fb923c';
-    return '#dc2626';
+    if (percentage >= 100) return 'var(--brand-success, #10b981)';
+    if (percentage >= 80) return 'var(--brand-warning, #fbbf24)';
+    if (percentage >= 50) return 'var(--brand-warning, #fb923c)';
+    return 'var(--brand-error, #dc2626)';
 }
 
 function getHighestSeverity(gapsText) {

@@ -469,17 +469,17 @@ if (typeof frappe !== 'undefined' && frappe.ready) {
     color: var(--brand-accent, #2D9EB3) !important;
 }
 
-/* Status icons with brand colors */
+/* Status icons with semantic brand colors */
 .text-success {
-    color: var(--brand-secondary, #1A555F) !important;
+    color: var(--brand-success, #28a745) !important;
 }
 
 .text-warning {
-    color: var(--brand-accent, #2D9EB3) !important;
+    color: var(--brand-warning, #ffc107) !important;
 }
 
 .text-danger {
-    color: var(--brand-primary, #F99F20) !important;
+    color: var(--brand-error, #dc3545) !important;
 }
 
 /* Code styling */
@@ -708,7 +708,7 @@ function formatHealthResult(result) {
 
         // Success rate
         var successRate = result.processing_summary ? result.processing_summary.success_rate : 100;
-        var successColor = successRate >= 95 ? '#28a745' : successRate >= 80 ? '#ffc107' : '#dc3545';
+        var successColor = successRate >= 95 ? 'var(--brand-success, #28a745)' : successRate >= 80 ? 'var(--brand-warning, #ffc107)' : 'var(--brand-error, #dc3545)';
         html += '<div class="stat-card" style="padding: 1.5rem; background: var(--brand-bg-secondary, #f8f9fa); border-left: 4px solid ' + successColor + '; border-radius: 8px;">';
         html += '<div class="stat-value" style="font-size: 2rem; font-weight: bold; color: ' + successColor + ';">' + successRate.toFixed(1) + '%</div>';
         html += '<div class="stat-label" style="color: var(--brand-text-secondary, #666); font-size: 0.875rem;">Success Rate</div>';
@@ -723,7 +723,7 @@ function formatHealthResult(result) {
 
         // Errors
         var errorCount = result.errors ? result.errors.length : 0;
-        var errorColor = errorCount > 0 ? '#dc3545' : '#28a745';
+        var errorColor = errorCount > 0 ? 'var(--brand-error, #dc3545)' : 'var(--brand-success, #28a745)';
         html += '<div class="stat-card" style="padding: 1.5rem; background: var(--brand-bg-secondary, #f8f9fa); border-left: 4px solid ' + errorColor + '; border-radius: 8px;">';
         html += '<div class="stat-value" style="font-size: 2rem; font-weight: bold; color: ' + errorColor + ';">' + errorCount + '</div>';
         html += '<div class="stat-label" style="color: var(--brand-text-secondary, #666); font-size: 0.875rem;">Errors</div>';

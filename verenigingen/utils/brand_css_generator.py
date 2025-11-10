@@ -224,20 +224,26 @@ def generate_brand_css_file(doc=None, method=None):
 .border-accent-800 {{ border-color: var(--brand-accent-800) !important; }}
 .border-accent-900 {{ border-color: var(--brand-accent-900) !important; }}
 
-/* Success, warning, error utilities */
-.bg-success-500 {{ background-color: var(--brand-success) !important; }}
-.text-success-800 {{ color: var(--brand-success) !important; }}
+/* Success utilities with proper scale */
 .bg-success-100 {{ background-color: color-mix(in srgb, var(--brand-success) 10%, white) !important; }}
+.bg-success-500 {{ background-color: var(--brand-success) !important; }}
+.text-success-600 {{ color: color-mix(in srgb, var(--brand-success) 85%, black) !important; }}
+.text-success-800 {{ color: color-mix(in srgb, var(--brand-success) 70%, black) !important; }}
+.border-success-500 {{ border-color: var(--brand-success) !important; }}
 
-.bg-warning-500 {{ background-color: var(--brand-warning) !important; }}
-.text-warning-600 {{ color: var(--brand-warning) !important; }}
-.text-warning-800 {{ color: var(--brand-warning) !important; }}
+/* Warning utilities with proper scale */
 .bg-warning-100 {{ background-color: color-mix(in srgb, var(--brand-warning) 10%, white) !important; }}
+.bg-warning-500 {{ background-color: var(--brand-warning) !important; }}
+.text-warning-600 {{ color: color-mix(in srgb, var(--brand-warning) 85%, black) !important; }}
+.text-warning-800 {{ color: color-mix(in srgb, var(--brand-warning) 70%, black) !important; }}
+.border-warning-500 {{ border-color: var(--brand-warning) !important; }}
 
-.bg-danger-500 {{ background-color: var(--brand-error) !important; }}
-.text-danger-600 {{ color: var(--brand-error) !important; }}
-.text-danger-800 {{ color: var(--brand-error) !important; }}
+/* Danger/Error utilities with proper scale */
 .bg-danger-100 {{ background-color: color-mix(in srgb, var(--brand-error) 10%, white) !important; }}
+.bg-danger-500 {{ background-color: var(--brand-error) !important; }}
+.text-danger-600 {{ color: color-mix(in srgb, var(--brand-error) 85%, black) !important; }}
+.text-danger-800 {{ color: color-mix(in srgb, var(--brand-error) 70%, black) !important; }}
+.border-danger-500 {{ border-color: var(--brand-error) !important; }}
 
 /* Special overrides for common classes */
 .bg-red-600 {{ background-color: var(--brand-primary) !important; }}
