@@ -1,28 +1,23 @@
 {% extends "templates/web.html" %}
 
 {% block title %}
-{{ _("ANBI Dashboard") }}
+{{ _("Donation Dashboard") }}
 {% endblock %}
 
 {% block page_content %}
-<div class="anbi-dashboard">
+<div class="donation-dashboard">
     {% if anbi_disabled %}
     <div class="alert alert-warning">
         <h4>{{ _("ANBI Functionality Disabled") }}</h4>
-        <p>{{ _("ANBI functionality is currently disabled. Please enable it in Verenigingen Settings to access this dashboard.") }}</p>
+        <p>{{ _("ANBI functionality is currently disabled. Please enable it in Verenigingen Settings to access donation tracking features.") }}</p>
         <a href="/app/verenigingen-settings" class="btn btn-primary">{{ _("Go to Settings") }}</a>
     </div>
     {% else %}
 
     <!-- Header Section -->
     <div class="page-header mb-4">
-        <h1>{{ _("ANBI Dashboard") }}</h1>
-        <p class="text-muted">{{ _("Overview of tax-deductible donations and periodic agreements") }}</p>
-        {% if not organization_has_anbi_status %}
-        <div class="alert alert-info">
-            <i class="fa fa-info-circle"></i> {{ _("Your organization does not have ANBI status. Donations are tracked but not eligible for tax benefits.") }}
-        </div>
-        {% endif %}
+        <h1>{{ _("Donation Dashboard") }}</h1>
+        <p class="text-muted">{{ _("Overview of donations and periodic agreements") }}</p>
     </div>
 
     <!-- Key Metrics -->
@@ -182,7 +177,7 @@
     <div class="card mb-4">
         <div class="card-header d-flex justify-content-between align-items-center">
             <h5 class="mb-0">{{ _("Recent Donations") }}</h5>
-            <a href="/app/query-report/ANBI%20Donation%20Summary" class="btn btn-sm btn-outline-primary">
+            <a href="/app/query-report/Donation%20Summary" class="btn btn-sm btn-outline-primary">
                 {{ _("View Report") }}
             </a>
         </div>
@@ -201,7 +196,7 @@
                     <tbody>
                         {% for donation in recent_donations %}
                         <tr>
-                            <td>{{ frappe.utils.formatdate(donation.date) }}</td>
+                            <td>{{ frappe.utils.formatdate(donation.donation_date) }}</td>
                             <td>
                                 <a href="/app/donor/{{ donation.donor }}">
                                     {{ donation.donor_name }}
@@ -247,8 +242,8 @@
                     </a>
                 </div>
                 <div class="col-md-3">
-                    <a href="/app/query-report/ANBI%20Donation%20Summary" class="btn btn-outline-primary w-100 mb-2">
-                        <i class="fa fa-file-text"></i> {{ _("ANBI Report") }}
+                    <a href="/app/query-report/Donation%20Summary" class="btn btn-outline-primary w-100 mb-2">
+                        <i class="fa fa-file-text"></i> {{ _("Donation Report") }}
                     </a>
                 </div>
                 <div class="col-md-3">

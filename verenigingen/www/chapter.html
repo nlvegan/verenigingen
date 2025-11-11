@@ -265,7 +265,7 @@
                 card.innerHTML = `
                     <div class="flex justify-between items-start">
                         <div class="flex-1">
-                            <a href="/${chapter.route}" class="text-xl font-semibold text-gray-900 transition-colors chapter-link">
+                            <a href="/chapter_dashboard?chapter=${encodeURIComponent(chapter.name)}" class="text-xl font-semibold text-gray-900 transition-colors chapter-link">
                                 ${chapter.name}
                             </a>
                             ${chapter.introduction ? `<p class="text-gray-600 mt-2">${chapter.introduction}</p>` : ''}

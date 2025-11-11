@@ -12,7 +12,7 @@ discovering authentic production issues through real database operations.
 import frappe
 from frappe.utils import today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.verenigingen.report.anbi_donation_summary.anbi_donation_summary import (
+from verenigingen.verenigingen.report.donation_summary.donation_summary import (
     execute,
     get_data
 )
@@ -145,7 +145,7 @@ class TestANBIDonationSummaryReportMinimalReal(EnhancedTestCase):
         """ELIMINATES field name mocks - validates real database field names in conditions"""
         
         # Import the conditions function to test real field name usage
-        from verenigingen.verenigingen.report.anbi_donation_summary.anbi_donation_summary import get_conditions
+        from verenigingen.verenigingen.report.donation_summary.donation_summary import get_conditions
         
         # Test consent filtering conditions use real field names
         consent_conditions = get_conditions({"consent_status": "Given"})
@@ -172,7 +172,7 @@ class TestANBIDonationSummaryReportMinimalReal(EnhancedTestCase):
         real_data = get_data({"from_date": today(), "to_date": today()})
         
         # ELIMINATED MOCK 3: Real field name validation in conditions
-        from verenigingen.verenigingen.report.anbi_donation_summary.anbi_donation_summary import get_conditions
+        from verenigingen.verenigingen.report.donation_summary.donation_summary import get_conditions
         real_conditions = get_conditions({"consent_status": "Given"})
         
         elapsed = time.time() - start_time

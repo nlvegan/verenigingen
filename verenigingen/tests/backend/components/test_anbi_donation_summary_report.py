@@ -10,7 +10,7 @@ import frappe
 from frappe.utils import add_days, today
 
 from verenigingen.tests.utils.base import VereningingenTestCase
-from verenigingen.verenigingen.report.anbi_donation_summary.anbi_donation_summary import (
+from verenigingen.verenigingen.report.donation_summary.donation_summary import (
     execute,
     get_data,
     get_columns,
@@ -99,7 +99,7 @@ class TestANBIDonationSummaryReport(VereningingenTestCase):
         with patch("frappe.db.get_single_value") as mock_get_single:
             mock_get_single.return_value = True  # ANBI functionality enabled
             
-            with patch("verenigingen.verenigingen.report.anbi_donation_summary.anbi_donation_summary.get_data") as mock_get_data:
+            with patch("verenigingen.verenigingen.report.donation_summary.donation_summary.get_data") as mock_get_data:
                 mock_get_data.return_value = self.sample_donation_data
 
                 columns, data = execute({"from_date": "2024-01-01", "to_date": "2024-12-31"})
@@ -132,8 +132,8 @@ class TestANBIDonationSummaryReport(VereningingenTestCase):
                 args = mock_msgprint.call_args[0]
                 self.assertIn("ANBI functionality is not enabled", args[0])
 
-    @patch("verenigingen.verenigingen.report.anbi_donation_summary.anbi_donation_summary.frappe.db.sql")
-    @patch("verenigingen.verenigingen.report.anbi_donation_summary.anbi_donation_summary.frappe.db.get_single_value")
+    @patch("verenigingen.verenigingen.report.donation_summary.donation_summary.frappe.db.sql")
+    @patch("verenigingen.verenigingen.report.donation_summary.donation_summary.frappe.db.get_single_value")
     def test_get_data_database_query(self, mock_get_single, mock_sql):
         """Test the SQL query construction and execution"""
         mock_get_single.return_value = 500  # Min reportable amount
@@ -168,7 +168,7 @@ class TestANBIDonationSummaryReport(VereningingenTestCase):
         with patch("frappe.db.get_single_value") as mock_get_single:
             mock_get_single.return_value = 500
             
-            with patch("verenigingen.verenigingen.report.anbi_donation_summary.anbi_donation_summary.frappe.db.sql") as mock_sql:
+            with patch("verenigingen.verenigingen.report.donation_summary.donation_summary.frappe.db.sql") as mock_sql:
                 mock_sql.return_value = [
                     {
                         "donor": "DON-001",
@@ -215,7 +215,7 @@ class TestANBIDonationSummaryReport(VereningingenTestCase):
         with patch("frappe.db.get_single_value") as mock_get_single:
             mock_get_single.return_value = 500
             
-            with patch("verenigingen.verenigingen.report.anbi_donation_summary.anbi_donation_summary.frappe.db.sql") as mock_sql:
+            with patch("verenigingen.verenigingen.report.donation_summary.donation_summary.frappe.db.sql") as mock_sql:
                 with patch("frappe.get_doc") as mock_get_doc:
                     # Mock periodic donation agreement
                     mock_agreement = MagicMock()
@@ -251,7 +251,7 @@ class TestANBIDonationSummaryReport(VereningingenTestCase):
         with patch("frappe.db.get_single_value") as mock_get_single:
             mock_get_single.return_value = 500  # Threshold
             
-            with patch("verenigingen.verenigingen.report.anbi_donation_summary.anbi_donation_summary.frappe.db.sql") as mock_sql:
+            with patch("verenigingen.verenigingen.report.donation_summary.donation_summary.frappe.db.sql") as mock_sql:
                 mock_sql.return_value = [
                     {
                         "donor": "DON-001",
@@ -360,7 +360,7 @@ class TestANBIDonationSummaryReportRegression(VereningingenTestCase):
         """
         try:
             # Import the report module - this should not raise import errors
-            from verenigingen.verenigingen.report.anbi_donation_summary.anbi_donation_summary import execute
+            from verenigingen.verenigingen.report.donation_summary.donation_summary import execute
             
             # Execute the report with minimal filters - should not raise OperationalError
             result = execute({
@@ -396,7 +396,7 @@ class TestANBIDonationSummaryReportRegression(VereningingenTestCase):
         """Test that the report module can be imported without errors"""
         try:
             # These imports should work without any errors
-            from verenigingen.verenigingen.report.anbi_donation_summary.anbi_donation_summary import (
+            from verenigingen.verenigingen.report.donation_summary.donation_summary import (
                 execute,
                 get_data,
                 get_columns,

@@ -20,7 +20,7 @@ import frappe
 from frappe.utils import add_days, today, flt, getdate
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.verenigingen.report.anbi_donation_summary.anbi_donation_summary import (
+from verenigingen.verenigingen.report.donation_summary.donation_summary import (
     execute,
     get_data,
     get_columns,

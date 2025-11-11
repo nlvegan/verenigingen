@@ -11,11 +11,11 @@
   "modified": "2025-07-06 15:00:00.000000",
   "modified_by": "Administrator",
   "module": "Verenigingen",
-  "name": "ANBI Donation Summary",
+  "name": "Donation Summary",
   "owner": "Administrator",
   "prepared_report": 0,
   "ref_doctype": "Donation",
-  "report_name": "ANBI Donation Summary",
+  "report_name": "Donation Summary",
   "report_type": "Script Report",
   "roles": [
     {

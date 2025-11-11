@@ -1,9 +1,9 @@
 /**
- * @fileoverview ANBI Donation Summary Report for Verenigingen Association Management
+ * @fileoverview Donation Summary Report for Verenigingen Association Management
  *
- * This report provides comprehensive ANBI (Algemeen Nut Beogende Instelling) compliance
- * reporting for Dutch charitable organizations, enabling proper tax reporting and
- * regulatory compliance for donation activities.
+ * This report provides comprehensive donation tracking and reporting for Dutch
+ * charitable organizations, with support for ANBI (Algemeen Nut Beogende Instelling)
+ * compliance when enabled.
  *
  * @description Business Context:
  * ANBI Donation Summary supports Dutch tax compliance requirements for charitable
@@ -59,7 +59,7 @@
 // Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
 // For license information, please see license.txt
 
-frappe.query_reports['ANBI Donation Summary'] = {
+frappe.query_reports['Donation Summary'] = {
 	filters: [
 		{
 			fieldname: 'from_date',

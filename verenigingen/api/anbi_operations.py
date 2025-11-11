@@ -455,7 +455,7 @@ def export_belastingdienst_report(filters):
         filters = json.loads(filters) if isinstance(filters, str) else filters
 
         # Get report data
-        from verenigingen.verenigingen.report.anbi_donation_summary.anbi_donation_summary import get_data
+        from verenigingen.verenigingen.report.donation_summary.donation_summary import get_data
 
         data = get_data(filters)
 

@@ -26,7 +26,6 @@ def get_context(context):
 
     # Get ANBI settings
     settings = frappe.get_single("Verenigingen Settings")
-    context.organization_has_anbi_status = settings.organization_has_anbi_status
     context.anbi_minimum_reportable_amount = settings.anbi_minimum_reportable_amount
 
     # Get current year statistics
@@ -43,7 +42,7 @@ def get_context(context):
         FROM `tabDonation`
         WHERE paid = 1
         AND docstatus = 1
-        AND date BETWEEN %s AND %s
+        AND donation_date BETWEEN %s AND %s
     """,
         (year_start, year_end),
         as_dict=1,
@@ -106,7 +105,7 @@ def get_context(context):
         FROM `tabDonation`
         WHERE paid = 1
         AND docstatus = 1
-        AND date BETWEEN %s AND %s
+        AND donation_date BETWEEN %s AND %s
         AND (belastingdienst_reportable = 1 OR amount >= %s)
     """,
         (year_start, year_end, settings.anbi_minimum_reportable_amount),
@@ -165,15 +164,15 @@ def get_context(context):
     monthly_trend = frappe.db.sql(
         """
         SELECT
-            MONTH(date) as month,
+            MONTH(donation_date) as month,
             SUM(amount) as total_amount,
             COUNT(*) as count
         FROM `tabDonation`
         WHERE paid = 1
         AND docstatus = 1
-        AND YEAR(date) = %s
-        GROUP BY MONTH(date)
-        ORDER BY MONTH(date)
+        AND YEAR(donation_date) = %s
+        GROUP BY MONTH(donation_date)
+        ORDER BY MONTH(donation_date)
     """,
         (current_year,),
         as_dict=1,
