@@ -83,43 +83,6 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 			})
 			.addClass('btn-primary');
 
-		// Add test API call buttons
-		if (frm.doc.connection_status && frm.doc.connection_status.includes('✅')) {
-			frm.add_custom_button(__('Test Chart of Accounts'), () => {
-				frappe.call({
-					method:
-            'verenigingen.e_boekhouden.utils.eboekhouden_api.preview_chart_of_accounts',
-					callback(r) {
-						if (r.message && r.message.success) {
-							const dialog = new frappe.ui.Dialog({
-								title: 'Chart of Accounts Preview',
-								fields: [
-									{
-										fieldtype: 'HTML',
-										options: `<div class="text-muted">
-										<h5>Found ${r.message.total_count} accounts:</h5>
-										<pre style="max-height: 400px; overflow-y: auto; background: #f8f9fa; padding: 10px; border-radius: 3px;">${JSON.stringify(r.message.accounts, null, 2)}</pre>
-									</div>`
-									}
-								],
-								primary_action_label: 'Close',
-								primary_action() {
-									dialog.hide();
-								}
-							});
-							dialog.show();
-						} else {
-							frappe.msgprint({
-								title: 'API Test Failed',
-								message: r.message.error || 'Unknown error occurred',
-								indicator: 'red'
-							});
-						}
-					}
-				});
-			});
-		}
-
 		// Phase 2: Cost Center Creation Engine buttons
 		if (
 			frm.doc.cost_center_mappings
@@ -288,6 +251,17 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 			dialog.show();
 		};
 
+		// Helper function to escape HTML for safe rendering
+		frm.escape_html = function (str) {
+			if (!str) return '';
+			return String(str)
+				.replace(/&/g, '&amp;')
+				.replace(/</g, '&lt;')
+				.replace(/>/g, '&gt;')
+				.replace(/"/g, '&quot;')
+				.replace(/'/g, '&#39;');
+		};
+
 		// Helper function to show cost center creation results
 		frm.show_cost_center_results = function (results) {
 			const results_html = `
@@ -335,10 +309,10 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 		.map(
 			(item) => `
 										<tr>
-											<td><code>${item.group_code}</code></td>
+											<td><code>${frm.escape_html(item.group_code)}</code></td>
 											<td>
-												<strong>${item.cost_center_name}</strong><br>
-												<small class="text-muted">${item.cost_center_id}</small>
+												<strong>${frm.escape_html(item.cost_center_name)}</strong><br>
+												<small class="text-muted">${frm.escape_html(item.cost_center_id)}</small>
 											</td>
 											<td>
 												<span class="badge ${item.is_group ? 'badge-info' : 'badge-light'}">
@@ -370,9 +344,9 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 		.map(
 			(item) => `
 										<tr>
-											<td><code>${item.group_code}</code></td>
-											<td><strong>${item.cost_center_name}</strong></td>
-											<td><small class="text-muted">${item.reason}</small></td>
+											<td><code>${frm.escape_html(item.group_code)}</code></td>
+											<td><strong>${frm.escape_html(item.cost_center_name)}</strong></td>
+											<td><small class="text-muted">${frm.escape_html(item.reason)}</small></td>
 										</tr>
 									`
 		)
@@ -398,9 +372,9 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 		.map(
 			(item) => `
 										<tr>
-											<td><code>${item.group_code}</code></td>
-											<td><strong>${item.cost_center_name}</strong></td>
-											<td><small class="text-danger">${item.error}</small></td>
+											<td><code>${frm.escape_html(item.group_code)}</code></td>
+											<td><strong>${frm.escape_html(item.cost_center_name)}</strong></td>
+											<td><small class="text-danger">${frm.escape_html(item.error)}</small></td>
 										</tr>
 									`
 		)
@@ -459,10 +433,91 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 		}
 	},
 
+	rebuild_account_tree_button(frm) {
+		// Rebuild account tree structure based on current settings
+		if (!frm.doc.default_company) {
+			frappe.msgprint(__('Please select a default company first.'));
+			return;
+		}
+
+		frappe.confirm(
+			__('This will reorganize all accounts under the configured group accounts (Vorderingen, Financial Accounts, Overlopende activa, Schulden, Belastingen). Continue?'),
+			() => {
+				frappe.call({
+					method:
+						'verenigingen.e_boekhouden.services.account_organization_service.organize_balance_sheet_accounts',
+					args: {
+						company: frm.doc.default_company
+					},
+					callback(r) {
+						if (r.message && r.message.success) {
+							const details = r.message.details;
+							let message = `<div class="text-muted">
+								<h5>Account Tree Rebuilt Successfully</h5>
+								<p><strong>Groups Created/Updated:</strong></p>
+								<ul>`;
+
+							details.created_groups.forEach((group) => {
+								message += `<li>${frm.escape_html(group)}</li>`;
+							});
+
+							message += `</ul>
+								<p><strong>Accounts Reorganized:</strong> ${details.updated.length}</p>`;
+
+							if (details.updated.length > 0) {
+								message += `<ul>`;
+								details.updated.slice(0, 10).forEach((update) => {
+									message += `<li>${frm.escape_html(update)}</li>`;
+								});
+								if (details.updated.length > 10) {
+									message += `<li><em>... and ${details.updated.length - 10} more</em></li>`;
+								}
+								message += `</ul>`;
+							}
+
+							if (details.errors.length > 0) {
+								message += `<p class="text-danger"><strong>Errors:</strong></p><ul>`;
+								details.errors.forEach((error) => {
+									message += `<li>${frm.escape_html(error)}</li>`;
+								});
+								message += `</ul>`;
+							}
+
+							message += `</div>`;
+
+							frappe.msgprint({
+								title: __('Account Tree Rebuilt'),
+								message: message,
+								indicator: 'green'
+							});
+						} else {
+							frappe.msgprint({
+								title: __('Rebuild Failed'),
+								message: r.message.error || __('Failed to rebuild account tree'),
+								indicator: 'red'
+							});
+						}
+					}
+				});
+			}
+		);
+	},
+
 	parse_groups_button(frm) {
 		// Parse the account group mappings and suggest cost centers
-		if (!frm.doc.account_group_mappings) {
-			frappe.msgprint(__('Please enter account group mappings first.'));
+		const balance_sheet_mappings = frm.doc.balance_sheet_group_mappings || '';
+		const pl_mappings = frm.doc.pl_group_mappings || '';
+
+		if (!balance_sheet_mappings && !pl_mappings) {
+			frappe.msgprint(__('Please enter balance sheet or P/L group mappings first.'));
+			return;
+		}
+
+		// Only use P&L mappings for cost centers - balance sheet accounts don't need cost centers
+		const cost_center_mappings = pl_mappings;
+
+		if (!cost_center_mappings || !cost_center_mappings.trim()) {
+			frappe.msgprint(__('Please enter P&L group mappings. Balance sheet accounts do not require cost centers.'));
 			return;
 		}
 
@@ -470,7 +525,7 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 			method:
         'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.parse_groups_and_suggest_cost_centers',
 			args: {
-				group_mappings_text: frm.doc.account_group_mappings,
+				group_mappings_text: cost_center_mappings,
 				company: frm.doc.default_company
 			},
 			callback(r) {

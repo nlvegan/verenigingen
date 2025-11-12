@@ -21,8 +21,8 @@ class EBoekhoudenSettings(Document):
         return {
             "use_classification_service": self.get("enable_account_classification_service", 1),
             "strategy": self.get("classification_strategy", "Prefer Groups"),
-            "group_mappings": self._parse_account_group_mappings(),
-            "group_type_mappings": self._parse_group_type_mappings(),
+            "balance_sheet_group_mappings": self._parse_balance_sheet_group_mappings(),
+            "pl_group_mappings": self._parse_pl_group_mappings(),
             "bal_rules": {
                 "asset_ranges": self._parse_ranges(self.get("bal_asset_ranges", "")),
                 "liability_ranges": self._parse_ranges(self.get("bal_liability_ranges", "")),
@@ -37,111 +37,50 @@ class EBoekhoudenSettings(Document):
             },
         }
 
-    def _parse_group_type_mappings(self):
-        """Parse group type mappings from JSON field with validation
-
-        Returns:
-            dict: Group code to type mapping, e.g., {"001": {"account_type": "Fixed Asset", "root_type": "Asset"}}
-        """
-        mappings_json = self.get("account_group_type_mappings", "")
-        if not mappings_json or not mappings_json.strip():
-            return {}
-
-        try:
-            mappings = json.loads(mappings_json)
-            if not isinstance(mappings, dict):
-                frappe.log_error(
-                    "account_group_type_mappings is not a valid JSON object", "Settings Parse Error"
-                )
-                return {}
-
-            # Validate each mapping entry
-            valid_mappings = {}
-            valid_root_types = ["Asset", "Liability", "Equity", "Income", "Expense"]
-            valid_account_types = [
-                "Accumulated Depreciation",
-                "Asset Received But Not Billed",
-                "Bank",
-                "Cash",
-                "Chargeable",
-                "Capital Work in Progress",
-                "Cost of Goods Sold",
-                "Depreciation",
-                "Equity",
-                "Expense Account",
-                "Expenses Included In Asset Valuation",
-                "Expenses Included In Valuation",
-                "Fixed Asset",
-                "Income Account",
-                "Payable",
-                "Receivable",
-                "Round Off",
-                "Stock",
-                "Stock Adjustment",
-                "Stock Received But Not Billed",
-                "Tax",
-                "Temporary",
-            ]
-
-            for group_code, mapping in mappings.items():
-                if not isinstance(mapping, dict):
-                    frappe.log_error(
-                        f"Group '{group_code}' mapping is not a valid object (expected dict with account_type and root_type)",
-                        "Settings Validation Error",
-                    )
-                    continue
-
-                root_type = mapping.get("root_type")
-                account_type = mapping.get("account_type", "")
-
-                # Validate root_type (required)
-                if not root_type:
-                    frappe.log_error(
-                        f"Group '{group_code}' is missing required field 'root_type'",
-                        "Settings Validation Error",
-                    )
-                    continue
-
-                if root_type not in valid_root_types:
-                    frappe.log_error(
-                        f"Group '{group_code}' has invalid root_type '{root_type}'. "
-                        f"Valid values: {', '.join(valid_root_types)}",
-                        "Settings Validation Error",
-                    )
-                    continue
-
-                # Validate account_type (optional, but must be valid if provided)
-                if account_type and account_type not in valid_account_types:
-                    frappe.log_error(
-                        f"Group '{group_code}' has invalid account_type '{account_type}'. "
-                        f"Valid values: {', '.join(valid_account_types)}",
-                        "Settings Validation Error",
-                    )
-                    continue
-
-                # Mapping is valid
-                valid_mappings[group_code] = mapping
-
-            return valid_mappings
-
-        except json.JSONDecodeError as e:
-            frappe.log_error(
-                f"Failed to parse account_group_type_mappings JSON: {str(e)}", "Settings Parse Error"
-            )
-            return {}
-
-    def _parse_account_group_mappings(self):
-        """Parse account group mappings from the account_group_mappings field
+    def _parse_balance_sheet_group_mappings(self):
+        """Parse balance sheet account group mappings
 
         The field contains text like:
         001 Vaste activa
         002 Liquide middelen
-        055 Opbrengsten
+        004 Vorderingen
+        006 Schulden
 
         Returns:
-            dict: Group code to group name mapping, e.g., {"001": "Vaste activa", "002": "Liquide middelen"}
+            dict: Group code to group name mapping for balance sheet accounts
         """
-        mappings_text = self.get("account_group_mappings", "")
+        mappings_text = self.get("balance_sheet_group_mappings", "")
+        if not mappings_text or not mappings_text.strip():
+            return {}
+
+        mappings = {}
+        for line in mappings_text.strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+
+            # Split on first space to separate code from name
+            parts = line.split(" ", 1)
+            if len(parts) >= 2:
+                code = parts[0].strip()
+                name = parts[1].strip()
+                if code and name:
+                    mappings[code] = name
+
+        return mappings
+
+    def _parse_pl_group_mappings(self):
+        """Parse P&L account group mappings
+
+        The field contains text like:
+        055 Opbrengsten
+        056 Personeelskosten
+        057 Overige kosten
+
+        Returns:
+            dict: Group code to group name mapping for P&L accounts
+        """
+        mappings_text = self.get("pl_group_mappings", "")
         if not mappings_text or not mappings_text.strip():
             return {}
 
@@ -449,6 +388,9 @@ def get_grootboekrekeningen():
 @high_security_api(operation_type=OperationType.FINANCIAL)
 def parse_groups_and_suggest_cost_centers(group_mappings_text, company):
     """Parse account group mappings text and suggest cost center configuration"""
+    import html
+    import re
+
     try:
         if not group_mappings_text or not group_mappings_text.strip():
             return {"success": False, "error": "No account group mappings provided"}
@@ -462,11 +404,13 @@ def parse_groups_and_suggest_cost_centers(group_mappings_text, company):
             if not line:
                 continue
 
-            # Split on first space to separate code from name
-            parts = line.split(" ", 1)
+            # Split on first whitespace (space or tab) to separate code from name
+            # Use regex split to handle tabs and multiple spaces
+            parts = re.split(r"\s+", line, maxsplit=1)
             if len(parts) >= 2:
                 code = parts[0].strip()
-                name = parts[1].strip()
+                # Decode HTML entities immediately after parsing
+                name = html.unescape(parts[1].strip())
                 groups.append({"code": code, "name": name})
 
         if not groups:
@@ -559,8 +503,10 @@ def should_suggest_cost_center(code, name):
 
 def clean_cost_center_name(name):
     """Clean and format cost center name"""
-    # Remove common prefixes/suffixes that might not be needed
-    cleaned = name.strip()
+    import html
+
+    # Decode HTML entities (e.g., &#x27; → ')
+    cleaned = html.unescape(name.strip())
 
     # Remove account-specific words
     remove_words = ["rekeningen", "grootboek", "accounts"]

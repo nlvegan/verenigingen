@@ -40824,5 +40824,21 @@
     "rate_limit_scope": "per_user",
     "audit_level": "standard",
     "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "organize_balance_sheet_accounts",
+    "operation_name": "organize_balance_sheet_accounts",
+    "operation_type": "admin",
+    "description": "Reorganize Chart of Accounts structure based on E-Boekhouden settings",
+    "enabled": 1,
+    "security_level": "critical",
+    "business_context": "Administrative operation to rebuild account tree hierarchy under configured groups (Vorderingen, Financial Accounts, Schulden, Belastingen)",
+    "required_roles": "System Manager\nE-Boekhouden Administrator",
+    "rate_limit_calls": 5,
+    "rate_limit_period_seconds": 3600,
+    "rate_limit_scope": "per_user",
+    "audit_level": "comprehensive",
+    "alert_on_execution": 1
   }
 ]

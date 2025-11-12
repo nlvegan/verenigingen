@@ -209,10 +209,16 @@ class EBoekhoudenRESTIterator:
                             if mutation_id is not None:
                                 detailed = self.fetch_mutation_detail(mutation_id)
                                 if detailed:
-                                    # Preserve amount field from summary if not in detailed data
-                                    if "amount" not in detailed or detailed.get("amount") is None:
-                                        if "amount" in mutation:
-                                            detailed["amount"] = mutation["amount"]
+                                    # DO NOT copy amount field for Type 1 (Purchase Invoices) or Type 2 (Sales Invoices)
+                                    # These mutation types can have mixed positive/negative line items,
+                                    # and the summary amount (net total) would incorrectly trigger credit note detection
+                                    # Credit note detection must analyze individual line items, not just the net amount
+                                    mutation_type_value = detailed.get("type", mutation.get("type"))
+                                    if mutation_type_value not in [1, 2]:
+                                        # For other mutation types (payments, journal entries, etc.), preserve amount field
+                                        if "amount" not in detailed or detailed.get("amount") is None:
+                                            if "amount" in mutation:
+                                                detailed["amount"] = mutation["amount"]
                                     detailed_mutations.append(detailed)
 
                         all_mutations.extend(detailed_mutations)

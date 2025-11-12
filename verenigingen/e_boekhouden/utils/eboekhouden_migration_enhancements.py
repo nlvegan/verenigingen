@@ -218,8 +218,38 @@ class EnhancedAccountMigration:
     def _get_or_create_parent_account(self, account_data, root_type):
         """
         Get or create parent account based on group
+
+        SPECIAL HANDLING for balance sheet accounts:
+        - Group 004 accounts (Vorderingen/Debtors) should be under Vorderingen parent
+        - Group 006 accounts (Schulden/Creditors) should be under Schulden parent
+        - This ensures proper Dutch balance sheet structure
         """
         group = account_data.get("group", "")
+        account_code = account_data.get("code", "")
+
+        # Special handling for balance sheet accounts based on code patterns
+        # This overrides group-based assignment to ensure correct structure
+        if account_code:
+            # Debtor accounts (130x-139x range) should always be under Vorderingen
+            if account_code.startswith(
+                ("130", "131", "132", "133", "134", "135", "136", "137", "138", "139")
+            ):
+                return self._ensure_group_account("004", "Asset")
+
+            # Creditor/Payable accounts (various ranges) should be under Schulden
+            # 160x: Te betalen bedragen
+            # 170x: Reserveringen (vakantiegeld, sociale lasten)
+            # 440x-449x: Crediteuren
+            if (
+                account_code.startswith(
+                    ("160", "161", "162", "163", "164", "165", "166", "167", "168", "169")
+                )
+                or account_code.startswith(("170", "171", "172", "173", "174", "175"))
+                or account_code.startswith(
+                    ("440", "441", "442", "443", "444", "445", "446", "447", "448", "449")
+                )
+            ):
+                return self._ensure_group_account("006", "Liability")
 
         if not group:
             # No group, use standard parent
@@ -242,7 +272,41 @@ class EnhancedAccountMigration:
             return group_account
 
         # Create group account if needed
-        group_name = self._get_group_name(group)
+        return self._ensure_group_account(group, root_type)
+
+    def _ensure_group_account(self, group_code, root_type):
+        """
+        Ensure a group account exists for the given group code.
+        Creates it if it doesn't exist.
+
+        Args:
+            group_code: E-Boekhouden group code (e.g., "004", "006")
+            root_type: ERPNext root type (Asset, Liability, etc.)
+
+        Returns:
+            str: Name of the group account
+        """
+        # Check cache first
+        if group_code in self.group_mapping:
+            return self.group_mapping[group_code]
+
+        # Try to find existing group account
+        group_name = self._get_group_name(group_code)
+        group_account = frappe.db.get_value(
+            "Account",
+            {
+                "company": self.migration_doc.company,
+                "account_name": ["like", f"%{group_name.split(' - ')[0]}%"],
+                "is_group": 1,
+            },
+            "name",
+        )
+
+        if group_account:
+            self.group_mapping[group_code] = group_account
+            return group_account
+
+        # Create the group account
         parent_account = self._get_standard_parent(root_type)
 
         try:
@@ -254,7 +318,7 @@ class EnhancedAccountMigration:
             group_acc.is_group = 1
 
             if hasattr(group_acc, "eboekhouden_group"):
-                group_acc.eboekhouden_group = group
+                group_acc.eboekhouden_group = group_code
 
             # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
             result = secure_document_operation(
@@ -271,10 +335,12 @@ class EnhancedAccountMigration:
                 # Fall back to standard parent if group creation fails
                 return self._get_standard_parent(root_type)
 
-            self.group_mapping[group] = group_acc.name
+            self.group_mapping[group_code] = group_acc.name
+            frappe.logger().info(f"Created group account: {group_acc.name} (Group {group_code})")
             return group_acc.name
 
-        except Exception:
+        except Exception as e:
+            frappe.logger().error(f"Failed to create group account for {group_code}: {str(e)}")
             # If group creation fails, use standard parent
             return parent_account
 

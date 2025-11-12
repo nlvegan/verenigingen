@@ -1483,7 +1483,7 @@ function show_transaction_import_dialog(frm) {
 				fieldname: 'import_method',
 				fieldtype: 'Select',
 				options:
-          'Recent Transactions (Last 90 days)\nAll Transactions (Complete history)',
+          'Recent Transactions (Last 90 days)\nCustom Date Range\nAll Transactions (Complete history)',
 				default: 'Recent Transactions (Last 90 days)',
 				description: 'Choose how many transactions to import',
 				onchange() {
@@ -1493,10 +1493,11 @@ function show_transaction_import_dialog(frm) {
 						'hidden',
 						!method.includes('REST')
 					);
+					// Show date range section for "Custom Date Range" option
 					dialog.set_df_property(
 						'date_range_section',
 						'hidden',
-						method.includes('All')
+						!method.includes('Custom')
 					);
 				}
 			},
@@ -1510,19 +1511,22 @@ function show_transaction_import_dialog(frm) {
 			{
 				fieldname: 'date_range_section',
 				fieldtype: 'Section Break',
-				label: 'Date Range (Optional)'
+				label: 'Custom Date Range',
+				hidden: 1
 			},
 			{
 				label: 'From Date',
 				fieldname: 'date_from',
 				fieldtype: 'Date',
-				description: 'Leave empty to use auto-detected range'
+				description: 'Start date for transaction import',
+				reqd: 1
 			},
 			{
 				label: 'To Date',
 				fieldname: 'date_to',
 				fieldtype: 'Date',
-				description: 'Leave empty to use auto-detected range'
+				description: 'End date for transaction import',
+				reqd: 1
 			},
 			{
 				fieldname: 'mutation_types_section',
@@ -1625,9 +1629,15 @@ function show_transaction_import_dialog(frm) {
 			dialog.hide();
 
 			// Always use REST API now - determine type based on method
-			const import_type = values.import_method.includes('Recent')
-				? 'recent'
-				: 'all';
+			let import_type;
+			if (values.import_method.includes('Recent')) {
+				import_type = 'recent';
+			} else if (values.import_method.includes('Custom')) {
+				// Custom date range - use 'recent' type but dates will be respected
+				import_type = 'recent';
+			} else {
+				import_type = 'all';
+			}
 			import_transactions_rest(frm, values, import_type);
 		}
 	});

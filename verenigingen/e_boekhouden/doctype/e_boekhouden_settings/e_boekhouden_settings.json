@@ -25,8 +25,17 @@
     "party_creation_section",
     "auto_create_parties_from_bank_transactions",
     "account_groups_section",
-    "account_group_mappings",
-    "account_group_type_mappings",
+    "balance_sheet_group_mappings",
+    "column_break_balance_groups",
+    "pl_group_mappings",
+    "balance_sheet_organization_section",
+    "rebuild_account_tree_button",
+    "vorderingen_group_name",
+    "schulden_group_name",
+    "financial_accounts_group_name",
+    "column_break_org",
+    "tax_payable_group_name",
+    "tax_receivable_group_name",
     "account_classification_section",
     "enable_account_classification_service",
     "column_break_classification",
@@ -166,21 +175,83 @@
       "fieldname": "account_groups_section",
       "fieldtype": "Section Break",
       "label": "Account Group Mappings",
-      "description": "Configure custom account group names and hierarchies",
+      "description": "Configure account group codes and names for Chart of Accounts import",
       "collapsible": 1
     },
     {
-      "fieldname": "account_group_mappings",
+      "fieldname": "balance_sheet_group_mappings",
       "fieldtype": "Long Text",
-      "label": "Account Group Mappings",
-      "description": "Paste account group codes and names in format: 'code <space> name' (one per line). Example:\n001 Vaste activa\n002 Liquide middelen\n055 Opbrengsten\n056 Personeelskosten"
+      "label": "Balance Sheet Group Mappings",
+      "description": "Balance sheet account groups in format: 'code name' (one per line).\nExample:\n001 Vaste activa\n002 Liquide middelen\n004 Vorderingen\n006 Schulden"
     },
     {
-      "fieldname": "account_group_type_mappings",
-      "fieldtype": "Code",
-      "label": "Account Group Type Mappings (JSON)",
-      "description": "JSON mapping of group codes to ERPNext account types. Leave empty to disable group-based classification. Format:\n{\n  \"001\": {\"account_type\": \"Fixed Asset\", \"root_type\": \"Asset\"},\n  \"002\": {\"account_type\": \"Bank\", \"root_type\": \"Asset\"},\n  \"055\": {\"account_type\": \"Income Account\", \"root_type\": \"Income\"}\n}",
-      "options": "JSON"
+      "fieldname": "column_break_balance_groups",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "pl_group_mappings",
+      "fieldtype": "Long Text",
+      "label": "P&L Group Mappings",
+      "description": "Profit & Loss account groups in format: 'code name' (one per line).\nExample:\n055 Opbrengsten\n056 Personeelskosten\n057 Overige kosten"
+    },
+    {
+      "fieldname": "balance_sheet_organization_section",
+      "fieldtype": "Section Break",
+      "label": "Balance Sheet Organization",
+      "description": "Customize names for balance sheet group accounts. Leave empty to use defaults.",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "rebuild_account_tree_button",
+      "fieldtype": "Button",
+      "label": "Rebuild Account Tree",
+      "description": "Reorganize accounts under configured groups (Vorderingen, Financial Accounts, Overlopende activa, Schulden, Belastingen) based on current settings"
+    },
+    {
+      "fieldname": "vorderingen_group_name",
+      "fieldtype": "Data",
+      "label": "Receivables Group Name",
+      "description": "Name for the receivables/debtors group account",
+      "default": "Vorderingen - Receivables"
+    },
+    {
+      "fieldname": "schulden_group_name",
+      "fieldtype": "Data",
+      "label": "Payables Group Name",
+      "description": "Name for the payables/creditors group account",
+      "default": "Schulden - Liabilities"
+    },
+    {
+      "fieldname": "financial_accounts_group_name",
+      "fieldtype": "Data",
+      "label": "Financial Accounts Group Name",
+      "description": "Name for the financial accounts group (bank + cash accounts)",
+      "default": "Financiële rekeningen - Financial Accounts"
+    },
+    {
+      "fieldname": "overlopende_activa_group_name",
+      "fieldtype": "Data",
+      "label": "Prepaid/Accrued Assets Group Name",
+      "description": "Name for the overlopende activa (prepaid/accrued assets) group account",
+      "default": "Overlopende activa - Prepaid Assets"
+    },
+    {
+      "fieldname": "column_break_org",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "tax_payable_group_name",
+      "fieldtype": "Data",
+      "label": "Tax Payable Group Name",
+      "description": "Name for the tax payable group account",
+      "default": "Belastingen - Taxes Payable"
+    },
+    {
+      "fieldname": "tax_receivable_group_name",
+      "fieldtype": "Data",
+      "label": "Tax Receivable Group Name",
+      "description": "Name for the tax receivable group account",
+      "default": "Belastingen - Taxes Receivable"
     },
     {
       "fieldname": "account_classification_section",

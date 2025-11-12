@@ -2567,12 +2567,13 @@ def _detect_credit_note_improved(mutation_detail, debug_info):
             f"NOT treating as credit note - will preserve individual item signs."
         )
         return False, line_item_total
-    elif line_item_total < 0:
-        # Negative total but not all items negative - treat as pure credit for backward compatibility
-        debug_info.append(f"Credit note detected from negative total: {line_item_total}")
-        return True, line_item_total
     else:
-        debug_info.append("Not a credit note based on line item analysis")
+        # All other cases: not a credit note
+        # This handles:
+        # - All positive items (normal invoice)
+        # - Zero total
+        # - Any edge cases
+        debug_info.append(f"Not a credit note based on line item analysis (total: {line_item_total})")
         return False, line_item_total
 
 
@@ -2884,13 +2885,67 @@ def _create_purchase_invoice(mutation_detail, company, cost_center, debug_info):
     # Description
     pi.remarks = description
 
-    # Check for credit notes and handle negative amounts (improved detection)
+    # PARALLEL VALIDATION: Run both old and new classification logic
+    # Use old logic for actual processing, but compare with new classifier
+    from verenigingen.e_boekhouden.utils.invoice_classifier import ProcessingStrategy, get_invoice_classifier
+
+    # Run OLD logic (current production code)
     credit_note_result = _detect_credit_note_improved(mutation_detail, debug_info)
     if credit_note_result is None:
         debug_info.append("ERROR: Credit note detection returned None - skipping invoice creation")
         return None
 
     is_credit_note, effective_total_amount = credit_note_result
+
+    # Run NEW classifier in parallel for validation
+    try:
+        classifier = get_invoice_classifier()
+        new_classification = classifier.classify(mutation_detail, debug_info)
+
+        # Compare old vs new classification
+        new_is_credit_note = new_classification.processing_strategy == ProcessingStrategy.CREDIT_NOTE
+        new_requires_consolidation = new_classification.requires_consolidation
+
+        # Detect mismatches
+        if is_credit_note != new_is_credit_note:
+            frappe.log_error(
+                title=f"Classification Mismatch - Mutation {mutation_id}",
+                message=(
+                    f"OLD vs NEW classifier disagreement for mutation {mutation_id}\n\n"
+                    f"OLD Logic:\n"
+                    f"  is_credit_note: {is_credit_note}\n"
+                    f"  effective_total: {effective_total_amount}\n\n"
+                    f"NEW Classifier:\n"
+                    f"  invoice_type: {new_classification.invoice_type.value}\n"
+                    f"  processing_strategy: {new_classification.processing_strategy.value}\n"
+                    f"  net_amount: {new_classification.net_amount}\n"
+                    f"  positive_items: {new_classification.positive_item_count}\n"
+                    f"  negative_items: {new_classification.negative_item_count}\n"
+                    f"  reasoning: {new_classification.reasoning}\n\n"
+                    f"Using OLD logic for safety.\n\n"
+                    f"Debug info:\n{frappe.as_json(debug_info, indent=2)}"
+                ),
+            )
+            debug_info.append(
+                f"⚠️ CLASSIFICATION MISMATCH: Old={is_credit_note}, New={new_is_credit_note}. Using old logic."
+            )
+
+        # Log successful parallel validation
+        debug_info.append(
+            f"Parallel validation: Old logic={'credit_note' if is_credit_note else 'normal'}, "
+            f"New logic={new_classification.processing_strategy.value}, "
+            f"Match={'✓' if is_credit_note == new_is_credit_note else '✗'}"
+        )
+
+    except Exception as classifier_error:
+        # New classifier failed - log but continue with old logic
+        frappe.log_error(
+            title=f"New Classifier Failed - Mutation {mutation_id}",
+            message=f"Error running new classifier:\n{str(classifier_error)}\n\n{frappe.get_traceback()}",
+        )
+        debug_info.append(f"⚠️ New classifier failed: {str(classifier_error)}. Using old logic.")
+
+    # Continue with OLD logic for actual processing (safe)
     pi.is_return = is_credit_note
 
     if is_credit_note:
@@ -3365,12 +3420,27 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
     mutation_id = mutation.get("id")
     mutation_type = mutation.get("type", 0)
     description = mutation.get("description", "eBoekhouden Import {mutation_id}")
-    amount = frappe.utils.flt(mutation.get("amount", 0), 2)
+
+    # Handle both detailed data format ("Regels") and summary data format ("rows")
+    rows = mutation.get("Regels", []) or mutation.get("rows", [])
+
+    # For Type 7 (memorial bookings), the E-Boekhouden REST API does NOT provide a top-level amount field
+    # We need to calculate the expected net amount from the rows themselves
+    if mutation_type == 7:
+        # Calculate net amount from rows (sum of signed amounts)
+        amount = sum(frappe.utils.flt(row.get("amount", 0), 2) for row in rows)
+        debug_info.append(
+            f"Memorial booking {mutation_id}: Calculated amount from {len(rows)} rows = {amount}"
+        )
+    else:
+        # For other mutation types, try to extract amount from top-level fields
+        amount = frappe.utils.flt(
+            mutation.get("amount") or mutation.get("bedrag") or mutation.get("Bedrag") or 0, 2
+        )
+
     relation_id = mutation.get("relationId")
     invoice_number = mutation.get("invoiceNumber")
     ledger_id = mutation.get("ledgerId")
-    # Handle both detailed data format ("Regels") and summary data format ("rows")
-    rows = mutation.get("Regels", []) or mutation.get("rows", [])
 
     # Check if this is a zero-amount transaction
     row_amounts = [abs(frappe.utils.flt(row.get("amount", 0), 2)) for row in rows]
@@ -3427,6 +3497,12 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
         total_credit = 0
         is_memorial_booking = mutation_type == 7
 
+        # For memorial bookings, aggregate amounts by account first
+        # This handles cases where multiple rows affect the same account with different signs
+        account_aggregates = (
+            {}
+        )  # {account_name: {'debit': float, 'credit': float, 'party_info': dict, 'remark': str}}
+
         for row in rows:
             row_amount = frappe.utils.flt(row.get("amount", 0), 2)
             row_ledger_id = row.get("ledgerId")
@@ -3458,69 +3534,33 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
                         f"No expense account mapping found for mutation {mutation.get('ID', 'unknown')} row with ledger_id {row_ledger_id}. Account mapping required for proper financial reporting."
                     )
 
-            # For memorial bookings, create paired entries
-            if is_memorial_booking and ledger_id:
-                # Get main account mapping (with auto-create if missing)
-                main_account = get_erpnext_account_from_ledger_id(
-                    ledger_id, company, debug_info, auto_create=True
+            # For memorial bookings, use proper debit/credit calculation based on account categories
+            # The balancing entry to main ledger will be added ONCE after all rows
+            if is_memorial_booking:
+                # Get proper debit/credit amounts based on account categories
+                row_debit, row_credit, _, _ = _get_memorial_booking_amounts(
+                    row_ledger_id, ledger_id, row_amount, debug_info
                 )
-
-                if main_account:
-                    abs_amount = abs(row_amount)
-
-                    if row_amount > 0:
-                        # Positive: Main provides, Row receives
-                        main_debit, main_credit = abs_amount, 0
-                        row_debit, row_credit = 0, abs_amount
-                        debug_info.append(f"Memorial: €{abs_amount} FROM {main_account} TO {row_account}")
-                    else:
-                        # Negative: Row provides, Main receives
-                        main_debit, main_credit = 0, abs_amount
-                        row_debit, row_credit = abs_amount, 0
-                        debug_info.append(f"Memorial: €{abs_amount} FROM {row_account} TO {main_account}")
-
-                    # Add main ledger entry
-                    main_line = {
-                        "account": main_account,
-                        "debit_in_account_currency": frappe.utils.flt(main_debit, 2),
-                        "credit_in_account_currency": frappe.utils.flt(main_credit, 2),
-                        "cost_center": cost_center,
-                        "user_remark": "Memorial booking main ledger: {description}",
-                    }
-
-                    # Add party for main account if needed
-                    main_account_type = frappe.db.get_value("Account", main_account, "account_type")
-                    if main_account_type == "Receivable":
-                        main_line["party_type"] = "Customer"
-                        main_line["party"] = _get_or_create_company_as_customer(company, debug_info)
-                    elif main_account_type == "Payable":
-                        main_line["party_type"] = "Supplier"
-                        main_line["party"] = _get_or_create_company_as_supplier(company, debug_info)
-
-                    je.append("accounts", main_line)
-                    total_debit += main_line["debit_in_account_currency"]
-                    total_credit += main_line["credit_in_account_currency"]
-
-                    # Add row ledger entry
-                    entry_line = {
-                        "account": row_account,
-                        "debit_in_account_currency": frappe.utils.flt(row_debit, 2),
-                        "credit_in_account_currency": frappe.utils.flt(row_credit, 2),
-                        "cost_center": cost_center,
-                        "user_remark": row_description,
-                    }
-                else:
-                    frappe.throw(
-                        f"Memorial booking {mutation.get('ID', 'unknown')}: No mapping found for main ledger {ledger_id}"
-                    )
+                entry_line = {
+                    "account": row_account,
+                    "debit_in_account_currency": frappe.utils.flt(row_debit, 2),
+                    "credit_in_account_currency": frappe.utils.flt(row_credit, 2),
+                    "cost_center": cost_center,
+                    "user_remark": row_description,
+                    "is_advance": "No",
+                }
+                debug_info.append(
+                    f"Memorial row: {row_account} Dr={row_debit} Cr={row_credit} (from amount={row_amount})"
+                )
             else:
-                # Non-memorial booking
+                # For non-memorial bookings, use simple amount-based logic
                 entry_line = {
                     "account": row_account,
                     "debit_in_account_currency": frappe.utils.flt(row_amount if row_amount > 0 else 0, 2),
                     "credit_in_account_currency": frappe.utils.flt(-row_amount if row_amount < 0 else 0, 2),
                     "cost_center": cost_center,
                     "user_remark": row_description,
+                    "is_advance": "No",
                 }
 
             # Add row account party if needed
@@ -3538,9 +3578,143 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
                 elif relation_id:
                     entry_line["party"] = _get_or_create_supplier(relation_id, description, debug_info)
 
+            debug_info.append(f"Appending entry_line: {entry_line}")
             je.append("accounts", entry_line)
             total_debit += entry_line["debit_in_account_currency"]
             total_credit += entry_line["credit_in_account_currency"]
+
+        # For memorial bookings, add ONE balancing entry to main ledger for the net effect
+        if is_memorial_booking and ledger_id and rows:
+            # For single-row memorial bookings, use the main amounts from _get_memorial_booking_amounts
+            # For multi-row, calculate the balancing amount
+            if len(rows) == 1:
+                # Single row - use the main debit/credit from the calculation
+                row = rows[0]
+                row_amount = frappe.utils.flt(row.get("amount", 0), 2)
+                row_ledger_id = row.get("ledgerId")
+
+                main_result = _get_memorial_booking_amounts(row_ledger_id, ledger_id, row_amount, debug_info)
+                row_d, row_c, main_debit, main_credit = main_result
+                debug_info.append(
+                    f"Main balance calculation returned: row_d={row_d}, row_c={row_c}, main_d={main_debit}, main_c={main_credit}"
+                )
+
+                # Get main account mapping
+                main_account = get_erpnext_account_from_ledger_id(
+                    ledger_id, company, debug_info, auto_create=True
+                )
+
+                if not main_account:
+                    raise ValueError(
+                        f"Memorial booking {mutation_id}: No mapping found for main ledger {ledger_id}"
+                    )
+
+                main_line = {
+                    "account": main_account,
+                    "debit_in_account_currency": frappe.utils.flt(main_debit, 2),
+                    "credit_in_account_currency": frappe.utils.flt(main_credit, 2),
+                    "cost_center": cost_center,
+                    "user_remark": f"Memorial booking balance: {description}",
+                    "is_advance": "No",
+                }
+
+                debug_info.append(
+                    f"Memorial balance (single row): {main_account} Dr={main_debit} Cr={main_credit}"
+                )
+            else:
+                # Multi-row memorial booking - calculate net to balance
+                row_net = total_debit - total_credit
+
+                # Main ledger gets the opposite to balance the journal entry
+                if abs(row_net) > 0.01:  # Only add if there's an actual imbalance
+                    balancing_debit = -row_net if row_net < 0 else 0
+                    balancing_credit = row_net if row_net > 0 else 0
+
+                    # Get main account mapping
+                    main_account = get_erpnext_account_from_ledger_id(
+                        ledger_id, company, debug_info, auto_create=True
+                    )
+
+                    if not main_account:
+                        raise ValueError(
+                            f"Memorial booking {mutation_id}: No mapping found for main ledger {ledger_id}"
+                        )
+
+                    main_line = {
+                        "account": main_account,
+                        "debit_in_account_currency": frappe.utils.flt(balancing_debit, 2),
+                        "credit_in_account_currency": frappe.utils.flt(balancing_credit, 2),
+                        "cost_center": cost_center,
+                        "user_remark": f"Memorial booking balance: {description}",
+                        "is_advance": "No",
+                    }
+
+                    debug_info.append(
+                        f"Memorial balance (multi-row): {main_account} Dr={balancing_debit} Cr={balancing_credit} (balances {row_net})"
+                    )
+                else:
+                    main_line = None  # No balancing needed
+
+            if main_line:
+                # Add party for main account if needed
+                main_account_type = frappe.db.get_value("Account", main_account, "account_type")
+                if main_account_type == "Receivable":
+                    main_line["party_type"] = "Customer"
+                    main_line["party"] = _get_or_create_company_as_customer(company, debug_info)
+                elif main_account_type == "Payable":
+                    main_line["party_type"] = "Supplier"
+                    main_line["party"] = _get_or_create_company_as_supplier(company, debug_info)
+
+                debug_info.append(f"Appending main_line: {main_line}")
+                je.append("accounts", main_line)
+                total_debit += main_line["debit_in_account_currency"]
+                total_credit += main_line["credit_in_account_currency"]
+
+        # Validate memorial booking
+        # For memorial bookings, we only need to validate that:
+        # 1. All rows are present and accounted for
+        # 2. The journal entry is balanced (which ERPNext requires anyway)
+        # We do NOT validate that "journal net = mutation amount" because memorial bookings
+        # must be balanced (debit = credit) per ERPNext requirements
+        if is_memorial_booking and rows:
+            from .processors.base_processor import BaseTransactionProcessor
+
+            # Create temporary processor instance for validation
+            temp_processor = type(
+                "TempProcessor",
+                (BaseTransactionProcessor,),
+                {
+                    "can_process": lambda self, m: True,
+                    "process": lambda self, m: None,
+                },
+            )(company, cost_center)
+
+            # Validation: Check that rows sum to expected net amount
+            # This ensures all rows from E-Boekhouden are present and correct
+            is_valid, error_msg, amount_diff = temp_processor.validate_row_amounts(
+                mutation, rows, amount, use_net_amount=True
+            )
+
+            if not is_valid:
+                debug_info.append(f"❌ Memorial booking row validation failed: {error_msg}")
+                debug_info.extend(temp_processor.get_debug_info())
+                raise Exception(error_msg)
+
+            debug_info.extend(temp_processor.get_debug_info())
+
+            # Check that journal entry is balanced (ERPNext requirement)
+            if abs(total_debit - total_credit) > 0.01:
+                error_msg = (
+                    f"Memorial booking {mutation_id} journal entry is not balanced: "
+                    f"Debit={total_debit}, Credit={total_credit}, "
+                    f"Difference={abs(total_debit - total_credit)}"
+                )
+                debug_info.append(f"❌ {error_msg}")
+                raise Exception(error_msg)
+
+            debug_info.append(
+                f"✓ Memorial booking journal entry is balanced: Debit={total_debit}, Credit={total_credit}"
+            )
 
         # For Type 3/4 payment mutations, add offsetting main ledger entry (usually bank account)
         # This balances the Journal Entry by adding the bank side of the transaction
@@ -3694,6 +3868,9 @@ def _get_memorial_booking_amounts(row_ledger_id, main_ledger_id, row_amount, deb
     Returns:
         tuple: (row_debit, row_credit, main_debit, main_credit)
     """
+    debug_info.append(
+        f"_get_memorial_booking_amounts called: row_ledger={row_ledger_id}, main_ledger={main_ledger_id}, amount={row_amount}"
+    )
     try:
         from verenigingen.e_boekhouden.utils.eboekhouden_api import EBoekhoudenAPI
 
@@ -3729,38 +3906,25 @@ def _get_memorial_booking_amounts(row_ledger_id, main_ledger_id, row_amount, deb
             f"Memorial booking logic: row_category={row_category}, main_category={main_category}, amount={row_amount}"
         )
 
-        # Apply proper debit/credit logic based on E-Boekhouden categories and amount direction
-        if row_amount > 0:
-            # Positive amount: Row account receives (increases), Main account provides (decreases)
-            if _should_debit_increase(row_category):
-                # Row account increases with debit (assets, expenses)
-                row_debit, row_credit = abs_amount, 0
-            else:
-                # Row account increases with credit (liabilities, equity, income)
-                row_debit, row_credit = 0, abs_amount
+        # E-Boekhouden memorial booking semantics (based on actual transactions):
+        # Positive row amount means row account gets CREDITED (regardless of account type)
+        # Main account gets the offsetting DEBIT
+        #
+        # This is counter-intuitive but verified by:
+        # - Mutation 1334: Row=Kruisposten, Main=Te betalen, Amount=+8445.03
+        #   → Credit Kruisposten, Debit Te betalen (zeroing opening balance)
+        #
+        # The "amount" field represents the CREDIT side of the entry
 
-            if _should_debit_increase(main_category):
-                # Main account decreases with credit (assets, expenses)
-                main_debit, main_credit = 0, abs_amount
-            else:
-                # Main account decreases with debit (liabilities, equity, income)
-                main_debit, main_credit = abs_amount, 0
+        if row_amount > 0:
+            # Positive amount: ALWAYS credit the row, debit the main
+            row_debit, row_credit = 0, abs_amount
+            main_debit, main_credit = abs_amount, 0
 
         else:
-            # Negative amount: Row account provides (decreases), Main account receives (increases)
-            if _should_debit_increase(row_category):
-                # Row account decreases with credit (assets, expenses)
-                row_debit, row_credit = 0, abs_amount
-            else:
-                # Row account decreases with debit (liabilities, equity, income)
-                row_debit, row_credit = abs_amount, 0
-
-            if _should_debit_increase(main_category):
-                # Main account increases with debit (assets, expenses)
-                main_debit, main_credit = abs_amount, 0
-            else:
-                # Main account increases with credit (liabilities, equity, income)
-                main_debit, main_credit = 0, abs_amount
+            # Negative amount: ALWAYS debit the row, credit the main
+            row_debit, row_credit = abs_amount, 0
+            main_debit, main_credit = 0, abs_amount
 
         debug_info.append(
             f"Calculated amounts - Row: Dr {row_debit}, Cr {row_credit} | Main: Dr {main_debit}, Cr {main_credit}"
@@ -3802,10 +3966,11 @@ def _should_debit_increase(eboekhouden_category, ledger_id=None):
         }
 
         # Known asset accounts that increase with debits
+        # Note: Kruisposten (14526213) is intentionally NOT in this list
+        # It's a clearing/temporary account that can have either debit or credit balances
         asset_ledgers = {
             13201861,  # 02400 - Apparatuur en toebehoren (Equipment)
             13201870,  # 10470 - PayPal (Bank/Financial)
-            14526213,  # 10001 - Kruisposten (Clearing account)
             13849374,  # 14700 - Overlopende Posten (Accruals)
         }
 

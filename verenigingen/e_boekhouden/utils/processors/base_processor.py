@@ -167,6 +167,149 @@ class BaseTransactionProcessor(ABC):
         self.add_debug_info("Warning: No valid amount found in mutation")
         return 0.0
 
+    def validate_row_amounts(
+        self,
+        mutation: Dict[str, Any],
+        rows: List[Dict[str, Any]],
+        mutation_amount: float,
+        tolerance: float = 0.01,
+        use_net_amount: bool = False,
+    ) -> Tuple[bool, str, float]:
+        """
+        Validate that row amounts match the mutation's total amount.
+
+        Dutch tax authorities (Belastingdienst) require exact amounts in bookkeeping.
+        This prevents data quality issues and audit compliance problems.
+
+        Args:
+            mutation: The mutation data
+            rows: List of row dictionaries with 'amount' field
+            mutation_amount: The mutation's total amount to validate against
+            tolerance: Maximum allowed difference (default: 0.01 for 1 cent rounding tolerance)
+            use_net_amount: If True, validate net sum (sum of signed amounts) instead of absolute sum
+                           Used for memorial bookings where positive/negative matters
+
+        Returns:
+            Tuple of (is_valid, error_message, amount_difference)
+        """
+        mutation_id = mutation.get("id") or mutation.get("MutatieNr", "Unknown")
+
+        # Calculate sum of row amounts (excluding zero/near-zero rows)
+        total_row_amount = 0
+        valid_rows = 0
+
+        for idx, row in enumerate(rows):
+            row_amount = frappe.utils.flt(row.get("amount", 0), 2)
+
+            # Skip zero or near-zero amount rows (< 1 cent)
+            if abs(row_amount) < 0.01:
+                self.add_debug_info(f"Row {idx + 1}: Skipped zero/near-zero amount ({row_amount})")
+                continue
+
+            # Use net (signed) sum or absolute sum depending on validation type
+            if use_net_amount:
+                total_row_amount += row_amount  # Keep sign for net calculation
+            else:
+                total_row_amount += abs(row_amount)  # Use absolute for gross calculation
+
+            valid_rows += 1
+
+        # Calculate difference based on validation type
+        if use_net_amount:
+            # For net amount validation (memorial bookings): compare signed sums
+            amount_diff = abs(total_row_amount - mutation_amount)
+            comparison_type = "net"
+        else:
+            # For absolute amount validation (payments): compare absolute sums
+            amount_diff = abs(total_row_amount - abs(mutation_amount))
+            comparison_type = "absolute"
+
+        # Validate within tolerance
+        if amount_diff > tolerance:
+            error_msg = (
+                f"Amount mismatch in mutation {mutation_id} ({comparison_type} validation): "
+                f"Expected mutation amount = {mutation_amount}, "
+                f"Sum of row amounts = {total_row_amount}, "
+                f"Difference = {amount_diff} (tolerance: {tolerance})"
+            )
+
+            # Log detailed breakdown
+            self.add_debug_info(f"❌ {error_msg}")
+            self.add_debug_info(f"Valid rows processed: {valid_rows}/{len(rows)}")
+
+            frappe.log_error(
+                title=f"Amount Mismatch - {mutation_id}",
+                message=f"{error_msg}\n\n"
+                f"Validation type: {comparison_type}\n"
+                f"Rows breakdown:\n{frappe.as_json([{'index': i+1, 'ledger': r.get('ledgerId'), 'amount': r.get('amount')} for i, r in enumerate(rows)], indent=2)}\n\n"
+                f"Full mutation:\n{frappe.as_json(mutation, indent=2)}",
+            )
+
+            return False, error_msg, amount_diff
+
+        # Validation passed
+        self.add_debug_info(
+            f"✓ Amount validation passed ({comparison_type}): "
+            f"expected={mutation_amount}, actual={total_row_amount}, diff={amount_diff}"
+        )
+
+        return True, "", amount_diff
+
+    def validate_journal_entry_net_amount(
+        self,
+        mutation: Dict[str, Any],
+        total_debit: float,
+        total_credit: float,
+        expected_net: float,
+        tolerance: float = 0.01,
+    ) -> Tuple[bool, str, float]:
+        """
+        Validate that a journal entry's net amount (debit - credit) matches expected value.
+
+        Used for memorial bookings where the journal entry should produce a specific net result.
+
+        Args:
+            mutation: The mutation data
+            total_debit: Sum of all debit entries
+            total_credit: Sum of all credit entries
+            expected_net: Expected net amount (usually mutation.amount for memorial bookings)
+            tolerance: Maximum allowed difference (default: 0.01 for 1 cent rounding tolerance)
+
+        Returns:
+            Tuple of (is_valid, error_message, net_difference)
+        """
+        mutation_id = mutation.get("id") or mutation.get("MutatieNr", "Unknown")
+
+        # Calculate actual net amount
+        actual_net = total_debit - total_credit
+        net_diff = abs(actual_net - expected_net)
+
+        # Validate within tolerance
+        if net_diff > tolerance:
+            error_msg = (
+                f"Journal entry net amount mismatch in mutation {mutation_id}: "
+                f"Expected net = {expected_net}, "
+                f"Actual net = {actual_net} (Debit {total_debit} - Credit {total_credit}), "
+                f"Difference = {net_diff} (tolerance: {tolerance})"
+            )
+
+            self.add_debug_info(f"❌ {error_msg}")
+
+            frappe.log_error(
+                title=f"JE Net Mismatch - {mutation_id}",
+                message=f"{error_msg}\n\n" f"Full mutation:\n{frappe.as_json(mutation, indent=2)}",
+            )
+
+            return False, error_msg, net_diff
+
+        # Validation passed
+        self.add_debug_info(
+            f"✓ Journal entry net amount validated: "
+            f"expected={expected_net}, actual={actual_net}, diff={net_diff}"
+        )
+
+        return True, "", net_diff
+
     def format_error(self, mutation: Dict[str, Any], error: Exception) -> Dict[str, Any]:
         """
         Format error information for logging

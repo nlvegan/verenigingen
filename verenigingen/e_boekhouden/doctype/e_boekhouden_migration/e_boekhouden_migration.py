@@ -285,8 +285,24 @@ class EBoekhoudenMigration(Document):
         """Parse account group mappings from settings in format 'number <space> <group name>'"""
         try:
             mappings = {}
-            if hasattr(settings, "account_group_mappings") and settings.account_group_mappings:
-                lines = settings.account_group_mappings.strip().split("\n")
+
+            # Parse balance sheet group mappings
+            if hasattr(settings, "balance_sheet_group_mappings") and settings.balance_sheet_group_mappings:
+                lines = settings.balance_sheet_group_mappings.strip().split("\n")
+                for line in lines:
+                    line = line.strip()
+                    if line:
+                        # Split on first space to separate code from name
+                        parts = line.split(" ", 1)
+                        if len(parts) == 2:
+                            code = parts[0].strip()
+                            name = parts[1].strip()
+                            if code and name:
+                                mappings[code] = name
+
+            # Parse P/L group mappings
+            if hasattr(settings, "pl_group_mappings") and settings.pl_group_mappings:
+                lines = settings.pl_group_mappings.strip().split("\n")
                 for line in lines:
                     line = line.strip()
                     if line:
@@ -407,6 +423,37 @@ class EBoekhoudenMigration(Document):
                     )
 
             self.total_records += len(accounts_data)
+
+            # Post-migration: Organize balance sheet accounts
+            # This ensures proper Dutch accounting structure with Vorderingen, Schulden, and Belastingen groups
+            self.db_set(
+                {
+                    "current_operation": "Organizing balance sheet accounts (Vorderingen/Schulden/Belastingen)...",
+                    "progress_percentage": 18,
+                }
+            )
+            frappe.db.commit()
+
+            try:
+                from verenigingen.e_boekhouden.services.account_organization_service import (
+                    AccountOrganizationService,
+                )
+
+                org_service = AccountOrganizationService(self.company)
+                org_result = org_service.organize_balance_sheet_accounts()
+
+                updated_count = len(org_result.get("updated", []))
+                created_count = len(org_result.get("created_groups", []))
+                frappe.logger().info(
+                    f"Balance sheet organization: {updated_count} accounts moved, {created_count} groups created"
+                )
+
+                if org_result.get("errors"):
+                    frappe.logger().warning(f"Organization warnings: {org_result.get('errors')}")
+            except Exception as e:
+                frappe.logger().warning(f"Could not organize balance sheet accounts: {str(e)}")
+                # Don't fail the migration for this - continue
+
             return f"Created {created_count} accounts, skipped {skipped_count} ({len(accounts_data)} total)"
 
         except Exception as e:
@@ -568,8 +615,10 @@ class EBoekhoudenMigration(Document):
                 "success": True,
                 "mappings_count": len(mappings),
                 "mappings": mappings,
-                "settings_field_exists": hasattr(settings, "account_group_mappings"),
-                "settings_value": getattr(settings, "account_group_mappings", "Field not found"),
+                "balance_sheet_field_exists": hasattr(settings, "balance_sheet_group_mappings"),
+                "pl_field_exists": hasattr(settings, "pl_group_mappings"),
+                "balance_sheet_value": getattr(settings, "balance_sheet_group_mappings", "Field not found"),
+                "pl_value": getattr(settings, "pl_group_mappings", "Field not found"),
             }
 
         except Exception as e:
@@ -2237,6 +2286,8 @@ def cleanup_chart_of_accounts(company, delete_all_accounts=False):
 @critical_api(operation_type=OperationType.FINANCIAL)
 def import_single_mutation(migration_name, mutation_id, overwrite_existing=True):
     """Import a single mutation by ID for testing purposes"""
+    debug_info = []  # Initialize early to avoid UnboundLocalError
+
     try:
         # Get migration record
         migration = frappe.get_doc("E-Boekhouden Migration", migration_name)
@@ -2327,34 +2378,46 @@ def import_single_mutation(migration_name, mutation_id, overwrite_existing=True)
                                         linked_payments.append({"name": payment_entry})
 
                                 for payment in linked_payments:
-                                    payment_doc = frappe.get_doc("Payment Entry", payment["name"])
+                                    try:
+                                        payment_doc = frappe.get_doc("Payment Entry", payment["name"])
 
-                                    # Check for linked Bank Transactions
-                                    linked_bt_refs = frappe.get_all(
-                                        "Bank Transaction Payments",
-                                        filters={"payment_entry": payment["name"]},
-                                        fields=["parent"],
-                                    )
+                                        # Check for linked Bank Transactions
+                                        linked_bt_refs = frappe.get_all(
+                                            "Bank Transaction Payments",
+                                            filters={"payment_entry": payment["name"]},
+                                            fields=["parent"],
+                                        )
 
-                                    payment_doc.cancel()
-                                    frappe.logger().info(
-                                        f"Cancelled linked Payment Entry {payment['name']} before deleting {doctype} {docname}"
-                                    )
+                                        # Cancel and delete linked Bank Transactions first
+                                        for bt_ref in linked_bt_refs:
+                                            try:
+                                                bt_doc = frappe.get_doc("Bank Transaction", bt_ref.parent)
+                                                if bt_doc.docstatus == 1:
+                                                    bt_doc.cancel()
+                                                frappe.delete_doc(
+                                                    "Bank Transaction",
+                                                    bt_ref.parent,
+                                                    force=True,
+                                                    ignore_permissions=True,
+                                                )
+                                                frappe.logger().info(
+                                                    f"Deleted linked Bank Transaction {bt_ref.parent} for Payment Entry {payment['name']}"
+                                                )
+                                            except Exception as bt_error:
+                                                frappe.logger().warning(
+                                                    f"Failed to delete Bank Transaction {bt_ref.parent}: {str(bt_error)}"
+                                                )
 
-                                    # Cancel and delete linked Bank Transactions
-                                    for bt_ref in linked_bt_refs:
-                                        try:
-                                            bt_doc = frappe.get_doc("Bank Transaction", bt_ref.parent)
-                                            if bt_doc.docstatus == 1:
-                                                bt_doc.cancel()
-                                            frappe.delete_doc("Bank Transaction", bt_ref.parent, force=True)
-                                            frappe.logger().info(
-                                                f"Deleted linked Bank Transaction {bt_ref.parent} for Payment Entry {payment['name']}"
-                                            )
-                                        except Exception as bt_error:
-                                            frappe.logger().warning(
-                                                f"Failed to delete Bank Transaction {bt_ref.parent}: {str(bt_error)}"
-                                            )
+                                        # Reload payment doc after Bank Transaction deletions
+                                        payment_doc.reload()
+                                        payment_doc.cancel()
+                                        frappe.logger().info(
+                                            f"Cancelled linked Payment Entry {payment['name']} before deleting {doctype} {docname}"
+                                        )
+                                    except Exception as payment_error:
+                                        frappe.logger().warning(
+                                            f"Failed to cancel Payment Entry {payment['name']}: {str(payment_error)}"
+                                        )
 
                             # For Payment Entries being deleted directly, check for Bank Transactions
                             if doctype == "Payment Entry":
@@ -2369,7 +2432,12 @@ def import_single_mutation(migration_name, mutation_id, overwrite_existing=True)
                                         bt_doc = frappe.get_doc("Bank Transaction", bt_ref.parent)
                                         if bt_doc.docstatus == 1:
                                             bt_doc.cancel()
-                                        frappe.delete_doc("Bank Transaction", bt_ref.parent, force=True)
+                                        frappe.delete_doc(
+                                            "Bank Transaction",
+                                            bt_ref.parent,
+                                            force=True,
+                                            ignore_permissions=True,
+                                        )
                                         frappe.logger().info(
                                             f"Deleted linked Bank Transaction {bt_ref.parent} for Payment Entry {docname}"
                                         )
@@ -2378,11 +2446,13 @@ def import_single_mutation(migration_name, mutation_id, overwrite_existing=True)
                                             f"Failed to delete Bank Transaction {bt_ref.parent}: {str(bt_error)}"
                                         )
 
+                            # Reload document to get fresh timestamp after linked document operations
+                            doc.reload()
                             doc.cancel()
                             frappe.logger().info(f"Cancelled {doctype} {docname} before deletion")
 
-                        # Now delete the document
-                        frappe.delete_doc(doctype, docname, force=True)
+                        # Delete the document
+                        frappe.delete_doc(doctype, docname, force=True, ignore_permissions=True)
                         frappe.logger().info(
                             f"Deleted {doctype} {docname} for mutation {mutation_id} overwrite"
                         )
@@ -2426,8 +2496,6 @@ def import_single_mutation(migration_name, mutation_id, overwrite_existing=True)
         # Import the mutation
         from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import _process_single_mutation
         from verenigingen.e_boekhouden.utils.processors.transaction_coordinator import TransactionCoordinator
-
-        debug_info = []
 
         # Get cost center for the company
         company = migration.company
@@ -2534,7 +2602,10 @@ def import_single_mutation(migration_name, mutation_id, overwrite_existing=True)
             }
 
     except Exception as e:
-        frappe.log_error(f"Error importing single mutation {mutation_id}: {str(e)}")
+        frappe.log_error(
+            title=f"Import Error - Mutation {mutation_id}",
+            message=f"Error importing mutation {mutation_id}:\n\n{str(e)}\n\nDebug info:\n{frappe.as_json(debug_info, indent=2)}",
+        )
         return {
             "success": False,
             "error": f"Unexpected error importing mutation {mutation_id}: {str(e)}",
@@ -2602,12 +2673,18 @@ def start_transaction_import(migration_name, import_type="recent", mutation_type
         )
 
         # Set date range based on import type
+        # Only set default dates if user hasn't already specified custom dates
         if import_type == "recent":
-            # Import last 90 days of transactions
+            # Import last 90 days of transactions (unless custom dates are set)
             from frappe.utils import add_days, today
 
-            migration.db_set({"date_from": add_days(today(), -90), "date_to": today()})
-            message = "Recent transactions import started (last 90 days) via REST API"
+            # Check if user has set custom dates
+            if not migration.date_from or not migration.date_to:
+                migration.db_set({"date_from": add_days(today(), -90), "date_to": today()})
+                message = "Recent transactions import started (last 90 days) via REST API"
+            else:
+                # User has set custom dates, respect them
+                message = f"Transaction import started for custom date range ({migration.date_from} to {migration.date_to}) via REST API"
         else:
             # Full import - dates should already be set or will use full range
             message = "Full transaction import started via REST API"

@@ -176,7 +176,7 @@ class PaymentProcessor(BaseTransactionProcessor):
             self.debug_info.append(f"Main amount was 0, calculated {amount} from {len(rows)} rows")
 
         self.debug_info.append(
-            f"Processing money transfer: ID={mutation_id}, Type={mutation_type}, Amount={amount}"
+            f"Processing money transfer: ID={mutation_id}, Type={mutation_type}, Amount={amount}, Rows={len(rows)}"
         )
 
         # Get bank account from main ledger
@@ -196,49 +196,117 @@ class PaymentProcessor(BaseTransactionProcessor):
 
         self.debug_info.append(f"Using bank account: {bank_account}")
 
-        # Get target account (income/expense) from rows
-        target_account = None
-        if rows and len(rows) > 0:
-            row_ledger_id = rows[0].get("ledgerId")
-            from ..eboekhouden_rest_full_migration import get_erpnext_account_from_ledger_id
+        # Process all rows to get target accounts with amounts
+        # For multi-line mutations, we need to create one JE line per row
+        row_entries = []
+        total_row_amount = 0
 
-            target_account = get_erpnext_account_from_ledger_id(
-                row_ledger_id, self.company, self.debug_info, auto_create=True
+        from ..eboekhouden_rest_full_migration import (
+            _get_ledger_code_from_id,
+            create_invoice_line_for_tegenrekening,
+            get_erpnext_account_from_ledger_id,
+        )
+
+        if rows:
+            for idx, row in enumerate(rows):
+                row_amount = abs(frappe.utils.flt(row.get("amount", 0), 2))
+
+                # Skip zero or near-zero amount rows (< 1 cent)
+                if row_amount < 0.01:
+                    self.debug_info.append(f"Skipping row {idx + 1} with zero/near-zero amount: {row_amount}")
+                    continue
+
+                total_row_amount += row_amount
+                row_ledger_id = row.get("ledgerId")
+
+                # Validate ledgerId exists
+                if not row_ledger_id:
+                    error_msg = f"Row {idx + 1} missing ledgerId (amount: {row_amount})"
+                    self.debug_info.append(f"❌ {error_msg}")
+                    frappe.log_error(
+                        title=f"Missing Row Ledger ID - Mutation {mutation_id}",
+                        message=f"{error_msg}\nRow data: {frappe.as_json(row)}\nMutation: {frappe.as_json(mutation)}",
+                    )
+                    raise Exception(error_msg)
+
+                # Map ledger to account
+                target_account = get_erpnext_account_from_ledger_id(
+                    row_ledger_id, self.company, self.debug_info, auto_create=True
+                )
+
+                if not target_account:
+                    # Create appropriate account if mapping failed
+                    ledger_code = _get_ledger_code_from_id(row_ledger_id, self.debug_info)
+
+                    if mutation_type == 5:  # Money Received - need income account
+                        line_dict = create_invoice_line_for_tegenrekening(
+                            tegenrekening_code=ledger_code,
+                            amount=row_amount,
+                            description=description,
+                            transaction_type="sales",
+                        )
+                        target_account = line_dict.get("income_account")
+                    else:  # Money Paid - need expense account
+                        line_dict = create_invoice_line_for_tegenrekening(
+                            tegenrekening_code=ledger_code,
+                            amount=row_amount,
+                            description=description,
+                            transaction_type="purchase",
+                        )
+                        target_account = line_dict.get("expense_account")
+
+                if target_account:
+                    row_entries.append(
+                        {
+                            "account": target_account,
+                            "amount": row_amount,
+                            "ledger_id": row_ledger_id,
+                            "row_index": idx,
+                        }
+                    )
+                    self.debug_info.append(
+                        f"Row {idx + 1}/{len(rows)}: Ledger {row_ledger_id} → {target_account}, Amount: {row_amount}"
+                    )
+                else:
+                    error_msg = f"Failed to map row {idx + 1} ledger {row_ledger_id} to account"
+                    self.debug_info.append(f"❌ {error_msg}")
+                    frappe.log_error(
+                        title=f"Row Account Mapping Failed - Mutation {mutation_id}",
+                        message=f"{error_msg}\nRow data: {frappe.as_json(row)}\nMutation: {frappe.as_json(mutation)}",
+                    )
+                    raise Exception(error_msg)
+
+        # Validate that row amounts match total mutation amount using shared validation utility
+        # Dutch tax authorities (Belastingdienst) require exact amounts in bookkeeping
+        is_valid, error_msg, amount_diff = self.validate_row_amounts(mutation, rows, amount)
+
+        if not is_valid:
+            # Fail fast - amount mismatches indicate data quality issues
+            # Dutch accounting standards require exact amounts for audit compliance
+            raise Exception(error_msg)
+
+        if not row_entries:
+            # Log detailed failure breakdown showing why each row failed
+            error_details = [f"Mutation {mutation_id} has {len(rows)} row(s) but none were valid:"]
+            for idx, row in enumerate(rows):
+                row_amt = abs(frappe.utils.flt(row.get("amount", 0), 2))
+                row_ledger = row.get("ledgerId", "MISSING")
+                if row_amt < 0.01:
+                    error_details.append(f"  Row {idx + 1}: SKIPPED (zero/near-zero amount: {row_amt})")
+                elif not row.get("ledgerId"):
+                    error_details.append(f"  Row {idx + 1}: FAILED (missing ledgerId, amount: {row_amt})")
+                else:
+                    error_details.append(
+                        f"  Row {idx + 1}: FAILED (ledgerId: {row_ledger}, amount: {row_amt})"
+                    )
+
+            error_msg = "\n".join(error_details)
+            self.debug_info.append(f"❌ {error_msg}")
+            frappe.log_error(
+                title=f"No Valid Rows - Mutation {mutation_id}",
+                message=f"{error_msg}\n\nFull mutation:\n{frappe.as_json(mutation, indent=2)}",
             )
-            if target_account:
-                self.debug_info.append(
-                    f"Mapped row ledger {row_ledger_id} to target account: {target_account}"
-                )
-
-        if not target_account:
-            # Create appropriate account based on mutation type
-            from ..eboekhouden_rest_full_migration import (
-                _get_ledger_code_from_id,
-                create_invoice_line_for_tegenrekening,
-            )
-
-            ledger_code = None
-            if rows:
-                ledger_code = _get_ledger_code_from_id(rows[0].get("ledgerId"), self.debug_info)
-
-            if mutation_type == 5:  # Money Received - need income account
-                line_dict = create_invoice_line_for_tegenrekening(
-                    tegenrekening_code=ledger_code,
-                    amount=abs(amount),
-                    description=description,
-                    transaction_type="sales",
-                )
-                target_account = line_dict.get("income_account")
-            else:  # Money Paid - need expense account
-                line_dict = create_invoice_line_for_tegenrekening(
-                    tegenrekening_code=ledger_code,
-                    amount=abs(amount),
-                    description=description,
-                    transaction_type="purchase",
-                )
-                target_account = line_dict.get("expense_account")
-
-            self.debug_info.append(f"Created/mapped target account: {target_account}")
+            raise Exception(f"No valid row entries found for mutation {mutation_id}")
 
         # Extract party information from description for Bank Transaction
         party_info = None
@@ -284,10 +352,10 @@ class PaymentProcessor(BaseTransactionProcessor):
             je.cheque_date = posting_date
 
             if mutation_type == 5:  # Money Received
-                # Bank account debited (money comes in)
+                # Bank account debited (money comes in) - use total of all rows
                 bank_entry = {
                     "account": bank_account,
-                    "debit_in_account_currency": abs(amount),
+                    "debit_in_account_currency": total_row_amount,
                     "credit_in_account_currency": 0,
                     "cost_center": self.cost_center,
                     "user_remark": f"Money received - {description}",
@@ -307,38 +375,40 @@ class PaymentProcessor(BaseTransactionProcessor):
 
                 je.append("accounts", bank_entry)
 
-                # Income account credited
-                income_entry = {
-                    "account": target_account,
-                    "debit_in_account_currency": 0,
-                    "credit_in_account_currency": abs(amount),
-                    "cost_center": self.cost_center,
-                    "user_remark": f"Income - {description}",
-                }
+                # Create one income line per row
+                for row_entry in row_entries:
+                    income_entry = {
+                        "account": row_entry["account"],
+                        "debit_in_account_currency": 0,
+                        "credit_in_account_currency": row_entry["amount"],
+                        "cost_center": self.cost_center,
+                        "user_remark": f"Income - {description} (Row {row_entry['row_index'] + 1})",
+                    }
 
-                # Try to assign party to income account entry if appropriate
-                if party_info:
-                    party_assignment = party_extractor.resolve_party_for_journal_entry(
-                        party_info, target_account
-                    )
-                    if party_assignment:
-                        income_entry["party_type"] = party_assignment[0]
-                        income_entry["party"] = party_assignment[1]
-                        self.debug_info.append(
-                            f"Assigned {party_assignment[0]} '{party_assignment[1]}' to income account entry"
+                    # Try to assign party to income account entry if appropriate
+                    if party_info:
+                        party_assignment = party_extractor.resolve_party_for_journal_entry(
+                            party_info, row_entry["account"]
                         )
+                        if party_assignment:
+                            income_entry["party_type"] = party_assignment[0]
+                            income_entry["party"] = party_assignment[1]
+                            self.debug_info.append(
+                                f"Assigned {party_assignment[0]} '{party_assignment[1]}' to income row {row_entry['row_index'] + 1}"
+                            )
 
-                je.append("accounts", income_entry)
+                    je.append("accounts", income_entry)
 
                 self.debug_info.append(
-                    f"Money Received: Bank {bank_account} debited, Income {target_account} credited: {abs(amount)}"
+                    f"Money Received: Bank {bank_account} debited {total_row_amount}, "
+                    f"{len(row_entries)} income line(s) credited"
                 )
             else:  # Money Paid (type 6)
-                # Bank account credited (money goes out)
+                # Bank account credited (money goes out) - use total of all rows
                 bank_entry = {
                     "account": bank_account,
                     "debit_in_account_currency": 0,
-                    "credit_in_account_currency": abs(amount),
+                    "credit_in_account_currency": total_row_amount,
                     "cost_center": self.cost_center,
                     "user_remark": f"Money paid - {description}",
                 }
@@ -357,31 +427,33 @@ class PaymentProcessor(BaseTransactionProcessor):
 
                 je.append("accounts", bank_entry)
 
-                # Expense account debited
-                expense_entry = {
-                    "account": target_account,
-                    "debit_in_account_currency": abs(amount),
-                    "credit_in_account_currency": 0,
-                    "cost_center": self.cost_center,
-                    "user_remark": f"Expense - {description}",
-                }
+                # Create one expense line per row
+                for row_entry in row_entries:
+                    expense_entry = {
+                        "account": row_entry["account"],
+                        "debit_in_account_currency": row_entry["amount"],
+                        "credit_in_account_currency": 0,
+                        "cost_center": self.cost_center,
+                        "user_remark": f"Expense - {description} (Row {row_entry['row_index'] + 1})",
+                    }
 
-                # Try to assign party to expense account entry if appropriate
-                if party_info:
-                    party_assignment = party_extractor.resolve_party_for_journal_entry(
-                        party_info, target_account
-                    )
-                    if party_assignment:
-                        expense_entry["party_type"] = party_assignment[0]
-                        expense_entry["party"] = party_assignment[1]
-                        self.debug_info.append(
-                            f"Assigned {party_assignment[0]} '{party_assignment[1]}' to expense account entry"
+                    # Try to assign party to expense account entry if appropriate
+                    if party_info:
+                        party_assignment = party_extractor.resolve_party_for_journal_entry(
+                            party_info, row_entry["account"]
                         )
+                        if party_assignment:
+                            expense_entry["party_type"] = party_assignment[0]
+                            expense_entry["party"] = party_assignment[1]
+                            self.debug_info.append(
+                                f"Assigned {party_assignment[0]} '{party_assignment[1]}' to expense row {row_entry['row_index'] + 1}"
+                            )
 
-                je.append("accounts", expense_entry)
+                    je.append("accounts", expense_entry)
 
                 self.debug_info.append(
-                    f"Money Paid: Bank {bank_account} credited, Expense {target_account} debited: {abs(amount)}"
+                    f"Money Paid: Bank {bank_account} credited {total_row_amount}, "
+                    f"{len(row_entries)} expense line(s) debited"
                 )
 
             # Insert Journal Entry
