@@ -440,9 +440,63 @@ if (typeof frappe !== 'undefined' && frappe.ready) {
     color: white;
 }
 
+/* Bootstrap-compatible semantic button classes */
+.btn-warning {
+    background-color: var(--brand-accent, #2D9EB3);
+    border-color: var(--brand-accent, #2D9EB3);
+    color: white;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.btn-warning:hover {
+    background-color: var(--brand-accent-hover, #268FA2);
+    border-color: var(--brand-accent-hover, #268FA2);
+    color: white;
+}
+
+.btn-danger {
+    background-color: var(--brand-error, #dc3545);
+    border-color: var(--brand-error, #dc3545);
+    color: white;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.btn-danger:hover {
+    background-color: var(--brand-error-hover, #c82333);
+    border-color: var(--brand-error-hover, #c82333);
+    color: white;
+}
+
+.btn-success {
+    background-color: var(--brand-success, #28a745);
+    border-color: var(--brand-success, #28a745);
+    color: white;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.btn-success:hover {
+    background-color: var(--brand-success-hover, #218838);
+    border-color: var(--brand-success-hover, #218838);
+    color: white;
+}
+
 /* Header styling */
 .bg-brand-primary {
     background-color: var(--brand-primary, #F99F20) !important;
+    color: white !important;
+}
+
+.bg-brand-primary h1,
+.bg-brand-primary h2,
+.bg-brand-primary h3,
+.bg-brand-primary h4,
+.bg-brand-primary h5,
+.bg-brand-primary h6,
+.bg-brand-primary p,
+.bg-brand-primary i {
     color: white !important;
 }
 
@@ -451,8 +505,30 @@ if (typeof frappe !== 'undefined' && frappe.ready) {
     color: white !important;
 }
 
+.bg-brand-secondary h1,
+.bg-brand-secondary h2,
+.bg-brand-secondary h3,
+.bg-brand-secondary h4,
+.bg-brand-secondary h5,
+.bg-brand-secondary h6,
+.bg-brand-secondary p,
+.bg-brand-secondary i {
+    color: white !important;
+}
+
 .bg-brand-accent {
     background-color: var(--brand-accent, #2D9EB3) !important;
+    color: white !important;
+}
+
+.bg-brand-accent h1,
+.bg-brand-accent h2,
+.bg-brand-accent h3,
+.bg-brand-accent h4,
+.bg-brand-accent h5,
+.bg-brand-accent h6,
+.bg-brand-accent p,
+.bg-brand-accent i {
     color: white !important;
 }
 
@@ -475,7 +551,7 @@ if (typeof frappe !== 'undefined' && frappe.ready) {
 }
 
 .text-warning {
-    color: var(--brand-warning, #ffc107) !important;
+    color: var(--brand-accent, #2D9EB3) !important;
 }
 
 .text-danger {
