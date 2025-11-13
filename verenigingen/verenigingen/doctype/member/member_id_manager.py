@@ -92,19 +92,6 @@ class MemberIDManager:
     def _initialize_counter():
         """Initialize the counter from existing data or settings"""
 
-        # Check if there's an existing counter in any Member document
-        existing_counter = frappe.db.sql(
-            """
-            SELECT MAX(next_member_id) as max_counter
-            FROM `tabMember`
-            WHERE next_member_id IS NOT NULL
-        """,
-            as_dict=True,
-        )
-
-        if existing_counter and existing_counter[0].max_counter:
-            return cint(existing_counter[0].max_counter)
-
         # Check highest existing member_id (extract numeric part)
         highest_member = frappe.db.sql(
             """
@@ -119,50 +106,11 @@ class MemberIDManager:
         )
 
         if highest_member and highest_member[0].member_id:
-            return cint(highest_member[0].member_id) + 1
+            return cint(highest_member[0].member_id)
 
         # Fall back to settings
         settings = frappe.get_single("Verenigingen Settings")
         return cint(settings.member_id_start) or 1000
-
-    @staticmethod
-    def _update_display_counter(next_id):
-        """Update the display counter in a Member document for UI"""
-        try:
-            # Find a system Member document to store the counter, or create one
-            system_member = frappe.db.get_value("Member", {"name": "MEMBER-COUNTER-SYSTEM"}, "name")
-
-            if not system_member:
-                # Create a system member document for counter storage
-                counter_doc = frappe.get_doc(
-                    {
-                        "doctype": "Member",
-                        "name": "MEMBER-COUNTER-SYSTEM",
-                        "first_name": "System",
-                        "last_name": "Counter",
-                        "email": "system@counter.internal",
-                        "status": "System",
-                        "next_member_id": next_id + 1,  # Next available
-                    }
-                )
-                counter_result = secure_document_operation(
-                    operation="insert",
-                    doc=counter_doc,
-                    justification=f"Create system member counter document with next ID {next_id + 1}",
-                    required_permissions=["Member:create"],
-                )
-                if not counter_result.success:
-                    frappe.log_error(
-                        f"Failed to create member counter document: {'; '.join(counter_result.errors)}",
-                        "Member ID Counter",
-                    )
-            else:
-                # Update existing counter document
-                frappe.db.set_value("Member", system_member, "next_member_id", next_id + 1)
-
-        except Exception as e:
-            # Don't fail the main process if counter display update fails
-            frappe.log_error(f"Failed to update display counter: {str(e)}", "Member ID Counter")
 
     @staticmethod
     def reset_counter(new_value):
@@ -208,9 +156,6 @@ class MemberIDManager:
         counter_key = "member_id_counter"
         frappe.cache().set(counter_key, new_value)
 
-        # Update display counter
-        MemberIDManager._update_display_counter(new_value)
-
         frappe.msgprint(_("Member ID counter reset to {0}").format(new_value), indicator="green")
 
     @staticmethod
@@ -231,7 +176,6 @@ class MemberIDManager:
         # If settings value is higher, update counter
         if settings_start > current_counter:
             frappe.cache().set(counter_key, settings_start)
-            MemberIDManager._update_display_counter(settings_start)
 
             frappe.msgprint(
                 _("Member ID counter updated to {0} based on Verenigingen Settings").format(settings_start),

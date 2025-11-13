@@ -169,30 +169,17 @@ function setup_member_counter_section(frm) {
 }
 
 function load_counter_statistics(frm) {
-	// Load and display current counter statistics
+	// Load current counter statistics (for future dashboard use)
 	frappe.call({
 		method:
       'verenigingen.verenigingen.doctype.member.member_id_manager.get_member_id_statistics',
 		callback(r) {
 			if (r.message) {
-				update_counter_display(frm, r.message);
+				// Statistics loaded successfully - can be used for dashboard/reports
+				console.log('Member ID statistics loaded:', r.message);
 			}
 		}
 	});
-}
-
-function update_counter_display(frm, stats) {
-	// Update the next_member_id field display
-	if (
-		frm.doc.name === 'MEMBER-COUNTER-SYSTEM'
-    || frappe.user.has_role('System Manager')
-	) {
-		frm.set_df_property(
-			'next_member_id',
-			'description',
-			`Next ID: ${stats.next_id} | Highest Assigned: ${stats.highest_assigned} | Gaps: ${stats.gap_count}`
-		);
-	}
 }
 
 function show_member_id_preview(frm) {

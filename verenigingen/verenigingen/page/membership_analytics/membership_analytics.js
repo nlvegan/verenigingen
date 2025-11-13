@@ -435,6 +435,7 @@ class MembershipAnalytics {
    * $('#btn-refresh').on('click', () => this.refresh_dashboard());
    */
 	refresh_dashboard() {
+		console.log('refresh_dashboard called with filters:', this.filters);
 		// Show loading state
 		frappe.dom.freeze('Loading dashboard data...');
 
@@ -449,6 +450,7 @@ class MembershipAnalytics {
 				filters: this.filters
 			},
 			callback: (r) => {
+				console.log('Dashboard data received:', r.message);
 				frappe.dom.unfreeze();
 				if (r.message) {
 					this.render_dashboard(r.message);
@@ -595,6 +597,18 @@ class MembershipAnalytics {
 			]
 		};
 
+		// Calculate dynamic y-axis max (20% above highest value)
+		const maxValue = Math.max(
+			...data.map(d => d.new_members),
+			...data.map(d => d.net_growth)
+		);
+		const minValue = Math.min(
+			...data.map(d => -d.lost_members),
+			0
+		);
+		const yMax = Math.ceil(maxValue * 1.2);
+		const yMin = Math.floor(minValue * 1.2);
+
 		if (this.charts.growth) {
 			this.charts.growth.destroy();
 		}
@@ -606,7 +620,9 @@ class MembershipAnalytics {
 			colors: ['#5e64ff', '#ff4757', '#2ecc71'],
 			axisOptions: {
 				xAxisMode: 'tick',
-				xIsSeries: true
+				xIsSeries: true,
+				yAxisMax: yMax,
+				yAxisMin: yMin
 			},
 			barOptions: {
 				stacked: false
@@ -625,6 +641,10 @@ class MembershipAnalytics {
 			]
 		};
 
+		// Calculate dynamic y-axis max (20% above highest value)
+		const maxValue = Math.max(...data.map(d => d.revenue));
+		const yMax = Math.ceil(maxValue * 1.2);
+
 		if (this.charts.revenue) {
 			this.charts.revenue.destroy();
 		}
@@ -634,6 +654,9 @@ class MembershipAnalytics {
 			type: 'bar',
 			height: 300,
 			colors: ['#00d2d3'],
+			axisOptions: {
+				yAxisMax: yMax
+			},
 			format_tooltip_y: (d) => this.format_currency(d)
 		});
 	}
@@ -1049,6 +1072,8 @@ class MembershipAnalytics {
 	}
 
 	render_segmentation(segmentation) {
+		console.log('Rendering segmentation data:', segmentation);
+
 		// Render chapter segmentation
 		if (segmentation.by_chapter) {
 			this.render_segmentation_chart(
@@ -1058,13 +1083,14 @@ class MembershipAnalytics {
 			);
 		}
 
-		// Render region segmentation
-		if (segmentation.by_region) {
-			this.render_segmentation_chart(
-				'region-segmentation-chart',
-				segmentation.by_region,
-				'Regional Distribution'
+		// Render chapter growth over time
+		console.log('Chapter growth over time data:', segmentation.chapter_growth_over_time);
+		if (segmentation.chapter_growth_over_time) {
+			this.render_chapter_growth_over_time_chart(
+				segmentation.chapter_growth_over_time
 			);
+		} else {
+			console.warn('No chapter_growth_over_time data in segmentation');
 		}
 
 		// Render age segmentation
@@ -1072,7 +1098,8 @@ class MembershipAnalytics {
 			this.render_segmentation_chart(
 				'age-segmentation-chart',
 				segmentation.by_age,
-				'Age Distribution'
+				'Age Distribution',
+				false  // Don't sort - use backend order (by age)
 			);
 		}
 
@@ -1084,16 +1111,22 @@ class MembershipAnalytics {
 		}
 	}
 
-	render_segmentation_chart(elementId, data, _title) {
+	render_segmentation_chart(elementId, data, _title, sortBySize = true) {
 		const container = $(`#${elementId}`);
 		if (!container.length) {
 			return;
 		}
 
-		// Sort by total members descending and take top 10
-		const sortedData = data
-			.sort((a, b) => b.total_members - a.total_members)
-			.slice(0, 10);
+		// Sort by total members descending and take top 10, unless sortBySize is false
+		let sortedData = data;
+		if (sortBySize) {
+			sortedData = data
+				.sort((a, b) => b.total_members - a.total_members)
+				.slice(0, 10);
+		} else {
+			// Use the order from backend (e.g., age order)
+			sortedData = data.slice(0, 15);  // Show up to 15 age groups
+		}
 
 		const chartData = {
 			labels: sortedData.map((d) => d.name),
@@ -1118,7 +1151,9 @@ class MembershipAnalytics {
 			axisOptions: {
 				xAxisMode: 'tick',
 				xIsSeries: true
-			}
+			},
+			truncateLegends: true,
+			valuesOverPoints: false
 		});
 	}
 
@@ -1152,6 +1187,10 @@ class MembershipAnalytics {
 			]
 		};
 
+		// Calculate dynamic y-axis max (20% above highest stacked value)
+		const maxValue = Math.max(...sortedData.map(d => d.volunteers + d.non_volunteers));
+		const yMax = Math.ceil(maxValue * 1.2);
+
 		// Destroy existing chart if any
 		if (this.charts['volunteer-participation-chart']) {
 			this.charts['volunteer-participation-chart'].destroy();
@@ -1164,10 +1203,114 @@ class MembershipAnalytics {
 			colors: ['#28a745', '#6c757d'],
 			axisOptions: {
 				xAxisMode: 'tick',
-				xIsSeries: true
+				xIsSeries: true,
+				yAxisMax: yMax
 			},
 			barOptions: {
 				stacked: 1
+			}
+		});
+	}
+
+	render_chapter_growth_over_time_chart(data) {
+		const container = $('#region-segmentation-chart');
+		console.log('Chapter growth over time data:', data);
+		if (!container.length) {
+			console.error('Chapter growth chart container not found');
+			return;
+		}
+		if (!data || !data.chapters || data.chapters.length === 0) {
+			console.log('No chapter growth data available');
+			container.html('<p class="text-muted">No chapter growth data available</p>');
+			return;
+		}
+
+		// Build datasets - one line per chapter
+		const datasets = [];
+
+		// Generate distinct colors for each chapter
+		const colors = [
+			'#5e64ff', '#00d2d3', '#28a745', '#ffc107', '#dc3545',
+			'#6610f2', '#fd7e14', '#20c997', '#17a2b8', '#6c757d',
+			'#e83e8c', '#007bff', '#28a745', '#17a2b8', '#ffc107'
+		];
+
+		// Find the common date range (all dates from all chapters)
+		let allDates = new Set();
+		data.chapters.forEach(chapter => {
+			if (data.time_series[chapter]) {
+				data.time_series[chapter].forEach(point => {
+					allDates.add(point.date);
+				});
+			}
+		});
+		const sortedDates = Array.from(allDates).sort();
+
+		// Calculate final member count for each chapter for sorting
+		const chapterWithFinalCount = data.chapters.map(chapter => {
+			const chapterData = data.time_series[chapter] || [];
+			const finalCount = chapterData.length > 0 ? chapterData[chapterData.length - 1].member_count : 0;
+			return { chapter, finalCount };
+		});
+
+		// Sort chapters by final member count descending
+		chapterWithFinalCount.sort((a, b) => b.finalCount - a.finalCount);
+
+		// Create a dataset for each chapter in sorted order
+		chapterWithFinalCount.forEach(({chapter}, idx) => {
+			const chapterData = data.time_series[chapter] || [];
+
+			// Create a map for quick lookup
+			const dataMap = {};
+			chapterData.forEach(point => {
+				dataMap[point.date] = point.member_count;
+			});
+
+			// Build values array matching sortedDates
+			const values = sortedDates.map(date => dataMap[date] || null);
+
+			datasets.push({
+				name: chapter,
+				values: values,
+				chartType: 'line'
+			});
+		});
+
+		const chartData = {
+			labels: sortedDates.map(date => {
+				// Format date as "MMM YYYY" for readability
+				const d = new Date(date);
+				return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+			}),
+			datasets: datasets
+		};
+
+		// Calculate dynamic y-axis max (20% above highest value across all chapters)
+		const maxValue = Math.max(...datasets.flatMap(ds => ds.values.filter(v => v !== null)));
+		const yMax = Math.ceil(maxValue * 1.2);
+
+		// Destroy existing chart if any
+		if (this.charts['region-segmentation-chart']) {
+			this.charts['region-segmentation-chart'].destroy();
+		}
+
+		this.charts['region-segmentation-chart'] = new frappe.Chart('#region-segmentation-chart', {
+			data: chartData,
+			type: 'line',
+			height: 250,
+			colors: colors.slice(0, chapterWithFinalCount.length),
+			axisOptions: {
+				xAxisMode: 'tick',
+				xIsSeries: true,
+				yAxisMax: yMax
+			},
+			lineOptions: {
+				regionFill: 0,
+				hideDots: 1,
+				heatline: 0
+			},
+			tooltipOptions: {
+				formatTooltipY: d => d + ' members'
 			}
 		});
 	}

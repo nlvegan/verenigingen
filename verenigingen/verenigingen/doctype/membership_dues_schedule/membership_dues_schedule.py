@@ -1453,12 +1453,9 @@ class MembershipDuesSchedule(Document):
 
     def _trigger_health_reconstruction(self, error_message):
         """
-        ✅ NEW: Trigger health system reconstruction for this member
+        Trigger health system reconstruction for this member
         """
         try:
-            # Flag member for health check reconstruction
-            frappe.db.set_value("Member", self.member, "custom_needs_health_check", 1)
-
             # Log the trigger for monitoring
             frappe.log_error(
                 f"Triggered health reconstruction for member {self.member} due to error: {error_message}",

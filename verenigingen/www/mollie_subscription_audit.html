@@ -1,0 +1,241 @@
+{% extends "templates/web.html" %}
+
+{% block title %}Mollie Subscription Audit{% endblock %}
+
+{% block page_content %}
+<div class="container mt-4">
+    <h1>Mollie Subscription Audit</h1>
+    <p class="text-muted">Identify orphaned subscriptions and data integrity issues between Mollie and Member records.</p>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <button class="btn btn-primary" id="run-audit-btn" onclick="runAudit()">
+                <i class="fa fa-search"></i> Run Audit
+            </button>
+
+            <div id="progress-container" style="display:none;" class="mt-3">
+                <div class="progress">
+                    <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated"
+                         role="progressbar" style="width: 0%"></div>
+                </div>
+                <p id="progress-text" class="mt-2 text-center"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Summary Section -->
+    <div id="summary-section" style="display:none;" class="card mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0"><i class="fa fa-chart-bar"></i> Summary</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-3">
+                    <div class="text-center">
+                        <h3 id="total-subs" class="mb-0">-</h3>
+                        <small class="text-muted">Total Subscriptions</small>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-center">
+                        <h3 id="active-subs" class="mb-0">-</h3>
+                        <small class="text-muted">Active Subscriptions</small>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-center">
+                        <h3 id="orphaned-subs" class="mb-0 text-danger">-</h3>
+                        <small class="text-muted">Orphaned</small>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-center">
+                        <h3 id="total-issues" class="mb-0 text-warning">-</h3>
+                        <small class="text-muted">Total Issues</small>
+                    </div>
+                </div>
+            </div>
+            <div class="mt-3">
+                <span class="badge badge-info" id="test-mode-badge">Test Mode</span>
+                <span class="text-muted" id="timestamp"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Orphaned Subscriptions -->
+    <div id="orphaned-section" style="display:none;" class="card mb-4">
+        <div class="card-header bg-danger text-white">
+            <h5 class="mb-0"><i class="fa fa-exclamation-triangle"></i> Orphaned Subscriptions</h5>
+        </div>
+        <div class="card-body">
+            <div id="orphaned-list"></div>
+        </div>
+    </div>
+
+    <!-- Deleted Member Subscriptions -->
+    <div id="deleted-section" style="display:none;" class="card mb-4">
+        <div class="card-header bg-warning text-dark">
+            <h5 class="mb-0"><i class="fa fa-trash"></i> Deleted Member Subscriptions</h5>
+        </div>
+        <div class="card-body">
+            <div id="deleted-list"></div>
+        </div>
+    </div>
+
+    <!-- Status Mismatches -->
+    <div id="mismatch-section" style="display:none;" class="card mb-4">
+        <div class="card-header bg-info text-white">
+            <h5 class="mb-0"><i class="fa fa-exclamation-circle"></i> Status Mismatches</h5>
+        </div>
+        <div class="card-body">
+            <div id="mismatch-list"></div>
+        </div>
+    </div>
+
+    <!-- Missing Mollie Data -->
+    <div id="missing-section" style="display:none;" class="card mb-4">
+        <div class="card-header bg-secondary text-white">
+            <h5 class="mb-0"><i class="fa fa-question-circle"></i> Missing Mollie Data</h5>
+        </div>
+        <div class="card-body">
+            <div id="missing-list"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+function runAudit() {
+    const btn = document.getElementById('run-audit-btn');
+    const progress = document.getElementById('progress-container');
+    const progressBar = document.getElementById('progress-bar');
+    const progressText = document.getElementById('progress-text');
+
+    btn.disabled = true;
+    progress.style.display = 'block';
+    progressText.textContent = 'Connecting to Mollie API...';
+    progressBar.style.width = '10%';
+
+    // Hide previous results
+    document.querySelectorAll('[id$="-section"]').forEach(el => el.style.display = 'none');
+
+    // Listen for progress updates
+    frappe.realtime.on('audit_progress', (data) => {
+        progressText.textContent = data.message;
+        progressBar.style.width = data.progress + '%';
+    });
+
+    frappe.call({
+        method: 'verenigingen.www.mollie_subscription_audit.run_audit',
+        callback: function(r) {
+            btn.disabled = false;
+            progress.style.display = 'none';
+
+            if (r.message && r.message.success) {
+                displayResults(r.message);
+            } else {
+                frappe.msgprint({
+                    title: 'Error',
+                    indicator: 'red',
+                    message: r.message?.error || 'Audit failed'
+                });
+            }
+        }
+    });
+}
+
+function displayResults(data) {
+    const summary = data.summary;
+    const issues = data.issues;
+
+    // Update summary
+    document.getElementById('total-subs').textContent = summary.total_mollie_subscriptions;
+    document.getElementById('active-subs').textContent = summary.active_mollie_subscriptions;
+    document.getElementById('orphaned-subs').textContent = summary.orphaned_subscriptions;
+    document.getElementById('total-issues').textContent =
+        summary.orphaned_subscriptions + summary.deleted_member_subscriptions +
+        summary.status_mismatches + summary.missing_mollie_data;
+    document.getElementById('test-mode-badge').textContent = data.test_mode ? 'Test Mode' : 'Live Mode';
+    document.getElementById('timestamp').textContent = 'Last run: ' + data.timestamp;
+    document.getElementById('summary-section').style.display = 'block';
+
+    // Display orphaned subscriptions
+    if (issues.orphaned && issues.orphaned.length > 0) {
+        displayOrphanedSubscriptions(issues.orphaned);
+    }
+
+    // Display deleted member subscriptions
+    if (issues.deleted_members && issues.deleted_members.length > 0) {
+        displayDeletedMemberSubscriptions(issues.deleted_members);
+    }
+
+    // Display mismatches
+    if (issues.mismatches && issues.mismatches.length > 0) {
+        displayMismatches(issues.mismatches);
+    }
+
+    // Display missing data
+    if (issues.missing_data && issues.missing_data.length > 0) {
+        displayMissingData(issues.missing_data);
+    }
+}
+
+function displayOrphanedSubscriptions(subscriptions) {
+    const container = document.getElementById('orphaned-list');
+    container.innerHTML = subscriptions.map(sub => `
+        <div class="card mb-2">
+            <div class="card-body">
+                <h6>${sub.subscription_id}</h6>
+                <p class="mb-1"><strong>Customer ID:</strong> ${sub.customer_id}</p>
+                <p class="mb-1"><strong>Amount:</strong> €${sub.amount} every ${sub.interval}</p>
+                <p class="mb-1"><strong>Next Payment:</strong> ${sub.next_payment_date || 'N/A'}</p>
+                <p class="mb-0"><small class="text-muted">${sub.description || ''}</small></p>
+            </div>
+        </div>
+    `).join('');
+    document.getElementById('orphaned-section').style.display = 'block';
+}
+
+function displayDeletedMemberSubscriptions(subscriptions) {
+    const container = document.getElementById('deleted-list');
+    container.innerHTML = subscriptions.map(sub => `
+        <div class="card mb-2">
+            <div class="card-body">
+                <h6>${sub.subscription_id}</h6>
+                <p class="mb-1"><strong>Deleted Member:</strong> ${sub.deleted_member}</p>
+                <p class="mb-1"><strong>Amount:</strong> €${sub.amount} every ${sub.interval}</p>
+                <p class="mb-0"><small class="text-muted">${sub.description || ''}</small></p>
+            </div>
+        </div>
+    `).join('');
+    document.getElementById('deleted-section').style.display = 'block';
+}
+
+function displayMismatches(mismatches) {
+    const container = document.getElementById('mismatch-list');
+    container.innerHTML = mismatches.map(m => `
+        <div class="card mb-2">
+            <div class="card-body">
+                <h6>${m.member_name} (${m.member_id})</h6>
+                <p class="mb-1"><strong>Issue:</strong> ${m.issue || 'Status mismatch'}</p>
+                ${m.mollie_status ? `<p class="mb-0">Mollie: ${m.mollie_status} | Member: ${m.member_status}</p>` : ''}
+            </div>
+        </div>
+    `).join('');
+    document.getElementById('mismatch-section').style.display = 'block';
+}
+
+function displayMissingData(missing) {
+    const container = document.getElementById('missing-list');
+    container.innerHTML = missing.map(m => `
+        <div class="card mb-2">
+            <div class="card-body">
+                <h6>${m.member_name} (${m.member_id})</h6>
+                <p class="mb-0"><strong>Issue:</strong> ${m.issue}</p>
+            </div>
+        </div>
+    `).join('');
+    document.getElementById('missing-section').style.display = 'block';
+}
+
+</script>
+{% endblock %}

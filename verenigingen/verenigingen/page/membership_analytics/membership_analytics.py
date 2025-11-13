@@ -812,7 +812,7 @@ def get_segmentation_data(year, period="year", filters=None):
 
     segmentation = {
         "by_chapter": get_chapter_segmentation(year, filter_conditions),
-        "by_region": get_region_segmentation(year, filter_conditions),
+        "chapter_growth_over_time": get_chapter_growth_over_time(year),
         "by_age": get_age_segmentation(year, filter_conditions),
         "volunteer_participation_by_chapter": get_volunteer_participation_by_chapter(year, filter_conditions),
         "by_join_year": get_join_year_segmentation(year, filter_conditions),
@@ -996,6 +996,7 @@ def get_age_segmentation(year, filter_conditions):
     """Get member distribution by age group for a specific year
 
     Age is calculated as of the end of the specified year.
+    Uses 5-year age bands from <15 to >70.
     """
     # Ensure year is an integer
     year = int(year)
@@ -1007,13 +1008,19 @@ def get_age_segmentation(year, filter_conditions):
     query = f"""
         SELECT
             CASE
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') < 20 THEN 'Under 20'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 20 AND 25 THEN '20-25'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 25 AND 34 THEN '25-34'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 35 AND 44 THEN '35-44'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 45 AND 54 THEN '45-54'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 55 AND 64 THEN '55-64'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') >= 65 THEN '65+'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') < 15 THEN '<15'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 15 AND 20 THEN '15-20'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 21 AND 25 THEN '21-25'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 26 AND 30 THEN '26-30'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 31 AND 35 THEN '31-35'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 36 AND 40 THEN '36-40'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 41 AND 45 THEN '41-45'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 46 AND 50 THEN '46-50'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 51 AND 55 THEN '51-55'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 56 AND 60 THEN '56-60'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 61 AND 65 THEN '61-65'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 66 AND 70 THEN '66-70'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') > 70 THEN '>70'
                 ELSE 'Unknown'
             END as name,
             COUNT(*) as total_members,
@@ -1029,13 +1036,19 @@ def get_age_segmentation(year, filter_conditions):
             AND birth_date IS NOT NULL {filter_conditions}
         GROUP BY
             CASE
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') < 20 THEN 'Under 20'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 20 AND 25 THEN '20-25'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 25 AND 34 THEN '25-34'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 35 AND 44 THEN '35-44'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 45 AND 54 THEN '45-54'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 55 AND 64 THEN '55-64'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') >= 65 THEN '65+'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') < 15 THEN '<15'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 15 AND 20 THEN '15-20'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 21 AND 25 THEN '21-25'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 26 AND 30 THEN '26-30'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 31 AND 35 THEN '31-35'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 36 AND 40 THEN '36-40'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 41 AND 45 THEN '41-45'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 46 AND 50 THEN '46-50'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 51 AND 55 THEN '51-55'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 56 AND 60 THEN '56-60'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 61 AND 65 THEN '61-65'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 66 AND 70 THEN '66-70'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') > 70 THEN '>70'
                 ELSE 'Unknown'
             END
     """
@@ -1043,7 +1056,22 @@ def get_age_segmentation(year, filter_conditions):
     results = frappe.db.sql(query, as_dict=True)
 
     # Sort results in the proper age order
-    age_order = ["Under 20", "20-25", "25-34", "35-44", "45-54", "55-64", "65+", "Unknown"]
+    age_order = [
+        "<15",
+        "15-20",
+        "21-25",
+        "26-30",
+        "31-35",
+        "36-40",
+        "41-45",
+        "46-50",
+        "51-55",
+        "56-60",
+        "61-65",
+        "66-70",
+        ">70",
+        "Unknown",
+    ]
     results.sort(key=lambda x: age_order.index(x["name"]) if x["name"] in age_order else len(age_order))
 
     return results
@@ -1163,6 +1191,161 @@ def get_join_year_segmentation(year, filter_conditions):
     results.sort(key=lambda x: x.get("name", 0), reverse=True)
 
     return results[:10]
+
+
+def get_chapter_growth_over_time(year):
+    """Get chapter growth over time showing member count progression from establishment to selected year
+
+    Returns time series data for each chapter showing how membership grew from the chapter's
+    first member to the end of the selected year. Uses the earliest member join date as the
+    chapter's establishment date.
+
+    Args:
+        year: The target year to track growth up to
+
+    Returns:
+        dict: {
+            'chapters': list of chapter names,
+            'time_series': {
+                'chapter_name': [
+                    {'date': 'YYYY-MM-DD', 'member_count': int},
+                    ...
+                ]
+            }
+        }
+    """
+    try:
+        year = int(year)
+        year_end = f"{year}-12-31"
+
+        # Get all active chapters with at least one member
+        chapters_query = """
+            SELECT DISTINCT
+                COALESCE(cm.parent, 'No Chapter') as chapter_name,
+                MIN(m.member_since) as establishment_date
+            FROM `tabMember` m
+            LEFT JOIN `tabChapter Member` cm ON cm.member = m.name AND cm.enabled = 1
+            WHERE m.member_since <= %s
+                AND m.status NOT IN ('Rejected', 'Terminated', 'Banned', 'Deceased')
+            GROUP BY COALESCE(cm.parent, 'No Chapter')
+            HAVING MIN(m.member_since) IS NOT NULL
+            ORDER BY chapter_name
+        """
+
+        chapters = frappe.db.sql(chapters_query, (year_end,), as_dict=True)
+
+        frappe.logger().info(f"Found {len(chapters)} chapters for growth tracking")
+
+        time_series = {}
+    except Exception as e:
+        frappe.log_error(f"Error in get_chapter_growth_over_time: {str(e)}", "Chapter Growth Error")
+        return {"chapters": [], "time_series": {}}
+
+    for chapter_info in chapters:
+        try:
+            chapter_name = chapter_info.chapter_name
+            establishment_date = chapter_info.establishment_date
+
+            frappe.logger().info(f"Processing chapter: {chapter_name}, established: {establishment_date}")
+
+            # Get monthly member counts from establishment to selected year
+            # For each month, count members who:
+            # - Joined on or before that month's end
+            # - Either never terminated, or terminated after that month's end
+            # - Are part of this chapter
+
+            if chapter_name == "No Chapter":
+                # Special handling for members without chapter affiliation
+                growth_query = """
+                SELECT
+                    DATE_FORMAT(dates.month_end, '%%Y-%%m-%%d') as date,
+                    COUNT(DISTINCT m.name) as member_count
+                FROM (
+                    SELECT LAST_DAY(DATE_ADD(%s, INTERVAL seq.n MONTH)) as month_end
+                    FROM (
+                        SELECT 0 as n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL
+                        SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL
+                        SELECT 8 UNION ALL SELECT 9 UNION ALL SELECT 10 UNION ALL SELECT 11 UNION ALL
+                        SELECT 12 UNION ALL SELECT 13 UNION ALL SELECT 14 UNION ALL SELECT 15 UNION ALL
+                        SELECT 16 UNION ALL SELECT 17 UNION ALL SELECT 18 UNION ALL SELECT 19 UNION ALL
+                        SELECT 20 UNION ALL SELECT 21 UNION ALL SELECT 22 UNION ALL SELECT 23 UNION ALL
+                        SELECT 24 UNION ALL SELECT 25 UNION ALL SELECT 26 UNION ALL SELECT 27 UNION ALL
+                        SELECT 28 UNION ALL SELECT 29 UNION ALL SELECT 30 UNION ALL SELECT 31 UNION ALL
+                        SELECT 32 UNION ALL SELECT 33 UNION ALL SELECT 34 UNION ALL SELECT 35 UNION ALL
+                        SELECT 36 UNION ALL SELECT 37 UNION ALL SELECT 38 UNION ALL SELECT 39 UNION ALL
+                        SELECT 40 UNION ALL SELECT 41 UNION ALL SELECT 42 UNION ALL SELECT 43 UNION ALL
+                        SELECT 44 UNION ALL SELECT 45 UNION ALL SELECT 46 UNION ALL SELECT 47 UNION ALL
+                        SELECT 48 UNION ALL SELECT 49 UNION ALL SELECT 50 UNION ALL SELECT 51 UNION ALL
+                        SELECT 52 UNION ALL SELECT 53 UNION ALL SELECT 54 UNION ALL SELECT 55 UNION ALL
+                        SELECT 56 UNION ALL SELECT 57 UNION ALL SELECT 58 UNION ALL SELECT 59
+                    ) as seq
+                ) as dates
+                LEFT JOIN `tabMember` m ON m.member_since <= dates.month_end
+                    AND (m.member_end_date IS NULL OR m.member_end_date > dates.month_end)
+                    AND m.status NOT IN ('Rejected', 'Terminated', 'Banned', 'Deceased')
+                    AND NOT EXISTS (
+                        SELECT 1 FROM `tabChapter Member` cm
+                        WHERE cm.member = m.name AND cm.enabled = 1
+                    )
+                WHERE dates.month_end <= %s
+                GROUP BY dates.month_end
+                ORDER BY dates.month_end
+                """
+                growth_data = frappe.db.sql(growth_query, (establishment_date, year_end), as_dict=True)
+            else:
+                # Regular chapter with specific affiliation
+                growth_query = """
+                SELECT
+                    DATE_FORMAT(dates.month_end, '%%Y-%%m-%%d') as date,
+                    COUNT(DISTINCT m.name) as member_count
+                FROM (
+                    SELECT LAST_DAY(DATE_ADD(%s, INTERVAL seq.n MONTH)) as month_end
+                    FROM (
+                        SELECT 0 as n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL
+                        SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL
+                        SELECT 8 UNION ALL SELECT 9 UNION ALL SELECT 10 UNION ALL SELECT 11 UNION ALL
+                        SELECT 12 UNION ALL SELECT 13 UNION ALL SELECT 14 UNION ALL SELECT 15 UNION ALL
+                        SELECT 16 UNION ALL SELECT 17 UNION ALL SELECT 18 UNION ALL SELECT 19 UNION ALL
+                        SELECT 20 UNION ALL SELECT 21 UNION ALL SELECT 22 UNION ALL SELECT 23 UNION ALL
+                        SELECT 24 UNION ALL SELECT 25 UNION ALL SELECT 26 UNION ALL SELECT 27 UNION ALL
+                        SELECT 28 UNION ALL SELECT 29 UNION ALL SELECT 30 UNION ALL SELECT 31 UNION ALL
+                        SELECT 32 UNION ALL SELECT 33 UNION ALL SELECT 34 UNION ALL SELECT 35 UNION ALL
+                        SELECT 36 UNION ALL SELECT 37 UNION ALL SELECT 38 UNION ALL SELECT 39 UNION ALL
+                        SELECT 40 UNION ALL SELECT 41 UNION ALL SELECT 42 UNION ALL SELECT 43 UNION ALL
+                        SELECT 44 UNION ALL SELECT 45 UNION ALL SELECT 46 UNION ALL SELECT 47 UNION ALL
+                        SELECT 48 UNION ALL SELECT 49 UNION ALL SELECT 50 UNION ALL SELECT 51 UNION ALL
+                        SELECT 52 UNION ALL SELECT 53 UNION ALL SELECT 54 UNION ALL SELECT 55 UNION ALL
+                        SELECT 56 UNION ALL SELECT 57 UNION ALL SELECT 58 UNION ALL SELECT 59
+                    ) as seq
+                ) as dates
+                LEFT JOIN `tabMember` m ON m.member_since <= dates.month_end
+                    AND (m.member_end_date IS NULL OR m.member_end_date > dates.month_end)
+                    AND m.status NOT IN ('Rejected', 'Terminated', 'Banned', 'Deceased')
+                LEFT JOIN `tabChapter Member` cm ON cm.member = m.name
+                    AND cm.parent = %s
+                    AND cm.enabled = 1
+                WHERE dates.month_end <= %s
+                    AND cm.name IS NOT NULL
+                GROUP BY dates.month_end
+                ORDER BY dates.month_end
+                """
+                growth_data = frappe.db.sql(
+                    growth_query, (establishment_date, chapter_name, year_end), as_dict=True
+                )
+
+            # Only include chapters with meaningful data (at least one non-zero member count)
+            if growth_data and any(point.get("member_count", 0) > 0 for point in growth_data):
+                time_series[chapter_name] = growth_data
+                frappe.logger().info(f"Chapter {chapter_name} has {len(growth_data)} data points")
+            else:
+                frappe.logger().info(f"Skipping chapter {chapter_name} - no meaningful member data")
+        except Exception as e:
+            frappe.log_error(f"Error processing chapter {chapter_name}: {str(e)}", "Chapter Growth Error")
+            continue
+
+    # Return only chapters that have data in time_series
+    included_chapters = [c.chapter_name for c in chapters if c.chapter_name in time_series]
+    return {"chapters": included_chapters, "time_series": time_series}
 
 
 @frappe.whitelist()

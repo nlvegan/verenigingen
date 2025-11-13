@@ -386,56 +386,6 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Financial Reports",
-   "link_count": 4,
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Card Break"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 1,
-   "label": "Overdue Member Payments",
-   "link_count": 0,
-   "link_to": "Overdue Member Payments",
-   "link_type": "Report",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 1,
-   "label": "Membership Dues Coverage Analysis",
-   "link_count": 0,
-   "link_to": "Membership Dues Coverage Analysis",
-   "link_type": "Report",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Membership Revenue Projection",
-   "link_count": 0,
-   "link_to": "Membership Revenue Projection",
-   "link_type": "Report",
-   "onboard": 0,
-   "report_ref_doctype": "Membership Dues Schedule",
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 1,
-   "label": "Chapter Expense Report",
-   "link_count": 0,
-   "link_to": "Chapter Expense Report",
-   "link_type": "Report",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
    "label": "Member Reports",
    "link_count": 7,
    "link_type": "DocType",
@@ -1022,9 +972,69 @@
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Financial Reports",
+   "link_count": 5,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Overdue Member Payments",
+   "link_count": 0,
+   "link_to": "Overdue Member Payments",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Membership Dues Coverage Analysis",
+   "link_count": 0,
+   "link_to": "Membership Dues Coverage Analysis",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Membership Revenue Projection",
+   "link_count": 0,
+   "link_to": "Membership Revenue Projection",
+   "link_type": "Report",
+   "onboard": 0,
+   "report_ref_doctype": "Membership Dues Schedule",
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Chapter Expense Report",
+   "link_count": 0,
+   "link_to": "Chapter Expense Report",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Mollie orphaned Subscription audit",
+   "link_count": 0,
+   "link_to": "Mollie Subscription Audit",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
   }
  ],
- "modified": "2025-11-12 23:30:56.492147",
+ "modified": "2025-11-13 22:46:28.488461",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Verenigingen",
