@@ -11,7 +11,7 @@ import frappe
 from frappe import _
 
 from verenigingen.integrations.mollie.core.mollie_client import MollieClient
-from verenigingen.utils.security_decorators import critical_api
+from verenigingen.utils.security.api_security_framework import critical_api
 
 
 class SubscriptionAudit:

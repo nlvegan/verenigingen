@@ -9,7 +9,7 @@ import json
 import frappe
 
 from verenigingen.utils.admin_utilities.subscription_audit import SubscriptionAudit
-from verenigingen.utils.security_decorators import critical_api
+from verenigingen.utils.security.api_security_framework import critical_api
 
 
 def get_context(context):
