@@ -60,10 +60,14 @@ def run_audit():
             "success": True,
             "summary": report["summary"],
             "issues": {
-                "orphaned": report["details"]["orphaned_subscriptions"],
-                "deleted_members": report["details"]["deleted_member_subscriptions"],
-                "mismatches": report["details"]["status_mismatches"],
-                "missing_data": report["details"]["missing_mollie_data"],
+                # Mollie-side issues
+                "subscription_no_member_match": report["details"]["subscription_no_member_match"],
+                "subscription_customer_no_member": report["details"]["subscription_customer_no_member"],
+                "subscription_for_deleted_member": report["details"]["subscription_for_deleted_member"],
+                "subscription_status_mismatch": report["details"]["subscription_status_mismatch"],
+                # Database-side issues
+                "member_subscription_not_in_mollie": report["details"]["member_subscription_not_in_mollie"],
+                "member_incomplete_mollie_data": report["details"]["member_incomplete_mollie_data"],
             },
             "test_mode": report["test_mode"],
             "timestamp": report["audit_timestamp"],

@@ -27,10 +27,14 @@ class SubscriptionAudit:
     def __init__(self):
         self.client = MollieClient()
         self.issues = {
-            "orphaned_subscriptions": [],  # Mollie subscriptions without valid members
-            "missing_mollie_data": [],  # Members claiming active subscription but no Mollie record
-            "status_mismatches": [],  # Status conflicts between Mollie and Member
-            "deleted_member_subscriptions": [],  # Subscriptions for deleted members
+            # Mollie-side issues (subscriptions in Mollie we need to address)
+            "subscription_no_member_match": [],  # Subscription exists but no Member with that subscription_id
+            "subscription_customer_no_member": [],  # Customer exists in Mollie but no Member with that customer_id
+            "subscription_for_deleted_member": [],  # Subscription for a Member that was deleted from our database
+            "subscription_status_mismatch": [],  # Member exists but status doesn't match Mollie
+            # Database-side issues (Members claiming subscriptions that don't exist in Mollie)
+            "member_subscription_not_in_mollie": [],  # Member claims active subscription but it's not in Mollie
+            "member_incomplete_mollie_data": [],  # Member has subscription_status='active' but missing customer/subscription IDs
         }
 
     def run_full_audit(self) -> Dict[str, Any]:
@@ -120,7 +124,7 @@ class SubscriptionAudit:
         """
         total = len(mollie_subscriptions)
 
-        # Fetch all members with subscription IDs upfront to avoid N+1 queries
+        # Fetch all members with Mollie data upfront to avoid N+1 queries
         frappe.publish_realtime("msgprint", "Loading member subscription data...", user=frappe.session.user)
 
         members_with_subs = frappe.get_all(
@@ -136,8 +140,27 @@ class SubscriptionAudit:
             ],
         )
 
-        # Build lookup dict: subscription_id -> member data
-        member_by_sub_id = {m.mollie_subscription_id: m for m in members_with_subs}
+        # Also fetch members with customer IDs (might not have subscription IDs yet)
+        members_with_customers = frappe.get_all(
+            "Member",
+            filters={"mollie_customer_id": ["is", "set"]},
+            fields=[
+                "name",
+                "full_name",
+                "status",
+                "subscription_status",
+                "mollie_customer_id",
+                "mollie_subscription_id",
+            ],
+        )
+
+        # Build lookup dicts
+        member_by_sub_id = {
+            m.mollie_subscription_id: m for m in members_with_subs if m.mollie_subscription_id
+        }
+        member_by_customer_id = {
+            m.mollie_customer_id: m for m in members_with_customers if m.mollie_customer_id
+        }
 
         # Fetch all deleted members upfront to avoid N+1 LIKE queries
         deleted_members_data = frappe.db.sql(
@@ -151,15 +174,20 @@ class SubscriptionAudit:
 
         # Build a set of subscription IDs from deleted members for fast lookup
         deleted_member_sub_ids = {}
-        for deleted in deleted_members_data:
-            # Extract subscription IDs from the JSON data field
-            if deleted.data and "mollie_subscription_id" in deleted.data:
-                # Simple string search for subscription ID pattern (sub_xxxx)
-                import re
+        import json
 
-                sub_matches = re.findall(r"sub_[a-zA-Z0-9]+", deleted.data)
-                for sub_id in sub_matches:
-                    deleted_member_sub_ids[sub_id] = deleted.name
+        for deleted in deleted_members_data:
+            # Extract subscription IDs from the JSON data field using proper JSON parsing
+            if deleted.data:
+                try:
+                    data_dict = json.loads(deleted.data)
+                    if isinstance(data_dict, dict) and "mollie_subscription_id" in data_dict:
+                        sub_id = data_dict["mollie_subscription_id"]
+                        if sub_id:  # Only add if not None or empty
+                            deleted_member_sub_ids[sub_id] = deleted.name
+                except (json.JSONDecodeError, ValueError, TypeError):
+                    # Skip invalid JSON data
+                    continue
 
         frappe.publish_realtime(
             "msgprint",
@@ -182,65 +210,88 @@ class SubscriptionAudit:
             if status not in ["active", "pending"]:
                 continue
 
-            # Look up member by subscription ID using in-memory dict (O(1) instead of database query)
-            member = member_by_sub_id.get(sub_id)
+            # Extract customer name from Mollie subscription metadata (handle None)
+            metadata = subscription.get("metadata") or {}
+            customer_name = metadata.get("name", "Unknown")
 
-            if not member:
-                # No member found - this is an orphaned subscription
-                # Check if there's a deleted member using our pre-built lookup dict
-                deleted_member_name = deleted_member_sub_ids.get(sub_id)
+            # Build base subscription info (handle None for nested gets)
+            amount_obj = subscription.get("amount") or {}
+            sub_info = {
+                "subscription_id": sub_id,
+                "customer_id": customer_id,
+                "customer_name_mollie": customer_name,
+                "status": status,
+                "amount": amount_obj.get("value"),
+                "interval": subscription.get("interval"),
+                "description": subscription.get("description"),
+                "next_payment_date": subscription.get("nextPaymentDate"),
+            }
 
-                if deleted_member_name:
-                    self.issues["deleted_member_subscriptions"].append(
+            # Look up member by subscription ID
+            member_by_sub = member_by_sub_id.get(sub_id)
+            # Also look up member by customer ID (might be different member or no subscription ID match)
+            member_by_cust = member_by_customer_id.get(customer_id)
+
+            if member_by_sub:
+                # Member found by subscription ID - check for status mismatches
+                if member_by_sub.subscription_status != status:
+                    self.issues["subscription_status_mismatch"].append(
                         {
-                            "subscription_id": sub_id,
-                            "customer_id": customer_id,
-                            "status": status,
-                            "deleted_member": deleted_member_name,
-                            "amount": subscription.get("amount", {}).get("value"),
-                            "interval": subscription.get("interval"),
-                            "description": subscription.get("description"),
-                            "next_payment_date": subscription.get("nextPaymentDate"),
-                        }
-                    )
-                else:
-                    self.issues["orphaned_subscriptions"].append(
-                        {
-                            "subscription_id": sub_id,
-                            "customer_id": customer_id,
-                            "status": status,
-                            "amount": subscription.get("amount", {}).get("value"),
-                            "interval": subscription.get("interval"),
-                            "description": subscription.get("description"),
-                            "next_payment_date": subscription.get("nextPaymentDate"),
-                        }
-                    )
-            else:
-                # Member found - check for status mismatches
-                if member.subscription_status != status:
-                    self.issues["status_mismatches"].append(
-                        {
-                            "member_id": member.name,
-                            "member_name": member.full_name,
-                            "subscription_id": sub_id,
+                            **sub_info,
+                            "member_id": member_by_sub.name,
+                            "member_name_db": member_by_sub.full_name,
+                            "member_status": member_by_sub.status,
+                            "member_subscription_status": member_by_sub.subscription_status,
                             "mollie_status": status,
-                            "member_status": member.subscription_status,
-                            "member_overall_status": member.status,
                         }
                     )
 
                 # Check if customer_id matches
-                if member.mollie_customer_id != customer_id:
-                    self.issues["status_mismatches"].append(
+                if member_by_sub.mollie_customer_id != customer_id:
+                    self.issues["subscription_status_mismatch"].append(
                         {
-                            "member_id": member.name,
-                            "member_name": member.full_name,
-                            "subscription_id": sub_id,
+                            **sub_info,
+                            "member_id": member_by_sub.name,
+                            "member_name_db": member_by_sub.full_name,
                             "issue": "customer_id_mismatch",
-                            "mollie_customer_id": customer_id,
-                            "member_customer_id": member.mollie_customer_id,
+                            "member_customer_id": member_by_sub.mollie_customer_id,
                         }
                     )
+            else:
+                # No member found by subscription ID - check customer ID first (live members take priority)
+                if member_by_cust:
+                    # Customer ID exists in our database but subscription ID doesn't match
+                    self.issues["subscription_customer_no_member"].append(
+                        {
+                            **sub_info,
+                            "member_id": member_by_cust.name,
+                            "member_name_db": member_by_cust.full_name,
+                            "member_status": member_by_cust.status,
+                            "member_subscription_id": member_by_cust.mollie_subscription_id,
+                            "note": "Customer ID matches a Member, but subscription ID doesn't match our records",
+                        }
+                    )
+                else:
+                    # No live member found - check if this was a deleted member
+                    deleted_member_name = deleted_member_sub_ids.get(sub_id)
+
+                    if deleted_member_name:
+                        # Subscription belongs to deleted member
+                        self.issues["subscription_for_deleted_member"].append(
+                            {
+                                **sub_info,
+                                "deleted_member_id": deleted_member_name,
+                                "note": "Member was deleted from database but Mollie subscription still active",
+                            }
+                        )
+                    else:
+                        # No member found by either subscription ID or customer ID
+                        self.issues["subscription_no_member_match"].append(
+                            {
+                                **sub_info,
+                                "note": "No Member found with this subscription ID or customer ID",
+                            }
+                        )
 
     def _find_members_with_invalid_subscriptions(self, mollie_subscriptions: List[Dict[str, Any]]):
         """
@@ -281,27 +332,26 @@ class SubscriptionAudit:
         for member in members_with_subscriptions:
             if not member.mollie_customer_id or not member.mollie_subscription_id:
                 # Missing customer or subscription ID
-                self.issues["missing_mollie_data"].append(
+                self.issues["member_incomplete_mollie_data"].append(
                     {
                         "member_id": member.name,
-                        "member_name": member.full_name,
-                        "issue": "incomplete_mollie_data",
+                        "member_name_db": member.full_name,
                         "subscription_status": member.subscription_status,
-                        "mollie_customer_id": member.mollie_customer_id,
-                        "mollie_subscription_id": member.mollie_subscription_id,
+                        "mollie_customer_id": member.mollie_customer_id or "Missing",
+                        "mollie_subscription_id": member.mollie_subscription_id or "Missing",
+                        "note": "Member claims active subscription but has incomplete Mollie data",
                     }
                 )
             elif member.mollie_subscription_id not in mollie_subscription_ids:
                 # Subscription ID not found in Mollie's list
-                self.issues["missing_mollie_data"].append(
+                self.issues["member_subscription_not_in_mollie"].append(
                     {
                         "member_id": member.name,
-                        "member_name": member.full_name,
-                        "issue": "subscription_not_found_in_mollie",
+                        "member_name_db": member.full_name,
                         "subscription_status": member.subscription_status,
                         "mollie_subscription_id": member.mollie_subscription_id,
                         "mollie_customer_id": member.mollie_customer_id,
-                        "error": "Subscription not found in Mollie's active subscriptions",
+                        "note": "Member's subscription ID not found in Mollie (may have been cancelled/expired)",
                     }
                 )
 
@@ -316,10 +366,14 @@ class SubscriptionAudit:
             "summary": {
                 "total_mollie_subscriptions": total_mollie,
                 "active_mollie_subscriptions": active_mollie,
-                "orphaned_subscriptions": len(self.issues["orphaned_subscriptions"]),
-                "deleted_member_subscriptions": len(self.issues["deleted_member_subscriptions"]),
-                "status_mismatches": len(self.issues["status_mismatches"]),
-                "missing_mollie_data": len(self.issues["missing_mollie_data"]),
+                # Mollie-side issues
+                "subscription_no_member_match": len(self.issues["subscription_no_member_match"]),
+                "subscription_customer_no_member": len(self.issues["subscription_customer_no_member"]),
+                "subscription_for_deleted_member": len(self.issues["subscription_for_deleted_member"]),
+                "subscription_status_mismatch": len(self.issues["subscription_status_mismatch"]),
+                # Database-side issues
+                "member_subscription_not_in_mollie": len(self.issues["member_subscription_not_in_mollie"]),
+                "member_incomplete_mollie_data": len(self.issues["member_incomplete_mollie_data"]),
             },
             "details": self.issues,
             "audit_timestamp": frappe.utils.now(),
@@ -330,13 +384,20 @@ class SubscriptionAudit:
         frappe.msgprint(
             f"""
             <h3>Subscription Audit Summary</h3>
+            <p><strong>Total Mollie Subscriptions:</strong> {total_mollie} (Active: {active_mollie})</p>
+
+            <h4>Mollie-Side Issues (Subscriptions in Mollie we need to address):</h4>
             <ul>
-                <li>Total Mollie Subscriptions: {total_mollie}</li>
-                <li>Active Mollie Subscriptions: {active_mollie}</li>
-                <li><strong>Orphaned Subscriptions: {report['summary']['orphaned_subscriptions']}</strong></li>
-                <li><strong>Deleted Member Subscriptions: {report['summary']['deleted_member_subscriptions']}</strong></li>
-                <li>Status Mismatches: {report['summary']['status_mismatches']}</li>
-                <li>Missing Mollie Data: {report['summary']['missing_mollie_data']}</li>
+                <li><strong>No Member Match:</strong> {report['summary']['subscription_no_member_match']} - Subscription exists but no Member found by subscription ID or customer ID</li>
+                <li><strong>Customer but Wrong Subscription:</strong> {report['summary']['subscription_customer_no_member']} - Customer ID matches a Member but subscription ID doesn't</li>
+                <li><strong>Deleted Members:</strong> {report['summary']['subscription_for_deleted_member']} - Active subscriptions for deleted Members</li>
+                <li><strong>Status Mismatches:</strong> {report['summary']['subscription_status_mismatch']} - Member exists but status conflicts with Mollie</li>
+            </ul>
+
+            <h4>Database-Side Issues (Members with invalid subscription claims):</h4>
+            <ul>
+                <li><strong>Subscription Not in Mollie:</strong> {report['summary']['member_subscription_not_in_mollie']} - Members claiming active subscriptions that don't exist in Mollie</li>
+                <li><strong>Incomplete Mollie Data:</strong> {report['summary']['member_incomplete_mollie_data']} - Members with active status but missing customer/subscription IDs</li>
             </ul>
         """
         )

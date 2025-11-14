@@ -34,10 +34,8 @@ from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 def get_context(context):
     """Get context for monitoring dashboard page"""
     # Require System Manager or Verenigingen Administrator permissions
-    if not (
-        frappe.has_permission(doctype=None, role="System Manager")
-        or frappe.has_permission(doctype=None, role="Verenigingen Administrator")
-    ):
+    user_roles = frappe.get_roles()
+    if not ("System Manager" in user_roles or "Verenigingen Administrator" in user_roles):
         frappe.throw(
             "Access Denied: System Manager or Verenigingen Administrator role required",
             frappe.PermissionError,
@@ -96,7 +94,7 @@ def get_system_metrics():
                 "total": frappe.db.count("Member"),
             },
             "volunteers": {
-                "active": frappe.db.count("Volunteer", {"is_active": 1}),
+                "active": frappe.db.count("Volunteer", {"status": "Active"}),
                 "total": frappe.db.count("Volunteer"),
             },
             "sepa": {

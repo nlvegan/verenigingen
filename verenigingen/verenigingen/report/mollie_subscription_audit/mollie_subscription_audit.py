@@ -62,88 +62,126 @@ def get_data(filters=None):
 
     # Run the audit
     auditor = SubscriptionAudit()
-    report = auditor.run_full_audit(auto_cancel_orphans=False)
+    report = auditor.run_full_audit()
 
     data = []
 
-    # Add orphaned subscriptions
-    for orphan in report["details"]["orphaned_subscriptions"]:
+    # Add Mollie-side issues: subscriptions without member match
+    for issue in report["details"]["subscription_no_member_match"]:
         data.append(
             {
-                "issue_type": "🔴 Orphaned Subscription",
-                "subscription_id": orphan["subscription_id"],
-                "customer_id": orphan["customer_id"],
+                "issue_type": "🔴 No Member Match",
+                "subscription_id": issue["subscription_id"],
+                "customer_id": issue["customer_id"],
                 "member_id": None,
-                "member_name": None,
-                "status": orphan["status"],
+                "member_name": issue.get("customer_name_mollie"),
+                "status": issue["status"],
                 "member_status": None,
-                "amount": float(orphan["amount"]) if orphan.get("amount") else 0.0,
-                "interval": orphan.get("interval"),
-                "next_payment_date": orphan.get("next_payment_date"),
-                "description": orphan.get("description"),
-                "details": "Active in Mollie but no corresponding Member record found",
+                "amount": float(issue["amount"]) if issue.get("amount") else 0.0,
+                "interval": issue.get("interval"),
+                "next_payment_date": issue.get("next_payment_date"),
+                "description": issue.get("description"),
+                "details": issue.get("note", "No Member found with this subscription ID or customer ID"),
             }
         )
 
-    # Add deleted member subscriptions
-    for deleted in report["details"]["deleted_member_subscriptions"]:
+    # Add Mollie-side issues: customer exists but subscription mismatch
+    for issue in report["details"]["subscription_customer_no_member"]:
         data.append(
             {
-                "issue_type": "🟠 Deleted Member Subscription",
-                "subscription_id": deleted["subscription_id"],
-                "customer_id": deleted["customer_id"],
-                "member_id": deleted.get("deleted_member"),
-                "member_name": None,
-                "status": deleted["status"],
-                "member_status": None,
-                "amount": float(deleted["amount"]) if deleted.get("amount") else 0.0,
-                "interval": deleted.get("interval"),
-                "next_payment_date": deleted.get("next_payment_date"),
-                "description": deleted.get("description"),
-                "details": f"Member was deleted: {deleted.get('deleted_member')}",
+                "issue_type": "🟠 Customer but Wrong Subscription",
+                "subscription_id": issue["subscription_id"],
+                "customer_id": issue["customer_id"],
+                "member_id": issue.get("member_id"),
+                "member_name": issue.get("member_name_db"),
+                "status": issue["status"],
+                "member_status": issue.get("member_status"),
+                "amount": float(issue["amount"]) if issue.get("amount") else 0.0,
+                "interval": issue.get("interval"),
+                "next_payment_date": issue.get("next_payment_date"),
+                "description": issue.get("description"),
+                "details": issue.get("note", "Customer ID matches but subscription ID doesn't"),
             }
         )
 
-    # Add status mismatches
-    for mismatch in report["details"]["status_mismatches"]:
-        if mismatch.get("issue") == "customer_id_mismatch":
-            details = f"Customer ID mismatch - Mollie: {mismatch['mollie_customer_id']}, Member: {mismatch['member_customer_id']}"
+    # Add Mollie-side issues: subscriptions for deleted members
+    for issue in report["details"]["subscription_for_deleted_member"]:
+        data.append(
+            {
+                "issue_type": "⚫ Deleted Member",
+                "subscription_id": issue["subscription_id"],
+                "customer_id": issue["customer_id"],
+                "member_id": issue.get("deleted_member_id"),
+                "member_name": issue.get("customer_name_mollie"),
+                "status": issue["status"],
+                "member_status": None,
+                "amount": float(issue["amount"]) if issue.get("amount") else 0.0,
+                "interval": issue.get("interval"),
+                "next_payment_date": issue.get("next_payment_date"),
+                "description": issue.get("description"),
+                "details": issue.get("note", "Member was deleted but subscription still active"),
+            }
+        )
+
+    # Add Mollie-side issues: status mismatches
+    for issue in report["details"]["subscription_status_mismatch"]:
+        if issue.get("issue") == "customer_id_mismatch":
+            details = f"Customer ID mismatch - Mollie: {issue.get('customer_id')}, Member: {issue.get('member_customer_id')}"
         else:
-            details = f"Status mismatch - Mollie: {mismatch.get('mollie_status')}, Member: {mismatch.get('member_status')}"
+            details = f"Status mismatch - Mollie: {issue.get('mollie_status')}, Member: {issue.get('member_subscription_status')}"
 
         data.append(
             {
                 "issue_type": "🟡 Status Mismatch",
-                "subscription_id": mismatch.get("subscription_id"),
-                "customer_id": mismatch.get("customer_id"),
-                "member_id": mismatch.get("member_id"),
-                "member_name": mismatch.get("member_name"),
-                "status": mismatch.get("mollie_status"),
-                "member_status": mismatch.get("member_status") or mismatch.get("member_overall_status"),
-                "amount": None,
-                "interval": None,
-                "next_payment_date": None,
-                "description": None,
+                "subscription_id": issue.get("subscription_id"),
+                "customer_id": issue.get("customer_id"),
+                "member_id": issue.get("member_id"),
+                "member_name": issue.get("member_name_db"),
+                "status": issue.get("mollie_status") or issue.get("status"),
+                "member_status": issue.get("member_subscription_status"),
+                "amount": float(issue["amount"]) if issue.get("amount") else 0.0,
+                "interval": issue.get("interval"),
+                "next_payment_date": issue.get("next_payment_date"),
+                "description": issue.get("description"),
                 "details": details,
             }
         )
 
-    # Add missing Mollie data
-    for missing in report["details"]["missing_mollie_data"]:
+    # Add Database-side issues: members claiming subscriptions not in Mollie
+    for issue in report["details"]["member_subscription_not_in_mollie"]:
         data.append(
             {
-                "issue_type": "🔵 Missing Mollie Data",
-                "subscription_id": missing.get("mollie_subscription_id"),
-                "customer_id": missing.get("mollie_customer_id"),
-                "member_id": missing.get("member_id"),
-                "member_name": missing.get("member_name"),
+                "issue_type": "🔵 Subscription Not in Mollie",
+                "subscription_id": issue.get("mollie_subscription_id"),
+                "customer_id": issue.get("mollie_customer_id"),
+                "member_id": issue.get("member_id"),
+                "member_name": issue.get("member_name_db"),
                 "status": None,
-                "member_status": missing.get("subscription_status"),
+                "member_status": issue.get("subscription_status"),
                 "amount": None,
                 "interval": None,
                 "next_payment_date": None,
                 "description": None,
-                "details": f"Issue: {missing.get('issue')} - {missing.get('error', 'Subscription not found in Mollie')}",
+                "details": issue.get("note", "Member's subscription ID not found in Mollie"),
+            }
+        )
+
+    # Add Database-side issues: members with incomplete Mollie data
+    for issue in report["details"]["member_incomplete_mollie_data"]:
+        data.append(
+            {
+                "issue_type": "🔷 Incomplete Mollie Data",
+                "subscription_id": issue.get("mollie_subscription_id"),
+                "customer_id": issue.get("mollie_customer_id"),
+                "member_id": issue.get("member_id"),
+                "member_name": issue.get("member_name_db"),
+                "status": None,
+                "member_status": issue.get("subscription_status"),
+                "amount": None,
+                "interval": None,
+                "next_payment_date": None,
+                "description": None,
+                "details": issue.get("note", "Member has incomplete Mollie data"),
             }
         )
 
@@ -151,10 +189,12 @@ def get_data(filters=None):
     summary_text = (
         f"Total: {report['summary']['total_mollie_subscriptions']} subscriptions | "
         f"Active: {report['summary']['active_mollie_subscriptions']} | "
-        f"Orphaned: {report['summary']['orphaned_subscriptions']} | "
-        f"Deleted Member: {report['summary']['deleted_member_subscriptions']} | "
-        f"Mismatches: {report['summary']['status_mismatches']} | "
-        f"Missing Data: {report['summary']['missing_mollie_data']} | "
+        f"No Match: {report['summary']['subscription_no_member_match']} | "
+        f"Customer Wrong Sub: {report['summary']['subscription_customer_no_member']} | "
+        f"Deleted Members: {report['summary']['subscription_for_deleted_member']} | "
+        f"Status Mismatches: {report['summary']['subscription_status_mismatch']} | "
+        f"Not in Mollie: {report['summary']['member_subscription_not_in_mollie']} | "
+        f"Incomplete Data: {report['summary']['member_incomplete_mollie_data']} | "
         f"Test Mode: {'Yes' if report['test_mode'] else 'No'}"
     )
 

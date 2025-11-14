@@ -209,13 +209,13 @@
                             <tr>
                                 <td>{{ alert.alert_type }}</td>
                                 <td>
-                                    <span class="alert-badge alert-{{ alert.compliance_status.lower() }}">
-                                        {{ alert.compliance_status }}
+                                    <span class="alert-badge alert-{{ (alert.severity or 'low').lower() }}">
+                                        {{ alert.severity or 'Unknown' }}
                                     </span>
                                 </td>
-                                <td>{{ alert.message[:100] }}{% if alert.message|length > 100 %}...{% endif %}</td>
+                                <td>{{ alert.message[:100] if alert.message else '' }}{% if alert.message and alert.message|length > 100 %}...{% endif %}</td>
                                 <td>{{ alert.status }}</td>
-                                <td>{{ frappe.format(alert.timestamp, 'Datetime') }}</td>
+                                <td>{{ frappe.format(alert.timestamp, 'Datetime') if alert.timestamp else '' }}</td>
                                 <td>
                                     {% if alert.status == "Active" %}
                                     <button class="btn btn-sm btn-warning" onclick="acknowledgeAlert('{{ alert.name }}')">
@@ -297,12 +297,12 @@
                                 <td><strong>{{ audit.process_type }}</strong></td>
                                 <td>{{ audit.action }}</td>
                                 <td>
-                                    <span class="compliance-status compliance-{{ audit.compliance_status.lower() }}">
-                                        {{ audit.compliance_status }}
+                                    <span class="compliance-status compliance-{{ (audit.compliance_status or 'pending').lower() }}">
+                                        {{ audit.compliance_status or 'Unknown' }}
                                     </span>
                                 </td>
                                 <td>{{ audit.count }}</td>
-                                <td>{{ frappe.format(audit.latest, 'Datetime') }}</td>
+                                <td>{{ frappe.format(audit.latest, 'Datetime') if audit.latest else '' }}</td>
                             </tr>
                             {% endfor %}
                         </tbody>
