@@ -11,7 +11,7 @@ import frappe
 from frappe import _
 
 from verenigingen.integrations.mollie.core.mollie_client import MollieClient
-from verenigingen.utils.security.api_security_framework import critical_api
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
 class SubscriptionAudit:
@@ -312,7 +312,7 @@ class SubscriptionAudit:
 
 
 @frappe.whitelist()
-@critical_api  # Handles financial data and Mollie API access
+@critical_api(operation_type=OperationType.FINANCIAL)
 def run_subscription_audit():
     """
     Whitelisted method to run subscription audit from Desk.
