@@ -26,9 +26,6 @@
       "step": "Verenigingen-Configure-Security"
     },
     {
-      "step": "Verenigingen-Install-Email-Templates"
-    },
-    {
       "step": "Verenigingen-Create-Member"
     },
     {

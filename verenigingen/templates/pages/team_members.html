@@ -236,13 +236,48 @@
 
 {% block page_content %}
 <div class="team-members-page">
+    {% if show_team_selector %}
+    <!-- Team Selector View -->
+    <div class="page-header">
+        <h1>{{ _("Select Team") }}</h1>
+        <p>{{ _("Choose a team to view its members") }}</p>
+    </div>
+
+    {% if available_teams %}
+    <div class="members-grid">
+        {% for team in available_teams %}
+        <a href="/team_members?team={{ team.name }}" class="member-card" style="text-decoration: none; color: inherit;">
+            <div class="member-header">
+                <div>
+                    <h4 class="member-name">{{ team.team_name }}</h4>
+                    {% if team.chapter %}
+                    <div class="member-id">{{ _("Chapter") }}: {{ team.chapter }}</div>
+                    {% endif %}
+                </div>
+            </div>
+            {% if team.description %}
+            <p style="margin-top: 1rem; color: #666;">{{ team.description }}</p>
+            {% endif %}
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="icon">👥</div>
+        <h3>{{ _("No Teams Available") }}</h3>
+        <p>{{ _("You don't have access to any teams yet.") }}</p>
+    </div>
+    {% endif %}
+
+    {% else %}
+    <!-- Team Members View -->
     <div class="page-header">
         <h1>{{ team.team_name }}</h1>
         <p>{{ _("Team Members") }}</p>
     </div>
 
-    <a href="/my_teams" class="back-button">
-        <i class="fa fa-arrow-left"></i> {{ _("Back to My Teams") }}
+    <a href="/team_members" class="back-button">
+        <i class="fa fa-arrow-left"></i> {{ _("Back to Team Selection") }}
     </a>
 
     <div class="team-info">
@@ -330,6 +365,7 @@
         <h3>{{ _("No Team Members") }}</h3>
         <p>{{ _("This team currently has no active members.") }}</p>
     </div>
+    {% endif %}
     {% endif %}
 </div>
 {% endblock %}

@@ -120,9 +120,56 @@ class SubscriptionAudit:
         """
         total = len(mollie_subscriptions)
 
+        # Fetch all members with subscription IDs upfront to avoid N+1 queries
+        frappe.publish_realtime("msgprint", "Loading member subscription data...", user=frappe.session.user)
+
+        members_with_subs = frappe.get_all(
+            "Member",
+            filters={"mollie_subscription_id": ["is", "set"]},
+            fields=[
+                "name",
+                "full_name",
+                "status",
+                "subscription_status",
+                "mollie_customer_id",
+                "mollie_subscription_id",
+            ],
+        )
+
+        # Build lookup dict: subscription_id -> member data
+        member_by_sub_id = {m.mollie_subscription_id: m for m in members_with_subs}
+
+        # Fetch all deleted members upfront to avoid N+1 LIKE queries
+        deleted_members_data = frappe.db.sql(
+            """
+            SELECT name, data
+            FROM `tabDeleted Document`
+            WHERE deleted_doctype = 'Member'
+            """,
+            as_dict=True,
+        )
+
+        # Build a set of subscription IDs from deleted members for fast lookup
+        deleted_member_sub_ids = {}
+        for deleted in deleted_members_data:
+            # Extract subscription IDs from the JSON data field
+            if deleted.data and "mollie_subscription_id" in deleted.data:
+                # Simple string search for subscription ID pattern (sub_xxxx)
+                import re
+
+                sub_matches = re.findall(r"sub_[a-zA-Z0-9]+", deleted.data)
+                for sub_id in sub_matches:
+                    deleted_member_sub_ids[sub_id] = deleted.name
+
+        frappe.publish_realtime(
+            "msgprint",
+            f"Loaded {len(member_by_sub_id)} member subscriptions and {len(deleted_member_sub_ids)} deleted member subscriptions. Cross-referencing...",
+            user=frappe.session.user,
+        )
+
         for idx, subscription in enumerate(mollie_subscriptions):
-            # Publish progress every 10 subscriptions
-            if idx % 10 == 0:
+            # Publish progress every 50 subscriptions (less frequent since it's much faster now)
+            if idx % 50 == 0:
                 frappe.publish_realtime(
                     "msgprint", f"Cross-referencing subscriptions: {idx}/{total}", user=frappe.session.user
                 )
@@ -135,35 +182,21 @@ class SubscriptionAudit:
             if status not in ["active", "pending"]:
                 continue
 
-            # Try to find member by mollie_subscription_id
-            member = frappe.db.get_value(
-                "Member",
-                {"mollie_subscription_id": sub_id},
-                ["name", "full_name", "status", "subscription_status", "mollie_customer_id"],
-                as_dict=True,
-            )
+            # Look up member by subscription ID using in-memory dict (O(1) instead of database query)
+            member = member_by_sub_id.get(sub_id)
 
             if not member:
                 # No member found - this is an orphaned subscription
-                # Check if there's a deleted member
-                deleted_member = frappe.db.sql(
-                    """
-                    SELECT name
-                    FROM `tabDeleted Document`
-                    WHERE deleted_doctype = 'Member'
-                    AND data LIKE %s
-                """,
-                    (f"%{sub_id}%",),
-                    as_dict=True,
-                )
+                # Check if there's a deleted member using our pre-built lookup dict
+                deleted_member_name = deleted_member_sub_ids.get(sub_id)
 
-                if deleted_member:
+                if deleted_member_name:
                     self.issues["deleted_member_subscriptions"].append(
                         {
                             "subscription_id": sub_id,
                             "customer_id": customer_id,
                             "status": status,
-                            "deleted_member": deleted_member[0].get("name"),
+                            "deleted_member": deleted_member_name,
                             "amount": subscription.get("amount", {}).get("value"),
                             "interval": subscription.get("interval"),
                             "description": subscription.get("description"),

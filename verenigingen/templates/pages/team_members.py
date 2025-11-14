@@ -22,8 +22,18 @@ def get_context(context: Dict[str, Any]) -> Dict[str, Any]:
 
     # Modernized validation with helpers
     user = validate_user_logged_in()
-    team_name = validate_entity_exists("Team", frappe.form_dict.get("team"))
     member = validate_member_for_user(user)
+
+    # If no team specified, show team selector
+    team_param = frappe.form_dict.get("team")
+    if not team_param:
+        context.no_cache = 1
+        context.title = _("Select Team")
+        context.show_team_selector = True
+        context.available_teams = _get_available_teams_for_user(user, member)
+        return context
+
+    team_name = validate_entity_exists("Team", team_param)
 
     context.no_cache = 1
     context.title = _("Team Members")
@@ -133,6 +143,63 @@ def get_context(context: Dict[str, Any]) -> Dict[str, Any]:
     context.current_user_volunteer = volunteer
 
     return context
+
+
+def _get_available_teams_for_user(user: str, member: str) -> list:
+    """Get list of teams the user can view"""
+    admin_roles = get_volunteer_admin_roles()
+    user_roles = frappe.get_roles(user)
+    is_admin = any(role in user_roles for role in admin_roles)
+
+    if is_admin:
+        # Admins can see all teams
+        teams = frappe.get_all(
+            "Team",
+            filters={"status": "Active"},
+            fields=["name", "team_name", "chapter", "description"],
+            order_by="team_name ASC",
+        )
+        return teams
+
+    # Get volunteer record
+    volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")
+
+    # Get teams where user is a member
+    team_names = []
+    if volunteer:
+        team_names = frappe.get_all(
+            "Team Member",
+            filters={"volunteer": volunteer, "is_active": 1},
+            pluck="parent",
+        )
+
+    # Also get teams from user's chapter(s)
+    chapter_teams = frappe.get_all(
+        "Chapter Member",
+        filters={"member": member, "enabled": 1},
+        fields=["parent"],
+    )
+
+    for cm in chapter_teams:
+        chapter_name = cm.parent
+        chapter_team_names = frappe.get_all("Team", filters={"chapter": chapter_name}, pluck="name")
+        team_names.extend(chapter_team_names)
+
+    # Remove duplicates
+    team_names = list(set(team_names))
+
+    if not team_names:
+        return []
+
+    # Get team details
+    teams = frappe.get_all(
+        "Team",
+        filters={"name": ["in", team_names], "status": "Active"},
+        fields=["name", "team_name", "chapter", "description"],
+        order_by="team_name ASC",
+    )
+
+    return teams
 
 
 def has_website_permission(doc: Any, ptype: str, user: str, verbose: bool = False) -> bool:

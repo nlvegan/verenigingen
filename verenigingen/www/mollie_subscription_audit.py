@@ -35,7 +35,7 @@ def get_context(context):
 
 
 @frappe.whitelist()
-@critical_api  # Handles financial data and Mollie API access
+@critical_api()  # Handles financial data and Mollie API access
 def run_audit():
     """
     Run subscription audit and return results.
