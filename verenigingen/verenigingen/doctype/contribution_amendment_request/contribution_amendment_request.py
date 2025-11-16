@@ -425,13 +425,15 @@ class ContributionAmendmentRequest(Document):
 
                 # Queue background job for Mollie sync
                 # This ensures database transaction commits before external API calls
+                job_id = f"mollie_sync_{self.name}"
                 frappe.enqueue(
                     "verenigingen.integrations.mollie.events.amendment_events.sync_mollie_subscription_on_amendment_applied",
                     queue="default",
                     timeout=60,
                     doc=self,
                     is_async=True,
-                    job_name=f"mollie_sync_{self.name}",
+                    job_name=job_id,
+                    job_id=job_id,
                     deduplicate=True,
                     enqueue_after_commit=True,
                 )
@@ -682,6 +684,10 @@ class ContributionAmendmentRequest(Document):
                         schedule_doc.notes or ""
                     ) + f"\nAmended via {self.name} on {today()}: €{self.requested_amount:.2f}"
 
+                    # CRITICAL FIX: Set flag to bypass duplicate schedule validation
+                    # This is necessary because we're updating the existing schedule, not creating a duplicate
+                    schedule_doc.flags.from_amendment = True
+
                     # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
 
                     schedule_result = secure_document_operation(
@@ -727,19 +733,22 @@ class ContributionAmendmentRequest(Document):
 
             # Update legacy override fields for backward compatibility
             # Re-use member_doc from idempotency check above
+
+            # CRITICAL: Capture old rate BEFORE reload to ensure accurate history
+            # The reload() may pick up intermediate changes, giving us wrong "old" values
+            actual_current_rate = getattr(member_doc, "dues_rate", 0) or 0
+
             member_doc.reload()  # Refresh to avoid timestamp mismatch
 
             # Record fee change in history before updating
-            # CRITICAL FIX: Use actual current member dues_rate, not amendment's stored current_amount
-            actual_current_rate = getattr(member_doc, "dues_rate", 0) or 0
-
+            # Using pre-reload actual_current_rate ensures we log the true previous value
             dues_schedule_ref = self.new_dues_schedule or (
                 dues_schedule_name if "dues_schedule_name" in locals() else ""
             )
             member_doc.record_fee_change(
                 {
                     "change_date": now_datetime(),
-                    "old_amount": actual_current_rate,  # Use actual current rate, not stored value
+                    "old_amount": actual_current_rate,  # Use pre-reload current rate
                     "new_amount": self.requested_amount,
                     "reason": f"Amendment {self.name}: {self.reason}",
                     "changed_by": frappe.session.user,

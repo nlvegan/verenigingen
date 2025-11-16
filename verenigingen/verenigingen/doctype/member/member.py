@@ -1490,8 +1490,11 @@ class Member(
             if "billing_frequency" in change_data:
                 entry_data["billing_frequency"] = change_data["billing_frequency"]
             # Add amendment request reference if available
+            # CRITICAL FIX: Store entry_id (with "amendment_" prefix) for proper deduplication
+            # The deduplication logic compares entry[id_field_name] == entry_id
+            # So we must store the full entry_id, not just the amendment_name
             if amendment_name:
-                entry_data["amendment_request"] = amendment_name
+                entry_data["amendment_request"] = entry_id  # Use entry_id instead of amendment_name
             return entry_data
 
         fee_history_manager = get_fee_change_history_manager(self)

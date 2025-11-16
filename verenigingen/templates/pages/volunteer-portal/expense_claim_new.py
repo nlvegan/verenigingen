@@ -473,17 +473,8 @@ def upload_expense_receipt():
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING, self_service_only=True)
-def submit_expense(expense_data=None, additional_expenses=None):
-    """
-    Submit a new expense from the portal.
-
-    Args:
-        expense_data: Primary expense data (required fields for the claim)
-        additional_expenses: Optional list of additional expense lines to add to the same claim
-
-    Returns:
-        dict: Result with success status and expense claim details
-    """
+def submit_expense(expense_data=None):
+    """Submit a new expense from the portal"""
     try:
         # Handle JSON request body
         if expense_data is None:
@@ -665,19 +656,8 @@ def submit_expense(expense_data=None, additional_expenses=None):
         # Get cost center based on organization
         cost_center = get_organization_cost_center(expense_data)
 
-        # Get expense type from category (validates Expense Category exists)
+        # Get expense type from category
         expense_type = get_or_create_expense_type(expense_data.get("category"))
-
-        # Get expense account from Expense Category
-        expense_account = frappe.db.get_value(
-            "Expense Category", expense_data.get("category"), "expense_account"
-        )
-        if not expense_account:
-            frappe.throw(
-                _(
-                    "Expense Category '{0}' does not have an expense account configured. Please contact your administrator."
-                ).format(expense_data.get("category"))
-            )
 
         # Get payable account from company settings
         payable_account = frappe.db.get_value("Company", default_company, "default_payable_account")
@@ -713,7 +693,7 @@ def submit_expense(expense_data=None, additional_expenses=None):
             }
         )
 
-        # Add primary expense detail with account from Expense Category
+        # Add expense detail
         expense_claim.append(
             "expenses",
             {
@@ -723,31 +703,8 @@ def submit_expense(expense_data=None, additional_expenses=None):
                 "amount": flt(expense_data.get("amount")),
                 "sanctioned_amount": flt(expense_data.get("amount")),
                 "cost_center": cost_center,
-                "default_account": expense_account,  # Use account from Expense Category
             },
         )
-
-        # Add any additional expense lines to the same claim
-        if additional_expenses:
-            for add_expense in additional_expenses:
-                # Get expense type and account for this additional expense
-                add_expense_type = get_or_create_expense_type(add_expense.get("category"))
-                add_expense_account = frappe.db.get_value(
-                    "Expense Category", add_expense.get("category"), "expense_account"
-                )
-
-                expense_claim.append(
-                    "expenses",
-                    {
-                        "expense_date": add_expense.get("expense_date"),
-                        "expense_type": add_expense_type,
-                        "description": add_expense.get("description"),
-                        "amount": flt(add_expense.get("amount")),
-                        "sanctioned_amount": flt(add_expense.get("amount")),
-                        "cost_center": cost_center,
-                        "default_account": add_expense_account,
-                    },
-                )
 
         # Insert the expense claim as draft (don't submit automatically)
         # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
@@ -1260,86 +1217,58 @@ def submit_multiple_expenses(expenses):
                 "errors": errors,
             }
 
-        # Group expenses by organization (chapter/team/national) to create consolidated claims
-        # All expenses for the same organization will be in one Expense Claim
-        from collections import defaultdict
-
-        expense_groups = defaultdict(list)
-
-        for expense_data in expenses:
-            # Create grouping key based on organization
-            org_type = expense_data.get("organization_type")
-            if org_type == "Chapter":
-                group_key = ("Chapter", expense_data.get("chapter"))
-            elif org_type == "Team":
-                group_key = ("Team", expense_data.get("team"))
-            else:  # National
-                group_key = ("National", "National")
-
-            expense_groups[group_key].append(expense_data)
-
-        # Create one Expense Claim per organization group
-        created_claims = []
-        for group_key, group_expenses in expense_groups.items():
+        # Process each expense
+        for idx, expense_data in enumerate(expenses):
             try:
-                # Use the first expense to get common data
-                first_expense = group_expenses[0]
-
-                # Call submit_expense with multiple expense lines
-                # We'll pass all expenses for this group as a special parameter
-                result = submit_expense(
-                    first_expense, additional_expenses=group_expenses[1:] if len(group_expenses) > 1 else None
-                )
+                # Submit individual expense
+                result = submit_expense(expense_data)
 
                 if result.get("success"):
-                    created_claims.append(
+                    created_expenses.append(
                         {
                             "expense_claim_name": result.get("expense_claim_name"),
-                            "organization": f"{group_key[0]}: {group_key[1]}",
-                            "expense_count": len(group_expenses),
-                            "total_amount": sum(float(e.get("amount", 0)) for e in group_expenses),
+                            "expense_name": result.get("expense_name"),
+                            "description": expense_data.get("description"),
+                            "amount": expense_data.get("amount"),
                         }
                     )
                 else:
                     errors.append(
                         {
-                            "organization": f"{group_key[0]}: {group_key[1]}",
+                            "index": idx,
+                            "description": expense_data.get("description"),
                             "error": result.get("message", "Unknown error"),
                         }
                     )
+
             except Exception as e:
                 errors.append(
                     {
-                        "organization": f"{group_key[0]}: {group_key[1]}",
+                        "index": idx,
+                        "description": expense_data.get("description", f"Expense {idx + 1}"),
                         "error": str(e),
                     }
                 )
 
         # Prepare response
-        total_expense_count = sum(claim["expense_count"] for claim in created_claims)
-
-        if created_claims and not errors:
+        if created_expenses and not errors:
             # All expenses created successfully
             return {
                 "success": True,
-                "message": _("Successfully submitted {0} expense(s) in {1} claim(s)").format(
-                    total_expense_count, len(created_claims)
-                ),
-                "created_count": total_expense_count,
-                "claim_count": len(created_claims),
-                "created_claims": created_claims,
+                "message": _("Successfully submitted {0} expense(s)").format(len(created_expenses)),
+                "created_count": len(created_expenses),
+                "created_expenses": created_expenses,
             }
-        elif created_claims and errors:
+        elif created_expenses and errors:
             # Partial success
             return {
                 "success": True,
                 "partial": True,
-                "message": _("Submitted {0} expense(s) in {1} claim(s), {2} group(s) failed").format(
-                    total_expense_count, len(created_claims), len(errors)
+                "message": _("Submitted {0} expense(s) successfully, {1} failed").format(
+                    len(created_expenses), len(errors)
                 ),
-                "created_count": total_expense_count,
-                "claim_count": len(created_claims),
-                "created_claims": created_claims,
+                "created_count": len(created_expenses),
+                "created_expenses": created_expenses,
                 "errors": errors,
             }
         else:

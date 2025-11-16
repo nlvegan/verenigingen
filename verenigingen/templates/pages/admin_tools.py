@@ -57,41 +57,6 @@ def get_context(context):
     # Invoice management tools
     context.invoice_tools = [
         {
-            "title": "Invoice Generation Dashboard",
-            "description": "View dues schedules summary and invoice generation status",
-            "method": "verenigingen.utils.invoice_management.get_dues_schedules_summary",
-            "icon": "fa fa-file-text-o",
-            "color": "brand-primary",
-            "formatter": "invoice",
-        },
-        {
-            "title": "Validate Invoice System",
-            "description": "Check system readiness for invoice generation and identify issues",
-            "method": "verenigingen.utils.invoice_management.validate_invoice_generation_readiness",
-            "icon": "fa fa-check-circle",
-            "color": "brand-secondary",
-            "formatter": "invoice",
-        },
-        {
-            "title": "Bulk Generate Invoices (Dry Run)",
-            "description": "Preview which invoices would be generated without creating them",
-            "method": "verenigingen.utils.invoice_management.bulk_generate_dues_invoices",
-            "icon": "fa fa-eye",
-            "color": "brand-accent",
-            "args": {"dry_run": True, "max_invoices": 20},
-            "formatter": "invoice",
-        },
-        {
-            "title": "Bulk Generate Invoices (Live)",
-            "description": "Generate invoices for all eligible dues schedules",
-            "method": "verenigingen.utils.invoice_management.bulk_generate_dues_invoices",
-            "icon": "fa fa-bolt",
-            "color": "brand-primary",
-            "warning": "This will create actual invoices. Use after reviewing dry run results!",
-            "args": {"dry_run": False, "max_invoices": 50},
-            "formatter": "invoice",
-        },
-        {
             "title": "Cleanup Orphaned Schedules (Dry Run)",
             "description": "Preview orphaned dues schedules that would be cleaned up",
             "method": "verenigingen.utils.invoice_management.cleanup_orphaned_schedules",
@@ -128,60 +93,6 @@ def get_context(context):
             "warning": "This will permanently delete orphaned membership data including invalid membership types!",
             "args": {"dry_run": False, "max_cleanup": 20},
             "formatter": "cleanup",
-        },
-        {
-            "title": "Find Stuck Dues Schedules",
-            "description": "Identify all schedules that are stuck due to validation failures or equal-date issues",
-            "method": "verenigingen.api.fix_stuck_dues_schedule.find_all_stuck_schedules",
-            "icon": "fa fa-search",
-            "color": "brand-accent",
-        },
-        {
-            "title": "Check Stuck Schedule Notifications",
-            "description": "Run the enhanced stuck schedule detection and notification system",
-            "method": "verenigingen.api.fix_stuck_dues_schedule.check_and_notify_stuck_schedules",
-            "icon": "fa fa-bell",
-            "color": "brand-secondary",
-        },
-        {
-            "title": "Diagnose Specific Schedule",
-            "description": "Get detailed diagnosis of why a specific schedule is not generating invoices",
-            "method": "verenigingen.api.fix_stuck_dues_schedule.diagnose_stuck_schedule",
-            "icon": "fa fa-stethoscope",
-            "color": "brand-primary",
-            "args": {"schedule_name": ""},
-            "requires_input": True,
-        },
-        {
-            "title": "Find All Stuck Schedules",
-            "description": "Find and analyze all stuck schedules that need attention",
-            "method": "verenigingen.api.fix_stuck_dues_schedule.find_all_stuck_schedules",
-            "icon": "fa fa-search",
-            "color": "brand-accent",
-        },
-        {
-            "title": "Check and Notify Stuck Schedules",
-            "description": "Check for stuck schedules and send notifications about critical ones",
-            "method": "verenigingen.api.fix_stuck_dues_schedule.check_and_notify_stuck_schedules",
-            "icon": "fa fa-bell",
-            "color": "brand-secondary",
-        },
-        {
-            "title": "Schedule Health Check - Sample Run",
-            "description": "Health check sample: missing schedules + stuck schedules + data integrity (uses default limits)",
-            "method": "verenigingen.utils.dues_schedule_health_manager.comprehensive_dues_schedule_health_check",
-            "icon": "fa fa-heartbeat",
-            "color": "brand-primary",
-            "formatter": "health",
-        },
-        {
-            "title": "Comprehensive Dues Health Maintenance",
-            "description": "Complete maintenance job: reconstruction + synchronization + stuck schedule processing",
-            "method": "verenigingen.utils.dues_schedule_health_manager.comprehensive_dues_health_maintenance",
-            "icon": "fa fa-cogs",
-            "color": "brand-secondary",
-            "warning": "This will run all health maintenance operations and may take several minutes",
-            "formatter": "health",
         },
         {
             "title": "Sync All Member Fields",
@@ -287,12 +198,16 @@ def get_context(context):
         },
         {
             "title": "Delete Draft & Cancelled Payment Entries",
-            "description": "Delete all draft and cancelled Payment Entries and clean up Member Payment History references",
+            "description": "Delete all draft/cancelled Payment Entries, cancelled Sales Invoices, and orphaned GL/PL entries",
             "method": "verenigingen.utils.payment_entry_cleanup.bulk_delete_payment_entries",
             "icon": "fa fa-trash-o",
             "color": "warning",
-            "warning": "This will permanently delete all draft and cancelled Payment Entries and remove them from Member Payment History!",
-            "args": {"filters": {"docstatus": ["in", [0, 2]]}},
+            "warning": "This will permanently delete all draft/cancelled Payment Entries, cancelled Sales Invoices, and clean up Member Payment History and ledger entries!",
+            "args": {
+                "filters": {"docstatus": ["in", [0, 2]]},
+                "delete_cancelled_invoices": True,
+                "cleanup_ledger_entries": True,
+            },
             "formatter": "cleanup",
         },
         {
@@ -335,6 +250,56 @@ def get_context(context):
     # System administration tools
     context.system_tools = [
         {
+            "title": "Deleted Document Statistics",
+            "description": "View statistics about soft-deleted documents in the Deleted Document table",
+            "method": "verenigingen.utils.deleted_document_cleanup.get_deleted_document_statistics",
+            "icon": "fa fa-trash",
+            "color": "brand-accent",
+            "formatter": "generic",
+        },
+        {
+            "title": "Clear ALL Deleted Documents",
+            "description": "Permanently clear all soft-deleted documents and reclaim database space",
+            "method": "verenigingen.utils.deleted_document_cleanup.clear_all_deleted_documents",
+            "icon": "fa fa-trash-o",
+            "color": "danger",
+            "warning": "⚠️ This will permanently delete ALL soft-deleted documents! They cannot be restored after this operation.",
+        },
+        {
+            "title": "Clear Old Deleted Documents (90+ days)",
+            "description": "Clear deleted documents older than 90 days to reclaim space",
+            "method": "verenigingen.utils.deleted_document_cleanup.clear_deleted_documents_older_than_days",
+            "icon": "fa fa-calendar-times-o",
+            "color": "brand-secondary",
+            "args": {"days": 90},
+            "warning": "This will permanently delete documents that were deleted more than 90 days ago",
+        },
+        {
+            "title": "Version History Statistics",
+            "description": "View version history storage statistics and breakdown by DocType",
+            "method": "verenigingen.utils.version_cleanup.get_version_statistics",
+            "icon": "fa fa-bar-chart",
+            "color": "brand-accent",
+            "formatter": "generic",
+        },
+        {
+            "title": "Clear ALL Version History",
+            "description": "Delete all version history from the database (System Manager only)",
+            "method": "verenigingen.utils.version_cleanup.clear_all_versions",
+            "icon": "fa fa-eraser",
+            "color": "danger",
+            "warning": "⚠️ This will permanently delete ALL version history in the system! This cannot be undone.",
+        },
+        {
+            "title": "Clear Old Version History (90+ days)",
+            "description": "Delete version history older than 90 days",
+            "method": "verenigingen.utils.version_cleanup.clear_versions_older_than_days",
+            "icon": "fa fa-clock-o",
+            "color": "brand-secondary",
+            "args": {"days": 90},
+            "warning": "This will delete version history older than 90 days",
+        },
+        {
             "title": "Delete All Payment Entries",
             "description": "Delete all payment entries from the system (development only)",
             "method": "verenigingen.e_boekhouden.utils.cleanup_utils.delete_all_payment_entries",
@@ -364,13 +329,6 @@ def get_context(context):
             "method": "verenigingen.utils.performance_dashboard.get_system_health",
             "icon": "fa fa-heartbeat",
             "color": "brand-secondary",
-        },
-        {
-            "title": "Performance Dashboard",
-            "description": "24-hour performance metrics and analysis",
-            "method": "verenigingen.utils.performance_dashboard.get_performance_dashboard",
-            "icon": "fa fa-dashboard",
-            "color": "brand-accent",
         },
         {
             "title": "Database Analysis",
@@ -498,32 +456,12 @@ def get_context(context):
             "command": "bench --site dev.veganisme.net execute verenigingen.utils.performance_dashboard.get_system_health",
         },
         {
-            "description": "Get 48-hour performance report",
-            "command": "bench --site dev.veganisme.net execute verenigingen.utils.performance_dashboard.get_api_performance_summary --hours=48",
-        },
-        {
             "description": "Apply database optimizations",
             "command": "bench --site dev.veganisme.net execute verenigingen.utils.api_endpoint_optimizer.run_api_optimization --dry_run=False",
         },
         {
             "description": "Clean up all e-Boekhouden imported data",
             "command": "bench --site dev.veganisme.net execute verenigingen.e_boekhouden.utils.cleanup_utils.nuclear_cleanup_all_imported_data",
-        },
-        {
-            "description": "View dues schedules summary",
-            "command": "bench --site dev.veganisme.net execute verenigingen.utils.invoice_management.get_dues_schedules_summary",
-        },
-        {
-            "description": "Validate invoice generation readiness",
-            "command": "bench --site dev.veganisme.net execute verenigingen.utils.invoice_management.validate_invoice_generation_readiness",
-        },
-        {
-            "description": "Bulk generate invoices (dry run)",
-            "command": 'bench --site dev.veganisme.net execute verenigingen.utils.invoice_management.bulk_generate_dues_invoices --kwargs=\'{"dry_run": True, "max_invoices": 20}\'',
-        },
-        {
-            "description": "Generate invoices for real (max 50)",
-            "command": 'bench --site dev.veganisme.net execute verenigingen.utils.invoice_management.bulk_generate_dues_invoices --kwargs=\'{"dry_run": False, "max_invoices": 50}\'',
         },
         {
             "description": "Cleanup orphaned schedules (dry run)",
@@ -577,19 +515,9 @@ def get_context(context):
 # Define allowed methods - CRITICAL for security
 ALLOWED_ADMIN_METHODS = {
     # Invoice management
-    "verenigingen.utils.invoice_management.get_dues_schedules_summary",
-    "verenigingen.utils.invoice_management.validate_invoice_generation_readiness",
-    "verenigingen.utils.invoice_management.bulk_generate_dues_invoices",
     "verenigingen.utils.invoice_management.cleanup_orphaned_schedules",
     "verenigingen.utils.invoice_management.cleanup_orphaned_membership_data",
-    # Stuck schedule management
-    "verenigingen.api.fix_stuck_dues_schedule.find_all_stuck_schedules",
-    "verenigingen.api.fix_stuck_dues_schedule.check_and_notify_stuck_schedules",
-    "verenigingen.api.fix_stuck_dues_schedule.diagnose_stuck_schedule",
-    "verenigingen.api.fix_stuck_dues_schedule.fix_stuck_schedule",
     # Dues schedule health management
-    "verenigingen.utils.dues_schedule_health_manager.comprehensive_dues_schedule_health_check",
-    "verenigingen.utils.dues_schedule_health_manager.comprehensive_dues_health_maintenance",
     "verenigingen.utils.dues_schedule_health_manager.sync_all_member_fields",
     # Data integrity management
     "verenigingen.utils.orphaned_child_table_cleanup.verify_child_table_indexes",
@@ -608,7 +536,6 @@ ALLOWED_ADMIN_METHODS = {
     "verenigingen.utils.payment_processing_recovery.get_payment_processing_status",
     # System administration
     "verenigingen.utils.performance_dashboard.get_system_health",
-    "verenigingen.utils.performance_dashboard.get_performance_dashboard",
     "verenigingen.utils.performance_dashboard.get_optimization_suggestions",
     "verenigingen.utils.database_query_analyzer.analyze_database_performance",
     "verenigingen.utils.database_query_analyzer.get_index_recommendations",
@@ -631,6 +558,17 @@ ALLOWED_ADMIN_METHODS = {
     "verenigingen.utils.member_import_cleanup.force_cleanup_orphaned_schedules_and_invoices",
     # API Audit Log management
     "verenigingen.verenigingen.doctype.api_audit_log.api_audit_log.clear_all_audit_logs",
+    # Version history management
+    "verenigingen.utils.version_cleanup.get_version_statistics",
+    "verenigingen.utils.version_cleanup.clear_all_versions",
+    "verenigingen.utils.version_cleanup.clear_versions_older_than_days",
+    "verenigingen.utils.version_cleanup.clear_versions_by_doctype",
+    # Deleted document management
+    "verenigingen.utils.deleted_document_cleanup.get_deleted_document_statistics",
+    "verenigingen.utils.deleted_document_cleanup.clear_all_deleted_documents",
+    "verenigingen.utils.deleted_document_cleanup.clear_deleted_documents_older_than_days",
+    "verenigingen.utils.deleted_document_cleanup.clear_deleted_documents_by_doctype",
+    "verenigingen.utils.deleted_document_cleanup.permanently_delete_doctype_documents",
 }
 
 

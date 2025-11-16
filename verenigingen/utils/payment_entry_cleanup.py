@@ -16,20 +16,27 @@ from frappe import _
 
 @frappe.whitelist()
 def bulk_delete_payment_entries(
-    payment_entry_names: List[str] = None, filters: Dict = None
+    payment_entry_names: List[str] = None,
+    filters: Dict = None,
+    delete_cancelled_invoices: bool = True,
+    cleanup_ledger_entries: bool = True,
 ) -> Dict[str, Any]:
     """
-    Bulk delete Payment Entry documents with proper cleanup of Member Payment History references.
+    Bulk delete Payment Entry documents with comprehensive cleanup.
 
     Strategy:
     1. Find all Payment Entries matching the criteria
     2. For each Payment Entry, find and remove references in Member Payment History
-    3. Delete the Payment Entry documents
-    4. Return detailed results
+    3. Delete cancelled Sales Invoices (optional)
+    4. Delete orphaned GL and Payment Ledger entries (optional)
+    5. Delete the Payment Entry documents
+    6. Return detailed results
 
     Args:
         payment_entry_names: Optional list of specific Payment Entry names to delete
         filters: Optional dict of filters to find Payment Entries (e.g., {"docstatus": 0})
+        delete_cancelled_invoices: If True, also delete cancelled Sales Invoices (default: True)
+        cleanup_ledger_entries: If True, cleanup orphaned GL and PL entries (default: True)
 
     Returns:
         Dict with deletion results including success count, errors, and details
@@ -39,9 +46,9 @@ def bulk_delete_payment_entries(
         frappe.call("verenigingen.utils.payment_entry_cleanup.bulk_delete_payment_entries",
                    payment_entry_names=["ACC-PAY-2025-127456", "ACC-PAY-2025-127457"])
 
-        # Delete all draft payment entries
+        # Delete all draft and cancelled payment entries with full cleanup
         frappe.call("verenigingen.utils.payment_entry_cleanup.bulk_delete_payment_entries",
-                   filters={"docstatus": 0})
+                   filters={"docstatus": ["in", [0, 2]]})
     """
     # Validate input
     if not payment_entry_names and not filters:
@@ -62,12 +69,17 @@ def bulk_delete_payment_entries(
         "total_requested": 0,
         "member_history_cleaned": 0,
         "payment_entries_deleted": 0,
+        "sales_invoices_deleted": 0,
+        "gl_entries_deleted": 0,
+        "payment_ledger_entries_deleted": 0,
         "errors": 0,
         "details": [],
         "timestamp": frappe.utils.now(),
         "total_records_affected": 0,  # For UI formatter compatibility
         "payment_entries": {"count": 0, "deleted": 0, "errors": []},
         "member_history_records": {"count": 0, "deleted": 0, "errors": []},
+        "sales_invoices": {"count": 0, "deleted": 0, "errors": []},
+        "ledger_entries": {"count": 0, "deleted": 0, "errors": []},
     }
 
     try:
@@ -170,12 +182,101 @@ def bulk_delete_payment_entries(
                 )
                 frappe.log_error(f"Error processing Payment Entry {pe_name}: {pe_error}")
 
+        # Step 3: Delete cancelled Sales Invoices if requested
+        if delete_cancelled_invoices:
+            try:
+                cancelled_invoices = frappe.get_all("Sales Invoice", filters={"docstatus": 2}, pluck="name")
+
+                frappe.logger().info(f"Found {len(cancelled_invoices)} cancelled Sales Invoices to delete")
+
+                for invoice_name in cancelled_invoices:
+                    try:
+                        frappe.delete_doc("Sales Invoice", invoice_name, force=True)
+                        result["sales_invoices_deleted"] += 1
+                    except Exception as invoice_error:
+                        frappe.log_error(
+                            f"Failed to delete cancelled Sales Invoice {invoice_name}: {invoice_error}",
+                            "Sales Invoice Deletion Error",
+                        )
+                        result["errors"] += 1
+
+                result["sales_invoices"]["count"] = len(cancelled_invoices)
+                result["sales_invoices"]["deleted"] = result["sales_invoices_deleted"]
+
+            except Exception as e:
+                frappe.log_error(f"Error deleting cancelled Sales Invoices: {e}")
+                result["errors"] += 1
+
+        # Step 4: Cleanup orphaned GL and Payment Ledger entries if requested
+        if cleanup_ledger_entries:
+            try:
+                # Delete GL Entries for deleted Payment Entries
+                gl_deleted = frappe.db.sql(
+                    """
+                    DELETE gle FROM `tabGL Entry` gle
+                    LEFT JOIN `tabPayment Entry` pe ON gle.voucher_no = pe.name
+                    WHERE gle.voucher_type = 'Payment Entry'
+                    AND pe.name IS NULL
+                """
+                )
+                result["gl_entries_deleted"] = gl_deleted[0] if gl_deleted else 0
+
+                # Delete GL Entries for deleted Sales Invoices
+                gl_deleted_si = frappe.db.sql(
+                    """
+                    DELETE gle FROM `tabGL Entry` gle
+                    LEFT JOIN `tabSales Invoice` si ON gle.voucher_no = si.name
+                    WHERE gle.voucher_type = 'Sales Invoice'
+                    AND si.name IS NULL
+                """
+                )
+                result["gl_entries_deleted"] += gl_deleted_si[0] if gl_deleted_si else 0
+
+                # Delete Payment Ledger Entries for deleted Payment Entries
+                pl_deleted = frappe.db.sql(
+                    """
+                    DELETE ple FROM `tabPayment Ledger Entry` ple
+                    LEFT JOIN `tabPayment Entry` pe ON ple.voucher_no = pe.name
+                    WHERE ple.voucher_type = 'Payment Entry'
+                    AND pe.name IS NULL
+                """
+                )
+                result["payment_ledger_entries_deleted"] = pl_deleted[0] if pl_deleted else 0
+
+                # Delete Payment Ledger Entries for deleted Sales Invoices
+                pl_deleted_si = frappe.db.sql(
+                    """
+                    DELETE ple FROM `tabPayment Ledger Entry` ple
+                    LEFT JOIN `tabSales Invoice` si ON ple.voucher_no = si.name
+                    WHERE ple.voucher_type = 'Sales Invoice'
+                    AND si.name IS NULL
+                """
+                )
+                result["payment_ledger_entries_deleted"] += pl_deleted_si[0] if pl_deleted_si else 0
+
+                result["ledger_entries"]["deleted"] = (
+                    result["gl_entries_deleted"] + result["payment_ledger_entries_deleted"]
+                )
+
+                frappe.logger().info(
+                    f"Cleaned up {result['gl_entries_deleted']} GL entries and "
+                    f"{result['payment_ledger_entries_deleted']} Payment Ledger entries"
+                )
+
+            except Exception as e:
+                frappe.log_error(f"Error cleaning up ledger entries: {e}")
+                result["errors"] += 1
+
         # Commit changes
         frappe.db.commit()
 
         # Populate summary fields for UI formatter
         result["total_records_affected"] = (
-            result["payment_entries_deleted"] + result["member_history_cleaned"]
+            result["payment_entries_deleted"]
+            + result["member_history_cleaned"]
+            + result["sales_invoices_deleted"]
+            + result["gl_entries_deleted"]
+            + result["payment_ledger_entries_deleted"]
         )
         result["payment_entries"]["count"] = result["total_requested"]
         result["payment_entries"]["deleted"] = result["payment_entries_deleted"]
@@ -183,15 +284,30 @@ def bulk_delete_payment_entries(
         result["member_history_records"]["deleted"] = result["member_history_cleaned"]
 
         # Add summary message
-        result["summary"] = (
-            f"Deleted {result['payment_entries_deleted']} payment entries "
-            f"and cleaned {result['member_history_cleaned']} member payment history records. "
-            f"{result['errors']} errors encountered."
-        )
+        summary_parts = [
+            f"Deleted {result['payment_entries_deleted']} payment entries",
+            f"cleaned {result['member_history_cleaned']} member payment history records",
+        ]
+
+        if delete_cancelled_invoices and result["sales_invoices_deleted"] > 0:
+            summary_parts.append(f"deleted {result['sales_invoices_deleted']} cancelled sales invoices")
+
+        if cleanup_ledger_entries:
+            if result["gl_entries_deleted"] > 0:
+                summary_parts.append(f"deleted {result['gl_entries_deleted']} GL entries")
+            if result["payment_ledger_entries_deleted"] > 0:
+                summary_parts.append(f"deleted {result['payment_ledger_entries_deleted']} PL entries")
+
+        summary_parts.append(f"{result['errors']} errors encountered")
+
+        result["summary"] = ", ".join(summary_parts) + "."
 
         frappe.logger().info(
-            f"Cleanup complete: {result['payment_entries_deleted']} deleted, "
+            f"Cleanup complete: {result['payment_entries_deleted']} payment entries deleted, "
             f"{result['member_history_cleaned']} history rows cleaned, "
+            f"{result['sales_invoices_deleted']} sales invoices deleted, "
+            f"{result['gl_entries_deleted']} GL entries deleted, "
+            f"{result['payment_ledger_entries_deleted']} PL entries deleted, "
             f"{result['errors']} errors"
         )
 

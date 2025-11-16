@@ -488,7 +488,16 @@ function checkMemberStatus() {
                             <div class="text-sm text-purple-700 mt-2">${categories.duplicate_coverage.description}</div>
                             ${categories.duplicate_coverage.members && categories.duplicate_coverage.members.length > 0 ? `
                                 <ul class="mt-2 space-y-1 text-sm">
-                                    ${categories.duplicate_coverage.members.slice(0, 20).map(m => `<li class="text-purple-600">${m}</li>`).join('')}
+                                    ${categories.duplicate_coverage.members.slice(0, 20).map(m => {
+                                        // Handle both string and object formats
+                                        if (typeof m === 'string') {
+                                            return `<li class="text-purple-600">${m}</li>`;
+                                        } else if (m && m.member_name) {
+                                            return `<li class="text-purple-600">${m.member_name} <a href="/app/member/${m.member_id}" class="text-blue-600 hover:text-blue-800 ml-2" target="_blank">[view]</a></li>`;
+                                        } else {
+                                            return `<li class="text-purple-600">${JSON.stringify(m)}</li>`;
+                                        }
+                                    }).join('')}
                                     ${categories.duplicate_coverage.members.length > 20 ? `<li class="text-purple-500 italic">...and ${categories.duplicate_coverage.members.length - 20} more</li>` : ''}
                                 </ul>
                             ` : ''}

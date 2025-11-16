@@ -30,7 +30,6 @@
         </div>
 
         <!-- Statistics Cards -->
-        {% if expense_stats %}
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 border-l-4 p-6 text-center" style="border-left-color: var(--brand-primary)!important;">
                 <h3 class="text-2xl font-bold text-gray-800 mb-2">€{{ "{:,.2f}".format(expense_stats.total_submitted) }}</h3>
@@ -49,7 +48,6 @@
                 <p class="text-gray-600 text-sm">{{ _("Approved Expenses") }}</p>
             </div>
         </div>
-        {% endif %}
 
         {% if show_form %}
         <div id="expense-claim-app" v-cloak>
@@ -333,11 +331,6 @@ const ExpenseClaimApp = {
         // Methods
         const loadUserData = async () => {
             try {
-                // Check if frappe is loaded
-                if (typeof frappe === 'undefined' || typeof frappe.call === 'undefined') {
-                    throw new Error('Frappe framework not loaded. Please refresh the page.');
-                }
-
                 const response = await frappe.call({
                     method: 'verenigingen.templates.pages.volunteer.expenses.get_volunteer_expense_context'
                 });
@@ -470,11 +463,8 @@ const ExpenseClaimApp = {
 
         // Initialize
         onMounted(() => {
-            // Wait for frappe to be fully ready before loading data
-            frappe.ready(() => {
-                loadUserData();
-                expenseLines.value = [createExpenseLine()];
-            });
+            loadUserData();
+            expenseLines.value = [createExpenseLine()];
         });
 
         return {

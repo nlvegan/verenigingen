@@ -179,46 +179,42 @@ def get_fallback_cost_center():
 
 def get_or_create_expense_type(category):
     """
-    Get or create expense type for the given category.
-    Moved from expense page template for better code organization.
+    Get expense account from Expense Category.
+
+    This function returns the category name for use as expense_type in Expense Claim.
+    The actual expense account is retrieved separately from the Expense Category DocType.
+
+    Note: Despite the name, this function no longer creates Expense Claim Types.
+    It validates that the Expense Category exists and is properly configured.
     """
     try:
-        # Check if expense type exists
-        if frappe.db.exists("Expense Claim Type", category):
-            return category
-
-        # Get default company
-        default_company = frappe.db.get_single_value("Global Defaults", "default_company")
-
-        # Create new expense type
-        expense_type = frappe.new_doc("Expense Claim Type")
-        expense_type.name = category
-
-        # Try to find suitable expense account
-        expense_account = frappe.db.get_value(
-            "Account", {"company": default_company, "root_type": "Expense", "is_group": 0}, "name"
-        )
-
-        if expense_account:
-            expense_type.append("accounts", {"company": default_company, "default_account": expense_account})
-
-        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-        type_result = secure_document_operation(
-            operation="insert",
-            doc=expense_type,
-            justification=f"Create expense type '{category}' for volunteer expense categorization",
-            required_permissions=["Expense Claim Type:create"],
-        )
-
-        if not type_result.success:
-            frappe.logger().error(
-                f"Failed to create expense type {category}: {'; '.join(type_result.errors)}"
+        # Check if our custom Expense Category exists
+        if not frappe.db.exists("Expense Category", category):
+            frappe.throw(
+                frappe._(
+                    "Expense Category '{0}' not found. Please contact your administrator to configure this category."
+                ).format(category)
             )
-            return "Travel"  # Fallback to standard type
 
-        frappe.logger().info("Created expense type: %s", category)
+        # Validate that the category has an expense account configured
+        expense_account = frappe.db.get_value("Expense Category", category, "expense_account")
+        if not expense_account:
+            frappe.throw(
+                frappe._(
+                    "Expense Category '{0}' does not have an expense account configured. Please contact your administrator."
+                ).format(category)
+            )
+
+        # Return the category name to be used as expense_type
+        # The expense account will be set separately from the Expense Category
         return category
 
     except Exception as e:
-        frappe.log_error("Error creating expense type %s: %s", category, str(e))
-        return "Travel"  # Fallback
+        frappe.log_error(
+            f"Error validating expense category {category}: {str(e)}", "Expense Category Validation"
+        )
+        frappe.throw(
+            frappe._("Unable to process expense category '{0}'. Please contact your administrator.").format(
+                category
+            )
+        )

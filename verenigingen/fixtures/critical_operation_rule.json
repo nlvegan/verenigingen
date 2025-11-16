@@ -40984,5 +40984,37 @@
     "rate_limit_scope": "per_user",
     "audit_level": "detailed",
     "alert_on_execution": 1
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "api_get_member_reconciliation_data",
+    "operation_name": "api_get_member_reconciliation_data",
+    "operation_type": "financial",
+    "description": "API prefix version - Load member reconciliation data with Mollie subscriptions",
+    "enabled": 1,
+    "security_level": "critical",
+    "business_context": "Member-centric view of Mollie subscription data for reconciliation",
+    "required_roles": "System Manager\nVerenigingen Staff",
+    "rate_limit_calls": 10,
+    "rate_limit_period_seconds": 3600,
+    "rate_limit_scope": "per_user",
+    "audit_level": "detailed",
+    "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "api_update_member_mollie_fields",
+    "operation_name": "api_update_member_mollie_fields",
+    "operation_type": "member_data",
+    "description": "API prefix version - Update Member's Mollie subscription fields",
+    "enabled": 1,
+    "security_level": "critical",
+    "business_context": "Update Member records with correct Mollie subscription data during reconciliation",
+    "required_roles": "System Manager\nVerenigingen Staff",
+    "rate_limit_calls": 500,
+    "rate_limit_period_seconds": 3600,
+    "rate_limit_scope": "per_user",
+    "audit_level": "detailed",
+    "alert_on_execution": 1
   }
 ]
