@@ -1533,10 +1533,25 @@ class MollieDebugService:
             result["total_found"] = len(result["subscriptions"])
 
         except Exception as e:
-            # Sanitize error message
-            sanitized_error = self._sanitize_error_message(str(e))
+            error_msg = str(e)
+
+            # Provide helpful context for "customer not found" errors
+            if "No customer exists" in error_msg:
+                current_mode = "test" if self.mollie_client.is_test_mode() else "live"
+                sanitized_error = (
+                    f"Customer {customer_id} not found in {current_mode} mode. "
+                    f"This may indicate: 1) Customer ID from different Mollie account, "
+                    f"2) Customer deleted in Mollie dashboard, or 3) Wrong API credentials configured."
+                )
+            else:
+                sanitized_error = self._sanitize_error_message(error_msg)
+
             result["error"] = sanitized_error
-            frappe.log_error(f"Mollie list subscriptions error for customer {customer_id}: {str(e)}")
+            frappe.log_error(
+                f"Mollie list subscriptions error for customer {customer_id}: {error_msg}\n"
+                f"Mode: {self.mollie_client.is_test_mode()}",
+                "Mollie Customer Error",
+            )
 
         return result
 

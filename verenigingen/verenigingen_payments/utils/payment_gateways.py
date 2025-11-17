@@ -1821,7 +1821,7 @@ def create_member_subscription(member_id, amount, interval="1 month", descriptio
         member = frappe.get_doc("Member", member_id)
 
         # Check if member already has an active subscription
-        if member.mollie_subscription_id:
+        if member.mollie_subscription_id and member.subscription_status == "Active":
             return {
                 "status": "error",
                 "message": _(

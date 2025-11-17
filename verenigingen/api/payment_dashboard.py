@@ -173,23 +173,6 @@ def get_payment_history(member=None, year=None, status=None, **kwargs):
     if year:
         filters["posting_date"] = ["between", [f"{year}-01-01", f"{year}-12-31"]]
 
-    # Get payment entries
-    payments = frappe.get_all(
-        "Payment Entry",
-        filters=filters,
-        fields=[
-            "name",
-            "posting_date as date",
-            "paid_amount as amount",
-            "reference_no",
-            "remarks",
-            "mode_of_payment",
-        ],
-        order_by="posting_date desc",
-        limit=limit,
-        start=offset,
-    )
-
     # Get sales invoices with membership info through dues schedule
     invoice_conditions = "si.customer = %(customer)s AND si.docstatus = 1"
     params = {"customer": member_doc.customer, "member": member}
@@ -206,11 +189,11 @@ def get_payment_history(member=None, year=None, status=None, **kwargs):
             si.posting_date as date,
             si.grand_total as amount,
             si.status,
-            m.name as membership,
-            mds.name as dues_schedule
+            si.custom_coverage_start_date,
+            si.custom_coverage_end_date,
+            si.member,
+            si.membership_dues_schedule_display as dues_schedule
         FROM `tabSales Invoice` si
-        LEFT JOIN `tabMembership Dues Schedule` mds ON mds.member = %(member)s
-        LEFT JOIN `tabMembership` m ON m.member = %(member)s
         WHERE {conditions}
         ORDER BY si.posting_date DESC
         LIMIT %(limit)s OFFSET %(offset)s
@@ -221,19 +204,69 @@ def get_payment_history(member=None, year=None, status=None, **kwargs):
         as_dict=True,
     )
 
+    # Get invoices that have been paid through Payment Entry (to avoid duplicates)
+    invoice_names = [inv.name for inv in invoices]
+    paid_invoices = set()
+    if invoice_names:
+        payment_refs = frappe.db.sql(
+            """
+            SELECT DISTINCT per.reference_name
+            FROM `tabPayment Entry Reference` per
+            INNER JOIN `tabPayment Entry` pe ON per.parent = pe.name
+            WHERE per.reference_doctype = 'Sales Invoice'
+            AND per.reference_name IN %(invoice_names)s
+            AND pe.docstatus = 1
+            """,
+            {"invoice_names": invoice_names},
+            as_list=True,
+        )
+        paid_invoices = {ref[0] for ref in payment_refs}
+
+    # Get standalone payments (not linked to any invoice in our list)
+    payment_filters = {"party_type": "Customer", "party": member_doc.customer, "docstatus": 1}
+    if year:
+        payment_filters["posting_date"] = ["between", [f"{year}-01-01", f"{year}-12-31"]]
+
+    standalone_payments = frappe.db.sql(
+        """
+        SELECT
+            pe.name,
+            pe.posting_date as date,
+            pe.paid_amount as amount,
+            pe.remarks,
+            pe.mode_of_payment,
+            COUNT(per.name) as has_refs
+        FROM `tabPayment Entry` pe
+        LEFT JOIN `tabPayment Entry Reference` per ON per.parent = pe.name
+            AND per.reference_doctype = 'Sales Invoice'
+            AND per.reference_name IN %(invoice_names)s
+        WHERE pe.party_type = %(party_type)s
+        AND pe.party = %(party)s
+        AND pe.docstatus = 1
+        {year_filter}
+        GROUP BY pe.name
+        HAVING has_refs = 0
+        ORDER BY pe.posting_date DESC
+        LIMIT %(limit)s
+    """.format(
+            year_filter="AND pe.posting_date BETWEEN %(start_date)s AND %(end_date)s" if year else ""
+        ),
+        {
+            "party_type": "Customer",
+            "party": member_doc.customer,
+            "invoice_names": invoice_names or [""],
+            "start_date": f"{year}-01-01" if year else None,
+            "end_date": f"{year}-12-31" if year else None,
+            "limit": limit,
+        },
+        as_dict=True,
+    )
+
     # Format payment history
     history = []
 
-    # Batch fetch membership start dates to avoid N+1 queries - performance optimization
-    membership_ids = [inv.membership for inv in invoices if inv.membership]
-    membership_start_dates = {}
-    if membership_ids:
-        memberships = frappe.get_all(
-            "Membership", filters={"name": ["in", membership_ids]}, fields=["name", "start_date"]
-        )
-        membership_start_dates = {m.name: m.start_date for m in memberships}
-
-    for payment in payments:
+    # Add standalone payments (not linked to invoices in our list)
+    for payment in standalone_payments:
         history.append(
             {
                 "id": payment.name,
@@ -254,14 +287,29 @@ def get_payment_history(member=None, year=None, status=None, **kwargs):
         else:
             status = PaymentStatus.STATUS_PENDING
 
+        # Build description based on coverage period
         description = "Membership Fee"
-        if invoice.membership and invoice.membership in membership_start_dates:
-            start_date = membership_start_dates[invoice.membership]
-            if start_date:
-                from frappe.utils import getdate
 
-                membership_year = getdate(start_date).year
-                description = f"Membership Fee {membership_year}"
+        # Use coverage dates for accurate period labeling
+        if invoice.custom_coverage_start_date:
+            from frappe.utils import formatdate, getdate
+
+            coverage_start = getdate(invoice.custom_coverage_start_date)
+            coverage_year = coverage_start.year
+
+            # If there's also an end date, show period
+            if invoice.custom_coverage_end_date:
+                coverage_end = getdate(invoice.custom_coverage_end_date)
+
+                # If same year, just show year
+                if coverage_start.year == coverage_end.year:
+                    description = f"Membership Fee {coverage_year}"
+                else:
+                    # Multi-year period - show month range
+                    description = f"Membership Fee {formatdate(invoice.custom_coverage_start_date, 'MMM yyyy')} - {formatdate(invoice.custom_coverage_end_date, 'MMM yyyy')}"
+            else:
+                # Just start date available
+                description = f"Membership Fee {coverage_year}"
 
         history.append(
             {

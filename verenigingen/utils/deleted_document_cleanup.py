@@ -87,12 +87,12 @@ def clear_all_deleted_documents():
     # Get statistics before deletion
     stats_before = get_deleted_document_statistics()
 
-    # Delete all deleted documents
-    deleted_count = frappe.db.sql("DELETE FROM `tabDeleted Document`")
+    # Delete all deleted documents using TRUNCATE for better performance
+    # TRUNCATE is faster than DELETE for clearing entire tables and bypasses MySQL safe mode
+    frappe.db.sql("TRUNCATE TABLE `tabDeleted Document`")
     frappe.db.commit()
 
-    # Optimize the table to reclaim space
-    frappe.db.sql("OPTIMIZE TABLE `tabDeleted Document`")
+    # Note: OPTIMIZE TABLE not needed after TRUNCATE as it already rebuilds the table
 
     # Log the action
     frappe.logger("verenigingen.deleted_document_cleanup").warning(

@@ -16,6 +16,11 @@ def get_context(context):
     context.show_sidebar = False
     context.title = _("Apply for Membership")
 
+    # Get organization logo from Brand Settings (set before early returns)
+    from verenigingen.verenigingen.doctype.brand_settings.brand_settings import get_organization_logo
+
+    context.organization_logo = get_organization_logo()
+
     # Check if user is already a member
     if frappe.session.user != "Guest":
         existing_member = get_current_user_member_name()
@@ -31,11 +36,6 @@ def get_context(context):
         "enable_chapter_management": settings.enable_chapter_management,
         "company_name": frappe.get_value("Company", settings.company, "company_name"),
     }
-
-    # Get organization logo from Brand Settings
-    from verenigingen.verenigingen.doctype.brand_settings.brand_settings import get_organization_logo
-
-    context.organization_logo = get_organization_logo()
 
     # Add income calculator settings
     context.enable_income_calculator = getattr(settings, "enable_income_calculator", 0)

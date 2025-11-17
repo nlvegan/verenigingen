@@ -14,12 +14,12 @@
 
         <!-- Header -->
         <div class="text-center mb-8 animate-fade-in">
-            {% if brand_logo %}
+            {% if organization_logo %}
             <div class="mb-6">
-                <img src="{{ brand_logo }}" alt="Organization Logo" class="mx-auto h-16 md:h-20 lg:h-24 w-auto object-contain">
+                <img src="{{ organization_logo }}" alt="Organization Logo" class="mx-auto h-16 md:h-20 lg:h-24 w-auto object-contain">
             </div>
             {% endif %}
-            <h1 class="text-4xl font-bold text-gray-900 mb-4">{{ _("Welcome to Your Member Portal") }}</h1>
+            <h1 class="text-4xl font-bold text-gray-900 mb-4">{{ _("Welcome to the internal website of the {0}").format(company_name) }}</h1>
             <p class="text-xl text-gray-600 max-w-3xl mx-auto">{{ _("Manage your membership, update your details, and access member services") }}</p>
         </div>
 
@@ -27,9 +27,9 @@
         <!-- No Member Record Error -->
         <div class="max-w-2xl mx-auto">
             <div class="bg-warning-100 border-2 border-warning-300 rounded-lg p-8 text-center">
-                {% if brand_logo %}
+                {% if organization_logo %}
                 <div class="mb-6">
-                    <img src="{{ brand_logo }}" alt="Organization Logo" class="mx-auto h-12 md:h-16 w-auto object-contain opacity-75">
+                    <img src="{{ organization_logo }}" alt="Organization Logo" class="mx-auto h-12 md:h-16 w-auto object-contain opacity-75">
                 </div>
                 {% endif %}
                 <div class="mb-4">
@@ -55,14 +55,14 @@
         </div>
         {% elif member %}
         <!-- Member Info Card -->
-        <div class="bg-primary-600 rounded-xl text-primary-contrast p-8 mb-8 shadow-lg animate-slide-up">
-            <h2 class="text-3xl font-bold mb-6">{{ _("Hello, {0}!").format(member.first_name or member.full_name) }}</h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <div class="text-center min-h-[80px] flex flex-col justify-center">
+        <div class="bg-primary-600 rounded-xl text-primary-contrast p-4 mb-8 shadow-lg animate-slide-up">
+            <h2 class="text-2xl font-bold mb-3">{{ _("Hello, {0}!").format(member.first_name or member.full_name) }}</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div class="text-center min-h-[55px] flex flex-col justify-center">
                     <h4 class="text-lg font-medium opacity-90 mb-2">{{ _("ID") }}</h4>
                     <div class="text-2xl font-bold">{{ member.member_id or _("Pending") }}</div>
                 </div>
-                <div class="text-center min-h-[80px] flex flex-col justify-center">
+                <div class="text-center min-h-[55px] flex flex-col justify-center">
                     <h4 class="text-lg font-medium opacity-90 mb-2">{{ _("Status") }}</h4>
                     <div class="text-xl font-bold">
                         {% if membership %}
@@ -72,16 +72,10 @@
                         {% endif %}
                     </div>
                 </div>
-                <div class="text-center min-h-[80px] flex flex-col justify-center">
+                <div class="text-center min-h-[55px] flex flex-col justify-center">
                     <h4 class="text-lg font-medium opacity-90 mb-2">{{ _("Since") }}</h4>
                     <div class="text-2xl font-bold">{{ frappe.utils.formatdate(member.member_since or member.creation, "MMM yyyy") }}</div>
                 </div>
-                {% if volunteer %}
-                <div class="text-center min-h-[80px] flex flex-col justify-center">
-                    <h4 class="text-lg font-medium opacity-90 mb-2">{{ _("Hours") }}</h4>
-                    <div class="text-2xl font-bold">{{ volunteer_hours or 0 }}</div>
-                </div>
-                {% endif %}
             </div>
         </div>
         {% endif %}
@@ -170,27 +164,15 @@
         <!-- Portal Sections -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
 
-            <!-- Account Management -->
+            <!-- Personal Details -->
             <div class="form-card hover:shadow-lg transition-shadow duration-300">
                 <div class="form-header">
                     <h3 class="flex items-center">
-                        <span class="text-2xl mr-3">👤</span>{{ _("Account Management") }}
+                        <span class="text-2xl mr-3">👤</span>{{ _("Personal Details") }}
                     </h3>
                 </div>
                 <div class="form-body">
                     <div class="space-y-3">
-                        <a href="/member_dashboard" class="portal-link-card">
-                            <div class="flex items-center">
-                                <div class="portal-link-icon">
-                                    <i class="fa fa-tachometer text-primary-500"></i>
-                                </div>
-                                <div class="flex-1">
-                                    <div class="portal-link-title">{{ _("Member Dashboard") }}</div>
-                                    <div class="portal-link-description">{{ _("View your membership overview and recent activity") }}</div>
-                                </div>
-                            </div>
-                        </a>
-
                         <a href="/personal_details" class="portal-link-card">
                             <div class="flex items-center">
                                 <div class="portal-link-icon">
@@ -199,18 +181,6 @@
                                 <div class="flex-1">
                                     <div class="portal-link-title">{{ _("Personal Details") }}</div>
                                     <div class="portal-link-description">{{ _("Update your name, pronouns, and personal information") }}</div>
-                                </div>
-                            </div>
-                        </a>
-
-                        <a href="/my_account" class="portal-link-card">
-                            <div class="flex items-center">
-                                <div class="portal-link-icon">
-                                    <i class="fa fa-cog text-primary-500"></i>
-                                </div>
-                                <div class="flex-1">
-                                    <div class="portal-link-title">{{ _("Account Settings") }}</div>
-                                    <div class="portal-link-description">{{ _("Manage your account preferences and security") }}</div>
                                 </div>
                             </div>
                         </a>
@@ -226,43 +196,19 @@
                                 </div>
                             </div>
                         </a>
-
-                        <a href="/bank_details" class="portal-link-card">
-                            <div class="flex items-center">
-                                <div class="portal-link-icon">
-                                    <i class="fa fa-credit-card text-primary-500"></i>
-                                </div>
-                                <div class="flex-1">
-                                    <div class="portal-link-title">{{ _("Bank Details") }}</div>
-                                    <div class="portal-link-description">{{ _("Manage payment methods and SEPA Direct Debit") }}</div>
-                                </div>
-                            </div>
-                        </a>
                     </div>
                 </div>
             </div>
 
-            <!-- Membership Services -->
+            <!-- Dues -->
             <div class="form-card hover:shadow-lg transition-shadow duration-300">
                 <div class="form-header">
                     <h3 class="flex items-center">
-                        <span class="text-2xl mr-3">🎫</span>{{ _("Membership Services") }}
+                        <span class="text-2xl mr-3">🎫</span>{{ _("Dues") }}
                     </h3>
                 </div>
                 <div class="form-body">
                     <div class="space-y-3">
-                        <a href="/personal_details" class="portal-link-card">
-                            <div class="flex items-center">
-                                <div class="portal-link-icon">
-                                    <i class="fa fa-id-card text-secondary-500"></i>
-                                </div>
-                                <div class="flex-1">
-                                    <div class="portal-link-title">{{ _("Personal Details") }}</div>
-                                    <div class="portal-link-description">{{ _("Update your personal information and preferences") }}</div>
-                                </div>
-                            </div>
-                        </a>
-
                         <a href="/financial_dashboard" class="portal-link-card">
                             <div class="flex items-center">
                                 <div class="portal-link-icon">
@@ -275,26 +221,38 @@
                             </div>
                         </a>
 
+                        <a href="/payment_dashboard" class="portal-link-card">
+                            <div class="flex items-center">
+                                <div class="portal-link-icon">
+                                    <i class="fa fa-credit-card text-secondary-500"></i>
+                                </div>
+                                <div class="flex-1">
+                                    <div class="portal-link-title">{{ _("Payment Dashboard") }}</div>
+                                    <div class="portal-link-description">{{ _("View payment history and transaction details") }}</div>
+                                </div>
+                            </div>
+                        </a>
+
                         <a href="/membership_adjustment" class="portal-link-card">
                             <div class="flex items-center">
                                 <div class="portal-link-icon">
                                     <i class="fa fa-euro text-secondary-500"></i>
                                 </div>
                                 <div class="flex-1">
-                                    <div class="portal-link-title">{{ _("Fee Adjustment") }}</div>
-                                    <div class="portal-link-description">{{ _("Request membership fee adjustments") }}</div>
+                                    <div class="portal-link-title">{{ _("Dues Rate Adjustment") }}</div>
+                                    <div class="portal-link-description">{{ _("Request adjustments to your membership dues rate") }}</div>
                                 </div>
                             </div>
                         </a>
 
-                        <a href="/bank_details" class="portal-link-card">
+                        <a href="/payment_dashboard" class="portal-link-card">
                             <div class="flex items-center">
                                 <div class="portal-link-icon">
                                     <i class="fa fa-file-text text-secondary-500"></i>
                                 </div>
                                 <div class="flex-1">
-                                    <div class="portal-link-title">{{ _("Payment Setup") }}</div>
-                                    <div class="portal-link-description">{{ _("Manage bank details and payment methods") }}</div>
+                                    <div class="portal-link-title">{{ _("Payment Dashboard") }}</div>
+                                    <div class="portal-link-description">{{ _("Manage payments, bank details and payment methods") }}</div>
                                 </div>
                             </div>
                         </a>
@@ -316,11 +274,11 @@
                 </div>
             </div>
 
-            <!-- Volunteer Services -->
+            <!-- Volunteering -->
             <div class="form-card hover:shadow-lg transition-shadow duration-300">
                 <div class="form-header">
                     <h3 class="flex items-center">
-                        <span class="text-2xl mr-3">❤️</span>{{ _("Volunteer Services") }}
+                        <span class="text-2xl mr-3">❤️</span>{{ _("Volunteering") }}
                     </h3>
                 </div>
                 <div class="form-body">
@@ -419,8 +377,8 @@
                                     <i class="fa fa-users text-warning-600"></i>
                                 </div>
                                 <div class="flex-1">
-                                    <div class="portal-link-title">{{ _("Local Chapters") }}</div>
-                                    <div class="portal-link-description">{{ _("Connect with your local chapter community") }}</div>
+                                    <div class="portal-link-title">{{ _("Change chapter") }}</div>
+                                    <div class="portal-link-description">{{ _("Join or switch to a different chapter") }}</div>
                                 </div>
                             </div>
                         </a>
@@ -452,18 +410,6 @@
                             </div>
                         </a>
                         {% endif %}
-
-                        <a href="/resources" class="portal-link-card">
-                            <div class="flex items-center">
-                                <div class="portal-link-icon">
-                                    <i class="fa fa-book text-warning-600"></i>
-                                </div>
-                                <div class="flex-1">
-                                    <div class="portal-link-title">{{ _("Resources") }}</div>
-                                    <div class="portal-link-description">{{ _("Access member resources and materials") }}</div>
-                                </div>
-                            </div>
-                        </a>
 
                         <a href="/contact_request" class="portal-link-card">
                             <div class="flex items-center">

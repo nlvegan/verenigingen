@@ -27,17 +27,18 @@ def get_context(context):
     context.show_sidebar = True
     context.title = _("Member Portal")
 
-    # Get brand settings for logo (needed even if no member record)
-    try:
-        brand_settings = frappe.get_all(
-            "Brand Settings", fields=["name", "logo", "primary_color"], limit=1, order_by="modified desc"
-        )
-        if brand_settings:
-            context.brand_logo = brand_settings[0].logo
-        else:
-            context.brand_logo = None
-    except Exception:
-        context.brand_logo = None
+    # Get organization logo from Brand Settings
+    from verenigingen.verenigingen.doctype.brand_settings.brand_settings import get_organization_logo
+
+    context.organization_logo = get_organization_logo()
+
+    # Get company name from Verenigingen Settings
+    settings = frappe.get_single("Verenigingen Settings")
+    context.company_name = (
+        frappe.get_value("Company", settings.company, "company_name")
+        if settings.company
+        else _("Organization")
+    )
 
     # Get member record using standardized utility
     member = get_current_user_member_name()
@@ -253,6 +254,36 @@ def get_quick_actions(member, membership, volunteer):
     """Get quick actions based on member status"""
     actions = []
 
+    # Chapter board member dashboard access - show first for board members
+    if volunteer:
+        try:
+            # Check if this volunteer is a board member of any chapter
+            board_chapters = frappe.db.sql(
+                """
+                SELECT DISTINCT cbm.parent as chapter_name
+                FROM `tabChapter Board Member` cbm
+                WHERE cbm.volunteer = %(volunteer)s
+                AND cbm.is_active = 1
+                ORDER BY cbm.parent
+                LIMIT 1
+            """,
+                {"volunteer": volunteer.name},
+                as_dict=True,
+            )
+
+            if board_chapters:
+                chapter_name = board_chapters[0].chapter_name
+                actions.append(
+                    {
+                        "title": _("View your chapter"),
+                        "route": f"/chapter_dashboard?chapter={chapter_name}",
+                        "class": "btn-primary",
+                        "icon": "fa-dashboard",
+                    }
+                )
+        except Exception as e:
+            frappe.log_error(f"Error checking board membership: {str(e)}")
+
     # Payment-related actions
     if not membership:
         actions.append(
@@ -363,7 +394,7 @@ def get_quick_actions(member, membership, volunteer):
         if getattr(member, "dues_rate", None):
             actions.append(
                 {
-                    "title": _("Review Fee Adjustment"),
+                    "title": _("Change Dues Rate"),
                     "route": "/membership_adjustment",
                     "class": "btn-secondary",
                     "icon": "fa-euro",

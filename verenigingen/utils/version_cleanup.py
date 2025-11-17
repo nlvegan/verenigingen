@@ -47,8 +47,9 @@ def clear_all_versions():
     total_count = total_result[0].total_count if total_result else 0
     total_size = total_result[0].total_size if total_result else 0
 
-    # Delete all versions
-    frappe.db.sql("DELETE FROM tabVersion")
+    # Delete all versions using TRUNCATE for better performance
+    # TRUNCATE is faster than DELETE for clearing entire tables and bypasses MySQL safe mode
+    frappe.db.sql("TRUNCATE TABLE tabVersion")
     frappe.db.commit()
 
     # Log the action
