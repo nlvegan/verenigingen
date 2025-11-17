@@ -297,7 +297,7 @@ def get_quick_actions(member, membership, volunteer):
             actions.append(
                 {
                     "title": _("Review Fee Adjustment"),
-                    "route": "/membership_fee_adjustment",
+                    "route": "/membership_adjustment",
                     "class": "btn-secondary",
                     "icon": "fa-euro",
                 }

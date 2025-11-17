@@ -76,7 +76,7 @@ def reorganize_workspace(force_enable=False):
         ("Link", "SEPA Mandate", "DocType", "SEPA Mandate", 0, 0),
         ("Link", "Direct Debit Batch", "DocType", "Direct Debit Batch", 0, 0),
         ("Link", "SEPA Payment Retry", "DocType", "SEPA Payment Retry", 0, 0),
-        ("Link", "Fee Adjustment Portal", "Page", "/membership_fee_adjustment", 0, 0),
+        ("Link", "Fee Adjustment Portal", "Page", "/membership_adjustment", 0, 0),
         
         # === BANKING ===
         ("Card Break", "Banking", None, None, 0, 6),

@@ -244,7 +244,7 @@ bench --site [site_name] execute verenigingen.api.email_template_manager.create_
 #### Fee Management
 
 - **Custom Fee Amounts**: Allow member-specific fee adjustments
-- **Fee Adjustment Portal**: Members can modify fees at `/membership_fee_adjustment`
+- **Fee Adjustment Portal**: Members can modify fees at `/membership_adjustment`
 - **Minimum Period Enforcement**: Configure minimum membership periods
 
 ### Member Lifecycle Management

@@ -168,7 +168,7 @@ def get_context(context):
         {"title": _("Dashboard"), "route": "/member_dashboard"},
         {"title": _("Profile"), "route": "/member_portal"},
         {"title": _("Personal Details"), "route": "/personal_details"},
-        {"title": _("Fee Adjustment"), "route": "/membership_fee_adjustment", "active": True},
+        {"title": _("Fee Adjustment"), "route": "/membership_adjustment", "active": True},
     ]
 
     return context

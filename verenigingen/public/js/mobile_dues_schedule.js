@@ -594,7 +594,7 @@ class MobileDuesSchedule {
 	handleFabAction(action) {
 		switch (action) {
 			case 'adjust-fee':
-				window.location.href = '/membership_fee_adjustment';
+				window.location.href = '/membership_adjustment';
 				break;
 			case 'payment-history':
 				window.location.href = '/payment_dashboard';
