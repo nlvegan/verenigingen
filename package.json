@@ -74,12 +74,15 @@
   "license": "AGPL-3.0-or-later",
   "dependencies": {
     "@anthropic-ai/claude-code": "^1.0.128",
-    "frappe-ui": "^0.1.205"
+    "frappe-ui": "^0.1.205",
+    "js-yaml": "^4.1.1"
   },
   "resolutions": {
-    "cookie": "^0.7.0"
+    "cookie": "^0.7.0",
+    "js-yaml": "^4.1.1"
   },
   "overrides": {
-    "cookie": "^0.7.0"
+    "cookie": "^0.7.0",
+    "js-yaml": "^4.1.1"
   }
 }
