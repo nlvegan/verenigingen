@@ -47,18 +47,53 @@ class AssignmentHistoryManager:
             volunteer._updating_assignment_history = True
 
             try:
-                # Check if this exact assignment already exists as active
-                # Allow multiple stints by checking all fields including start_date
+                # Check if this exact assignment already exists (Active or Completed)
+                # This prevents duplicates when an assignment gets completed and re-added
                 for assignment in volunteer.assignment_history or []:
                     if (
                         assignment.reference_doctype == reference_doctype
                         and assignment.reference_name == reference_name
                         and assignment.role == role
-                        and assignment.status == "Active"
                         and str(assignment.start_date) == str(start_date)
                     ):
-                        print(f"Assignment already exists in history for volunteer {volunteer_id}")
-                        return True  # This exact assignment already exists
+                        # Assignment already exists - check status
+                        if assignment.status == "Active":
+                            frappe.logger().info(
+                                f"Assignment already exists as Active for volunteer {volunteer_id}: "
+                                f"{reference_doctype} {reference_name} - {role} (start: {start_date})"
+                            )
+                            return True
+                        elif assignment.status == "Completed":
+                            frappe.logger().warning(
+                                f"Assignment already exists as Completed for volunteer {volunteer_id}: "
+                                f"{reference_doctype} {reference_name} - {role} (start: {start_date}). "
+                                f"This suggests the assignment was removed and is being re-added. "
+                                f"Updating status back to Active instead of creating duplicate."
+                            )
+                            # Reactivate the existing completed assignment instead of creating duplicate
+                            assignment.status = "Active"
+                            assignment.end_date = None  # Clear end date when reactivating
+
+                            result = secure_document_operation(
+                                operation="update_child_table",
+                                doc=volunteer,
+                                justification=f"Reactivate assignment for volunteer {volunteer_id}: {assignment_type} - {role}",
+                                required_permissions=["Volunteer:write"],
+                                allow_system_user=True,
+                                bypass_validations=["link_validation"],
+                            )
+
+                            if result.success:
+                                frappe.logger().info(
+                                    f"Reactivated existing assignment for volunteer {volunteer_id}"
+                                )
+                                return True
+                            else:
+                                frappe.log_error(
+                                    f"Failed to reactivate assignment: {'; '.join(result.errors)}",
+                                    "Assignment History Reactivation Failed",
+                                )
+                                return False
 
                 # Add new active assignment (allow multiple separate stints)
                 volunteer.append(
@@ -196,25 +231,55 @@ class AssignmentHistoryManager:
                             f"Start date match failed but role matched."
                         )
                     else:
-                        # Create a new completed assignment if nothing exists
-                        # This handles cases where the initial assignment wasn't tracked due to broken links
-                        volunteer.append(
-                            "assignment_history",
-                            {
-                                "assignment_type": assignment_type,
-                                "reference_doctype": reference_doctype,
-                                "reference_name": reference_name,
-                                "role": role,
-                                "start_date": start_date,
-                                "end_date": end_date,
-                                "status": "Completed",
-                            },
-                        )
+                        # Before reconstructing, check if a completed assignment already exists
+                        # This prevents duplicate completed entries
+                        existing_completed = None
+                        for assignment in volunteer.assignment_history or []:
+                            if (
+                                assignment.reference_doctype == reference_doctype
+                                and assignment.reference_name == reference_name
+                                and assignment.role == role
+                                and str(assignment.start_date) == str(start_date)
+                                and assignment.status == "Completed"
+                            ):
+                                existing_completed = assignment
+                                break
 
-                        frappe.logger().info(
-                            f"Reconstructed missing assignment history for volunteer {volunteer_id}: {assignment_type} - {role} "
-                            f"({start_date} to {end_date}). This is normal when assignments were created during data issues."
-                        )
+                        if existing_completed:
+                            # Assignment is already completed - just update end_date if needed
+                            if str(existing_completed.end_date) != str(end_date):
+                                existing_completed.end_date = end_date
+                                frappe.logger().info(
+                                    f"Updated end_date for existing completed assignment for volunteer {volunteer_id}: "
+                                    f"{assignment_type} - {role} (was {existing_completed.end_date}, now {end_date})"
+                                )
+                            else:
+                                frappe.logger().info(
+                                    f"Assignment already completed for volunteer {volunteer_id}: "
+                                    f"{assignment_type} - {role} ({start_date} to {end_date}). No action needed."
+                                )
+                                # Return early - nothing to save
+                                return True
+                        else:
+                            # Create a new completed assignment if nothing exists
+                            # This handles cases where the initial assignment wasn't tracked due to broken links
+                            volunteer.append(
+                                "assignment_history",
+                                {
+                                    "assignment_type": assignment_type,
+                                    "reference_doctype": reference_doctype,
+                                    "reference_name": reference_name,
+                                    "role": role,
+                                    "start_date": start_date,
+                                    "end_date": end_date,
+                                    "status": "Completed",
+                                },
+                            )
+
+                            frappe.logger().info(
+                                f"Reconstructed missing assignment history for volunteer {volunteer_id}: {assignment_type} - {role} "
+                                f"({start_date} to {end_date}). This is normal when assignments were created during data issues."
+                            )
 
                 # CORRECTED SECURE VERSION: Use secure operations with explicit permission validation
                 result = secure_document_operation(

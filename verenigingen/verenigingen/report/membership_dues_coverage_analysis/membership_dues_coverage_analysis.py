@@ -197,7 +197,7 @@ def get_data(filters):
         f"""
         SELECT DISTINCT
             m.name as member,
-            CONCAT(m.first_name, ' ', COALESCE(m.last_name, '')) as member_name,
+            m.full_name as member_name,
             m.status as membership_status,
             m.customer,
             mb.start_date as membership_start,

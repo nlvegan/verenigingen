@@ -1803,22 +1803,30 @@ def assign_chapter_board_role(user_email):
             if not DocumentExistenceValidator.check_document_exists(
                 "Has Role", {"parent": user_email, "role": "Verenigingen Chapter Board Member"}
             ):
-                # Add the role using secure operations
-                user_doc = frappe.get_doc("User", user_email)
-                user_doc.append("roles", {"role": "Verenigingen Chapter Board Member"})
-                role_result = secure_document_operation(
-                    operation="save",
-                    doc=user_doc,
-                    justification=f"Add Chapter Board Member role to {user_email} based on active board positions",
-                    required_permissions=["User:write"],
+                # Add role via direct child table insert
+                # NOTE: We use direct insert rather than loading/saving User doc to avoid
+                # triggering validation on ALL existing user roles (which causes issues like
+                # "Could not find Row #7: Role: Bank Reconciliation User")
+                # This matches the pattern used for role removal (line 1831)
+                frappe.get_doc(
+                    {
+                        "doctype": "Has Role",
+                        "parent": user_email,
+                        "parenttype": "User",
+                        "parentfield": "roles",
+                        "role": "Verenigingen Chapter Board Member",
+                    }
+                ).insert(ignore_permissions=True)
+
+                # Audit log for security
+                frappe.logger().info(
+                    f"SECURITY AUDIT: Added Chapter Board Member role to {user_email} "
+                    f"based on active board positions - User: {frappe.session.user}"
                 )
-                if not role_result.success:
-                    frappe.log_error(
-                        f"Failed to add Chapter Board Member role to {user_email}: {'; '.join(role_result.errors)}",
-                        "Role Assignment Error",
-                    )
-                    return False
-                frappe.logger().info(f"Added Chapter Board Member role to {user_email}")
+
+                # Clear permission cache so new role takes effect immediately
+                frappe.clear_cache(user=user_email)
+
                 return True
             else:
                 frappe.logger().debug(f"User {user_email} already has Chapter Board Member role")

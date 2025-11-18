@@ -520,54 +520,134 @@ def update_member_status_safe(member_name, termination_type, termination_date, t
 
 def end_board_positions_safe(member_name, end_date, reason):
     """
-    End board positions safely using existing chapter methods
+    End board positions safely by updating through parent Chapter document
+    Child table records must be saved through their parent, not directly
     """
     try:
         # Get volunteer records for this member
         volunteer_records = frappe.get_all("Volunteer", filters={"member": member_name}, fields=["name"])
 
         positions_ended = 0
+        chapters_to_save = {}  # Track chapters that need saving
 
         for volunteer_record in volunteer_records:
             # Get active board positions
             board_positions = frappe.get_all(
-                "Verenigingen Chapter Board Member",
+                "Chapter Board Member",
                 filters={"volunteer": volunteer_record.name, "is_active": 1},
                 fields=["name", "parent", "chapter_role", "from_date"],
             )
 
             for position in board_positions:
                 try:
-                    # Use direct document update (safest approach)
-                    board_member = frappe.get_doc("Chapter Board Member", position.name)
-                    board_member.is_active = 0
-                    board_member.to_date = end_date
+                    # Get the parent Chapter document (child tables must be saved through parent)
+                    chapter_name = position.parent
 
-                    # Add reason to notes if field exists
-                    if hasattr(board_member, "notes"):
-                        if board_member.notes:
-                            board_member.notes += f"\n\nEnded: {reason}"
-                        else:
-                            board_member.notes = f"Ended: {reason}"
+                    # Load chapter only once per chapter
+                    if chapter_name not in chapters_to_save:
+                        chapters_to_save[chapter_name] = frappe.get_doc("Chapter", chapter_name)
 
-                    try:
-                        board_member.save()
-                    except frappe.PermissionError as pe:
-                        frappe.logger().error(
-                            f"Permission denied for board member termination {board_member.name}: {str(pe)}"
-                        )
-                        continue
+                    chapter_doc = chapters_to_save[chapter_name]
 
-                    positions_ended += 1
-                    frappe.logger().info(f"Ended board position {position.chapter_role} at {position.parent}")
+                    # Find the board member in the child table
+                    for board_member in chapter_doc.board_members:
+                        if board_member.name == position.name:
+                            board_member.is_active = 0
+                            board_member.to_date = end_date
+
+                            # Add reason to notes if field exists
+                            if hasattr(board_member, "notes"):
+                                if board_member.notes:
+                                    board_member.notes += f"\n\nEnded: {reason}"
+                                else:
+                                    board_member.notes = f"Ended: {reason}"
+
+                            positions_ended += 1
+                            frappe.logger().info(
+                                f"Marked board position {position.chapter_role} at {chapter_name} for ending"
+                            )
+                            break
 
                 except Exception as e:
                     frappe.logger().error(f"Failed to end board position {position.name}: {str(e)}")
+
+        # Save all modified chapters
+        for chapter_name, chapter_doc in chapters_to_save.items():
+            try:
+                chapter_doc.save()
+                frappe.logger().info(f"Saved Chapter {chapter_name} with ended board positions")
+            except frappe.PermissionError as pe:
+                frappe.logger().error(f"Permission denied saving Chapter {chapter_name}: {str(pe)}")
+            except Exception as e:
+                frappe.logger().error(f"Failed to save Chapter {chapter_name}: {str(e)}")
 
         return positions_ended
 
     except Exception as e:
         frappe.logger().error(f"Failed to end board positions for {member_name}: {str(e)}")
+        return 0
+
+
+def disable_chapter_memberships_safe(member_name, leave_date, reason):
+    """
+    Disable all chapter memberships for terminated member
+    Must update through parent Chapter documents (child tables can't be saved directly)
+    """
+    try:
+        # Get all active chapter memberships for this member
+        chapter_memberships = frappe.get_all(
+            "Chapter Member",
+            filters={"member": member_name, "enabled": 1},
+            fields=["name", "parent", "chapter_join_date"],
+        )
+
+        if not chapter_memberships:
+            frappe.logger().info(f"No active chapter memberships found for {member_name}")
+            return 0
+
+        memberships_disabled = 0
+        chapters_to_save = {}  # Track chapters that need saving
+
+        for membership in chapter_memberships:
+            try:
+                chapter_name = membership.parent
+
+                # Load chapter only once per chapter
+                if chapter_name not in chapters_to_save:
+                    chapters_to_save[chapter_name] = frappe.get_doc("Chapter", chapter_name)
+
+                chapter_doc = chapters_to_save[chapter_name]
+
+                # Find the member in the chapter's members child table
+                for chapter_member in chapter_doc.members:
+                    if chapter_member.name == membership.name:
+                        chapter_member.enabled = 0
+                        chapter_member.chapter_leave_date = leave_date
+                        chapter_member.leave_reason = reason
+
+                        memberships_disabled += 1
+                        frappe.logger().info(
+                            f"Marked chapter membership at {chapter_name} for {member_name} as disabled"
+                        )
+                        break
+
+            except Exception as e:
+                frappe.logger().error(f"Failed to disable chapter membership {membership.name}: {str(e)}")
+
+        # Save all modified chapters
+        for chapter_name, chapter_doc in chapters_to_save.items():
+            try:
+                chapter_doc.save()
+                frappe.logger().info(f"Saved Chapter {chapter_name} with disabled memberships")
+            except frappe.PermissionError as pe:
+                frappe.logger().error(f"Permission denied saving Chapter {chapter_name}: {str(pe)}")
+            except Exception as e:
+                frappe.logger().error(f"Failed to save Chapter {chapter_name}: {str(e)}")
+
+        return memberships_disabled
+
+    except Exception as e:
+        frappe.logger().error(f"Failed to disable chapter memberships for {member_name}: {str(e)}")
         return 0
 
 

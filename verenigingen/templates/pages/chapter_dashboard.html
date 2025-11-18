@@ -50,7 +50,7 @@
                 <div>
                     <h1 class="text-3xl font-bold m-0 flex items-center gap-2">
                         <span class="text-4xl">🏛️</span>
-                        <span>{{ selected_chapter.upper() if selected_chapter else 'CHAPTER' }} DASHBOARD</span>
+                        <span>{{ (selected_chapter.upper() if selected_chapter else 'CHAPTER')|e }} CHAPTER</span>
                     </h1>
                     <div class="mt-2">
                         <span class="bg-white text-primary-700 px-3 py-1 rounded-full text-sm font-semibold mr-2">
@@ -71,8 +71,8 @@
 
         <!-- Key Metrics Cards -->
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <div class="bg-white rounded-xl p-6 flex items-center gap-4 shadow-sm border-l-4 border-success-500 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 cursor-pointer">
-                <div class="text-4xl opacity-80">👥</div>
+            <div class="bg-white rounded-xl p-6 flex flex-col items-center text-center shadow-sm border-t-4 border-success-500 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 cursor-pointer">
+                <div class="text-5xl mb-3">👥</div>
                 <div>
                     <h3 class="text-3xl font-bold m-0 text-gray-700">{{ dashboard_data.key_metrics.members.active if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.members else 0 }}</h3>
                     <p class="mt-1 text-gray-600 font-medium mb-0">Active Members</p>
@@ -82,8 +82,8 @@
                 </div>
             </div>
 
-            <div class="bg-white rounded-xl p-6 flex items-center gap-4 shadow-sm border-l-4 border-warning-500 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 cursor-pointer">
-                <div class="text-4xl opacity-80">⏳</div>
+            <div class="bg-white rounded-xl p-6 flex flex-col items-center text-center shadow-sm border-t-4 border-warning-500 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 cursor-pointer">
+                <div class="text-5xl mb-3">⏳</div>
                 <div>
                     <h3 class="text-3xl font-bold m-0 text-gray-700">{{ dashboard_data.key_metrics.members.pending if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.members else 0 }}</h3>
                     <p class="mt-1 text-gray-600 font-medium mb-0">Pending Applications</p>
@@ -96,18 +96,27 @@
                 </div>
             </div>
 
-            <div class="bg-white rounded-xl p-6 flex items-center gap-4 shadow-sm border-l-4 border-primary-500 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 cursor-pointer">
-                <div class="text-4xl opacity-80">💰</div>
+            <div class="bg-white rounded-xl p-6 flex flex-col items-center text-center shadow-sm border-t-4 border-primary-500 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 cursor-pointer">
+                <div class="text-5xl mb-3">💰</div>
                 <div>
                     <h3 class="text-3xl font-bold m-0 text-gray-700">€{{ "%.0f"|format(dashboard_data.key_metrics.expenses.pending_amount) if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.expenses else "0" }}</h3>
                     <p class="mt-1 text-gray-600 font-medium mb-0">Pending Expenses</p>
-                    <small class="text-xs font-semibold uppercase tracking-wide text-gray-600">€{{ "%.0f"|format(dashboard_data.key_metrics.expenses.ytd_total) if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.expenses else "0" }} YTD</small>
+                    <small class="text-xs font-semibold uppercase tracking-wide text-gray-600">{{ dashboard_data.key_metrics.expenses.pending_count if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.expenses else "0" }} claims</small>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl p-6 flex flex-col items-center text-center shadow-sm border-t-4 border-success-500 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 cursor-pointer">
+                <div class="text-5xl mb-3">✅</div>
+                <div>
+                    <h3 class="text-3xl font-bold m-0 text-gray-700">€{{ "%.0f"|format(dashboard_data.key_metrics.expenses.ytd_total) if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.expenses else "0" }}</h3>
+                    <p class="mt-1 text-gray-600 font-medium mb-0">Approved Expenses</p>
+                    <small class="text-xs font-semibold uppercase tracking-wide text-gray-600">Year to Date</small>
                 </div>
             </div>
         </div>
 
         <!-- Main Dashboard Content -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8 items-start">
 
                 <!-- Member Management Section -->
                 <div class="bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-lg transition-shadow duration-300">
@@ -119,30 +128,21 @@
                             </button>
                         </div>
                     </div>
-                    <div class="p-6">
-                        <div class="grid grid-cols-4 gap-4 mb-6 pb-6 border-b border-gray-200">
-                            <div class="text-center p-4 bg-gray-50 rounded-lg border border-gray-200">
-                                <span class="block text-sm text-gray-600 mb-2 font-medium">Active:</span>
-                                <span class="text-3xl font-bold text-success-600">{{ dashboard_data.key_metrics.members.active if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.members else 0 }}</span>
-                            </div>
-                            <div class="text-center p-4 bg-gray-50 rounded-lg border border-gray-200">
-                                <span class="block text-sm text-gray-600 mb-2 font-medium">Pending:</span>
-                                <span class="text-3xl font-bold text-yellow-600">{{ dashboard_data.key_metrics.members.pending if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.members else 0 }}</span>
-                            </div>
-                            <div class="text-center p-4 bg-gray-50 rounded-lg border border-gray-200">
-                                <span class="block text-sm text-gray-600 mb-2 font-medium">Terminated:</span>
-                                <span class="text-3xl font-bold text-danger-600">{{ dashboard_data.key_metrics.members.terminated if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.members else 0 }}</span>
-                            </div>
-                            <div class="text-center p-4 bg-gray-50 rounded-lg border border-gray-200">
-                                <span class="block text-sm text-gray-600 mb-2 font-medium">Total:</span>
-                                <span class="text-3xl font-bold text-primary-600">{{ dashboard_data.key_metrics.members.total if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.members else 0 }}</span>
-                            </div>
-                        </div>
-
+                    <div class="px-6 pb-6">
                         {% if dashboard_data and dashboard_data.member_overview and dashboard_data.member_overview.recent_members %}
+                            <h4 class="text-lg font-semibold text-gray-800 mb-3">Active Members ({{ dashboard_data.member_overview.recent_members|length }})</h4>
+                            <div class="mb-4 relative">
+                                <input
+                                    type="text"
+                                    id="memberSearchInput"
+                                    placeholder="Search members..."
+                                    class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                                    onkeyup="filterMembers()"
+                                >
+                                <i class="fa fa-search absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none"></i>
+                            </div>
                             <div class="max-h-96 overflow-y-auto">
-                                <h4 class="text-lg font-semibold text-gray-800 mb-4">All Members ({{ dashboard_data.member_overview.recent_members|length }})</h4>
-                                <ul class="list-none p-0 m-0 space-y-2">
+                                <ul class="list-none p-0 m-0 space-y-2" id="memberList">
                                     {% for member in dashboard_data.member_overview.recent_members %}
                                         <li class="py-3 px-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
                                             <a href="/app/member/{{ member.member }}" class="flex flex-wrap items-center gap-3 no-underline">
@@ -166,6 +166,8 @@
                     </div>
                 </div>
 
+                <!-- Right Column: Pending Actions + Board Members -->
+                <div class="space-y-6">
                 <!-- Pending Actions Section -->
                 {% if dashboard_data and dashboard_data.pending_actions and dashboard_data.pending_actions.total_pending > 0 %}
                 <div class="bg-white rounded-xl shadow-sm overflow-hidden border-l-4 border-danger-500">
@@ -175,8 +177,7 @@
                             {{ dashboard_data.pending_actions.total_pending if dashboard_data and dashboard_data.pending_actions else 0 }} items
                         </div>
                     </div>
-                    <div class="p-6">
-
+                    <div class="px-6 pb-6">
                         <!-- Pending Member Applications -->
                         {% if dashboard_data and dashboard_data.pending_actions and dashboard_data.pending_actions.membership_applications %}
                             <div class="mb-6 last:mb-0">
@@ -185,7 +186,9 @@
                                     {% for app in dashboard_data.pending_actions.membership_applications %}
                                         <li class="py-4 px-4 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-3 {{ 'bg-danger-50 border-l-4 border-danger-500' if app.is_overdue else 'bg-gray-50' }}">
                                             <div class="flex flex-col gap-1">
-                                                <strong class="text-gray-900 text-base">{{ app.full_name }}</strong>
+                                                <a href="/app/member/{{ app.member }}" class="text-gray-900 text-base font-bold hover:text-primary-600 no-underline">
+                                                    {{ app.full_name }}
+                                                </a>
                                                 <small class="text-gray-600 text-sm">Applied {{ app.days_pending }} days ago</small>
                                                 {% if app.is_overdue %}
                                                     <span class="inline-block bg-red-600 text-white px-3 py-1 rounded-full text-xs font-bold mt-1 self-start">OVERDUE</span>
@@ -223,8 +226,8 @@
 
                 <!-- Board Information Section -->
                 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
-                    <div class="px-6 py-4 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-primary-50 border-primary-200">
-                        <h3 class="m-0 text-lg font-semibold text-primary-600">👨‍💼 Board Members</h3>
+                    <div class="px-6 py-4 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-secondary-50 border-secondary-200">
+                        <h3 class="m-0 text-lg font-semibold text-secondary-600">👨‍💼 Board Members</h3>
                         {% if user_board_role and user_board_role.permissions.can_manage_board %}
                             <div class="flex gap-2">
                                 <button class="inline-flex items-center justify-center px-3 py-1.5 text-sm rounded-lg font-medium bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 shadow-sm" onclick="manageBoardMembers()">
@@ -256,12 +259,14 @@
                         {% endif %}
                     </div>
                 </div>
+                </div>
+                <!-- End Right Column -->
 
                 <!-- Financial Summary Section -->
                 {% if user_board_role and user_board_role.permissions.can_view_finances %}
                 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
-                    <div class="px-6 py-4 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-success-50 border-success-200">
-                        <h3 class="m-0 text-lg font-semibold text-success-600">💰 Chapter Finances</h3>
+                    <div class="px-6 py-4 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-accent-50 border-accent-200">
+                        <h3 class="m-0 text-lg font-semibold text-accent-600">💰 Chapter Finances</h3>
                         <div class="flex gap-2">
                             <button class="inline-flex items-center justify-center px-3 py-1.5 text-sm rounded-lg font-medium bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 shadow-sm" onclick="viewFinancialReports()">
                                 <i class="fa fa-chart-bar mr-1"></i> Reports
@@ -319,46 +324,51 @@
             </div>
             <!-- End of 2-column grid -->
 
-            <!-- Membership Dues & Recent Activity Row (full width) -->
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-                    <!-- Membership Dues Payment Status Section (2/3 width) -->
-                    {% if dashboard_data.dues_payment_status %}
-                    <div class="lg:col-span-2 bg-white rounded-xl shadow-sm overflow-hidden">
-                        <div class="px-6 py-4 border-b bg-success-50 border-success-200">
-                            <h3 class="m-0 text-lg font-semibold text-success-600">💳 Membership Dues Payment Status</h3>
-                        </div>
+            <!-- Dues Payment Status Section (full width) -->
+            {% if user_board_role and user_board_role.permissions.can_view_finances and dashboard_data.dues_payment_status %}
+            <div class="bg-white rounded-xl shadow-sm overflow-hidden mb-8">
+                <div class="px-6 py-4 border-b bg-secondary-50 border-secondary-200">
+                    <h3 class="m-0 text-lg font-semibold text-secondary-600">💳 Dues Payment Status</h3>
+                </div>
                         <div class="p-6">
-                            <div class="grid grid-cols-1 md:grid-cols-6 gap-4 mb-6">
-                            <a href="/app/query-report/Membership Dues Coverage Analysis?chapter={{ chapter_name|urlencode }}&show_only_gaps=0"
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                            <a href="/app/query-report/Membership Dues Coverage Analysis?chapter={{ chapter_name|urlencode|e }}&show_only_gaps=0"
                                class="text-center p-4 bg-success-50 rounded-lg border border-success-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
                                 <span class="block text-sm text-gray-600 mb-2 font-medium">Up to Date:</span>
                                 <span class="text-3xl font-bold text-success-600">{{ dashboard_data.dues_payment_status.up_to_date }}</span>
+                                <span class="block text-xs text-gray-500 mt-1">Members with current coverage</span>
                             </a>
-                            <a href="/app/query-report/Members Without Active Memberships?chapter={{ chapter_name|urlencode }}"
+                            <a href="/app/query-report/Members Without Active Memberships?chapter={{ chapter_name|urlencode|e }}"
                                class="text-center p-4 bg-primary-50 rounded-lg border border-primary-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
                                 <span class="block text-sm text-gray-600 mb-2 font-medium">No Dues Schedule set:</span>
                                 <span class="text-3xl font-bold text-primary-600">{{ dashboard_data.dues_payment_status.no_active_membership }}</span>
                                 <span class="block text-xs text-gray-500 mt-1">Members who don't pay any dues.</span>
                             </a>
-                            <a href="/app/sales-invoice?status=Unpaid&custom_member_chapter={{ chapter_name|urlencode }}&is_membership_invoice=1"
+                            <a href="/app/query-report/Overdue Member Payments?chapter={{ chapter_name|urlencode|e }}"
                                class="text-center p-4 bg-warning-50 rounded-lg border border-warning-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
                                 <span class="block text-sm text-gray-600 mb-2 font-medium">Members with unpaid dues:</span>
                                 <span class="text-3xl font-bold text-yellow-600">{{ dashboard_data.dues_payment_status.unpaid }}</span>
                                 <span class="block text-xs text-gray-500 mt-1">€{{ "%.2f"|format(dashboard_data.dues_payment_status.unpaid_amount) }}</span>
                             </a>
-                            <a href="/app/query-report/Membership Dues Coverage Analysis?chapter={{ chapter_name|urlencode }}&show_only_gaps=1"
+                            <a href="/app/query-report/Membership Dues Coverage Analysis?chapter={{ chapter_name|urlencode|e }}&show_only_gaps=1"
                                class="text-center p-4 bg-warning-50 rounded-lg border border-warning-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
                                 <span class="block text-sm text-gray-600 mb-2 font-medium">Lapsed:</span>
                                 <span class="text-3xl font-bold text-warning-600">{{ dashboard_data.dues_payment_status.lapsed }}</span>
                                 <span class="block text-xs text-gray-500 mt-1">Coverage Expired</span>
                             </a>
-                            <a href="/app/sales-invoice?status=Overdue&custom_member_chapter={{ chapter_name|urlencode }}&is_membership_invoice=1"
+                            <a href="/app/sales-invoice?status=Overdue&custom_member_chapter={{ chapter_name|urlencode|e }}&is_membership_invoice=1"
                                class="text-center p-4 bg-danger-50 rounded-lg border border-danger-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
                                 <span class="block text-sm text-gray-600 mb-2 font-medium">Overdue:</span>
                                 <span class="text-3xl font-bold text-danger-600">{{ dashboard_data.dues_payment_status.overdue }}</span>
                                 <span class="block text-xs text-gray-500 mt-1">€{{ "%.2f"|format(dashboard_data.dues_payment_status.total_overdue_amount) }}</span>
                             </a>
-                            <a href="/app/query-report/Membership Dues Coverage Analysis?chapter={{ chapter_name|urlencode }}"
+                            <a href="/app/query-report/Members Without Payment Info?chapter={{ chapter_name|urlencode|e }}"
+                               class="text-center p-4 bg-orange-50 rounded-lg border border-orange-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
+                                <span class="block text-sm text-gray-600 mb-2 font-medium">Missing Payment Info:</span>
+                                <span class="text-3xl font-bold text-orange-600">{{ dashboard_data.dues_payment_status.missing_payment_info }}</span>
+                                <span class="block text-xs text-gray-500 mt-1">No Mollie/SEPA/Bank Transfer</span>
+                            </a>
+                            <a href="/app/query-report/Membership Dues Coverage Analysis?chapter={{ chapter_name|urlencode|e }}"
                                class="text-center p-4 bg-gray-50 rounded-lg border border-gray-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
                                 <span class="block text-sm text-gray-600 mb-2 font-medium">Total Members:</span>
                                 <span class="text-3xl font-bold text-gray-700">{{ dashboard_data.dues_payment_status.total_members }}</span>
@@ -388,37 +398,35 @@
                     </div>
                     {% endif %}
 
-                    <!-- Recent Activity Section (1/3 width) -->
-                    {% if dashboard_data.recent_activity %}
-                    <div class="lg:col-span-1 bg-white rounded-xl shadow-sm overflow-hidden">
-                        <div class="px-6 py-4 border-b bg-success-50 border-success-200">
-                            <h3 class="m-0 text-lg font-semibold text-success-600">📋 Recent Activity</h3>
-                        </div>
-                        <div class="p-6">
-                            <ul class="list-none p-0 m-0 space-y-3">
-                                {% for activity in dashboard_data.recent_activity[:5] %}
-                                    <li class="py-4 px-4 bg-gray-50 rounded-lg border-l-4 border-primary-400 hover:bg-gray-100 transition-colors">
-                                        {% if activity.member %}
-                                            <a href="/app/member/{{ activity.member }}" class="block no-underline">
-                                                <p class="m-0 mb-2 text-gray-900 hover:text-primary-600">{{ activity.description }}</p>
-                                                <small class="text-gray-500 text-xs">
-                                                    {{ format_datetime(activity.timestamp) }}
-                                                </small>
-                                            </a>
-                                        {% else %}
-                                            <p class="m-0 mb-2 text-gray-900">{{ activity.description }}</p>
-                                            <small class="text-gray-500 text-xs">
-                                                {{ format_datetime(activity.timestamp) }}
-                                            </small>
-                                        {% endif %}
-                                    </li>
-                                {% endfor %}
-                            </ul>
-                        </div>
+            <!-- Recent Activity Section (full width) -->
+            {% if dashboard_data.recent_activity %}
+            <div class="bg-white rounded-xl shadow-sm overflow-hidden mb-8">
+                <div class="px-6 py-4 border-b bg-secondary-50 border-secondary-200">
+                    <h3 class="m-0 text-lg font-semibold text-secondary-600">📋 Recent Activity</h3>
+                </div>
+                <div class="p-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {% for activity in dashboard_data.recent_activity %}
+                            <div class="py-4 px-4 bg-gray-50 rounded-lg border-l-4 border-primary-400 hover:bg-gray-100 hover:shadow-md transition-all">
+                                {% if activity.member %}
+                                    <a href="/app/member/{{ activity.member }}" class="block no-underline">
+                                        <p class="m-0 mb-2 text-gray-900 hover:text-primary-600 font-medium">{{ activity.description }}</p>
+                                        <small class="text-gray-500 text-xs">
+                                            {{ format_datetime(activity.timestamp) }}
+                                        </small>
+                                    </a>
+                                {% else %}
+                                    <p class="m-0 mb-2 text-gray-900 font-medium">{{ activity.description }}</p>
+                                    <small class="text-gray-500 text-xs">
+                                        {{ format_datetime(activity.timestamp) }}
+                                    </small>
+                                {% endif %}
+                            </div>
+                        {% endfor %}
                     </div>
-                    {% endif %}
+                </div>
             </div>
-            <!-- End of Membership Dues & Recent Activity Row -->
+            {% endif %}
 
             <!-- Board Documents Section (full width) -->
             <div class="mb-8">
@@ -816,7 +824,7 @@
 
     // Function to open chapter in desk
     function viewAllMembers() {
-        const chapterName = '{{ selected_chapter }}';
+        const chapterName = {{ selected_chapter|tojson }};
         if (chapterName) {
             window.open('/app/chapter/' + encodeURIComponent(chapterName), '_blank');
         }
@@ -841,6 +849,40 @@
     // Pass dashboard data to JavaScript
     window.dashboardData = {{ dashboard_data | tojson | safe if dashboard_data else '{}' }};
     window.userPermissions = {{ user_board_role.permissions | tojson | safe if user_board_role and user_board_role.permissions else '{}' }};
-    window.selectedChapter = '{{ selected_chapter }}';
+    window.selectedChapter = {{ selected_chapter|tojson }};
+
+    // Member search filter function
+    function filterMembers() {
+        const input = document.getElementById('memberSearchInput');
+        const filter = input.value.toLowerCase();
+        const memberList = document.getElementById('memberList');
+        const members = memberList.getElementsByTagName('li');
+
+        let visibleCount = 0;
+
+        for (let i = 0; i < members.length; i++) {
+            const memberName = members[i].textContent || members[i].innerText;
+            if (memberName.toLowerCase().indexOf(filter) > -1) {
+                members[i].style.display = '';
+                visibleCount++;
+            } else {
+                members[i].style.display = 'none';
+            }
+        }
+
+        // Optional: Show "no results" message
+        const noResultsMsg = document.getElementById('noMembersFound');
+        if (visibleCount === 0 && filter.length > 0) {
+            if (!noResultsMsg) {
+                const msg = document.createElement('li');
+                msg.id = 'noMembersFound';
+                msg.className = 'text-center text-gray-500 italic py-4';
+                msg.textContent = 'No members found matching "' + filter + '"';
+                memberList.appendChild(msg);
+            }
+        } else if (noResultsMsg) {
+            noResultsMsg.remove();
+        }
+    }
 </script>
 {% endblock %}

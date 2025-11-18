@@ -590,6 +590,14 @@ function setup_chapter_buttons(frm) {
 			__('View')
 		);
 
+		frm.add_custom_button(
+			__('Chapter Dashboard'),
+			() => {
+				window.open(`/chapter_dashboard?chapter=${encodeURIComponent(frm.doc.name)}`, '_blank');
+			},
+			__('View')
+		);
+
 		if (frm.doc.current_sepa_mandate) {
 			frm.add_custom_button(
 				__('Current SEPA Mandate'),

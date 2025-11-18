@@ -275,7 +275,9 @@
                             </button>
                             {% if active_dues_schedule %}
                             <p class="text-sm text-gray-600 mt-3">
-                                {{ _("Current rate") }}: <strong>€{{ "%.2f"|format(active_dues_schedule.amount) }}</strong> {{ _("per") }} {{ active_dues_schedule.billing_frequency|lower }}
+                                {% set frequency_map = {"Monthly": "month", "Quarterly": "quarter", "Yearly": "year", "Weekly": "week"} %}
+                                {% set frequency = frequency_map.get(active_dues_schedule.billing_frequency, active_dues_schedule.billing_frequency|lower) %}
+                                {{ _("Current rate") }}: <strong>€{{ "%.2f"|format(active_dues_schedule.amount) }}</strong> {{ _("per") }} {{ frequency }}
                             </p>
                             {% endif %}
                         </div>
@@ -1156,16 +1158,16 @@ function loadSubscriptionDetailsForTab() {
         }
 
         if (data.message && data.message.status === 'success') {
-            updateMultipleSubscriptionsDisplayForTab(data.message.subscriptions, data.message.total_customers);
+            updateMultipleSubscriptionsDisplayForTab(data.message.subscriptions, data.message.total_customers, false);
         } else if (data.message && data.message.status === 'fallback') {
             if (data.message.subscriptions) {
-                updateMultipleSubscriptionsDisplayForTab(data.message.subscriptions, data.message.total_customers || 1);
+                updateMultipleSubscriptionsDisplayForTab(data.message.subscriptions, data.message.total_customers || 1, true);
             }
             showSubscriptionErrorForTab(data.message.message || '{{ _("Using last known data") }}');
         } else if (data.message && data.message.status === 'no_subscription') {
-            updateMultipleSubscriptionsDisplayForTab([], 0);
+            updateMultipleSubscriptionsDisplayForTab([], 0, false);
         } else {
-            updateMultipleSubscriptionsDisplayForTab([], 0);
+            updateMultipleSubscriptionsDisplayForTab([], 0, true);
             showSubscriptionErrorForTab(data.message?.message || '{{ _("Error loading subscription details") }}');
         }
     })
@@ -1176,12 +1178,12 @@ function loadSubscriptionDetailsForTab() {
             loadingIndicator.classList.add('hidden');
         }
 
-        updateMultipleSubscriptionsDisplayForTab([], 0);
+        updateMultipleSubscriptionsDisplayForTab([], 0, true);
         showSubscriptionErrorForTab('{{ _("Unable to load current subscription details") }}');
     });
 }
 
-function updateMultipleSubscriptionsDisplayForTab(subscriptions, totalCustomers) {
+function updateMultipleSubscriptionsDisplayForTab(subscriptions, totalCustomers, hasError = false) {
     const container = document.getElementById('subscriptions-container-tab');
     const loadingRow = document.getElementById('loading-row-tab');
 
@@ -1194,7 +1196,8 @@ function updateMultipleSubscriptionsDisplayForTab(subscriptions, totalCustomers)
     container.innerHTML = '';
 
     const validCustomers = subscriptions ? subscriptions.filter(s => {
-        return s.customer_id && (!s.error || s.subscription);
+        // Only valid if customer exists without errors AND has valid mandate
+        return s.customer_id && !s.error && s.mandate_valid === true;
     }) : [];
 
     const activeSubscriptions = subscriptions ? subscriptions.filter(s => s.subscription && s.subscription.is_active) : [];
@@ -1202,7 +1205,8 @@ function updateMultipleSubscriptionsDisplayForTab(subscriptions, totalCustomers)
     const mollieSection = document.getElementById('mollie-subscription-section-tab');
     const mollieBadge = document.getElementById('mollie-status-badge-tab');
 
-    if (validCustomers && validCustomers.length > 0) {
+    // Only show "Enabled" if we have valid customers AND no API errors
+    if (validCustomers && validCustomers.length > 0 && !hasError) {
         if (mollieSection) {
             mollieSection.classList.remove('border-gray-300');
             mollieSection.classList.add('border-primary-500');
@@ -1226,7 +1230,16 @@ function updateMultipleSubscriptionsDisplayForTab(subscriptions, totalCustomers)
                     style: 'currency',
                     currency: 'EUR'
                 }).format(activeDuesSchedule.amount);
-                const frequency = activeDuesSchedule.billing_frequency ? activeDuesSchedule.billing_frequency.toLowerCase() : '';
+
+                // Convert billing frequency to grammatically correct form
+                const frequencyMap = {
+                    'Monthly': 'month',
+                    'Quarterly': 'quarter',
+                    'Yearly': 'year',
+                    'Weekly': 'week'
+                };
+                const rawFrequency = activeDuesSchedule.billing_frequency || '';
+                const frequency = frequencyMap[rawFrequency] || rawFrequency.toLowerCase();
 
                 emptyStateHTML += `
                     <button type="button" onclick="setupMollieSubscription()"

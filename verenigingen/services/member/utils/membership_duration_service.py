@@ -86,40 +86,43 @@ def calculate_total_membership_days(member_name):
 
 
 def format_duration_human_readable(total_days):
-    """Convert total days to human-readable duration format.
+    """Convert total days to human-readable duration format, rounded to months.
 
-    Extracted from member.py calculate_cumulative_membership_duration() method.
-    Formats days into years, months, and days with proper pluralization.
+    Calculates duration from Membership records and formats as years and months only.
+    Days are rounded to the nearest month (15+ days rounds up).
 
     Args:
         total_days (int): Total days to format
 
     Returns:
-        str: Human-readable duration (e.g., "2 years, 3 months, 15 days")
+        str: Human-readable duration (e.g., "2 years, 3 months")
     """
     try:
         if total_days <= 0:
-            return "Less than 1 day"
+            return "Less than 1 month"
 
-        # Convert total days to human-readable format
-        years = total_days // 365
-        remaining_days = total_days % 365
-        months = remaining_days // 30
-        remaining_days = remaining_days % 30
+        # Convert total days to months with rounding
+        # 15+ days in a partial month rounds up to next month
+        total_months = round(total_days / 30.0)
 
-        # Build duration string
+        if total_months == 0:
+            return "Less than 1 month"
+
+        # Convert months to years and remaining months
+        years = total_months // 12
+        months = total_months % 12
+
+        # Build duration string (rounded to months)
         duration_parts = []
         if years > 0:
             duration_parts.append(f"{years} year{'s' if years != 1 else ''}")
         if months > 0:
             duration_parts.append(f"{months} month{'s' if months != 1 else ''}")
-        if remaining_days > 0 and years == 0:  # Only show days if less than a year
-            duration_parts.append(f"{remaining_days} day{'s' if remaining_days != 1 else ''}")
 
         if duration_parts:
             return ", ".join(duration_parts)
         else:
-            return "Less than 1 day"
+            return "Less than 1 month"
 
     except Exception as e:
         handle_service_error(
@@ -146,10 +149,10 @@ def calculate_duration_in_years(total_days):
 
 
 def update_member_duration_fields(member_doc):
-    """Update member document with calculated duration values.
+    """Update member document with calculated duration value.
 
-    Extracted from member.py update_membership_duration() method.
-    Updates total_membership_days, cumulative_membership_duration, and last_duration_update.
+    Calculates duration on-demand from Membership records and updates the
+    cumulative_membership_duration field only (no stored day count).
 
     Args:
         member_doc: Member document instance to update
@@ -158,14 +161,10 @@ def update_member_duration_fields(member_doc):
         dict: Result with success status and calculated values
     """
     try:
-        # Calculate the raw days
+        # Calculate the raw days from membership records
         total_days = calculate_total_membership_days(member_doc.name)
 
-        # Update the fields
-        member_doc.total_membership_days = total_days
-        member_doc.last_duration_update = now()
-
-        # Calculate human-readable format
+        # Update only the human-readable duration field
         member_doc.cumulative_membership_duration = format_duration_human_readable(total_days)
 
         return create_service_result(
@@ -173,7 +172,6 @@ def update_member_duration_fields(member_doc):
             data={
                 "total_days": total_days,
                 "duration": member_doc.cumulative_membership_duration,
-                "updated": member_doc.last_duration_update,
             },
         )
 

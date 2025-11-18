@@ -690,7 +690,7 @@
 
                         <div class="input-group">
                             <label class="input-label required">{{ _("Payment Method") }}</label>
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-3">
                                 <label class="flex items-center space-x-3 cursor-pointer">
                                     <input type="radio" name="payment_method" value="bank_transfer" class="form-input w-auto" required>
                                     <span>{{ _("Bank Transfer") }}</span>
@@ -698,6 +698,10 @@
                                 <label class="flex items-center space-x-3 cursor-pointer">
                                     <input type="radio" name="payment_method" value="sepa_direct_debit" class="form-input w-auto" required>
                                     <span>{{ _("SEPA Direct Debit") }}</span>
+                                </label>
+                                <label class="flex items-center space-x-3 cursor-pointer">
+                                    <input type="radio" name="payment_method" value="mollie" class="form-input w-auto" required>
+                                    <span>{{ _("Mollie (Credit Card / iDEAL)") }}</span>
                                 </label>
                             </div>
                         </div>

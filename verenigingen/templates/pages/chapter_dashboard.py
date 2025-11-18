@@ -170,7 +170,16 @@ def get_user_board_role(chapter_name: str) -> Optional[Dict[str, Any]]:
     # Admin users have full access
     admin_roles = [Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN]
     if any(role in frappe.get_roles() for role in admin_roles):
-        return {"role": "System Administrator", "permissions": "full"}
+        return {
+            "role": "System Administrator",
+            "permissions": {
+                "can_approve_members": True,
+                "can_approve_expenses": True,
+                "can_manage_board": True,
+                "can_view_finances": True,
+                "expense_limit": None,  # No limit for admins
+            },
+        }
 
     member = frappe.db.get_value("Member", {"email": user_email}, "name")
     if not member:
@@ -412,10 +421,10 @@ def get_member_overview(chapter_name: str) -> Dict[str, Any]:
 
     # Get all chapter members - modernized with efficient batch queries
     try:
-        # Get all chapter members ordered by name
+        # Get all active chapter members (exclude terminated) ordered by name
         recent_chapter_members = frappe.get_all(
             "Chapter Member",
-            filters={"parent": chapter_name},
+            filters={"parent": chapter_name, "enabled": 1},
             fields=["member", "status", "chapter_join_date", "enabled", "leave_reason"],
             order_by="member asc",
             limit_page_length=0,
@@ -605,6 +614,62 @@ def get_financial_summary(chapter_name: str) -> Dict[str, Any]:
         }
 
 
+def get_members_without_payment_info_count(chapter_name: str) -> int:
+    """Count members in chapter without valid payment information"""
+    try:
+        # Get chapter members
+        chapter_members = frappe.get_all(
+            "Chapter Member",
+            filters={"parent": chapter_name, "enabled": 1, "status": "Active"},
+            pluck="member",
+        )
+
+        if not chapter_members:
+            return 0
+
+        # Query to find members without valid payment info
+        result = frappe.db.sql(
+            """
+            SELECT COUNT(DISTINCT m.name) as count
+            FROM `tabMember` m
+            WHERE m.name IN %(member_names)s
+            AND m.status IN ('Active', 'Pending')
+            AND NOT (
+                -- Has Mollie with active subscription
+                (m.mollie_customer_id IS NOT NULL
+                 AND m.mollie_subscription_id IS NOT NULL
+                 AND m.subscription_status = 'active')
+                OR
+                -- Has active SEPA mandate
+                EXISTS (
+                    SELECT 1 FROM `tabSEPA Mandate` sm
+                    WHERE sm.member = m.name
+                    AND sm.status = 'Active'
+                    AND sm.is_active = 1
+                )
+                OR
+                -- Has complete bank transfer setup
+                (m.payment_method = 'Bank Transfer'
+                 AND m.iban IS NOT NULL
+                 AND m.iban != ''
+                 AND m.bank_account_name IS NOT NULL
+                 AND m.bank_account_name != '')
+            )
+            """,
+            {"member_names": chapter_members},
+            as_dict=True,
+        )
+
+        return result[0].count if result else 0
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error counting members without payment info for {chapter_name}: {str(e)}",
+            "Chapter Dashboard Payment Info Count",
+        )
+        return 0
+
+
 def get_dues_payment_status(chapter_name: str) -> Dict[str, Any]:
     """Get membership dues payment status for chapter members"""
     try:
@@ -711,6 +776,9 @@ def get_dues_payment_status(chapter_name: str) -> Dict[str, Any]:
                         f"Utrecht Uncategorized Member Debug",
                     )
 
+        # Get count of members without payment info
+        missing_payment_info_count = get_members_without_payment_info_count(chapter_name)
+
         return {
             "total_members": len(result),
             "up_to_date": up_to_date,
@@ -719,6 +787,7 @@ def get_dues_payment_status(chapter_name: str) -> Dict[str, Any]:
             "unpaid_amount": total_unpaid_amount,
             "overdue": overdue,
             "lapsed": lapsed,
+            "missing_payment_info": missing_payment_info_count,
             "overdue_breakdown": {
                 "overdue_30_days": overdue_30_days,
                 "overdue_60_days": overdue_60_days,
@@ -736,6 +805,7 @@ def get_dues_payment_status(chapter_name: str) -> Dict[str, Any]:
             "unpaid_amount": 0,
             "overdue": 0,
             "lapsed": 0,
+            "missing_payment_info": 0,
             "overdue_breakdown": {
                 "overdue_30_days": 0,
                 "overdue_60_days": 0,
@@ -864,17 +934,19 @@ def get_recent_activity(chapter_name: str) -> List[Dict[str, Any]]:
         sixty_days_ago = add_days(getdate(), -60)
 
         # Get recent chapter member changes (joins, leaves, applications)
-        # Get both recent joins AND recent terminations
+        # Get both recent joins AND recent terminations, including member status
         recent_chapter_activities = frappe.db.sql(
             """
-            SELECT member, chapter_join_date, status, enabled, leave_reason, modified
-            FROM `tabChapter Member`
-            WHERE parent = %(chapter)s
+            SELECT cm.member, cm.chapter_join_date, cm.status, cm.enabled,
+                   cm.leave_reason, cm.modified, m.status as member_status
+            FROM `tabChapter Member` cm
+            LEFT JOIN `tabMember` m ON m.name = cm.member
+            WHERE cm.parent = %(chapter)s
             AND (
-                chapter_join_date >= %(sixty_days_ago)s
-                OR (enabled = 0 AND modified >= %(sixty_days_ago)s)
+                cm.chapter_join_date >= %(sixty_days_ago)s
+                OR (cm.enabled = 0 AND cm.modified >= %(sixty_days_ago)s)
             )
-            ORDER BY COALESCE(chapter_join_date, modified) DESC
+            ORDER BY COALESCE(cm.chapter_join_date, cm.modified) DESC
             LIMIT 10
             """,
             {"chapter": chapter_name, "sixty_days_ago": sixty_days_ago},
@@ -901,11 +973,20 @@ def get_recent_activity(chapter_name: str) -> List[Dict[str, Any]]:
 
             # Determine activity type and description
             if rcj.enabled == 0:
-                # Member left the chapter
-                activity_desc = f"{full_name} left the chapter"
-                if rcj.leave_reason:
-                    activity_desc += f" ({rcj.leave_reason})"
-                activity_type = "member_leave"
+                # Member left the chapter - check if they quit the org or just moved chapters
+                member_status = rcj.get("member_status")
+                if member_status in ("Terminated", "Suspended", "Banned", "Deceased"):
+                    # Member quit/left the organization entirely
+                    activity_desc = f"{full_name} quit the organization"
+                    if rcj.leave_reason:
+                        activity_desc += f" ({rcj.leave_reason})"
+                    activity_type = "member_quit"
+                else:
+                    # Member likely moved to another chapter
+                    activity_desc = f"{full_name} left the chapter"
+                    if rcj.leave_reason:
+                        activity_desc += f" ({rcj.leave_reason})"
+                    activity_type = "member_leave"
             elif rcj.status == "Pending":
                 activity_desc = f"{full_name} applied to join (pending approval)"
                 activity_type = "member_application"

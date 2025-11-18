@@ -454,7 +454,8 @@ def get_subscription_details():
 
         member = frappe.get_doc("Member", member_name)
 
-        # Collect all Mollie customer IDs (member + donor)
+        # Collect Mollie customer IDs from MEMBER record only (not donor)
+        # Dues pages should only check membership payment methods, not donation methods
         # Support comma-separated customer IDs for members with multiple Mollie accounts
         mollie_customer_ids = []
 
@@ -471,27 +472,6 @@ def get_subscription_details():
                         "local_cancelled_date": member.subscription_cancelled_date,
                     }
                 )
-
-        # Check donor record for Mollie customer ID
-        donor_records = frappe.get_all(
-            "Donor",
-            filters={"member": member_name, "mollie_customer_id": ["!=", ""]},
-            fields=["name", "mollie_customer_id", "donor_name"],
-            limit=1,
-        )
-
-        if donor_records:
-            donor = donor_records[0]
-            mollie_customer_ids.append(
-                {
-                    "customer_id": donor.mollie_customer_id,
-                    "subscription_id": None,  # Donor subscriptions handled separately
-                    "source": "donor",
-                    "donor_name": donor.donor_name,
-                    "local_status": None,
-                    "local_cancelled_date": None,
-                }
-            )
 
         if not mollie_customer_ids:
             return {"status": "no_subscription", "message": _("No Mollie customer IDs found")}
@@ -525,11 +505,38 @@ def get_subscription_details():
                             "subscription": None,
                             "has_customer_only": True,
                             "error": subscriptions_result["error"],
+                            "mandate_valid": False,  # Customer validation failed, so mandate is not valid
                         }
                         if customer_info.get("donor_name"):
                             customer_only_info["donor_name"] = customer_info["donor_name"]
                         all_subscriptions.append(customer_only_info)
                         continue
+
+                    # Check mandate validity for this customer by querying Mollie directly
+                    # Don't rely on database SEPA Mandate records which may be missing/outdated
+                    mandate_valid = False
+                    mandate_status = None
+
+                    try:
+                        # Query Mollie for ALL mandates for this customer
+                        client = debug_service.mollie_client.sdk_client
+                        customer_obj = client.customers.get(customer_id)
+                        mandates = customer_obj.mandates.list()
+
+                        # Check if any mandate has status="valid"
+                        for mandate in mandates:
+                            if mandate.status == "valid":
+                                mandate_valid = True
+                                mandate_status = "valid"
+                                break
+                            elif not mandate_status:  # Track first mandate status found
+                                mandate_status = mandate.status
+
+                    except Exception as mandate_error:
+                        # Log but don't fail - customer might not have mandates yet
+                        frappe.logger().debug(
+                            f"No mandates found for customer {customer_id}: {str(mandate_error)}"
+                        )
 
                     # Process each subscription returned by the service
                     subscriptions = subscriptions_result.get("subscriptions", [])
@@ -542,6 +549,8 @@ def get_subscription_details():
                             "subscription": None,
                             "has_customer_only": True,
                             "note": "Customer found but no subscriptions",
+                            "mandate_valid": mandate_valid,
+                            "mandate_status": mandate_status,
                         }
                         if customer_info.get("donor_name"):
                             customer_only_info["donor_name"] = customer_info["donor_name"]
@@ -589,6 +598,8 @@ def get_subscription_details():
                                     "local_status": customer_info.get("local_status"),
                                     "cancelled_date": customer_info.get("local_cancelled_date"),
                                 },
+                                "mandate_valid": mandate_valid,
+                                "mandate_status": mandate_status,
                             }
                             # Add source-specific metadata
                             if customer_info["source"] == "donor":
@@ -608,6 +619,7 @@ def get_subscription_details():
                         "subscription": None,
                         "has_customer_only": True,
                         "error": "Could not fetch subscription data",
+                        "mandate_valid": False,  # Error occurred, so mandate is not valid
                     }
                     if customer_info.get("donor_name"):
                         customer_only_info["donor_name"] = customer_info["donor_name"]

@@ -479,6 +479,7 @@ class TestMemberController(VereningingenUnitTestCase):
                 "status": "Expired"}
         )
         past_membership.insert()  # VereningingenUnitTestCase handles permissions
+        past_membership.submit()  # Duration calculation only counts submitted memberships
         self.track_doc("Membership", past_membership.name)
 
         # Create current membership
@@ -499,9 +500,10 @@ class TestMemberController(VereningingenUnitTestCase):
         # Calculate duration
         duration = member.calculate_cumulative_membership_duration()
 
-        # Should be around 2 years (365 days from past + 365 days from current)
-        self.assertGreater(duration, 1.9)
-        self.assertLess(duration, 2.1)
+        # Should be around 1.5 years (365 days from past expired + ~180 days current to today)
+        # Active memberships only count up to today, not future renewal_date
+        self.assertGreater(duration, 1.4)
+        self.assertLess(duration, 1.6)
 
     def test_update_membership_duration(self):
         """Test update_membership_duration method"""

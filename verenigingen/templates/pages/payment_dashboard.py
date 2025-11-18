@@ -89,7 +89,8 @@ def _add_bank_details_context(context):
     # Check for active SEPA mandate
     context.current_mandate = get_active_sepa_mandate(context.member)
 
-    # Get Mollie subscription information from both Member and Donor records
+    # Get Mollie subscription information from MEMBER record only (not donor)
+    # Dues/payment dashboard should only check membership payment methods, not donation methods
     mollie_customers = []
 
     # Check member record for Mollie customer ID (regardless of payment method)
@@ -109,29 +110,7 @@ def _add_bank_details_context(context):
                 }
             )
 
-    # Check donor record for Mollie customer ID
-    donor_records = frappe.get_all(
-        "Donor",
-        filters={"member": context.member, "mollie_customer_id": ["!=", ""]},
-        fields=["name", "mollie_customer_id", "donor_name"],
-        limit=1,
-    )
-
-    if donor_records:
-        donor = donor_records[0]
-        mollie_customers.append(
-            {
-                "customer_id": donor.mollie_customer_id,
-                "subscription_id": None,  # Donor subscriptions handled differently
-                "status": None,
-                "next_payment_date": None,
-                "cancelled_date": None,
-                "source": "donor",
-                "donor_name": donor.donor_name,
-            }
-        )
-
-    # Store all Mollie customers (max 2: member + donor)
+    # Store Mollie customers from member record only
     context.mollie_customers = mollie_customers
     # Keep legacy field for backward compatibility
     context.mollie_subscription = mollie_customers[0] if mollie_customers else None

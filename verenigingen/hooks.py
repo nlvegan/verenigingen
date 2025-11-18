@@ -557,8 +557,6 @@ scheduler_events = {
     "daily": [
         # Member financial history refresh - runs once daily
         "verenigingen.verenigingen.doctype.member.scheduler.refresh_all_member_financial_histories",
-        # Membership duration updates - runs once daily
-        "verenigingen.verenigingen.doctype.member.scheduler.update_all_membership_durations",
         # EMAIL SYSTEM INTEGRATION - Daily email system maintenance
         "verenigingen.email.email_group_sync.scheduled_email_group_sync",
         # "verenigingen.email.analytics_tracker.cleanup_old_email_analytics",  # Disabled - DocTypes don't exist

@@ -170,16 +170,9 @@ class Chapter(Document):
                 lambda: self._update_chapter_cost_center_name(),
             )
 
-        # Sync with volunteer system if needed (with recursion guard)
-        if self.has_value_changed("board_members") and not getattr(self, "_syncing_board_members", False):
-            self._syncing_board_members = True
-            try:
-                self._safe_manager_operation(
-                    "volunteer_sync",
-                    lambda: self.volunteer_integration_manager.sync_board_members_with_volunteer_system(),
-                )
-            finally:
-                self._syncing_board_members = False
+        # NOTE: Volunteer sync removed from here (2025-11-18)
+        # Now handled exclusively via event-driven architecture in on_update()
+        # This prevents duplicate processing and race conditions
 
     def _safe_manager_operation(self, operation_name: str, operation_func):
         """Execute manager operation safely with proper error handling"""

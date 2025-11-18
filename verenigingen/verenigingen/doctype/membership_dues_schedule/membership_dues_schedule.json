@@ -33,7 +33,6 @@
   "section_coverage_tracking",
   "last_generated_invoice",
   "last_invoice_coverage_start",
-  "column_break_coverage",
   "last_invoice_coverage_end",
   "section_notes",
   "notes",
@@ -422,7 +421,7 @@
   }
  ],
  "links": [],
- "modified": "2025-10-01 10:11:38.048333",
+ "modified": "2025-11-18 19:10:00.831788",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Membership Dues Schedule",
@@ -450,6 +449,7 @@
    "write": 1
   },
   {
+   "create": 1,
    "email": 1,
    "print": 1,
    "read": 1,

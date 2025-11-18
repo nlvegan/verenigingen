@@ -219,6 +219,28 @@ class EndBoardPositionsOperation(TerminationOperation):
             results.record_action(f"Ended {positions_ended} board position(s)")
 
 
+class DisableChapterMembershipsOperation(TerminationOperation):
+    """Disable all chapter memberships"""
+
+    @property
+    def operation_name(self) -> str:
+        return "Disable Chapter Memberships"
+
+    def execute(self, results: TerminationResults) -> None:
+        from frappe.utils import today
+
+        from verenigingen.utils.termination_integration import disable_chapter_memberships_safe
+
+        memberships_disabled = disable_chapter_memberships_safe(
+            self.member_name,
+            self.termination_request.termination_date or today(),
+            f"Member terminated - Type: {self.termination_request.termination_type}",
+        )
+
+        if memberships_disabled > 0:
+            results.record_action(f"Disabled {memberships_disabled} chapter membership(s)")
+
+
 class SuspendTeamMembershipsOperation(TerminationOperation):
     """Suspend all team memberships"""
 

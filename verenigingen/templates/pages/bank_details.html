@@ -91,7 +91,9 @@
                             </button>
                             {% if active_dues_schedule %}
                             <p class="text-sm text-gray-600 mt-3">
-                                {{ _("Current rate") }}: <strong>€{{ "%.2f"|format(active_dues_schedule.amount) }}</strong> {{ _("per") }} {{ active_dues_schedule.billing_frequency|lower }}
+                                {% set frequency_map = {"Monthly": "month", "Quarterly": "quarter", "Yearly": "year", "Weekly": "week"} %}
+                                {% set frequency = frequency_map.get(active_dues_schedule.billing_frequency, active_dues_schedule.billing_frequency|lower) %}
+                                {{ _("Current rate") }}: <strong>€{{ "%.2f"|format(active_dues_schedule.amount) }}</strong> {{ _("per") }} {{ frequency }}
                             </p>
                             {% endif %}
                         </div>
@@ -526,8 +528,8 @@ document.addEventListener('DOMContentLoaded', function() {
         // Check for valid Mollie customers (not just active subscriptions)
         // A valid customer means the mandate is set up, even without active subscriptions
         const validCustomers = subscriptions ? subscriptions.filter(s => {
-            // Valid if: has customer_id AND (no error OR has subscription data)
-            return s.customer_id && (!s.error || s.subscription);
+            // Only valid if customer exists without errors AND has valid mandate
+            return s.customer_id && !s.error && s.mandate_valid === true;
         }) : [];
 
         // Filter active subscriptions for display
@@ -558,11 +560,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 // Add setup link with dues rate if available
                 if (activeDuesSchedule) {
+                    // Convert billing frequency to grammatically correct form
                     const frequencyMap = {
-                        'Monthly': '{{ _("month") }}',
-                        'Quarterly': '{{ _("quarter") }}',
-                        'Semi-annually': '{{ _("half year") }}',
-                        'Annually': '{{ _("year") }}'
+                        'Monthly': 'month',
+                        'Quarterly': 'quarter',
+                        'Yearly': 'year',
+                        'Weekly': 'week',
+                        'Semi-annually': 'half year',
+                        'Annually': 'year'
                     };
                     const frequency = frequencyMap[activeDuesSchedule.billing_frequency] || activeDuesSchedule.billing_frequency.toLowerCase();
                     const formattedAmount = new Intl.NumberFormat('nl-NL', {

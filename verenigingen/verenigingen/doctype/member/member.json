@@ -82,10 +82,8 @@
   "chapter_change_reason",
   "chapter_membership_history_section",
   "chapter_membership_history",
-  "volunteer_details_section",
+  "volunteer_information_section",
   "volunteer_details_html",
-  "volunteer_assignment_history_section",
-  "volunteer_assignment_history",
   "administration_tab",
   "application_section",
   "application_id",
@@ -107,8 +105,6 @@
   "user",
   "employee",
   "membership_analytics_section",
-  "total_membership_days",
-  "last_duration_update",
   "reset_counter_to",
   "reset_counter_button",
   "permission_category",
@@ -242,18 +238,18 @@
   },
   {
    "depends_on": "eval:doc.payment_method == 'Mollie'",
+   "description": "Member's scheduled payment date (internal tracking)",
    "fieldname": "next_payment_date",
    "fieldtype": "Date",
    "label": "Next Payment Date",
-   "description": "Member's scheduled payment date (internal tracking)",
    "read_only": 1
   },
   {
    "depends_on": "eval:doc.payment_method == 'Mollie'",
+   "description": "Next scheduled invoice date from Mollie subscription",
    "fieldname": "mollie_subscription_next_invoice_date",
    "fieldtype": "Date",
    "label": "Next Invoice Date (Mollie)",
-   "description": "Next scheduled invoice date from Mollie subscription",
    "read_only": 1
   },
   {
@@ -582,20 +578,6 @@
    "label": "Membership Analytics"
   },
   {
-   "description": "Total number of days this member has been active (updated daily)",
-   "fieldname": "total_membership_days",
-   "fieldtype": "Int",
-   "label": "Total Membership Days",
-   "read_only": 1
-  },
-  {
-   "description": "Last time the membership duration was calculated",
-   "fieldname": "last_duration_update",
-   "fieldtype": "Datetime",
-   "label": "Last Duration Update",
-   "read_only": 1
-  },
-  {
    "fieldname": "current_dues_schedule",
    "fieldtype": "Link",
    "label": "Current Dues Schedule",
@@ -743,27 +725,13 @@
    "label": "Chapter and Volunteer activity"
   },
   {
-   "fieldname": "volunteer_details_section",
+   "fieldname": "volunteer_information_section",
    "fieldtype": "Section Break",
-   "label": "Volunteer Details"
-  },
-  {
-   "fieldname": "volunteer_details_html",
-   "fieldtype": "HTML",
    "label": "Volunteer Information"
   },
   {
-   "depends_on": "eval:doc.name",
-   "fieldname": "volunteer_assignment_history_section",
-   "fieldtype": "Section Break",
-   "label": "Volunteer Assignment History"
-  },
-  {
-   "description": "Historical record of all volunteer assignments and roles",
-   "fieldname": "volunteer_assignment_history",
-   "fieldtype": "Table",
-   "label": "Volunteer Assignment History",
-   "options": "Volunteer Assignment"
+   "fieldname": "volunteer_details_html",
+   "fieldtype": "HTML"
   },
   {
    "description": "Current dues rate for this member (from standard amount, tier, calculator, or custom)",
@@ -793,7 +761,7 @@
   {
    "fieldname": "chapter_data_tab",
    "fieldtype": "Tab Break",
-   "label": "Volunteer & Chapter Data"
+   "label": "Chapter and Volunteer Data"
   },
   {
    "collapsible": 1,
@@ -986,7 +954,7 @@
    "link_fieldname": "party"
   }
  ],
- "modified": "2025-11-01 15:06:29.845807",
+ "modified": "2025-11-18 10:50:21.757653",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Member",

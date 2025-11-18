@@ -183,6 +183,7 @@ class MembershipTerminationRequest(Document):
             CancelOutstandingInvoicesOperation,
             CancelSEPAMandatesOperation,
             DeactivateUserAccountOperation,
+            DisableChapterMembershipsOperation,
             EndBoardPositionsOperation,
             SuspendTeamMembershipsOperation,
             TerminateEmployeeRecordsOperation,
@@ -201,6 +202,7 @@ class MembershipTerminationRequest(Document):
             # Phase 1: Preparatory operations (can be reversed/retried)
             CancelMembershipsOperation(self.member, self),
             CancelSEPAMandatesOperation(self.member, self),
+            DisableChapterMembershipsOperation(self.member, self),
             EndBoardPositionsOperation(self.member, self),
             SuspendTeamMembershipsOperation(self.member, self),
             DeactivateUserAccountOperation(self.member, self),
