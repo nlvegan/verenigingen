@@ -1177,17 +1177,8 @@ def create_pending_chapter_membership(member, chapter_name):
         if not result.success:
             frappe.throw(_("Failed to save chapter membership: {0}").format("; ".join(result.errors)))
 
-        # Add membership history tracking for pending membership
-        from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
-
-        ChapterMembershipHistoryManager.add_membership_history(
-            member_id=member.name,
-            chapter_name=chapter_name,
-            assignment_type="Member",
-            start_date=today(),
-            status="Pending",
-            reason=f"Applied for membership in {chapter_name} chapter",
-        )
+        # Note: Membership history is automatically tracked by Chapter.validate() hook
+        # via member_manager.handle_member_additions() - no need for explicit call here
 
         frappe.logger().info(f"Created pending Chapter Member record for {member.name} in {chapter_name}")
         return chapter_member
@@ -1347,17 +1338,29 @@ def create_active_chapter_membership(member, chapter_name):
             frappe.logger().error(f"Failed to add chapter member: {'; '.join(add_member_result.errors)}")
             frappe.throw(_("Failed to add chapter member: {0}").format("; ".join(add_member_result.errors)))
 
-        # Add membership history tracking for active membership
+        # Update membership history tracking for active membership
+        # Check if a Pending entry exists and update it, otherwise add new Active entry
         from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
 
-        ChapterMembershipHistoryManager.add_membership_history(
+        # Try to update existing Pending history first
+        history_updated = ChapterMembershipHistoryManager.update_membership_status(
             member_id=member.name,
             chapter_name=chapter_name,
             assignment_type="Member",
-            start_date=today(),
-            status="Active",
+            new_status="Active",
             reason=f"Direct activation for {chapter_name} chapter",
         )
+
+        # Only add new history if no existing Pending entry was updated
+        if not history_updated:
+            ChapterMembershipHistoryManager.add_membership_history(
+                member_id=member.name,
+                chapter_name=chapter_name,
+                assignment_type="Member",
+                start_date=today(),
+                status="Active",
+                reason=f"Direct activation for {chapter_name} chapter (no pending entry found)",
+            )
 
         frappe.logger().info(f"Created active Chapter Member record for {member.name} in {chapter_name}")
         return chapter_member

@@ -312,6 +312,10 @@
                                     <span class="text-gray-600">Total Claims:</span>
                                     <strong class="text-gray-900">{{ dashboard_data.financial_summary.ytd.total_claims if dashboard_data.financial_summary.ytd else 0 }}</strong>
                                 </li>
+                                <li class="flex justify-between text-sm pt-3 border-t border-gray-300">
+                                    <span class="text-gray-600">Purchase Invoices:</span>
+                                    <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.ytd.purchase_invoices) if dashboard_data.financial_summary.ytd and dashboard_data.financial_summary.ytd.purchase_invoices else "0.00" }}</strong>
+                                </li>
                             </ul>
                         </div>
 

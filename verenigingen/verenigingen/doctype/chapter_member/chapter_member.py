@@ -66,37 +66,19 @@ class ChapterMember(Document):
         self.update_chapter_membership_history()
 
     def update_chapter_membership_history(self):
-        """Update chapter membership history when membership changes"""
-        try:
-            # Only update history if this is a significant change
-            if self.has_value_changed("enabled") or self.is_new():
-                from verenigingen.utils.chapter_membership_history_manager import (
-                    ChapterMembershipHistoryManager,
-                )
+        """
+        DEPRECATED: Chapter membership history is now managed explicitly by
+        ChapterMembershipHistoryManager via application code (application_helpers.py,
+        member_manager.py, etc.).
 
-                if self.enabled and self.is_new():
-                    # New active membership
-                    ChapterMembershipHistoryManager.add_membership_history(
-                        member_id=self.member,
-                        chapter_name=self.parent,
-                        assignment_type="Member",
-                        start_date=self.chapter_join_date or frappe.utils.today(),
-                        reason=f"Added to {self.parent} chapter",
-                    )
+        This hook was causing duplicate history entries because both the hook AND
+        the explicit calls were adding history. History management is now centralized
+        in the manager to avoid this issue.
 
-                elif not self.enabled and self.has_value_changed("enabled"):
-                    # Membership disabled
-                    ChapterMembershipHistoryManager.terminate_chapter_membership(
-                        member_id=self.member,
-                        chapter_name=self.parent,
-                        assignment_type="Member",
-                        end_date=frappe.utils.today(),
-                        reason=self.leave_reason or f"Disabled in {self.parent}",
-                    )
-
-        except Exception as e:
-            # Log error but don't block the operation
-            frappe.log_error(
-                f"Error updating chapter membership history for {self.member} in {self.parent}: {str(e)}",
-                "Chapter Member History Update Error",
-            )
+        Keeping this method as a placeholder in case we need hook-based history
+        in the future, but it's currently disabled.
+        """
+        # History is now managed explicitly by ChapterMembershipHistoryManager
+        # via application_helpers.py and other modules. No automatic hook-based
+        # history creation to avoid duplicates.
+        pass

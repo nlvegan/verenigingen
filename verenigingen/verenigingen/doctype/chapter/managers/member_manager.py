@@ -1303,12 +1303,13 @@ class MemberManager(BaseManager):
         # Check for new members
         for member in self.chapter_doc.members or []:
             if member.enabled and member.member and member.member not in old_member_ids:
-                # New member added - create history entry
+                # New member added - create history entry with actual status
                 ChapterMembershipHistoryManager.add_membership_history(
                     member_id=member.member,
                     chapter_name=self.chapter_name,
                     assignment_type="Member",
                     start_date=member.chapter_join_date or today(),
+                    status=member.status if hasattr(member, "status") and member.status else "Active",
                     reason="Added to chapter",
                 )
 

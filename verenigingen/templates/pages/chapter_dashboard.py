@@ -632,6 +632,24 @@ def get_financial_summary(chapter_name: str) -> Dict[str, Any]:
                 f"Dues income calculation skipped for chapter {chapter_name}"
             )
 
+        # Calculate YTD Purchase Invoice totals (vendor bills/expenses)
+        ytd_purchase_invoices = frappe.db.sql(
+            """
+            SELECT SUM(pi.grand_total) as total_amount
+            FROM `tabPurchase Invoice` pi
+            WHERE pi.docstatus = 1
+            AND pi.posting_date >= %(year_start)s
+            AND (pi.cost_center LIKE %(chapter_pattern)s OR pi.remarks LIKE %(chapter_pattern)s)
+            """,
+            {"year_start": year_start, "chapter_pattern": f"%{chapter_name}%"},
+            as_dict=True,
+        )
+
+        # Safely extract purchase invoice total
+        ytd_purchase_total = 0
+        if ytd_purchase_invoices and len(ytd_purchase_invoices) > 0:
+            ytd_purchase_total = ytd_purchase_invoices[0].get("total_amount") or 0
+
         return {
             "this_month": {
                 "expenses_submitted": expenses_submitted,
@@ -639,7 +657,12 @@ def get_financial_summary(chapter_name: str) -> Dict[str, Any]:
                 "pending_approval": pending_approval,
                 "claims_count": len(submitted_this_month) + len(approved_this_month),
             },
-            "ytd": {"total_expenses": ytd_total, "average_claim": average_claim, "total_claims": ytd_count},
+            "ytd": {
+                "total_expenses": ytd_total,
+                "average_claim": average_claim,
+                "total_claims": ytd_count,
+                "purchase_invoices": ytd_purchase_total,
+            },
             "dues_income": {"ytd_gross": ytd_dues_gross, "ytd_chapter": ytd_dues_chapter},
         }
     except Exception as e:
@@ -651,7 +674,7 @@ def get_financial_summary(chapter_name: str) -> Dict[str, Any]:
                 "pending_approval": 0,
                 "claims_count": 0,
             },
-            "ytd": {"total_expenses": 0, "average_claim": 0, "total_claims": 0},
+            "ytd": {"total_expenses": 0, "average_claim": 0, "total_claims": 0, "purchase_invoices": 0},
             "dues_income": {"ytd_gross": 0, "ytd_chapter": 0},
         }
 

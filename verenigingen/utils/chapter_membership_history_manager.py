@@ -39,6 +39,19 @@ class ChapterMembershipHistoryManager:
             bool: Success status
         """
         try:
+            # Check for duplicates within same request using frappe.local cache
+            # This prevents duplicates when multiple code paths call add_membership_history
+            # in the same transaction before DB commits
+            if not hasattr(frappe.local, "chapter_history_cache"):
+                frappe.local.chapter_history_cache = set()
+
+            history_key = f"{member_id}|{chapter_name}|{assignment_type}|{status}|{start_date}"
+            if history_key in frappe.local.chapter_history_cache:
+                frappe.logger().debug(
+                    f"Skipping duplicate membership history within same request: {member_id} at {chapter_name}"
+                )
+                return True  # Already added in this request
+
             # Check if member still exists before attempting to update
             if not frappe.db.exists("Member", member_id):
                 frappe.logger().warning(
@@ -106,7 +119,12 @@ class ChapterMembershipHistoryManager:
                 )
                 return False
 
-            print(f"Added membership history for member {member_id}: {assignment_type} at {chapter_name}")
+            # Add to cache to prevent duplicates within same request
+            frappe.local.chapter_history_cache.add(history_key)
+
+            frappe.logger().info(
+                f"Added membership history for member {member_id}: {assignment_type} at {chapter_name} with status {status}"
+            )
             return True
 
         except Exception as e:

@@ -1085,14 +1085,9 @@ class Member(
                 for field, value in approval_fields.items():
                     setattr(self, field, value)
 
-            # Update Chapter Member status to Active when member is approved
-            # This ensures chapter dashboard shows correct status
-            for chapter_member in self.chapter_assignments or []:
-                if chapter_member.status == "Pending":
-                    chapter_member.status = "Active"
-                    frappe.logger().info(
-                        f"Updated Chapter Member status to Active for {self.name} in chapter {chapter_member.chapter}"
-                    )
+            # Note: Chapter Member activation is handled by activate_pending_chapter_membership()
+            # called from approval_subscribers.py and member_lifecycle_service.py
+            # No need to update here - avoiding redundancy and AttributeError
 
             # Mark as system update to bypass fee override validation
             self._system_update = True
@@ -1123,10 +1118,7 @@ class Member(
                 if approval_fields:
                     for field, value in approval_fields.items():
                         setattr(member_doc, field, value)
-                # Update Chapter Member status to Active (retry scenario)
-                for chapter_member in member_doc.chapter_assignments or []:
-                    if chapter_member.status == "Pending":
-                        chapter_member.status = "Active"
+                # Note: Chapter Member activation handled externally (see note above)
                 member_doc._system_update = True
 
                 # SECURITY AUDIT: Log validation bypass for compliance
