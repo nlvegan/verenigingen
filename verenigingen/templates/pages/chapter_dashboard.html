@@ -262,67 +262,81 @@
                 </div>
                 <!-- End Right Column -->
 
-                <!-- Financial Summary Section -->
-                {% if user_board_role and user_board_role.permissions.can_view_finances %}
-                <div class="bg-white rounded-xl shadow-sm overflow-hidden">
-                    <div class="px-6 py-4 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-accent-50 border-accent-200">
-                        <h3 class="m-0 text-lg font-semibold text-accent-600">💰 Chapter Finances</h3>
-                        <div class="flex gap-2">
-                            <button class="inline-flex items-center justify-center px-3 py-1.5 text-sm rounded-lg font-medium bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 shadow-sm" onclick="viewFinancialReports()">
-                                <i class="fa fa-chart-bar mr-1"></i> Reports
-                            </button>
-                        </div>
-                    </div>
-                    <div class="p-6">
-                        {% if dashboard_data and dashboard_data.financial_summary %}
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div class="bg-gray-50 rounded-lg p-4">
-                                <h4 class="m-0 mb-4 text-base font-semibold text-gray-800">This Month</h4>
-                                <ul class="list-none p-0 m-0 space-y-3">
-                                    <li class="flex justify-between text-sm">
-                                        <span class="text-gray-600">Expenses Submitted:</span>
-                                        <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.this_month.expenses_submitted) if dashboard_data.financial_summary.this_month else "0.00" }}</strong>
-                                    </li>
-                                    <li class="flex justify-between text-sm">
-                                        <span class="text-gray-600">Expenses Approved:</span>
-                                        <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.this_month.expenses_approved) if dashboard_data.financial_summary.this_month else "0.00" }}</strong>
-                                    </li>
-                                    <li class="flex justify-between text-sm">
-                                        <span class="text-gray-600">Pending Approval:</span>
-                                        <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.this_month.pending_approval) if dashboard_data.financial_summary.this_month else "0.00" }}</strong>
-                                    </li>
-                                </ul>
-                            </div>
-
-                            <div class="bg-gray-50 rounded-lg p-4">
-                                <h4 class="m-0 mb-4 text-base font-semibold text-gray-800">Year to Date</h4>
-                                <ul class="list-none p-0 m-0 space-y-3">
-                                    <li class="flex justify-between text-sm">
-                                        <span class="text-gray-600">Total Expenses:</span>
-                                        <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.ytd.total_expenses) if dashboard_data.financial_summary.ytd else "0.00" }}</strong>
-                                    </li>
-                                    <li class="flex justify-between text-sm">
-                                        <span class="text-gray-600">Average per Claim:</span>
-                                        <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.ytd.average_claim) if dashboard_data.financial_summary.ytd else "0.00" }}</strong>
-                                    </li>
-                                    <li class="flex justify-between text-sm">
-                                        <span class="text-gray-600">Total Claims:</span>
-                                        <strong class="text-gray-900">{{ dashboard_data.financial_summary.ytd.total_claims if dashboard_data.financial_summary.ytd else 0 }}</strong>
-                                    </li>
-                                </ul>
-                            </div>
-                        </div>
-                        {% else %}
-                        <div>
-                            <p class="text-center text-gray-600 italic my-4">Financial data is not available at this time.</p>
-                        </div>
-                        {% endif %}
-                    </div>
-                </div>
-                {% endif %}
-
             </div>
             <!-- End of 2-column grid -->
+
+            <!-- Financial Summary Section (full width) -->
+            {% if user_board_role and user_board_role.permissions.can_view_finances %}
+            <div class="bg-white rounded-xl shadow-sm overflow-hidden mb-8">
+                <div class="px-6 py-4 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-accent-50 border-accent-200">
+                    <h3 class="m-0 text-lg font-semibold text-accent-600">💰 Chapter Finances</h3>
+                    <div class="flex gap-2">
+                        <button class="inline-flex items-center justify-center px-3 py-1.5 text-sm rounded-lg font-medium bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 shadow-sm" onclick="viewFinancialReports()">
+                            <i class="fa fa-chart-bar mr-1"></i> Reports
+                        </button>
+                    </div>
+                </div>
+                <div class="p-6">
+                    {% if dashboard_data and dashboard_data.financial_summary %}
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="bg-gray-50 rounded-lg p-4">
+                            <h4 class="m-0 mb-4 text-base font-semibold text-gray-800">This Month</h4>
+                            <ul class="list-none p-0 m-0 space-y-3">
+                                <li class="flex justify-between text-sm">
+                                    <span class="text-gray-600">Expenses Submitted:</span>
+                                    <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.this_month.expenses_submitted) if dashboard_data.financial_summary.this_month else "0.00" }}</strong>
+                                </li>
+                                <li class="flex justify-between text-sm">
+                                    <span class="text-gray-600">Expenses Approved:</span>
+                                    <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.this_month.expenses_approved) if dashboard_data.financial_summary.this_month else "0.00" }}</strong>
+                                </li>
+                                <li class="flex justify-between text-sm">
+                                    <span class="text-gray-600">Pending Approval:</span>
+                                    <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.this_month.pending_approval) if dashboard_data.financial_summary.this_month else "0.00" }}</strong>
+                                </li>
+                            </ul>
+                        </div>
+
+                        <div class="bg-gray-50 rounded-lg p-4">
+                            <h4 class="m-0 mb-4 text-base font-semibold text-gray-800">Year to Date</h4>
+                            <ul class="list-none p-0 m-0 space-y-3">
+                                <li class="flex justify-between text-sm">
+                                    <span class="text-gray-600">Total Expenses:</span>
+                                    <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.ytd.total_expenses) if dashboard_data.financial_summary.ytd else "0.00" }}</strong>
+                                </li>
+                                <li class="flex justify-between text-sm">
+                                    <span class="text-gray-600">Average per Claim:</span>
+                                    <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.ytd.average_claim) if dashboard_data.financial_summary.ytd else "0.00" }}</strong>
+                                </li>
+                                <li class="flex justify-between text-sm">
+                                    <span class="text-gray-600">Total Claims:</span>
+                                    <strong class="text-gray-900">{{ dashboard_data.financial_summary.ytd.total_claims if dashboard_data.financial_summary.ytd else 0 }}</strong>
+                                </li>
+                            </ul>
+                        </div>
+
+                        <div class="bg-gray-50 rounded-lg p-4">
+                            <h4 class="m-0 mb-4 text-base font-semibold text-gray-800">Dues Income (YTD)</h4>
+                            <ul class="list-none p-0 m-0 space-y-3">
+                                <li class="flex justify-between text-sm">
+                                    <span class="text-gray-600">Total Dues Collected:</span>
+                                    <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.dues_income.ytd_gross) if dashboard_data.financial_summary.dues_income else "0.00" }}</strong>
+                                </li>
+                                <li class="flex justify-between text-sm">
+                                    <span class="text-gray-600">Chapter Portion:</span>
+                                    <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.dues_income.ytd_chapter) if dashboard_data.financial_summary.dues_income else "0.00" }}</strong>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                    {% else %}
+                    <div>
+                        <p class="text-center text-gray-600 italic my-4">Financial data is not available at this time.</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
 
             <!-- Dues Payment Status Section (full width) -->
             {% if user_board_role and user_board_role.permissions.can_view_finances and dashboard_data.dues_payment_status %}
@@ -822,14 +836,6 @@
         // Auto-refresh is handled in chapter_dashboard.js
     });
 
-    // Function to open chapter in desk
-    function viewAllMembers() {
-        const chapterName = {{ selected_chapter|tojson }};
-        if (chapterName) {
-            window.open('/app/chapter/' + encodeURIComponent(chapterName), '_blank');
-        }
-    }
-
     // Function to toggle folder visibility
     function toggleFolder(folderId) {
         const folder = document.getElementById(folderId);
@@ -850,6 +856,7 @@
     window.dashboardData = {{ dashboard_data | tojson | safe if dashboard_data else '{}' }};
     window.userPermissions = {{ user_board_role.permissions | tojson | safe if user_board_role and user_board_role.permissions else '{}' }};
     window.selectedChapter = {{ selected_chapter|tojson }};
+    window.company = {{ company|tojson|safe if company else 'null' }};
 
     // Member search filter function
     function filterMembers() {
@@ -883,6 +890,81 @@
         } else if (noResultsMsg) {
             noResultsMsg.remove();
         }
+    }
+
+    /**
+     * Get date range for Year-To-Date (YTD) reporting
+     * @returns {Object} Object with fromDate (Jan 1 of current year) and toDate (today) in YYYY-MM-DD format
+     */
+    function getYTDDateRange() {
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        return {
+            fromDate: `${currentYear}-01-01`,
+            toDate: now.toISOString().split('T')[0]
+        };
+    }
+
+    /**
+     * Navigate to Chapter Dues Split financial report with YTD date range
+     * @description Opens the financial report filtered by current chapter, company, and year-to-date range
+     * @requires window.selectedChapter - Current chapter name from context
+     * @requires window.company - Company name from Verenigingen Settings (optional)
+     */
+    function viewFinancialReports() {
+        const chapter = window.selectedChapter;
+        const company = window.company;
+
+        // Validate required context
+        if (!chapter) {
+            frappe.msgprint(__('Chapter context not available. Please refresh the page.'));
+            return;
+        }
+
+        // Get current year date range (YTD)
+        const { fromDate, toDate } = getYTDDateRange();
+
+        let url = `/app/query-report/Chapter Dues Split?chapter=${encodeURIComponent(chapter)}`;
+        url += `&from_date=${encodeURIComponent(fromDate)}`;
+        url += `&to_date=${encodeURIComponent(toDate)}`;
+        if (company) {
+            url += `&company=${encodeURIComponent(company)}`;
+        }
+        window.location.href = url;
+    }
+
+    /**
+     * Navigate to Chapter form for board member management
+     * @description Opens the Chapter DocType form where board members can be managed
+     * @requires window.selectedChapter - Current chapter name from context
+     */
+    function manageBoardMembers() {
+        const chapter = window.selectedChapter;
+
+        // Validate required context
+        if (!chapter) {
+            frappe.msgprint(__('Chapter context not available. Please refresh the page.'));
+            return;
+        }
+
+        window.location.href = `/app/chapter/${encodeURIComponent(chapter)}`;
+    }
+
+    /**
+     * Navigate to Member list filtered by current chapter
+     * @description Opens the Member list view with chapter filter applied
+     * @requires window.selectedChapter - Current chapter name from context
+     */
+    function viewAllMembers() {
+        const chapter = window.selectedChapter;
+
+        // Validate required context
+        if (!chapter) {
+            frappe.msgprint(__('Chapter context not available. Please refresh the page.'));
+            return;
+        }
+
+        window.location.href = `/app/member?custom_current_chapter=${encodeURIComponent(chapter)}`;
     }
 </script>
 {% endblock %}

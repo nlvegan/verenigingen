@@ -77,17 +77,22 @@ def get_context(context):
     if not any(ch.get("chapter_name") == selected_chapter for ch in user_chapters):
         selected_chapter = user_chapters[0].get("chapter_name") if user_chapters else None
 
+    # Get company from Verenigingen Settings
+    company = frappe.db.get_single_value("Verenigingen Settings", "company")
+
     # Set context variables
     if hasattr(context, "selected_chapter"):
         context.selected_chapter = selected_chapter
         context.chapter_name = selected_chapter  # Add for template URL generation
         context.user_chapters = user_chapters
         context.user_board_role = get_user_board_role(selected_chapter)
+        context.company = company
     else:
         context["selected_chapter"] = selected_chapter
         context["chapter_name"] = selected_chapter  # Add for template URL generation
         context["user_chapters"] = user_chapters
         context["user_board_role"] = get_user_board_role(selected_chapter)
+        context["company"] = company
 
     # Get dashboard data (use internal function to avoid API wrapper)
     try:
@@ -592,6 +597,41 @@ def get_financial_summary(chapter_name: str) -> Dict[str, Any]:
         ytd_count = len(ytd_expenses)
         average_claim = ytd_total / ytd_count if ytd_count > 0 else 0
 
+        # Calculate YTD dues income for this chapter (using Chapter Dues Split logic)
+        from verenigingen.verenigingen.domain.chapter_dues import DuesAllocationService
+
+        # Validate custom field exists before querying (per CLAUDE.md guidelines)
+        ytd_dues_gross = 0
+        ytd_dues_chapter = 0
+
+        if frappe.db.has_column("Sales Invoice", "custom_member_chapter"):
+            ytd_dues_result = frappe.db.sql(
+                """
+                SELECT SUM(si.grand_total) as total_amount
+                FROM `tabSales Invoice` si
+                WHERE si.docstatus = 1
+                AND si.custom_member_chapter = %(chapter)s
+                AND si.posting_date >= %(year_start)s
+                """,
+                {"chapter": chapter_name, "year_start": year_start},
+                as_dict=True,
+            )
+
+            # Safely extract dues total with proper null checks
+            if ytd_dues_result and len(ytd_dues_result) > 0:
+                ytd_dues_gross = ytd_dues_result[0].get("total_amount") or 0
+
+            # Calculate chapter split using DuesAllocationService
+            allocation_service = DuesAllocationService()
+            if ytd_dues_gross > 0:
+                allocation = allocation_service.calculate_allocation(ytd_dues_gross, chapter_name)
+                ytd_dues_chapter = float(allocation.chapter_amount)
+        else:
+            frappe.logger().warning(
+                f"Custom field 'custom_member_chapter' not found on Sales Invoice. "
+                f"Dues income calculation skipped for chapter {chapter_name}"
+            )
+
         return {
             "this_month": {
                 "expenses_submitted": expenses_submitted,
@@ -600,6 +640,7 @@ def get_financial_summary(chapter_name: str) -> Dict[str, Any]:
                 "claims_count": len(submitted_this_month) + len(approved_this_month),
             },
             "ytd": {"total_expenses": ytd_total, "average_claim": average_claim, "total_claims": ytd_count},
+            "dues_income": {"ytd_gross": ytd_dues_gross, "ytd_chapter": ytd_dues_chapter},
         }
     except Exception as e:
         frappe.log_error(f"Error calculating financial summary for {chapter_name}: {str(e)}")
@@ -611,6 +652,7 @@ def get_financial_summary(chapter_name: str) -> Dict[str, Any]:
                 "claims_count": 0,
             },
             "ytd": {"total_expenses": 0, "average_claim": 0, "total_claims": 0},
+            "dues_income": {"ytd_gross": 0, "ytd_chapter": 0},
         }
 
 

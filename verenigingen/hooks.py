@@ -724,6 +724,7 @@ after_migrate = [
     # DISABLED: Aggressive workspace health check was destroying workspace layouts
     # "verenigingen.utils.post_migration_hooks.run_post_migration_workspace_health",
     "verenigingen.patches.v2_1.backfill_membership_commitment_end_date.execute",
+    "verenigingen.patches.v2_1.add_chapter_dashboard_performance_indexes.execute",
 ]
 
 # Permissions
