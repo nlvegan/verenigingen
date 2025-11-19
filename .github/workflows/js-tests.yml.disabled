@@ -1,0 +1,113 @@
+name: JavaScript Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - '**.js'
+      - '**.ts'
+      - '**.vue'
+      - '**.json'
+      - '.github/workflows/js-tests.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - '**.js'
+      - '**.ts'
+      - '**.vue'
+
+jobs:
+  lint:
+    name: ESLint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install dependencies
+        run: |
+          if [ -f "yarn.lock" ]; then
+            yarn install --frozen-lockfile
+          else
+            yarn install
+          fi
+
+      - name: Run ESLint
+        run: |
+          if [ -f "yarn.lock" ]; then
+            yarn lint
+          else
+            echo "No yarn.lock found, skipping ESLint"
+          fi
+
+  unit-tests:
+    name: Jest Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install dependencies
+        run: |
+          if [ -f "yarn.lock" ]; then
+            yarn install --frozen-lockfile
+          else
+            yarn install
+          fi
+
+      - name: Run Jest tests
+        run: |
+          if [ -f "yarn.lock" ]; then
+            yarn test --coverage
+          else
+            echo "No yarn.lock found, skipping Jest tests"
+          fi
+
+      - name: Upload coverage
+        if: always() && hashFiles('coverage/**/*') != ''
+        uses: codecov/codecov-action@v4
+        with:
+          directory: coverage
+          flags: jest
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+  build:
+    name: Build Assets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install dependencies
+        run: |
+          if [ -f "yarn.lock" ]; then
+            yarn install --frozen-lockfile
+          else
+            yarn install
+          fi
+
+      - name: Build production assets
+        run: |
+          if [ -f "yarn.lock" ]; then
+            yarn build
+          else
+            echo "No yarn.lock found, skipping build"
+          fi
+
+      - name: Check bundle size
+        run: |
+          find verenigingen/public/dist -name "*.js" -exec ls -lh {} \;
+          find verenigingen/public/dist -name "*.css" -exec ls -lh {} \;

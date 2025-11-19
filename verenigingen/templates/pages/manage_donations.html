@@ -1,0 +1,362 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Manage Donations") }}{% endblock %}
+
+{% block head_include %}
+{% endblock %}
+
+{% block style %}
+<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+{% from "templates/macros/brand_css.html" import brand_css %}
+{{ brand_css() }}
+{% endblock %}
+
+{% block page_content %}
+<div class="max-w-4xl mx-auto p-8">
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
+        <h2 class="text-2xl font-bold text-gray-800 mb-6">{{ _("Manage Your Donations") }}</h2>
+
+        {% if frappe.form_dict.get('cancelled') %}
+        <div class="bg-green-50 border border-green-200 text-green-800 p-4 rounded-lg mb-6">
+            <div class="flex items-start">
+                <i class="fa fa-check-circle mr-2 mt-0.5"></i>
+                <div>
+                    <strong>{{ _("Recurring Donation Cancelled Successfully") }}</strong><br>
+                    {{ _("Your recurring donation has been cancelled. No further automatic payments will be processed.") }}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if frappe.form_dict.get('updated') %}
+        <div class="bg-green-50 border border-green-200 text-green-800 p-4 rounded-lg mb-6">
+            <div class="flex items-start">
+                <i class="fa fa-check-circle mr-2 mt-0.5"></i>
+                <div>
+                    <strong>{{ _("Donation Updated Successfully") }}</strong><br>
+                    {{ _("Your recurring donation settings have been updated.") }}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Overview Section -->
+        <div class="mb-8">
+            <h3 class="text-lg font-semibold text-gray-800 mb-4">{{ _("Donation Overview") }}</h3>
+
+            {% if donation_summary.total_donated > 0 %}
+            <div class="bg-teal-50 border border-teal-200 p-4 rounded-lg mb-4">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="text-center">
+                        <div class="text-2xl font-bold text-teal-700">€{{ "%.2f"|format(donation_summary.total_donated) }}</div>
+                        <div class="text-sm text-teal-600">{{ _("Total Donated") }}</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-2xl font-bold text-teal-700">{{ donation_summary.total_donations }}</div>
+                        <div class="text-sm text-teal-600">{{ _("Total Donations") }}</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-2xl font-bold text-teal-700">{{ donation_summary.active_recurring }}</div>
+                        <div class="text-sm text-teal-600">{{ _("Active Recurring") }}</div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Active Recurring Donations -->
+        {% if recurring_donations %}
+        <div class="mb-8">
+            <h3 class="text-lg font-semibold text-gray-800 mb-4">{{ _("Active Recurring Donations") }}</h3>
+
+            {% for donation in recurring_donations %}
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-4">
+                <div class="flex items-start justify-between">
+                    <div class="flex-1">
+                        <div class="flex items-center mb-2">
+                            <i class="fa fa-heart text-red-500 mr-2"></i>
+                            <h4 class="text-lg font-medium text-gray-800">
+                                €{{ "%.2f"|format(donation.amount) }} {{ _("per") }} {{ _(donation.recurring_frequency.lower()) }}
+                            </h4>
+                        </div>
+
+                        <div class="space-y-1 text-sm text-gray-600">
+                            <p><span class="font-medium">{{ _("Started:") }}</span> {{ frappe.utils.formatdate(donation.donation_date) }}</p>
+                            <p><span class="font-medium">{{ _("Payment Method:") }}</span> {{ _(donation.mode_of_payment) }}</p>
+                            {% if donation.fund_designation %}
+                            <p><span class="font-medium">{{ _("Fund:") }}</span> {{ _(donation.fund_designation) }}</p>
+                            {% endif %}
+                            {% if donation.mollie_subscription_id %}
+                            <p><span class="font-medium">{{ _("Next Payment:") }}</span>
+                                {% if donation.next_payment_date %}
+                                    {{ frappe.utils.formatdate(donation.next_payment_date) }}
+                                {% else %}
+                                    {{ _("Calculating...") }}
+                                {% endif %}
+                            </p>
+                            <p><span class="font-medium">{{ _("Status:") }}</span>
+                                <span class="capitalize {% if donation.subscription_status == 'active' %}text-green-600{% else %}text-red-600{% endif %}">
+                                    {{ _(donation.subscription_status or 'Unknown') }}
+                                </span>
+                            </p>
+                            {% endif %}
+                        </div>
+
+                        {% if donation.mollie_subscription_id and donation.subscription_status == "active" %}
+                        <div class="mt-4 flex flex-wrap gap-2">
+                            <button type="button"
+                                    onclick="showUpdateDonationModal('{{ donation.name }}', {{ donation.amount }}, '{{ donation.recurring_frequency }}', '{{ donation.fund_designation or '' }}')"
+                                    class="inline-flex items-center px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md transition-colors duration-200">
+                                <i class="fa fa-edit mr-1"></i>
+                                {{ _("Update Amount") }}
+                            </button>
+                            <button type="button"
+                                    onclick="cancelRecurringDonation('{{ donation.name }}', {{ donation.amount }}, '{{ donation.recurring_frequency }}')"
+                                    class="inline-flex items-center px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm rounded-md transition-colors duration-200">
+                                <i class="fa fa-times mr-1"></i>
+                                {{ _("Cancel Recurring") }}
+                            </button>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- Recent Donations History -->
+        {% if recent_donations %}
+        <div class="mb-8">
+            <h3 class="text-lg font-semibold text-gray-800 mb-4">{{ _("Recent Donations") }}</h3>
+
+            <div class="overflow-x-auto">
+                <table class="min-w-full bg-white border border-gray-200 rounded-lg">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{{ _("Date") }}</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{{ _("Amount") }}</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{{ _("Type") }}</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{{ _("Status") }}</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{{ _("Method") }}</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-200">
+                        {% for donation in recent_donations %}
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-4 py-3 text-sm text-gray-900">{{ frappe.utils.formatdate(donation.donation_date) }}</td>
+                            <td class="px-4 py-3 text-sm font-medium text-gray-900">€{{ "%.2f"|format(donation.amount) }}</td>
+                            <td class="px-4 py-3 text-sm text-gray-600">
+                                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs
+                                    {% if donation.status == 'Recurring' %}bg-blue-100 text-blue-800
+                                    {% elif donation.status == 'One-time' %}bg-green-100 text-green-800
+                                    {% else %}bg-gray-100 text-gray-800{% endif %}">
+                                    {{ _(donation.status) }}
+                                </span>
+                            </td>
+                            <td class="px-4 py-3 text-sm">
+                                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs
+                                    {% if donation.paid %}bg-green-100 text-green-800
+                                    {% else %}bg-red-100 text-red-800{% endif %}">
+                                    {% if donation.paid %}{{ _("Paid") }}{% else %}{{ _("Pending") }}{% endif %}
+                                </span>
+                            </td>
+                            <td class="px-4 py-3 text-sm text-gray-600">{{ _(donation.mode_of_payment) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Quick Donation Link -->
+        <div class="bg-gray-50 border border-gray-200 rounded-lg p-6">
+            <h3 class="text-lg font-semibold text-gray-800 mb-3">{{ _("Make a New Donation") }}</h3>
+            <p class="text-gray-600 mb-4">{{ _("Want to make an additional donation or start a new recurring donation?") }}</p>
+            <a href="/donate"
+               class="inline-flex items-center px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md transition-colors duration-200">
+                <i class="fa fa-heart mr-2"></i>
+                {{ _("Donate Now") }}
+            </a>
+        </div>
+
+        <!-- Navigation -->
+        <div class="flex flex-col sm:flex-row justify-between gap-3 pt-6 border-t border-gray-200">
+            <a href="/member_dashboard"
+               class="inline-flex items-center justify-center px-6 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors duration-200">
+                <i class="fa fa-arrow-left mr-2"></i>
+                {{ _("Back to Dashboard") }}
+            </a>
+            <a href="/bank_details"
+               class="inline-flex items-center justify-center px-6 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors duration-200">
+                <i class="fa fa-bank mr-2"></i>
+                {{ _("Manage Payment Details") }}
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- Update Donation Modal -->
+<div id="updateDonationModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden z-50">
+    <div class="flex items-center justify-center min-h-screen p-4">
+        <div class="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div class="p-6">
+                <h3 class="text-lg font-medium text-gray-900 mb-4">{{ _("Update Recurring Donation") }}</h3>
+
+                <form id="updateDonationForm" class="space-y-4">
+                    <input type="hidden" id="updateDonationId" name="donation_id">
+                    <input type="hidden" name="csrf_token" value="{{ frappe.session.csrf_token }}">
+
+                    <div>
+                        <label for="newAmount" class="block text-sm font-medium text-gray-700 mb-2">
+                            {{ _("New Amount") }} <span class="text-red-500">*</span>
+                        </label>
+                        <div class="relative">
+                            <span class="absolute left-3 top-2 text-gray-500">€</span>
+                            <input type="number"
+                                   id="newAmount"
+                                   name="new_amount"
+                                   min="1"
+                                   step="0.01"
+                                   class="block w-full pl-8 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-red-500 focus:border-red-500"
+                                   required>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end gap-3 pt-4">
+                        <button type="button"
+                                onclick="hideUpdateDonationModal()"
+                                class="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50">
+                            {{ _("Cancel") }}
+                        </button>
+                        <button type="submit"
+                                class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md">
+                            {{ _("Update Donation") }}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Update donation modal functions
+    window.showUpdateDonationModal = function(donationId, currentAmount, frequency, fund) {
+        document.getElementById('updateDonationId').value = donationId;
+        document.getElementById('newAmount').value = currentAmount;
+        document.getElementById('updateDonationModal').classList.remove('hidden');
+    };
+
+    window.hideUpdateDonationModal = function() {
+        document.getElementById('updateDonationModal').classList.add('hidden');
+    };
+
+    // Handle update form submission
+    document.getElementById('updateDonationForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+
+        const formData = new FormData(this);
+        const donationId = formData.get('donation_id');
+        const newAmount = parseFloat(formData.get('new_amount'));
+
+        if (newAmount <= 0) {
+            alert('{{ _("Please enter a valid amount") }}');
+            return;
+        }
+
+        // Show loading state
+        const submitBtn = this.querySelector('button[type="submit"]');
+        const originalText = submitBtn.innerHTML;
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fa fa-spinner fa-spin mr-1"></i>{{ _("Updating...") }}';
+
+        // Call the update API
+        fetch('/api/method/verenigingen.templates.pages.manage_donations.update_recurring_donation', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Frappe-CSRF-Token': '{{ frappe.session.csrf_token }}'
+            },
+            body: JSON.stringify({
+                donation_id: donationId,
+                new_amount: newAmount
+            })
+        })
+        .then(response => {
+            if (response.ok) {
+                window.location.href = '/manage_donations?updated=1';
+            } else {
+                return response.json().then(data => {
+                    throw new Error(data.message || '{{ _("Failed to update donation") }}');
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Donation update error:', error);
+            alert('{{ _("Error updating donation:") }} ' + error.message);
+
+            // Restore button state
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalText;
+        });
+    });
+
+    // Cancel recurring donation function
+    window.cancelRecurringDonation = function(donationId, amount, frequency) {
+        const confirmMessage = '{{ _("Are you sure you want to cancel this recurring donation?") }}\n\n' +
+                              '€' + amount.toFixed(2) + ' {{ _("per") }} ' + frequency.toLowerCase() + '\n\n' +
+                              '{{ _("This will stop all future automatic donations. You can still make one-time donations.") }}\n\n' +
+                              '{{ _("This action cannot be undone.") }}';
+
+        if (!confirm(confirmMessage)) {
+            return;
+        }
+
+        // Show loading state
+        const button = event.target.closest('button');
+        const originalText = button.innerHTML;
+        button.disabled = true;
+        button.innerHTML = '<i class="fa fa-spinner fa-spin mr-1"></i>{{ _("Cancelling...") }}';
+
+        // Call the cancellation API
+        fetch('/api/method/verenigingen.templates.pages.manage_donations.cancel_recurring_donation', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Frappe-CSRF-Token': '{{ frappe.session.csrf_token }}'
+            },
+            body: JSON.stringify({
+                donation_id: donationId
+            })
+        })
+        .then(response => {
+            if (response.ok) {
+                window.location.href = '/manage_donations?cancelled=1';
+            } else {
+                return response.json().then(data => {
+                    throw new Error(data.message || '{{ _("Failed to cancel recurring donation") }}');
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Donation cancellation error:', error);
+            alert('{{ _("Error cancelling donation:") }} ' + error.message);
+
+            // Restore button state
+            button.disabled = false;
+            button.innerHTML = originalText;
+        });
+    };
+
+    // Close modal when clicking outside
+    document.getElementById('updateDonationModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            hideUpdateDonationModal();
+        }
+    });
+});
+</script>
+{% endblock %}

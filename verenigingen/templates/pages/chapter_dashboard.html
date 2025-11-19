@@ -1,0 +1,970 @@
+{% extends "templates/base_portal.html" %}
+
+{% macro format_date(date_val, format='%B %d, %Y') -%}
+    {%- if date_val -%}
+        {%- if date_val is string -%}
+            {{ date_val }}
+        {%- else -%}
+            {{ date_val.strftime(format) }}
+        {%- endif -%}
+    {%- else -%}
+
+    {%- endif -%}
+{%- endmacro %}
+
+{% macro format_datetime(date_val, format='%B %d, %Y at %H:%M') -%}
+    {%- if date_val -%}
+        {%- if date_val is string -%}
+            {{ date_val }}
+        {%- else -%}
+            {{ date_val.strftime(format) }}
+        {%- endif -%}
+    {%- else -%}
+        Recently
+    {%- endif -%}
+{%- endmacro %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block style %}
+<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+{% from "templates/macros/brand_css.html" import brand_css %}
+{{ brand_css() }}
+{% endblock %}
+
+{% block page_content %}
+<div class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 py-8">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    {% if error_message %}
+        <div class="bg-danger-100 border-2 border-danger-300 rounded-lg p-8 text-center max-w-2xl mx-auto">
+            <h4 class="text-2xl font-semibold text-danger-800 mb-4">Access Denied</h4>
+            <p class="text-lg text-danger-700">{{ error_message }}</p>
+            {% if user_roles %}
+                <small class="text-gray-600">Your current roles: {{ ", ".join(user_roles) }}</small>
+            {% endif %}
+        </div>
+    {% elif has_data %}
+        <!-- Dashboard Header -->
+        <div class="bg-primary-600 text-primary-contrast px-8 py-6 mb-8 shadow-lg rounded-xl">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                    <h1 class="text-3xl font-bold m-0 flex items-center gap-2">
+                        <span class="text-4xl">🏛️</span>
+                        <span>{{ (selected_chapter.upper() if selected_chapter else 'CHAPTER')|e }} CHAPTER</span>
+                    </h1>
+                    <div class="mt-2">
+                        <span class="bg-white text-primary-700 px-3 py-1 rounded-full text-sm font-semibold mr-2">
+                            {{ user_board_role.role if user_board_role else 'Board Member' }}
+                        </span>
+                        {% if user_board_role and user_board_role.since %}
+                            <span class="text-sm text-white" style="opacity: 0.9;">Since {{ format_date(user_board_role.since, '%B %Y') }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="text-left md:text-right text-white">
+                    <div class="text-sm mb-2" style="opacity: 0.9;">
+                        Last Updated: {{ format_datetime(dashboard_data.last_updated) if dashboard_data and dashboard_data.last_updated else 'N/A' }}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Key Metrics Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div class="bg-white rounded-xl p-6 flex flex-col items-center text-center shadow-sm border-t-4 border-success-500 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 cursor-pointer">
+                <div class="text-5xl mb-3">👥</div>
+                <div>
+                    <h3 class="text-3xl font-bold m-0 text-gray-700">{{ dashboard_data.key_metrics.members.active if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.members else 0 }}</h3>
+                    <p class="mt-1 text-gray-600 font-medium mb-0">Active Members</p>
+                    {% if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.members and dashboard_data.key_metrics.members.new_this_month > 0 %}
+                        <small class="text-xs font-semibold uppercase tracking-wide text-success-600">+{{ dashboard_data.key_metrics.members.new_this_month }} this month</small>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl p-6 flex flex-col items-center text-center shadow-sm border-t-4 border-warning-500 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 cursor-pointer">
+                <div class="text-5xl mb-3">⏳</div>
+                <div>
+                    <h3 class="text-3xl font-bold m-0 text-gray-700">{{ dashboard_data.key_metrics.members.pending if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.members else 0 }}</h3>
+                    <p class="mt-1 text-gray-600 font-medium mb-0">Pending Applications</p>
+                    {% if dashboard_data and dashboard_data.pending_actions and dashboard_data.pending_actions.membership_applications %}
+                        {% set overdue_count = dashboard_data.pending_actions.membership_applications | selectattr('is_overdue') | list | length %}
+                        {% if overdue_count > 0 %}
+                            <small class="text-xs font-semibold uppercase tracking-wide text-danger-600">{{ overdue_count }} overdue</small>
+                        {% endif %}
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl p-6 flex flex-col items-center text-center shadow-sm border-t-4 border-primary-500 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 cursor-pointer">
+                <div class="text-5xl mb-3">💰</div>
+                <div>
+                    <h3 class="text-3xl font-bold m-0 text-gray-700">€{{ "%.0f"|format(dashboard_data.key_metrics.expenses.pending_amount) if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.expenses else "0" }}</h3>
+                    <p class="mt-1 text-gray-600 font-medium mb-0">Pending Expenses</p>
+                    <small class="text-xs font-semibold uppercase tracking-wide text-gray-600">{{ dashboard_data.key_metrics.expenses.pending_count if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.expenses else "0" }} claims</small>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl p-6 flex flex-col items-center text-center shadow-sm border-t-4 border-success-500 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 cursor-pointer">
+                <div class="text-5xl mb-3">✅</div>
+                <div>
+                    <h3 class="text-3xl font-bold m-0 text-gray-700">€{{ "%.0f"|format(dashboard_data.key_metrics.expenses.ytd_total) if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.expenses else "0" }}</h3>
+                    <p class="mt-1 text-gray-600 font-medium mb-0">Approved Expenses</p>
+                    <small class="text-xs font-semibold uppercase tracking-wide text-gray-600">Year to Date</small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Dashboard Content -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8 items-start">
+
+                <!-- Member Management Section -->
+                <div class="bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-lg transition-shadow duration-300">
+                    <div class="px-6 py-4 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-primary-50 border-primary-200">
+                        <h3 class="flex items-center m-0 text-lg font-semibold text-primary-600">👥 Chapter Members</h3>
+                        <div class="flex gap-2">
+                            <button class="inline-flex items-center justify-center px-3 py-1.5 text-sm rounded-lg font-medium bg-primary-600 text-white hover:bg-primary-700 shadow-sm" onclick="viewAllMembers()">
+                                <i class="fa fa-list mr-1"></i> View All
+                            </button>
+                        </div>
+                    </div>
+                    <div class="px-6 pb-6">
+                        {% if dashboard_data and dashboard_data.member_overview and dashboard_data.member_overview.recent_members %}
+                            <h4 class="text-lg font-semibold text-gray-800 mb-3">Active Members ({{ dashboard_data.member_overview.recent_members|length }})</h4>
+                            <div class="mb-4 relative">
+                                <input
+                                    type="text"
+                                    id="memberSearchInput"
+                                    placeholder="Search members..."
+                                    class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                                    onkeyup="filterMembers()"
+                                >
+                                <i class="fa fa-search absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none"></i>
+                            </div>
+                            <div class="max-h-96 overflow-y-auto">
+                                <ul class="list-none p-0 m-0 space-y-2" id="memberList">
+                                    {% for member in dashboard_data.member_overview.recent_members %}
+                                        <li class="py-3 px-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                                            <a href="/app/member/{{ member.member }}" class="flex flex-wrap items-center gap-3 no-underline">
+                                                <strong class="text-gray-900 flex-shrink-0 hover:text-primary-600">{{ member.full_name }}</strong>
+                                                {% if member.status == 'Pending' %}
+                                                    <span class="inline-block px-2 py-1 rounded-full text-xs font-semibold uppercase tracking-wide bg-warning-100 text-warning-700">Pending</span>
+                                                {% elif member.enabled == 0 %}
+                                                    <span class="inline-block px-2 py-1 rounded-full text-xs font-semibold uppercase tracking-wide bg-danger-100 text-danger-700">Terminated</span>
+                                                {% else %}
+                                                    <span class="inline-block px-2 py-1 rounded-full text-xs font-semibold uppercase tracking-wide bg-success-100 text-success-700">Active</span>
+                                                {% endif %}
+                                                <small class="text-gray-500 text-xs ml-auto">
+                                                    Joined {{ format_date(member.chapter_join_date) }}
+                                                </small>
+                                            </a>
+                                        </li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Right Column: Pending Actions + Board Members -->
+                <div class="space-y-6">
+                <!-- Pending Actions Section -->
+                {% if dashboard_data and dashboard_data.pending_actions and dashboard_data.pending_actions.total_pending > 0 %}
+                <div class="bg-white rounded-xl shadow-sm overflow-hidden border-l-4 border-danger-500">
+                    <div class="bg-gray-50 px-6 py-4 border-b border-gray-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                        <h3 class="m-0 text-lg font-semibold text-gray-800">⚠️ Requires Your Attention</h3>
+                        <div class="bg-red-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
+                            {{ dashboard_data.pending_actions.total_pending if dashboard_data and dashboard_data.pending_actions else 0 }} items
+                        </div>
+                    </div>
+                    <div class="px-6 pb-6">
+                        <!-- Pending Member Applications -->
+                        {% if dashboard_data and dashboard_data.pending_actions and dashboard_data.pending_actions.membership_applications %}
+                            <div class="mb-6 last:mb-0">
+                                <h4 class="text-lg font-semibold text-gray-800 mb-4">🆕 New Member Applications ({{ dashboard_data.pending_actions.membership_applications|length if dashboard_data and dashboard_data.pending_actions and dashboard_data.pending_actions.membership_applications else 0 }})</h4>
+                                <ul class="list-none p-0 m-0 space-y-3">
+                                    {% for app in dashboard_data.pending_actions.membership_applications %}
+                                        <li class="py-4 px-4 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-3 {{ 'bg-danger-50 border-l-4 border-danger-500' if app.is_overdue else 'bg-gray-50' }}">
+                                            <div class="flex flex-col gap-1">
+                                                <a href="/app/member/{{ app.member }}" class="text-gray-900 text-base font-bold hover:text-primary-600 no-underline">
+                                                    {{ app.full_name }}
+                                                </a>
+                                                <small class="text-gray-600 text-sm">Applied {{ app.days_pending }} days ago</small>
+                                                {% if app.is_overdue %}
+                                                    <span class="inline-block bg-red-600 text-white px-3 py-1 rounded-full text-xs font-bold mt-1 self-start">OVERDUE</span>
+                                                {% endif %}
+                                            </div>
+                                            {% if user_board_role and user_board_role.permissions.can_approve_members %}
+                                                <div class="flex gap-2 flex-shrink-0">
+                                                    <button class="inline-flex items-center justify-center px-3 py-2 text-sm rounded-lg font-semibold bg-primary-600 text-white hover:bg-primary-700 shadow-md hover:shadow-lg transition-all"
+                                                            onclick="reviewMember('{{ app.member }}')">
+                                                        <i class="fa fa-eye mr-1"></i> Review Application
+                                                    </button>
+                                                </div>
+                                            {% endif %}
+                                        </li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                        {% endif %}
+
+                        <!-- Placeholder for expense approvals -->
+                        {% if dashboard_data and dashboard_data.pending_actions and dashboard_data.pending_actions.expense_approvals %}
+                            <div class="pending-section">
+                                <h4>💰 Expense Approvals ({{ dashboard_data.pending_actions.expense_approvals|length }})</h4>
+                                <!-- Will be implemented when expense system is integrated -->
+                            </div>
+                        {% endif %}
+
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Board Information Section -->
+                <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+                    <div class="px-6 py-4 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-secondary-50 border-secondary-200">
+                        <h3 class="m-0 text-lg font-semibold text-secondary-600">👨‍💼 Board Members</h3>
+                        {% if user_board_role and user_board_role.permissions.can_manage_board %}
+                            <div class="flex gap-2">
+                                <button class="inline-flex items-center justify-center px-3 py-1.5 text-sm rounded-lg font-medium bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 shadow-sm" onclick="manageBoardMembers()">
+                                    <i class="fa fa-cog mr-1"></i> Manage
+                                </button>
+                            </div>
+                        {% endif %}
+                    </div>
+                    <div class="p-6">
+                        {% if dashboard_data.board_info.members %}
+                            <ul class="list-none p-0 m-0 space-y-3">
+                                {% for board_member in dashboard_data.board_info.members %}
+                                    <li class="py-4 px-4 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-2 {{ 'bg-primary-50 border-l-4 border-primary-500' if board_member.is_current_user else 'bg-gray-50' }}">
+                                        <div class="flex flex-wrap items-center gap-2">
+                                            <strong class="text-gray-900">{{ board_member.volunteer_name }}</strong>
+                                            <span class="text-gray-600 font-normal">({{ board_member.role }})</span>
+                                            {% if board_member.is_current_user %}
+                                                <span class="inline-block bg-blue-600 text-white px-3 py-1 rounded-full text-xs font-bold">YOU</span>
+                                            {% endif %}
+                                        </div>
+                                        <small class="text-gray-500 text-xs ml-auto">
+                                            Since {{ format_date(board_member.from_date, '%B %Y') if board_member.from_date else 'Unknown' }}
+                                        </small>
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                        {% else %}
+                            <p class="text-center text-gray-600 italic my-4">No board members found.</p>
+                        {% endif %}
+                    </div>
+                </div>
+                </div>
+                <!-- End Right Column -->
+
+            </div>
+            <!-- End of 2-column grid -->
+
+            <!-- Financial Summary Section (full width) -->
+            {% if user_board_role and user_board_role.permissions.can_view_finances %}
+            <div class="bg-white rounded-xl shadow-sm overflow-hidden mb-8">
+                <div class="px-6 py-4 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-accent-50 border-accent-200">
+                    <h3 class="m-0 text-lg font-semibold text-accent-600">💰 Chapter Finances</h3>
+                    <div class="flex gap-2">
+                        <button class="inline-flex items-center justify-center px-3 py-1.5 text-sm rounded-lg font-medium bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 shadow-sm" onclick="viewFinancialReports()">
+                            <i class="fa fa-chart-bar mr-1"></i> Reports
+                        </button>
+                    </div>
+                </div>
+                <div class="p-6">
+                    {% if dashboard_data and dashboard_data.financial_summary %}
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="bg-gray-50 rounded-lg p-4">
+                            <h4 class="m-0 mb-4 text-base font-semibold text-gray-800">This Month</h4>
+                            <ul class="list-none p-0 m-0 space-y-3">
+                                <li class="flex justify-between text-sm">
+                                    <span class="text-gray-600">Expenses Submitted:</span>
+                                    <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.this_month.expenses_submitted) if dashboard_data.financial_summary.this_month else "0.00" }}</strong>
+                                </li>
+                                <li class="flex justify-between text-sm">
+                                    <span class="text-gray-600">Expenses Approved:</span>
+                                    <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.this_month.expenses_approved) if dashboard_data.financial_summary.this_month else "0.00" }}</strong>
+                                </li>
+                                <li class="flex justify-between text-sm">
+                                    <span class="text-gray-600">Pending Approval:</span>
+                                    <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.this_month.pending_approval) if dashboard_data.financial_summary.this_month else "0.00" }}</strong>
+                                </li>
+                            </ul>
+                        </div>
+
+                        <div class="bg-gray-50 rounded-lg p-4">
+                            <h4 class="m-0 mb-4 text-base font-semibold text-gray-800">Year to Date</h4>
+                            <ul class="list-none p-0 m-0 space-y-3">
+                                <li class="flex justify-between text-sm">
+                                    <span class="text-gray-600">Total Expenses:</span>
+                                    <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.ytd.total_expenses) if dashboard_data.financial_summary.ytd else "0.00" }}</strong>
+                                </li>
+                                <li class="flex justify-between text-sm">
+                                    <span class="text-gray-600">Average per Claim:</span>
+                                    <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.ytd.average_claim) if dashboard_data.financial_summary.ytd else "0.00" }}</strong>
+                                </li>
+                                <li class="flex justify-between text-sm">
+                                    <span class="text-gray-600">Total Claims:</span>
+                                    <strong class="text-gray-900">{{ dashboard_data.financial_summary.ytd.total_claims if dashboard_data.financial_summary.ytd else 0 }}</strong>
+                                </li>
+                                <li class="flex justify-between text-sm pt-3 border-t border-gray-300">
+                                    <span class="text-gray-600">Purchase Invoices:</span>
+                                    <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.ytd.purchase_invoices) if dashboard_data.financial_summary.ytd and dashboard_data.financial_summary.ytd.purchase_invoices else "0.00" }}</strong>
+                                </li>
+                            </ul>
+                        </div>
+
+                        <div class="bg-gray-50 rounded-lg p-4">
+                            <h4 class="m-0 mb-4 text-base font-semibold text-gray-800">Dues Income (YTD)</h4>
+                            <ul class="list-none p-0 m-0 space-y-3">
+                                <li class="flex justify-between text-sm">
+                                    <span class="text-gray-600">Total Dues Collected:</span>
+                                    <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.dues_income.ytd_gross) if dashboard_data.financial_summary.dues_income else "0.00" }}</strong>
+                                </li>
+                                <li class="flex justify-between text-sm">
+                                    <span class="text-gray-600">Chapter Portion:</span>
+                                    <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.dues_income.ytd_chapter) if dashboard_data.financial_summary.dues_income else "0.00" }}</strong>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                    {% else %}
+                    <div>
+                        <p class="text-center text-gray-600 italic my-4">Financial data is not available at this time.</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Dues Payment Status Section (full width) -->
+            {% if user_board_role and user_board_role.permissions.can_view_finances and dashboard_data.dues_payment_status %}
+            <div class="bg-white rounded-xl shadow-sm overflow-hidden mb-8">
+                <div class="px-6 py-4 border-b bg-secondary-50 border-secondary-200">
+                    <h3 class="m-0 text-lg font-semibold text-secondary-600">💳 Dues Payment Status</h3>
+                </div>
+                        <div class="p-6">
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                            <a href="/app/query-report/Membership Dues Coverage Analysis?chapter={{ chapter_name|urlencode|e }}&show_only_gaps=0"
+                               class="text-center p-4 bg-success-50 rounded-lg border border-success-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
+                                <span class="block text-sm text-gray-600 mb-2 font-medium">Up to Date:</span>
+                                <span class="text-3xl font-bold text-success-600">{{ dashboard_data.dues_payment_status.up_to_date }}</span>
+                                <span class="block text-xs text-gray-500 mt-1">Members with current coverage</span>
+                            </a>
+                            <a href="/app/query-report/Members Without Active Memberships?chapter={{ chapter_name|urlencode|e }}"
+                               class="text-center p-4 bg-primary-50 rounded-lg border border-primary-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
+                                <span class="block text-sm text-gray-600 mb-2 font-medium">No Dues Schedule set:</span>
+                                <span class="text-3xl font-bold text-primary-600">{{ dashboard_data.dues_payment_status.no_active_membership }}</span>
+                                <span class="block text-xs text-gray-500 mt-1">Members who don't pay any dues.</span>
+                            </a>
+                            <a href="/app/query-report/Overdue Member Payments?chapter={{ chapter_name|urlencode|e }}"
+                               class="text-center p-4 bg-warning-50 rounded-lg border border-warning-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
+                                <span class="block text-sm text-gray-600 mb-2 font-medium">Members with unpaid dues:</span>
+                                <span class="text-3xl font-bold text-yellow-600">{{ dashboard_data.dues_payment_status.unpaid }}</span>
+                                <span class="block text-xs text-gray-500 mt-1">€{{ "%.2f"|format(dashboard_data.dues_payment_status.unpaid_amount) }}</span>
+                            </a>
+                            <a href="/app/query-report/Membership Dues Coverage Analysis?chapter={{ chapter_name|urlencode|e }}&show_only_gaps=1"
+                               class="text-center p-4 bg-warning-50 rounded-lg border border-warning-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
+                                <span class="block text-sm text-gray-600 mb-2 font-medium">Lapsed:</span>
+                                <span class="text-3xl font-bold text-warning-600">{{ dashboard_data.dues_payment_status.lapsed }}</span>
+                                <span class="block text-xs text-gray-500 mt-1">Coverage Expired</span>
+                            </a>
+                            <a href="/app/sales-invoice?status=Overdue&custom_member_chapter={{ chapter_name|urlencode|e }}&is_membership_invoice=1"
+                               class="text-center p-4 bg-danger-50 rounded-lg border border-danger-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
+                                <span class="block text-sm text-gray-600 mb-2 font-medium">Overdue:</span>
+                                <span class="text-3xl font-bold text-danger-600">{{ dashboard_data.dues_payment_status.overdue }}</span>
+                                <span class="block text-xs text-gray-500 mt-1">€{{ "%.2f"|format(dashboard_data.dues_payment_status.total_overdue_amount) }}</span>
+                            </a>
+                            <a href="/app/query-report/Members Without Payment Info?chapter={{ chapter_name|urlencode|e }}"
+                               class="text-center p-4 bg-orange-50 rounded-lg border border-orange-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
+                                <span class="block text-sm text-gray-600 mb-2 font-medium">Missing Payment Info:</span>
+                                <span class="text-3xl font-bold text-orange-600">{{ dashboard_data.dues_payment_status.missing_payment_info }}</span>
+                                <span class="block text-xs text-gray-500 mt-1">No Mollie/SEPA/Bank Transfer</span>
+                            </a>
+                            <a href="/app/query-report/Membership Dues Coverage Analysis?chapter={{ chapter_name|urlencode|e }}"
+                               class="text-center p-4 bg-gray-50 rounded-lg border border-gray-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
+                                <span class="block text-sm text-gray-600 mb-2 font-medium">Total Members:</span>
+                                <span class="text-3xl font-bold text-gray-700">{{ dashboard_data.dues_payment_status.total_members }}</span>
+                            </a>
+                        </div>
+
+                        {% if dashboard_data.dues_payment_status.overdue > 0 %}
+                        <div class="bg-gray-50 rounded-lg p-4">
+                            <h4 class="m-0 mb-4 text-base font-semibold text-gray-800">Overdue Breakdown</h4>
+                            <div class="grid grid-cols-3 gap-4">
+                                <div class="text-center">
+                                    <span class="block text-xs text-gray-600 mb-1">30-60 days:</span>
+                                    <strong class="text-lg text-warning-600">{{ dashboard_data.dues_payment_status.overdue_breakdown.overdue_30_days }}</strong>
+                                </div>
+                                <div class="text-center">
+                                    <span class="block text-xs text-gray-600 mb-1">60-90 days:</span>
+                                    <strong class="text-lg text-danger-500">{{ dashboard_data.dues_payment_status.overdue_breakdown.overdue_60_days }}</strong>
+                                </div>
+                                <div class="text-center">
+                                    <span class="block text-xs text-gray-600 mb-1">90+ days:</span>
+                                    <strong class="text-lg text-danger-700">{{ dashboard_data.dues_payment_status.overdue_breakdown.overdue_90_plus_days }}</strong>
+                                </div>
+                            </div>
+                        </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endif %}
+
+            <!-- Recent Activity Section (full width) -->
+            {% if dashboard_data.recent_activity %}
+            <div class="bg-white rounded-xl shadow-sm overflow-hidden mb-8">
+                <div class="px-6 py-4 border-b bg-secondary-50 border-secondary-200">
+                    <h3 class="m-0 text-lg font-semibold text-secondary-600">📋 Recent Activity</h3>
+                </div>
+                <div class="p-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {% for activity in dashboard_data.recent_activity %}
+                            <div class="py-4 px-4 bg-gray-50 rounded-lg border-l-4 border-primary-400 hover:bg-gray-100 hover:shadow-md transition-all">
+                                {% if activity.member %}
+                                    <a href="/app/member/{{ activity.member }}" class="block no-underline">
+                                        <p class="m-0 mb-2 text-gray-900 hover:text-primary-600 font-medium">{{ activity.description }}</p>
+                                        <small class="text-gray-500 text-xs">
+                                            {{ format_datetime(activity.timestamp) }}
+                                        </small>
+                                    </a>
+                                {% else %}
+                                    <p class="m-0 mb-2 text-gray-900 font-medium">{{ activity.description }}</p>
+                                    <small class="text-gray-500 text-xs">
+                                        {{ format_datetime(activity.timestamp) }}
+                                    </small>
+                                {% endif %}
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Board Documents Section (full width) -->
+            <div class="mb-8">
+                {% if dashboard_data.board_documents and dashboard_data.board_documents.total_count > 0 %}
+                <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+                    <div class="px-6 py-4 border-b bg-primary-50 border-primary-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                        <h3 class="m-0 text-lg font-semibold text-primary-600">📄Chapter Documents</h3>
+                        <div class="bg-primary-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
+                            {{ dashboard_data.board_documents.total_count }} documents
+                        </div>
+                    </div>
+                    <div class="p-6">
+                        {% for doc_type, years_dict in dashboard_data.board_documents.by_type_and_year.items() %}
+                            {% if years_dict %}
+                                <div class="mb-6 last:mb-0">
+                                    <!-- Document Type Folder -->
+                                    <div class="border border-gray-200 rounded-lg overflow-hidden">
+                                        <button onclick="toggleFolder('folder-{{ doc_type|replace(' ', '-')|lower }}')"
+                                                class="w-full px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors flex items-center justify-between cursor-pointer border-none text-left">
+                                            <h4 class="m-0 text-base font-semibold text-gray-800 flex items-center gap-2">
+                                                <i class="fa fa-folder text-warning-600"></i>
+                                                {% if dashboard_data.board_documents.category_icons %}
+                                                    {{ dashboard_data.board_documents.category_icons.get(doc_type, '📎') }}
+                                                {% else %}
+                                                    {% if doc_type == "Policy" %}📋
+                                                    {% elif doc_type == "Meeting Minutes" %}📝
+                                                    {% elif doc_type == "Financial Report" %}💰
+                                                    {% else %}📎{% endif %}
+                                                {% endif %}
+                                                {{ doc_type }}
+                                                {% set doc_count = namespace(total=0) %}
+                                                {% for year, docs in years_dict.items() %}
+                                                    {% set doc_count.total = doc_count.total + docs|length %}
+                                                {% endfor %}
+                                                <span class="text-sm text-gray-500 font-normal">({{ doc_count.total }} documents)</span>
+                                            </h4>
+                                            <i class="fa fa-chevron-down text-gray-500 transition-transform" id="icon-folder-{{ doc_type|replace(' ', '-')|lower }}"></i>
+                                        </button>
+
+                                        <!-- Years folders inside document type -->
+                                        <div id="folder-{{ doc_type|replace(' ', '-')|lower }}" class="folder-content" style="display: none;">
+                                            {% for year, documents in years_dict.items() %}
+                                                <div class="border-t border-gray-200">
+                                                    <button onclick="toggleFolder('year-{{ doc_type|replace(' ', '-')|lower }}-{{ year }}')"
+                                                            class="w-full px-6 py-2 bg-white hover:bg-gray-50 transition-colors flex items-center justify-between cursor-pointer border-none text-left">
+                                                        <span class="text-sm font-medium text-gray-700 flex items-center gap-2">
+                                                            <i class="fa fa-folder-open text-warning-500"></i>
+                                                            {{ year }}
+                                                            <span class="text-xs text-gray-500 font-normal">({{ documents|length }})</span>
+                                                        </span>
+                                                        <i class="fa fa-chevron-down text-gray-400 transition-transform text-sm" id="icon-year-{{ doc_type|replace(' ', '-')|lower }}-{{ year }}"></i>
+                                                    </button>
+
+                                                    <!-- Documents in year -->
+                                                    <div id="year-{{ doc_type|replace(' ', '-')|lower }}-{{ year }}" class="folder-content" style="display: none;">
+                                                        <ul class="list-none p-0 m-0">
+                                                            {% for doc in documents %}
+                                                                <li class="py-3 px-8 bg-gray-50 hover:bg-gray-100 transition-colors border-t border-gray-100">
+                                                                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
+                                                                        <div class="flex-1">
+                                                                            <a href="{{ doc.document_file }}" target="_blank" class="text-gray-900 font-medium hover:text-primary-600 no-underline flex items-center gap-2">
+                                                                                <i class="fa fa-file-pdf-o text-danger-600"></i>
+                                                                                {{ doc.document_name }}
+                                                                            </a>
+                                                                            {% if doc.description %}
+                                                                                <p class="text-sm text-gray-600 mt-1 mb-0 ml-6">{{ doc.description }}</p>
+                                                                            {% endif %}
+                                                                        </div>
+                                                                        <div class="flex flex-col md:items-end gap-1">
+                                                                            <small class="text-gray-500 text-xs">
+                                                                                Uploaded: {{ format_date(doc.upload_date) }}
+                                                                            </small>
+                                                                            {% if doc.uploaded_by %}
+                                                                                <small class="text-gray-400 text-xs">
+                                                                                    By: {{ doc.uploaded_by }}
+                                                                                </small>
+                                                                            {% endif %}
+                                                                        </div>
+                                                                    </div>
+                                                                </li>
+                                                            {% endfor %}
+                                                        </ul>
+                                                    </div>
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endif %}
+                        {% endfor %}
+
+                        <div class="mt-6 pt-6 border-t border-gray-200">
+                            <a href="/app/chapter/{{ chapter_name }}" class="inline-flex items-center justify-center px-4 py-2 text-sm rounded-lg font-medium bg-primary-600 text-white hover:bg-primary-700 shadow-sm no-underline">
+                                <i class="fa fa-upload mr-2"></i> Upload New Document
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+            <!-- End of Board Documents Section -->
+
+        </div>
+
+    {% else %}
+        <div class="bg-warning-100 border border-warning-300 rounded-lg p-8 text-center max-w-2xl mx-auto">
+            <h4 class="text-2xl font-semibold text-warning-800 mb-4">Dashboard Unavailable</h4>
+            <p class="text-lg text-warning-700">Unable to load dashboard data at this time. Please try again later.</p>
+        </div>
+    {% endif %}
+    </div>
+</div>
+
+<!-- Loading overlay -->
+<div id="loading-overlay" class="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50" style="display: none;">
+    <div class="bg-white p-8 rounded-xl text-center">
+        <i class="fa fa-spinner fa-spin text-3xl text-primary-600 mb-4"></i>
+        <p class="text-gray-700">Loading...</p>
+    </div>
+</div>
+
+<style>
+/* Additional styling for remaining custom components */
+.form-card {
+    @apply bg-white rounded-xl shadow-sm overflow-hidden;
+}
+
+.form-header {
+    @apply bg-gray-50 px-6 py-4 border-b border-gray-200;
+}
+
+.form-header h3 {
+    @apply text-lg font-semibold text-gray-700;
+}
+
+.form-body {
+    @apply p-6;
+}
+
+.card-content {
+    @apply p-6;
+}
+
+.card-actions {
+    @apply flex gap-2;
+}
+
+.dashboard-card {
+    @apply bg-white rounded-xl shadow-sm overflow-hidden transition-shadow duration-200;
+}
+
+.dashboard-card:hover {
+    @apply shadow-lg;
+}
+
+.dashboard-card.urgent {
+    @apply border-l-4 border-danger-500;
+}
+
+.card-header {
+    @apply bg-gray-50 px-6 py-4 border-b border-gray-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-3;
+}
+
+.card-header h3 {
+    @apply m-0 text-lg font-semibold text-gray-800;
+}
+
+/* Quick stats */
+.quick-stats {
+    @apply grid grid-cols-3 gap-4 mb-6 pb-6 border-b border-gray-200;
+}
+
+.stat-item {
+    @apply text-center p-4 bg-white rounded-lg border border-gray-200;
+}
+
+.stat-label {
+    @apply block text-sm text-gray-600 mb-2 font-medium;
+}
+
+.stat-value {
+    @apply text-3xl font-bold;
+}
+
+.stat-value.active {
+    @apply text-success-600;
+}
+
+.stat-value.pending {
+    @apply text-yellow-600;
+}
+
+.stat-value.inactive {
+    @apply text-gray-500;
+}
+
+/* Status badges */
+.status-badge {
+    @apply inline-block px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wide;
+}
+
+.status-badge.active {
+    @apply bg-success-100 text-success-700;
+}
+
+.status-badge.pending {
+    @apply bg-warning-100 text-warning-700;
+}
+
+.status-badge.inactive {
+    @apply bg-gray-200 text-gray-700;
+}
+
+/* Activity lists */
+.activity-list,
+.pending-list,
+.board-list {
+    @apply list-none p-0 m-0 space-y-3;
+}
+
+.activity-item {
+    @apply py-4 px-4 bg-gray-50 rounded-lg flex flex-wrap items-center gap-3;
+}
+
+.activity-item strong {
+    @apply text-gray-900 flex-shrink-0;
+}
+
+.pending-item {
+    @apply py-4 px-4 bg-gray-50 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-3;
+}
+
+.pending-item.overdue {
+    @apply bg-danger-50 border-l-4 border-danger-500;
+}
+
+.overdue-label {
+    @apply inline-block bg-red-600 text-white px-3 py-1 rounded-full text-xs font-bold;
+}
+
+.pending-actions {
+    @apply flex gap-2 flex-shrink-0;
+}
+
+.activity-date,
+.board-since {
+    @apply text-gray-500 text-xs ml-auto;
+}
+
+.board-item {
+    @apply py-4 px-4 bg-gray-50 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-2;
+}
+
+.board-item.current-user {
+    @apply bg-primary-50 border-l-4 border-primary-500;
+}
+
+.you-indicator {
+    @apply inline-block bg-blue-600 text-white px-3 py-1 rounded-full text-xs font-bold;
+}
+
+.board-role {
+    @apply text-gray-600 font-normal ml-2;
+}
+
+.board-member-info {
+    @apply flex flex-wrap items-center gap-2;
+}
+
+/* Financial stats */
+.financial-overview {
+    @apply grid grid-cols-1 md:grid-cols-2 gap-6;
+}
+
+.financial-period h4 {
+    @apply m-0 mb-3 text-gray-700 text-base;
+}
+
+.financial-stats {
+    @apply list-none p-0 m-0;
+}
+
+.financial-stats li {
+    @apply py-2 text-gray-600 text-sm;
+}
+
+.financial-stats strong {
+    @apply text-gray-700;
+}
+
+/* Activity timeline */
+.activity-timeline {
+    @apply list-none p-0 m-0;
+}
+
+.timeline-item {
+    @apply py-3 border-b border-gray-100 relative pl-4;
+}
+
+.timeline-item:before {
+    content: "";
+    @apply absolute left-0 top-4 w-2 h-2 bg-primary-500 rounded-full;
+}
+
+.timeline-item:last-child {
+    @apply border-b-0;
+}
+
+.timeline-content p {
+    @apply m-0 mb-1 text-gray-700;
+}
+
+.timeline-date {
+    @apply text-gray-600 text-xs;
+}
+
+/* Urgency indicator */
+.urgency-indicator {
+    @apply bg-red-600 text-white px-3 py-1 rounded-full text-xs font-semibold;
+}
+
+/* No data state */
+.no-data {
+    @apply text-center text-gray-600 italic my-4;
+}
+
+/* Pending section */
+.pending-section {
+    @apply mb-6 last:mb-0;
+}
+
+.pending-section h4 {
+    @apply text-lg font-semibold text-gray-800 mb-4;
+}
+
+.pending-info {
+    @apply flex flex-col gap-1;
+}
+
+.pending-info strong {
+    @apply text-gray-900 text-base;
+}
+
+.pending-info small {
+    @apply text-gray-600 text-sm;
+}
+
+.recent-activity h4 {
+    @apply text-lg font-semibold text-gray-800 mb-4;
+}
+
+/* Custom button styles */
+.btn {
+    @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium transition-all duration-200;
+}
+
+.btn-sm {
+    @apply px-3 py-1.5 text-sm;
+}
+
+.btn-xs {
+    @apply px-2 py-1 text-xs;
+}
+
+.btn-chapter-primary {
+    @apply bg-primary-600 text-white hover:bg-primary-700 shadow-sm hover:shadow-md;
+}
+
+.btn-chapter-success {
+    @apply bg-green-600 text-white hover:bg-green-700 shadow-sm hover:shadow-md;
+}
+
+.btn-chapter-default {
+    @apply bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 hover:border-gray-400 shadow-sm;
+}
+</style>
+
+{% endblock %}
+
+{% block script %}
+<script src="/assets/verenigingen/js/chapter_dashboard.js"></script>
+<script>
+    // Initialize dashboard
+    $(document).ready(function() {
+        // Set up chapter selector
+        $('#chapter-select').on('change', function() {
+            const selectedChapter = $(this).val();
+            if (selectedChapter) {
+                window.location.href = '/chapter_dashboard?chapter=' + encodeURIComponent(selectedChapter);
+            }
+        });
+
+        // Auto-refresh is handled in chapter_dashboard.js
+    });
+
+    // Function to toggle folder visibility
+    function toggleFolder(folderId) {
+        const folder = document.getElementById(folderId);
+        const icon = document.getElementById('icon-' + folderId);
+
+        if (folder && icon) {
+            if (folder.style.display === 'none' || folder.style.display === '') {
+                folder.style.display = 'block';
+                icon.style.transform = 'rotate(180deg)';
+            } else {
+                folder.style.display = 'none';
+                icon.style.transform = 'rotate(0deg)';
+            }
+        }
+    }
+
+    // Pass dashboard data to JavaScript
+    window.dashboardData = {{ dashboard_data | tojson | safe if dashboard_data else '{}' }};
+    window.userPermissions = {{ user_board_role.permissions | tojson | safe if user_board_role and user_board_role.permissions else '{}' }};
+    window.selectedChapter = {{ selected_chapter|tojson }};
+    window.company = {{ company|tojson|safe if company else 'null' }};
+
+    // Member search filter function
+    function filterMembers() {
+        const input = document.getElementById('memberSearchInput');
+        const filter = input.value.toLowerCase();
+        const memberList = document.getElementById('memberList');
+        const members = memberList.getElementsByTagName('li');
+
+        let visibleCount = 0;
+
+        for (let i = 0; i < members.length; i++) {
+            const memberName = members[i].textContent || members[i].innerText;
+            if (memberName.toLowerCase().indexOf(filter) > -1) {
+                members[i].style.display = '';
+                visibleCount++;
+            } else {
+                members[i].style.display = 'none';
+            }
+        }
+
+        // Optional: Show "no results" message
+        const noResultsMsg = document.getElementById('noMembersFound');
+        if (visibleCount === 0 && filter.length > 0) {
+            if (!noResultsMsg) {
+                const msg = document.createElement('li');
+                msg.id = 'noMembersFound';
+                msg.className = 'text-center text-gray-500 italic py-4';
+                msg.textContent = 'No members found matching "' + filter + '"';
+                memberList.appendChild(msg);
+            }
+        } else if (noResultsMsg) {
+            noResultsMsg.remove();
+        }
+    }
+
+    /**
+     * Get date range for Year-To-Date (YTD) reporting
+     * @returns {Object} Object with fromDate (Jan 1 of current year) and toDate (today) in YYYY-MM-DD format
+     */
+    function getYTDDateRange() {
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        return {
+            fromDate: `${currentYear}-01-01`,
+            toDate: now.toISOString().split('T')[0]
+        };
+    }
+
+    /**
+     * Navigate to Chapter Dues Split financial report with YTD date range
+     * @description Opens the financial report filtered by current chapter, company, and year-to-date range
+     * @requires window.selectedChapter - Current chapter name from context
+     * @requires window.company - Company name from Verenigingen Settings (optional)
+     */
+    function viewFinancialReports() {
+        const chapter = window.selectedChapter;
+        const company = window.company;
+
+        // Validate required context
+        if (!chapter) {
+            frappe.msgprint(__('Chapter context not available. Please refresh the page.'));
+            return;
+        }
+
+        // Get current year date range (YTD)
+        const { fromDate, toDate } = getYTDDateRange();
+
+        let url = `/app/query-report/Chapter Dues Split?chapter=${encodeURIComponent(chapter)}`;
+        url += `&from_date=${encodeURIComponent(fromDate)}`;
+        url += `&to_date=${encodeURIComponent(toDate)}`;
+        if (company) {
+            url += `&company=${encodeURIComponent(company)}`;
+        }
+        window.location.href = url;
+    }
+
+    /**
+     * Navigate to Chapter form for board member management
+     * @description Opens the Chapter DocType form where board members can be managed
+     * @requires window.selectedChapter - Current chapter name from context
+     */
+    function manageBoardMembers() {
+        const chapter = window.selectedChapter;
+
+        // Validate required context
+        if (!chapter) {
+            frappe.msgprint(__('Chapter context not available. Please refresh the page.'));
+            return;
+        }
+
+        window.location.href = `/app/chapter/${encodeURIComponent(chapter)}`;
+    }
+
+    /**
+     * Navigate to Member list filtered by current chapter
+     * @description Opens the Member list view with chapter filter applied
+     * @requires window.selectedChapter - Current chapter name from context
+     */
+    function viewAllMembers() {
+        const chapter = window.selectedChapter;
+
+        // Validate required context
+        if (!chapter) {
+            frappe.msgprint(__('Chapter context not available. Please refresh the page.'));
+            return;
+        }
+
+        window.location.href = `/app/member?custom_current_chapter=${encodeURIComponent(chapter)}`;
+    }
+</script>
+{% endblock %}

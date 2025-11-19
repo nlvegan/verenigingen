@@ -1,0 +1,10 @@
+[bandit]
+# Performance optimization: Only scan production code directories
+# This dramatically improves scan time by focusing on security-critical areas
+include = verenigingen/api,verenigingen/utils,verenigingen/hooks.py,verenigingen/boot.py,verenigingen/templates/pages
+
+# Skip test IDs that produce false positives in Frappe applications
+skips = B101,B601,B110
+
+# Focus on medium and high severity issues only
+severity = medium

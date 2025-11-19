@@ -1,0 +1,500 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block head_include %}
+<meta name="csrf-token" content="{{ csrf_token }}">
+<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+<script>
+// Load brand CSS dynamically
+if (typeof frappe !== 'undefined' && frappe.ready) {
+    frappe.ready(function() {
+        frappe.call({
+            method: 'verenigingen.verenigingen.doctype.brand_settings.brand_settings.get_brand_css_inline',
+            callback: function(r) {
+                if (r.message && r.message.success) {
+                    var style = document.createElement('style');
+                    style.innerHTML = r.message.css;
+                    document.head.appendChild(style);
+                }
+            }
+        });
+    });
+}
+</script>
+<style>
+.member-row:hover {
+    background-color: var(--brand-bg-secondary, #f8f9fa);
+}
+.coverage-timeline {
+    height: 40px;
+    position: relative;
+    background: var(--brand-bg-secondary, #e5e7eb);
+    border-radius: 4px;
+    overflow: hidden;
+}
+.coverage-segment {
+    position: absolute;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: white;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+}
+.coverage-paid {
+    background-color: var(--brand-success, #10b981);
+}
+.coverage-outstanding {
+    background-color: var(--brand-warning, #f59e0b);
+}
+.coverage-gap {
+    background-color: var(--brand-error, #ef4444);
+}
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div class="min-h-screen bg-gray-50 py-8">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+
+        <!-- Header -->
+        <div class="mb-8">
+            <h1 class="text-3xl font-bold text-gray-900">{{ title }}</h1>
+            <p class="mt-2 text-sm text-gray-600">Analyze coverage gaps and generate catch-up invoices</p>
+        </div>
+
+        <!-- Filters Section -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">Filters</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">From Date</label>
+                    <input type="date" id="filter-from-date" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">To Date</label>
+                    <input type="date" id="filter-to-date" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Gap Severity</label>
+                    <select id="filter-severity" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                        <option value="">All Severities</option>
+                        <option value="Minor">Minor (≤7 days)</option>
+                        <option value="Moderate">Moderate (8-30 days)</option>
+                        <option value="Significant">Significant (31-90 days)</option>
+                        <option value="Critical">Critical (>90 days)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Show Only</label>
+                    <select id="filter-show-only" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                        <option value="">All Members</option>
+                        <option value="gaps">Members with Gaps</option>
+                        <option value="catchup">Catch-up Required</option>
+                    </select>
+                </div>
+            </div>
+            <div class="mt-4 flex gap-3">
+                <button onclick="loadCoverageData()" class="inline-flex items-center px-4 py-2 bg-primary-600 text-primary-contrast font-medium rounded-lg hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2">
+                    <i class="fa fa-search mr-2"></i>
+                    {{ _("Load Data") }}
+                </button>
+                <button onclick="clearFilters()" class="inline-flex items-center px-4 py-2 bg-gray-600 text-white font-medium rounded-lg hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2">
+                    <i class="fa fa-times mr-2"></i>
+                    {{ _("Clear") }}
+                </button>
+            </div>
+        </div>
+
+        <!-- Summary Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-primary-500">
+                <div class="flex items-center mb-2">
+                    <div class="flex-shrink-0 bg-primary-100 rounded-lg p-3">
+                        <i class="fa fa-users text-2xl text-primary-600"></i>
+                    </div>
+                    <div class="ml-4">
+                        <p class="text-sm font-medium text-gray-600">Total Members</p>
+                        <p class="text-3xl font-bold text-gray-900" id="summary-total">0</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-warning-500" style="border-left-color: var(--brand-warning, #f59e0b);">
+                <div class="flex items-center mb-2">
+                    <div class="flex-shrink-0 rounded-lg p-3" style="background-color: color-mix(in srgb, var(--brand-warning, #f59e0b) 20%, white);">
+                        <i class="fa fa-exclamation-triangle text-2xl" style="color: var(--brand-warning, #f59e0b);"></i>
+                    </div>
+                    <div class="ml-4">
+                        <p class="text-sm font-medium text-gray-600">With Gaps</p>
+                        <p class="text-3xl font-bold text-gray-900" id="summary-gaps">0</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-danger-500" style="border-left-color: var(--brand-error, #dc3545);">
+                <div class="flex items-center mb-2">
+                    <div class="flex-shrink-0 rounded-lg p-3" style="background-color: color-mix(in srgb, var(--brand-error, #dc3545) 20%, white);">
+                        <i class="fa fa-file-invoice-dollar text-2xl" style="color: var(--brand-error, #dc3545);"></i>
+                    </div>
+                    <div class="ml-4">
+                        <p class="text-sm font-medium text-gray-600">Catch-up Needed</p>
+                        <p class="text-3xl font-bold text-gray-900" id="summary-catchup">0</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-secondary-500">
+                <div class="flex items-center mb-2">
+                    <div class="flex-shrink-0 bg-secondary-100 rounded-lg p-3">
+                        <i class="fa fa-euro-sign text-2xl text-secondary-600"></i>
+                    </div>
+                    <div class="ml-4">
+                        <p class="text-sm font-medium text-gray-600">Total Outstanding</p>
+                        <p class="text-2xl font-bold text-gray-900" id="summary-amount">€0.00</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="mb-6 flex flex-wrap gap-3" id="action-buttons" style="display: none;">
+            <button onclick="selectAll()" class="inline-flex items-center px-4 py-2 bg-gray-600 text-white font-medium rounded-lg hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2">
+                <i class="fa fa-check-square mr-2"></i>
+                {{ _("Select All") }}
+            </button>
+            <button onclick="deselectAll()" class="inline-flex items-center px-4 py-2 bg-gray-600 text-white font-medium rounded-lg hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2">
+                <i class="fa fa-square mr-2"></i>
+                {{ _("Deselect All") }}
+            </button>
+            <button onclick="generateSelectedInvoices()" class="inline-flex items-center px-4 py-2 bg-secondary-600 text-secondary-contrast font-medium rounded-lg hover:bg-secondary-700 focus:outline-none focus:ring-2 focus:ring-secondary-500 focus:ring-offset-2">
+                <i class="fa fa-file-invoice mr-2"></i>
+                {{ _("Generate Invoices for Selected") }}
+                <span id="selected-count" class="ml-2 bg-secondary-700 px-2 py-0.5 rounded-full text-xs font-bold">0</span>
+            </button>
+        </div>
+
+        <!-- Members Table -->
+        <div class="bg-white rounded-lg shadow-md overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200" id="members-table">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                <input type="checkbox" id="select-all-header" onchange="toggleAllCheckboxes(this)" class="rounded">
+                            </th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Member</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Coverage %</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Gap Days</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Gap Severity</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Catch-up Amount</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timeline</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200" id="members-tbody">
+                        <tr>
+                            <td colspan="8" class="px-6 py-12 text-center text-gray-500">
+                                Click "Load Data" to view coverage analysis
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Loading Spinner -->
+        <div id="loading-spinner" class="hidden fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white rounded-lg p-8 max-w-sm mx-4">
+                <div class="flex items-center justify-center mb-4">
+                    <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+                </div>
+                <p class="text-center text-gray-700 font-medium" id="spinner-message">Loading coverage data...</p>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+let coverageData = [];
+let selectedMembers = new Set();
+
+// Set default date range (last 12 months)
+document.addEventListener('DOMContentLoaded', function() {
+    const today = new Date();
+    const twelveMonthsAgo = new Date(today);
+    twelveMonthsAgo.setMonth(today.getMonth() - 12);
+
+    document.getElementById('filter-from-date').value = twelveMonthsAgo.toISOString().split('T')[0];
+    document.getElementById('filter-to-date').value = today.toISOString().split('T')[0];
+});
+
+function showSpinner(message = 'Loading...') {
+    document.getElementById('spinner-message').textContent = message;
+    document.getElementById('loading-spinner').classList.remove('hidden');
+}
+
+function hideSpinner() {
+    document.getElementById('loading-spinner').classList.add('hidden');
+}
+
+function loadCoverageData() {
+    const filters = {
+        from_date: document.getElementById('filter-from-date').value,
+        to_date: document.getElementById('filter-to-date').value,
+        gap_severity: document.getElementById('filter-severity').value,
+        show_only_gaps: document.getElementById('filter-show-only').value === 'gaps',
+        show_only_catchup_required: document.getElementById('filter-show-only').value === 'catchup'
+    };
+
+    showSpinner('Loading coverage analysis...');
+
+    frappe.call({
+        method: 'verenigingen.www.dues_coverage_manager.get_coverage_data',
+        args: { filters: filters },
+        callback: function(r) {
+            hideSpinner();
+
+            if (r.message && r.message.success) {
+                coverageData = r.message.data;
+                updateSummaryCards(r.message.summary);
+                renderMembersTable(coverageData);
+                document.getElementById('action-buttons').style.display = 'flex';
+            } else {
+                frappe.msgprint({
+                    title: 'Error',
+                    message: r.message?.message || 'Failed to load coverage data',
+                    indicator: 'red'
+                });
+            }
+        },
+        error: function(r) {
+            hideSpinner();
+            frappe.msgprint({
+                title: 'Error',
+                message: r.message || 'Failed to load coverage data',
+                indicator: 'red'
+            });
+        }
+    });
+}
+
+function updateSummaryCards(summary) {
+    document.getElementById('summary-total').textContent = summary.total_members || 0;
+    document.getElementById('summary-gaps').textContent = summary.members_with_gaps || 0;
+    document.getElementById('summary-catchup').textContent = summary.catchup_required || 0;
+    document.getElementById('summary-amount').textContent = '€' + (summary.total_catchup_amount || 0).toFixed(2);
+}
+
+function renderMembersTable(data) {
+    const tbody = document.getElementById('members-tbody');
+
+    if (!data || data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="px-6 py-12 text-center text-gray-500">No members found matching the filters</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = data.map(member => {
+        const isSelected = selectedMembers.has(member.member);
+        const hasCatchup = member.catchup_required;
+        const severityColor = getSeverityColor(member.current_gaps);
+        const coverageColor = getCoverageColor(member.coverage_percentage);
+
+        return `
+            <tr class="member-row" data-member="${member.member}">
+                <td class="px-6 py-4">
+                    ${hasCatchup ? `<input type="checkbox" class="member-checkbox rounded" data-member="${member.member}" ${isSelected ? 'checked' : ''} onchange="toggleMemberSelection(this)">` : '<span class="text-gray-400">—</span>'}
+                </td>
+                <td class="px-6 py-4">
+                    <div>
+                        <a href="/app/member/${member.member}" class="text-primary-600 hover:text-primary-700 font-medium" target="_blank">${member.member_name}</a>
+                        <p class="text-xs text-gray-500">${member.member}</p>
+                    </div>
+                </td>
+                <td class="px-6 py-4">
+                    <span class="font-semibold" style="color: ${coverageColor}">${member.coverage_percentage.toFixed(1)}%</span>
+                </td>
+                <td class="px-6 py-4">
+                    <span class="font-semibold" style="color: ${member.gap_days > 0 ? 'var(--brand-error, #dc3545)' : 'var(--brand-success, #28a745)'}">${member.gap_days}</span>
+                </td>
+                <td class="px-6 py-4">
+                    ${member.current_gaps !== 'No gaps' ? `<span class="px-2 py-1 text-xs font-semibold rounded" style="background-color: ${severityColor}20; color: ${severityColor}">${getHighestSeverity(member.current_gaps)}</span>` : '<span style="color: var(--brand-success, #28a745)">No gaps</span>'}
+                </td>
+                <td class="px-6 py-4">
+                    ${hasCatchup ? `<span class="font-semibold" style="color: var(--brand-error, #dc3545)">€${member.catchup_amount.toFixed(2)}</span>` : '<span class="text-gray-400">—</span>'}
+                </td>
+                <td class="px-6 py-4">
+                    <div class="coverage-timeline" title="Coverage visualization">
+                        ${renderCoverageTimeline(member)}
+                    </div>
+                </td>
+                <td class="px-6 py-4">
+                    <button onclick="viewMemberDetails('${member.member}')" class="text-primary-600 hover:text-primary-700 text-sm font-medium">
+                        <i class="fa fa-eye mr-1"></i>Details
+                    </button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function renderCoverageTimeline(member) {
+    // Simplified timeline showing coverage percentage
+    const covered = member.coverage_percentage;
+    const gap = 100 - covered;
+
+    let html = '';
+    if (covered > 0) {
+        html += `<div class="coverage-segment coverage-paid" style="left: 0; width: ${covered}%"></div>`;
+    }
+    if (gap > 0) {
+        html += `<div class="coverage-segment coverage-gap" style="left: ${covered}%; width: ${gap}%"></div>`;
+    }
+
+    return html;
+}
+
+function getSeverityColor(gapsText) {
+    if (gapsText.includes('Critical')) return 'var(--brand-error, #dc2626)';
+    if (gapsText.includes('Significant')) return 'var(--brand-warning, #f59e0b)';
+    if (gapsText.includes('Moderate')) return 'var(--brand-warning, #fb923c)';
+    if (gapsText.includes('Minor')) return 'var(--brand-warning, #fbbf24)';
+    return 'var(--brand-success, #10b981)';
+}
+
+function getCoverageColor(percentage) {
+    if (percentage >= 100) return 'var(--brand-success, #10b981)';
+    if (percentage >= 80) return 'var(--brand-warning, #fbbf24)';
+    if (percentage >= 50) return 'var(--brand-warning, #fb923c)';
+    return 'var(--brand-error, #dc2626)';
+}
+
+function getHighestSeverity(gapsText) {
+    if (gapsText.includes('Critical')) return 'Critical';
+    if (gapsText.includes('Significant')) return 'Significant';
+    if (gapsText.includes('Moderate')) return 'Moderate';
+    if (gapsText.includes('Minor')) return 'Minor';
+    return 'None';
+}
+
+function toggleMemberSelection(checkbox) {
+    const member = checkbox.dataset.member;
+    if (checkbox.checked) {
+        selectedMembers.add(member);
+    } else {
+        selectedMembers.delete(member);
+    }
+    updateSelectedCount();
+}
+
+function toggleAllCheckboxes(checkbox) {
+    const checkboxes = document.querySelectorAll('.member-checkbox');
+    checkboxes.forEach(cb => {
+        cb.checked = checkbox.checked;
+        toggleMemberSelection(cb);
+    });
+}
+
+function selectAll() {
+    const checkboxes = document.querySelectorAll('.member-checkbox');
+    checkboxes.forEach(cb => {
+        cb.checked = true;
+        selectedMembers.add(cb.dataset.member);
+    });
+    document.getElementById('select-all-header').checked = true;
+    updateSelectedCount();
+}
+
+function deselectAll() {
+    const checkboxes = document.querySelectorAll('.member-checkbox');
+    checkboxes.forEach(cb => {
+        cb.checked = false;
+    });
+    selectedMembers.clear();
+    document.getElementById('select-all-header').checked = false;
+    updateSelectedCount();
+}
+
+function updateSelectedCount() {
+    document.getElementById('selected-count').textContent = selectedMembers.size;
+}
+
+function generateSelectedInvoices() {
+    if (selectedMembers.size === 0) {
+        frappe.msgprint('Please select at least one member');
+        return;
+    }
+
+    const selectedData = coverageData.filter(m => selectedMembers.has(m.member));
+    const totalAmount = selectedData.reduce((sum, m) => sum + m.catchup_amount, 0);
+
+    const confirmMsg = `Generate catch-up invoices for ${selectedMembers.size} member(s)?\n\nTotal amount: €${totalAmount.toFixed(2)}`;
+
+    if (!confirm(confirmMsg)) {
+        return;
+    }
+
+    showSpinner('Generating invoices...');
+
+    frappe.call({
+        method: 'verenigingen.verenigingen.report.membership_dues_coverage_analysis.membership_dues_coverage_analysis.generate_catchup_invoices',
+        args: {
+            members: selectedData.map(m => ({
+                member: m.member,
+                member_name: m.member_name,
+                catchup_amount: m.catchup_amount,
+                catchup_periods: m.catchup_periods
+            })),
+            from_date: document.getElementById('filter-from-date').value,
+            to_date: document.getElementById('filter-to-date').value
+        },
+        callback: function(r) {
+            hideSpinner();
+
+            if (r.message) {
+                frappe.msgprint({
+                    title: 'Success',
+                    message: r.message.message,
+                    indicator: 'green'
+                });
+
+                // Reload data after generation
+                setTimeout(() => {
+                    loadCoverageData();
+                    deselectAll();
+                }, 2000);
+            }
+        },
+        error: function(r) {
+            hideSpinner();
+            frappe.msgprint({
+                title: 'Error',
+                message: r.message || 'Failed to generate invoices',
+                indicator: 'red'
+            });
+        }
+    });
+}
+
+function viewMemberDetails(memberName) {
+    // Open member in new tab
+    window.open(`/app/member/${memberName}`, '_blank');
+}
+
+function clearFilters() {
+    document.getElementById('filter-severity').value = '';
+    document.getElementById('filter-show-only').value = '';
+
+    const today = new Date();
+    const twelveMonthsAgo = new Date(today);
+    twelveMonthsAgo.setMonth(today.getMonth() - 12);
+
+    document.getElementById('filter-from-date').value = twelveMonthsAgo.toISOString().split('T')[0];
+    document.getElementById('filter-to-date').value = today.toISOString().split('T')[0];
+}
+</script>
+{% endblock %}

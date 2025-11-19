@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background-color: #f8f9fa; padding: 20px; border-radius: 8px 8px 0 0; }
+        .content { background-color: #ffffff; padding: 30px; border: 1px solid #e9ecef; }
+        .footer { background-color: #f8f9fa; padding: 20px; text-align: center; font-size: 12px; color: #6c757d; border-radius: 0 0 8px 8px; }
+        .warning-box { background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; }
+        .rejection-box { background-color: #f8d7da; border-left: 4px solid #dc3545; padding: 15px; margin: 20px 0; border-radius: 4px; }
+        .amendment-details { background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; }
+        .amendment-details td { padding: 8px 0; }
+        .button { display: inline-block; padding: 12px 24px; background-color: #0066cc; color: white; text-decoration: none; border-radius: 4px; margin: 20px 0; }
+        .icon { font-size: 48px; text-align: center; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2 style="margin: 0; color: #0066cc;">{{ company_name|default('Verenigingen', true) }}</h2>
+        </div>
+
+        <div class="content">
+            <div class="icon">⚠️</div>
+
+            <h3 style="text-align: center;">Amendment Request Rejected</h3>
+
+            <p>Dear {{ member_name|e }},</p>
+
+            <p>Your membership amendment request has been reviewed and unfortunately has been rejected.</p>
+
+            <div class="amendment-details">
+                <h4 style="margin-top: 0;">Request Details:</h4>
+                <table style="width: 100%;">
+                    <tr>
+                        <td><strong>Amendment ID:</strong></td>
+                        <td>{{ amendment_id|e }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Type:</strong></td>
+                        <td>{{ amendment_type|e }}</td>
+                    </tr>
+                    {% if requested_amount %}
+                    <tr>
+                        <td><strong>Requested Amount:</strong></td>
+                        <td>{{ requested_amount|e }}</td>
+                    </tr>
+                    {% endif %}
+                </table>
+            </div>
+
+            <div class="rejection-box">
+                <strong>Rejection Reason:</strong>
+                <p style="margin: 10px 0 0 0;">{{ rejection_reason|e }}</p>
+            </div>
+
+            <div class="warning-box">
+                <strong>What This Means:</strong> Your current membership terms remain unchanged. No modifications have been made to your account.
+            </div>
+
+            <p>If you have questions about this decision or would like to discuss alternative options, please contact the membership team.</p>
+
+            <center>
+                <a href="{{ portal_link|default('#', true) }}" class="button">View Your Membership</a>
+            </center>
+
+            <p>We're here to help and appreciate your understanding.</p>
+
+            <p>Best regards,<br>
+            {{ company_name|default('Verenigingen', true) }} Membership Team</p>
+        </div>
+
+        <div class="footer">
+            <p>This is an automated message from {{ company_name|default('Verenigingen', true) }}.<br>
+            Please do not reply to this email. For support, visit your member portal.<br>
+            © {{ current_year }} {{ company_name|default('Verenigingen', true) }}. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>

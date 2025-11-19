@@ -1,0 +1,112 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Application Submitted Successfully") }}{% endblock %}
+
+{% block page_content %}
+<div class="application-success-page text-center">
+    <div class="container">
+        <div class="success-icon">
+            <i class="fa fa-check-circle"></i>
+        </div>
+
+        <h1>{{ _("Thank You!") }}</h1>
+        <p class="lead">{{ _("Your membership application has been submitted successfully.") }}</p>
+
+        <div class="card mx-auto" style="max-width: 600px;">
+            <div class="card-body">
+                <h4>{{ _("What happens next?") }}</h4>
+
+                <div class="next-steps text-left">
+                    <div class="step">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <h5>{{ _("Complete Payment") }}</h5>
+                            <p>{{ _("Click the button below to complete your payment and activate your membership.") }}</p>
+                        </div>
+                    </div>
+
+                    <div class="step">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <h5>{{ _("Receive Welcome Email") }}</h5>
+                            <p>{{ _("Once payment is confirmed, you'll receive a welcome email with your member portal access.") }}</p>
+                        </div>
+                    </div>
+
+                    <div class="step">
+                        <div class="step-number">3</div>
+                        <div class="step-content">
+                            <h5>{{ _("Start Enjoying Benefits") }}</h5>
+                            <p>{{ _("Access member-only content, events, and connect with your local chapter.") }}</p>
+                        </div>
+                    </div>
+                </div>
+
+                {% if payment_url %}
+                <div class="mt-4">
+                    <a href="{{ payment_url }}" class="btn btn-primary btn-lg">
+                        {{ _("Complete Payment") }}
+                    </a>
+                </div>
+                {% endif %}
+
+                <div class="mt-4">
+                    <p class="text-muted">
+                        {{ _("Application ID") }}: <strong>{{ member_id }}</strong><br>
+                        {{ _("Please save this for your records.") }}
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-4">
+            <a href="/" class="btn btn-link">{{ _("Return to Homepage") }}</a>
+        </div>
+    </div>
+</div>
+
+<style>
+.application-success-page {
+    padding: 60px 0;
+}
+
+.success-icon {
+    font-size: 80px;
+    color: #28a745;
+    margin-bottom: 20px;
+}
+
+.next-steps {
+    margin-top: 30px;
+}
+
+.step {
+    display: flex;
+    margin-bottom: 20px;
+    align-items: flex-start;
+}
+
+.step-number {
+    width: 40px;
+    height: 40px;
+    background: #cf3131;
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    margin-right: 15px;
+    flex-shrink: 0;
+}
+
+.step-content h5 {
+    margin-bottom: 5px;
+}
+
+.step-content p {
+    margin-bottom: 0;
+    color: #6c757d;
+}
+</style>
+{% endblock %}

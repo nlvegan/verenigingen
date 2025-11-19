@@ -1,0 +1,60 @@
+.DS_Store
+bandit*.*
+one-off-test-debug-folder
+*.pyc
+.playwright-mcp/
+*.egg-info
+*.swp
+tags
+node_modules
+CLAUDE.md
+TEST_SUMMARY.md
+.claude
+# Cypress test artifacts
+cypress/videos/
+cypress/screenshots/
+cypress/downloads/
+
+# Test logs and results
+test-logs/
+.nvmrc
+logs/
+test-results/
+__pycache__/
+.pytest_cache/
+.coverage
+archived/
+htmlcov/
+jest-junit.xml
+*.log
+*.bak
+*.orig
+*~
+.vscode/
+.idea/
+coverage/
+.codanna
+.fastembed_cache
+.codannaignore
+# Security: Environment and credential files
+.env
+.env.*
+*.pem
+*.key
+config.json
+secrets.json
+credentials.json
+site_config.json
+common_site_config.json
+cypress.env.json
+
+# Security: Backup and temporary files
+*.sql
+*.dump
+*.backup
+*_backup
+.secret
+.password
+
+# Ignore large security analysis files
+scripts/security_migration_inventory.json

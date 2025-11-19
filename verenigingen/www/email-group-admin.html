@@ -1,0 +1,317 @@
+<!-- Email Group Administration Page -->
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Email Group Administration") }}{% endblock %}
+
+{% block page_content %}
+<div class="container">
+    <div class="page-header">
+        <h1>{{ _("Email Group Administration") }}</h1>
+        <p class="text-muted">{{ _("Manage email groups and synchronization for newsletters") }}</p>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <button class="btn btn-primary" id="btn-sync-groups">
+                <i class="fa fa-sync"></i> {{ _("Sync Email Groups") }}
+            </button>
+            <button class="btn btn-secondary" id="btn-create-groups">
+                <i class="fa fa-plus"></i> {{ _("Create Initial Groups") }}
+            </button>
+            <button class="btn btn-info" id="btn-refresh-stats">
+                <i class="fa fa-refresh"></i> {{ _("Refresh Statistics") }}
+            </button>
+        </div>
+    </div>
+
+    <!-- Statistics Cards -->
+    <div class="row" id="stats-container">
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h3 class="card-title" id="total-groups">-</h3>
+                    <p class="card-text text-muted">{{ _("Total Groups") }}</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h3 class="card-title" id="total-subscribers">-</h3>
+                    <p class="card-text text-muted">{{ _("Total Subscribers") }}</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h3 class="card-title" id="active-subscribers">-</h3>
+                    <p class="card-text text-muted">{{ _("Active Subscribers") }}</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h3 class="card-title" id="last-sync">-</h3>
+                    <p class="card-text text-muted">{{ _("Last Sync") }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Email Groups Table -->
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <h3>{{ _("Email Groups") }}</h3>
+            <div class="table-responsive">
+                <table class="table table-striped" id="email-groups-table">
+                    <thead>
+                        <tr>
+                            <th>{{ _("Group Title") }}</th>
+                            <th>{{ _("Description") }}</th>
+                            <th>{{ _("Active Members") }}</th>
+                            <th>{{ _("Unsubscribed") }}</th>
+                            <th>{{ _("Total") }}</th>
+                            <th>{{ _("Actions") }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td colspan="6" class="text-center">
+                                <i class="fa fa-spinner fa-spin"></i> {{ _("Loading...") }}
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sync Log -->
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <h3>{{ _("Sync Log") }}</h3>
+            <div class="alert alert-info" id="sync-log" style="max-height: 200px; overflow-y: auto;">
+                <p>{{ _("No sync operations performed yet.") }}</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.card {
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.card-body {
+    padding: 20px;
+}
+
+.card-title {
+    color: #2e7d32;
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+
+.table th {
+    background-color: #f5f5f5;
+    font-weight: 600;
+}
+
+#sync-log {
+    font-family: monospace;
+    font-size: 12px;
+}
+</style>
+
+<script>
+$(document).ready(function() {
+    // Load initial statistics
+    loadEmailGroupStats();
+
+    // Button handlers
+    $('#btn-sync-groups').click(function() {
+        syncEmailGroups();
+    });
+
+    $('#btn-create-groups').click(function() {
+        createInitialGroups();
+    });
+
+    $('#btn-refresh-stats').click(function() {
+        loadEmailGroupStats();
+    });
+
+    // Load email group statistics
+    function loadEmailGroupStats() {
+        frappe.call({
+            method: 'verenigingen.email.email_group_sync.get_email_group_stats',
+            callback: function(r) {
+                if (r.message && r.message.success) {
+                    updateStatistics(r.message);
+                    updateGroupsTable(r.message.groups);
+                } else {
+                    frappe.msgprint(__('Error loading statistics'));
+                }
+            }
+        });
+    }
+
+    // Update statistics cards
+    function updateStatistics(data) {
+        $('#total-groups').text(data.total_groups || 0);
+
+        let totalSubscribers = 0;
+        let activeSubscribers = 0;
+
+        if (data.groups) {
+            data.groups.forEach(function(group) {
+                totalSubscribers += group.total_count;
+                activeSubscribers += group.member_count;
+            });
+        }
+
+        $('#total-subscribers').text(totalSubscribers);
+        $('#active-subscribers').text(activeSubscribers);
+
+        // Get last sync time from localStorage
+        let lastSync = localStorage.getItem('email_group_last_sync');
+        $('#last-sync').text(lastSync || 'Never');
+    }
+
+    // Update groups table
+    function updateGroupsTable(groups) {
+        let tbody = $('#email-groups-table tbody');
+        tbody.empty();
+
+        if (!groups || groups.length === 0) {
+            tbody.append(`
+                <tr>
+                    <td colspan="6" class="text-center">
+                        ${__('No email groups found. Click "Create Initial Groups" to set up.')}
+                    </td>
+                </tr>
+            `);
+            return;
+        }
+
+        groups.forEach(function(group) {
+            tbody.append(`
+                <tr>
+                    <td><strong>${group.title}</strong></td>
+                    <td>${group.description || '-'}</td>
+                    <td><span class="badge badge-success">${group.member_count}</span></td>
+                    <td><span class="badge badge-warning">${group.unsubscribed_count}</span></td>
+                    <td><span class="badge badge-info">${group.total_count}</span></td>
+                    <td>
+                        <button class="btn btn-sm btn-default" onclick="viewGroup('${group.name}')">
+                            <i class="fa fa-eye"></i> View
+                        </button>
+                    </td>
+                </tr>
+            `);
+        });
+    }
+
+    // Sync email groups
+    function syncEmailGroups() {
+        let btn = $('#btn-sync-groups');
+        btn.prop('disabled', true);
+        btn.html('<i class="fa fa-spinner fa-spin"></i> Syncing...');
+
+        frappe.call({
+            method: 'verenigingen.email.email_group_sync.sync_email_groups_manually',
+            callback: function(r) {
+                btn.prop('disabled', false);
+                btn.html('<i class="fa fa-sync"></i> Sync Email Groups');
+
+                if (r.message) {
+                    if (r.message.success) {
+                        frappe.show_alert({
+                            message: r.message.message,
+                            indicator: 'green'
+                        });
+
+                        // Update last sync time
+                        let now = new Date().toLocaleString();
+                        localStorage.setItem('email_group_last_sync', now);
+                        $('#last-sync').text(now);
+
+                        // Update sync log
+                        updateSyncLog(r.message);
+
+                        // Reload statistics
+                        loadEmailGroupStats();
+                    } else {
+                        frappe.msgprint({
+                            title: __('Sync Errors'),
+                            message: r.message.errors.join('<br>'),
+                            indicator: 'red'
+                        });
+                    }
+                }
+            },
+            error: function(err) {
+                btn.prop('disabled', false);
+                btn.html('<i class="fa fa-sync"></i> Sync Email Groups');
+                frappe.msgprint(__('Error syncing email groups'));
+            }
+        });
+    }
+
+    // Create initial email groups
+    function createInitialGroups() {
+        frappe.confirm(
+            __('This will create the initial email group structure. Continue?'),
+            function() {
+                frappe.call({
+                    method: 'verenigingen.email.email_group_sync.create_initial_email_groups',
+                    callback: function(r) {
+                        if (r.message && r.message.success) {
+                            frappe.show_alert({
+                                message: __('Created {0} email groups', [r.message.created_count]),
+                                indicator: 'green'
+                            });
+                            loadEmailGroupStats();
+                        } else {
+                            frappe.msgprint(__('Error creating email groups'));
+                        }
+                    }
+                });
+            }
+        );
+    }
+
+    // Update sync log
+    function updateSyncLog(data) {
+        let logHtml = `
+            <strong>${new Date().toLocaleString()}</strong><br>
+            ✅ Added: ${data.added} members<br>
+            ❌ Removed: ${data.removed} members<br>
+        `;
+
+        if (data.errors && data.errors.length > 0) {
+            logHtml += `⚠️ Errors:<br>`;
+            data.errors.forEach(function(error) {
+                logHtml += `&nbsp;&nbsp;- ${error}<br>`;
+            });
+        }
+
+        logHtml += '<hr>';
+
+        let currentLog = $('#sync-log').html();
+        $('#sync-log').html(logHtml + currentLog);
+    }
+
+    // View group details
+    window.viewGroup = function(groupName) {
+        frappe.set_route('Form', 'Email Group', groupName);
+    };
+});
+</script>
+{% endblock %}

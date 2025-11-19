@@ -1,0 +1,333 @@
+{% extends "templates/web.html" %}
+
+{% block page_content %}
+<div class="campaign-page">
+    <!-- Hero Section -->
+    <div class="campaign-hero mb-5">
+        {% if campaign.campaign_image %}
+        <div class="campaign-image mb-4">
+            <img src="{{ campaign.campaign_image }}" alt="{{ campaign.campaign_name }}" class="img-fluid rounded">
+        </div>
+        {% endif %}
+
+        <h1 class="campaign-title">{{ campaign.campaign_name }}</h1>
+        <p class="campaign-type text-muted">{{ campaign.campaign_type }}</p>
+
+        {% if campaign.description %}
+        <div class="campaign-description lead">
+            {{ campaign.description }}
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Progress Section -->
+    {% if campaign.show_progress_bar %}
+    <div class="progress-section mb-5">
+        <div class="row">
+            <div class="col-md-6">
+                <h3>{{ _("Fundraising Progress") }}</h3>
+                <div class="progress mb-3" style="height: 30px;">
+                    <div class="progress-bar bg-success" role="progressbar"
+                         style="width: {{ progress_percentage }}%"
+                         aria-valuenow="{{ progress_percentage }}"
+                         aria-valuemin="0" aria-valuemax="100">
+                        {{ progress_percentage|round|int }}%
+                    </div>
+                </div>
+                <div class="progress-stats">
+                    <strong>€{{ campaign.total_raised|round(2) }}</strong> {{ _("raised") }}
+                    {% if campaign.monetary_goal %}
+                    {{ _("of") }} <strong>€{{ campaign.monetary_goal|round(2) }}</strong> {{ _("goal") }}
+                    {% endif %}
+                </div>
+            </div>
+
+            {% if campaign.donor_goal %}
+            <div class="col-md-6">
+                <h3>{{ _("Donor Progress") }}</h3>
+                <div class="progress mb-3" style="height: 30px;">
+                    <div class="progress-bar bg-info" role="progressbar"
+                         style="width: {{ donor_progress_percentage }}%"
+                         aria-valuenow="{{ donor_progress_percentage }}"
+                         aria-valuemin="0" aria-valuemax="100">
+                        {{ donor_progress_percentage|round|int }}%
+                    </div>
+                </div>
+                <div class="progress-stats">
+                    <strong>{{ campaign.total_donors }}</strong> {{ _("donors") }}
+                    {{ _("of") }} <strong>{{ campaign.donor_goal }}</strong> {{ _("goal") }}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="campaign-stats mt-3">
+            <span class="badge bg-secondary">{{ campaign.total_donations }} {{ _("donations") }}</span>
+            {% if campaign.average_donation_amount %}
+            <span class="badge bg-secondary">{{ _("Average") }}: €{{ campaign.average_donation_amount|round(2) }}</span>
+            {% endif %}
+            {% if campaign.end_date %}
+            <span class="badge bg-secondary">{{ _("Ends") }}: {{ frappe.utils.formatdate(campaign.end_date) }}</span>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Donation Form Section -->
+    <div class="donation-form-section mb-5">
+        <div class="card">
+            <div class="card-body">
+                <h3 class="card-title">{{ _("Make a Donation") }}</h3>
+
+                <form id="campaign-donation-form">
+                    <input type="hidden" name="donation_campaign" value="{{ campaign.name }}">
+                    <input type="hidden" name="donation_purpose_type" value="Campaign">
+
+                    <!-- Suggested Amounts -->
+                    <div class="suggested-amounts mb-3">
+                        <label>{{ _("Select Amount") }}:</label>
+                        <div class="btn-group" role="group">
+                            {% for amount in suggested_amounts %}
+                            <input type="radio" class="btn-check" name="amount_option"
+                                   id="amount_{{ amount }}" value="{{ amount }}">
+                            <label class="btn btn-outline-primary" for="amount_{{ amount }}">
+                                €{{ amount }}
+                            </label>
+                            {% endfor %}
+                            <input type="radio" class="btn-check" name="amount_option"
+                                   id="amount_other" value="other">
+                            <label class="btn btn-outline-primary" for="amount_other">
+                                {{ _("Other") }}
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Custom Amount -->
+                    <div class="mb-3" id="custom-amount-div" style="display: none;">
+                        <label for="custom_amount">{{ _("Enter Amount") }}</label>
+                        <div class="input-group">
+                            <span class="input-group-text">€</span>
+                            <input type="number" class="form-control" id="custom_amount"
+                                   name="amount" min="{{ campaign.minimum_donation_amount or 1 }}"
+                                   step="0.01">
+                        </div>
+                    </div>
+
+                    <!-- Donor Information -->
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="donor_name">{{ _("Your Name") }}</label>
+                            <input type="text" class="form-control" id="donor_name"
+                                   name="donor_name" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="donor_email">{{ _("Email") }}</label>
+                            <input type="email" class="form-control" id="donor_email"
+                                   name="donor_email" required>
+                        </div>
+                    </div>
+
+                    <!-- Anonymous Option -->
+                    {% if campaign.allow_anonymous_donations %}
+                    <div class="form-check mb-3">
+                        <input type="checkbox" class="form-check-input" id="anonymous"
+                               name="anonymous">
+                        <label class="form-check-label" for="anonymous">
+                            {{ _("Make this donation anonymous") }}
+                        </label>
+                    </div>
+                    {% endif %}
+
+                    <!-- ANBI Option -->
+                    {% if anbi_enabled %}
+                    <div class="form-check mb-3">
+                        <input type="checkbox" class="form-check-input" id="create_periodic_agreement"
+                               name="create_periodic_agreement">
+                        <label class="form-check-label" for="create_periodic_agreement">
+                            {{ _("Create a periodic donation agreement (ANBI tax benefits)") }}
+                        </label>
+                        <small class="form-text text-muted">
+                            {{ _("Requires 5-year commitment for full tax deductibility") }}
+                        </small>
+                    </div>
+                    {% endif %}
+
+                    <!-- Message -->
+                    <div class="mb-3">
+                        <label for="donation_message">{{ _("Message (Optional)") }}</label>
+                        <textarea class="form-control" id="donation_message"
+                                  name="donation_message" rows="3"></textarea>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary btn-lg">
+                        {{ _("Continue to Payment") }}
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Campaign Details -->
+    <div class="campaign-details mb-5">
+        {% if campaign.long_description %}
+        <div class="mb-4">
+            <h3>{{ _("About This Campaign") }}</h3>
+            <div class="content">{{ campaign.long_description }}</div>
+        </div>
+        {% endif %}
+
+        {% if campaign.campaign_story %}
+        <div class="mb-4">
+            <h3>{{ _("Our Story") }}</h3>
+            <div class="content">{{ campaign.campaign_story }}</div>
+        </div>
+        {% endif %}
+
+        {% if campaign.impact_statement %}
+        <div class="mb-4">
+            <h3>{{ _("Impact") }}</h3>
+            <div class="content">{{ campaign.impact_statement }}</div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Recent Donations -->
+    {% if recent_donations %}
+    <div class="recent-donations mb-5">
+        <h3>{{ _("Recent Donations") }}</h3>
+        <div class="list-group">
+            {% for donation in recent_donations %}
+            <div class="list-group-item">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>{{ donation.donor_name or _("Anonymous") }}</strong>
+                        <small class="text-muted">{{ frappe.utils.pretty_date(donation.date) }}</small>
+                        {% if donation.donation_message %}
+                        <p class="mb-0 mt-1">{{ donation.donation_message }}</p>
+                        {% endif %}
+                    </div>
+                    <div class="text-end">
+                        <strong>€{{ donation.amount|round(2) }}</strong>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Top Donors -->
+    {% if top_donors %}
+    <div class="top-donors mb-5">
+        <h3>{{ _("Top Supporters") }}</h3>
+        <div class="list-group">
+            {% for donor in top_donors %}
+            <div class="list-group-item">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>{{ donor.donor_name }}</strong>
+                        <small class="text-muted">{{ donor.donation_count }} {{ _("donations") }}</small>
+                    </div>
+                    <div class="text-end">
+                        <strong>€{{ donor.total_amount|round(2) }}</strong>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+frappe.ready(function() {
+    // Handle amount selection
+    $('input[name="amount_option"]').change(function() {
+        if ($(this).val() === 'other') {
+            $('#custom-amount-div').show();
+            $('#custom_amount').prop('required', true);
+        } else {
+            $('#custom-amount-div').hide();
+            $('#custom_amount').prop('required', false);
+            $('#custom_amount').val($(this).val());
+        }
+    });
+
+    // Handle form submission
+    $('#campaign-donation-form').submit(function(e) {
+        e.preventDefault();
+
+        // Get form data
+        var formData = {
+            donation_campaign: $('input[name="donation_campaign"]').val(),
+            donation_purpose_type: 'Campaign',
+            amount: $('#custom_amount').val() || $('input[name="amount_option"]:checked').val(),
+            donor_name: $('#donor_name').val(),
+            donor_email: $('#donor_email').val(),
+            anonymous: $('#anonymous').is(':checked') ? 1 : 0,
+            donation_message: $('#donation_message').val(),
+            create_periodic_agreement: $('#create_periodic_agreement').is(':checked') ? 1 : 0
+        };
+
+        // Validate amount
+        if (!formData.amount || parseFloat(formData.amount) <= 0) {
+            frappe.msgprint(__('Please select or enter a valid amount'));
+            return;
+        }
+
+        // Process donation
+        frappe.call({
+            method: 'verenigingen.api.donation_api.process_campaign_donation',
+            args: formData,
+            callback: function(r) {
+                if (r.message && r.message.success) {
+                    // Redirect to payment page or success page
+                    if (r.message.payment_url) {
+                        window.location.href = r.message.payment_url;
+                    } else {
+                        frappe.msgprint({
+                            title: __('Thank You!'),
+                            message: __('Your donation has been received.'),
+                            indicator: 'green'
+                        });
+                        // Reload page to show updated progress
+                        setTimeout(function() {
+                            window.location.reload();
+                        }, 2000);
+                    }
+                }
+            }
+        });
+    });
+});
+</script>
+
+<style>
+.campaign-hero {
+    text-align: center;
+}
+
+.campaign-image img {
+    max-height: 400px;
+    object-fit: cover;
+    width: 100%;
+}
+
+.progress-section .progress {
+    background-color: #f0f0f0;
+}
+
+.suggested-amounts .btn-group {
+    flex-wrap: wrap;
+}
+
+.donation-statistics .badge {
+    margin-right: 10px;
+}
+
+.recent-donations .list-group-item,
+.top-donors .list-group-item {
+    border-left: 3px solid var(--primary);
+}
+</style>
+{% endblock %}

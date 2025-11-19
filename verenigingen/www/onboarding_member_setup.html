@@ -1,0 +1,337 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Member Setup") }}{% endblock %}
+
+{% block page_content %}
+<div class="container">
+    <div class="row">
+        <div class="col-md-10 col-md-offset-1">
+            <div class="page-header">
+                <h1>👥 {{ _("Member Setup") }}</h1>
+                <p class="lead">{{ _("Get started with membership management") }}</p>
+            </div>
+
+            <!-- Status Overview -->
+            <div class="row">
+                <div class="col-md-4">
+                    <div class="panel panel-info">
+                        <div class="panel-body text-center">
+                            <h3>{{ member_count }}</h3>
+                            <p>{{ _("Current Members") }}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="panel panel-success">
+                        <div class="panel-body text-center">
+                            <h3>{{ test_members_count }}</h3>
+                            <p>{{ _("Test Members") }}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="panel panel-warning">
+                        <div class="panel-body text-center">
+                            <h3>{{ membership_types_count }}</h3>
+                            <p>{{ _("Membership Types") }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Setup Options -->
+            <div class="row">
+                <!-- Manual Member Creation -->
+                <div class="col-md-6">
+                    <div class="panel panel-default">
+                        <div class="panel-heading">
+                            <h3 class="panel-title">✏️ {{ _("Manual Setup") }}</h3>
+                        </div>
+                        <div class="panel-body">
+                            <p>{{ _("Create members and applications manually to understand the process.") }}</p>
+
+                            {% if not has_membership_types %}
+                            <div class="alert alert-warning">
+                                <strong>⚠️ {{ _("First step:") }}</strong> {{ _("You need to create Membership Types before creating members.") }}
+                            </div>
+                            <div class="mb-3">
+                                <a href="/app/membership-type/new-membership-type-1" class="btn btn-warning">
+                                    <i class="fa fa-plus"></i> {{ _("Create Membership Type First") }}
+                                </a>
+                            </div>
+                            {% else %}
+                            <div class="alert alert-success">
+                                <strong>✅ {{ _("Ready:") }}</strong> {{ _("You have {0} membership types configured.").format(membership_types_count) }}
+                            </div>
+                            {% endif %}
+
+                            <div class="mt-3">
+                                <a href="/app/member/new-member-1" class="btn btn-primary">
+                                    <i class="fa fa-user-plus"></i> {{ _("Create New Member") }}
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Test Data Generation -->
+                <div class="col-md-6">
+                    <div class="panel panel-default">
+                        <div class="panel-heading">
+                            <h3 class="panel-title">🚀 {{ _("Quick Setup with Test Data") }}</h3>
+                        </div>
+                        <div class="panel-body">
+                            <p>{{ _("Generate realistic test members to explore the system quickly.") }}</p>
+
+                            {% if has_test_members %}
+                            <div class="alert alert-info">
+                                <h5>📋 {{ _("Current Test Members:") }}</h5>
+                                <ul style="margin-bottom: 10px;">
+                                    {% for member in test_members[:5] %}
+                                    <li><strong>{{ member.full_name }}</strong> - {{ _(member.status) }}</li>
+                                    {% endfor %}
+                                    {% if test_members|length > 5 %}
+                                    <li><em>{{ _("... and {0} more").format(test_members|length - 5) }}</em></li>
+                                    {% endif %}
+                                </ul>
+                            </div>
+                            {% endif %}
+
+                            <div class="mt-3">
+                                <button id="generate-test-btn" class="btn btn-success btn-lg">
+                                    <i class="fa fa-magic"></i> {{ _("Generate Test Members") }}
+                                </button>
+                                <p class="text-muted mt-2"><small>{{ _("Automatically create 7 sample members to explore the system") }}</small></p>
+                            </div>
+
+                            {% if has_test_members %}
+                            <div class="mt-2">
+                                <button id="force-pending-btn" class="btn btn-info">
+                                    <i class="fa fa-clock-o"></i> {{ _("Force Pending Status") }}
+                                </button>
+                                <button id="cleanup-test-btn" class="btn btn-warning">
+                                    <i class="fa fa-trash"></i> {{ _("Clean Up Test Data") }}
+                                </button>
+                            </div>
+                            {% endif %}
+
+                            <div class="mt-3">
+                                <h5>{{ _("Test data includes:") }}</h5>
+                                <ul>
+                                    <li><strong>Jan van den Berg</strong> - {{ _("Born 1985 - Pending approval") }}</li>
+                                    <li><strong>Sophie Jansen</strong> - {{ _("Born 1992 - Pending approval") }}</li>
+                                    <li><strong>Eva Mulder</strong> - {{ _("Born 1999 - Pending approval") }}</li>
+                                    <li><strong>Noa Brouwer</strong> - {{ _("Born 2003 - Pending approval") }}</li>
+                                    <li><strong>Lucas de Vries</strong> - {{ _("Born 1990 - Pending approval") }}</li>
+                                    <li><strong>Emma van Dijk</strong> - {{ _("Born 1988 - Pending approval") }}</li>
+                                    <li><strong>Mohammed Hassan</strong> - {{ _("Born 1995 - Pending approval") }}</li>
+                                </ul>
+                                <p><small><em>{{ _("All test members are created with 'Pending' application status so you can test the member approval workflow.") }}</em></small></p>
+                            </div>
+
+                            <div id="test-result-message" style="margin-top: 20px;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Next Steps -->
+            <div class="panel panel-default">
+                <div class="panel-heading">
+                    <h3 class="panel-title">📋 {{ _("Next Steps") }}</h3>
+                </div>
+                <div class="panel-body">
+                    <p>{{ _("After creating members or applications, you can:") }}</p>
+                    <ul>
+                        <li><strong>{{ _("Manage Members:") }}</strong> {{ _("Visit") }} <a href="/app/member">{{ _("Member List") }}</a></li>
+                        <li><strong>{{ _("Set up Chapters:") }}</strong> {{ _("Create geographic regions in") }} <a href="/app/chapter">{{ _("Chapter List") }}</a></li>
+                        <li><strong>{{ _("Create Teams:") }}</strong> {{ _("Organize volunteers in") }} <a href="/app/team">{{ _("Team List") }}</a></li>
+                        <li><strong>{{ _("Create Memberships:") }}</strong> {{ _("Link members to membership types in") }} <a href="/app/membership">{{ _("Membership List") }}</a></li>
+                    </ul>
+
+                    <div class="mt-3">
+                        <a href="/app/verenigingen/verenigingen" class="btn btn-default">
+                            <i class="fa fa-arrow-left"></i> {{ _("Back to Verenigingen Workspace") }}
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+frappe.ready(function() {
+    // Generate test members button
+    const generateBtn = document.getElementById('generate-test-btn');
+    const testResultDiv = document.getElementById('test-result-message');
+
+    if (generateBtn) {
+        generateBtn.addEventListener('click', function() {
+            const btn = this;
+            const originalText = btn.innerHTML;
+
+            console.log('Generate test members button clicked');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> ' + __('Generating...');
+
+            frappe.call({
+                method: 'verenigingen.www.onboarding_member_setup.generate_test_members_from_onboarding',
+                callback: function(r) {
+                    console.log('Response received:', r);
+                    if (r.message && r.message.success) {
+                        testResultDiv.innerHTML =
+                            '<div class="alert alert-success">' +
+                            '<h4>✅ ' + __('Test Members Generated!') + '</h4>' +
+                            '<p>' + r.message.message + '</p>' +
+                            '<hr>' +
+                            '<a href="/app/member" class="btn btn-primary">' + __('View Members') + '</a> ' +
+                            '<a href="/app/membership" class="btn btn-default">' + __('View Memberships') + '</a>' +
+                            '</div>';
+
+                        // Refresh page after 3 seconds to show updated counts
+                        setTimeout(function() {
+                            window.location.reload();
+                        }, 3000);
+                    } else {
+                        testResultDiv.innerHTML =
+                            '<div class="alert alert-danger">' +
+                            '<h4>❌ ' + __('Generation Failed') + '</h4>' +
+                            '<p>' + (r.message && r.message.message ? r.message.message : __('Unknown error occurred')) + '</p>' +
+                            '</div>';
+                        btn.disabled = false;
+                        btn.innerHTML = originalText;
+                    }
+                },
+                error: function(xhr) {
+                    console.error('Error occurred:', xhr);
+                    var errorMessage = __('Failed to generate test members.');
+                    if (xhr.responseJSON && xhr.responseJSON.exc) {
+                        errorMessage += '<br><pre>' + xhr.responseJSON.exc + '</pre>';
+                    }
+                    testResultDiv.innerHTML =
+                        '<div class="alert alert-danger">' +
+                        '<h4>❌ ' + __('Error') + '</h4>' +
+                        '<p>' + errorMessage + '</p>' +
+                        '</div>';
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                }
+            });
+        });
+    }
+
+    // Force pending status button
+    const forcePendingBtn = document.getElementById('force-pending-btn');
+    if (forcePendingBtn) {
+        forcePendingBtn.addEventListener('click', function() {
+            const btn = this;
+            const originalText = btn.innerHTML;
+
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> ' + __('Updating...');
+
+            frappe.call({
+                method: 'verenigingen.utils.create_test_pending_members.force_pending_status',
+                callback: function(r) {
+                    if (r.message && r.message.success) {
+                        testResultDiv.innerHTML =
+                            '<div class="alert alert-info">' +
+                            '<h4>⏰ ' + __('Status Updated') + '</h4>' +
+                            '<p>' + r.message.message + '</p>' +
+                            '</div>';
+
+                        // Refresh page after 2 seconds
+                        setTimeout(function() {
+                            window.location.reload();
+                        }, 2000);
+                    } else {
+                        testResultDiv.innerHTML =
+                            '<div class="alert alert-danger">' +
+                            '<h4>❌ ' + __('Update Failed') + '</h4>' +
+                            '<p>' + (r.message && r.message.message ? r.message.message : __('Unknown error occurred')) + '</p>' +
+                            '</div>';
+                    }
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                },
+                error: function() {
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                }
+            });
+        });
+    }
+
+    // Cleanup test data button
+    const cleanupBtn = document.getElementById('cleanup-test-btn');
+    if (cleanupBtn) {
+        cleanupBtn.addEventListener('click', function() {
+            if (!confirm(__('Are you sure you want to delete all test members?'))) {
+                return;
+            }
+
+            const btn = this;
+            const originalText = btn.innerHTML;
+
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> ' + __('Cleaning...');
+
+            frappe.call({
+                method: 'verenigingen.www.onboarding_member_setup.cleanup_test_data',
+                callback: function(r) {
+                    if (r.message && r.message.success) {
+                        testResultDiv.innerHTML =
+                            '<div class="alert alert-warning">' +
+                            '<h4>🗑️ ' + __('Cleanup Complete') + '</h4>' +
+                            '<p>' + r.message.message + '</p>' +
+                            '</div>';
+
+                        // Refresh page after 2 seconds
+                        setTimeout(function() {
+                            window.location.reload();
+                        }, 2000);
+                    } else {
+                        testResultDiv.innerHTML =
+                            '<div class="alert alert-danger">' +
+                            '<h4>❌ ' + __('Cleanup Failed') + '</h4>' +
+                            '<p>' + (r.message ? r.message.message : __('Unknown error occurred')) + '</p>' +
+                            '</div>';
+                    }
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                },
+                error: function() {
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                }
+            });
+        });
+    }
+});
+</script>
+
+<style>
+.card {
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.card h3 {
+    margin-top: 10px;
+    margin-bottom: 15px;
+}
+
+.card .btn {
+    margin-top: 10px;
+}
+
+.card:hover {
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    transition: box-shadow 0.3s ease;
+}
+</style>
+{% endblock %}

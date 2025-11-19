@@ -1,0 +1,161 @@
+name: Verenigingen CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  code-quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Cache pip packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install linting dependencies
+      run: |
+        pip install black isort flake8 bandit
+
+    - name: Run Black formatting check
+      run: |
+        echo "Checking code formatting with Black..."
+        black --check --diff . || echo "⚠️ Code formatting issues found. Run 'black .' to fix."
+
+    - name: Run isort import sorting check
+      run: |
+        echo "Checking import sorting with isort..."
+        isort --check-only --diff . || echo "⚠️ Import sorting issues found. Run 'isort .' to fix."
+
+    - name: Run Flake8 linting
+      run: |
+        echo "Running flake8 linting..."
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics || echo "⚠️ Critical linting issues found."
+
+    - name: Run Bandit security check
+      run: |
+        echo "Running security checks with Bandit..."
+        bandit -r . -f json -o bandit-results.json || echo "⚠️ Security issues found."
+
+    - name: Upload Bandit results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: bandit-results
+        path: bandit-results.json
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        ignore-unfixed: true
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results to GitHub Security
+      uses: github/codeql-action/upload-sarif@v3
+      if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  validation:
+    name: Basic Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11']
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install basic dependencies
+      run: |
+        pip install --upgrade pip
+        # Install only what's needed for syntax validation
+        pip install frappe-bench
+
+    - name: Syntax validation
+      run: |
+        echo "Checking Python syntax..."
+        python -m py_compile verenigingen/**/*.py || echo "Syntax errors found"
+
+    - name: Import validation
+      run: |
+        echo "Checking import statements..."
+        # Basic import checks without full Frappe environment
+        python -c "
+        import ast
+        import os
+        for root, dirs, files in os.walk('verenigingen'):
+            for file in files:
+                if file.endswith('.py'):
+                    filepath = os.path.join(root, file)
+                    try:
+                        with open(filepath, 'r') as f:
+                            ast.parse(f.read())
+                        print(f'✓ {filepath}')
+                    except SyntaxError as e:
+                        print(f'✗ {filepath}: {e}')
+        "
+
+    - name: Check JavaScript/JSON files
+      run: |
+        echo "Checking JSON files..."
+        find . -name "*.json" -exec python -m json.tool {} \; > /dev/null || echo "JSON syntax errors found"
+
+        echo "Basic file structure validation..."
+        ls -la verenigingen/
+        [ -f "pyproject.toml" ] && echo "✓ pyproject.toml found" || echo "⚠️ pyproject.toml missing"
+        [ -f "verenigingen/hooks.py" ] && echo "✓ hooks.py found" || echo "⚠️ hooks.py missing"
+
+  documentation:
+    name: Documentation Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Check README and docs
+      run: |
+        echo "Checking documentation..."
+        [ -f "README.md" ] && echo "✓ README.md found" || echo "⚠️ README.md missing"
+        [ -d "docs" ] && echo "✓ docs directory found" || echo "⚠️ docs directory missing"
+
+        echo "Checking for broken links in markdown files..."
+        find . -name "*.md" -exec grep -l "http" {} \; | head -5
+
+        echo "Documentation validation complete"

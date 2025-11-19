@@ -1,0 +1,365 @@
+import frappe
+from frappe import _
+from frappe.utils import add_months, flt, today
+
+
+def get_context(context):
+    """Get context for volunteer dashboard page"""
+
+    # Require login
+    if frappe.session.user == "Guest":
+        frappe.throw(_("Please login to access the volunteer dashboard"), frappe.PermissionError)
+
+    context.no_cache = 1
+    context.show_sidebar = True
+    context.title = _("Volunteer Dashboard")
+
+    try:
+        # Get current user's volunteer record
+        volunteer = get_user_volunteer_record()
+        if not volunteer:
+            context.error_message = _(
+                "No volunteer record found for your account. Please contact your chapter administrator."
+            )
+            return context
+
+        context.volunteer = volunteer
+
+        # Get volunteer profile info (this might be failing)
+        try:
+            context.volunteer_profile = get_volunteer_profile(volunteer["name"])
+        except Exception as e:
+            frappe.log_error(
+                f"Error getting volunteer profile: {str(e)}", "Volunteer Dashboard Profile Error"
+            )
+            context.volunteer_profile = {
+                "name": volunteer["name"],
+                "volunteer_name": volunteer.get("volunteer_name", "Unknown"),
+            }
+
+        # Get volunteer's organizations (this might be failing)
+        try:
+            context.organizations = get_volunteer_organizations(volunteer["name"])
+        except Exception as e:
+            frappe.log_error(
+                f"Error getting volunteer organizations: {str(e)}", "Volunteer Dashboard Orgs Error"
+            )
+            context.organizations = {"chapters": [], "teams": []}
+
+        # Get recent activities with user-friendly error handling
+        try:
+            context.recent_activities = get_recent_activities(volunteer["name"])
+        except Exception as e:
+            frappe.log_error(
+                f"Error getting recent activities: {str(e)}", "Volunteer Dashboard Activities Error"
+            )
+            context.recent_activities = []
+            if not hasattr(context, "error_message"):
+                context.error_message = _(
+                    "Some dashboard data could not be loaded. Please refresh the page or contact support if the issue persists."
+                )
+
+        # Get expense summary with user-friendly error handling
+        try:
+            context.expense_summary = get_expense_summary(volunteer["name"])
+        except Exception as e:
+            frappe.log_error(f"Error getting expense summary: {str(e)}", "Volunteer Dashboard Expenses Error")
+            context.expense_summary = {
+                "total_submitted": 0,
+                "total_approved": 0,
+                "pending_count": 0,
+                "recent_count": 0,
+                "pending_amount": 0,
+            }
+            if not hasattr(context, "error_message"):
+                context.error_message = _(
+                    "Some dashboard data could not be loaded. Please refresh the page or contact support if the issue persists."
+                )
+
+        # Get upcoming assignments/activities with user-friendly error handling
+        try:
+            context.upcoming_activities = get_upcoming_activities(volunteer["name"])
+        except Exception as e:
+            frappe.log_error(
+                f"Error getting upcoming activities: {str(e)}", "Volunteer Dashboard Upcoming Error"
+            )
+            context.upcoming_activities = []
+            if not hasattr(context, "error_message"):
+                context.error_message = _(
+                    "Some dashboard data could not be loaded. Please refresh the page or contact support if the issue persists."
+                )
+
+    except Exception as e:
+        frappe.log_error(f"Error loading volunteer dashboard: {str(e)}", "Volunteer Dashboard Error")
+        context.error_message = _("An error occurred while loading the dashboard. Please try again later.")
+
+    return context
+
+
+def get_user_volunteer_record():
+    """Get volunteer record for current user with caching"""
+    user_email = frappe.session.user
+
+    # First try to find by linked member using utility function
+    from verenigingen.utils.member_utils import get_member_name_for_user, get_volunteer_for_member
+
+    member = get_member_name_for_user(user_email)
+    if member:
+        volunteer_name = get_volunteer_for_member(member)
+        if volunteer_name:
+            volunteer = frappe.get_doc("Volunteer", volunteer_name)
+            return {
+                "name": volunteer.name,
+                "volunteer_name": volunteer.volunteer_name,
+                "member": volunteer.member,
+            }
+
+    # Try to find volunteer directly by email
+    volunteer = frappe.db.get_value(
+        "Volunteer", {"email": user_email}, ["name", "volunteer_name", "member"], as_dict=True
+    )
+    if volunteer:
+        return volunteer
+
+    return None
+
+
+def get_volunteer_profile(volunteer_name):
+    """Get detailed volunteer profile information"""
+    volunteer_doc = frappe.get_doc("Volunteer", volunteer_name)
+
+    profile = {
+        "name": volunteer_doc.name,
+        "volunteer_name": volunteer_doc.volunteer_name,
+        "status": getattr(volunteer_doc, "status", "Active"),
+        "joined_date": getattr(volunteer_doc, "creation", None),
+        "email": None,
+        "phone": getattr(volunteer_doc, "phone", None),
+        "member_info": None,
+    }
+
+    # Get email from member or volunteer record
+    if hasattr(volunteer_doc, "member") and volunteer_doc.member:
+        member = frappe.get_doc("Member", volunteer_doc.member)
+        profile["email"] = member.email
+        profile["member_info"] = {
+            "member_id": member.member_id,
+            "full_name": member.full_name,
+            "membership_status": getattr(member, "status", "Active"),
+        }
+    else:
+        profile["email"] = getattr(volunteer_doc, "email", None)
+
+    # Get interests
+    profile["interests"] = frappe.get_all(
+        "Volunteer Interest Area",
+        filters={"parent": volunteer_name},
+        fields=["interest_area"],
+        order_by="interest_area",
+    )
+
+    # Get skills
+    profile["skills"] = frappe.get_all(
+        "Volunteer Skill",
+        filters={"parent": volunteer_name},
+        fields=["skill_category", "volunteer_skill", "proficiency_level"],
+        order_by="skill_category, volunteer_skill",
+    )
+
+    return profile
+
+
+def get_volunteer_organizations(volunteer_name):
+    """Get chapters and teams the volunteer belongs to with optimized queries"""
+    organizations = {"chapters": [], "teams": []}
+
+    # Get volunteer member info in one query
+    volunteer_doc = frappe.get_doc("Volunteer", volunteer_name)
+    if hasattr(volunteer_doc, "member") and volunteer_doc.member:
+        # Use single JOIN query for chapters
+        chapter_data = frappe.db.sql(
+            """
+            SELECT c.name, cm.chapter_join_date
+            FROM `tabChapter Member` cm
+            JOIN `tabChapter` c ON cm.parent = c.name
+            WHERE cm.member = %s AND cm.enabled = 1
+            ORDER BY cm.chapter_join_date DESC
+        """,
+            [volunteer_doc.member],
+            as_dict=True,
+        )
+
+        for chapter in chapter_data:
+            organizations["chapters"].append(
+                {
+                    "name": chapter.name,
+                    "chapter_name": chapter.name,  # Chapter name is stored in the 'name' field
+                    "city": "",  # Chapters don't have city in this system
+                    "join_date": chapter.chapter_join_date,
+                }
+            )
+
+    # Use single JOIN query for teams
+    team_data = frappe.db.sql(
+        """
+        SELECT t.name, t.team_name, tm.role_type, tm.from_date
+        FROM `tabTeam Member` tm
+        JOIN `tabTeam` t ON tm.parent = t.name
+        WHERE tm.volunteer = %s AND tm.status = 'Active'
+        ORDER BY tm.from_date DESC
+    """,
+        [volunteer_name],
+        as_dict=True,
+    )
+
+    for team in team_data:
+        organizations["teams"].append(
+            {
+                "name": team.name,
+                "team_name": team.team_name or team.name,
+                "role": team.role_type,
+                "joined_date": team.from_date,
+            }
+        )
+
+    return organizations
+
+
+def get_recent_activities(volunteer_name):
+    """Get recent volunteer activities"""
+    activities = []
+
+    # Get recent assignments
+    assignments = frappe.get_all(
+        "Volunteer Assignment",
+        filters={"parent": volunteer_name},
+        fields=["name", "start_date", "assignment_type", "role", "status"],
+        order_by="start_date desc",
+        limit=5,
+    )
+
+    for assignment in assignments:
+        activities.append(
+            {
+                "type": "assignment",
+                "title": assignment.assignment_type,
+                "description": assignment.role,
+                "date": assignment.start_date,
+                "status": assignment.status,
+                "icon": "fa-tasks",
+            }
+        )
+
+    # Get recent expenses
+    expenses = frappe.get_all(
+        "Volunteer Expense",
+        filters={"volunteer": volunteer_name, "docstatus": ["!=", 2]},
+        fields=["name", "expense_date", "description", "amount", "status"],
+        order_by="expense_date desc",
+        limit=3,
+    )
+
+    for expense in expenses:
+        activities.append(
+            {
+                "type": "expense",
+                "title": f"Expense: €{expense.amount:.2f}",
+                "description": expense.description,
+                "date": expense.expense_date,
+                "status": expense.status,
+                "icon": "fa-receipt",
+            }
+        )
+
+    # Sort all activities by date
+    activities.sort(key=lambda x: x["date"] if x["date"] else today(), reverse=True)
+
+    return activities[:8]  # Return most recent 8 activities
+
+
+def get_expense_summary(volunteer_name):
+    """Get expense summary for the volunteer using the same query as expenses page"""
+    try:
+        # Get volunteer document and employee_id (same as expenses page)
+        volunteer_doc = frappe.get_doc("Volunteer", volunteer_name)
+        if not volunteer_doc.employee_id:
+            return {
+                "total_submitted": 0,
+                "total_approved": 0,
+                "pending_count": 0,
+                "recent_count": 0,
+                "pending_amount": 0,
+            }
+
+        from_date = add_months(today(), -12)
+        recent_date = add_months(today(), -1)
+
+        # Use the exact same SQL query as expenses page
+        stats_result = frappe.db.sql(
+            """
+            SELECT
+                COUNT(*) as total_count,
+                COALESCE(SUM(total_claimed_amount), 0) as total_submitted,
+                COALESCE(SUM(CASE
+                    WHEN status IN ('Paid', 'Reimbursed') OR approval_status = 'Approved'
+                    THEN COALESCE(total_sanctioned_amount, total_claimed_amount)
+                    ELSE 0
+                END), 0) as total_approved,
+                COUNT(CASE
+                    WHEN status IN ('Paid', 'Reimbursed') OR approval_status = 'Approved'
+                    THEN 1
+                END) as approved_count,
+                COUNT(CASE WHEN posting_date >= %s THEN 1 END) as recent_count,
+                COUNT(CASE WHEN status = 'Draft' OR (status = 'Submitted' AND approval_status != 'Approved') THEN 1 END) as pending_count
+            FROM `tabExpense Claim`
+            WHERE employee = %s AND docstatus != 2 AND posting_date >= %s
+        """,
+            [recent_date, volunteer_doc.employee_id, from_date],
+            as_dict=True,
+        )[0]
+
+        return {
+            "total_submitted": flt(stats_result.total_submitted),
+            "total_approved": flt(stats_result.total_approved),
+            "pending_count": stats_result.pending_count or 0,
+            "recent_count": stats_result.recent_count or 0,
+            "pending_amount": flt(stats_result.total_submitted) - flt(stats_result.total_approved),
+        }
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error getting expense summary for {volunteer_name}: {str(e)}", "Dashboard Expense Summary Error"
+        )
+        return {
+            "total_submitted": 0,
+            "total_approved": 0,
+            "pending_count": 0,
+            "recent_count": 0,
+            "pending_amount": 0,
+        }
+
+
+def get_upcoming_activities(volunteer_name):
+    """Get upcoming activities and assignments"""
+    upcoming = []
+
+    # Get future assignments
+    future_assignments = frappe.get_all(
+        "Volunteer Assignment",
+        filters={"parent": volunteer_name, "start_date": [">", today()], "status": ["in", ["Active"]]},
+        fields=["name", "start_date", "assignment_type", "role"],
+        order_by="start_date asc",
+        limit=5,
+    )
+
+    for assignment in future_assignments:
+        upcoming.append(
+            {
+                "title": assignment.assignment_type,
+                "description": assignment.role,
+                "date": assignment.start_date,
+                "type": "assignment",
+            }
+        )
+
+    return upcoming

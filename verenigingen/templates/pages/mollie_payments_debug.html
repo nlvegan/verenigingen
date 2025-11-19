@@ -1,0 +1,3823 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Mollie Payments Debug") }}{% endblock %}
+
+{% block style %}
+<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+{% from "templates/macros/brand_css.html" import brand_css %}
+{{ brand_css() }}
+<style>
+/* Debug page specific styles - regular CSS since @apply doesn't work in inline style tags */
+.debug-card {
+    background-color: white;
+    border: 1px solid #d1d5db;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+.debug-input {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid #d1d5db;
+    border-radius: 0.375rem;
+}
+.debug-input:focus {
+    outline: none;
+    ring: 2px;
+    ring-color: #3b82f6;
+    border-color: #3b82f6;
+}
+.debug-button {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    background-color: #2563eb;
+    color: white;
+    font-weight: 500;
+    border-radius: 0.375rem;
+    border: none;
+    cursor: pointer;
+    transition: background-color 200ms;
+}
+.debug-button:hover {
+    background-color: #1d4ed8;
+}
+.success-button {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    background-color: #16a34a;
+    color: white;
+    font-weight: 500;
+    border-radius: 0.375rem;
+    border: none;
+    cursor: pointer;
+    transition: background-color 200ms;
+}
+.success-button:hover {
+    background-color: #15803d;
+}
+.danger-button {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    background-color: #dc2626;
+    color: white;
+    font-weight: 500;
+    border-radius: 0.375rem;
+    border: none;
+    cursor: pointer;
+    transition: background-color 200ms;
+}
+.danger-button:hover {
+    background-color: #b91c1c;
+}
+.result-area {
+    background-color: #f9fafb;
+    border: 1px solid #d1d5db;
+    border-radius: 0.5rem;
+    padding: 1rem;
+    margin-top: 1rem;
+    font-family: monospace;
+    font-size: 0.875rem;
+    white-space: pre-wrap;
+    max-height: 24rem;
+    overflow-y: auto;
+}
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div class="container mx-auto px-4 py-8">
+    <div class="max-w-6xl mx-auto">
+        <div class="mb-6">
+            <h1 class="text-3xl font-bold text-gray-900 mb-2">{{ _("Mollie Payments Debug") }}</h1>
+            <p class="text-gray-600">{{ _("Administrative debugging interface for Mollie API operations") }}</p>
+
+            <div class="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <div class="flex items-center">
+                    <i class="fa fa-warning mr-2 text-yellow-600"></i>
+                    <div>
+                        <strong>{{ _("API Mode:") }}</strong>
+                        <span class="font-mono">{{ api_key_type.upper() }}</span>
+                        {% if not mollie_configured %}
+                        <span class="text-danger-600 ml-2">{{ _("(Not configured)") }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab Navigation -->
+        <div class="bg-white rounded-lg shadow-md mb-6">
+            <div class="border-b border-gray-200">
+                <nav class="-mb-px flex space-x-8 px-6" aria-label="Tabs">
+                    <button type="button" onclick="switchTab('customer')"
+                            class="tab-button py-4 px-1 border-b-2 font-medium text-sm border-blue-500 text-blue-600"
+                            data-tab="customer">
+                        {{ _("Customer Debug") }}
+                    </button>
+                    <button type="button" onclick="switchTab('subscription')"
+                            class="tab-button py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                            data-tab="subscription">
+                        {{ _("Subscription Debug") }}
+                    </button>
+                    <button type="button" onclick="switchTab('mandate')"
+                            class="tab-button py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                            data-tab="mandate">
+                        {{ _("Mandate Debug") }}
+                    </button>
+                    <button type="button" onclick="switchTab('payment')"
+                            class="tab-button py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                            data-tab="payment">
+                        {{ _("Payment Debug") }}
+                    </button>
+                    <button type="button" onclick="switchTab('refunds')"
+                            class="tab-button py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                            data-tab="refunds">
+                        {{ _("Refunds & Chargebacks") }}
+                    </button>
+                    <button type="button" onclick="switchTab('webhooks')"
+                            class="tab-button py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                            data-tab="webhooks">
+                        {{ _("Webhook Debug") }}
+                    </button>
+                    <button type="button" onclick="switchTab('admin')"
+                            class="tab-button py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                            data-tab="admin">
+                        {{ _("Admin Actions") }}
+                    </button>
+                    <button type="button" onclick="switchTab('balance')"
+                            class="tab-button py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                            data-tab="balance">
+                        {{ _("Balance Transactions") }}
+                    </button>
+                </nav>
+            </div>
+        </div>
+
+        <!-- Customer Debug Tab -->
+        <div id="customer-tab" class="tab-content">
+            <div class="debug-card">
+                <h2 class="text-xl font-semibold mb-4">{{ _("Customer ID Debug") }}</h2>
+                <p class="text-gray-600 mb-4">{{ _("Query customer details, subscriptions, and mandates") }}</p>
+
+                <div class="flex gap-4 items-end">
+                    <div class="flex-1">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Customer ID") }}</label>
+                        <input type="text" id="customer-id-input" class="debug-input"
+                               placeholder="cst_xxxxxxxxxx" value="cst_DNZCrmyjcR">
+                    </div>
+                    <div class="flex items-center">
+                        <input type="checkbox" id="hide-canceled-items" class="mr-2" checked onchange="refreshResultsDisplay()">
+                        <label for="hide-canceled-items" class="text-sm text-gray-600">{{ _("Hide canceled items") }}</label>
+                    </div>
+                    <button onclick="debugCustomer()" class="debug-button">
+                        <i class="fa fa-search mr-1"></i>{{ _("Debug Customer") }}
+                    </button>
+                </div>
+
+                <!-- Customer Debug Result -->
+                <div id="customer-result" class="result-area" style="display: none;"></div>
+            </div>
+
+            <!-- Customer Search Section -->
+            <div class="debug-card mt-6">
+                <div class="p-4 border border-gray-300 rounded-lg bg-green-50">
+                    <h3 class="text-lg font-semibold text-green-800 mb-2">
+                        <i class="fa fa-search mr-2"></i>{{ _("Search Customers by Name") }}
+                    </h3>
+                    <p class="text-green-700 mb-4">{{ _("Search for customers by name or email address") }}</p>
+                    <div class="flex gap-4 items-end">
+                        <div class="flex-1">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Search Term") }}</label>
+                            <input type="text" id="customer-search-term" class="debug-input"
+                                   placeholder="{{ _('Enter name or email...') }}" min="2">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Limit") }}</label>
+                            <select id="customer-search-limit" class="debug-input w-32">
+                                <option value="10" selected>10</option>
+                                <option value="20">20</option>
+                                <option value="50">50</option>
+                            </select>
+                        </div>
+                        <button onclick="searchCustomers()" class="debug-button">
+                            <i class="fa fa-search mr-1"></i>{{ _("Search") }}
+                        </button>
+                    </div>
+                    <div id="customer-search-result" class="result-area" style="display: none;"></div>
+                </div>
+            </div>
+
+            <!-- Customer List Section -->
+            <div class="debug-card mt-6">
+                <div class="p-4 border border-gray-300 rounded-lg bg-blue-50">
+                    <h3 class="text-lg font-semibold text-blue-800 mb-2">
+                        <i class="fa fa-list mr-2"></i>{{ _("Customer ID Lookup") }}
+                    </h3>
+                    <p class="text-blue-700 mb-4">{{ _("List recent customers to easily find and copy customer IDs") }}</p>
+                    <div class="flex gap-4 items-end">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Limit") }}</label>
+                            <select id="customer-list-limit" class="debug-input w-32">
+                                <option value="10">10</option>
+                                <option value="20" selected>20</option>
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                            </select>
+                        </div>
+                        <button onclick="listCustomers()" class="debug-button">
+                            <i class="fa fa-list mr-1"></i>{{ _("List Customers") }}
+                        </button>
+                    </div>
+                    <div id="customer-list-result" class="result-area" style="display: none;"></div>
+                </div>
+            </div>
+
+            <!-- Sync Membership End Dates Section -->
+            <div class="debug-card mt-6">
+                <div class="p-4 border border-orange-300 rounded-lg bg-orange-50">
+                    <h3 class="text-lg font-semibold text-orange-800 mb-2">
+                        <i class="fa fa-sync mr-2"></i>{{ _("Sync Membership End Dates from Mollie") }}
+                    </h3>
+                    <p class="text-orange-700 mb-4">
+                        {{ _("Update membership cancellation dates for terminated/banned/suspended members using Mollie subscription data") }}
+                    </p>
+                    <div class="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
+                        <p class="text-sm text-yellow-800">
+                            <strong>{{ _("How it works:") }}</strong><br>
+                            {{ _("1. Finds all terminated/banned/suspended members with Mollie customer IDs") }}<br>
+                            {{ _("2. Queries Mollie for their subscription cancellation dates") }}<br>
+                            {{ _("3. Updates the Membership.cancellation_date field accordingly") }}<br>
+                            {{ _("4. Use dry run mode first to preview changes before applying") }}
+                        </p>
+                    </div>
+                    <div class="flex gap-4 items-end mb-4">
+                        <div class="flex items-center">
+                            <input type="checkbox" id="sync-dry-run" class="mr-2" checked>
+                            <label for="sync-dry-run" class="text-sm font-medium text-gray-700">
+                                {{ _("Dry Run (preview only, don't update)") }}
+                            </label>
+                        </div>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="syncMembershipEndDates()" class="debug-button">
+                            <i class="fa fa-sync mr-1"></i>{{ _("Sync End Dates") }}
+                        </button>
+                    </div>
+                    <div id="sync-end-dates-result" class="result-area" style="display: none;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Subscription Debug Tab -->
+        <div id="subscription-tab" class="tab-content hidden">
+            <div class="debug-card mb-6">
+                <div class="p-4 border border-purple-300 rounded-lg bg-purple-50 mb-4">
+                    <h3 class="text-lg font-semibold text-purple-800 mb-2">
+                        <i class="fa fa-repeat mr-2"></i>{{ _("Subscription ID Debug") }}
+                    </h3>
+                    <p class="text-purple-700 mb-4">{{ _("Query specific subscription details") }}</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Subscription ID") }}</label>
+                        <input type="text" id="subscription-id-input" class="debug-input"
+                               placeholder="sub_xxxxxxxxxx">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Customer ID") }}</label>
+                        <input type="text" id="subscription-customer-id-input" class="debug-input"
+                               placeholder="cst_xxxxxxxxxx" value="cst_DNZCrmyjcR">
+                    </div>
+                </div>
+
+                    <button type="button" onclick="debugSubscription()" class="inline-flex items-center px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-md transition-colors duration-200">
+                        <i class="fa fa-search mr-2"></i>{{ _("Debug Subscription") }}
+                    </button>
+
+                    <div id="subscription-result" class="result-area" style="display: none;"></div>
+                </div>
+            </div>
+
+            <div class="p-6 border border-indigo-300 rounded-lg bg-indigo-50 shadow-sm mb-6">
+                <h3 class="text-lg font-semibold text-indigo-800 mb-2">
+                    <i class="fa fa-list mr-2"></i>{{ _("List Customer Subscriptions") }}
+                </h3>
+                <p class="text-indigo-700 mb-4">{{ _("List all subscriptions for a specific customer") }}</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Customer ID") }}</label>
+                        <input type="text" id="list-sub-customer-id" class="debug-input"
+                               placeholder="cst_xxxxxxxxxx">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Limit") }}</label>
+                        <input type="number" id="list-sub-limit" class="debug-input"
+                               value="50" min="1" max="250">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="flex items-center">
+                            <input type="checkbox" id="list-sub-active-only" class="mr-2" checked>
+                            <span class="text-sm font-medium text-gray-700">{{ _("Show active subscriptions only (hide canceled)") }}</span>
+                        </label>
+                    </div>
+                </div>
+
+                <button type="button" onclick="listSubscriptions()" class="inline-flex items-center px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-md transition-colors duration-200">
+                    <i class="fa fa-list mr-2"></i>{{ _("List Subscriptions") }}
+                </button>
+
+                <div id="list-subscriptions-result" class="result-area" style="display: none;"></div>
+            </div>
+
+            <div class="debug-card">
+                <div class="p-4 border border-green-300 rounded-lg bg-green-50 mb-4">
+                    <h3 class="text-lg font-semibold text-green-800 mb-2">
+                        <i class="fa fa-plus-circle mr-2"></i>{{ _("Create New Subscription") }}
+                    </h3>
+                    <p class="text-green-700 mb-4">{{ _("Create a new subscription for testing") }}</p>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Customer ID") }}</label>
+                            <input type="text" id="create-sub-customer-id" class="debug-input"
+                                   placeholder="cst_xxxxxxxxxx">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Mandate ID (optional)") }}</label>
+                            <input type="text" id="create-sub-mandate-id" class="debug-input"
+                                   placeholder="mdt_xxxxxxxxxx">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Amount (EUR)") }}</label>
+                            <input type="number" id="create-sub-amount" class="debug-input"
+                                   placeholder="25.00" step="0.01" min="0.01" value="25.00">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Interval") }}</label>
+                            <select id="create-sub-interval" class="debug-input">
+                                <option value="1 month">Monthly</option>
+                                <option value="3 months">Quarterly</option>
+                                <option value="6 months">Semi-Annually</option>
+                                <option value="12 months">Yearly</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Start Date (YYYY-MM-DD)") }}</label>
+                            <input type="date" id="create-sub-start-date" class="debug-input">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Description") }}</label>
+                            <input type="text" id="create-sub-description" class="debug-input"
+                                   placeholder="Test subscription" value="Test subscription">
+                        </div>
+                    </div>
+
+                    <button type="button" onclick="createSubscription()" class="inline-flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-md transition-colors duration-200">
+                        <i class="fa fa-plus mr-2"></i>{{ _("Create Subscription") }}
+                    </button>
+
+                    <div id="create-subscription-result" class="result-area" style="display: none;"></div>
+                </div>
+            </div>
+
+            <!-- Scheduled Subscription Creation (Advanced) -->
+            <div class="debug-card">
+                <div class="p-4 border border-purple-300 rounded-lg bg-purple-50 mb-4">
+                    <h3 class="text-lg font-semibold text-purple-800 mb-2">
+                        <i class="fa fa-calendar-check mr-2"></i>{{ _("Create Scheduled Subscription (Advanced)") }}
+                    </h3>
+                    <p class="text-purple-700 mb-4">{{ _("Create subscription with flexible scheduling: custom intervals, payment limits, and start dates. Monthly payments use the day configured in Mollie Settings.") }}</p>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Customer ID") }}</label>
+                            <input type="text" id="sched-sub-customer-id" class="debug-input"
+                                   placeholder="cst_xxxxxxxxxx">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Amount (EUR)") }}</label>
+                            <input type="number" id="sched-sub-amount" class="debug-input"
+                                   placeholder="25.00" step="0.01" min="0.01" value="25.00">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Interval Count") }}</label>
+                            <input type="number" id="sched-sub-interval-count" class="debug-input"
+                                   placeholder="3" min="1" max="52" value="3">
+                            <p class="text-xs text-gray-500 mt-1">{{ _("1-12 for months, 1-52 for weeks") }}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Interval Unit") }}</label>
+                            <select id="sched-sub-interval-unit" class="debug-input">
+                                <option value="months">Months</option>
+                                <option value="weeks">Weeks</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Payment Limit (optional)") }}</label>
+                            <input type="number" id="sched-sub-times" class="debug-input"
+                                   placeholder="12" min="1" max="999">
+                            <p class="text-xs text-gray-500 mt-1">{{ _("Leave empty for indefinite") }}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Start Date (optional)") }}</label>
+                            <input type="date" id="sched-sub-start-date" class="debug-input">
+                            <p class="text-xs text-gray-500 mt-1">{{ _("Leave empty for auto-calculation") }}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Mandate ID (optional)") }}</label>
+                            <input type="text" id="sched-sub-mandate-id" class="debug-input"
+                                   placeholder="mdt_xxxxxxxxxx">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Description") }}</label>
+                            <input type="text" id="sched-sub-description" class="debug-input"
+                                   placeholder="Scheduled subscription" value="Scheduled subscription">
+                        </div>
+                    </div>
+
+                    <button type="button" onclick="createScheduledSubscription()" class="inline-flex items-center px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-md transition-colors duration-200">
+                        <i class="fa fa-calendar-plus mr-2"></i>{{ _("Create Scheduled Subscription") }}
+                    </button>
+
+                    <div id="create-scheduled-subscription-result" class="result-area" style="display: none;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mandate Debug Tab -->
+        <div id="mandate-tab" class="tab-content hidden">
+            <div class="debug-card">
+                <h2 class="text-xl font-semibold mb-4">{{ _("Mandate ID Debug") }}</h2>
+                <p class="text-gray-600 mb-4">{{ _("Query specific mandate details") }}</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Mandate ID") }}</label>
+                        <input type="text" id="mandate-id-input" class="debug-input"
+                               placeholder="mdt_xxxxxxxxxx">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Customer ID") }}</label>
+                        <input type="text" id="mandate-customer-id-input" class="debug-input"
+                               placeholder="cst_xxxxxxxxxx" value="cst_DNZCrmyjcR">
+                    </div>
+                </div>
+
+                <button onclick="debugMandate()" class="debug-button">
+                    <i class="fa fa-search mr-1"></i>{{ _("Debug Mandate") }}
+                </button>
+
+                <div id="mandate-result" class="result-area" style="display: none;"></div>
+            </div>
+        </div>
+
+        <!-- Payment Debug Tab -->
+        <div id="payment-tab" class="tab-content hidden">
+            <!-- Individual Payment Debug -->
+            <div class="debug-card">
+                <h2 class="text-xl font-semibold mb-4">{{ _("Payment Debug") }}</h2>
+                <p class="text-gray-600 mb-4">{{ _("Debug individual payments with comprehensive details") }}</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Payment ID") }}</label>
+                        <input type="text" id="payment-id-input" class="debug-input"
+                               placeholder="tr_xxxxxxxxxx">
+                    </div>
+                </div>
+
+                <button onclick="debugPayment()" class="debug-button">
+                    <i class="fa fa-search mr-1"></i>{{ _("Debug Payment") }}
+                </button>
+
+                <div id="payment-result" class="result-area" style="display: none;"></div>
+            </div>
+
+            <!-- Create Test Payment Section -->
+            <div class="debug-card mt-6">
+                <div class="p-4 border border-green-300 rounded-lg bg-green-50">
+                    <h3 class="text-lg font-semibold text-green-800 mb-2">
+                        <i class="fa fa-plus-circle mr-2"></i>{{ _("Create Test Payment") }}
+                    </h3>
+                    <p class="text-green-700 mb-4">{{ _("Create a test payment with customizable description and complete it via Mollie checkout") }}</p>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Amount (EUR)") }} <span class="text-danger-600">*</span></label>
+                            <input type="number" id="test-payment-amount" class="debug-input"
+                                   placeholder="25.00" min="0.01" max="1000" step="0.01" value="25.00">
+                        </div>
+                        <div class="md:col-span-2">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Description") }} <span class="text-danger-600">*</span></label>
+                            <input type="text" id="test-payment-description" class="debug-input"
+                                   placeholder="Test membership dues payment">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 mb-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Customer ID (optional)") }}</label>
+                            <input type="text" id="test-payment-customer-id" class="debug-input"
+                                   placeholder="cst_xxxxxxxxxx">
+                            <p class="text-xs text-gray-500 mt-1">{{ _("Link payment to existing customer for subscription testing") }}</p>
+                        </div>
+                    </div>
+
+                    <button onclick="createTestPayment()" class="debug-button bg-green-600 hover:bg-green-700">
+                        <i class="fa fa-plus-circle mr-1"></i>{{ _("Create Test Payment") }}
+                    </button>
+
+                    <div id="test-payment-result" class="result-area" style="display: none;"></div>
+                </div>
+            </div>
+
+            <!-- Payment List Section -->
+            <div class="debug-card mt-6">
+                <div class="p-4 border border-gray-300 rounded-lg bg-purple-50">
+                    <h3 class="text-lg font-semibold text-purple-800 mb-2">
+                        <i class="fa fa-list mr-2"></i>{{ _("List Payments") }}
+                    </h3>
+                    <p class="text-purple-700 mb-4">{{ _("List recent payments with optional filtering") }}</p>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Customer ID (optional)") }}</label>
+                            <input type="text" id="payment-list-customer-id" class="debug-input"
+                                   placeholder="cst_xxxxxxxxxx">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Status Filter (optional)") }}</label>
+                            <select id="payment-status-filter" class="debug-input">
+                                <option value="">{{ _("All statuses") }}</option>
+                                <option value="paid">{{ _("Paid") }}</option>
+                                <option value="pending">{{ _("Pending") }}</option>
+                                <option value="failed">{{ _("Failed") }}</option>
+                                <option value="canceled">{{ _("Canceled") }}</option>
+                                <option value="expired">{{ _("Expired") }}</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Limit") }}</label>
+                            <input type="number" id="payment-list-limit" class="debug-input"
+                                   value="10" min="1" max="250">
+                        </div>
+                    </div>
+
+                    <button onclick="listPayments()" class="debug-button">
+                        <i class="fa fa-list mr-1"></i>{{ _("List Payments") }}
+                    </button>
+
+                    <div id="payment-list-result" class="result-area" style="display: none;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Refunds & Chargebacks Tab -->
+        <div id="refunds-tab" class="tab-content hidden">
+            <!-- Debug Refund Section -->
+            <div class="debug-card mb-6">
+                <div class="p-4 border border-orange-300 rounded-lg bg-orange-50 mb-4">
+                    <h3 class="text-lg font-semibold text-orange-800 mb-2">
+                        <i class="fa fa-undo mr-2"></i>{{ _("Debug Specific Refund") }}
+                    </h3>
+                    <p class="text-orange-700 mb-4">{{ _("Investigate refund transactions and processing status") }}</p>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Refund ID") }}</label>
+                            <input type="text" id="refund-id-input" class="debug-input"
+                                   placeholder="re_xxxxxxxxxx">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Payment ID (optional)") }}</label>
+                            <input type="text" id="refund-payment-id-input" class="debug-input"
+                                   placeholder="tr_xxxxxxxxxx">
+                        </div>
+                    </div>
+
+                    <button type="button" onclick="debugRefund()" class="inline-flex items-center px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white font-medium rounded-md transition-colors duration-200">
+                        <i class="fa fa-search mr-2"></i>{{ _("Debug Refund") }}
+                    </button>
+
+                    <div id="refund-result" class="result-area" style="display: none;"></div>
+                </div>
+            </div>
+
+            <!-- List Chargebacks Section -->
+            <div class="debug-card">
+                <div class="p-4 border border-danger-300 rounded-lg bg-danger-50 mb-4">
+                    <h3 class="text-lg font-semibold text-danger-800 mb-2">
+                        <i class="fa fa-exclamation-triangle mr-2"></i>{{ _("List Chargebacks") }}
+                    </h3>
+                    <p class="text-danger-700 mb-4">{{ _("Investigate disputed transactions and chargebacks") }}</p>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Customer ID (optional)") }}</label>
+                            <input type="text" id="chargeback-customer-id" class="debug-input"
+                                   placeholder="cst_xxxxxxxxxx">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Limit") }}</label>
+                            <input type="number" id="chargeback-limit" class="debug-input"
+                                   value="10" min="1" max="100">
+                        </div>
+                    </div>
+
+                    <button type="button" onclick="listChargebacks()" class="inline-flex items-center px-4 py-2 bg-danger-600 hover:bg-danger-700 text-white font-medium rounded-md transition-colors duration-200">
+                        <i class="fa fa-exclamation-triangle mr-2"></i>{{ _("List Chargebacks") }}
+                    </button>
+
+                    <div id="chargeback-result" class="result-area" style="display: none;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Webhook Debug Tab -->
+        <div id="webhooks-tab" class="tab-content hidden">
+            <!-- Test Webhook Processing Section -->
+            <div class="debug-card mb-6">
+                <div class="p-4 border border-gray-300 rounded-lg bg-green-50">
+                    <h3 class="text-lg font-semibold text-green-800 mb-2">
+                        <i class="fa fa-play mr-2"></i>{{ _("Test Webhook Processing") }}
+                    </h3>
+                    <p class="text-green-700 mb-4">{{ _("Manually trigger webhook processing for any payment ID - useful for testing failed webhooks") }}</p>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Payment/Transaction ID") }}</label>
+                            <input type="text" id="test-webhook-payment-id" class="debug-input"
+                                   placeholder="tr_xxxxxxxxxx">
+                        </div>
+                    </div>
+
+                    <button onclick="testWebhookProcessing()" class="success-button">
+                        <i class="fa fa-play mr-1"></i>{{ _("Process Webhook") }}
+                    </button>
+
+                    <div id="test-webhook-result" class="result-area" style="display: none;"></div>
+
+                    <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                        <div class="text-sm text-blue-700">
+                            <p class="mb-2"><strong>{{ _("What this does:") }}</strong></p>
+                            <p class="mb-1">{{ _("• Calls the unified webhook handler directly") }}</p>
+                            <p class="mb-1">{{ _("• Fetches payment data from Mollie API") }}</p>
+                            <p class="mb-1">{{ _("• Processes refunds, chargebacks, and payment history") }}</p>
+                            <p>{{ _("• Updates database records just like a real webhook") }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Include Membership Dues Payment Processor -->
+            {% include "verenigingen/templates/pages/mollie_dues_payment_processor.html" %}
+
+            <!-- Bulk Member Payment Processor Section -->
+            <div class="bg-white border border-gray-300 rounded-lg p-4 mb-6">
+                <div class="p-4 border border-green-300 rounded-lg bg-green-50">
+                    <h3 class="text-lg font-semibold text-green-800 mb-2">
+                        <i class="fa fa-users mr-2"></i>{{ _("Bulk Member Payment Processor") }}
+                    </h3>
+                    <p class="text-green-700 mb-4">
+                        {{ _("Systematically retrieve payments for ALL members with Mollie customer IDs and process them in bulk") }}
+                    </p>
+
+                    <!-- Configuration Section -->
+                    <div class="bg-green-100 p-4 rounded-lg border border-green-300 mb-4">
+                        <h4 class="font-semibold text-green-800 mb-3">{{ _("Configuration") }}</h4>
+
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                            <div>
+                                <label class="block text-sm font-medium text-green-900 mb-1">{{ _("Days Back") }}</label>
+                                <input type="number" id="bulk-days-back" class="w-full px-3 py-2 border border-green-300 rounded-md bg-white"
+                                       value="30" min="1" max="{{ mollie_settings.payment_retrieval_days_back_limit or 1825 }}">
+                                <p class="text-xs text-green-700 mt-1">{{ _("Max: {0} days (configurable in Mollie Settings)").format(mollie_settings.payment_retrieval_days_back_limit or 1825) }}</p>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-green-900 mb-1">{{ _("Max Payments") }}</label>
+                                <input type="number" id="bulk-max-payments" class="w-full px-3 py-2 border border-green-300 rounded-md bg-white"
+                                       value="5000" min="250" max="10000" step="250">
+                                <p class="text-xs text-green-700 mt-1">{{ _("~20 API calls for 5000 payments") }}</p>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-green-900 mb-1">{{ _("Payment Status") }}</label>
+                                <select id="bulk-payment-status" class="w-full px-3 py-2 border border-green-300 rounded-md bg-white">
+                                    <option value="all">All</option>
+                                    <option value="paid" selected>Paid Only</option>
+                                    <option value="pending">Pending Only</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <button type="button" onclick="bulkRetrieveAllMemberPayments()" class="inline-flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-md transition-colors duration-200 shadow-sm">
+                            <i class="fa fa-download mr-2"></i>{{ _("Retrieve All Member Payments") }}
+                        </button>
+                    </div>
+
+                    <!-- Results Section -->
+                    <div id="bulk-payments-list" class="bg-white p-4 rounded-lg border border-green-200" style="display: none;">
+                        <h4 class="font-semibold text-green-700 mb-3">{{ _("Retrieved Payments") }}</h4>
+
+                        <div class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                            <div class="text-sm text-blue-700">
+                                <p class="mb-2"><strong>{{ _("Summary:") }}</strong></p>
+                                <p class="mb-1">Total Members: <span id="bulk-total-members" class="font-semibold">0</span></p>
+                                <p class="mb-1">Members Checked: <span id="bulk-members-checked" class="font-semibold">0</span></p>
+                                <p class="mb-1">Total Payments: <span id="bulk-total-payments" class="font-semibold">0</span></p>
+                                <p class="mb-1">Unprocessed: <span id="bulk-unprocessed-payments" class="font-semibold">0</span></p>
+                                <p class="mb-1 text-green-600">API Calls Made: <span id="bulk-api-calls" class="font-semibold">0</span></p>
+                            </div>
+                        </div>
+
+                        <!-- Processing Options -->
+                        <div class="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                            <h5 class="font-semibold text-yellow-800 mb-2">{{ _("Processing Options") }}</h5>
+                            <div class="grid grid-cols-1 gap-4">
+                                <div>
+                                    <div class="flex items-center">
+                                        <input type="checkbox" id="bulk-create-bank-transactions" class="mr-2" checked>
+                                        <label for="bulk-create-bank-transactions" class="text-sm font-medium text-yellow-900">
+                                            {{ _("Bank Transaction Only") }}
+                                        </label>
+                                    </div>
+                                    <p class="text-xs text-yellow-700 mt-1 ml-6">
+                                        {{ _("Unchecked: Creates both Bank Transaction + Payment Entry (complete audit trail)") }}<br>
+                                        {{ _("Checked: Creates only Bank Transaction (for manual reconciliation later)") }}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Quick Selection Buttons -->
+                        <div class="mb-4 flex gap-2">
+                            <button type="button" onclick="bulkSelectAllUnprocessed()" class="inline-flex items-center px-3 py-1.5 bg-gray-600 hover:bg-gray-700 text-white text-sm font-medium rounded-md transition-colors duration-200">
+                                <i class="fa fa-check-square mr-2"></i>{{ _("Select All Unprocessed") }}
+                            </button>
+                            <button type="button" onclick="bulkDeselectAll()" class="inline-flex items-center px-3 py-1.5 bg-gray-500 hover:bg-gray-600 text-white text-sm font-medium rounded-md transition-colors duration-200">
+                                <i class="fa fa-square-o mr-2"></i>{{ _("Deselect All") }}
+                            </button>
+                            <span id="bulk-selected-count" class="text-sm font-medium text-gray-700 flex items-center ml-4">
+                                Selected: <span class="ml-1 font-bold">0</span>
+                            </span>
+                        </div>
+
+                        <!-- Member/Payments Table -->
+                        <div class="overflow-x-auto mb-4 max-h-96 overflow-y-auto">
+                            <table class="w-full text-sm">
+                                <thead class="bg-gray-50 sticky top-0">
+                                    <tr>
+                                        <th class="px-2 py-2 text-left">
+                                            <input type="checkbox" id="bulk-select-all-checkbox" onchange="bulkToggleSelectAll()">
+                                        </th>
+                                        <th class="px-2 py-2 text-left">{{ _("Member") }}</th>
+                                        <th class="px-2 py-2 text-left">{{ _("Payment ID") }}</th>
+                                        <th class="px-2 py-2 text-left">{{ _("Status") }}</th>
+                                        <th class="px-2 py-2 text-left">{{ _("Amount") }}</th>
+                                        <th class="px-2 py-2 text-left">{{ _("Date") }}</th>
+                                        <th class="px-2 py-2 text-left">{{ _("Processed?") }}</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="bulk-payments-table-body">
+                                    <!-- Populated by JavaScript -->
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <button type="button" onclick="bulkProcessSelectedPayments()" class="inline-flex items-center px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white font-medium rounded-md transition-colors duration-200">
+                            <i class="fa fa-cogs mr-2"></i>{{ _("Process Selected Payments") }}
+                        </button>
+                    </div>
+
+                    <!-- Processing Results -->
+                    <div id="bulk-processing-results" class="bg-slate-50 border border-gray-300 rounded p-4 mt-4 font-mono whitespace-pre-wrap max-h-96 overflow-y-auto" style="display: none;"></div>
+
+                    <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                        <div class="text-sm text-blue-700">
+                            <p class="mb-2"><strong>{{ _("How it works:") }}</strong></p>
+                            <p class="mb-1">{{ _("1. Configure days back and payment status filter") }}</p>
+                            <p class="mb-1">{{ _("2. Click to retrieve ALL payments for ALL active members with Mollie IDs") }}</p>
+                            <p class="mb-1">{{ _("3. System identifies which payments are already processed") }}</p>
+                            <p class="mb-1">{{ _("4. Choose Draft or Submitted mode") }}</p>
+                            <p class="mb-1">{{ _("5. Select unprocessed payments and process in bulk") }}</p>
+                            <p>{{ _("6. Payment Entries and/or Bank Transactions are created automatically") }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Debug Webhook Delivery Section -->
+            <div class="debug-card">
+                <h2 class="text-xl font-semibold mb-4">{{ _("Webhook Debug") }}</h2>
+                <p class="text-gray-600 mb-4">{{ _("Debug webhook delivery and payment status changes") }}</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Payment ID") }}</label>
+                        <input type="text" id="webhook-payment-id-input" class="debug-input"
+                               placeholder="tr_xxxxxxxxxx">
+                    </div>
+                </div>
+
+                <button onclick="debugWebhookDelivery()" class="debug-button">
+                    <i class="fa fa-search mr-1"></i>{{ _("Debug Webhook Delivery") }}
+                </button>
+
+                <div id="webhook-result" class="result-area" style="display: none;"></div>
+
+                <!-- Webhook Info Section -->
+                <div class="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <h3 class="text-lg font-medium text-blue-800 mb-2">{{ _("Webhook Information") }}</h3>
+                    <div class="text-sm text-blue-700">
+                        <p class="mb-2">{{ _("• Webhook URL configured for payments will show in payment details") }}</p>
+                        <p class="mb-2">{{ _("• Status change timeline helps identify webhook trigger points") }}</p>
+                        <p class="mb-2">{{ _("• Check your application logs for webhook delivery details") }}</p>
+                        <p>{{ _("• Mollie retries failed webhooks automatically") }}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Admin Actions Tab -->
+        <div id="admin-tab" class="tab-content hidden">
+            <div class="mb-4">
+                <h2 class="text-2xl font-semibold mb-2 text-danger-600">{{ _("Administrative Actions") }}</h2>
+                <p class="text-gray-600">{{ _("Dangerous operations - use with extreme caution") }}</p>
+            </div>
+
+            <!-- Cancel Subscription Section -->
+            <div class="debug-card mb-6">
+                <h3 class="text-lg font-medium text-danger-700 mb-3">{{ _("Cancel Subscription") }}</h3>
+                <p class="text-gray-600 mb-4">{{ _("Cancel an active Mollie subscription for a customer") }}</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Customer ID") }}</label>
+                        <input type="text" id="cancel-customer-id" class="debug-input"
+                               placeholder="cst_xxxxxxxxxx" value="cst_DNZCrmyjcR">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Subscription ID") }}</label>
+                        <input type="text" id="cancel-subscription-id" class="debug-input"
+                               placeholder="sub_xxxxxxxxxx">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Reason") }}</label>
+                        <input type="text" id="cancel-reason" class="debug-input"
+                               placeholder="Administrative cancellation" value="Debug page cancellation">
+                    </div>
+                </div>
+
+                <button onclick="adminCancelSubscription()" class="danger-button">
+                    <i class="fa fa-times mr-1"></i>{{ _("Cancel Subscription") }}
+                </button>
+
+                <!-- Cancel Subscription Result -->
+                <div id="cancel-subscription-result" class="result-area" style="display: none;"></div>
+            </div>
+
+            <!-- Revoke Mandate Section -->
+            <div class="debug-card mb-6">
+                <h3 class="text-lg font-medium text-danger-700 mb-3">{{ _("Revoke Mandate") }}</h3>
+                <p class="text-gray-600 mb-4">{{ _("Revoke a SEPA direct debit mandate for a customer") }}</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Customer ID") }}</label>
+                        <input type="text" id="revoke-customer-id" class="debug-input"
+                               placeholder="cst_xxxxxxxxxx" value="cst_DNZCrmyjcR">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Mandate ID") }}</label>
+                        <input type="text" id="revoke-mandate-id" class="debug-input"
+                               placeholder="mdt_xxxxxxxxxx">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Reason") }}</label>
+                        <input type="text" id="revoke-reason" class="debug-input"
+                               placeholder="Administrative revocation" value="Debug page revocation">
+                    </div>
+                </div>
+
+                <button onclick="adminRevokeMandate()" class="danger-button">
+                    <i class="fa fa-ban mr-1"></i>{{ _("Revoke Mandate") }}
+                </button>
+
+                <!-- Revoke Mandate Result -->
+                <div id="revoke-mandate-result" class="result-area" style="display: none;"></div>
+            </div>
+
+            <!-- Cancel Payment Section -->
+            <div class="debug-card mb-6">
+                <h3 class="text-lg font-medium text-danger-700 mb-3">{{ _("Cancel Payment") }}</h3>
+                <p class="text-gray-600 mb-4">{{ _("Cancel a pending payment transaction") }}</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Payment ID") }}</label>
+                        <input type="text" id="cancel-payment-id" class="debug-input"
+                               placeholder="tr_xxxxxxxxxx">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Reason") }}</label>
+                        <input type="text" id="cancel-payment-reason" class="debug-input"
+                               placeholder="Administrative cancellation" value="Debug page cancellation">
+                    </div>
+                </div>
+
+                <div class="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <div class="text-sm text-yellow-700">
+                        <i class="fa fa-exclamation-triangle mr-1"></i>
+                        <strong>{{ _("Note:") }}</strong> {{ _("Only pending/open payments can be cancelled. Paid, failed, or expired payments cannot be cancelled.") }}
+                    </div>
+                </div>
+
+                <button onclick="adminCancelPayment()" class="danger-button">
+                    <i class="fa fa-stop mr-1"></i>{{ _("Cancel Payment") }}
+                </button>
+
+                <!-- Cancel Payment Result -->
+                <div id="cancel-payment-result" class="result-area" style="display: none;"></div>
+            </div>
+
+            <!-- Delete Customer Section (DANGER ZONE) -->
+            <div class="debug-card border-2 border-danger-500 bg-danger-50">
+                <h3 class="text-lg font-semibold text-danger-800 mb-2">
+                    <i class="fa fa-skull-crossbones mr-2"></i>{{ _("DANGER ZONE: Delete Customer") }}
+                </h3>
+                <div class="bg-danger-100 border border-danger-400 text-danger-700 px-4 py-3 rounded mb-4">
+                    <strong>{{ _("WARNING:") }}</strong> {{ _("This will permanently delete the customer AND automatically cancel ALL subscriptions and mandates. This action cannot be undone!") }}
+                    <br><br>
+                    <strong>{{ _("RESTRICTED TO:") }}</strong> {{ _("Verenigingen Administrator role only") }}
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-danger-700 mb-1">{{ _("Customer ID") }}</label>
+                        <input type="text" id="delete-customer-id" class="debug-input border-danger-300"
+                               placeholder="cst_xxxxxxxxxx">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-danger-700 mb-1">{{ _("Deletion Reason") }}</label>
+                        <input type="text" id="delete-reason" class="debug-input border-danger-300"
+                               placeholder="Critical administrative cleanup">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-sm font-medium text-danger-700 mb-1">
+                            {{ _("Type exactly") }} <strong>"DELETE CUSTOMER"</strong> {{ _("to confirm") }}:
+                        </label>
+                        <input type="text" id="delete-confirmation" class="debug-input border-danger-300"
+                               placeholder="DELETE CUSTOMER">
+                    </div>
+                </div>
+
+                <button onclick="adminDeleteCustomer()" class="bg-red-700 hover:bg-red-800 text-white px-6 py-2 rounded-lg font-medium">
+                    <i class="fa fa-trash-alt mr-2"></i>{{ _("DELETE CUSTOMER (IRREVERSIBLE)") }}
+                </button>
+
+                <!-- Delete Customer Result -->
+                <div id="delete-customer-result" class="result-area" style="display: none;"></div>
+            </div>
+        </div>
+
+        <!-- Balance Transactions Tab -->
+        <div id="balance-tab" class="tab-content hidden">
+            <!-- Balance Info Section -->
+            <div class="p-6 border border-blue-300 rounded-lg bg-blue-50 shadow-sm mb-6">
+                <h3 class="text-lg font-semibold text-blue-800 mb-2">
+                    <i class="fa fa-info-circle mr-2"></i>{{ _("Balance Information") }}
+                </h3>
+                <p class="text-blue-700 mb-4">{{ _("View primary balance details and available funds") }}</p>
+
+                <button type="button" onclick="getBalanceInfo()" class="inline-flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md transition-colors duration-200">
+                    <i class="fa fa-info-circle mr-2"></i>{{ _("Get Balance Info") }}
+                </button>
+
+                <div id="balance-info-result" class="result-area" style="display: none;"></div>
+            </div>
+
+            <!-- Process Recent Transactions Section -->
+            <div class="p-6 border border-green-300 rounded-lg bg-green-50 shadow-sm mb-6">
+                <h3 class="text-lg font-semibold text-green-800 mb-2">
+                    <i class="fa fa-clock-o mr-2"></i>{{ _("Process Recent Transactions") }}
+                </h3>
+                <p class="text-green-700 mb-4">{{ _("Process balance transactions from recent days") }}</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Days Back") }}</label>
+                        <input type="number" id="recent-days" class="debug-input"
+                               placeholder="30" value="30" min="1" max="365">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Limit") }}</label>
+                        <input type="number" id="recent-limit" class="debug-input"
+                               placeholder="250" value="250" min="1" max="1000">
+                    </div>
+                </div>
+
+                <button type="button" onclick="processRecentTransactions()" class="inline-flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-md transition-colors duration-200">
+                    <i class="fa fa-play mr-2"></i>{{ _("Process Recent Transactions") }}
+                </button>
+
+                <div id="recent-transactions-result" class="result-area" style="display: none;"></div>
+            </div>
+
+            <!-- Process Date Range Section -->
+            <div class="p-6 border border-purple-300 rounded-lg bg-purple-50 shadow-sm mb-6">
+                <h3 class="text-lg font-semibold text-purple-800 mb-2">
+                    <i class="fa fa-calendar mr-2"></i>{{ _("Process Specific Date Range") }}
+                </h3>
+                <p class="text-purple-700 mb-4">{{ _("Process balance transactions for a specific date range (unlimited historical access)") }}</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("From Date") }}</label>
+                        <input type="date" id="from-date" class="debug-input">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Until Date") }}</label>
+                        <input type="date" id="until-date" class="debug-input">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Limit") }}</label>
+                        <input type="number" id="date-range-limit" class="debug-input"
+                               placeholder="250" value="250" min="1" max="1000">
+                    </div>
+                </div>
+
+                <button type="button" onclick="processDateRange()" class="inline-flex items-center px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-md transition-colors duration-200">
+                    <i class="fa fa-calendar-check-o mr-2"></i>{{ _("Process Date Range") }}
+                </button>
+
+                <div id="date-range-result" class="result-area" style="display: none;"></div>
+            </div>
+
+            <!-- Process Historical Data Section -->
+            <div class="p-6 border border-orange-300 rounded-lg bg-orange-50 shadow-sm mb-6">
+                <h3 class="text-lg font-semibold text-orange-800 mb-2">
+                    <i class="fa fa-history mr-2"></i>{{ _("Process Historical Data") }}
+                </h3>
+                <p class="text-orange-700 mb-4">{{ _("Batch process months or years of historical data automatically") }}</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Months Back") }}</label>
+                        <input type="number" id="months-back" class="debug-input"
+                               placeholder="12" value="12" min="1" max="120">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Batch Size") }}</label>
+                        <input type="number" id="batch-size" class="debug-input"
+                               placeholder="250" value="250" min="1" max="1000">
+                    </div>
+                </div>
+
+                <div class="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <div class="text-sm text-yellow-700">
+                        <i class="fa fa-exclamation-triangle mr-1"></i>
+                        <strong>{{ _("Note:") }}</strong> {{ _("Large historical migrations may take several minutes. The process batches by month automatically.") }}
+                    </div>
+                </div>
+
+                <button type="button" onclick="processHistoricalData()" class="inline-flex items-center px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-md transition-colors duration-200">
+                    <i class="fa fa-database mr-2"></i>{{ _("Process Historical Data") }}
+                </button>
+
+                <div id="historical-result" class="result-area" style="display: none;"></div>
+            </div>
+
+            <!-- Check Transaction Status Section -->
+            <div class="p-6 border border-indigo-300 rounded-lg bg-indigo-50 shadow-sm mb-6">
+                <h3 class="text-lg font-semibold text-indigo-800 mb-2">
+                    <i class="fa fa-search mr-2"></i>{{ _("Check Transaction Status") }}
+                </h3>
+                <p class="text-indigo-700 mb-4">{{ _("Verify if a specific balance transaction has been processed") }}</p>
+
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Transaction ID") }}</label>
+                    <input type="text" id="transaction-id" class="debug-input"
+                           placeholder="baltr_xxxxxxxxxx">
+                </div>
+
+                <div class="mb-4">
+                    <label class="inline-flex items-center">
+                        <input type="checkbox" id="include-mollie-data" class="mr-2">
+                        <span class="text-sm text-gray-700">{{ _("Include Mollie API data (slow, ~30 seconds)") }}</span>
+                    </label>
+                </div>
+
+                <button type="button" onclick="checkTransactionStatus()" class="inline-flex items-center px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-md transition-colors duration-200">
+                    <i class="fa fa-search mr-2"></i>{{ _("Check Status") }}
+                </button>
+
+                <div id="transaction-status-result" class="result-area" style="display: none;"></div>
+            </div>
+
+            <!-- Search Transactions by Description Section -->
+            <div class="p-6 border border-purple-300 rounded-lg bg-purple-50 shadow-sm mb-6">
+                <h3 class="text-lg font-semibold text-purple-800 mb-2">
+                    <i class="fa fa-search mr-2"></i>{{ _("Search Transactions") }}
+                </h3>
+                <p class="text-purple-700 mb-4">{{ _("Search Bank Transactions by description text (fast, searches ERPNext database)") }}</p>
+
+                <!-- Fetch Recent Button -->
+                <div class="mb-4 p-3 border border-purple-200 rounded bg-white">
+                    <p class="text-sm text-gray-700 mb-2">{{ _("First time? Fetch recent transactions from Mollie to make them searchable:") }}</p>
+                    <div class="flex items-center gap-2">
+                        <input type="number" id="fetch-limit" class="debug-input flex-1" value="100" min="1" max="250" placeholder="Number of transactions">
+                        <button type="button" onclick="fetchRecentTransactions()" class="inline-flex items-center px-4 py-2 bg-purple-500 hover:bg-purple-600 text-white font-medium rounded-md transition-colors duration-200">
+                            <i class="fa fa-download mr-2"></i>{{ _("Fetch from Mollie") }}
+                        </button>
+                    </div>
+                    <p class="text-xs text-gray-600 mt-1">{{ _("Note: This imports transactions into ERPNext, making them searchable (slow, ~10-30 seconds)") }}</p>
+                </div>
+
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Search Term") }}</label>
+                    <input type="text" id="search-term" class="debug-input"
+                           placeholder="Bestelling, order number, member name, etc.">
+                </div>
+
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Results Limit") }}</label>
+                    <input type="number" id="search-limit" class="debug-input"
+                           value="50" min="1" max="500">
+                </div>
+
+                <button type="button" onclick="searchTransactions()" class="inline-flex items-center px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-md transition-colors duration-200">
+                    <i class="fa fa-search mr-2"></i>{{ _("Search") }}
+                </button>
+
+                <div id="search-transactions-result" class="result-area" style="display: none;"></div>
+            </div>
+
+            <!-- Processing Statistics Section -->
+            <div class="p-6 border border-teal-300 rounded-lg bg-teal-50 shadow-sm mb-6">
+                <h3 class="text-lg font-semibold text-teal-800 mb-2">
+                    <i class="fa fa-bar-chart mr-2"></i>{{ _("Processing Statistics") }}
+                </h3>
+                <p class="text-teal-700 mb-4">{{ _("View statistics and reconciliation metrics for processed balance transactions") }}</p>
+
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Days") }}</label>
+                    <input type="number" id="stats-days" class="debug-input"
+                           placeholder="30" value="30" min="1" max="365">
+                </div>
+
+                <button type="button" onclick="getProcessingStatistics()" class="inline-flex items-center px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white font-medium rounded-md transition-colors duration-200">
+                    <i class="fa fa-line-chart mr-2"></i>{{ _("Get Statistics") }}
+                </button>
+
+                <div id="statistics-result" class="result-area" style="display: none;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Tab switching
+function switchTab(tabName) {
+    // Update tab buttons
+    document.querySelectorAll('.tab-button').forEach(btn => {
+        btn.classList.remove('border-blue-500', 'text-blue-600');
+        btn.classList.add('border-transparent', 'text-gray-500');
+    });
+
+    document.querySelector(`[data-tab="${tabName}"]`).classList.remove('border-transparent', 'text-gray-500');
+    document.querySelector(`[data-tab="${tabName}"]`).classList.add('border-blue-500', 'text-blue-600');
+
+    // Update tab content
+    document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.add('hidden');
+    });
+
+    document.getElementById(`${tabName}-tab`).classList.remove('hidden');
+}
+
+// Customer Debug
+function debugCustomer() {
+    const customerId = document.getElementById('customer-id-input').value.trim();
+    if (!customerId) {
+        alert('{{ _("Please enter a customer ID") }}');
+        return;
+    }
+
+    showLoading('customer-result', '{{ _("Querying customer data...") }}');
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.debug_customer', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: `customer_id=${encodeURIComponent(customerId)}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            // Store customer data for dynamic filtering
+            lastCustomerData = data.message;
+            displayResult('customer-result', formatCustomerResult(data.message), data.message.error ? 'error' : 'success');
+        } else {
+            displayResult('customer-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('customer-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+// Subscription Debug
+function debugSubscription() {
+    const subscriptionId = document.getElementById('subscription-id-input').value.trim();
+    const customerId = document.getElementById('subscription-customer-id-input').value.trim();
+
+    if (!subscriptionId) {
+        alert('{{ _("Please enter a subscription ID") }}');
+        return;
+    }
+
+    showLoading('subscription-result', '{{ _("Querying subscription data...") }}');
+
+    const formData = new FormData();
+    formData.append('subscription_id', subscriptionId);
+    if (customerId) formData.append('customer_id', customerId);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.debug_subscription', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            displayResult('subscription-result', formatSubscriptionResult(data.message), data.message.error ? 'error' : 'success');
+        } else {
+            displayResult('subscription-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('subscription-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+// Mandate Debug
+function debugMandate() {
+    const mandateId = document.getElementById('mandate-id-input').value.trim();
+    const customerId = document.getElementById('mandate-customer-id-input').value.trim();
+
+    if (!mandateId) {
+        alert('{{ _("Please enter a mandate ID") }}');
+        return;
+    }
+
+    showLoading('mandate-result', '{{ _("Querying mandate data...") }}');
+
+    const formData = new FormData();
+    formData.append('mandate_id', mandateId);
+    if (customerId) formData.append('customer_id', customerId);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.debug_mandate', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            displayResult('mandate-result', formatMandateResult(data.message), data.message.error ? 'error' : 'success');
+        } else {
+            displayResult('mandate-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('mandate-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+// Admin Cancel Subscription
+function adminCancelSubscription() {
+    const customerId = document.getElementById('cancel-customer-id').value.trim();
+    const subscriptionId = document.getElementById('cancel-subscription-id').value.trim();
+    const reason = document.getElementById('cancel-reason').value.trim();
+
+    if (!customerId || !subscriptionId) {
+        frappe.msgprint('{{ _("Please enter customer ID and subscription ID") }}');
+        return;
+    }
+
+    const confirmMessage = `<strong>{{ _("ADMINISTRATIVE CANCELLATION") }}</strong><br><br>` +
+                          `{{ _("Customer ID:") }} ${customerId}<br>` +
+                          `{{ _("Subscription ID:") }} ${subscriptionId}<br>` +
+                          `{{ _("Reason:") }} ${reason}<br><br>` +
+                          `{{ _("This action cannot be undone. Continue?") }}`;
+
+    frappe.confirm(
+        confirmMessage,
+        () => executeCancelSubscription(customerId, subscriptionId, reason)
+    );
+}
+
+function executeCancelSubscription(customerId, subscriptionId, reason) {
+    showLoading('cancel-subscription-result', '{{ _("Cancelling subscription...") }}');
+
+    const formData = new FormData();
+    formData.append('customer_id', customerId);
+    formData.append('subscription_id', subscriptionId);
+    formData.append('reason', reason);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.admin_cancel_subscription', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            // Handle different status types properly
+            const status = data.message.status;
+            const displayType = status === 'warning' ? 'warning' : (status === 'success' ? 'success' : 'error');
+            displayResult('cancel-subscription-result', formatAdminResult(data.message, 'Subscription Cancellation'), displayType);
+
+            // Clear form fields on success
+            if (status === 'success') {
+                document.getElementById('cancel-customer-id').value = '';
+                document.getElementById('cancel-subscription-id').value = '';
+                document.getElementById('cancel-reason').value = 'Debug page cancellation';
+            }
+        } else {
+            displayResult('cancel-subscription-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('cancel-subscription-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+// Admin Revoke Mandate
+function adminRevokeMandate() {
+    const customerId = document.getElementById('revoke-customer-id').value.trim();
+    const mandateId = document.getElementById('revoke-mandate-id').value.trim();
+    const reason = document.getElementById('revoke-reason').value.trim();
+
+    if (!customerId || !mandateId) {
+        frappe.msgprint('{{ _("Please enter customer ID and mandate ID") }}');
+        return;
+    }
+
+    const confirmMessage = `<strong>{{ _("ADMINISTRATIVE MANDATE REVOCATION") }}</strong><br><br>` +
+                          `{{ _("Customer ID:") }} ${customerId}<br>` +
+                          `{{ _("Mandate ID:") }} ${mandateId}<br>` +
+                          `{{ _("Reason:") }} ${reason}<br><br>` +
+                          `{{ _("This action cannot be undone. Continue?") }}`;
+
+    frappe.confirm(
+        confirmMessage,
+        () => executeRevokeMandate(customerId, mandateId, reason)
+    );
+}
+
+function executeRevokeMandate(customerId, mandateId, reason) {
+    showLoading('revoke-mandate-result', '{{ _("Revoking mandate...") }}');
+
+    const formData = new FormData();
+    formData.append('customer_id', customerId);
+    formData.append('mandate_id', mandateId);
+    formData.append('reason', reason);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.admin_revoke_mandate', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            // Handle different status types
+            const status = data.message.status;
+            const displayType = status === 'warning' ? 'warning' : (status === 'success' ? 'success' : 'error');
+            displayResult('revoke-mandate-result', formatAdminResult(data.message, 'Mandate Revocation'), displayType);
+        } else {
+            displayResult('revoke-mandate-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('revoke-mandate-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+// Customer Search
+function searchCustomers() {
+    const searchTerm = document.getElementById('customer-search-term').value.trim();
+    const limit = document.getElementById('customer-search-limit').value;
+
+    if (!searchTerm || searchTerm.length < 2) {
+        alert('{{ _("Please enter at least 2 characters to search") }}');
+        return;
+    }
+
+    showLoading('customer-search-result', '{{ _("Searching customers...") }}');
+
+    const formData = new FormData();
+    formData.append('search_term', searchTerm);
+    formData.append('limit', limit);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.search_customers_by_name', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        // Frappe API responses can be wrapped in 'message' or be direct
+        const result = data.message || data;
+        if (result && (result.customers !== undefined || result.error)) {
+            displayResult('customer-search-result', formatCustomerSearchResult(result), result.error ? 'error' : 'success');
+        } else {
+            displayResult('customer-search-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('customer-search-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+function formatCustomerSearchResult(data) {
+    if (data.error) {
+        return `<div class="error">Error: ${data.error}</div>`;
+    }
+
+    let html = `<h3>Search Results for "${data.search_term}"</h3>`;
+    html += `<p class="text-gray-600 mb-3">Found ${data.total_found} customer(s)</p>`;
+
+    if (data.customers && data.customers.length > 0) {
+        html += '<div class="space-y-2">';
+        data.customers.forEach(customer => {
+            html += `<div class="p-3 border border-gray-200 rounded-lg bg-white">`;
+            html += `<div class="flex justify-between items-start">`;
+            html += `<div>`;
+            html += `<h4 class="font-semibold">${customer.name}</h4>`;
+            html += `<p class="text-sm text-gray-600">${customer.email}</p>`;
+            html += `<p class="text-xs text-gray-500">Created: ${new Date(customer.created_at).toLocaleDateString()}</p>`;
+            html += `</div>`;
+            html += `<div>`;
+            html += `<button onclick="useCustomerId('${customer.id}')" class="text-blue-600 hover:text-blue-800 text-sm font-medium">`;
+            html += `Use ID: ${customer.id}`;
+            html += `</button>`;
+            html += `</div>`;
+            html += `</div>`;
+            html += `</div>`;
+        });
+        html += '</div>';
+    } else {
+        html += '<p class="text-gray-500">No customers found matching your search.</p>';
+    }
+
+    return html;
+}
+
+// Customer List
+function listCustomers() {
+    const limit = document.getElementById('customer-list-limit').value;
+
+    showLoading('customer-list-result', '{{ _("Loading customer list...") }}');
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.list_customers', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: `limit=${encodeURIComponent(limit)}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            displayResult('customer-list-result', formatCustomerListResult(data.message), data.message.error ? 'error' : 'success');
+        } else {
+            displayResult('customer-list-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('customer-list-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+// Sync Membership End Dates from Mollie
+function syncMembershipEndDates() {
+    const dryRun = document.getElementById('sync-dry-run').checked;
+
+    const message = dryRun
+        ? '{{ _("Preview mode: No changes will be made. Continue?") }}'
+        : '{{ _("WARNING: This will update membership cancellation dates. Continue?") }}';
+
+    frappe.confirm(
+        message,
+        () => executeSyncMembershipEndDates(dryRun)
+    );
+}
+
+function executeSyncMembershipEndDates(dryRun) {
+    const loadingMsg = dryRun
+        ? '{{ _("Checking Mollie for subscription cancellation dates (dry run)...") }}'
+        : '{{ _("Syncing membership end dates from Mollie...") }}';
+
+    showLoading('sync-end-dates-result', loadingMsg);
+
+    const formData = new FormData();
+    formData.append('dry_run', dryRun ? 'true' : 'false');
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.sync_membership_end_dates_from_mollie', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        const result = data.message || data;
+        if (result && (result.total_checked !== undefined || result.error)) {
+            displayResult('sync-end-dates-result', formatSyncEndDatesResult(result), result.error ? 'error' : 'success');
+        } else {
+            displayResult('sync-end-dates-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('sync-end-dates-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+function formatSyncEndDatesResult(data) {
+    if (data.error) {
+        return `<div class="error">Error: ${data.error}</div>`;
+    }
+
+    let html = `<h3>Sync Membership End Dates Result</h3>`;
+    html += `<div class="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">`;
+    html += `<p><strong>Mode:</strong> ${data.dry_run ? '🔍 DRY RUN (no changes made)' : '✅ LIVE UPDATE'}</p>`;
+    html += `<p><strong>Members Checked:</strong> ${data.total_checked}</p>`;
+    html += `<p><strong>Updates Needed:</strong> ${data.updates_needed}</p>`;
+    if (!data.dry_run) {
+        html += `<p><strong>Updates Applied:</strong> ${data.updates_applied}</p>`;
+    }
+    html += `</div>`;
+
+    if (data.members && data.members.length > 0) {
+        html += `<h4 class="mt-4 font-medium">Member Details:</h4>`;
+        html += `<div class="mt-2 space-y-3">`;
+
+        data.members.forEach(member => {
+            const needsUpdateClass = member.needs_update ? 'border-orange-300 bg-orange-50' : 'border-gray-200 bg-white';
+
+            html += `<div class="p-3 border ${needsUpdateClass} rounded-lg">`;
+            html += `<div class="flex justify-between items-start">`;
+            html += `<div>`;
+            html += `<h4 class="font-semibold">${member.full_name} (${member.member})</h4>`;
+            html += `<p class="text-sm text-gray-600">Status: ${member.status}</p>`;
+            html += `<p class="text-xs text-gray-500">Customer ID: ${member.customer_id}</p>`;
+            if (member.subscription_id) {
+                html += `<p class="text-xs text-gray-500">Subscription: ${member.subscription_id}</p>`;
+            }
+            html += `</div>`;
+            html += `<div class="text-right">`;
+
+            if (member.error) {
+                html += `<span class="text-red-600 text-sm">⚠️ ${member.error}</span>`;
+            } else if (member.canceled_at) {
+                html += `<p class="text-sm"><strong>Mollie Canceled:</strong> ${member.canceled_at}</p>`;
+                html += `<p class="text-sm"><strong>Current Cancellation:</strong> ${member.current_cancellation_date || 'None'}</p>`;
+
+                if (member.needs_update) {
+                    html += `<p class="text-orange-600 font-medium mt-1">`;
+                    html += data.dry_run ? '📋 Would update' : (member.updated ? '✅ Updated' : '❌ Not updated');
+                    html += `</p>`;
+                } else {
+                    html += `<p class="text-green-600 mt-1">✓ Already correct</p>`;
+                }
+            } else {
+                html += `<span class="text-gray-500 text-sm">No cancellation date</span>`;
+            }
+
+            html += `</div>`;
+            html += `</div>`;
+            html += `</div>`;
+        });
+
+        html += `</div>`;
+    }
+
+    if (data.dry_run && data.updates_needed > 0) {
+        html += `<div class="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded">`;
+        html += `<p class="text-yellow-800"><strong>💡 Next Step:</strong> Uncheck "Dry Run" and click "Sync End Dates" again to apply these ${data.updates_needed} update(s).</p>`;
+        html += `</div>`;
+    } else if (!data.dry_run && data.updates_applied > 0) {
+        html += `<div class="mt-4 p-3 bg-green-50 border border-green-200 rounded">`;
+        html += `<p class="text-green-800"><strong>✅ Success:</strong> ${data.updates_applied} membership(s) updated with Mollie cancellation dates.</p>`;
+        html += `</div>`;
+    }
+
+    return html;
+}
+
+// Admin Delete Customer (NUCLEAR OPTION)
+function adminDeleteCustomer() {
+    const customerId = document.getElementById('delete-customer-id').value.trim();
+    const reason = document.getElementById('delete-reason').value.trim();
+    const confirmationText = document.getElementById('delete-confirmation').value.trim();
+
+    if (!customerId || !reason || !confirmationText) {
+        frappe.msgprint('{{ _("Please fill in all fields") }}');
+        return;
+    }
+
+    if (confirmationText !== 'DELETE CUSTOMER') {
+        frappe.msgprint('{{ _("Confirmation text must be exactly: DELETE CUSTOMER") }}');
+        return;
+    }
+
+    const warningMessage = `<strong style="color: red;">🚨 CRITICAL WARNING 🚨</strong><br><br>` +
+                          `<strong>{{ _("YOU ARE ABOUT TO PERMANENTLY DELETE:") }}</strong><br>` +
+                          `{{ _("Customer ID:") }} ${customerId}<br><br>` +
+                          `<strong>{{ _("THIS WILL CASCADE DELETE:") }}</strong><br>` +
+                          `• {{ _("ALL subscriptions (canceled immediately)") }}<br>` +
+                          `• {{ _("ALL mandates (revoked immediately)") }}<br>` +
+                          `• {{ _("Customer record (deleted permanently)") }}<br><br>` +
+                          `{{ _("Reason:") }} ${reason}<br><br>` +
+                          `<strong style="color: red;">⚠️ {{ _("THIS ACTION CANNOT BE UNDONE") }} ⚠️</strong><br><br>` +
+                          `{{ _("Are you absolutely certain you want to proceed?") }}`;
+
+    frappe.confirm(
+        warningMessage,
+        () => {
+            // Second confirmation for nuclear option
+            const finalMessage = `<strong>{{ _("FINAL CONFIRMATION") }}</strong><br><br>` +
+                               `{{ _("This is your last chance to stop.") }}<br><br>` +
+                               `{{ _("Click Yes to PERMANENTLY DELETE customer") }} <strong>${customerId}</strong> ` +
+                               `{{ _("and ALL associated data.") }}<br><br>` +
+                               `{{ _("Click No to abort.") }}`;
+
+            frappe.confirm(
+                finalMessage,
+                () => executeDeleteCustomer(customerId, reason, confirmationText)
+            );
+        }
+    );
+}
+
+function executeDeleteCustomer(customerId, reason, confirmationText) {
+    showLoading('delete-customer-result', '{{ _("🚨 DELETING CUSTOMER AND ALL DATA...") }}');
+
+    const formData = new FormData();
+    formData.append('customer_id', customerId);
+    formData.append('reason', reason);
+    formData.append('confirmation_text', confirmationText);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.admin_delete_customer', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        // Handle Frappe exception responses
+        if (data.exc_type || data.exception) {
+            // Frappe threw an exception - extract the error message
+            const errorMsg = data.exception || data._server_messages || 'Unknown error occurred';
+            displayResult('delete-customer-result', `<div class="error">Error: ${errorMsg}</div>`, 'error');
+            return;
+        }
+
+        // Frappe API responses can be wrapped in 'message' or be direct
+        const result = data.message || data;
+        if (result && (result.status || result.error)) {
+            // Handle different status types
+            const status = result.status;
+            const displayType = status === 'warning' ? 'warning' : (status === 'success' ? 'success' : 'error');
+            displayResult('delete-customer-result', formatCustomerDeletionResult(result), displayType);
+
+            // Clear form on success
+            if (status === 'success') {
+                document.getElementById('delete-customer-id').value = '';
+                document.getElementById('delete-reason').value = '';
+                document.getElementById('delete-confirmation').value = '';
+            }
+        } else {
+            displayResult('delete-customer-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('delete-customer-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+// Payment Debug Functions
+function debugPayment() {
+    const paymentId = document.getElementById('payment-id-input').value.trim();
+    if (!paymentId) {
+        alert('{{ _("Please enter a payment ID") }}');
+        return;
+    }
+
+    showLoading('payment-result', '{{ _("Querying payment data...") }}');
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.debug_payment', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: `payment_id=${encodeURIComponent(paymentId)}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            displayResult('payment-result', formatPaymentResult(data.message), data.message.error ? 'error' : 'success');
+        } else {
+            displayResult('payment-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('payment-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+function createTestPayment() {
+    const amount = document.getElementById('test-payment-amount').value.trim();
+    const description = document.getElementById('test-payment-description').value.trim();
+    const customerId = document.getElementById('test-payment-customer-id').value.trim();
+
+    // Validate inputs
+    if (!amount || parseFloat(amount) <= 0) {
+        alert('{{ _("Please enter a valid amount") }}');
+        return;
+    }
+
+    if (!description || description.length < 3) {
+        alert('{{ _("Please enter a description (at least 3 characters)") }}');
+        return;
+    }
+
+    showLoading('test-payment-result', '{{ _("Creating test payment...") }}');
+
+    const formData = new FormData();
+    formData.append('amount', amount);
+    formData.append('description', description);
+    if (customerId) {
+        formData.append('customer_id', customerId);
+    }
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.create_test_payment', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        // Frappe wraps the response in data.message
+        const result = data.message || data;
+
+        if (result.status === 'success' && result.checkout_url) {
+            // Format success message with clickable link
+            const successMessage = `✅ Payment Created Successfully!\n\n` +
+                `Payment ID: ${result.payment_id}\n` +
+                `Amount: ${result.amount}\n` +
+                `Description: ${result.description}\n` +
+                `Status: ${result.payment_status}\n` +
+                `Customer: ${result.customer_id || 'None'}\n\n` +
+                `🔗 Complete Payment: ${result.checkout_url}\n\n` +
+                `Click the button below to open the Mollie checkout page:`;
+
+            displayResult('test-payment-result', successMessage, 'success');
+
+            // Add clickable button to open checkout URL
+            const resultDiv = document.getElementById('test-payment-result');
+            const button = document.createElement('button');
+            button.className = 'debug-button mt-4';
+            button.innerHTML = '<i class="fa fa-external-link mr-1"></i>{{ _("Complete Payment at Mollie") }}';
+            button.onclick = () => window.open(result.checkout_url, '_blank');
+            resultDiv.appendChild(button);
+
+        } else if (result.error) {
+            displayResult('test-payment-result', `❌ Error: ${result.error}`, 'error');
+        } else {
+            // Show full response for debugging
+            displayResult('test-payment-result', JSON.stringify(result, null, 2), result.status === 'success' ? 'success' : 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('test-payment-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+function listPayments() {
+    const customerId = document.getElementById('payment-list-customer-id').value.trim();
+    const statusFilter = document.getElementById('payment-status-filter').value;
+    const limit = document.getElementById('payment-list-limit').value;
+
+    showLoading('payment-list-result', '{{ _("Loading payments list...") }}');
+
+    const formData = new FormData();
+    if (customerId) formData.append('customer_id', customerId);
+    if (statusFilter) formData.append('status_filter', statusFilter);
+    formData.append('limit', limit);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.list_payments', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            displayResult('payment-list-result', formatPaymentListResult(data.message), data.message.error ? 'error' : 'success');
+        } else {
+            displayResult('payment-list-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('payment-list-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+// Refund Debug Functions
+function debugRefund() {
+    const refundId = document.getElementById('refund-id-input').value.trim();
+    const paymentId = document.getElementById('refund-payment-id-input').value.trim();
+
+    if (!refundId) {
+        alert('{{ _("Please enter a refund ID") }}');
+        return;
+    }
+
+    showLoading('refund-result', '{{ _("Querying refund data...") }}');
+
+    const formData = new FormData();
+    formData.append('refund_id', refundId);
+    if (paymentId) formData.append('payment_id', paymentId);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.debug_refund', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            displayResult('refund-result', formatRefundResult(data.message), data.message.error ? 'error' : 'success');
+        } else {
+            displayResult('refund-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('refund-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+function listChargebacks() {
+    const customerId = document.getElementById('chargeback-customer-id').value.trim();
+    const limit = document.getElementById('chargeback-limit').value;
+
+    showLoading('chargeback-result', '{{ _("Loading chargebacks list...") }}');
+
+    const formData = new FormData();
+    if (customerId) formData.append('customer_id', customerId);
+    formData.append('limit', limit);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.list_chargebacks', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            displayResult('chargeback-result', formatChargebackListResult(data.message), data.message.error ? 'error' : 'success');
+        } else {
+            displayResult('chargeback-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('chargeback-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+// Webhook Debug Functions
+function testWebhookProcessing() {
+    const paymentId = document.getElementById('test-webhook-payment-id').value.trim();
+    if (!paymentId) {
+        alert('{{ _("Please enter a payment ID") }}');
+        return;
+    }
+
+    showLoading('test-webhook-result', '{{ _("Processing webhook...") }}');
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.test_webhook_processing', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: `payment_id=${encodeURIComponent(paymentId)}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            displayResult('test-webhook-result', formatWebhookTestResult(data.message), data.message.status === 'error' ? 'error' : 'success');
+        } else {
+            displayResult('test-webhook-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('test-webhook-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+function debugWebhookDelivery() {
+    const paymentId = document.getElementById('webhook-payment-id-input').value.trim();
+    if (!paymentId) {
+        alert('{{ _("Please enter a payment ID") }}');
+        return;
+    }
+
+    showLoading('webhook-result', '{{ _("Querying webhook delivery data...") }}');
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.debug_webhook_delivery', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: `payment_id=${encodeURIComponent(paymentId)}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            displayResult('webhook-result', formatWebhookResult(data.message), data.message.error ? 'error' : 'success');
+        } else {
+            displayResult('webhook-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('webhook-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+// Helper Functions
+function showLoading(elementId, message) {
+    const element = document.getElementById(elementId);
+    element.style.display = 'block';
+    element.className = 'result-area';
+    element.textContent = message;
+}
+
+function displayResult(elementId, content, type) {
+    const element = document.getElementById(elementId);
+    element.style.display = 'block';
+
+    let resultClass = 'success-result';
+    if (type === 'error') resultClass = 'error-result';
+    else if (type === 'warning') resultClass = 'warning-result';
+
+    element.className = `result-area ${resultClass}`;
+    element.innerHTML = content;
+}
+
+function formatCustomerResult(data) {
+    if (data.error) {
+        return `<strong>Error:</strong> ${data.error}`;
+    }
+
+    let html = `<h3>Customer Debug Results</h3>`;
+    html += `<p><strong>Customer ID:</strong> ${data.customer_id}</p>`;
+    html += `<p><strong>API Mode:</strong> ${data.test_mode ? 'Test' : 'Live'}</p>`;
+    html += `<p><strong>Timestamp:</strong> ${data.timestamp}</p>`;
+
+    if (data.customer_found) {
+        const customer = data.customer_data;
+        html += `<h4>Customer Details:</h4>`;
+        html += `<p><strong>Name:</strong> ${customer.name}</p>`;
+        html += `<p><strong>Email:</strong> ${customer.email}</p>`;
+        html += `<p><strong>Created:</strong> ${customer.created_at}</p>`;
+        html += `<p><strong>Mode:</strong> ${customer.mode}</p>`;
+
+        if (data.subscriptions.length > 0) {
+            // Filter subscriptions based on checkbox
+            const hideCanceled = document.getElementById('hide-canceled-items').checked;
+            const filteredSubs = hideCanceled ?
+                data.subscriptions.filter(sub => sub.status === 'active') :
+                data.subscriptions;
+
+            html += `<h4>Subscriptions (${filteredSubs.length}${hideCanceled && filteredSubs.length !== data.subscriptions.length ? ` of ${data.subscriptions.length}` : ''}):</h4>`;
+            filteredSubs.forEach(sub => {
+                const statusClass = sub.status === 'active' ? 'status-active' : 'status-canceled';
+                html += `<div style="border: 1px solid #ddd; padding: 0.5rem; margin: 0.5rem 0; border-radius: 4px;">`;
+                html += `<p><strong>ID:</strong> ${sub.id} <span class="status-badge ${statusClass}">${sub.status}</span></p>`;
+                html += `<p><strong>Amount:</strong> ${sub.amount}</p>`;
+                html += `<p><strong>Interval:</strong> ${sub.interval}</p>`;
+                html += `<p><strong>Description:</strong> ${sub.description}</p>`;
+                html += `<p><strong>Created:</strong> ${sub.created_at}</p>`;
+                if (sub.next_payment_date) html += `<p><strong>Next Payment:</strong> ${sub.next_payment_date}</p>`;
+                if (sub.canceled_at) html += `<p><strong>Cancelled:</strong> ${sub.canceled_at}</p>`;
+                html += `</div>`;
+            });
+        }
+
+        if (data.mandates.length > 0) {
+            // Filter mandates based on checkbox
+            const hideCanceled = document.getElementById('hide-canceled-items').checked;
+            const filteredMandates = hideCanceled ?
+                data.mandates.filter(mandate => mandate.status === 'valid') :
+                data.mandates;
+
+            html += `<h4>Mandates (${filteredMandates.length}${hideCanceled && filteredMandates.length !== data.mandates.length ? ` of ${data.mandates.length}` : ''}):</h4>`;
+            filteredMandates.forEach(mandate => {
+                const statusClass = mandate.status === 'valid' ? 'status-valid' : 'status-invalid';
+                html += `<div style="border: 1px solid #ddd; padding: 0.5rem; margin: 0.5rem 0; border-radius: 4px;">`;
+                html += `<p><strong>ID:</strong> ${mandate.id} <span class="status-badge ${statusClass}">${mandate.status}</span></p>`;
+                html += `<p><strong>Method:</strong> ${mandate.method}</p>`;
+                html += `<p><strong>Created:</strong> ${mandate.created_at}</p>`;
+                if (mandate.mandate_reference) html += `<p><strong>Reference:</strong> ${mandate.mandate_reference}</p>`;
+                html += `</div>`;
+            });
+        }
+    } else {
+        html += `<p><strong>Customer not found in Mollie API</strong></p>`;
+    }
+
+    // Database records
+    const db = data.database_records;
+    if (db.members.length > 0 || db.donors.length > 0) {
+        html += `<h4>Database Records:</h4>`;
+
+        if (db.members.length > 0) {
+            html += `<h5>Members (${db.members.length}):</h5>`;
+            db.members.forEach(member => {
+                html += `<div style="border: 1px solid #ddd; padding: 0.5rem; margin: 0.5rem 0; border-radius: 4px; background-color: #f8f9fa;">`;
+                html += `<p><strong>ID:</strong> ${member.name}</p>`;
+                html += `<p><strong>Name:</strong> ${member.full_name}</p>`;
+                if (member.payment_method) html += `<p><strong>Payment Method:</strong> ${member.payment_method}</p>`;
+                if (member.mollie_subscription_id) html += `<p><strong>Subscription ID:</strong> ${member.mollie_subscription_id}</p>`;
+                if (member.subscription_status) html += `<p><strong>Status:</strong> <span class="status-badge ${member.subscription_status === 'active' ? 'status-active' : 'status-canceled'}">${member.subscription_status}</span></p>`;
+                html += `</div>`;
+            });
+        }
+
+        if (db.donors.length > 0) {
+            html += `<h5>Donors (${db.donors.length}):</h5>`;
+            db.donors.forEach(donor => {
+                html += `<div style="border: 1px solid #ddd; padding: 0.5rem; margin: 0.5rem 0; border-radius: 4px; background-color: #f8f9fa;">`;
+                html += `<p><strong>ID:</strong> ${donor.name}</p>`;
+                html += `<p><strong>Donor Name:</strong> ${donor.donor_name}</p>`;
+                if (donor.member) html += `<p><strong>Linked Member:</strong> ${donor.member}</p>`;
+                html += `</div>`;
+            });
+        }
+    }
+
+    return html;
+}
+
+function formatSubscriptionResult(data) {
+    if (data.error) {
+        return `<strong>Error:</strong> ${data.error}`;
+    }
+
+    let html = `<h3>Subscription Debug Results</h3>`;
+    html += `<p><strong>Subscription ID:</strong> ${data.subscription_id}</p>`;
+    html += `<p><strong>Customer ID:</strong> ${data.customer_id || 'N/A'}</p>`;
+
+    if (data.subscription_found) {
+        const sub = data.subscription_data;
+        const statusClass = sub.status === 'active' ? 'status-active' : 'status-canceled';
+        html += `<h4>Subscription Details:</h4>`;
+        html += `<p><strong>Status:</strong> <span class="status-badge ${statusClass}">${sub.status}</span></p>`;
+        html += `<p><strong>Amount:</strong> ${sub.amount}</p>`;
+        html += `<p><strong>Interval:</strong> ${sub.interval}</p>`;
+        html += `<p><strong>Description:</strong> ${sub.description}</p>`;
+        html += `<p><strong>Created:</strong> ${sub.created_at}</p>`;
+        if (sub.next_payment_date) html += `<p><strong>Next Payment:</strong> ${sub.next_payment_date}</p>`;
+        if (sub.canceled_at) html += `<p><strong>Cancelled:</strong> ${sub.canceled_at}</p>`;
+        html += `<p><strong>Mandate ID:</strong> ${sub.mandate_id || 'N/A'}</p>`;
+        if (sub.metadata && Object.keys(sub.metadata).length > 0) {
+            html += `<p><strong>Metadata:</strong> <pre>${JSON.stringify(sub.metadata, null, 2)}</pre></p>`;
+        }
+    } else {
+        html += `<p><strong>Subscription not found</strong></p>`;
+    }
+
+    return html;
+}
+
+function formatMandateResult(data) {
+    if (data.error) {
+        return `<strong>Error:</strong> ${data.error}`;
+    }
+
+    let html = `<h3>Mandate Debug Results</h3>`;
+    html += `<p><strong>Mandate ID:</strong> ${data.mandate_id}</p>`;
+    html += `<p><strong>Customer ID:</strong> ${data.customer_id || 'N/A'}</p>`;
+
+    if (data.mandate_found) {
+        const mandate = data.mandate_data;
+        const statusClass = mandate.status === 'valid' ? 'status-valid' : 'status-invalid';
+        html += `<h4>Mandate Details:</h4>`;
+        html += `<p><strong>Status:</strong> <span class="status-badge ${statusClass}">${mandate.status}</span></p>`;
+        html += `<p><strong>Method:</strong> ${mandate.method}</p>`;
+        html += `<p><strong>Created:</strong> ${mandate.created_at}</p>`;
+        if (mandate.mandate_reference) html += `<p><strong>Reference:</strong> ${mandate.mandate_reference}</p>`;
+        if (mandate.signature_date) html += `<p><strong>Signature Date:</strong> ${mandate.signature_date}</p>`;
+        if (mandate.consumer_name) html += `<p><strong>Consumer Name:</strong> ${mandate.consumer_name}</p>`;
+        if (mandate.consumer_account) html += `<p><strong>Consumer Account:</strong> ${mandate.consumer_account}</p>`;
+    } else {
+        html += `<p><strong>Mandate not found</strong></p>`;
+    }
+
+    return html;
+}
+
+function formatAdminResult(data, action) {
+    let html = `<h3>${action} Result</h3>`;
+
+    // Format status badge based on status type
+    let statusClass = 'status-active';
+    if (data.status === 'warning') statusClass = 'status-warning';
+    else if (data.status === 'success') statusClass = 'status-active';
+    else statusClass = 'status-error';
+
+    // Make success messages more prominent
+    if (data.status === 'success') {
+        html += `<div style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<p style="margin: 0; font-size: 1.1em;"><strong>✅ ${data.message}</strong></p>`;
+        html += `</div>`;
+    } else if (data.status === 'warning') {
+        html += `<div style="background: #fffbeb; border: 1px solid #fed7aa; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<p style="margin: 0; font-size: 1.1em;"><strong>⚠️ ${data.message}</strong></p>`;
+        html += `</div>`;
+    } else {
+        html += `<div style="background: #fef2f2; border: 1px solid #fecaca; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<p style="margin: 0; font-size: 1.1em;"><strong>❌ ${data.message}</strong></p>`;
+        html += `</div>`;
+    }
+
+    html += `<p><strong>Status:</strong> <span class="status-badge ${statusClass}">${data.status.toUpperCase()}</span></p>`;
+    html += `<p><strong>Customer ID:</strong> ${data.customer_id}</p>`;
+    if (data.subscription_id) html += `<p><strong>Subscription ID:</strong> ${data.subscription_id}</p>`;
+    if (data.mandate_id) html += `<p><strong>Mandate ID:</strong> ${data.mandate_id}</p>`;
+
+    // Handle different user fields for success vs warning
+    const userField = data.cancelled_by || data.revoked_by || data.attempted_by;
+    const userAction = data.cancelled_by ? 'Cancelled by' : (data.revoked_by ? 'Revoked by' : 'Attempted by');
+    html += `<p><strong>${userAction}:</strong> ${userField}</p>`;
+
+    html += `<p><strong>Reason:</strong> ${data.reason}</p>`;
+    html += `<p><strong>Timestamp:</strong> ${data.timestamp}</p>`;
+
+    // Show error detail for warning cases
+    if (data.error_detail) {
+        html += `<p><strong>API Response:</strong> ${data.error_detail}</p>`;
+    }
+
+    return html;
+}
+
+function formatCustomerDeletionResult(data) {
+    let html = `<h3>🚨 Customer Deletion Result</h3>`;
+
+    // Format status badge based on status type
+    let statusClass = 'status-active';
+    if (data.status === 'warning') statusClass = 'status-warning';
+    else if (data.status === 'success') statusClass = 'status-active';
+    else statusClass = 'status-error';
+
+    html += `<p><strong>Status:</strong> <span class="status-badge ${statusClass}">${data.status}</span></p>`;
+    html += `<p><strong>Message:</strong> ${data.message}</p>`;
+    html += `<p><strong>Customer ID:</strong> ${data.customer_id}</p>`;
+
+    // Handle different user fields for success vs warning
+    const userField = data.deleted_by || data.attempted_by;
+    const userAction = data.deleted_by ? 'Deleted by' : 'Attempted by';
+    html += `<p><strong>${userAction}:</strong> ${userField}</p>`;
+
+    html += `<p><strong>Reason:</strong> ${data.reason}</p>`;
+    html += `<p><strong>Timestamp:</strong> ${data.timestamp}</p>`;
+
+    // Show customer details for successful deletions
+    if (data.customer_details) {
+        html += `<h4>Deleted Customer Details:</h4>`;
+        html += `<div style="border: 1px solid #ddd; padding: 0.5rem; margin: 0.5rem 0; border-radius: 4px; background-color: #fff5f5;">`;
+        html += `<p><strong>Name:</strong> ${data.customer_details.name}</p>`;
+        html += `<p><strong>Email:</strong> ${data.customer_details.email}</p>`;
+        html += `<p><strong>Created:</strong> ${data.customer_details.created_at}</p>`;
+        html += `<p><strong>Mode:</strong> ${data.customer_details.mode}</p>`;
+        html += `</div>`;
+    }
+
+    // Show cascade deletion details
+    if (data.cascaded_deletions) {
+        html += `<h4>Cascaded Deletions:</h4>`;
+        html += `<div style="border: 1px solid #ddd; padding: 0.5rem; margin: 0.5rem 0; border-radius: 4px; background-color: #fff5f5;">`;
+        html += `<p><strong>Subscriptions Deleted:</strong> ${data.cascaded_deletions.subscriptions_deleted}</p>`;
+        html += `<p><strong>Mandates Deleted:</strong> ${data.cascaded_deletions.mandates_deleted}</p>`;
+        html += `</div>`;
+    }
+
+    // Show error detail for warning cases
+    if (data.error_detail) {
+        html += `<p><strong>API Response:</strong> ${data.error_detail}</p>`;
+    }
+
+    return html;
+}
+
+function formatCustomerListResult(data) {
+    if (data.error) {
+        return `<strong>Error:</strong> ${data.error}`;
+    }
+
+    let html = `<h3>Customer List</h3>`;
+    html += `<p><strong>API Mode:</strong> ${data.test_mode ? 'Test' : 'Live'}</p>`;
+    html += `<p><strong>Limit:</strong> ${data.limit}</p>`;
+    html += `<p><strong>Found:</strong> ${data.customers.length} customers</p>`;
+    html += `<p><strong>Timestamp:</strong> ${data.timestamp}</p>`;
+
+    if (data.customers.length > 0) {
+        html += `<div style="margin-top: 1rem;">`;
+        html += `<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0.5rem;">`;
+
+        data.customers.forEach(customer => {
+            html += `<div style="border: 1px solid #ddd; padding: 0.75rem; border-radius: 4px; background-color: #f8f9fa; position: relative;">`;
+
+            // Customer ID with copy button
+            html += `<div style="display: flex; align-items: center; justify-content: between; margin-bottom: 0.5rem;">`;
+            html += `<p style="margin: 0; font-family: monospace; font-weight: bold; color: #2563eb; flex-grow: 1;">${customer.id}</p>`;
+            html += `<button onclick="copyToClipboard('${customer.id}')" style="background: #2563eb; color: white; border: none; padding: 0.25rem 0.5rem; border-radius: 3px; font-size: 0.75rem; cursor: pointer; margin-left: 0.5rem;" title="Copy Customer ID">`;
+            html += `<i class="fa fa-copy"></i>`;
+            html += `</button>`;
+            html += `</div>`;
+
+            html += `<p style="margin: 0.25rem 0;"><strong>Name:</strong> ${customer.name}</p>`;
+            html += `<p style="margin: 0.25rem 0;"><strong>Email:</strong> ${customer.email}</p>`;
+            html += `<p style="margin: 0.25rem 0;"><strong>Created:</strong> ${new Date(customer.created_at).toLocaleDateString()}</p>`;
+            html += `<p style="margin: 0.25rem 0;"><strong>Mode:</strong> <span class="status-badge ${customer.mode === 'test' ? 'status-pending' : 'status-active'}">${customer.mode}</span></p>`;
+
+            // Quick action button
+            html += `<button onclick="useCustomerId('${customer.id}')" style="background: #059669; color: white; border: none; padding: 0.25rem 0.5rem; border-radius: 3px; font-size: 0.75rem; cursor: pointer; margin-top: 0.5rem;" title="Use this Customer ID">`;
+            html += `<i class="fa fa-arrow-up mr-1"></i>Use ID`;
+            html += `</button>`;
+
+            html += `</div>`;
+        });
+
+        html += `</div>`;
+        html += `</div>`;
+    } else {
+        html += `<p><strong>No customers found</strong></p>`;
+    }
+
+    return html;
+}
+
+// New Formatting Functions for Payment Debug Features
+
+function formatPaymentResult(data) {
+    let html = `<h3>Payment Debug Results</h3>`;
+    html += `<p><strong>Payment ID:</strong> ${data.payment_id}</p>`;
+    html += `<p><strong>Test Mode:</strong> ${data.test_mode}</p>`;
+    html += `<p><strong>Timestamp:</strong> ${data.timestamp}</p>`;
+
+    if (data.error) {
+        html += `<div style="color: #dc2626; background: #fef2f2; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<strong>Error:</strong> ${data.error}`;
+        html += `</div>`;
+        return html;
+    }
+
+    if (data.payment_found && data.payment_data) {
+        const payment = data.payment_data;
+        html += `<div style="background: #f0fdf4; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<h4>Payment Details</h4>`;
+        html += `<p><strong>Status:</strong> <span class="status-badge status-${payment.status}">${payment.status}</span></p>`;
+        html += `<p><strong>Amount:</strong> ${payment.amount}</p>`;
+        html += `<p><strong>Description:</strong> ${payment.description || 'N/A'}</p>`;
+        html += `<p><strong>Method:</strong> ${payment.method || 'N/A'}</p>`;
+        html += `<p><strong>Created:</strong> ${new Date(payment.created_at).toLocaleString()}</p>`;
+
+        if (payment.paid_at) html += `<p><strong>Paid At:</strong> ${new Date(payment.paid_at).toLocaleString()}</p>`;
+        if (payment.failed_at) html += `<p><strong>Failed At:</strong> ${new Date(payment.failed_at).toLocaleString()}</p>`;
+        if (payment.canceled_at) html += `<p><strong>Canceled At:</strong> ${new Date(payment.canceled_at).toLocaleString()}</p>`;
+        if (payment.expired_at) html += `<p><strong>Expired At:</strong> ${new Date(payment.expired_at).toLocaleString()}</p>`;
+
+        html += `<p><strong>Customer ID:</strong> ${payment.customer_id || 'N/A'}</p>`;
+        html += `<p><strong>Subscription ID:</strong> ${payment.subscription_id || 'N/A'}</p>`;
+        html += `<p><strong>Mandate ID:</strong> ${payment.mandate_id || 'N/A'}</p>`;
+        html += `<p><strong>Sequence Type:</strong> ${payment.sequence_type || 'N/A'}</p>`;
+        html += `<p><strong>Webhook URL:</strong> ${payment.webhook_url || 'N/A'}</p>`;
+        html += `<p><strong>Settlement ID:</strong> ${payment.settlement_id || 'N/A'}</p>`;
+
+        if (payment.failure_reason) {
+            html += `<p><strong>Failure Reason:</strong> <span style="color: #dc2626;">${payment.failure_reason}</span></p>`;
+        }
+
+        html += `</div>`;
+
+        // Show refunds if any
+        if (data.refunds && data.refunds.length > 0) {
+            html += `<div style="background: #fef3c7; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+            html += `<h4>Refunds (${data.refunds.length})</h4>`;
+            data.refunds.forEach(refund => {
+                html += `<div style="border-left: 3px solid #d97706; padding-left: 0.5rem; margin: 0.5rem 0;">`;
+                html += `<p><strong>ID:</strong> ${refund.id}</p>`;
+                html += `<p><strong>Status:</strong> <span class="status-badge status-${refund.status}">${refund.status}</span></p>`;
+                html += `<p><strong>Amount:</strong> ${refund.amount}</p>`;
+                html += `<p><strong>Created:</strong> ${new Date(refund.created_at).toLocaleString()}</p>`;
+                if (refund.settled_at) html += `<p><strong>Settled:</strong> ${new Date(refund.settled_at).toLocaleString()}</p>`;
+                html += `</div>`;
+            });
+            html += `</div>`;
+        }
+
+        // Show chargebacks if any
+        if (data.chargebacks && data.chargebacks.length > 0) {
+            html += `<div style="background: #fef2f2; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+            html += `<h4>Chargebacks (${data.chargebacks.length})</h4>`;
+            data.chargebacks.forEach(chargeback => {
+                html += `<div style="border-left: 3px solid #dc2626; padding-left: 0.5rem; margin: 0.5rem 0;">`;
+                html += `<p><strong>ID:</strong> ${chargeback.id}</p>`;
+                html += `<p><strong>Amount:</strong> ${chargeback.amount}</p>`;
+                html += `<p><strong>Reason:</strong> ${chargeback.reason || 'N/A'}</p>`;
+                html += `<p><strong>Created:</strong> ${new Date(chargeback.created_at).toLocaleString()}</p>`;
+                if (chargeback.reversed_at) html += `<p><strong>Reversed:</strong> ${new Date(chargeback.reversed_at).toLocaleString()}</p>`;
+                html += `</div>`;
+            });
+            html += `</div>`;
+        }
+    } else {
+        html += `<p><strong>Payment not found</strong></p>`;
+    }
+
+    return html;
+}
+
+function formatPaymentListResult(data) {
+    let html = `<h3>Payment List Results</h3>`;
+    html += `<p><strong>Limit:</strong> ${data.limit}</p>`;
+    html += `<p><strong>Customer ID:</strong> ${data.customer_id || 'All customers'}</p>`;
+    html += `<p><strong>Status Filter:</strong> ${data.status_filter || 'All statuses'}</p>`;
+    html += `<p><strong>Test Mode:</strong> ${data.test_mode}</p>`;
+
+    if (data.error) {
+        html += `<div style="color: #dc2626; background: #fef2f2; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<strong>Error:</strong> ${data.error}`;
+        html += `</div>`;
+        return html;
+    }
+
+    if (data.payments && data.payments.length > 0) {
+        html += `<div style="background: #f0fdf4; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<h4>Payments (${data.payments.length})</h4>`;
+
+        data.payments.forEach(payment => {
+            html += `<div style="border: 1px solid #e5e7eb; border-radius: 4px; padding: 0.75rem; margin: 0.5rem 0; background: white;">`;
+            html += `<p><strong>ID:</strong> ${payment.id}</p>`;
+            html += `<p><strong>Status:</strong> <span class="status-badge status-${payment.status}">${payment.status}</span></p>`;
+            html += `<p><strong>Amount:</strong> ${payment.amount}</p>`;
+            html += `<p><strong>Description:</strong> ${payment.description || 'N/A'}</p>`;
+            html += `<p><strong>Method:</strong> ${payment.method || 'N/A'}</p>`;
+            html += `<p><strong>Created:</strong> ${new Date(payment.created_at).toLocaleString()}</p>`;
+            html += `<p><strong>Customer ID:</strong> ${payment.customer_id || 'N/A'}</p>`;
+            html += `<p><strong>Subscription ID:</strong> ${payment.subscription_id || 'N/A'}</p>`;
+            html += `<p><strong>Sequence:</strong> ${payment.sequence_type || 'N/A'}</p>`;
+            html += `</div>`;
+        });
+
+        html += `</div>`;
+    } else {
+        html += `<p><strong>No payments found</strong></p>`;
+    }
+
+    return html;
+}
+
+function formatRefundResult(data) {
+    let html = `<h3>Refund Debug Results</h3>`;
+    html += `<p><strong>Refund ID:</strong> ${data.refund_id}</p>`;
+    html += `<p><strong>Payment ID:</strong> ${data.payment_id || 'N/A'}</p>`;
+    html += `<p><strong>Test Mode:</strong> ${data.test_mode}</p>`;
+
+    if (data.error) {
+        html += `<div style="color: #dc2626; background: #fef2f2; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<strong>Error:</strong> ${data.error}`;
+        html += `</div>`;
+        return html;
+    }
+
+    if (data.refund_found && data.refund_data) {
+        const refund = data.refund_data;
+        html += `<div style="background: #fef3c7; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<h4>Refund Details</h4>`;
+        html += `<p><strong>Status:</strong> <span class="status-badge status-${refund.status}">${refund.status}</span></p>`;
+        html += `<p><strong>Amount:</strong> ${refund.amount}</p>`;
+        html += `<p><strong>Payment ID:</strong> ${refund.payment_id}</p>`;
+        html += `<p><strong>Description:</strong> ${refund.description || 'N/A'}</p>`;
+        html += `<p><strong>Created:</strong> ${new Date(refund.created_at).toLocaleString()}</p>`;
+        if (refund.settled_at) html += `<p><strong>Settled:</strong> ${new Date(refund.settled_at).toLocaleString()}</p>`;
+        html += `<p><strong>Settlement ID:</strong> ${refund.settlement_id || 'N/A'}</p>`;
+        html += `</div>`;
+    } else {
+        html += `<p><strong>Refund not found</strong></p>`;
+    }
+
+    return html;
+}
+
+function formatChargebackListResult(data) {
+    let html = `<h3>Chargeback List Results</h3>`;
+    html += `<p><strong>Customer ID:</strong> ${data.customer_id || 'All customers'}</p>`;
+    html += `<p><strong>Limit:</strong> ${data.limit}</p>`;
+    html += `<p><strong>Test Mode:</strong> ${data.test_mode}</p>`;
+
+    if (data.error) {
+        html += `<div style="color: #dc2626; background: #fef2f2; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<strong>Error:</strong> ${data.error}`;
+        html += `</div>`;
+        return html;
+    }
+
+    if (data.chargebacks && data.chargebacks.length > 0) {
+        html += `<div style="background: #fef2f2; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<h4>Chargebacks (${data.chargebacks.length})</h4>`;
+
+        data.chargebacks.forEach(chargeback => {
+            html += `<div style="border: 1px solid #fca5a5; border-radius: 4px; padding: 0.75rem; margin: 0.5rem 0; background: white;">`;
+            html += `<p><strong>ID:</strong> ${chargeback.id}</p>`;
+            html += `<p><strong>Payment ID:</strong> ${chargeback.payment_id || 'N/A'}</p>`;
+            html += `<p><strong>Amount:</strong> ${chargeback.amount}</p>`;
+            html += `<p><strong>Reason:</strong> ${chargeback.reason || 'N/A'}</p>`;
+            html += `<p><strong>Created:</strong> ${new Date(chargeback.created_at).toLocaleString()}</p>`;
+            if (chargeback.reversed_at) html += `<p><strong>Reversed:</strong> ${new Date(chargeback.reversed_at).toLocaleString()}</p>`;
+            html += `<p><strong>Settlement ID:</strong> ${chargeback.settlement_id || 'N/A'}</p>`;
+            html += `</div>`;
+        });
+
+        html += `</div>`;
+    } else {
+        html += `<p><strong>No chargebacks found</strong></p>`;
+    }
+
+    return html;
+}
+
+function formatWebhookTestResult(data) {
+    let html = `<h3>Webhook Test Results</h3>`;
+    html += `<p><strong>Payment ID:</strong> ${data.payment_id}</p>`;
+    html += `<p><strong>Test Mode:</strong> ${data.test_mode}</p>`;
+    html += `<p><strong>Timestamp:</strong> ${data.timestamp}</p>`;
+
+    if (data.error) {
+        html += `<div style="color: #dc2626; background: #fef2f2; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<strong>Error:</strong> ${data.error}`;
+        html += `</div>`;
+        return html;
+    }
+
+    // Status badge
+    let statusClass = 'status-active';
+    if (data.status === 'error') statusClass = 'status-error';
+    else if (data.status === 'pending') statusClass = 'status-pending';
+
+    html += `<div style="background: ${data.status === 'success' ? '#f0fdf4' : '#fef2f2'}; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+    html += `<h4>Processing Result</h4>`;
+    html += `<p><strong>Status:</strong> <span class="status-badge ${statusClass}">${data.status.toUpperCase()}</span></p>`;
+    html += `<p><strong>Message:</strong> ${data.message}</p>`;
+    html += `<p><strong>Webhook Called:</strong> ${data.webhook_called ? 'Yes' : 'No'}</p>`;
+
+    if (data.http_status) {
+        html += `<p><strong>HTTP Status:</strong> ${data.http_status}</p>`;
+    }
+
+    if (data.webhook_status) {
+        html += `<p><strong>Webhook Status:</strong> ${data.webhook_status}</p>`;
+    }
+
+    // Show webhook result if available
+    if (data.webhook_result && typeof data.webhook_result === 'object') {
+        html += `<h5 style="margin-top: 1rem;">Webhook Response:</h5>`;
+        html += `<pre style="background: white; padding: 0.5rem; border-radius: 4px; max-height: 300px; overflow-y: auto; font-size: 0.875rem;">${JSON.stringify(data.webhook_result, null, 2)}</pre>`;
+    }
+
+    html += `</div>`;
+
+    return html;
+}
+
+function formatWebhookResult(data) {
+    let html = `<h3>Webhook Debug Results</h3>`;
+    html += `<p><strong>Payment ID:</strong> ${data.payment_id}</p>`;
+    html += `<p><strong>Test Mode:</strong> ${data.test_mode}</p>`;
+
+    if (data.error) {
+        html += `<div style="color: #dc2626; background: #fef2f2; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<strong>Error:</strong> ${data.error}`;
+        html += `</div>`;
+        return html;
+    }
+
+    if (data.webhook_info) {
+        const webhook = data.webhook_info;
+        html += `<div style="background: #dbeafe; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<h4>Webhook Information</h4>`;
+        html += `<p><strong>Payment ID:</strong> ${webhook.payment_id}</p>`;
+        html += `<p><strong>Webhook URL:</strong> ${webhook.webhook_url || 'Not configured'}</p>`;
+        html += `<p><strong>Current Status:</strong> <span class="status-badge status-${webhook.status}">${webhook.status}</span></p>`;
+        html += `<p><strong>Created:</strong> ${new Date(webhook.created_at).toLocaleString()}</p>`;
+
+        if (webhook.status_changes && webhook.status_changes.length > 0) {
+            html += `<h5>Status Change Timeline</h5>`;
+            html += `<div style="background: white; padding: 0.5rem; border-radius: 4px; margin: 0.5rem 0;">`;
+            webhook.status_changes.forEach(change => {
+                html += `<p><strong>${change.status}:</strong> ${new Date(change.timestamp).toLocaleString()}</p>`;
+            });
+            html += `</div>`;
+        }
+
+        if (webhook.note) {
+            html += `<div style="background: #f3f4f6; padding: 0.5rem; border-radius: 4px; margin: 0.5rem 0; font-style: italic;">`;
+            html += `<p><strong>Note:</strong> ${webhook.note}</p>`;
+            html += `</div>`;
+        }
+
+        html += `</div>`;
+    }
+
+    return html;
+}
+
+// Store last customer results for dynamic filtering
+let lastCustomerData = null;
+
+function refreshResultsDisplay() {
+    // Re-render customer results if they exist
+    if (lastCustomerData && document.getElementById('customer-result').style.display !== 'none') {
+        displayResult('customer-result', formatCustomerResult(lastCustomerData), 'success');
+    }
+}
+
+// Utility functions for customer list
+function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(function() {
+        // Visual feedback
+        alert(`{{ _("Copied to clipboard:") }} ${text}`);
+    }).catch(function(err) {
+        // Fallback for older browsers
+        prompt('{{ _("Copy this customer ID:") }}', text);
+    });
+}
+
+// Admin Cancel Payment
+function adminCancelPayment() {
+    const paymentId = document.getElementById('cancel-payment-id').value.trim();
+    const reason = document.getElementById('cancel-payment-reason').value.trim();
+
+    if (!paymentId) {
+        frappe.msgprint('{{ _("Please enter a payment ID") }}');
+        return;
+    }
+
+    const confirmMessage = `<strong>{{ _("ADMINISTRATIVE PAYMENT CANCELLATION") }}</strong><br><br>` +
+                          `{{ _("Payment ID:") }} ${paymentId}<br>` +
+                          `{{ _("Reason:") }} ${reason}<br><br>` +
+                          `{{ _("Only open, pending, or authorized payments can be cancelled.") }}<br>` +
+                          `{{ _("This action cannot be undone. Continue?") }}`;
+
+    frappe.confirm(
+        confirmMessage,
+        () => executeCancelPayment(paymentId, reason)
+    );
+}
+
+function executeCancelPayment(paymentId, reason) {
+    showLoading('cancel-payment-result', '{{ _("Cancelling payment...") }}');
+
+    const formData = new FormData();
+    formData.append('payment_id', paymentId);
+    formData.append('reason', reason);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.admin_cancel_payment', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        console.log('Cancel payment response:', data);
+        if (data.message) {
+            console.log('Found data.message:', data.message);
+            const status = data.message.status;
+            const displayType = status === 'warning' ? 'warning' : (status === 'success' ? 'success' : 'error');
+            displayResult('cancel-payment-result', formatAdminResult(data.message, 'Payment Cancellation'), displayType);
+        } else {
+            console.log('No data.message found, full response:', data);
+            displayResult('cancel-payment-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('cancel-payment-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+function useCustomerId(customerId) {
+    // Fill the customer ID in the debug input field
+    document.getElementById('customer-id-input').value = customerId;
+
+    // Visual feedback
+    const input = document.getElementById('customer-id-input');
+    input.style.backgroundColor = '#dcfce7';
+    input.style.borderColor = '#16a34a';
+
+    // Reset styling after 2 seconds
+    setTimeout(() => {
+        input.style.backgroundColor = '';
+        input.style.borderColor = '';
+    }, 2000);
+
+    alert(`{{ _("Customer ID filled in debug field:") }} ${customerId}`);
+}
+
+// Create Subscription
+function createSubscription() {
+    const customerId = document.getElementById('create-sub-customer-id').value.trim();
+    const mandateId = document.getElementById('create-sub-mandate-id').value.trim();
+    const amount = document.getElementById('create-sub-amount').value.trim();
+    const interval = document.getElementById('create-sub-interval').value;
+    const startDate = document.getElementById('create-sub-start-date').value;
+    const description = document.getElementById('create-sub-description').value.trim();
+
+    if (!customerId) {
+        frappe.msgprint('{{ _("Please enter a customer ID") }}');
+        return;
+    }
+
+    if (!amount || parseFloat(amount) <= 0) {
+        frappe.msgprint('{{ _("Please enter a valid amount") }}');
+        return;
+    }
+
+    if (!description) {
+        frappe.msgprint('{{ _("Please enter a description") }}');
+        return;
+    }
+
+    const confirmMessage = `<strong>{{ _("CREATE NEW SUBSCRIPTION") }}</strong><br><br>` +
+                          `{{ _("Customer ID:") }} ${customerId}<br>` +
+                          `{{ _("Amount:") }} €${amount}<br>` +
+                          `{{ _("Interval:") }} ${interval}<br>` +
+                          `{{ _("Start Date:") }} ${startDate || '{{ _("Immediately") }}'}<br>` +
+                          `{{ _("Description:") }} ${description}<br>` +
+                          (mandateId ? `{{ _("Mandate ID:") }} ${mandateId}<br>` : '') +
+                          `<br>{{ _("Continue?") }}`;
+
+    frappe.confirm(
+        confirmMessage,
+        () => executeCreateSubscription(customerId, mandateId, amount, interval, startDate, description)
+    );
+}
+
+function executeCreateSubscription(customerId, mandateId, amount, interval, startDate, description) {
+    showLoading('create-subscription-result', '{{ _("Creating subscription...") }}');
+
+    const formData = new FormData();
+    formData.append('customer_id', customerId);
+    formData.append('amount', amount);
+    formData.append('interval', interval);
+    formData.append('description', description);
+    if (mandateId) formData.append('mandate_id', mandateId);
+    if (startDate) formData.append('start_date', startDate);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.create_subscription', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        // Handle Frappe exception responses
+        if (data.exc_type || data.exception) {
+            const errorMsg = data.exception || data._server_messages || 'Unknown error occurred';
+            displayResult('create-subscription-result', `<div class="error">Error: ${errorMsg}</div>`, 'error');
+            return;
+        }
+
+        // Frappe API responses can be wrapped in 'message' or be direct
+        const result = data.message || data;
+        if (result && (result.status || result.error)) {
+            const status = result.status;
+            const displayType = status === 'success' ? 'success' : 'error';
+            displayResult('create-subscription-result', formatSubscriptionCreationResult(result), displayType);
+
+            // Clear all form fields on success
+            if (status === 'success') {
+                document.getElementById('create-sub-customer-id').value = '';
+                document.getElementById('create-sub-mandate-id').value = '';
+                document.getElementById('create-sub-amount').value = '25.00';
+                document.getElementById('create-sub-interval').value = '1 month';
+                document.getElementById('create-sub-start-date').value = '';
+                document.getElementById('create-sub-description').value = 'Test subscription';
+            }
+        } else {
+            displayResult('create-subscription-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('create-subscription-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+function formatSubscriptionCreationResult(data) {
+    if (data.error) {
+        return `<strong>Error:</strong> ${data.error}`;
+    }
+
+    let html = `<h3>✅ Subscription Created Successfully</h3>`;
+    html += `<p><strong>Subscription ID:</strong> ${data.subscription_id}</p>`;
+    html += `<p><strong>Customer ID:</strong> ${data.customer_id}</p>`;
+    html += `<p><strong>Status:</strong> <span class="status-badge status-active">${data.status}</span></p>`;
+    html += `<p><strong>Amount:</strong> ${data.amount}</p>`;
+    html += `<p><strong>Interval:</strong> ${data.interval}</p>`;
+    html += `<p><strong>Description:</strong> ${data.description}</p>`;
+    if (data.start_date) html += `<p><strong>Start Date:</strong> ${data.start_date}</p>`;
+    if (data.next_payment_date) html += `<p><strong>Next Payment:</strong> ${data.next_payment_date}</p>`;
+
+    return html;
+}
+
+function createScheduledSubscription() {
+    const customerId = document.getElementById('sched-sub-customer-id').value.trim();
+    const amount = document.getElementById('sched-sub-amount').value.trim();
+    const intervalCount = document.getElementById('sched-sub-interval-count').value.trim();
+    const intervalUnit = document.getElementById('sched-sub-interval-unit').value;
+    const times = document.getElementById('sched-sub-times').value.trim();
+    const startDate = document.getElementById('sched-sub-start-date').value;
+    const mandateId = document.getElementById('sched-sub-mandate-id').value.trim();
+    const description = document.getElementById('sched-sub-description').value.trim();
+
+    if (!customerId) {
+        frappe.msgprint('{{ _("Please enter a customer ID") }}');
+        return;
+    }
+
+    if (!amount || parseFloat(amount) <= 0) {
+        frappe.msgprint('{{ _("Please enter a valid amount") }}');
+        return;
+    }
+
+    if (!intervalCount || parseInt(intervalCount) <= 0) {
+        frappe.msgprint('{{ _("Please enter a valid interval count") }}');
+        return;
+    }
+
+    if (!description) {
+        frappe.msgprint('{{ _("Please enter a description") }}');
+        return;
+    }
+
+    const intervalString = intervalCount + ' ' + intervalUnit;
+    const timesString = times ? `${times} payments` : '{{ _("Indefinite") }}';
+
+    const confirmMessage = `<strong>{{ _("CREATE SCHEDULED SUBSCRIPTION") }}</strong><br><br>` +
+                          `{{ _("Customer ID:") }} ${customerId}<br>` +
+                          `{{ _("Amount:") }} €${amount}<br>` +
+                          `{{ _("Interval:") }} ${intervalString}<br>` +
+                          `{{ _("Payment Limit:") }} ${timesString}<br>` +
+                          `{{ _("Start Date:") }} ${startDate || '{{ _("Auto-calculated") }}'}<br>` +
+                          `{{ _("Description:") }} ${description}<br>` +
+                          (mandateId ? `{{ _("Mandate ID:") }} ${mandateId}<br>` : '') +
+                          `<br>{{ _("Continue?") }}`;
+
+    frappe.confirm(
+        confirmMessage,
+        () => executeCreateScheduledSubscription(customerId, amount, intervalCount, intervalUnit, times, startDate, mandateId, description)
+    );
+}
+
+function executeCreateScheduledSubscription(customerId, amount, intervalCount, intervalUnit, times, startDate, mandateId, description) {
+    showLoading('create-scheduled-subscription-result', '{{ _("Creating scheduled subscription...") }}');
+
+    const formData = new FormData();
+    formData.append('customer_id', customerId);
+    formData.append('amount', amount);
+    formData.append('interval_count', intervalCount);
+    formData.append('interval_unit', intervalUnit);
+    formData.append('description', description);
+    if (times) formData.append('times', times);
+    if (startDate) formData.append('start_date', startDate);
+    if (mandateId) formData.append('mandate_id', mandateId);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.create_scheduled_subscription', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': frappe.csrf_token
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            const html = formatScheduledSubscriptionResult(data.message);
+            displayResult('create-scheduled-subscription-result', html, data.message.status === 'error' ? 'error' : 'success');
+        } else if (data.exc) {
+            displayResult('create-scheduled-subscription-result', `Error: ${data.exc}`, 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error creating scheduled subscription:', error);
+        displayResult('create-scheduled-subscription-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+function formatScheduledSubscriptionResult(data) {
+    if (data.error) {
+        return `<strong>Error:</strong> ${data.error}`;
+    }
+
+    let html = `<h3>✅ Scheduled Subscription Created Successfully</h3>`;
+    html += `<p><strong>Subscription ID:</strong> ${data.subscription_id}</p>`;
+    html += `<p><strong>Customer ID:</strong> ${data.customer_id}</p>`;
+    html += `<p><strong>Status:</strong> <span class="status-badge status-active">${data.subscription_status}</span></p>`;
+    html += `<p><strong>Amount:</strong> ${data.amount}</p>`;
+    html += `<p><strong>Interval:</strong> ${data.interval}</p>`;
+    html += `<p><strong>Description:</strong> ${data.description}</p>`;
+    if (data.times) html += `<p><strong>Payment Limit:</strong> ${data.times} payments</p>`;
+    if (data.start_date) html += `<p><strong>Start Date:</strong> ${data.start_date}</p>`;
+    if (data.next_payment_date) html += `<p><strong>Next Payment:</strong> ${data.next_payment_date}</p>`;
+    html += `<p><strong>Test Mode:</strong> ${data.test_mode ? 'Yes' : 'No'}</p>`;
+
+    return html;
+}
+
+// List Subscriptions
+function listSubscriptions() {
+    const customerId = document.getElementById('list-sub-customer-id').value.trim();
+    const limit = document.getElementById('list-sub-limit').value;
+    const activeOnly = document.getElementById('list-sub-active-only').checked;
+
+    if (!customerId) {
+        alert('{{ _("Please enter a customer ID") }}');
+        return;
+    }
+
+    showLoading('list-subscriptions-result', '{{ _("Loading subscriptions...") }}');
+
+    const formData = new FormData();
+    if (customerId) formData.append('customer_id', customerId);
+    formData.append('limit', limit);
+    formData.append('active_only', activeOnly);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.list_subscriptions', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.exc_type || data.exception) {
+            const errorMsg = data.exception || data._server_messages || 'Unknown error occurred';
+            displayResult('list-subscriptions-result', `<div class="error">Error: ${errorMsg}</div>`, 'error');
+            return;
+        }
+
+        const result = data.message || data;
+        if (result && (result.subscriptions !== undefined || result.error)) {
+            const displayType = result.error ? 'error' : 'success';
+            displayResult('list-subscriptions-result', formatSubscriptionListResult(result), displayType);
+        } else {
+            displayResult('list-subscriptions-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('list-subscriptions-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+function formatSubscriptionListResult(data) {
+    if (data.error) {
+        return `<strong>Error:</strong> ${data.error}`;
+    }
+
+    let html = `<h3>Subscription List</h3>`;
+    html += `<p><strong>Total Found:</strong> ${data.total_found}</p>`;
+    html += `<p><strong>Filter:</strong> ${data.active_only ? 'Active only' : 'All statuses'}</p>`;
+    if (data.customer_id) html += `<p><strong>Customer ID:</strong> ${data.customer_id}</p>`;
+
+    if (data.subscriptions && data.subscriptions.length > 0) {
+        html += `<div class="mt-4">`;
+        data.subscriptions.forEach(sub => {
+            const statusClass = sub.status === 'active' ? 'status-active' : 'status-canceled';
+            html += `<div class="p-4 border border-gray-300 rounded-lg mb-3 bg-white">`;
+            html += `<div class="flex justify-between items-start mb-2">`;
+            html += `<div><strong>ID:</strong> ${sub.id}</div>`;
+            html += `<span class="status-badge ${statusClass}">${sub.status}</span>`;
+            html += `</div>`;
+            html += `<p><strong>Customer:</strong> ${sub.customer_id}</p>`;
+            html += `<p><strong>Amount:</strong> ${sub.amount}</p>`;
+            html += `<p><strong>Interval:</strong> ${sub.interval}</p>`;
+            html += `<p><strong>Description:</strong> ${sub.description}</p>`;
+            html += `<p><strong>Created:</strong> ${sub.created_at}</p>`;
+            if (sub.next_payment_date) html += `<p><strong>Next Payment:</strong> ${sub.next_payment_date}</p>`;
+            if (sub.canceled_at) html += `<p><strong>Canceled:</strong> ${sub.canceled_at}</p>`;
+            html += `</div>`;
+        });
+        html += `</div>`;
+    } else {
+        html += `<p class="mt-4 text-gray-600">No subscriptions found</p>`;
+    }
+
+    return html;
+}
+
+// ============================================================================
+// Balance Transaction Processing Functions
+// ============================================================================
+
+function getBalanceInfo() {
+    displayResult('balance-info-result', 'Loading balance information...', 'info');
+
+    frappe.call({
+        method: 'verenigingen.templates.pages.mollie_payments_debug.get_balance_info',
+        callback: function(r) {
+            if (r.message) {
+                displayResult('balance-info-result', formatBalanceInfo(r.message),
+                    r.message.status === 'success' ? 'success' : 'error');
+            }
+        },
+        error: function(r) {
+            displayResult('balance-info-result', `<strong>Error:</strong> ${r.message}`, 'error');
+        }
+    });
+}
+
+function processRecentTransactions() {
+    const days = document.getElementById('recent-days').value;
+    const limit = document.getElementById('recent-limit').value;
+
+    if (!days || days < 1) {
+        displayResult('recent-transactions-result', '<strong>Error:</strong> Please enter a valid number of days', 'error');
+        return;
+    }
+
+    displayResult('recent-transactions-result', `Processing last ${days} days (limit: ${limit})...`, 'info');
+
+    frappe.call({
+        method: 'verenigingen.templates.pages.mollie_payments_debug.process_recent_balance_transactions',
+        args: { days: days, limit: limit },
+        callback: function(r) {
+            if (r.message) {
+                displayResult('recent-transactions-result', formatProcessingResult(r.message),
+                    r.message.errors === 0 ? 'success' : 'warning');
+            }
+        },
+        error: function(r) {
+            displayResult('recent-transactions-result', `<strong>Error:</strong> ${r.message}`, 'error');
+        }
+    });
+}
+
+function processDateRange() {
+    const fromDate = document.getElementById('from-date').value;
+    const untilDate = document.getElementById('until-date').value;
+    const limit = document.getElementById('date-range-limit').value;
+
+    if (!fromDate || !untilDate) {
+        displayResult('date-range-result', '<strong>Error:</strong> Please enter both from and until dates', 'error');
+        return;
+    }
+
+    displayResult('date-range-result', `Processing from ${fromDate} to ${untilDate}...`, 'info');
+
+    frappe.call({
+        method: 'verenigingen.templates.pages.mollie_payments_debug.process_balance_date_range',
+        args: { from_date: fromDate, until_date: untilDate, limit: limit },
+        callback: function(r) {
+            if (r.message) {
+                displayResult('date-range-result', formatProcessingResult(r.message),
+                    r.message.errors === 0 ? 'success' : 'warning');
+            }
+        },
+        error: function(r) {
+            displayResult('date-range-result', `<strong>Error:</strong> ${r.message}`, 'error');
+        }
+    });
+}
+
+function processHistoricalData() {
+    const monthsBack = document.getElementById('months-back').value;
+    const batchSize = document.getElementById('batch-size').value;
+
+    if (!monthsBack || monthsBack < 1) {
+        displayResult('historical-result', '<strong>Error:</strong> Please enter a valid number of months', 'error');
+        return;
+    }
+
+    displayResult('historical-result', `Processing ${monthsBack} months of historical data (batch size: ${batchSize})... This may take a while.`, 'info');
+
+    frappe.call({
+        method: 'verenigingen.templates.pages.mollie_payments_debug.process_balance_historical_data',
+        args: { months_back: monthsBack, batch_size: batchSize },
+        callback: function(r) {
+            if (r.message) {
+                displayResult('historical-result', formatHistoricalResult(r.message),
+                    r.message.total_errors === 0 ? 'success' : 'warning');
+            }
+        },
+        error: function(r) {
+            displayResult('historical-result', `<strong>Error:</strong> ${r.message}`, 'error');
+        }
+    });
+}
+
+function checkTransactionStatus() {
+    const transactionId = document.getElementById('transaction-id').value;
+    const includeMollieData = document.getElementById('include-mollie-data').checked;
+
+    if (!transactionId) {
+        displayResult('transaction-status-result', '<strong>Error:</strong> Please enter a transaction ID', 'error');
+        return;
+    }
+
+    const statusMsg = includeMollieData
+        ? `Checking status for ${transactionId} (including Mollie API data, this may take ~30 seconds)...`
+        : `Checking status for ${transactionId}...`;
+    displayResult('transaction-status-result', statusMsg, 'info');
+
+    frappe.call({
+        method: 'verenigingen.templates.pages.mollie_payments_debug.check_balance_transaction_status',
+        args: {
+            transaction_id: transactionId,
+            include_mollie_data: includeMollieData
+        },
+        callback: function(r) {
+            if (r.message) {
+                displayResult('transaction-status-result', formatTransactionStatus(r.message),
+                    r.message.processed ? 'success' : 'info');
+            }
+        },
+        error: function(r) {
+            displayResult('transaction-status-result', `<strong>Error:</strong> ${r.message}`, 'error');
+        }
+    });
+}
+
+function fetchRecentTransactions() {
+    const limit = document.getElementById('fetch-limit').value || 100;
+
+    if (limit < 1 || limit > 250) {
+        displayResult('search-transactions-result', '<strong>Error:</strong> Limit must be between 1 and 250', 'error');
+        return;
+    }
+
+    displayResult('search-transactions-result', `Fetching last ${limit} transactions from Mollie API (this may take 10-30 seconds)...`, 'info');
+
+    frappe.call({
+        method: 'verenigingen.templates.pages.mollie_payments_debug.fetch_recent_for_search',
+        args: { limit: parseInt(limit) },
+        callback: function(r) {
+            if (r.message) {
+                displayResult('search-transactions-result', formatFetchResults(r.message),
+                    r.message.status === 'success' ? 'success' : 'error');
+            }
+        },
+        error: function(r) {
+            displayResult('search-transactions-result', `<strong>Error:</strong> ${r.message}`, 'error');
+        }
+    });
+}
+
+function searchTransactions() {
+    const searchTerm = document.getElementById('search-term').value;
+    const limit = document.getElementById('search-limit').value || 50;
+
+    if (!searchTerm || searchTerm.trim() === '') {
+        displayResult('search-transactions-result', '<strong>Error:</strong> Please enter a search term', 'error');
+        return;
+    }
+
+    displayResult('search-transactions-result', `Searching for "${searchTerm}"...`, 'info');
+
+    frappe.call({
+        method: 'verenigingen.templates.pages.mollie_payments_debug.search_balance_transactions',
+        args: {
+            search_term: searchTerm,
+            limit: parseInt(limit)
+        },
+        callback: function(r) {
+            if (r.message) {
+                displayResult('search-transactions-result', formatSearchResults(r.message), 'success');
+            }
+        },
+        error: function(r) {
+            displayResult('search-transactions-result', `<strong>Error:</strong> ${r.message}`, 'error');
+        }
+    });
+}
+
+function getProcessingStatistics() {
+    const days = document.getElementById('stats-days').value;
+
+    if (!days || days < 1) {
+        displayResult('statistics-result', '<strong>Error:</strong> Please enter a valid number of days', 'error');
+        return;
+    }
+
+    displayResult('statistics-result', `Loading statistics for last ${days} days...`, 'info');
+
+    frappe.call({
+        method: 'verenigingen.templates.pages.mollie_payments_debug.get_balance_processing_statistics',
+        args: { days: days },
+        callback: function(r) {
+            if (r.message) {
+                displayResult('statistics-result', formatStatistics(r.message),
+                    r.message.status === 'success' ? 'success' : 'error');
+            }
+        },
+        error: function(r) {
+            displayResult('statistics-result', `<strong>Error:</strong> ${r.message}`, 'error');
+        }
+    });
+}
+
+// ============================================================================
+// Balance Transaction Result Formatters
+// ============================================================================
+
+function formatBalanceInfo(data) {
+    if (data.status === 'error') {
+        return `<strong>Error:</strong> ${data.error}`;
+    }
+
+    let html = `<h3>Primary Balance Information</h3>`;
+    html += `<div class="mt-4 space-y-2">`;
+    html += `<p><strong>Balance ID:</strong> ${data.balance_id}</p>`;
+    html += `<p><strong>Currency:</strong> ${data.currency}</p>`;
+    html += `<p><strong>Available Amount:</strong> ${data.currency} ${data.available_amount.toFixed(2)}</p>`;
+    html += `<p><strong>Pending Amount:</strong> ${data.currency} ${data.pending_amount.toFixed(2)}</p>`;
+    html += `<p><strong>Status:</strong> <span class="status-badge status-active">${data.status_value}</span></p>`;
+    html += `<p><strong>Created:</strong> ${data.created_at}</p>`;
+    html += `</div>`;
+
+    return html;
+}
+
+function formatProcessingResult(data) {
+    if (data.status === 'error') {
+        return `<strong>Error:</strong> ${data.error}`;
+    }
+
+    let html = `<h3>Processing Results</h3>`;
+    html += `<div class="mt-4 space-y-2">`;
+    html += `<p><strong>Total Transactions:</strong> ${data.total_transactions}</p>`;
+    html += `<p><strong>Processed:</strong> <span class="text-green-600">${data.processed}</span></p>`;
+    html += `<p><strong>Already Processed:</strong> <span class="text-blue-600">${data.already_processed}</span></p>`;
+    html += `<p><strong>Errors:</strong> <span class="text-red-600">${data.errors}</span></p>`;
+    html += `</div>`;
+
+    if (data.results && data.results.length > 0) {
+        html += `<h4 class="mt-4 font-medium">Transaction Details (first 10):</h4>`;
+        html += `<div class="mt-2 space-y-2">`;
+
+        data.results.slice(0, 10).forEach(result => {
+            const statusClass = result.status === 'success' ? 'text-green-600' :
+                              result.status === 'already_processed' ? 'text-blue-600' : 'text-red-600';
+            html += `<div class="p-3 border border-gray-300 rounded-lg bg-white">`;
+            html += `<p><strong>Transaction ID:</strong> ${result.transaction_id}</p>`;
+            html += `<p><strong>Status:</strong> <span class="${statusClass}">${result.status}</span></p>`;
+            if (result.bank_transaction) html += `<p><strong>Bank Transaction:</strong> ${result.bank_transaction}</p>`;
+            if (result.amount) html += `<p><strong>Amount:</strong> EUR ${result.amount.toFixed(2)}</p>`;
+            if (result.transaction_type) html += `<p><strong>Type:</strong> ${result.transaction_type}</p>`;
+            if (result.error) html += `<p class="text-red-600"><strong>Error:</strong> ${result.error}</p>`;
+            if (result.message) html += `<p class="text-gray-600">${result.message}</p>`;
+            html += `</div>`;
+        });
+
+        if (data.results.length > 10) {
+            html += `<p class="text-gray-600 italic">... and ${data.results.length - 10} more transactions</p>`;
+        }
+        html += `</div>`;
+    }
+
+    return html;
+}
+
+function formatHistoricalResult(data) {
+    if (data.status === 'error') {
+        return `<strong>Error:</strong> ${data.error}`;
+    }
+
+    let html = `<h3>Historical Processing Results</h3>`;
+    html += `<div class="mt-4 space-y-2">`;
+    html += `<p><strong>Total Processed:</strong> <span class="text-green-600">${data.total_processed}</span></p>`;
+    html += `<p><strong>Already Processed:</strong> <span class="text-blue-600">${data.total_already_processed}</span></p>`;
+    html += `<p><strong>Total Errors:</strong> <span class="text-red-600">${data.total_errors}</span></p>`;
+    html += `</div>`;
+
+    if (data.batches && data.batches.length > 0) {
+        html += `<h4 class="mt-4 font-medium">Batch Processing Details:</h4>`;
+        html += `<div class="mt-2 space-y-2">`;
+
+        data.batches.forEach(batch => {
+            html += `<div class="p-3 border border-gray-300 rounded-lg bg-white">`;
+            html += `<p><strong>Batch #${batch.batch_number}</strong></p>`;
+            html += `<p><strong>Date Range:</strong> ${batch.from_date} to ${batch.to_date}</p>`;
+            html += `<p><strong>Processed:</strong> <span class="text-green-600">${batch.result.processed}</span></p>`;
+            html += `<p><strong>Already Processed:</strong> <span class="text-blue-600">${batch.result.already_processed}</span></p>`;
+            html += `<p><strong>Errors:</strong> <span class="text-red-600">${batch.result.errors}</span></p>`;
+            html += `</div>`;
+        });
+
+        html += `</div>`;
+    }
+
+    return html;
+}
+
+function formatTransactionStatus(data) {
+    if (data.status === 'error') {
+        return `<strong>Error:</strong> ${data.error}`;
+    }
+
+    let html = `<h3>Transaction Status</h3>`;
+    html += `<div class="mt-4 space-y-2">`;
+
+    // ERPNext Processing Status
+    if (data.processed) {
+        const bt = data.bank_transaction;
+        html += `<p><strong>Status:</strong> <span class="status-badge status-active">Processed</span></p>`;
+        html += `<p><strong>Bank Transaction:</strong> ${bt.name}</p>`;
+        html += `<p><strong>Date:</strong> ${bt.date}</p>`;
+        html += `<p><strong>Amount:</strong> ${bt.currency} ${bt.amount.toFixed(2)}</p>`;
+        html += `<p><strong>Description:</strong> ${bt.description}</p>`;
+        html += `<p><strong>Status:</strong> <span class="status-badge ${bt.status === 'Reconciled' ? 'status-active' : 'status-canceled'}">${bt.status}</span></p>`;
+    } else {
+        html += `<p><strong>Status:</strong> <span class="status-badge status-canceled">Not Processed</span></p>`;
+        html += `<p class="text-gray-600">This transaction has not been imported into ERPNext yet</p>`;
+    }
+
+    html += `</div>`;
+
+    // Mollie API Data
+    if (data.mollie_api_data) {
+        const mollie = data.mollie_api_data;
+        html += `<h4 class="mt-4 font-medium">Mollie API Data:</h4>`;
+        html += `<div class="mt-2 space-y-2 p-4 bg-gray-50 rounded">`;
+        html += `<p><strong>Transaction ID:</strong> ${mollie.id}</p>`;
+        html += `<p><strong>Type:</strong> ${mollie.type}</p>`;
+
+        if (mollie.result_amount) {
+            html += `<p><strong>Result Amount:</strong> ${mollie.result_amount.currency} ${mollie.result_amount.value}</p>`;
+        }
+
+        if (mollie.initial_amount) {
+            html += `<p><strong>Initial Amount:</strong> ${mollie.initial_amount.currency} ${mollie.initial_amount.value}</p>`;
+        }
+
+        if (mollie.context && mollie.context.paymentId) {
+            html += `<p><strong>Payment ID:</strong> ${mollie.context.paymentId}</p>`;
+        }
+
+        if (mollie.context && mollie.context.paymentDescription) {
+            html += `<p><strong>Payment Description:</strong> ${mollie.context.paymentDescription}</p>`;
+        }
+
+        if (mollie.created_at) {
+            html += `<p><strong>Created:</strong> ${mollie.created_at}</p>`;
+        }
+
+        html += `</div>`;
+    } else if (data.mollie_api_error) {
+        html += `<h4 class="mt-4 font-medium text-orange-600">Mollie API Error:</h4>`;
+        html += `<p class="mt-2 text-gray-600">${data.mollie_api_error}</p>`;
+    }
+
+    return html;
+}
+
+function formatStatistics(data) {
+    if (data.status === 'error') {
+        return `<strong>Error:</strong> ${data.error}`;
+    }
+
+    let html = `<h3>Processing Statistics</h3>`;
+    html += `<div class="mt-4 space-y-2">`;
+    html += `<p><strong>Period:</strong> ${data.period.from_date} to ${data.period.to_date} (${data.period.days} days)</p>`;
+    html += `</div>`;
+
+    html += `<h4 class="mt-4 font-medium">Totals:</h4>`;
+    html += `<div class="mt-2 space-y-2">`;
+    html += `<p><strong>Total Processed:</strong> ${data.totals.total_processed}</p>`;
+    html += `<p><strong>Reconciled:</strong> <span class="text-green-600">${data.totals.reconciled}</span> (${data.percentages.reconciled_pct}%)</p>`;
+    html += `<p><strong>Unreconciled:</strong> <span class="text-yellow-600">${data.totals.unreconciled}</span> (${data.percentages.unreconciled_pct}%)</p>`;
+    html += `<p><strong>Total Deposits:</strong> EUR ${data.totals.total_deposits.toFixed(2)}</p>`;
+    html += `<p><strong>Total Withdrawals:</strong> EUR ${data.totals.total_withdrawals.toFixed(2)}</p>`;
+    html += `</div>`;
+
+    return html;
+}
+
+function formatFetchResults(data) {
+    if (data.status === 'error') {
+        return `<strong>Error:</strong> ${data.error}`;
+    }
+
+    let html = `<h3>Fetch Results</h3>`;
+    html += `<div class="mt-4 space-y-2">`;
+    html += `<p><strong>Total Fetched from Mollie:</strong> ${data.total_fetched}</p>`;
+    html += `<p><strong>Newly Imported:</strong> <span class="text-green-600">${data.processed}</span></p>`;
+    html += `<p><strong>Already in Database:</strong> <span class="text-blue-600">${data.already_exists}</span></p>`;
+    if (data.errors > 0) {
+        html += `<p><strong>Errors:</strong> <span class="text-red-600">${data.errors}</span></p>`;
+        if (data.error_details && data.error_details.length > 0) {
+            html += `<div class="mt-2 p-3 bg-red-50 border border-red-200 rounded">`;
+            html += `<p class="font-medium text-red-800">Error Details (first 10):</p>`;
+            html += `<ul class="mt-1 text-sm text-red-700 list-disc list-inside">`;
+            data.error_details.forEach(err => {
+                html += `<li>${err}</li>`;
+            });
+            html += `</ul></div>`;
+        }
+    }
+    html += `</div>`;
+    html += `<p class="mt-4 text-green-700 font-medium">✓ Transactions are now searchable! Use the search field above.</p>`;
+
+    return html;
+}
+
+function formatSearchResults(data) {
+    if (data.status === 'error') {
+        return `<strong>Error:</strong> ${data.error}`;
+    }
+
+    let html = `<h3>Search Results</h3>`;
+    html += `<div class="mt-4">`;
+    html += `<p><strong>Search Term:</strong> "${data.search_term}"</p>`;
+    html += `<p><strong>Results Found:</strong> ${data.total_found} (showing up to ${data.limit})</p>`;
+    html += `</div>`;
+
+    if (data.results && data.results.length > 0) {
+        html += `<h4 class="mt-4 font-medium">Transactions:</h4>`;
+        html += `<div class="mt-2 space-y-3">`;
+
+        data.results.forEach(tx => {
+            const statusClass = tx.status === 'Reconciled' ? 'status-active' : 'status-canceled';
+            const typeLabel = tx.type === 'deposit' ? '💰 Deposit' : '💸 Withdrawal';
+            const amountColor = tx.type === 'deposit' ? 'text-green-600' : 'text-red-600';
+
+            html += `<div class="p-4 border border-gray-300 rounded-lg bg-white shadow-sm">`;
+            html += `<div class="flex justify-between items-start mb-2">`;
+            html += `<div class="flex-1">`;
+            html += `<p class="font-medium text-gray-900">${tx.description}</p>`;
+            html += `<p class="text-sm text-gray-600 mt-1">`;
+            html += `<strong>ID:</strong> <a href="/app/bank-transaction/${tx.name}" class="text-blue-600 hover:text-blue-800">${tx.name}</a>`;
+            html += ` | <strong>Date:</strong> ${tx.date}`;
+            html += `</p>`;
+            html += `</div>`;
+            html += `<div class="text-right">`;
+            html += `<p class="${amountColor} font-semibold">${typeLabel} ${tx.currency} ${tx.amount.toFixed(2)}</p>`;
+            html += `<span class="status-badge ${statusClass} text-xs mt-1 inline-block">${tx.status}</span>`;
+            html += `</div>`;
+            html += `</div>`;
+
+            if (tx.reference_number) {
+                html += `<p class="text-sm text-gray-600 mt-2">`;
+                html += `<strong>Reference:</strong> ${tx.reference_number}`;
+                if (tx.transaction_id && tx.transaction_id !== tx.reference_number) {
+                    html += ` | <strong>Transaction ID:</strong> ${tx.transaction_id}`;
+                }
+                html += `</p>`;
+            }
+
+            if (tx.bank_account) {
+                html += `<p class="text-sm text-gray-600"><strong>Account:</strong> ${tx.bank_account}</p>`;
+            }
+
+            html += `</div>`;
+        });
+
+        html += `</div>`;
+    } else {
+        html += `<p class="mt-4 text-gray-600">No transactions found matching "${data.search_term}"</p>`;
+    }
+
+    return html;
+}
+
+// Bulk Member Payment Processing Functions
+let bulkPaymentsData = null;
+
+function bulkRetrieveAllMemberPayments() {
+    const daysBack = document.getElementById('bulk-days-back').value;
+    const maxPayments = document.getElementById('bulk-max-payments').value;
+    const paymentStatus = document.getElementById('bulk-payment-status').value;
+
+    const estimatedApiCalls = Math.ceil(maxPayments / 250);
+    if (!confirm(`This will retrieve payments for ALL active members with Mollie IDs using the global payments endpoint.\n\nDays back: ${daysBack}\nMax payments: ${maxPayments}\nStatus: ${paymentStatus}\nEstimated API calls: ~${estimatedApiCalls}\n\nContinue?`)) {
+        return;
+    }
+
+    // Show loading in results area
+    document.getElementById('bulk-payments-list').style.display = 'block';
+    document.getElementById('bulk-payments-table-body').innerHTML = '<tr><td colspan="7" class="text-center py-4"><i class="fa fa-spinner fa-spin mr-2"></i>Fetching payments via BulkPaymentChecker (with deduplication)...</td></tr>';
+
+    const formData = new FormData();
+    formData.append('days_back', daysBack);
+    formData.append('max_payments', maxPayments);
+    formData.append('payment_status_filter', paymentStatus === 'all' ? null : paymentStatus);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.bulk_retrieve_all_member_payments', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        const result = data.message || data;
+        if (result.error) {
+            alert('Error: ' + result.error);
+            document.getElementById('bulk-payments-list').style.display = 'none';
+            return;
+        }
+
+        bulkPaymentsData = result;
+        displayBulkPaymentsResults(result);
+    })
+    .catch(error => {
+        alert('Error: ' + error.message);
+        document.getElementById('bulk-payments-list').style.display = 'none';
+    });
+}
+
+function displayBulkPaymentsResults(data) {
+    // Debug: Log the raw data to console
+    console.log('BMPP Response Data:', {
+        total_payments: data.total_payments,
+        total_payments_found: data.total_payments_found,
+        total_payments_after_filtering: data.total_payments_after_filtering,
+        total_filtered_by_date: data.total_filtered_by_date,
+        total_filtered_by_duplicate: data.total_filtered_by_duplicate
+    });
+
+    // Update summary
+    document.getElementById('bulk-total-members').textContent = data.total_members;
+    document.getElementById('bulk-members-checked').textContent = data.members_checked;
+
+    // Show filtering details
+    const totalPayments = data.total_payments || data.total_payments_found || 0;
+    const afterFiltering = data.total_payments_after_filtering || totalPayments;
+    const filteredByDate = data.total_filtered_by_date || 0;
+    const filteredByDuplicate = data.total_filtered_by_duplicate || 0;
+
+    console.log('Computed values:', { totalPayments, afterFiltering, filteredByDate, filteredByDuplicate });
+
+    if (filteredByDate > 0 || filteredByDuplicate > 0) {
+        const displayText = `${totalPayments} (${afterFiltering} after filtering: ${filteredByDate} date, ${filteredByDuplicate} dup)`;
+        console.log('Setting total payments to:', displayText);
+        document.getElementById('bulk-total-payments').textContent = displayText;
+    } else {
+        console.log('No filtering, setting total payments to:', totalPayments);
+        document.getElementById('bulk-total-payments').textContent = totalPayments;
+    }
+
+    document.getElementById('bulk-unprocessed-payments').textContent = data.unprocessed_payments || data.total_new_payments || 0;
+    document.getElementById('bulk-api-calls').textContent = data.api_calls_made || 0;
+
+    // Build table
+    const tbody = document.getElementById('bulk-payments-table-body');
+    tbody.innerHTML = '';
+
+    // BulkPaymentChecker returns 'customers' array, old service returned 'members'
+    const customersList = data.customers || data.members || [];
+
+    if (customersList.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-gray-500">No members with payments found</td></tr>';
+        return;
+    }
+
+    customersList.forEach(customer => {
+        if (!customer.payments || customer.payments.length === 0) return;
+
+        // Map BulkPaymentChecker fields to expected format
+        const memberName = customer.member || customer.member_name;
+        const fullName = customer.full_name || memberName;  // BulkPaymentChecker doesn't return full_name
+
+        customer.payments.forEach((payment, index) => {
+            const row = document.createElement('tr');
+
+            // BulkPaymentChecker uses 'already_processed', old service used 'is_processed'
+            const isProcessed = payment.already_processed || payment.is_processed;
+            row.className = isProcessed ? 'bg-gray-50' : 'bg-white hover:bg-gray-50';
+
+            // BulkPaymentChecker uses 'id', old service used 'payment_id'
+            const paymentId = payment.id || payment.payment_id;
+
+            const checkbox = !isProcessed ?
+                `<input type="checkbox" class="bulk-payment-checkbox" data-payment-id="${paymentId}" onchange="bulkUpdateSelectedCount()">` :
+                `<span class="text-gray-400">—</span>`;
+
+            const memberDisplay = index === 0 ?
+                `<div class="font-medium">${fullName}</div><div class="text-xs text-gray-500">${memberName}</div>` :
+                `<div class="text-xs text-gray-400">↳ same member</div>`;
+
+            const processedBadge = isProcessed ?
+                '<span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded">✓ Processed</span>' :
+                '<span class="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded">Unprocessed</span>';
+
+            // BulkPaymentChecker uses 'amount_display', old service used 'amount'
+            const amountDisplay = payment.amount_display || payment.amount;
+
+            row.innerHTML = `
+                <td class="px-2 py-2">${checkbox}</td>
+                <td class="px-2 py-2">${memberDisplay}</td>
+                <td class="px-2 py-2"><code class="text-xs">${paymentId}</code></td>
+                <td class="px-2 py-2"><span class="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">${payment.status}</span></td>
+                <td class="px-2 py-2">${amountDisplay}</td>
+                <td class="px-2 py-2 text-xs">${payment.created_at ? new Date(payment.created_at).toLocaleDateString() : 'N/A'}</td>
+                <td class="px-2 py-2">${processedBadge}</td>
+            `;
+
+            tbody.appendChild(row);
+        });
+    });
+
+    bulkUpdateSelectedCount();
+}
+
+function bulkSelectAllUnprocessed() {
+    let count = 0;
+
+    document.querySelectorAll('.bulk-payment-checkbox').forEach(cb => {
+        cb.checked = true;
+        count++;
+    });
+
+    if (count === 0) {
+        alert('No unprocessed payments available to select.\n\nPlease click "Retrieve All Member Payments" first to load payment data.');
+        return;
+    }
+
+    bulkUpdateSelectedCount();
+}
+
+function bulkDeselectAll() {
+    document.querySelectorAll('.bulk-payment-checkbox').forEach(cb => {
+        cb.checked = false;
+    });
+    document.getElementById('bulk-select-all-checkbox').checked = false;
+    bulkUpdateSelectedCount();
+}
+
+function bulkToggleSelectAll() {
+    const MAX_BATCH_SIZE = 500;
+    const selectAllCheckbox = document.getElementById('bulk-select-all-checkbox');
+    const checked = selectAllCheckbox.checked;
+    const checkboxes = document.querySelectorAll('.bulk-payment-checkbox');
+    let count = 0;
+
+    // Check if there are any checkboxes available
+    if (checked && checkboxes.length === 0) {
+        alert('No unprocessed payments available to select.\n\nPlease click "Retrieve All Member Payments" first to load payment data.');
+        selectAllCheckbox.checked = false;  // Uncheck the header checkbox
+        return;
+    }
+
+    checkboxes.forEach(cb => {
+        if (checked) {
+            if (count < MAX_BATCH_SIZE) {
+                cb.checked = true;
+                count++;
+            }
+        } else {
+            cb.checked = false;
+        }
+    });
+
+    if (checked && count >= MAX_BATCH_SIZE) {
+        alert(`Selected first ${MAX_BATCH_SIZE} payments.\n\nMaximum batch size is ${MAX_BATCH_SIZE} to prevent timeouts.\nProcess these first, then select more.`);
+    }
+
+    bulkUpdateSelectedCount();
+}
+
+function bulkUpdateSelectedCount() {
+    const count = document.querySelectorAll('.bulk-payment-checkbox:checked').length;
+    document.getElementById('bulk-selected-count').querySelector('span').textContent = count;
+}
+
+function bulkProcessSelectedPayments() {
+    const checkboxes = document.querySelectorAll('.bulk-payment-checkbox:checked');
+    if (checkboxes.length === 0) {
+        alert('Please select at least one payment to process');
+        return;
+    }
+
+    const paymentIds = Array.from(checkboxes).map(cb => cb.dataset.paymentId);
+    const docstatus = '1';  // Always submit documents
+    const createBankTransactions = document.getElementById('bulk-create-bank-transactions').checked;
+
+    // Warn about timeout risk when creating both BT+PE with large batches
+    if (!createBankTransactions && paymentIds.length > 250) {
+        alert(`⚠️ Large Batch Warning\n\nYou're processing ${paymentIds.length} payments with Bank Transaction + Payment Entry creation.\n\nThis may take several minutes and could timeout.\n\nRecommendation: Use "Bank Transaction Only" mode for batches over 250 payments.`);
+    }
+
+    const modeText = createBankTransactions ? 'Bank Transaction Only' : 'Bank Transaction + Payment Entry';
+    const modeDescription = createBankTransactions
+        ? 'Creates only Bank Transactions (for manual reconciliation later)'
+        : 'Creates both Bank Transactions and Payment Entries (complete audit trail)';
+    const message = `Process ${paymentIds.length} payment(s)?\n\nCreation Mode: ${modeText}\n\n${modeDescription}\n\nDocuments will be auto-submitted.\n\nContinue?`;
+
+    if (!confirm(message)) {
+        return;
+    }
+
+    // Show loading
+    document.getElementById('bulk-processing-results').style.display = 'block';
+    document.getElementById('bulk-processing-results').textContent = 'Processing payments...';
+
+    const formData = new FormData();
+    formData.append('payment_ids', JSON.stringify(paymentIds));
+    formData.append('docstatus', docstatus);
+    formData.append('create_bank_transactions', createBankTransactions ? 'true' : 'false');
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.bulk_process_member_payments', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => {
+        // Check if response is ok before parsing
+        if (!response.ok) {
+            return response.text().then(text => {
+                throw new Error(`Server error (${response.status}): ${text}`);
+            });
+        }
+        return response.json();
+    })
+    .then(data => {
+        // Check for Frappe error response format
+        if (data.exc || data._server_messages) {
+            let errorMsg = 'Server Error:\n\n';
+            if (data._server_messages) {
+                try {
+                    const messages = JSON.parse(data._server_messages);
+                    errorMsg += messages.map(m => JSON.parse(m).message).join('\n');
+                } catch (e) {
+                    errorMsg += data._server_messages;
+                }
+            }
+            if (data.exc) {
+                errorMsg += '\n\nException:\n' + data.exc;
+            }
+            document.getElementById('bulk-processing-results').textContent = errorMsg;
+            document.getElementById('bulk-processing-results').style.display = 'block';
+            return;
+        }
+
+        const result = data.message || data;
+        displayBulkProcessingResults(result);
+    })
+    .catch(error => {
+        let errorText = 'Bulk processing error:\n\n' + error.message;
+
+        // Check if it's a timeout/500 error
+        if (error.message.includes('500') || error.message.includes('Internal Server Error')) {
+            errorText += '\n\n⚠️ This is likely a timeout issue.\n\n';
+            errorText += 'The processing may still be running in the background.\n';
+            errorText += 'Check the Error Log in Frappe or wait a few minutes and refresh to see if documents were created.\n\n';
+            errorText += 'For large batches with PE creation, consider:\n';
+            errorText += '• Using "Bank Transaction Only" mode\n';
+            errorText += '• Processing in smaller batches (< 250 payments)\n';
+            errorText += '• Using the single-member processor for individual members';
+        } else {
+            errorText += '\n\nCheck browser console for details.';
+        }
+
+        document.getElementById('bulk-processing-results').textContent = errorText;
+        document.getElementById('bulk-processing-results').style.display = 'block';
+        console.error('Bulk processing error:', error);
+    });
+}
+
+function displayBulkProcessingResults(data) {
+    // Check if this is a queued background job response
+    if (data.queued) {
+        let output = `Background Processing Queued\n`;
+        output += `============================\n\n`;
+        output += `Job ID: ${data.job_id}\n`;
+        output += `Total Payments: ${data.total_payments}\n`;
+        output += `Number of Batches: ${data.num_batches}\n`;
+        output += `Batch Size: ${data.batch_size}\n\n`;
+        output += `${data.message}\n\n`;
+        output += `Batches Queued:\n`;
+        output += `--------------\n`;
+        data.batches.forEach(batch => {
+            output += `  Batch ${batch.batch_num}: ${batch.payment_count} payments\n`;
+        });
+        output += `\nThe batches are processing in the background. Check the Background Jobs list to monitor progress.\n`;
+        output += `You can close this page - processing will continue in the background.\n`;
+
+        document.getElementById('bulk-processing-results').textContent = output;
+        document.getElementById('bulk-processing-results').style.display = 'block';
+
+        // Alert user
+        alert(`${data.num_batches} batches queued for background processing!\n\nJob ID: ${data.job_id}\n\nCheck Background Jobs for progress.`);
+        return;
+    }
+
+    // Check if this is an error response
+    if (data.error && !data.total_requested) {
+        let output = `Bulk Processing Error\n`;
+        output += `====================\n\n`;
+        output += `Error: ${data.error}\n`;
+        document.getElementById('bulk-processing-results').textContent = output;
+        return;
+    }
+
+    let output = `Bulk Processing Complete\n`;
+    output += `======================\n\n`;
+    output += `Total Requested: ${data.total_requested}\n`;
+    output += `Successfully Processed: ${data.processed}\n`;
+    output += `Skipped (already processed): ${data.skipped}\n`;
+    output += `Errors: ${data.errors}\n`;
+    output += `Document Status: ${data.docstatus === 0 ? 'Draft' : 'Submitted'}\n`;
+    output += `\n`;
+
+    if (data.results && data.results.length > 0) {
+        output += `Detailed Results:\n`;
+        output += `----------------\n`;
+        data.results.forEach((result, index) => {
+            output += `\n${index + 1}. Payment ID: ${result.payment_id}\n`;
+            output += `   Status: ${result.status}\n`;
+            if (result.payment_entry) {
+                output += `   Payment Entry: ${result.payment_entry}\n`;
+                if (result.payment_entry_submitted) {
+                    output += `   ✓ Payment Entry Submitted\n`;
+                }
+            }
+            if (result.bank_transaction) {
+                output += `   Bank Transaction: ${result.bank_transaction}\n`;
+                if (result.bank_transaction_submitted) {
+                    output += `   ✓ Bank Transaction Submitted\n`;
+                }
+            }
+            if (result.error) {
+                output += `   Error: ${result.error}\n`;
+            }
+            if (result.message) {
+                output += `   Message: ${result.message}\n`;
+            }
+        });
+    }
+
+    document.getElementById('bulk-processing-results').textContent = output;
+
+    // Refresh the data to show updated processed status
+    if (data.processed > 0) {
+        setTimeout(() => {
+            alert(`Processing complete!\n\nProcessed: ${data.processed}\nSkipped: ${data.skipped}\nErrors: ${data.errors}\n\nClick OK to refresh the payment list.`);
+            bulkRetrieveAllMemberPayments();
+        }, 1000);
+    }
+}
+</script>
+{% endblock %}

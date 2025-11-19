@@ -1,0 +1,518 @@
+# Pre-commit hooks for Verenigingen app
+# Install with: pre-commit install
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: '^(scripts/|tests/|debug_utils/|dev_scripts/|integration_tests/|verenigingen/tests/|frontend_tests/|archived_unused/|archived_deleted/)'
+      - id: end-of-file-fixer
+        exclude: '^(scripts/|tests/|debug_utils/|dev_scripts/|integration_tests/|verenigingen/tests/|frontend_tests/|archived_unused/|archived_deleted/)'
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: check-json
+      - id: check-merge-conflict
+      - id: debug-statements
+        exclude: '^(scripts/|tests/|debug_utils/|dev_scripts/|integration_tests/|verenigingen/tests/|frontend_tests/|archived_unused/|archived_deleted/)'
+      - id: check-docstring-first
+        exclude: '^(scripts/|tests/|debug_utils/|dev_scripts/|integration_tests/|verenigingen/tests/|frontend_tests/|archived_unused/|archived_deleted/)'
+
+  - repo: https://github.com/psf/black
+    rev: 23.3.0
+    hooks:
+      - id: black
+        language_version: python3
+        args: ['--line-length=110']
+        exclude: '^(scripts/|tests/|debug_utils/|dev_scripts/|integration_tests/|verenigingen/tests/|frontend_tests/|archived_unused/|archived_deleted/)'
+
+  - repo: https://github.com/PyCQA/flake8
+    rev: 6.0.0
+    hooks:
+      - id: flake8
+        args: [
+          '--max-line-length=120',
+          '--max-complexity=20',
+          '--extend-ignore=E501,W503,E203,F401,E722,F821,C901,E225'
+        ]
+        exclude: '^(scripts/|tests/|debug_utils/|dev_scripts/|integration_tests/|verenigingen/tests/|frontend_tests/|.*test.*\.py|.*debug.*\.py|archived_.*)'
+
+  - repo: https://github.com/PyCQA/isort
+    rev: 5.12.0
+    hooks:
+      - id: isort
+        args: ['--profile', 'black', '--line-length', '110']
+        exclude: '^(scripts/|tests/|debug_utils/|dev_scripts/|integration_tests/|verenigingen/tests/|frontend_tests/|archived_unused/|archived_deleted/)'
+
+  - repo: https://github.com/PyCQA/pylint
+    rev: v3.0.3
+    hooks:
+      - id: pylint
+        args: [
+          '--rcfile=.pylintrc',
+          '--fail-under=7.0',
+          '--jobs=0',
+          '--ignore-paths=archived_unused/.*,archived_deleted/.*,archived_removal/.*,archived_docs/.*'
+        ]
+        exclude: '^(node_modules|.git|dist|build|scripts|tests|debug_utils|dev_scripts|integration_tests|verenigingen/tests|frontend_tests|archived_unused|archived_deleted|archived_removal|archived_docs)/'
+
+  # Security Validation (Optimized)
+  - repo: local
+    hooks:
+      - id: bandit-focused
+        name: 🔍 Security Linting (Bandit Focused - 3s runtime)
+        description: Fast security scan focused on critical files
+        entry: ./scripts/security/bandit-focused.sh
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+  - repo: local
+    hooks:
+      # INAPPROPRIATE MOCK PREVENTION (PHASE 4 WEEK 3 ADDITION)
+      - id: block-inappropriate-mocks
+        name: 🚫 Block Inappropriate Mocks (Phase 4 Week 3)
+        description: Prevent inappropriate business logic mocks based on systematic elimination strategy
+        entry: python scripts/validation/block_inappropriate_mocks.py
+        language: system
+        files: '^.*test.*\.py$|^.*/tests/.*\.py$'
+        pass_filenames: true
+        stages: [pre-commit, pre-push]
+        verbose: true
+        fail_fast: true
+
+      # TEST QUALITY ENFORCEMENT (CRITICAL - MUST BE FIRST)
+      - id: test-quality-enforcer
+        name: 🚨 Test Quality Enforcer (CRITICAL)
+        description: Block mock abuse and enforce real integration testing patterns
+        entry: python scripts/validation/test_quality_enforcer.py
+        language: system
+        files: '^.*test.*\.py$|^.*/tests/.*\.py$'
+        exclude: '^(.*debug.*|.*_debug\.py|.*utils/debug/.*\.py|scripts/.*|archived_.*)'
+        pass_filenames: true
+        stages: [pre-commit, pre-push]
+        verbose: true
+        fail_fast: true
+
+      # Security validation hooks (TEMPORARILY DISABLED)
+      # - id: insecure-api-detector
+      #   name: 🔒 Insecure API Endpoint Detection
+      #   description: Detect API endpoints lacking proper security decorators
+      #   entry: python scripts/validation/security/insecure_api_detector.py
+      #   language: system
+      #   files: '^verenigingen/api/.*\.py$'
+      #   pass_filenames: true
+      #   verbose: true
+      #   stages: [pre-commit, pre-push]
+
+      # - id: api-security-validator
+      #   name: 🛡️  API Security Framework Validation
+      #   description: Validate API security framework compliance
+      #   entry: python scripts/validation/security/api_security_validator.py
+      #   language: system
+      #   files: '^verenigingen/api/.*\.py$'
+      #   pass_filenames: true
+      #   stages: [pre-commit]
+
+      # Original validation hooks (RESTORED)
+      - id: docfield-checker
+        name: Legacy field reference checker (fallback)
+        entry: python scripts/validation/legacy_field_validator.py
+        language: system
+        pass_filenames: false
+        files: \.py$
+        stages: [manual]
+
+      - id: doctype-field-validator
+        name: DocType field attribute access validator
+        entry: python scripts/validation/doctype_field_validator.py --pre-commit --reduced-fp-mode
+        language: system
+        pass_filenames: true
+        files: \.py$
+        stages: [pre-commit]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|test_field_validation_gaps\.py|archived_.*|archived_unused/|archived_deleted/)'
+
+      - id: sql-field-validator
+        name: SQL query field validation
+        entry: python scripts/validation/sql_field_reference_validator.py --pre-commit
+        language: system
+        pass_filenames: true
+        files: \.py$
+        stages: [pre-commit]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
+
+      - id: frappe-api-validator
+        name: Balanced field validation (practical mode)
+        entry: python scripts/validation/database_field_reference_validator.py --level balanced --pre-commit
+        language: system
+        pass_filenames: true
+        files: \.py$
+        stages: [pre-commit]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|one-off-test-utils/|archived_.*|archived_unused/|archived_deleted/)'
+
+      - id: enhanced-field-validator
+        name: Context-aware field reference validator
+        entry: python scripts/validation/enhanced_field_reference_validator.py
+        language: system
+        pass_filenames: true
+        files: '\.(py|html|js)$'
+        stages: [pre-push]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|test_field_validation_gaps\.py|archived_.*|archived_unused/|archived_deleted/)'
+
+      - id: template-field-validator
+        name: HTML/JavaScript template field validation
+        entry: python scripts/validation/template_field_validator.py
+        language: system
+        pass_filenames: true
+        files: '\.(html|js)$'
+        stages: [pre-commit]
+        exclude: '^(tests/|test_|.*_test\.(html|js)|debug_|.*_debug\.(html|js)|scripts/testing/|scripts/debug/|frontend_tests/|node_modules/)'
+
+      - id: javascript-doctype-validator
+        name: JavaScript DocType field validation
+        entry: python scripts/validation/javascript_doctype_field_validator.py
+        language: system
+        pass_filenames: true
+        files: '\.js$'
+        stages: [pre-push]
+        exclude: '^(tests/|test_|.*_test\.js|debug_|.*_debug\.js|scripts/testing/|scripts/debug/|frontend_tests/|node_modules/)'
+
+      - id: eslint
+        name: 🔧 ESLint JavaScript validation
+        entry: bash -c 'echo "Running ESLint on JavaScript files..."; npx eslint --fix --max-warnings=1000 "$@"; echo "✅ ESLint completed (auto-fixed issues where possible)"'
+        language: system
+        files: \.js$
+        stages: [pre-commit]
+        exclude: '^(node_modules/|archived_unused/|archived_deleted/|scripts/analysis/|scripts/monitoring/|scripts/performance/|scripts/rollback/|scripts/security/|debug_utils/|dev_scripts/)|\.min\.js$|\.bundle\.js$'
+
+      - id: fast-method-validator
+        name: Method call validation
+        entry: python scripts/validation/method_resolution_validator.py
+        language: system
+        pass_filenames: true
+        files: '\.py$'
+        stages: [pre-commit]
+        exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/testing/|scripts/debug/|test_field_validation_gaps\.py|.*_test\.py|debug_.*\.py)'
+
+      - id: import-path-validator
+        name: 🔍 Import Path Validation
+        description: Validates that Python import statements reference modules that actually exist
+        entry: python scripts/validation/import_path_validator.py --quick
+        language: system
+        pass_filenames: true
+        files: '\.py$'
+        stages: [pre-commit]
+        exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/testing/|scripts/debug/|.*_test\.py|debug_.*\.py)'
+        fail_fast: true
+
+      - id: deprecated-function-checker
+        name: 🚨 Deprecated Function Usage Check
+        description: Check for usage of deprecated functions using Codanna
+        entry: python scripts/validation/codanna_deprecated_checker.py --directory verenigingen
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+        exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/testing/|scripts/debug/)'
+
+      - id: workspace-validator
+        name: Workspace integrity validation
+        entry: python scripts/validation/workspace_integrity_validator.py
+        language: system
+        pass_filenames: false
+        files: '^(verenigingen/fixtures/workspace\.json|verenigingen/api/workspace_.*\.py)$'
+        stages: [pre-commit]
+
+      # - id: workspace-content-validator
+      #   name: 🔍 Workspace Content Synchronization Validator
+      #   description: Validate content field vs Card Break synchronization in workspaces
+      #   entry: bench --site dev.veganisme.net execute scripts.validate_workspace_content.main
+      #   language: system
+      #   pass_filenames: false
+      #   files: '^(verenigingen/.*workspace.*\.json|verenigingen/api/workspace_.*\.py)$'
+      #   stages: [pre-commit]
+
+      - id: comprehensive-validation
+        name: Validation suite runner (field + template)
+        entry: python scripts/validation/validation_suite_runner.py --quiet
+        language: system
+        pass_filenames: false
+        files: '\.(py|html)$'
+        stages: [manual]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
+
+      # NEW VALIDATION ORCHESTRATOR (Phase 3 Addition)
+      - id: validation-orchestrator
+        name: 🎯 Validation Orchestrator (Field + Select + Import)
+        description: Unified validation using orchestrator (field references, select values, import paths)
+        entry: python scripts/validation/validation_orchestrator.py --parallel --pre-commit --max-files 200 --timeout 90
+        language: system
+        pass_filenames: false
+        files: '\.(py)$'
+        stages: [pre-commit]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*|archived_unused/|archived_deleted/)'
+        verbose: true
+
+      # AST Field Analyzer
+      - id: ast-field-analyzer
+        name: AST-based field reference analyzer
+        description: AST-based field validation using abstract syntax tree analysis
+        entry: python scripts/validation/ast_field_analyzer.py
+        language: system
+        pass_filenames: true
+        files: \.py$
+        stages: [pre-commit]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*|one-off-test-utils/|.*setup.*\.py|.*_setup\.py|.*patch.*\.py|.*migration.*\.py|.*utils/debug/.*\.py)'
+        verbose: true
+
+      - id: comprehensive-doctype-validator
+        name: DocType field analysis with pattern matching
+        entry: python scripts/validation/doctype_field_analyzer.py
+        language: system
+        pass_filenames: false
+        files: \.py$
+        stages: [manual]
+
+      - id: performance-validator
+        name: Field reference validation
+        entry: python scripts/validation/field_reference_validator.py
+        language: system
+        pass_filenames: false
+        files: \.py$
+        stages: [manual]
+
+      - id: field-validation-only
+        name: Database field validation (fast check)
+        entry: python scripts/validation/validation_suite_runner.py --field-only --quiet
+        language: system
+        pass_filenames: false
+        files: '\.py$'
+        stages: [manual]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
+
+      - id: pragmatic-field-validator-strict
+        name: Balanced field validation (strict mode)
+        entry: python scripts/validation/database_field_reference_validator.py --level strict
+        language: system
+        pass_filenames: false
+        files: \.py$
+        stages: [manual]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|one-off-test-utils/|archived_.*|archived_unused/|archived_deleted/)'
+
+      # Validation Tools
+      - id: frappe-hooks-validator
+        name: 🪝 Frappe Hooks Validator
+        description: Validate Frappe hooks and event handlers
+        entry: python scripts/validation/frappe_hooks_validator.py
+        language: system
+        pass_filenames: false
+        files: '\.(py)$'
+        stages: [pre-commit]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
+
+      - id: api-confidence-validator
+        name: 🔍 API Confidence Validator
+        description: High-confidence API field validation
+        entry: python scripts/validation/frappe_api_confidence_validator.py
+        language: system
+        pass_filenames: true
+        files: '\.(py)$'
+        stages: [pre-commit]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
+
+      - id: template-variable-validator
+        name: 📄 Template Variable Validator
+        description: Validate variables in Jinja2 templates and HTML files
+        entry: python scripts/validation/template_variable_validator.py
+        language: system
+        pass_filenames: true
+        files: '\.(html|htm|jinja|jinja2)$'
+        stages: [pre-commit]
+        exclude: '^(tests/|test_|.*_test\.(html|htm)|debug_|.*_debug\.(html|htm)|scripts/testing/|scripts/debug/|node_modules/)'
+
+      - id: child-table-creation-validator
+        name: 👥 Child Table Creation Validator
+        description: Detect incorrect child table creation patterns (frappe.get_doc with child tables)
+        entry: python scripts/validation/child_table_creation_validator.py --pre-commit
+        language: system
+        pass_filenames: true
+        files: '\.(py)$'
+        stages: [pre-commit]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
+
+      # JavaScript Parameter Validation
+      - id: js-python-parameter-validator
+        name: 🔗 JS-Python Parameter Validator
+        description: Validate JavaScript to Python API parameter consistency
+        entry: python scripts/validation/js_python_parameter_validator.py
+        language: system
+        pass_filenames: true
+        files: '\.(js|py)$'
+        stages: [pre-push]
+        exclude: '^(tests/|test_|.*_test\.(js|py)|debug_|.*_debug\.(js|py)|scripts/testing/|scripts/debug/|node_modules/|archived_.*)'
+
+      # Method Resolution Validator
+      - id: method-resolution-validator
+        name: 🔧 Method Resolution Validator
+        description: Validate method calls and resolution patterns
+        entry: python scripts/validation/method_resolution_validator.py
+        language: system
+        pass_filenames: true
+        files: '\.(py)$'
+        stages: [pre-push]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
+
+      # Security and API Validation
+      - id: api-security-validator
+        name: 🛡️ API Security Validator
+        description: Validate API security decorators and patterns
+        entry: python scripts/validation/security/api_security_validator.py
+        language: system
+        pass_filenames: false
+        files: '^verenigingen/api/.*\.py$'
+        stages: [pre-push]
+        verbose: true
+
+      - id: insecure-api-detector
+        name: 🚨 Insecure API Detector
+        description: Detect API endpoints lacking proper security decorators
+        entry: python scripts/validation/security/insecure_api_detector.py
+        language: system
+        pass_filenames: true
+        files: '^verenigingen/api/.*\.py$'
+        stages: [pre-push]
+        verbose: true
+
+      # Performance and Quality Checks
+      - id: email-template-validator
+        name: 📧 Email Template Validator
+        description: Validate email templates and fixtures
+        entry: python scripts/validation/email_template_precommit_check.py
+        language: system
+        pass_filenames: false
+        files: '\.(json|html|py)$'
+        stages: [pre-commit]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
+
+      # Specialized Pattern Validation (Manual)
+      - id: unified-validation-engine
+        name: 🎯 Specialized Pattern Validator
+        description: Validate SQL queries, template variables, API patterns, and database operations
+        entry: python scripts/validation/unified_validation_engine.py
+        language: system
+        pass_filenames: false
+        files: '\.(py|html|js|json)$'
+        stages: [manual]
+        exclude: '^(tests/|test_|.*_test\.(py|html|js)|debug_|.*_debug\.(py|html|js)|scripts/testing/|scripts/debug/|node_modules/|archived_.*)'
+        verbose: true
+
+      # Makefile Integration
+      - id: make-test-quick
+        name: ⚡ Quick Test Suite (Makefile)
+        description: Run quick validation tests via Makefile
+        entry: make test-quick
+        language: system
+        pass_filenames: false
+        files: '\.(py)$'
+        stages: [pre-push]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
+
+      - id: make-lint
+        name: 🔧 Lint Check (Makefile)
+        description: Run comprehensive linting via Makefile
+        entry: make lint
+        language: system
+        pass_filenames: false
+        files: '\.(py)$'
+        stages: [pre-push]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
+
+      # Testing and Coverage
+      - id: pytest-coverage-critical
+        name: 📊 Pytest Coverage Check (Critical Tests)
+        description: Run critical tests with coverage enforcement
+        entry: python scripts/testing/pytest_precommit_runner.py
+        language: system
+        pass_filenames: false
+        files: '\.py$'
+        exclude: '^(migrations/|fixtures/|scripts/testing/|scripts/debug/|.*_debug\.py|test_.*\.py|archived_.*)'
+        stages: [pre-commit]
+        verbose: true
+        require_serial: true
+
+      # Quality Assurance Testing
+      - id: api-contract-validation
+        name: 🔍 API Contract Validation (Pre-commit)
+        description: Run API contract validation tests
+        entry: scripts/testing/jest-precommit-wrapper.sh --pattern api-contract-simple --type "API Contract Validation"
+        language: system
+        pass_filenames: false
+        files: '\.(js|py)$'
+        stages: [pre-commit]
+        exclude: '^(node_modules/|archived_.*|test-results/)'
+        always_run: false
+
+      - id: controller-testing-focused
+        name: 🎮 Controller Testing (Pre-commit)
+        description: Run focused controller tests to validate form behavior
+        entry: scripts/testing/jest-precommit-wrapper.sh --pattern focused --type "Controller Testing"
+        language: system
+        pass_filenames: false
+        files: '\.(js|py)$'
+        stages: [pre-commit]
+        exclude: '^(node_modules/|archived_.*|test-results/)'
+        always_run: false
+
+      - id: external-api-contracts
+        name: 🏦 External API Contracts (Pre-push)
+        description: Validate eBoekhouden and Mollie API contracts
+        entry: scripts/testing/jest-precommit-wrapper.sh --pattern external-api-contracts --type "External API Contract Validation"
+        language: system
+        pass_filenames: false
+        files: '\.(js|py)$'
+        stages: [pre-push]
+        exclude: '^(node_modules/|archived_.*|test-results/)'
+        always_run: false
+
+      - id: performance-benchmarking
+        name: ⚡ Performance Benchmarking (Pre-push)
+        description: Run performance benchmark tests for regression detection
+        entry: scripts/testing/jest-precommit-wrapper.sh --pattern api-contract-performance --type "Performance Benchmarking"
+        language: system
+        pass_filenames: false
+        files: '\.(js|py)$'
+        stages: [pre-push]
+        exclude: '^(node_modules/|archived_.*|test-results/)'
+        always_run: false
+
+      # JavaScript Testing
+      - id: jest-testing
+        name: 🧪 Jest JavaScript Testing
+        description: Run Jest tests for JavaScript components
+        entry: npm run test:coverage
+        language: system
+        pass_filenames: false
+        files: '\.(js|vue)$'
+        stages: [pre-push]
+        exclude: '^(node_modules/|dist/|build/|scripts/testing/|scripts/debug/|archived_.*)'
+
+      # Cypress E2E Testing (Manual)
+      - id: cypress-e2e-tests
+        name: 🌲 Cypress E2E Tests
+        description: Run Cypress end-to-end tests
+        entry: npm run cypress:run
+        language: system
+        pass_filenames: false
+        files: '\.(js|vue|html)$'
+        stages: [manual]
+        exclude: '^(node_modules/|dist/|build/|archived_.*)'
+
+      # Coverage Report Generation
+      - id: coverage-report-generator
+        name: 📈 Coverage Report Generator
+        description: Generate comprehensive test coverage reports
+        entry: python scripts/testing/test_coverage_report.py
+        language: system
+        pass_filenames: false
+        files: '\.(py)$'
+        stages: [pre-push]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'

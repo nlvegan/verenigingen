@@ -1,0 +1,249 @@
+frappe.ui.form.on('SEPA Direct Debit Batch', {
+    refresh: function(frm) {
+        // Add buttons based on document state
+        if (frm.doc.docstatus === 0) {
+            // Draft state
+            frm.add_custom_button(__('Generate SEPA File'), function() {
+                // Call function to preview SEPA file
+                frappe.msgprint(__("This will generate a SEPA XML file when the batch is submitted."));
+            }, __('Actions'));
+
+            // Add button to add invoices to batch
+            frm.add_custom_button(__('Add Unpaid Invoices'), function() {
+                add_unpaid_invoices_to_batch(frm);
+            }, __('Actions'));
+        } else if (frm.doc.docstatus === 1) {
+            // Submitted state
+
+            // Generate SEPA file if not already generated
+            if (!frm.doc.sepa_file_generated) {
+                frm.add_custom_button(__('Generate SEPA File'), function() {
+                    // Generate SEPA file
+                    frappe.call({
+                        method: 'verenigingen.verenigingen.doctype.direct_debit_batch.direct_debit_batch.generate_sepa_xml',
+                        args: {
+                            'batch_name': frm.doc.name
+                        },
+                        callback: function(r) {
+                            if (r.message) {
+                                frm.refresh();
+                                frappe.msgprint(__("SEPA file generated successfully"));
+                            }
+                        }
+                    });
+                }).addClass('btn-primary');
+            }
+
+            // Add button to process batch
+            if (frm.doc.sepa_file_generated && frm.doc.status === "Generated") {
+                frm.add_custom_button(__('Process Batch'), function() {
+                    // Process batch
+                    frappe.call({
+                        method: 'verenigingen.verenigingen.doctype.direct_debit_batch.direct_debit_batch.process_batch',
+                        args: {
+                            'batch_name': frm.doc.name
+                        },
+                        callback: function(r) {
+                            if (r.message) {
+                                frm.refresh();
+                                frappe.msgprint(__("Batch submitted for processing"));
+                            }
+                        }
+                    });
+                }).addClass('btn-primary');
+            }
+
+            // Mark invoices as paid - for testing/manual processing
+            if (frm.doc.status === "Generated" || frm.doc.status === "Submitted") {
+                frm.add_custom_button(__('Mark All as Paid'), function() {
+                    frappe.confirm(
+                        __('Are you sure you want to mark all invoices as paid? This will create payment entries.'),
+                        function() {
+                            // Yes - mark all as paid
+                            frappe.call({
+                                method: 'verenigingen.verenigingen.doctype.direct_debit_batch.direct_debit_batch.mark_invoices_as_paid',
+                                args: {
+                                    'batch_name': frm.doc.name
+                                },
+                                callback: function(r) {
+                                    frm.refresh();
+                                    frappe.msgprint(__("Marked {0} invoices as paid", [r.message]));
+                                }
+                            });
+                        }
+                    );
+                });
+            }
+
+            // Download SEPA file if generated
+            if (frm.doc.sepa_file_generated && frm.doc.sepa_file) {
+                frm.add_custom_button(__('Download SEPA File'), function() {
+                    window.open(frm.doc.sepa_file);
+                }, __('Actions'));
+            }
+        }
+
+        // Set field properties based on status
+        set_field_properties(frm);
+    },
+
+    onload: function(frm) {
+        // Set field properties when form loads
+        set_field_properties(frm);
+    },
+
+    batch_type: function(frm) {
+        // Update description based on batch type
+        if (frm.doc.batch_type) {
+            let descriptions = {
+                'CORE': __('Core SEPA Direct Debit - Standard for consumers'),
+                'B2B': __('Business to Business SEPA Direct Debit'),
+                'FRST': __('First SEPA Direct Debit - For first payment of a recurring series'),
+                'RCUR': __('Recurring SEPA Direct Debit - For subsequent payments')
+            };
+
+            if (descriptions[frm.doc.batch_type]) {
+                frm.set_df_property('batch_type', 'description', descriptions[frm.doc.batch_type]);
+            }
+        }
+    },
+
+    generate_sepa_file: function(frm) {
+        if (frm.doc.docstatus !== 1) {
+            frappe.msgprint(__("Please submit the batch before generating SEPA file"));
+            return;
+        }
+
+        frappe.call({
+            method: 'verenigingen.verenigingen.doctype.direct_debit_batch.direct_debit_batch.generate_sepa_xml',
+            args: {
+                'batch_name': frm.doc.name
+            },
+            callback: function(r) {
+                if (r.message) {
+                    frm.refresh();
+                    frappe.msgprint(__("SEPA file generated successfully"));
+                }
+            }
+        });
+    }
+});
+
+// Helper function to set field properties based on status
+function set_field_properties(frm) {
+    // Disable editing fields after generation
+    const is_generated = frm.doc.status === "Generated" ||
+                        frm.doc.status === "Submitted" ||
+                        frm.doc.status === "Processed";
+
+    // Fields to disable
+    const fields_to_disable = ['batch_date', 'batch_description', 'batch_type', 'currency'];
+
+    // Disable fields
+    fields_to_disable.forEach(field => {
+        frm.set_df_property(field, 'read_only', is_generated || frm.doc.docstatus === 1);
+    });
+
+    // Special case for invoices table
+    frm.set_df_property('invoices', 'read_only', is_generated || frm.doc.docstatus === 1);
+}
+
+// Function to add unpaid invoices to batch
+function add_unpaid_invoices_to_batch(frm) {
+    frappe.call({
+        method: 'verenigingen.verenigingen.doctype.membership.enhanced_subscription.get_unpaid_membership_invoices',
+        callback: function(r) {
+            if (!r.message || r.message.length === 0) {
+                frappe.msgprint(__("No unpaid membership invoices found"));
+                return;
+            }
+
+            // Show dialog with invoices
+            let fields = [];
+
+            // Add checkboxes for each invoice
+            r.message.forEach(invoice => {
+                fields.push({
+                    fieldtype: 'Check',
+                    label: `${invoice.invoice} - ${invoice.member_name} (${invoice.amount} ${invoice.currency})`,
+                    fieldname: `select_${invoice.invoice.replace(/-/g, '_')}`,
+                    default: 1,
+                    description: invoice.membership
+                });
+            });
+
+            let d = new frappe.ui.Dialog({
+                title: __('Select Invoices to Add'),
+                fields: fields,
+                primary_action_label: __('Add Selected'),
+                primary_action(values) {
+                    // Process selected invoices
+                    let selected_invoices = [];
+
+                    r.message.forEach(invoice => {
+                        const field_name = `select_${invoice.invoice.replace(/-/g, '_')}`;
+                        if (values[field_name]) {
+                            selected_invoices.push(invoice);
+                        }
+                    });
+
+                    if (selected_invoices.length === 0) {
+                        frappe.msgprint(__("No invoices selected"));
+                        return;
+                    }
+
+                    // Add invoices to batch
+                    add_invoices_to_current_batch(frm, selected_invoices);
+                    d.hide();
+                }
+            });
+
+            d.show();
+        }
+    });
+}
+
+// Function to add invoices to current batch
+function add_invoices_to_current_batch(frm, invoices) {
+    // Clear existing if empty description
+    if (!frm.doc.batch_description) {
+        frm.doc.invoices = [];
+    }
+
+    // Set defaults if new batch
+    if (!frm.doc.batch_description) {
+        frm.set_value('batch_date', frappe.datetime.get_today());
+        frm.set_value('batch_description', `Membership payments batch - ${frappe.datetime.get_today()}`);
+        frm.set_value('batch_type', 'RCUR');
+        frm.set_value('currency', 'EUR');
+    }
+
+    // Add invoices
+    invoices.forEach(invoice => {
+        // Skip if already in batch
+        const existing = frm.doc.invoices.find(i => i.invoice === invoice.invoice);
+        if (existing) return;
+
+        // Add invoice
+        const child = frm.add_child('invoices');
+        child.invoice = invoice.invoice;
+        child.membership = invoice.membership;
+        child.member = invoice.member;
+        child.member_name = invoice.member_name;
+        child.amount = invoice.amount;
+        child.currency = invoice.currency;
+        child.bank_account = invoice.bank_account;
+        child.iban = invoice.iban || '';
+        child.mandate_reference = invoice.mandate_reference || '';
+        child.status = 'Pending';
+    });
+
+    // Update total amount and entry count
+    const total_amount = frm.doc.invoices.reduce((sum, invoice) => sum + invoice.amount, 0);
+    frm.set_value('total_amount', total_amount);
+    frm.set_value('entry_count', frm.doc.invoices.length);
+
+    // Refresh form
+    frm.refresh_field('invoices');
+    frappe.msgprint(__("Added {0} invoices to batch", [invoices.length]));
+}

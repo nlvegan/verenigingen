@@ -1,0 +1,310 @@
+{
+  "actions": [],
+  "allow_rename": 1,
+  "autoname": "",
+  "creation": "2025-01-01 00:00:00.000000",
+  "default_view": "List",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "description",
+    "is_active",
+    "section_break_4",
+    "logo",
+    "section_break_5",
+    "primary_color",
+    "column_break_8",
+    "secondary_color",
+    "column_break_11",
+    "accent_color",
+    "advanced_section",
+    "primary_hover_color",
+    "secondary_hover_color",
+    "accent_hover_color",
+    "section_break_14",
+    "success_color",
+    "warning_color",
+    "column_break_17",
+    "error_color",
+    "info_color",
+    "section_break_20",
+    "text_primary_color",
+    "text_secondary_color",
+    "column_break_23",
+    "background_primary_color",
+    "background_secondary_color",
+    "section_break_26",
+    "primary_button_text_color",
+    "secondary_button_text_color",
+    "column_break_29",
+    "accent_button_text_color"
+  ],
+  "fields": [
+    {
+      "fieldname": "description",
+      "fieldtype": "Text",
+      "label": "Description"
+    },
+    {
+      "fieldname": "is_active",
+      "fieldtype": "Check",
+      "label": "Is Active",
+      "default": 1,
+      "in_list_view": 1,
+      "description": "Whether this brand setting is currently active"
+    },
+    {
+      "fieldname": "section_break_4",
+      "fieldtype": "Section Break",
+      "label": "Logo & Branding"
+    },
+    {
+      "description": "Upload organization logo (recommended: PNG or SVG, max 2MB)",
+      "fieldname": "logo",
+      "fieldtype": "Attach Image",
+      "label": "Organization Logo"
+    },
+    {
+      "fieldname": "section_break_5",
+      "fieldtype": "Section Break",
+      "label": "Brand Colors"
+    },
+    {
+      "default": "#cf3131",
+      "description": "Main brand color used for buttons, headers, and key interface elements",
+      "fieldname": "primary_color",
+      "fieldtype": "Color",
+      "in_list_view": 1,
+      "label": "Primary Color",
+      "reqd": 1
+    },
+    {
+      "fieldname": "advanced_section",
+      "fieldtype": "Section Break",
+      "label": "Advanced Color Settings",
+      "collapsible": 1,
+      "collapsible_depends_on": "eval:1",
+      "description": "These colors are automatically calculated from your primary, secondary, and accent colors. Only modify if you need specific customizations."
+    },
+    {
+      "default": "#b82828",
+      "description": "Auto-calculated: 15% darker than primary. Used for hover states and gradients.",
+      "fieldname": "primary_hover_color",
+      "fieldtype": "Color",
+      "label": "Primary Dark Shade",
+      "reqd": 1,
+      "read_only": 0
+    },
+    {
+      "fieldname": "column_break_8",
+      "fieldtype": "Column Break"
+    },
+    {
+      "default": "#01796f",
+      "description": "Supporting brand color used for secondary buttons and complementary elements",
+      "fieldname": "secondary_color",
+      "fieldtype": "Color",
+      "label": "Secondary Color",
+      "reqd": 1
+    },
+    {
+      "default": "#015a52",
+      "description": "Auto-calculated: 15% darker than secondary. Used for hover states and gradients.",
+      "fieldname": "secondary_hover_color",
+      "fieldtype": "Color",
+      "label": "Secondary Dark Shade",
+      "reqd": 1,
+      "read_only": 0
+    },
+    {
+      "fieldname": "column_break_11",
+      "fieldtype": "Column Break"
+    },
+    {
+      "default": "#663399",
+      "description": "Accent color used for highlights, special features, and decorative elements",
+      "fieldname": "accent_color",
+      "fieldtype": "Color",
+      "label": "Accent Color",
+      "reqd": 1
+    },
+    {
+      "default": "#4d2673",
+      "description": "Auto-calculated: 15% darker than accent. Used for hover states and gradients.",
+      "fieldname": "accent_hover_color",
+      "fieldtype": "Color",
+      "label": "Accent Dark Shade",
+      "reqd": 1,
+      "read_only": 0
+    },
+    {
+      "fieldname": "section_break_14",
+      "fieldtype": "Section Break",
+      "label": "Semantic Status Colors",
+      "description": "Auto-calculated semantic defaults. Customize if needed."
+    },
+    {
+      "default": "#28a745",
+      "description": "Auto-set: Green for success/positive actions",
+      "fieldname": "success_color",
+      "fieldtype": "Color",
+      "label": "Success Color",
+      "reqd": 1,
+      "read_only": 0
+    },
+    {
+      "default": "#ffc107",
+      "description": "Auto-set: Amber for warnings/caution",
+      "fieldname": "warning_color",
+      "fieldtype": "Color",
+      "label": "Warning Color",
+      "reqd": 1,
+      "read_only": 0
+    },
+    {
+      "fieldname": "column_break_17",
+      "fieldtype": "Column Break"
+    },
+    {
+      "default": "#dc3545",
+      "description": "Auto-set: Red for errors/danger",
+      "fieldname": "error_color",
+      "fieldtype": "Color",
+      "label": "Error Color",
+      "reqd": 1,
+      "read_only": 0
+    },
+    {
+      "default": "#17a2b8",
+      "description": "Auto-set: Blue for information/neutral",
+      "fieldname": "info_color",
+      "fieldtype": "Color",
+      "label": "Info Color",
+      "reqd": 1,
+      "read_only": 0
+    },
+    {
+      "fieldname": "section_break_20",
+      "fieldtype": "Section Break",
+      "label": "Text & Background Colors",
+      "description": "Auto-calculated defaults for text and backgrounds. Customize if needed."
+    },
+    {
+      "default": "#333333",
+      "description": "Auto-set: Dark gray for optimal readability on light backgrounds",
+      "fieldname": "text_primary_color",
+      "fieldtype": "Color",
+      "label": "Primary Text Color",
+      "reqd": 1,
+      "read_only": 0
+    },
+    {
+      "default": "#666666",
+      "description": "Auto-set: Medium gray for secondary/muted text",
+      "fieldname": "text_secondary_color",
+      "fieldtype": "Color",
+      "label": "Secondary Text Color",
+      "reqd": 1,
+      "read_only": 0
+    },
+    {
+      "fieldname": "column_break_23",
+      "fieldtype": "Column Break"
+    },
+    {
+      "default": "#ffffff",
+      "description": "Auto-set: White default for main background",
+      "fieldname": "background_primary_color",
+      "fieldtype": "Color",
+      "label": "Primary Background Color",
+      "reqd": 1,
+      "read_only": 0
+    },
+    {
+      "default": "#f8f9fa",
+      "description": "Auto-set: Light gray for cards and secondary backgrounds",
+      "fieldname": "background_secondary_color",
+      "fieldtype": "Color",
+      "label": "Secondary Background Color",
+      "reqd": 1,
+      "read_only": 0
+    },
+    {
+      "fieldname": "section_break_26",
+      "fieldtype": "Section Break",
+      "label": "Button Text Colors",
+      "description": "Auto-calculated based on button background brightness for optimal contrast."
+    },
+    {
+      "default": "#ffffff",
+      "description": "Auto-calculated: Black or white based on primary color brightness",
+      "fieldname": "primary_button_text_color",
+      "fieldtype": "Color",
+      "label": "Primary Button Text Color",
+      "reqd": 1,
+      "read_only": 0
+    },
+    {
+      "default": "#ffffff",
+      "description": "Auto-calculated: Black or white based on secondary color brightness",
+      "fieldname": "secondary_button_text_color",
+      "fieldtype": "Color",
+      "label": "Secondary Button Text Color",
+      "reqd": 1,
+      "read_only": 0
+    },
+    {
+      "fieldname": "column_break_29",
+      "fieldtype": "Column Break"
+    },
+    {
+      "default": "#ffffff",
+      "description": "Auto-calculated: Black or white based on accent color brightness",
+      "fieldname": "accent_button_text_color",
+      "fieldtype": "Color",
+      "label": "Accent Button Text Color",
+      "reqd": 1,
+      "read_only": 0
+    }
+  ],
+  "index_web_pages_for_search": 1,
+  "issingle": 1,
+  "links": [],
+  "modified": "2025-01-01 00:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Verenigingen",
+  "name": "Brand Settings",
+  "naming_rule": "By fieldname",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Verenigingen Administrator",
+      "share": 1,
+      "write": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1
+}

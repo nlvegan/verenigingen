@@ -1,0 +1,893 @@
+{% extends "templates/base_portal.html" %}
+
+{% block title %}{{ _("Payment Settings") }}{% endblock %}
+
+{% block style %}
+<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+{% from "templates/macros/brand_css.html" import brand_css %}
+{{ brand_css() }}
+{% endblock %}
+
+{% block page_content %}
+<div class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 py-8">
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+
+        <!-- Header -->
+        <div class="text-center mb-8 animate-fade-in">
+            <h1 class="text-4xl font-bold text-gray-900 mb-4">
+                <span class="text-2xl mr-3">🏦</span>{{ _("Payment Settings") }}
+            </h1>
+            <p class="text-xl text-gray-600 max-w-3xl mx-auto">{{ _("Manage your payment methods and automatic contributions") }}</p>
+            <div class="mt-4">
+                <a href="/member_portal" class="inline-flex items-center text-primary-600 hover:text-primary-700 font-medium">
+                    <i class="fa fa-arrow-left mr-2"></i>{{ _("Back to Portal") }}
+                </a>
+            </div>
+        </div>
+
+        <div class="form-card animate-slide-up">
+            <div class="form-header">
+                <h3 class="flex items-center">
+                    {{ _("Your Payment Methods") }}
+                </h3>
+            </div>
+            <div class="form-body space-y-6">
+
+                <!-- Payment Method Cards -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                    <!-- SEPA Direct Debit Card -->
+                    <div class="border-2 {% if current_mandate %}border-success-500{% else %}border-gray-300{% endif %} bg-white rounded-lg p-6 transition-all duration-300 hover:shadow-md">
+                        <div class="flex items-start justify-between mb-4">
+                            <div class="flex items-center">
+                                <div class="flex-shrink-0">
+                                    <div class="w-12 h-12 bg-success-100 rounded-full flex items-center justify-center">
+                                        <i class="fa fa-university text-success-600 text-xl"></i>
+                                    </div>
+                                </div>
+                                <div class="ml-4">
+                                    <h4 class="text-lg font-semibold text-gray-900">{{ _("SEPA Direct Debit") }}</h4>
+                                </div>
+                            </div>
+                            <span class="inline-flex items-center px-3 py-1 {% if current_mandate %}bg-success-500{% else %}bg-gray-400{% endif %} text-white rounded-full text-xs font-semibold">
+                                {% if current_mandate %}<i class="fa fa-check mr-1"></i>{{ _("Enabled") }}{% else %}{{ _("Disabled") }}{% endif %}
+                            </span>
+                        </div>
+
+                        <!-- Information message -->
+                        <p class="text-sm text-gray-600 mb-4">
+                            {{ _("European bank transfer with automatic collection") }}
+                        </p>
+
+                        {% if current_mandate %}
+                        <div class="bg-white rounded-lg border border-success-200 p-4 mb-4">
+                            <div class="space-y-2 text-sm">
+                                <p class="text-gray-700">
+                                    <span class="font-medium">{{ _("IBAN:") }}</span><br>
+                                    <span class="font-mono">{{ current_details.iban or _("Not set") }}</span>
+                                </p>
+                                <p class="text-gray-700">
+                                    <span class="font-medium">{{ _("Account Holder:") }}</span><br>
+                                    {{ current_details.bank_account_name or member.full_name }}
+                                </p>
+                                {% if current_details.bic %}
+                                <p class="text-gray-700">
+                                    <span class="font-medium">{{ _("BIC:") }}</span> {{ current_details.bic }}
+                                </p>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <p class="text-sm text-success-800">
+                            <i class="fa fa-info-circle mr-1"></i>
+                            {{ _("Automatic collection enabled for membership fees") }}
+                        </p>
+                        {% else %}
+                        <div class="bg-white rounded-lg border border-gray-200 p-6 text-center">
+                            <i class="fa fa-university text-gray-400 text-3xl mb-3"></i>
+                            <p class="text-gray-700 font-medium mb-3">{{ _("SEPA Direct Debit not configured") }}</p>
+                            <button type="button" onclick="showSepaSetup()"
+                                    class="inline-flex items-center px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-md transition-colors duration-200 text-sm font-medium">
+                                <i class="fa fa-plus mr-2"></i>{{ _("Set up automatic payment") }}
+                            </button>
+                            {% if active_dues_schedule %}
+                            <p class="text-sm text-gray-600 mt-3">
+                                {% set frequency_map = {"Monthly": "month", "Quarterly": "quarter", "Yearly": "year", "Weekly": "week"} %}
+                                {% set frequency = frequency_map.get(active_dues_schedule.billing_frequency, active_dues_schedule.billing_frequency|lower) %}
+                                {{ _("Current rate") }}: <strong>€{{ "%.2f"|format(active_dues_schedule.amount) }}</strong> {{ _("per") }} {{ frequency }}
+                            </p>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Mollie Card -->
+                    {% if mollie_subscription or mollie_customers %}
+                    <div class="border-2 bg-primary-50 rounded-lg p-6 transition-all duration-300 hover:shadow-md" id="mollie-subscription-section">
+                        <div class="flex items-start justify-between mb-4">
+                            <div class="flex items-center">
+                                <div class="flex-shrink-0">
+                                    <div class="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center">
+                                        <i class="fa fa-credit-card text-primary-600 text-xl"></i>
+                                    </div>
+                                </div>
+                                <div class="ml-4">
+                                    <h4 class="text-lg font-semibold text-gray-900">{{ _("Mollie Payments") }}</h4>
+                                </div>
+                            </div>
+                            <span id="mollie-status-badge" class="inline-flex items-center px-3 py-1 bg-gray-400 text-white rounded-full text-xs font-semibold">
+                                {{ _("Disabled") }}
+                            </span>
+                        </div>
+
+                        <!-- Information message -->
+                        <p class="text-sm text-gray-600 mb-4">
+                            {{ _("Flexible payment methods: credit card, iDEAL, bank transfer, and more") }}
+                        </p>
+
+                        <!-- Subscription Cards -->
+                        <div id="subscription-details">
+                            <div id="subscriptions-container" class="space-y-3">
+                                <!-- Loading state -->
+                                <div id="loading-row" class="bg-white rounded-lg border border-primary-200 p-4 text-center text-gray-500">
+                                    <i class="fa fa-spinner fa-spin mr-2"></i>
+                                    {{ _("Loading subscription details...") }}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Loading indicator for real-time data -->
+                        <div id="subscription-loading" class="hidden mt-3">
+                            <div class="flex items-center justify-center py-2">
+                                <i class="fa fa-spinner fa-spin mr-2 text-primary-600"></i>
+                                <span class="text-sm text-gray-600">{{ _("Loading current subscription details...") }}</span>
+                            </div>
+                        </div>
+
+                        <!-- Error message for real-time data -->
+                        <div id="subscription-error" class="hidden mt-3 p-3 bg-danger-100 border border-danger-300 text-danger-700 rounded-lg text-sm">
+                            <i class="fa fa-exclamation-triangle mr-1"></i>
+                            <span id="subscription-error-message"></span>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                </div>
+
+                <!-- Contribution Rate Change Information -->
+                <div class="bg-blue-50 border-l-4 border-blue-500 p-6 rounded-r-lg">
+                    <div class="flex items-start">
+                        <i class="fa fa-info-circle text-blue-600 text-2xl mr-3 mt-0.5 flex-shrink-0"></i>
+                        <div class="flex-1">
+                            <h5 class="font-semibold text-blue-900 mb-2">{{ _("Want to change your contribution amount?") }}</h5>
+                            <p class="text-blue-800 mb-3">
+                                {{ _("If you'd like to adjust your membership dues rate, you can do so on the membership fee adjustment page.") }}
+                            </p>
+                            <a href="/membership_adjustment" class="inline-flex items-center px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-md transition-colors duration-200 text-sm font-medium shadow-sm">
+                                <i class="fa fa-edit mr-2"></i>{{ _("Change Membership and Dues Details") }}
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Success Message -->
+                {% if frappe.form_dict.get('cancelled') %}
+                <div class="bg-success-50 border-l-4 border-success-500 p-6 rounded-r-lg">
+                    <div class="flex items-start">
+                        <i class="fa fa-check-circle text-success-600 text-2xl mr-3 mt-0.5 flex-shrink-0"></i>
+                        <div class="flex-1">
+                            <h5 class="font-semibold text-success-900 mb-2">{{ _("Recurring Payment Cancelled Successfully") }}</h5>
+                            <p class="text-success-800 mb-3">{{ _("Your automatic membership payments have been cancelled.") }}</p>
+                            <div class="text-sm text-success-700 space-y-1">
+                                <div class="flex items-start">
+                                    <i class="fa fa-check mr-2 mt-0.5 flex-shrink-0"></i>
+                                    <span>{{ _("No more automatic monthly/yearly charges") }}</span>
+                                </div>
+                                <div class="flex items-start">
+                                    <i class="fa fa-check mr-2 mt-0.5 flex-shrink-0"></i>
+                                    <span>{{ _("Your bank account details remain on file") }}</span>
+                                </div>
+                                <div class="flex items-start">
+                                    <i class="fa fa-check mr-2 mt-0.5 flex-shrink-0"></i>
+                                    <span>{{ _("Manual payments can still be processed") }}</span>
+                                </div>
+                                <div class="flex items-start">
+                                    <i class="fa fa-check mr-2 mt-0.5 flex-shrink-0"></i>
+                                    <span>{{ _("You can set up a new subscription anytime") }}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Update Bank Details Form -->
+                <div class="pt-6 border-t border-gray-200" id="bank-details-section" style="display: none;">
+                    <h4 class="text-lg font-semibold text-gray-900 mb-4">{{ _("Bank Details") }}</h4>
+
+                    <form method="post" action="/api/method/verenigingen.templates.pages.bank_details.update_bank_details" id="bank-details-form" class="space-y-6">
+                        <input type="hidden" name="csrf_token" value="{{ frappe.session.csrf_token }}">
+                        <input type="hidden" name="enable_direct_debit" value="1" id="enable_direct_debit">
+
+                        <div>
+                            <label for="iban" class="block text-sm font-medium text-gray-700 mb-2">
+                                {{ _("IBAN") }} <span class="text-red-500">*</span>
+                            </label>
+                            <input type="text"
+                                   class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                                   id="iban"
+                                   name="iban"
+                                   value="{{ current_details.iban if current_details else '' }}"
+                                   placeholder="{{ _('Enter your IBAN (e.g., NL91 ABNA 0417 1643 00)') }}"
+                                   required>
+                            <p class="text-sm text-gray-600 mt-1">{{ _("International Bank Account Number - automatically formatted and validated") }}</p>
+                        </div>
+
+                        <div>
+                            <label for="account_holder_name" class="block text-sm font-medium text-gray-700 mb-2">
+                                {{ _("Account Holder Name") }} <span class="text-red-500">*</span>
+                            </label>
+                            <input type="text"
+                                   class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                                   id="account_holder_name"
+                                   name="account_holder_name"
+                                   value="{{ current_details.bank_account_name if current_details else member.full_name }}"
+                                   required>
+                            <p class="text-sm text-gray-600 mt-1">{{ _("Name as it appears on your bank account") }}</p>
+                        </div>
+
+                        <div class="bg-warning-50 border-l-4 border-warning-500 p-4 rounded-r-lg">
+                            <div class="flex items-start">
+                                <i class="fa fa-info-circle text-warning-600 mr-2 mt-0.5 flex-shrink-0"></i>
+                                <div class="text-sm text-warning-800">
+                                    <strong>{{ _("Note:") }}</strong> {{ _("Setting up SEPA Direct Debit will create a new mandate that requires your authorization.") }}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-col sm:flex-row gap-3 pt-4">
+                            <button type="button" onclick="hideSepaSetup()" class="btn-secondary justify-center">
+                                {{ _("Cancel") }}
+                            </button>
+                            <button type="submit" class="btn-primary justify-center">
+                                <i class="fa fa-save mr-2"></i>{{ _("Continue Setup") }}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+// Pass server-side data to JavaScript
+const activeDuesSchedule = {{ active_dues_schedule|tojson if active_dues_schedule else 'null' }};
+console.log('Active dues schedule:', activeDuesSchedule);
+
+// Show SEPA setup form
+window.showSepaSetup = function() {
+    const formSection = document.getElementById('bank-details-section');
+    if (formSection) {
+        formSection.style.display = 'block';
+        // Scroll to the form smoothly
+        formSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        // Focus on first input field
+        setTimeout(() => {
+            const ibanInput = document.getElementById('iban');
+            if (ibanInput) {
+                ibanInput.focus();
+            }
+        }, 300);
+    }
+};
+
+// Hide SEPA setup form
+window.hideSepaSetup = function() {
+    const formSection = document.getElementById('bank-details-section');
+    if (formSection) {
+        formSection.style.display = 'none';
+    }
+};
+
+document.addEventListener('DOMContentLoaded', function() {
+    const ibanInput = document.getElementById('iban');
+
+    // Auto-format and validate IBAN
+    ibanInput.addEventListener('input', function(e) {
+        let value = e.target.value.replace(/\s/g, '').toUpperCase();
+
+        // Format IBAN with spaces for readability (4 characters per group)
+        let formatted = value.replace(/(.{4})/g, '$1 ').trim();
+        e.target.value = formatted;
+
+        // Real-time validation feedback
+        const iban = value;
+        if (iban.length > 0) {
+            if (iban.length >= 15 && /^[A-Z]{2}[0-9]{2}[A-Z0-9]+$/.test(iban)) {
+                // Valid format - add success styling
+                e.target.classList.remove('border-danger-500', 'focus:ring-danger-500');
+                e.target.classList.add('border-success-500', 'focus:ring-success-500');
+            } else if (iban.length < 15) {
+                // Still typing - neutral
+                e.target.classList.remove('border-danger-500', 'focus:ring-danger-500', 'border-success-500', 'focus:ring-success-500');
+            } else {
+                // Invalid format - add error styling
+                e.target.classList.remove('border-success-500', 'focus:ring-success-500');
+                e.target.classList.add('border-danger-500', 'focus:ring-danger-500');
+            }
+        }
+    });
+
+    // Form validation - fields are always required during setup
+    document.getElementById('bank-details-form').addEventListener('submit', function(e) {
+        const iban = ibanInput.value.replace(/\s/g, '');
+
+        // IBAN validation
+        if (iban.length < 15 || !/^[A-Z]{2}[0-9]{2}[A-Z0-9]+$/.test(iban)) {
+            e.preventDefault();
+            alert('{{ _("Please enter a valid IBAN") }}');
+            ibanInput.focus();
+            return false;
+        }
+
+        const accountHolder = document.getElementById('account_holder_name').value.trim();
+        if (!accountHolder) {
+            e.preventDefault();
+            alert('{{ _("Please enter the account holder name") }}');
+            document.getElementById('account_holder_name').focus();
+            return false;
+        }
+
+        return true;
+    });
+
+    // Mollie subscription cancellation
+    window.cancelSubscription = function() {
+        const confirmMessage = '{{ _("Cancel Recurring Payment") }}\n\n' +
+                              '{{ _("Are you sure you want to cancel your automatic membership payments?") }}\n\n' +
+                              '• {{ _("Your SEPA mandate will remain ACTIVE") }}\n' +
+                              '• {{ _("Other payments can still be processed") }}\n' +
+                              '• {{ _("Manual payments will still be possible") }}\n' +
+                              '• {{ _("This only cancels the recurring subscription") }}\n\n' +
+                              '{{ _("This action cannot be undone.") }}';
+
+        if (!confirm(confirmMessage)) {
+            return;
+        }
+
+        // Show loading state
+        const button = event.target.closest('button');
+        const originalText = button.innerHTML;
+        button.disabled = true;
+        button.innerHTML = '<i class="fa fa-spinner fa-spin mr-1"></i>{{ _("Cancelling...") }}';
+
+        // Call the cancellation API
+        fetch('/api/method/verenigingen.templates.pages.bank_details.cancel_subscription', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Frappe-CSRF-Token': '{{ frappe.session.csrf_token }}'
+            }
+        })
+        .then(response => {
+            if (response.ok) {
+                // Success - redirect will be handled by the server
+                window.location.reload();
+            } else {
+                return response.json().then(data => {
+                    throw new Error(data.message || '{{ _("Failed to cancel subscription") }}');
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Subscription cancellation error:', error);
+            alert('{{ _("Error cancelling recurring payment:") }} ' + error.message);
+
+            // Restore button state
+            button.disabled = false;
+            button.innerHTML = originalText;
+        });
+    };
+
+    // Cancel specific subscription
+    window.cancelSpecificSubscription = function(customerId, subscriptionId) {
+        const confirmMessage = '{{ _("Cancel Specific Subscription") }}\n\n' +
+                              '{{ _("Are you sure you want to cancel this subscription?") }}\n\n' +
+                              `{{ _("Subscription ID:") }} ${subscriptionId}\n\n` +
+                              '• {{ _("Your SEPA mandate will remain ACTIVE") }}\n' +
+                              '• {{ _("Other subscriptions will continue running") }}\n' +
+                              '• {{ _("This action cannot be undone") }}';
+
+        if (!confirm(confirmMessage)) {
+            return;
+        }
+
+        // Show loading state
+        const button = event.target.closest('button');
+        const originalText = button.innerHTML;
+        button.disabled = true;
+        button.innerHTML = '<i class="fa fa-spinner fa-spin mr-1"></i>{{ _("Cancelling...") }}';
+
+        // Call the cancellation API with specific subscription
+        const formData = new FormData();
+        formData.append('customer_id', customerId);
+        formData.append('subscription_id', subscriptionId);
+
+        fetch('/api/method/verenigingen.templates.pages.bank_details.cancel_specific_subscription', {
+            method: 'POST',
+            headers: {
+                'X-Frappe-CSRF-Token': '{{ frappe.session.csrf_token }}'
+            },
+            body: formData
+        })
+        .then(response => {
+            if (response.ok) {
+                // Success - show success message and reload after brief delay
+                button.innerHTML = '<i class="fa fa-check mr-1"></i>{{ _("Cancelled") }}';
+                button.className = 'inline-flex items-center px-2 py-1 bg-gray-400 text-white text-xs rounded cursor-not-allowed';
+
+                // Reload subscription data after a brief delay to allow Mollie to update
+                setTimeout(() => {
+                    loadSubscriptionDetails();
+                }, 1500);
+            } else {
+                return response.json().then(data => {
+                    throw new Error(data.message || '{{ _("Failed to cancel subscription") }}');
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Subscription cancellation error:', error);
+            alert('{{ _("Error cancelling subscription:") }} ' + error.message);
+
+            // Restore button state
+            button.disabled = false;
+            button.innerHTML = originalText;
+        });
+    };
+
+    // Load real-time subscription data
+    function loadSubscriptionDetails() {
+        const mollieSection = document.getElementById('mollie-subscription-section');
+        if (!mollieSection) return; // No Mollie subscription section present
+
+        const loadingIndicator = document.getElementById('subscription-loading');
+        const errorIndicator = document.getElementById('subscription-error');
+
+        // Show loading indicator
+        if (loadingIndicator) {
+            loadingIndicator.classList.remove('hidden');
+        }
+
+        // Hide error indicator
+        if (errorIndicator) {
+            errorIndicator.classList.add('hidden');
+        }
+
+        fetch('/api/method/verenigingen.templates.pages.bank_details.get_subscription_details', {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Frappe-CSRF-Token': '{{ frappe.session.csrf_token }}'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            // Hide loading indicator
+            if (loadingIndicator) {
+                loadingIndicator.classList.add('hidden');
+            }
+
+            if (data.message && data.message.status === 'success') {
+                updateMultipleSubscriptionsDisplay(data.message.subscriptions, data.message.total_customers);
+            } else if (data.message && data.message.status === 'fallback') {
+                // Show fallback message but still update display with available data
+                if (data.message.subscriptions) {
+                    updateMultipleSubscriptionsDisplay(data.message.subscriptions, data.message.total_customers || 1);
+                }
+                showSubscriptionError(data.message.message || '{{ _("Using last known data") }}');
+            } else if (data.message && data.message.status === 'no_subscription') {
+                // Update status to show as inactive
+                updateMultipleSubscriptionsDisplay([], 0);
+            } else {
+                // Error - show as inactive
+                updateMultipleSubscriptionsDisplay([], 0);
+                showSubscriptionError(data.message?.message || '{{ _("Error loading subscription details") }}');
+            }
+        })
+        .catch(error => {
+            console.error('Error loading subscription details:', error);
+
+            // Hide loading indicator
+            if (loadingIndicator) {
+                loadingIndicator.classList.add('hidden');
+            }
+
+            // Update status to show as inactive on error
+            updateMultipleSubscriptionsDisplay([], 0);
+            showSubscriptionError('{{ _("Unable to load current subscription details") }}');
+        });
+    }
+
+    function updateMultipleSubscriptionsDisplay(subscriptions, totalCustomers) {
+        const container = document.getElementById('subscriptions-container');
+        const loadingRow = document.getElementById('loading-row');
+
+        if (!container) return;
+
+        // Remove loading row
+        if (loadingRow) {
+            loadingRow.remove();
+        }
+
+        // Clear existing cards
+        container.innerHTML = '';
+
+        // Check for valid Mollie customers (not just active subscriptions)
+        // A valid customer means the mandate is set up, even without active subscriptions
+        const validCustomers = subscriptions ? subscriptions.filter(s => {
+            // Only valid if customer exists without errors AND has valid mandate
+            return s.customer_id && !s.error && s.mandate_valid === true;
+        }) : [];
+
+        // Filter active subscriptions for display
+        const activeSubscriptions = subscriptions ? subscriptions.filter(s => s.subscription && s.subscription.is_active) : [];
+
+        // Update Mollie section status based on valid customers
+        const mollieSection = document.getElementById('mollie-subscription-section');
+        const mollieBadge = document.getElementById('mollie-status-badge');
+
+        if (validCustomers && validCustomers.length > 0) {
+            // Has valid Mollie mandate - show as enabled
+            if (mollieSection) {
+                mollieSection.classList.remove('border-gray-300');
+                mollieSection.classList.add('border-primary-500');
+            }
+            if (mollieBadge) {
+                mollieBadge.className = 'inline-flex items-center px-3 py-1 bg-success-500 text-white rounded-full text-xs font-semibold';
+                mollieBadge.innerHTML = '<i class="fa fa-check mr-1"></i>{{ _("Enabled") }}';
+            }
+
+            // Show active subscriptions or empty state
+            if (activeSubscriptions.length === 0) {
+                let emptyStateHTML = `
+                    <div class="bg-white rounded-lg border border-primary-200 p-6 text-center">
+                        <i class="fa fa-credit-card text-primary-400 text-3xl mb-3"></i>
+                        <p class="text-gray-700 font-medium mb-3">{{ _("Mollie payment method configured") }}</p>
+                `;
+
+                // Add setup link with dues rate if available
+                if (activeDuesSchedule) {
+                    // Convert billing frequency to grammatically correct form
+                    const frequencyMap = {
+                        'Monthly': 'month',
+                        'Quarterly': 'quarter',
+                        'Yearly': 'year',
+                        'Weekly': 'week',
+                        'Semi-annually': 'half year',
+                        'Annually': 'year'
+                    };
+                    const frequency = frequencyMap[activeDuesSchedule.billing_frequency] || activeDuesSchedule.billing_frequency.toLowerCase();
+                    const formattedAmount = new Intl.NumberFormat('nl-NL', {
+                        style: 'currency',
+                        currency: 'EUR'
+                    }).format(activeDuesSchedule.amount);
+
+                    emptyStateHTML += `
+                        <button type="button" onclick="setupMollieSubscription()"
+                                class="inline-flex items-center px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-md transition-colors duration-200 text-sm font-medium">
+                            <i class="fa fa-plus mr-2"></i>{{ _("Set up automatic payment") }}
+                        </button>
+                        <p class="text-sm text-gray-600 mt-3">
+                            {{ _("Current rate") }}: <strong>${formattedAmount}</strong> {{ _("per") }} ${frequency}
+                        </p>
+                    `;
+                } else {
+                    emptyStateHTML += `
+                        <p class="text-sm text-gray-600">{{ _("No active subscriptions at the moment") }}</p>
+                    `;
+                }
+
+                emptyStateHTML += `</div>`;
+                container.innerHTML = emptyStateHTML;
+                return;
+            }
+        } else {
+            // No valid mandate - show as disabled
+            if (mollieSection) {
+                mollieSection.classList.remove('border-primary-500');
+                mollieSection.classList.add('border-gray-300');
+            }
+            if (mollieBadge) {
+                mollieBadge.className = 'inline-flex items-center px-3 py-1 bg-gray-400 text-white rounded-full text-xs font-semibold';
+                mollieBadge.innerHTML = '{{ _("Disabled") }}';
+            }
+            container.innerHTML = `
+                <div class="bg-white rounded-lg border border-primary-200 p-6 text-center text-gray-500">
+                    <i class="fa fa-inbox text-3xl mb-2 opacity-50"></i>
+                    <p>{{ _("No Mollie payment method configured") }}</p>
+                </div>
+            `;
+            return;
+        }
+
+        // Sort subscriptions: active first, then by amount (highest first)
+        const sortedSubscriptions = subscriptions.sort((a, b) => {
+            if (a.subscription && b.subscription) {
+                // Active status priority
+                if (a.subscription.is_active !== b.subscription.is_active) {
+                    return b.subscription.is_active ? 1 : -1;
+                }
+                // Then by amount (descending)
+                return (b.subscription.amount || 0) - (a.subscription.amount || 0);
+            }
+            return 0;
+        });
+
+        // Add cards for each subscription
+        sortedSubscriptions.forEach(subInfo => {
+            // Skip entries without subscription data
+            if (!subInfo.subscription) {
+                return;
+            }
+
+            const sub = subInfo.subscription;
+            const card = document.createElement('div');
+
+            // Only show active subscriptions with colored border
+            if (sub.is_active) {
+                card.className = 'bg-white rounded-lg border-2 border-success-500 p-4 hover:shadow-md transition-shadow';
+            } else {
+                // Skip cancelled subscriptions entirely
+                return;
+            }
+
+            // Description with source info
+            const sourceText = subInfo.source === 'member' ? '{{ _("Membership") }}' : '{{ _("Donation") }}';
+            const description = sub.description || `${sourceText} ${subInfo.source === 'donor' && subInfo.donor_name ? `(${subInfo.donor_name})` : ''}`;
+
+            card.innerHTML = `
+                <div class="flex items-start justify-between mb-3">
+                    <div class="flex-1">
+                        <h5 class="font-semibold text-gray-900 mb-1">${description}</h5>
+                        <p class="text-xs text-gray-500">
+                            <i class="fa fa-tag mr-1"></i>${sourceText}
+                        </p>
+                    </div>
+                    <span class="inline-flex items-center px-2.5 py-1 bg-success-500 text-white rounded-full text-xs font-semibold">
+                        <i class="fa fa-check mr-1"></i>{{ _("Active") }}
+                    </span>
+                </div>
+
+                <div class="flex items-center gap-6 mb-3 text-sm">
+                    <div>
+                        <span class="text-gray-600">{{ _("Amount") }}:</span>
+                        <span class="font-bold text-gray-900 ml-1">${formatCurrency(sub.amount, sub.currency)}</span>
+                    </div>
+                    <div>
+                        <span class="text-gray-600">{{ _("Frequency") }}:</span>
+                        <span class="font-semibold text-gray-900 ml-1">${formatInterval(sub.interval)}</span>
+                    </div>
+                </div>
+
+                ${sub.next_payment_date ? `
+                    <div class="flex items-center text-sm text-gray-600 mb-3 pb-3 border-b border-gray-200">
+                        <i class="fa fa-calendar mr-2 text-gray-400"></i>
+                        <span>{{ _("Next payment") }}: <strong class="text-gray-900">${formatDate(sub.next_payment_date)}</strong></span>
+                    </div>
+                ` : ''}
+
+                <button type="button"
+                        onclick="cancelSpecificSubscription('${subInfo.customer_id}', '${sub.id}')"
+                        class="w-full btn-secondary text-sm py-2"
+                        title="{{ _('Cancel this subscription') }}">
+                    <i class="fa fa-times mr-2"></i>{{ _("Cancel Subscription") }}
+                </button>
+            `;
+
+            container.appendChild(card);
+        });
+    }
+
+    function updateSubscriptionDisplay(subscription) {
+        // Update status
+        const statusElement = document.getElementById('subscription-status');
+        if (statusElement && subscription.status) {
+            statusElement.textContent = subscription.status.charAt(0).toUpperCase() + subscription.status.slice(1);
+
+            // Update status color based on status
+            statusElement.className = 'font-medium capitalize';
+            if (subscription.status === 'active') {
+                statusElement.classList.add('text-green-600');
+            } else if (subscription.status === 'cancelled') {
+                statusElement.classList.add('text-red-600');
+            } else {
+                statusElement.classList.add('text-gray-600');
+            }
+        }
+
+        // Update amount
+        if (subscription.amount && subscription.currency) {
+            const amountRow = document.getElementById('subscription-amount-row');
+            const amountElement = document.getElementById('subscription-amount');
+            if (amountRow && amountElement) {
+                amountElement.textContent = formatCurrency(subscription.amount, subscription.currency);
+                amountRow.classList.remove('hidden');
+            }
+        }
+
+        // Update interval
+        if (subscription.interval) {
+            const intervalRow = document.getElementById('subscription-interval-row');
+            const intervalElement = document.getElementById('subscription-interval');
+            if (intervalRow && intervalElement) {
+                intervalElement.textContent = formatInterval(subscription.interval);
+                intervalRow.classList.remove('hidden');
+            }
+        }
+
+        // Update next payment date
+        if (subscription.next_payment_date) {
+            const nextPaymentElement = document.getElementById('next-payment-date');
+            if (nextPaymentElement) {
+                nextPaymentElement.textContent = formatDate(subscription.next_payment_date);
+            }
+        }
+    }
+
+    function showSubscriptionError(message) {
+        const errorIndicator = document.getElementById('subscription-error');
+        const errorMessage = document.getElementById('subscription-error-message');
+        if (errorIndicator && errorMessage) {
+            errorMessage.textContent = message;
+            errorIndicator.classList.remove('hidden');
+        }
+    }
+
+    function formatCurrency(amount, currency) {
+        try {
+            return new Intl.NumberFormat('nl-NL', {
+                style: 'currency',
+                currency: currency || 'EUR'
+            }).format(amount);
+        } catch (e) {
+            return (currency || 'EUR') + ' ' + parseFloat(amount).toFixed(2);
+        }
+    }
+
+    function formatInterval(interval) {
+        const intervals = {
+            '1 month': '{{ _("Monthly") }}',
+            '3 months': '{{ _("Quarterly") }}',
+            '6 months': '{{ _("Semi-annually") }}',
+            '1 year': '{{ _("Annually") }}',
+            '12 months': '{{ _("Annually") }}'
+        };
+        return intervals[interval] || interval;
+    }
+
+    function formatDate(dateString) {
+        try {
+            const date = new Date(dateString);
+            return date.toLocaleDateString('nl-NL', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+        } catch (e) {
+            return dateString;
+        }
+    }
+
+    // Setup Mollie subscription
+    window.setupMollieSubscription = function() {
+        if (!activeDuesSchedule) {
+            alert('{{ _("No active dues schedule found. Please contact support.") }}');
+            return;
+        }
+
+        // Show loading indicator
+        const loadingIndicator = document.getElementById('subscription-loading');
+        if (loadingIndicator) {
+            loadingIndicator.classList.remove('hidden');
+        }
+
+        const memberName = '{{ member.name }}';
+
+        // Step 1: Calculate optimal start date based on payment status
+        frappe.call({
+            method: 'verenigingen.templates.pages.bank_details.calculate_subscription_start_date',
+            args: {
+                member_id: memberName
+            },
+            callback: function(r) {
+                if (!r.message || r.message.status !== 'success') {
+                    if (loadingIndicator) {
+                        loadingIndicator.classList.add('hidden');
+                    }
+                    alert('{{ _("Error calculating start date") }}: ' + (r.message?.error || '{{ _("Unknown error") }}'));
+                    return;
+                }
+
+                const startDate = r.message.start_date;
+                const reason = r.message.reason;
+                const hasOverdue = r.message.has_overdue;
+
+                // Show confirmation with calculated start date
+                const statusMsg = hasOverdue ?
+                    '{{ _("Note: You have overdue payments. This subscription will help catch up.") }}' :
+                    '{{ _("Your payments are up to date.") }}';
+
+                const confirmMessage = '{{ _("Set Up Automatic Mollie Payment") }}\n\n' +
+                                      `{{ _("Amount") }}: €${activeDuesSchedule.amount.toFixed(2)}\n` +
+                                      `{{ _("Frequency") }}: ${activeDuesSchedule.billing_frequency}\n` +
+                                      `{{ _("First payment") }}: ${startDate}\n\n` +
+                                      `${statusMsg}\n\n` +
+                                      '{{ _("This will set up automatic recurring payments via Mollie.") }}\n' +
+                                      '{{ _("Do you want to continue?") }}';
+
+                if (!confirm(confirmMessage)) {
+                    if (loadingIndicator) {
+                        loadingIndicator.classList.add('hidden');
+                    }
+                    return;
+                }
+
+                // Step 2: Create subscription with calculated start date
+                const descriptionTemplate = '{{ frappe.db.get_single_value("Verenigingen Settings", "mollie_subscription_description_template") or "Contribution payment for member MEMBER_ID" }}';
+                const description = descriptionTemplate.replace('MEMBER_ID', '{{ member.member_id }}');
+
+                const interval = activeDuesSchedule.billing_frequency === 'Monthly' ? '1 month' :
+                                activeDuesSchedule.billing_frequency === 'Quarterly' ? '3 months' :
+                                activeDuesSchedule.billing_frequency === 'Semi-annually' ? '6 months' : '1 year';
+
+                // Call the create_member_subscription API with start_date
+                frappe.call({
+                    method: 'verenigingen.verenigingen_payments.utils.payment_gateways.create_member_subscription',
+                    args: {
+                        member_id: memberName,
+                        amount: activeDuesSchedule.amount,
+                        interval: interval,
+                        description: description,
+                        start_date: startDate
+                    },
+                    callback: function(r2) {
+                        if (loadingIndicator) {
+                            loadingIndicator.classList.add('hidden');
+                        }
+
+                        if (r2.message && r2.message.status === 'success') {
+                            alert('{{ _("Subscription created successfully!") }}\n' +
+                                  `{{ _("First payment scheduled for") }}: ${startDate}\n\n` +
+                                  (r2.message.message || '{{ _("Your automatic payment has been set up.") }}'));
+                            // Reload subscription data
+                            loadSubscriptionDetails();
+                        } else {
+                            alert('{{ _("Error creating subscription") }}: ' +
+                                  (r2.message?.message || r2.message?.error || '{{ _("Unknown error occurred") }}'));
+                        }
+                    },
+                    error: function(r2) {
+                        if (loadingIndicator) {
+                            loadingIndicator.classList.add('hidden');
+                        }
+                        alert('{{ _("Error creating subscription") }}: ' + (r2.message || '{{ _("Network error") }}'));
+                    }
+                });
+            },
+            error: function(r) {
+                if (loadingIndicator) {
+                    loadingIndicator.classList.add('hidden');
+                }
+                alert('{{ _("Error calculating start date") }}: ' + (r.message || '{{ _("Network error") }}'));
+            }
+        });
+    };
+
+    // Load subscription details on page load
+    loadSubscriptionDetails();
+});
+</script>
+{% endblock %}

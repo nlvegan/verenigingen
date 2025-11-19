@@ -1,0 +1,448 @@
+# Assignment History Manager - Centralized volunteer assignment tracking
+
+import frappe
+
+from verenigingen.utils.secure_operations import secure_document_operation
+
+
+class AssignmentHistoryManager:
+    """
+    Centralized manager for volunteer assignment history tracking.
+
+    Handles assignment history for both board positions and team assignments
+    in a consistent way.
+    """
+
+    @staticmethod
+    def add_assignment_history(
+        volunteer_id: str,
+        assignment_type: str,
+        reference_doctype: str,
+        reference_name: str,
+        role: str,
+        start_date: str,
+    ) -> bool:
+        """
+        Add active assignment to volunteer history when starting a role
+
+        Args:
+            volunteer_id: Volunteer ID
+            assignment_type: Type of assignment (e.g., "Board Position", "Team")
+            reference_doctype: Document type (e.g., "Chapter", "Team")
+            reference_name: Document name
+            role: Role or position name
+            start_date: Start date of assignment
+
+        Returns:
+            bool: Success status
+        """
+        try:
+            volunteer = frappe.get_doc("Volunteer", volunteer_id)
+
+            # Recursion guard - prevent infinite loops when assignment updates trigger other updates
+            if getattr(volunteer, "_updating_assignment_history", False):
+                frappe.logger().info(f"Skipping recursive assignment history update for {volunteer_id}")
+                return True
+
+            volunteer._updating_assignment_history = True
+
+            try:
+                # Check if this exact assignment already exists (Active or Completed)
+                # This prevents duplicates when an assignment gets completed and re-added
+                for assignment in volunteer.assignment_history or []:
+                    if (
+                        assignment.reference_doctype == reference_doctype
+                        and assignment.reference_name == reference_name
+                        and assignment.role == role
+                        and str(assignment.start_date) == str(start_date)
+                    ):
+                        # Assignment already exists - check status
+                        if assignment.status == "Active":
+                            frappe.logger().info(
+                                f"Assignment already exists as Active for volunteer {volunteer_id}: "
+                                f"{reference_doctype} {reference_name} - {role} (start: {start_date})"
+                            )
+                            return True
+                        elif assignment.status == "Completed":
+                            frappe.logger().warning(
+                                f"Assignment already exists as Completed for volunteer {volunteer_id}: "
+                                f"{reference_doctype} {reference_name} - {role} (start: {start_date}). "
+                                f"This suggests the assignment was removed and is being re-added. "
+                                f"Updating status back to Active instead of creating duplicate."
+                            )
+                            # Reactivate the existing completed assignment instead of creating duplicate
+                            assignment.status = "Active"
+                            assignment.end_date = None  # Clear end date when reactivating
+
+                            result = secure_document_operation(
+                                operation="update_child_table",
+                                doc=volunteer,
+                                justification=f"Reactivate assignment for volunteer {volunteer_id}: {assignment_type} - {role}",
+                                required_permissions=["Volunteer:write"],
+                                allow_system_user=True,
+                                bypass_validations=["link_validation"],
+                            )
+
+                            if result.success:
+                                frappe.logger().info(
+                                    f"Reactivated existing assignment for volunteer {volunteer_id}"
+                                )
+                                return True
+                            else:
+                                frappe.log_error(
+                                    f"Failed to reactivate assignment: {'; '.join(result.errors)}",
+                                    "Assignment History Reactivation Failed",
+                                )
+                                return False
+
+                # Add new active assignment (allow multiple separate stints)
+                volunteer.append(
+                    "assignment_history",
+                    {
+                        "assignment_type": assignment_type,
+                        "reference_doctype": reference_doctype,
+                        "reference_name": reference_name,
+                        "role": role,
+                        "start_date": start_date,
+                        "status": "Active",
+                    },
+                )
+
+                # CORRECTED SECURE VERSION: Use secure operations with explicit permission validation
+                result = secure_document_operation(
+                    operation="update_child_table",
+                    doc=volunteer,
+                    justification=f"Add assignment history for volunteer {volunteer_id}: {assignment_type} - {role}",
+                    required_permissions=["Volunteer:write"],
+                    allow_system_user=True,  # Allow system user for automated assignment tracking
+                    bypass_validations=["link_validation"],  # Allow bypass of problematic chapter references
+                )
+
+                if not result.success:
+                    frappe.log_error(
+                        f"Failed to add assignment history for volunteer {volunteer_id}: {'; '.join(result.errors)}",
+                        "Assignment History Manager",
+                    )
+                    return False
+
+                print(f"Added assignment history for volunteer {volunteer_id}: {assignment_type} - {role}")
+                return True
+
+            finally:
+                volunteer._updating_assignment_history = False
+
+        except Exception as e:
+            print(f"Error adding assignment history for volunteer {volunteer_id}: {str(e)}")
+            import traceback
+
+            traceback.print_exc()
+            return False
+
+    @staticmethod
+    def complete_assignment_history(
+        volunteer_id: str,
+        assignment_type: str,
+        reference_doctype: str,
+        reference_name: str,
+        role: str,
+        start_date: str,
+        end_date: str,
+    ) -> bool:
+        """
+        Complete volunteer assignment history when ending a role
+
+        Args:
+            volunteer_id: Volunteer ID
+            assignment_type: Type of assignment (e.g., "Board Position", "Team")
+            reference_doctype: Document type (e.g., "Chapter", "Team")
+            reference_name: Document name
+            role: Role or position name
+            start_date: Start date of original assignment
+            end_date: End date of assignment
+
+        Returns:
+            bool: Success status
+        """
+        try:
+            volunteer = frappe.get_doc("Volunteer", volunteer_id)
+
+            # Recursion guard - prevent infinite loops when assignment updates trigger other updates
+            if getattr(volunteer, "_updating_assignment_history", False):
+                frappe.logger().info(f"Skipping recursive assignment history update for {volunteer_id}")
+                return True
+
+            volunteer._updating_assignment_history = True
+
+            try:
+                # Look for the specific assignment that matches key criteria
+                # For role changes, we prioritize team/start_date over exact role match
+                target_assignment = None
+                for assignment in volunteer.assignment_history or []:
+                    if (
+                        assignment.reference_doctype == reference_doctype
+                        and assignment.reference_name == reference_name
+                        and str(assignment.start_date) == str(start_date)
+                        and assignment.status == "Active"
+                    ):
+                        # Found matching assignment by team and start date
+                        target_assignment = assignment
+                        break
+
+                # If no match by start_date, try matching by role (backward compatibility)
+                if not target_assignment:
+                    for assignment in volunteer.assignment_history or []:
+                        if (
+                            assignment.reference_doctype == reference_doctype
+                            and assignment.reference_name == reference_name
+                            and assignment.role == role
+                            and assignment.status == "Active"
+                        ):
+                            target_assignment = assignment
+                            break
+
+                if target_assignment:
+                    # Update the specific assignment to completed
+                    target_assignment.end_date = end_date
+                    target_assignment.status = "Completed"
+
+                    frappe.logger().info(
+                        f"Updated specific assignment history for volunteer {volunteer_id}: {assignment_type} - {role}"
+                    )
+                else:
+                    # If we can't find the exact assignment, look for any active one
+                    # This is a fallback for data inconsistencies
+                    fallback_assignment = None
+                    for assignment in volunteer.assignment_history or []:
+                        if (
+                            assignment.reference_doctype == reference_doctype
+                            and assignment.reference_name == reference_name
+                            and assignment.role == role
+                            and assignment.status == "Active"
+                        ):
+                            fallback_assignment = assignment
+                            break
+
+                    if fallback_assignment:
+                        fallback_assignment.end_date = end_date
+                        fallback_assignment.status = "Completed"
+
+                        frappe.logger().info(
+                            f"Updated assignment history using role-based fallback for volunteer {volunteer_id}: {assignment_type} - {role}. "
+                            f"Start date match failed but role matched."
+                        )
+                    else:
+                        # Before reconstructing, check if a completed assignment already exists
+                        # This prevents duplicate completed entries
+                        existing_completed = None
+                        for assignment in volunteer.assignment_history or []:
+                            if (
+                                assignment.reference_doctype == reference_doctype
+                                and assignment.reference_name == reference_name
+                                and assignment.role == role
+                                and str(assignment.start_date) == str(start_date)
+                                and assignment.status == "Completed"
+                            ):
+                                existing_completed = assignment
+                                break
+
+                        if existing_completed:
+                            # Assignment is already completed - just update end_date if needed
+                            if str(existing_completed.end_date) != str(end_date):
+                                existing_completed.end_date = end_date
+                                frappe.logger().info(
+                                    f"Updated end_date for existing completed assignment for volunteer {volunteer_id}: "
+                                    f"{assignment_type} - {role} (was {existing_completed.end_date}, now {end_date})"
+                                )
+                            else:
+                                frappe.logger().info(
+                                    f"Assignment already completed for volunteer {volunteer_id}: "
+                                    f"{assignment_type} - {role} ({start_date} to {end_date}). No action needed."
+                                )
+                                # Return early - nothing to save
+                                return True
+                        else:
+                            # Create a new completed assignment if nothing exists
+                            # This handles cases where the initial assignment wasn't tracked due to broken links
+                            volunteer.append(
+                                "assignment_history",
+                                {
+                                    "assignment_type": assignment_type,
+                                    "reference_doctype": reference_doctype,
+                                    "reference_name": reference_name,
+                                    "role": role,
+                                    "start_date": start_date,
+                                    "end_date": end_date,
+                                    "status": "Completed",
+                                },
+                            )
+
+                            frappe.logger().info(
+                                f"Reconstructed missing assignment history for volunteer {volunteer_id}: {assignment_type} - {role} "
+                                f"({start_date} to {end_date}). This is normal when assignments were created during data issues."
+                            )
+
+                # CORRECTED SECURE VERSION: Use secure operations with explicit permission validation
+                result = secure_document_operation(
+                    operation="update_child_table",
+                    doc=volunteer,
+                    justification=f"Complete assignment history for volunteer {volunteer_id}: {assignment_type} - {role}",
+                    required_permissions=["Volunteer:write"],
+                    allow_system_user=True,  # Allow system user for automated assignment tracking
+                    bypass_validations=["link_validation"],  # Allow bypass of problematic chapter references
+                )
+
+                if not result.success:
+                    error_details = {
+                        "volunteer_id": volunteer_id,
+                        "assignment_type": assignment_type,
+                        "role": role,
+                        "reference": f"{reference_doctype}:{reference_name}",
+                        "start_date": start_date,
+                        "end_date": end_date,
+                        "errors": result.errors,
+                        "audit_trail": result.audit_trail,
+                    }
+                    frappe.log_error(
+                        f"Failed to complete assignment history:\n{frappe.as_json(error_details, indent=2)}",
+                        "Assignment History Save Failed",
+                    )
+                    return False
+
+                return True
+
+            finally:
+                volunteer._updating_assignment_history = False
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error completing assignment history for volunteer {volunteer_id}: {str(e)}",
+                "Assignment History Manager",
+            )
+            return False
+
+    @staticmethod
+    def get_active_assignments(
+        volunteer_id: str, assignment_type: str = None, reference_doctype: str = None
+    ) -> list:
+        """
+        Get active assignments for a volunteer
+
+        Args:
+            volunteer_id: Volunteer ID
+            assignment_type: Filter by assignment type (optional)
+            reference_doctype: Filter by reference doctype (optional)
+
+        Returns:
+            list: List of active assignments
+        """
+        try:
+            volunteer = frappe.get_doc("Volunteer", volunteer_id)
+            active_assignments = []
+
+            for assignment in volunteer.assignment_history or []:
+                if assignment.status == "Active":
+                    if assignment_type and assignment.assignment_type != assignment_type:
+                        continue
+                    if reference_doctype and assignment.reference_doctype != reference_doctype:
+                        continue
+                    active_assignments.append(assignment)
+
+            return active_assignments
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error getting active assignments for volunteer {volunteer_id}: {str(e)}",
+                "Assignment History Manager",
+            )
+            return []
+
+    @staticmethod
+    def remove_assignment_history(
+        volunteer_id: str,
+        assignment_type: str,
+        reference_doctype: str,
+        reference_name: str,
+        role: str,
+        start_date: str,
+    ) -> bool:
+        """
+        Remove assignment history entry (for cases where assignment is cancelled before completion)
+
+        Args:
+            volunteer_id: Volunteer ID
+            assignment_type: Type of assignment
+            reference_doctype: Document type
+            reference_name: Document name
+            role: Role or position name
+            start_date: Start date of original assignment
+
+        Returns:
+            bool: Success status
+        """
+        try:
+            volunteer = frappe.get_doc("Volunteer", volunteer_id)
+
+            # Recursion guard - prevent infinite loops when assignment updates trigger other updates
+            if getattr(volunteer, "_updating_assignment_history", False):
+                frappe.logger().info(f"Skipping recursive assignment history update for {volunteer_id}")
+                return True
+
+            volunteer._updating_assignment_history = True
+
+            try:
+                # Find and remove the specific assignment
+                assignment_to_remove = None
+                for assignment in volunteer.assignment_history or []:
+                    if (
+                        assignment.reference_doctype == reference_doctype
+                        and assignment.reference_name == reference_name
+                        and assignment.role == role
+                        and str(assignment.start_date) == str(start_date)
+                        and assignment.status == "Active"
+                    ):
+                        assignment_to_remove = assignment
+                        break
+
+                if assignment_to_remove:
+                    volunteer.assignment_history.remove(assignment_to_remove)
+
+                    # CORRECTED SECURE VERSION: Use secure operations with explicit permission validation
+                    result = secure_document_operation(
+                        operation="update_child_table",
+                        doc=volunteer,
+                        justification=f"Remove assignment history for volunteer {volunteer_id}: {assignment_type} - {role}",
+                        required_permissions=["Volunteer:write"],
+                        allow_system_user=True,  # Allow system user for automated assignment tracking
+                        bypass_validations=[
+                            "link_validation"
+                        ],  # Allow bypass of problematic chapter references
+                    )
+
+                    if not result.success:
+                        frappe.log_error(
+                            f"Failed to remove assignment history for volunteer {volunteer_id}: {'; '.join(result.errors)}",
+                            "Assignment History Manager",
+                        )
+                        return False
+
+                    frappe.log_error(
+                        f"Removed assignment history for volunteer {volunteer_id}: {assignment_type} - {role}",
+                        "Assignment History Manager",
+                    )
+                    return True
+                else:
+                    frappe.log_error(
+                        f"Assignment to remove not found for volunteer {volunteer_id}: {assignment_type} - {role}",
+                        "Assignment History Manager",
+                    )
+                    return False
+
+            finally:
+                volunteer._updating_assignment_history = False
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error removing assignment history for volunteer {volunteer_id}: {str(e)}",
+                "Assignment History Manager",
+            )
+            return False

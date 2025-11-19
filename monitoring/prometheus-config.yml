@@ -1,0 +1,43 @@
+# Prometheus configuration for Mollie Backend monitoring
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'mollie-backend'
+    environment: 'production'
+
+# Alert rules
+rule_files:
+  - 'alerts.yml'
+
+# Scrape configurations
+scrape_configs:
+  # Frappe metrics endpoint
+  - job_name: 'frappe'
+    static_configs:
+      - targets: ['localhost:8000']
+    metrics_path: '/api/method/verenigingen.monitoring.get_metrics'
+
+  # Redis exporter
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['localhost:9121']
+
+  # MySQL exporter
+  - job_name: 'mysql'
+    static_configs:
+      - targets: ['localhost:9104']
+
+  # Node exporter for system metrics
+  - job_name: 'node'
+    static_configs:
+      - targets: ['localhost:9100']
+
+  # Custom Mollie metrics
+  - job_name: 'mollie-backend'
+    static_configs:
+      - targets: ['localhost:8001']
+    metrics_path: '/metrics'
+    params:
+      module: ['mollie_backend']

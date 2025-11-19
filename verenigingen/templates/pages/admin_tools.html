@@ -1,0 +1,1300 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block head_include %}
+<script>
+// Load brand CSS dynamically - only if frappe is available
+if (typeof frappe !== 'undefined' && frappe.ready) {
+    frappe.ready(function() {
+        frappe.call({
+            method: 'verenigingen.verenigingen.doctype.brand_settings.brand_settings.get_brand_css_inline',
+            callback: function(r) {
+                if (r.message && r.message.success) {
+                    var style = document.createElement('style');
+                    style.innerHTML = r.message.css;
+                    document.head.appendChild(style);
+                }
+            }
+        });
+    });
+}
+</script>
+{% endblock %}
+
+{% block page_content %}
+<div class="admin-tools-page">
+    <!-- System Health Overview -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-brand-primary text-white">
+                    <h4 class="mb-0">
+                        <i class="fa fa-dashboard"></i> System Health Overview
+                    </h4>
+                </div>
+                <div class="card-body">
+                    {% if system_health %}
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="text-center">
+                                    <h5>Overall Status</h5>
+                                    {% if system_health.status == 'healthy' %}
+                                        <i class="fa fa-check-circle text-success" style="font-size: 48px;"></i>
+                                        <p class="text-success font-weight-bold">HEALTHY</p>
+                                    {% elif system_health.status == 'degraded' %}
+                                        <i class="fa fa-exclamation-triangle text-warning" style="font-size: 48px;"></i>
+                                        <p class="text-warning font-weight-bold">DEGRADED</p>
+                                    {% else %}
+                                        <i class="fa fa-times-circle text-danger" style="font-size: 48px;"></i>
+                                        <p class="text-danger font-weight-bold">CRITICAL</p>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="col-md-8">
+                                <h5>Health Checks</h5>
+                                <div class="row">
+                                    {% for check, result in system_health.checks.items() %}
+                                    <div class="col-md-6 mb-2">
+                                        <div class="d-flex align-items-center">
+                                            {% if result.status == 'ok' %}
+                                                <i class="fa fa-check-circle text-success mr-2"></i>
+                                            {% elif result.status == 'slow' %}
+                                                <i class="fa fa-exclamation-circle text-warning mr-2"></i>
+                                            {% else %}
+                                                <i class="fa fa-times-circle text-danger mr-2"></i>
+                                            {% endif %}
+                                            <span>{{ check.replace('_', ' ').title() }}</span>
+                                            {% if result.response_time_ms %}
+                                                <small class="ml-auto text-muted">{{ "%.2f"|format(result.response_time_ms) }}ms</small>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                    {% else %}
+                        <div class="alert alert-warning">
+                            <i class="fa fa-exclamation-triangle"></i> Unable to load system health data
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Database Statistics -->
+    {% if db_stats and not db_stats.error %}
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-brand-secondary text-white">
+                    <h4 class="mb-0">
+                        <i class="fa fa-database"></i> Database Statistics
+                    </h4>
+                </div>
+                <div class="card-body">
+                    <div class="row text-center">
+                        <div class="col-md-4">
+                            <h3 class="text-brand-primary">{{ db_stats.total_tables }}</h3>
+                            <p class="text-muted">Total Tables</p>
+                        </div>
+                        <div class="col-md-4">
+                            <h3 class="text-brand-primary">{{ "{:,}".format(db_stats.total_rows) }}</h3>
+                            <p class="text-muted">Total Rows</p>
+                        </div>
+                        <div class="col-md-4">
+                            <h3 class="text-brand-primary">{{ "%.2f"|format(db_stats.total_size_mb) }} MB</h3>
+                            <p class="text-muted">Total Size</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Invoice Management Tools -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-brand-primary text-white">
+                    <h4 class="mb-0">
+                        <i class="fa fa-file-text-o"></i> Invoice Management
+                    </h4>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted mb-3">Tools for managing dues schedules, invoice generation, and billing workflows.</p>
+                    <div class="row">
+                        {% for tool in invoice_tools %}
+                        <div class="col-md-6 mb-3">
+                            <div class="card tool-card h-100" data-method="{{ tool.method }}">
+                                <div class="card-body">
+                                    <h5 class="card-title">
+                                        <i class="fa {{ tool.icon }} text-{{ tool.color }}"></i>
+                                        {{ tool.title }}
+                                    </h5>
+                                    <p class="card-text">{{ tool.description }}</p>
+                                    {% if tool.warning %}
+                                        <div class="alert alert-warning alert-sm mb-2">
+                                            <i class="fa fa-warning"></i> {{ tool.warning }}
+                                        </div>
+                                    {% endif %}
+                                    <button class="btn btn-sm btn-{{ tool.color }} execute-tool"
+                                            data-method="{{ tool.method }}"
+                                            data-title="{{ tool.title }}"
+                                            {% if tool.args %}data-args='{{ tool.args|tojson|safe }}'{% endif %}
+                                            {% if tool.warning %}data-warning="{{ tool.warning }}"{% endif %}
+                                            data-formatter="{{ tool.formatter or 'generic' }}">
+                                        <i class="fa fa-play"></i> Execute
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Data Integrity Tools -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-warning text-dark">
+                    <h4 class="mb-0">
+                        <i class="fa fa-database"></i> Data Integrity Management
+                    </h4>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted mb-3">Tools for detecting and cleaning up orphaned child table records and data integrity issues.</p>
+                    <div class="row">
+                        {% for tool in data_integrity_tools %}
+                        <div class="col-md-6 mb-3">
+                            <div class="card tool-card h-100" data-method="{{ tool.method }}">
+                                <div class="card-body">
+                                    <h5 class="card-title">
+                                        <i class="fa {{ tool.icon }} text-{{ tool.color }}"></i>
+                                        {{ tool.title }}
+                                    </h5>
+                                    <p class="card-text">{{ tool.description }}</p>
+                                    {% if tool.warning %}
+                                        <div class="alert alert-warning alert-sm mb-2">
+                                            <i class="fa fa-warning"></i> {{ tool.warning }}
+                                        </div>
+                                    {% endif %}
+                                    <button class="btn btn-sm btn-{{ tool.color }} execute-tool"
+                                            data-method="{{ tool.method }}"
+                                            data-title="{{ tool.title }}"
+                                            {% if tool.args %}data-args='{{ tool.args|tojson|safe }}'{% endif %}
+                                            {% if tool.warning %}data-warning="{{ tool.warning }}"{% endif %}
+                                            data-formatter="{{ tool.formatter or 'generic' }}">
+                                        <i class="fa fa-play"></i> Execute
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- System Administration Tools -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-brand-secondary text-white">
+                    <h4 class="mb-0">
+                        <i class="fa fa-wrench"></i> System Administration
+                    </h4>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted mb-3">System monitoring, performance analysis, and maintenance tools.</p>
+                    <div class="row">
+                        {% for tool in system_tools %}
+                        <div class="col-md-6 mb-3">
+                            <div class="card tool-card h-100" data-method="{{ tool.method }}">
+                                <div class="card-body">
+                                    <h5 class="card-title">
+                                        <i class="fa {{ tool.icon }} text-{{ tool.color }}"></i>
+                                        {{ tool.title }}
+                                    </h5>
+                                    <p class="card-text">{{ tool.description }}</p>
+                                    {% if tool.warning %}
+                                        <div class="alert alert-warning alert-sm mb-2">
+                                            <i class="fa fa-warning"></i> {{ tool.warning }}
+                                        </div>
+                                    {% endif %}
+                                    <button class="btn btn-sm btn-{{ tool.color }} execute-tool"
+                                            data-method="{{ tool.method }}"
+                                            data-title="{{ tool.title }}"
+                                            {% if tool.args %}data-args='{{ tool.args|tojson|safe }}'{% endif %}
+                                            {% if tool.warning %}data-warning="{{ tool.warning }}"{% endif %}
+                                            data-formatter="{{ tool.formatter or 'generic' }}">
+                                        <i class="fa fa-play"></i> Execute
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Member Import Cleanup Tools -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-danger text-white">
+                    <h4 class="mb-0">
+                        <i class="fa fa-exclamation-triangle"></i> Member Import Cleanup Tools
+                    </h4>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted mb-3">
+                        <strong>⚠️ CAUTION:</strong> These tools are designed for testing import functionality.
+                        They will permanently delete member data and related records. Use only on development servers!
+                    </p>
+                    <div class="row">
+                        {% for tool in member_cleanup_tools %}
+                        <div class="col-md-6 mb-3">
+                            <div class="card tool-card h-100" data-method="{{ tool.method }}">
+                                <div class="card-body">
+                                    <h5 class="card-title">
+                                        <i class="fa {{ tool.icon }} text-{{ tool.color }}"></i>
+                                        {{ tool.title }}
+                                    </h5>
+                                    <p class="card-text">{{ tool.description }}</p>
+                                    {% if tool.warning %}
+                                        <div class="alert alert-danger alert-sm mb-2">
+                                            <i class="fa fa-warning"></i> {{ tool.warning }}
+                                        </div>
+                                    {% endif %}
+                                    <button class="btn btn-sm btn-{{ tool.color }} execute-tool"
+                                            data-method="{{ tool.method }}"
+                                            data-title="{{ tool.title }}"
+                                            {% if tool.args %}data-args='{{ tool.args|tojson|safe }}'{% endif %}
+                                            {% if tool.warning %}data-warning="{{ tool.warning }}"{% endif %}
+                                            data-formatter="{{ tool.formatter or 'generic' }}">
+                                        <i class="fa fa-play"></i> Execute
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Command Examples -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-brand-primary text-white">
+                    <h4 class="mb-0">
+                        <i class="fa fa-terminal"></i> Command Line Examples
+                    </h4>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted">These commands can be run from the terminal:</p>
+                    {% for example in command_examples %}
+                    <div class="mb-3">
+                        <strong>{{ example.description }}:</strong>
+                        <div class="bg-light p-2 rounded">
+                            <code>{{ example.command }}</code>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Results Modal -->
+    <div class="modal fade" id="resultsModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Tool Results</h5>
+                    <button type="button" class="close" data-dismiss="modal">
+                        <span>&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div id="tool-results"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal" onclick="closeResultsModal()">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+/* Brand-compatible styling for admin tools */
+.admin-tools-page {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background-color: var(--brand-bg-primary, #ffffff);
+    min-height: 100vh;
+    padding: 2rem 0;
+}
+
+.admin-tools-page .card {
+    border: none;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    transition: all 0.3s ease;
+    background: var(--brand-bg-primary, #ffffff);
+}
+
+.admin-tools-page .card:hover {
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+    transform: translateY(-2px);
+}
+
+.admin-tools-page .card-header {
+    border-radius: 12px 12px 0 0 !important;
+    border: none;
+    padding: 1.5rem;
+    font-weight: 600;
+}
+
+.admin-tools-page .card-body {
+    padding: 1.5rem;
+}
+
+.tool-card {
+    transition: all 0.3s ease;
+    cursor: pointer;
+    height: 100%;
+    border: 2px solid var(--brand-bg-secondary, #f8f9fa);
+}
+
+.tool-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+    border-color: var(--brand-primary, #F99F20);
+}
+
+.tool-card .card-title {
+    color: var(--brand-text-primary, #333333);
+    margin-bottom: 1rem;
+    font-weight: 600;
+}
+
+.tool-card .card-text {
+    color: var(--brand-text-secondary, #666666);
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+
+/* Brand button styling */
+.btn-brand-primary {
+    background-color: var(--brand-primary, #F99F20);
+    border-color: var(--brand-primary, #F99F20);
+    color: white;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.btn-brand-primary:hover {
+    background-color: var(--brand-primary-hover, #E6900B);
+    border-color: var(--brand-primary-hover, #E6900B);
+    color: white;
+}
+
+.btn-brand-secondary {
+    background-color: var(--brand-secondary, #1A555F);
+    border-color: var(--brand-secondary, #1A555F);
+    color: white;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.btn-brand-secondary:hover {
+    background-color: var(--brand-secondary-hover, #154449);
+    border-color: var(--brand-secondary-hover, #154449);
+    color: white;
+}
+
+.btn-brand-accent {
+    background-color: var(--brand-accent, #2D9EB3);
+    border-color: var(--brand-accent, #2D9EB3);
+    color: white;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.btn-brand-accent:hover {
+    background-color: var(--brand-accent-hover, #268FA2);
+    border-color: var(--brand-accent-hover, #268FA2);
+    color: white;
+}
+
+/* Bootstrap-compatible semantic button classes */
+.btn-warning {
+    background-color: var(--brand-accent, #2D9EB3);
+    border-color: var(--brand-accent, #2D9EB3);
+    color: white;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.btn-warning:hover {
+    background-color: var(--brand-accent-hover, #268FA2);
+    border-color: var(--brand-accent-hover, #268FA2);
+    color: white;
+}
+
+.btn-danger {
+    background-color: var(--brand-error, #dc3545);
+    border-color: var(--brand-error, #dc3545);
+    color: white;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.btn-danger:hover {
+    background-color: var(--brand-error-hover, #c82333);
+    border-color: var(--brand-error-hover, #c82333);
+    color: white;
+}
+
+.btn-success {
+    background-color: var(--brand-success, #28a745);
+    border-color: var(--brand-success, #28a745);
+    color: white;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.btn-success:hover {
+    background-color: var(--brand-success-hover, #218838);
+    border-color: var(--brand-success-hover, #218838);
+    color: white;
+}
+
+/* Header styling */
+.bg-brand-primary {
+    background-color: var(--brand-primary, #F99F20) !important;
+    color: white !important;
+}
+
+.bg-brand-primary h1,
+.bg-brand-primary h2,
+.bg-brand-primary h3,
+.bg-brand-primary h4,
+.bg-brand-primary h5,
+.bg-brand-primary h6,
+.bg-brand-primary p,
+.bg-brand-primary i {
+    color: white !important;
+}
+
+.bg-brand-secondary {
+    background-color: var(--brand-secondary, #1A555F) !important;
+    color: white !important;
+}
+
+.bg-brand-secondary h1,
+.bg-brand-secondary h2,
+.bg-brand-secondary h3,
+.bg-brand-secondary h4,
+.bg-brand-secondary h5,
+.bg-brand-secondary h6,
+.bg-brand-secondary p,
+.bg-brand-secondary i {
+    color: white !important;
+}
+
+.bg-brand-accent {
+    background-color: var(--brand-accent, #2D9EB3) !important;
+    color: white !important;
+}
+
+.bg-brand-accent h1,
+.bg-brand-accent h2,
+.bg-brand-accent h3,
+.bg-brand-accent h4,
+.bg-brand-accent h5,
+.bg-brand-accent h6,
+.bg-brand-accent p,
+.bg-brand-accent i {
+    color: white !important;
+}
+
+/* Text colors */
+.text-brand-primary {
+    color: var(--brand-primary, #F99F20) !important;
+}
+
+.text-brand-secondary {
+    color: var(--brand-secondary, #1A555F) !important;
+}
+
+.text-brand-accent {
+    color: var(--brand-accent, #2D9EB3) !important;
+}
+
+/* Status icons with semantic brand colors */
+.text-success {
+    color: var(--brand-success, #28a745) !important;
+}
+
+.text-warning {
+    color: var(--brand-accent, #2D9EB3) !important;
+}
+
+.text-danger {
+    color: var(--brand-error, #dc3545) !important;
+}
+
+/* Code styling */
+.bg-light code {
+    color: var(--brand-text-primary, #333);
+    background-color: var(--brand-bg-secondary, #f8f9fa);
+    padding: 0.2rem 0.4rem;
+    border-radius: 4px;
+}
+
+.bg-light {
+    background-color: var(--brand-bg-secondary, #f8f9fa) !important;
+    border: 1px solid var(--brand-bg-secondary, #f8f9fa);
+    border-radius: 8px;
+}
+
+/* Alert styling */
+.alert-warning {
+    background-color: rgba(var(--brand-accent-rgb, 102, 51, 153), 0.1);
+    border-color: var(--brand-accent, #663399);
+    color: var(--brand-accent, #663399);
+}
+
+/* Modal styling */
+.modal-content {
+    border-radius: 12px;
+    border: none;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+}
+
+.modal-header {
+    background-color: var(--brand-primary, #F99F20);
+    color: white;
+    border-radius: 12px 12px 0 0;
+    border: none;
+}
+
+.modal-title {
+    font-weight: 600;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .admin-tools-page {
+        padding: 1rem 0;
+    }
+
+    .admin-tools-page .card-header,
+    .admin-tools-page .card-body {
+        padding: 1rem;
+    }
+
+    .tool-card .card-title {
+        font-size: 1.1rem;
+    }
+}
+
+/* Loading states */
+.btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* Professional styling for statistics */
+.statistics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin: 1rem 0;
+}
+
+.stat-card {
+    text-align: center;
+    padding: 1.5rem;
+    background: var(--brand-bg-secondary, #f8f9fa);
+    border-radius: 8px;
+    border-left: 4px solid var(--brand-primary, #F99F20);
+}
+
+.stat-value {
+    font-size: 2rem;
+    font-weight: bold;
+    color: var(--brand-primary, #F99F20);
+    margin-bottom: 0.5rem;
+}
+
+.stat-label {
+    color: var(--brand-text-secondary, #666666);
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+</style>
+
+<script>
+
+// Function to format tool results into user-friendly HTML
+function formatToolResult(result, toolTitle, formatterType) {
+    formatterType = formatterType || 'generic'; // Fallback for backward compatibility
+    var html = '<div class="result-content" style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif;">';
+    html += '<div class="alert" style="background-color: rgba(var(--brand-secondary-rgb, 26, 85, 95), 0.1); border-color: var(--brand-secondary, #1A555F); color: var(--brand-secondary, #1A555F); border-radius: 8px; margin-bottom: 1.5rem;">';
+    html += '<i class="fa fa-check-circle"></i> <strong>Execution Successful</strong>';
+    html += '</div>';
+
+    if (result.timestamp) {
+        html += '<small style="color: var(--brand-text-secondary, #666666); display: block; margin-bottom: 1.5rem;">Executed: ' + result.timestamp + '</small>';
+    }
+
+    // Deterministic routing based on explicit formatter type
+    switch(formatterType) {
+        case 'health':
+            html += formatHealthResult(result);
+            break;
+        case 'invoice':
+            html += formatInvoiceResult(result);
+            break;
+        case 'cleanup':
+            html += formatCleanupResult(result);
+            break;
+        case 'security':
+            html += formatSecurityResult(result);
+            break;
+        case 'performance':
+        case 'database':
+        case 'system':
+            html += formatPerformanceResult(result);
+            break;
+        case 'api':
+        case 'fraud':
+        case 'generic':
+        default:
+            html += formatGenericResult(result);
+            break;
+    }
+
+    html += '</div>';
+    return html;
+}
+
+function formatInvoiceResult(result) {
+    var html = '<h5 class="text-brand-primary mb-3">Invoice System Status</h5>';
+
+    if (result.total_active_schedules !== undefined) {
+        html += '<div class="statistics-grid mb-4">';
+        html += '<div class="stat-card">';
+        html += '<div class="stat-value">' + result.total_active_schedules + '</div>';
+        html += '<div class="stat-label">Total Active Schedules</div>';
+        html += '</div>';
+
+        html += '<div class="stat-card" style="border-left-color: var(--brand-secondary, #1A555F);">';
+        html += '<div class="stat-value" style="color: var(--brand-secondary, #1A555F);">' + (result.due_now || 0) + '</div>';
+        html += '<div class="stat-label">Due Now</div>';
+        html += '</div>';
+        html += '</div>';
+    }
+
+    if (result.orphaned_schedules > 0) {
+        html += '<div class="alert alert-warning">';
+        html += '<strong>⚠️ Issues Found:</strong> ' + result.orphaned_schedules + ' orphaned schedules need cleanup';
+        html += '</div>';
+
+        if (result.orphaned_details && result.orphaned_details.length > 0) {
+            html += '<h6>Orphaned Schedules:</h6>';
+            html += '<ul>';
+            result.orphaned_details.forEach(function(item) {
+                html += '<li>' + item.name + ' (Member: ' + item.member + ', Status: ' + item.status + ')</li>';
+            });
+            html += '</ul>';
+        }
+    }
+
+    // Show generated invoices for live runs
+    if (result.generated_invoices && result.generated_invoices.length > 0) {
+        html += '<h6 class="text-brand-primary mt-4 mb-3">Generated Invoices:</h6>';
+        html += '<div class="table-responsive">';
+        html += '<table class="table table-sm table-hover" style="border-radius: 8px; overflow: hidden;">';
+        html += '<thead style="background-color: var(--brand-bg-secondary, #f8f9fa);"><tr><th style="color: var(--brand-text-primary, #333);">Invoice</th><th style="color: var(--brand-text-primary, #333);">Member</th><th style="color: var(--brand-text-primary, #333);">Amount</th></tr></thead><tbody>';
+        result.generated_invoices.slice(0, 10).forEach(function(invoice) {
+            html += '<tr>';
+            html += '<td style="color: var(--brand-text-primary, #333);"><strong>' + (invoice.invoice || 'Unknown') + '</strong></td>';
+            html += '<td style="color: var(--brand-text-primary, #333);">' + (invoice.member_name || 'Unknown') + '</td>';
+            html += '<td style="color: var(--brand-primary, #F99F20); font-weight: 600;">€' + (invoice.amount || 0) + '</td>';
+            html += '</tr>';
+        });
+        html += '</tbody></table>';
+        if (result.generated_invoices.length > 10) {
+            html += '<small class="text-muted">... and ' + (result.generated_invoices.length - 10) + ' more</small>';
+        }
+        html += '</div>';
+    }
+    // Show upcoming invoices for dry runs
+    else if (result.upcoming_schedules_sample && result.upcoming_schedules_sample.length > 0) {
+        html += '<h6 class="text-brand-primary mt-4 mb-3">Upcoming Invoices (Sample):</h6>';
+        html += '<div class="table-responsive">';
+        html += '<table class="table table-sm table-hover" style="border-radius: 8px; overflow: hidden;">';
+        html += '<thead style="background-color: var(--brand-bg-secondary, #f8f9fa);"><tr><th style="color: var(--brand-text-primary, #333);">Member</th><th style="color: var(--brand-text-primary, #333);">Due Date</th><th style="color: var(--brand-text-primary, #333);">Amount</th></tr></thead><tbody>';
+        result.upcoming_schedules_sample.slice(0, 5).forEach(function(schedule) {
+            html += '<tr>';
+            html += '<td style="color: var(--brand-text-primary, #333);">' + (schedule.member_name || 'Unknown') + '</td>';
+            html += '<td style="color: var(--brand-text-secondary, #666);">' + (schedule.next_invoice_date || 'Not set') + '</td>';
+            html += '<td style="color: var(--brand-primary, #F99F20); font-weight: 600;">€' + (schedule.dues_rate || 0) + '</td>';
+            html += '</tr>';
+        });
+        html += '</tbody></table>';
+        if (result.upcoming_schedules_sample.length > 5) {
+            html += '<small class="text-muted">... and ' + (result.upcoming_schedules_sample.length - 5) + ' more</small>';
+        }
+        html += '</div>';
+    }
+
+    return html;
+}
+
+function formatHealthResult(result) {
+    var html = '<h5 class="text-brand-primary mb-4"><i class="fa fa-heartbeat"></i> System Health Status</h5>';
+
+    if (result.members_processed !== undefined) {
+        // Health check dashboard
+        html += '<div class="statistics-grid mb-4" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">';
+
+        // Members processed
+        html += '<div class="stat-card" style="padding: 1.5rem; background: var(--brand-bg-secondary, #f8f9fa); border-left: 4px solid var(--brand-secondary, #1A555F); border-radius: 8px;">';
+        html += '<div class="stat-value" style="font-size: 2rem; font-weight: bold; color: var(--brand-secondary, #1A555F);">' + result.members_processed + '</div>';
+        html += '<div class="stat-label" style="color: var(--brand-text-secondary, #666); font-size: 0.875rem;">Members Processed</div>';
+        html += '</div>';
+
+        // Success rate
+        var successRate = result.processing_summary ? result.processing_summary.success_rate : 100;
+        var successColor = successRate >= 95 ? 'var(--brand-success, #28a745)' : successRate >= 80 ? 'var(--brand-warning, #ffc107)' : 'var(--brand-error, #dc3545)';
+        html += '<div class="stat-card" style="padding: 1.5rem; background: var(--brand-bg-secondary, #f8f9fa); border-left: 4px solid ' + successColor + '; border-radius: 8px;">';
+        html += '<div class="stat-value" style="font-size: 2rem; font-weight: bold; color: ' + successColor + ';">' + successRate.toFixed(1) + '%</div>';
+        html += '<div class="stat-label" style="color: var(--brand-text-secondary, #666); font-size: 0.875rem;">Success Rate</div>';
+        html += '</div>';
+
+        // Issues found/fixed
+        var totalIssues = (result.memberships_reconstructed || 0) + (result.schedules_created || 0) + (result.fields_synchronized || 0);
+        html += '<div class="stat-card" style="padding: 1.5rem; background: var(--brand-bg-secondary, #f8f9fa); border-left: 4px solid var(--brand-primary, #F99F20); border-radius: 8px;">';
+        html += '<div class="stat-value" style="font-size: 2rem; font-weight: bold; color: var(--brand-primary, #F99F20);">' + totalIssues + '</div>';
+        html += '<div class="stat-label" style="color: var(--brand-text-secondary, #666); font-size: 0.875rem;">Issues Fixed</div>';
+        html += '</div>';
+
+        // Errors
+        var errorCount = result.errors ? result.errors.length : 0;
+        var errorColor = errorCount > 0 ? 'var(--brand-error, #dc3545)' : 'var(--brand-success, #28a745)';
+        html += '<div class="stat-card" style="padding: 1.5rem; background: var(--brand-bg-secondary, #f8f9fa); border-left: 4px solid ' + errorColor + '; border-radius: 8px;">';
+        html += '<div class="stat-value" style="font-size: 2rem; font-weight: bold; color: ' + errorColor + ';">' + errorCount + '</div>';
+        html += '<div class="stat-label" style="color: var(--brand-text-secondary, #666); font-size: 0.875rem;">Errors</div>';
+        html += '</div>';
+
+        html += '</div>';
+
+        // Details section
+        if (totalIssues > 0 || errorCount > 0) {
+            html += '<div class="mt-4">';
+            html += '<h6 class="mb-3">Detailed Results</h6>';
+
+            if (result.memberships_reconstructed > 0) {
+                html += '<div class="alert alert-info"><i class="fa fa-repair"></i> <strong>' + result.memberships_reconstructed + '</strong> memberships reconstructed</div>';
+            }
+            if (result.schedules_created > 0) {
+                html += '<div class="alert alert-info"><i class="fa fa-plus-circle"></i> <strong>' + result.schedules_created + '</strong> schedules created</div>';
+            }
+            if (result.fields_synchronized > 0) {
+                html += '<div class="alert alert-info"><i class="fa fa-sync"></i> <strong>' + result.fields_synchronized + '</strong> fields synchronized</div>';
+            }
+
+            if (result.errors && result.errors.length > 0) {
+                html += '<div class="alert alert-warning"><i class="fa fa-exclamation-triangle"></i> <strong>Errors:</strong><ul class="mt-2 mb-0">';
+                result.errors.forEach(function(error) {
+                    html += '<li>' + error + '</li>';
+                });
+                html += '</ul></div>';
+            }
+            html += '</div>';
+        } else {
+            html += '<div class="alert alert-success mt-4"><i class="fa fa-check-circle"></i> <strong>All Good!</strong> No issues found in the processed members.</div>';
+        }
+
+        // Batch info
+        if (result.batch_info) {
+            html += '<div class="mt-3" style="font-size: 0.875rem; color: var(--brand-text-secondary, #666);">';
+            html += '<i class="fa fa-info-circle"></i> Processed ' + result.batch_info.total_batches + ' batch(es) of ' + result.batch_info.batch_size + ' members each';
+            html += '</div>';
+        }
+    } else {
+        // Fallback to formatted JSON for other health check types
+        try {
+            html += '<div class="bg-light p-3" style="border-left: 4px solid var(--brand-primary, #F99F20); border-radius: 8px;">';
+            html += '<pre style="margin: 0; font-family: Monaco, monospace; font-size: 0.875rem;">' + JSON.stringify(result, null, 2) + '</pre>';
+            html += '</div>';
+        } catch (e) {
+            html += '<div class="bg-light p-3" style="border-left: 4px solid var(--brand-primary, #F99F20); border-radius: 8px;">';
+            html += '<pre style="margin: 0; font-family: Monaco, monospace; font-size: 0.875rem;">' + String(result) + '</pre>';
+            html += '</div>';
+        }
+    }
+
+    return html;
+}
+
+function formatPerformanceResult(result) {
+    var html = '<h5>Performance Metrics</h5>';
+    // Add performance-specific formatting here
+    try {
+        return html + '<pre class="bg-light p-3">' + JSON.stringify(result, null, 2) + '</pre>';
+    } catch (e) {
+        return html + '<pre class="bg-light p-3">' + String(result) + '</pre>';
+    }
+}
+
+function formatSecurityResult(result) {
+    var html = '<h5 class="text-brand-primary mb-3">Security Configuration Status</h5>';
+
+    if (result.status) {
+        var status = result.status;
+
+        // Security score display
+        html += '<div class="text-center mb-4">';
+        html += '<div class="security-score-display" style="display: inline-block; padding: 2rem; background: var(--brand-bg-secondary, #f8f9fa); border-radius: 12px;">';
+        html += '<h2 style="margin: 0; color: ' + (status.security_percentage >= 70 ? 'var(--brand-secondary, #1A555F)' : 'var(--brand-primary, #F99F20)') + ';">';
+        html += status.security_score || '0/0';
+        html += '</h2>';
+        html += '<p style="margin-top: 0.5rem; color: var(--brand-text-secondary, #666);">Security Score</p>';
+        html += '<div style="width: 200px; height: 8px; background: #e0e0e0; border-radius: 4px; margin: 0.5rem auto;">';
+        html += '<div style="width: ' + (status.security_percentage || 0) + '%; height: 100%; background: ' +
+                (status.security_percentage >= 70 ? 'var(--brand-secondary, #1A555F)' : 'var(--brand-primary, #F99F20)') +
+                '; border-radius: 4px;"></div>';
+        html += '</div>';
+        html += '</div>';
+        html += '</div>';
+
+        // Security status items
+        html += '<div class="row mb-4">';
+        html += '<div class="col-md-6">';
+        html += '<h6>Security Features</h6>';
+        html += '<ul class="list-unstyled">';
+        html += '<li>' + (status.csrf_protection ? '✅' : '❌') + ' CSRF Protection: ' + (status.csrf_protection ? 'Enabled' : 'Disabled') + '</li>';
+        html += '<li>' + (status.encryption_key ? '✅' : '❌') + ' Encryption Key: ' + (status.encryption_key ? 'Set' : 'Missing') + '</li>';
+        html += '<li>' + (status.secret_key ? '✅' : '❌') + ' Session Secret: ' + (status.secret_key ? 'Set' : 'Missing') + '</li>';
+        html += '</ul>';
+        html += '</div>';
+        html += '<div class="col-md-6">';
+        html += '<h6>Environment</h6>';
+        html += '<ul class="list-unstyled">';
+        html += '<li>' + (!status.developer_mode ? '✅' : '⚠️') + ' Developer Mode: ' + (status.developer_mode ? 'Enabled' : 'Disabled') + '</li>';
+        html += '<li>' + (!status.allow_tests ? '✅' : '⚠️') + ' Test Mode: ' + (status.allow_tests ? 'Enabled' : 'Disabled') + '</li>';
+        html += '<li>Session Expiry: ' + status.session_expiry + '</li>';
+        html += '</ul>';
+        html += '</div>';
+        html += '</div>';
+
+        // Recommendations
+        if (status.recommendations && status.recommendations.length > 0) {
+            html += '<div class="alert alert-warning">';
+            html += '<h6>Security Recommendations</h6>';
+            html += '<ul class="mb-0">';
+            status.recommendations.forEach(function(rec) {
+                html += '<li>' + rec + '</li>';
+            });
+            html += '</ul>';
+            html += '</div>';
+        }
+    }
+
+    // For apply production security results
+    if (result.changes && result.changes.length > 0) {
+        html += '<div class="alert alert-success">';
+        html += '<h6>Security Changes Applied</h6>';
+        html += '<ul class="mb-0">';
+        result.changes.forEach(function(change) {
+            html += '<li>✅ ' + change + '</li>';
+        });
+        html += '</ul>';
+        if (result.note) {
+            html += '<p class="mb-0 mt-3"><strong>Note:</strong> ' + result.note + '</p>';
+        }
+        html += '</div>';
+    }
+
+    return html;
+}
+
+function formatCleanupResult(result) {
+    var html = '<h5 class="text-danger mb-3"><i class="fa fa-exclamation-triangle"></i> Cleanup Results</h5>';
+
+    if (result.dry_run) {
+        html += '<div class="alert alert-info mb-3">';
+        html += '<strong><i class="fa fa-info-circle"></i> DRY RUN:</strong> No actual deletions were performed.';
+        html += '</div>';
+    }
+
+    // Handle message field for orphaned schedule cleanup
+    if (result.message) {
+        html += '<div class="alert alert-' + (result.dry_run ? 'info' : 'success') + ' mb-3">';
+        html += '<strong><i class="fa fa-info-circle"></i> Result:</strong> ' + result.message;
+        html += '</div>';
+    }
+
+    // Handle summary field for other cleanup types
+    if (result.summary) {
+        html += '<div class="alert alert-' + (result.dry_run ? 'info' : 'warning') + ' mb-3">';
+        html += '<strong>Summary:</strong> ' + result.summary;
+        html += '</div>';
+    }
+
+    if (result.total_records_affected !== undefined) {
+        html += '<div class="statistics-grid mb-4">';
+        html += '<div class="stat-card" style="border-left-color: var(--brand-error, #dc3545);">';
+        html += '<div class="stat-value" style="color: var(--brand-error, #dc3545);">' + result.total_records_affected + '</div>';
+        html += '<div class="stat-label">Total Records Affected</div>';
+        html += '</div>';
+
+        if (result.members && result.members.count !== undefined) {
+            html += '<div class="stat-card" style="border-left-color: var(--brand-warning, #ffc107);">';
+            html += '<div class="stat-value" style="color: var(--brand-warning, #ffc107);">' + result.members.count + '</div>';
+            html += '<div class="stat-label">Members</div>';
+            html += '</div>';
+        }
+
+        if (result.memberships && result.memberships.count !== undefined) {
+            html += '<div class="stat-card" style="border-left-color: var(--brand-success, #1A555F);">';
+            html += '<div class="stat-value" style="color: var(--brand-success, #1A555F);">' + result.memberships.count + '</div>';
+            html += '<div class="stat-label">Memberships</div>';
+            html += '</div>';
+        }
+        html += '</div>';
+    }
+
+    // Show detailed breakdown for non-dry-runs
+    if (!result.dry_run && result.members && result.members.deleted !== undefined) {
+        html += '<h6 class="text-danger">Deletion Summary:</h6>';
+        html += '<ul class="list-group mb-3">';
+
+        var categories = ['members', 'memberships', 'dues_schedules', 'volunteers', 'sepa_mandates', 'payment_history', 'chapter_members', 'users', 'customers', 'donors'];
+        var categoryNames = {
+            'members': 'Members',
+            'memberships': 'Memberships',
+            'dues_schedules': 'Dues Schedules',
+            'volunteers': 'Volunteers',
+            'sepa_mandates': 'SEPA Mandates',
+            'payment_history': 'Payment History',
+            'chapter_members': 'Chapter Members',
+            'users': 'User Accounts',
+            'customers': 'Customer Records',
+            'donors': 'Donor Records'
+        };
+
+        categories.forEach(function(cat) {
+            if (result[cat] && result[cat].deleted !== undefined) {
+                var color = result[cat].deleted > 0 ? 'text-danger' : 'text-muted';
+                html += '<li class="list-group-item d-flex justify-content-between align-items-center">';
+                html += categoryNames[cat];
+                html += '<span class="badge ' + color + '">' + result[cat].deleted + ' deleted</span>';
+                html += '</li>';
+            }
+        });
+        html += '</ul>';
+    }
+
+    // Show test patterns for test cleanup
+    if (result.test_patterns) {
+        html += '<h6>Test Email Patterns:</h6>';
+        html += '<ul>';
+        result.test_patterns.forEach(function(pattern) {
+            html += '<li><code>' + pattern + '</code></li>';
+        });
+        html += '</ul>';
+    }
+
+    // Show warnings
+    if (result.warnings && result.warnings.length > 0) {
+        html += '<div class="alert alert-warning">';
+        html += '<strong>Warnings:</strong><br>';
+        result.warnings.forEach(function(warning) {
+            html += '• ' + warning + '<br>';
+        });
+        html += '</div>';
+    }
+
+    // Show errors if any
+    var hasErrors = false;
+    var errorCategories = ['members', 'memberships', 'dues_schedules', 'volunteers', 'sepa_mandates', 'payment_history', 'chapter_members', 'users', 'customers', 'donors'];
+
+    errorCategories.forEach(function(cat) {
+        if (result[cat] && result[cat].errors && result[cat].errors.length > 0) {
+            hasErrors = true;
+        }
+    });
+
+    if (hasErrors) {
+        html += '<div class="alert alert-danger mt-3">';
+        html += '<strong>Errors encountered:</strong>';
+        errorCategories.forEach(function(cat) {
+            if (result[cat] && result[cat].errors && result[cat].errors.length > 0) {
+                html += '<h6 class="mt-2">' + (categoryNames[cat] || cat) + ':</h6>';
+                html += '<ul>';
+                result[cat].errors.forEach(function(error) {
+                    html += '<li>' + error + '</li>';
+                });
+                html += '</ul>';
+            }
+        });
+        html += '</div>';
+    }
+
+    return html;
+}
+
+function formatGenericResult(result) {
+    var html = '<h5 class="text-brand-primary mb-3">Results</h5>';
+    if (typeof result === 'object') {
+        html += '<div class="bg-light p-3" style="max-height: 400px; overflow-y: auto; border-left: 4px solid var(--brand-primary, #F99F20); background-color: var(--brand-bg-secondary, #f8f9fa);">';
+        try {
+            html += '<pre style="margin: 0; font-family: \'Monaco\', \'Menlo\', \'Ubuntu Mono\', monospace; font-size: 0.875rem; color: var(--brand-text-primary, #333);">' + JSON.stringify(result, null, 2) + '</pre>';
+        } catch (e) {
+            html += '<pre style="margin: 0; font-family: \'Monaco\', \'Menlo\', \'Ubuntu Mono\', monospace; font-size: 0.875rem; color: var(--brand-text-primary, #333);">' + String(result) + '</pre>';
+        }
+        html += '</div>';
+    } else {
+        html += '<div class="alert" style="background-color: rgba(var(--brand-secondary-rgb, 26, 85, 95), 0.1); border-color: var(--brand-secondary, #1A555F); color: var(--brand-secondary, #1A555F);">' + result + '</div>';
+    }
+    return html;
+}
+
+function closeResultsModal() {
+    var modal = document.getElementById('resultsModal');
+    if (modal) {
+        modal.style.display = 'none';
+        modal.classList.remove('show');
+        document.body.classList.remove('modal-open');
+
+        // Remove custom backdrop if it exists
+        var backdrop = document.getElementById('custom-backdrop');
+        if (backdrop) {
+            backdrop.remove();
+        }
+    }
+}
+
+function initializeAdminTools() {
+    // Add event listeners to all execute-tool buttons using vanilla JS
+    var executeButtons = document.querySelectorAll('.execute-tool');
+
+    executeButtons.forEach(function(button) {
+        button.addEventListener('click', function(e) {
+            e.preventDefault();
+
+            var method = this.getAttribute('data-method');
+            var title = this.getAttribute('data-title');
+            var warning = this.getAttribute('data-warning');
+            var args = this.getAttribute('data-args');
+            var formatter = this.getAttribute('data-formatter') || 'generic';
+            var button = this;
+
+
+            // Enhanced confirmation for dangerous operations
+            if (warning) {
+                // Special handling for nuclear operations - require double confirmation
+                if (title.includes('NUCLEAR') || title.includes('Delete ALL')) {
+                    var firstConfirm = confirm('🚨 NUCLEAR OPERATION WARNING 🚨\n\n' + warning + '\n\nThis will permanently delete ALL member data!\n\nType "DELETE ALL" to confirm you want to proceed.');
+                    if (!firstConfirm) {
+                        return;
+                    }
+
+                    var userInput = prompt('Please type "DELETE ALL" (without quotes) to confirm this destructive operation:');
+                    if (userInput !== 'DELETE ALL') {
+                        alert('Operation cancelled. You must type exactly "DELETE ALL" to confirm.');
+                        return;
+                    }
+
+                    var finalConfirm = confirm('FINAL CONFIRMATION: Are you absolutely certain you want to delete ALL member data?\n\nThis action CANNOT be undone!');
+                    if (!finalConfirm) {
+                        return;
+                    }
+                } else {
+                    // Standard warning confirmation
+                    if (!confirm('⚠️ WARNING: ' + warning + '\n\nAre you sure you want to proceed?')) {
+                        return;
+                    }
+                }
+            }
+
+            // Show loading state
+            button.disabled = true;
+            button.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Executing...';
+
+        // Execute the tool
+        if (typeof frappe !== 'undefined' && frappe.call) {
+            // Use frappe.call if available
+            var callArgs = {
+                method: 'verenigingen.templates.pages.admin_tools.execute_admin_tool',
+                args: {
+                    method: method
+                },
+                callback: function(r) {
+                    button.disabled = false;
+                    button.innerHTML = '<i class="fa fa-play"></i> Execute';
+
+                    if (r.message && r.message.success) {
+                        // Show results in modal
+                        var modalTitle = document.querySelector('#resultsModal .modal-title');
+                        if (modalTitle) modalTitle.textContent = title + ' - Results';
+
+                        var resultHtml = formatToolResult(r.message.result, title, formatter);
+
+                        var toolResults = document.getElementById('tool-results');
+                        if (toolResults) toolResults.innerHTML = resultHtml;
+
+                        // Show modal - try multiple methods
+                        var modal = document.getElementById('resultsModal');
+                        if (modal) {
+                            // Try Bootstrap 5
+                            if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+                                var bootstrapModal = new bootstrap.Modal(modal);
+                                bootstrapModal.show();
+                            }
+                            // Try Bootstrap 4
+                            else if (typeof $ !== 'undefined' && $.fn.modal) {
+                                $(modal).modal('show');
+                            }
+                            // Fallback - show/hide manually
+                            else {
+                                modal.style.display = 'block';
+                                modal.classList.add('show');
+                                document.body.classList.add('modal-open');
+
+                                // Add backdrop
+                                var backdrop = document.createElement('div');
+                                backdrop.className = 'modal-backdrop fade show';
+                                backdrop.id = 'custom-backdrop';
+                                document.body.appendChild(backdrop);
+                            }
+                        } else {
+                            // Fallback - just show an alert with results
+                            var resultText;
+                            try {
+                                resultText = JSON.stringify(r.message.result, null, 2);
+                            } catch (e) {
+                                resultText = String(r.message.result);
+                            }
+                            alert('Tool executed successfully!\n\nResult: ' + resultText);
+                        }
+                    } else {
+                        alert('Error: ' + (r.message ? r.message.error : 'Failed to execute tool'));
+                    }
+                },
+                error: function(r) {
+                    button.disabled = false;
+                    button.innerHTML = '<i class="fa fa-play"></i> Execute';
+                    alert('Failed to execute tool: ' + (r.message || 'Unknown error'));
+                }
+            };
+
+            if (args) {
+                try {
+                    // Decode HTML entities that might be present in the args string
+                    var decodedArgs = args.replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+                    // Parse the decoded JSON string
+                    var parsedArgs = JSON.parse(decodedArgs);
+                    callArgs.args.args = parsedArgs;
+                } catch (e) {
+                    console.error('Failed to parse admin tool args:', args, e);
+                    callArgs.args.args = args;
+                }
+            }
+
+            frappe.call(callArgs);
+        } else {
+            // Fallback to jQuery AJAX
+            var requestData = {
+                method: method
+            };
+
+            if (args) {
+                try {
+                    // Decode HTML entities that might be present in the args string
+                    var decodedArgs = args.replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+                    // Parse the decoded JSON string, then stringify it for the request
+                    var parsedArgs = JSON.parse(decodedArgs);
+                    requestData.args = JSON.stringify(parsedArgs);
+                } catch (e) {
+                    console.error('Failed to parse admin tool args:', args, e);
+                    requestData.args = args;
+                }
+            }
+
+            $.ajax({
+                url: '/api/method/verenigingen.templates.pages.admin_tools.execute_admin_tool',
+                method: 'POST',
+                headers: {
+                    'X-Frappe-CSRF-Token': window.csrf_token || ''
+                },
+                data: requestData,
+                success: function(response) {
+                    button.disabled = false;
+                    button.innerHTML = '<i class="fa fa-play"></i> Execute';
+
+                    if (response.message && response.message.success) {
+                        // Safely format the result for display
+                        var resultText;
+                        try {
+                            resultText = JSON.stringify(response.message.result, null, 2);
+                        } catch (e) {
+                            // Fallback if JSON.stringify fails
+                            resultText = String(response.message.result);
+                        }
+                        alert('Tool executed successfully!\n\nResult: ' + resultText);
+                    } else {
+                        alert('Error: ' + (response.message ? response.message.error : 'Failed to execute tool'));
+                    }
+                },
+                error: function(xhr, status, error) {
+                    button.disabled = false;
+                    button.innerHTML = '<i class="fa fa-play"></i> Execute';
+                    var errorMsg = 'Failed to execute tool: ' + error;
+                    if (xhr.responseJSON && xhr.responseJSON.exc_type) {
+                        errorMsg = 'Error: ' + xhr.responseJSON.exc_type;
+                        if (xhr.responseJSON.exception) {
+                            errorMsg += ' - ' + xhr.responseJSON.exception;
+                        }
+                    }
+                    alert(errorMsg);
+                }
+            });
+        }
+        });
+    });
+}
+
+// Initialize when DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeAdminTools);
+} else {
+    initializeAdminTools();
+}
+
+// Also try with jQuery if available
+if (typeof $ !== 'undefined') {
+    $(document).ready(initializeAdminTools);
+}
+</script>
+{% endblock %}

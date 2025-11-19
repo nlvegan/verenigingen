@@ -1,0 +1,170 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Bank Details Updated") }}{% endblock %}
+
+{% block head_include %}
+<style>
+.success-page {
+    max-width: 600px;
+    margin: 2rem auto;
+    padding: 2rem;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    text-align: center;
+}
+
+.success-icon {
+    font-size: 4rem;
+    color: #28a745;
+    margin-bottom: 1rem;
+}
+
+.success-title {
+    color: #28a745;
+    margin-bottom: 1.5rem;
+}
+
+.success-messages {
+    text-align: left;
+    background-color: #d4edda;
+    border: 1px solid #c3e6cb;
+    border-radius: 4px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.success-messages ul {
+    margin: 0;
+    padding-left: 1.5rem;
+}
+
+.success-messages li {
+    margin-bottom: 0.5rem;
+    color: #155724;
+}
+
+.next-steps {
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+    text-align: left;
+}
+
+.next-steps h5 {
+    color: #333;
+    margin-bottom: 1rem;
+}
+
+.next-steps ul {
+    margin: 0;
+    padding-left: 1.5rem;
+}
+
+.next-steps li {
+    margin-bottom: 0.75rem;
+    color: #666;
+}
+
+.btn {
+    padding: 0.75rem 2rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1rem;
+    text-decoration: none;
+    display: inline-block;
+    text-align: center;
+    margin: 0.5rem;
+}
+
+.btn-primary {
+    background-color: #cf3131;
+    color: white;
+}
+
+.btn-primary:hover {
+    background-color: #b82828;
+}
+
+.btn-secondary {
+    background-color: #6c757d;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background-color: #545b62;
+}
+
+.sepa-info {
+    background-color: #f1f8ff;
+    border: 1px solid #c1e7ff;
+    border-radius: 4px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+    text-align: left;
+}
+
+.sepa-info h6 {
+    color: #cf3131;
+    margin-bottom: 0.5rem;
+}
+
+.sepa-info p {
+    margin: 0;
+    font-size: 0.875rem;
+    color: #666;
+}
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div class="container">
+    <div class="success-page">
+        <div class="success-icon">
+            <i class="fa fa-check-circle"></i>
+        </div>
+
+        <h2 class="success-title">{{ _("Bank Details Updated Successfully") }}</h2>
+
+        {% if success_messages %}
+        <div class="success-messages">
+            <ul>
+                {% for message in success_messages %}
+                <li>{{ message }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        <div class="next-steps">
+            <h5>{{ _("What happens next?") }}</h5>
+            <ul>
+                <li>{{ _("Your updated bank details are now active in your member profile") }}</li>
+                {% if sepa_enabled %}
+                <li>{{ _("Your membership fees will be automatically collected from your bank account") }}</li>
+                <li>{{ _("First automatic collection will occur with your next billing cycle") }}</li>
+                <li>{{ _("You'll receive email notifications before each collection") }}</li>
+                <li>{{ _("You can view your payment history and mandate status in your member dashboard") }}</li>
+                {% else %}
+                <li>{{ _("You will continue to receive invoices for membership fees via your preferred payment method") }}</li>
+                {% endif %}
+                <li>{{ _("You can update these details again at any time from your member dashboard") }}</li>
+            </ul>
+        </div>
+
+        {% if sepa_enabled %}
+        <div class="sepa-info">
+            <h6>{{ _("SEPA Direct Debit Rights") }}</h6>
+            <p>{{ _("You have the right to cancel this mandate at any time by contacting us or your bank. You are entitled to a refund from your bank under the terms and conditions of your agreement with your bank. A refund must be claimed within 8 weeks starting from the date on which your account was debited.") }}</p>
+        </div>
+        {% endif %}
+
+        <div>
+            <a href="/member_dashboard" class="btn btn-primary">{{ _("Return to Dashboard") }}</a>
+            <a href="/bank_details" class="btn btn-secondary">{{ _("Update Details Again") }}</a>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,57 @@
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+
+# Build outputs
+dist/
+build/
+*.min.js
+*.bundle.js
+
+# Archived and legacy code
+archived_unused/
+archived_removal/
+legacy/
+
+# Third-party libraries
+verenigingen/public/js/lib/
+verenigingen/public/js/vendor/
+
+# Generated files
+*.generated.js
+*-compiled.js
+
+# Test fixtures and mock data
+verenigingen/tests/fixtures/
+**/__mocks__/
+
+# Temporary files
+*.tmp.js
+*.temp.js
+
+# Documentation
+docs/
+
+# Configuration files that may have different syntax
+*.config.js
+webpack.config.js
+rollup.config.js
+
+# Scripts that are meant to be run directly (not through Frappe)
+scripts/analysis/
+scripts/monitoring/
+scripts/performance/
+scripts/rollback/
+scripts/security/
+
+# Development and debug utilities
+debug_utils/
+dev_scripts/
+
+# Files with intentional issues for testing
+**/test_field_validation_gaps.js
+**/intentional_errors.js
+
+# Legacy frontend experiment
+archived_unused/expense-frontend/

@@ -1,0 +1,83 @@
+{
+  "timestamp": "2025-07-28T19:29:49.022014",
+  "security_analysis": {
+    "total_api_files": 99,
+    "financial_api_files": 25,
+    "critical_api_decorated": 23,
+    "actual_coverage_percentage": 64.0,
+    "claimed_coverage_percentage": 91.7,
+    "verification_status": "DISPUTED - Claimed 91.7%, Actual 64.0%"
+  },
+  "performance_analysis": {
+    "claimed_improvement": "16.76x improvement",
+    "baseline_measurements_exist": true,
+    "post_implementation_measurements_exist": false,
+    "measurable_improvements": [
+      {
+        "type": "SQL Query Reduction",
+        "metric": "1193 direct SQL calls found",
+        "note": "Could measure query efficiency improvements"
+      },
+      {
+        "type": "Event Handler Optimization",
+        "metric": "38 event handlers found",
+        "note": "Could measure processing time improvements"
+      }
+    ],
+    "verification_status": "PARTIALLY_MEASURABLE - Baseline exists but no comparison"
+  },
+  "test_infrastructure_analysis": {
+    "claimed_file_reduction": "427\u2192302 files (29.3% reduction)",
+    "actual_test_files": 520,
+    "total_python_files": 1443,
+    "test_coverage_files": 26,
+    "verification_status": "UNVERIFIABLE - No historical baseline for file count",
+    "test_ratio_percentage": 36.0
+  },
+  "architecture_analysis": {
+    "claimed_sql_to_orm": "Unified data access",
+    "claimed_service_layer": "Service layer implementation",
+    "claimed_mixin_consolidation": "Mixin pattern consolidation",
+    "actual_mixins_found": 7,
+    "actual_service_files": 49,
+    "actual_sql_usage": 1193,
+    "verification_status": "PARTIAL"
+  },
+  "baseline_gaps": {
+    "missing_pre_measurements": [
+      "Performance benchmarks before refactoring",
+      "Security coverage before @critical_api implementation",
+      "File count before cleanup",
+      "Query performance before ORM migration"
+    ],
+    "missing_post_measurements": [
+      "Current API response times",
+      "Current memory usage patterns",
+      "Current test execution times",
+      "Current database query efficiency"
+    ],
+    "suggested_baselines_to_establish": [
+      "API endpoint response time baselines",
+      "Database query performance baselines",
+      "Memory usage baselines",
+      "Test suite execution time baselines",
+      "Security audit baselines"
+    ]
+  },
+  "verified_claims": {
+    "count": 3,
+    "claims": [
+      "Current test files: 520",
+      "Mixin implementation: 7 files",
+      "Service layer: 49 files"
+    ]
+  },
+  "unverified_claims": {
+    "count": 3,
+    "claims": [
+      "Security coverage claim: DISPUTED - Claimed 91.7%, Actual 64.0%",
+      "16.76x performance improvement - No baseline measurements",
+      "29.3% file reduction - No historical baseline"
+    ]
+  }
+}

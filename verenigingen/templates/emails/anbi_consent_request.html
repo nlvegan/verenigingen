@@ -1,0 +1,47 @@
+<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+    <h2>Dear {{ donor_name|e }},</h2>
+
+    <p>Thank you for your generous donations to {{ organization_name|e }}.</p>
+
+    <p>As an ANBI-registered organization, we can provide you with tax benefits for your donations. To enable these benefits and comply with Dutch tax regulations, we need your consent to:</p>
+
+    <ul>
+        <li>Store your tax identification number (BSN for individuals, RSIN for organizations)</li>
+        <li>Report eligible donations to the Belastingdienst for automatic tax deduction</li>
+    </ul>
+
+    <div style="background-color: #e8f5e9; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #4caf50;">
+        <h3 style="color: #2e7d32; margin-top: 0;">Benefits for You</h3>
+        <ul style="margin-bottom: 0;">
+            <li>Automatic tax deduction for donations</li>
+            <li>No need to manually claim deductions in your tax return</li>
+            <li>Full deductibility for periodic donation agreements (5+ years)</li>
+        </ul>
+    </div>
+
+    <div style="background-color: #e3f2fd; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #2196f3;">
+        <h3 style="color: #1565c0; margin-top: 0;">Your Privacy is Protected</h3>
+        <ul style="margin-bottom: 0;">
+            <li>Tax identifiers are encrypted and stored securely</li>
+            <li>Data is only used for tax reporting purposes</li>
+            <li>You can withdraw consent at any time</li>
+        </ul>
+    </div>
+
+    <p><strong>To provide your consent:</strong></p>
+    <ol>
+        <li>Log in to your donor portal</li>
+        <li>Navigate to your profile settings</li>
+        <li>Click on "ANBI Consent" and follow the instructions</li>
+    </ol>
+
+    <p>If you have any questions, please don't hesitate to contact us at {{ organization_email|e }}.</p>
+
+    <p>With gratitude,<br>
+    {{ organization_name|e }}</p>
+
+    <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+    <p style="font-size: 12px; color: #666;">
+    This email was sent because you are a registered donor. If you no longer wish to receive these communications, please update your preferences in your donor portal.
+    </p>
+</div>

@@ -1,0 +1,128 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block page_content %}
+<div class="container">
+    <h1>{{ title }}</h1>
+
+    <div class="card">
+        <div class="card-header">
+            <h3>{{ _("Workflow Status") }}</h3>
+        </div>
+        <div class="card-body">
+            <p><strong>{{ _("User Roles:") }}</strong>
+                {% if user_roles %}{{ user_roles|join(", ") }}{% else %}None{% endif %}</p>
+            <p><strong>{{ _("Active Members:") }}</strong>
+                {% if workflow_status and workflow_status.members_analysis %}{{ workflow_status.members_analysis.total_active_members }}{% else %}0{% endif %}</p>
+            <p><strong>{{ _("Pending Invoices:") }}</strong>
+                {% if workflow_status %}{{ workflow_status.pending_invoices }}{% else %}0{% endif %}</p>
+            <p><strong>{{ _("Missing Invoices:") }}</strong>
+                {% if workflow_status and workflow_status.members_analysis %}{{ workflow_status.members_analysis.members_missing_invoices }}{% else %}0{% endif %}</p>
+            <p><strong>{{ _("SEPA Eligible:") }}</strong>
+                {% if workflow_status and workflow_status.members_analysis %}{{ workflow_status.members_analysis.sepa_eligible }}{% else %}0{% endif %}</p>
+        </div>
+    </div>
+
+    <div class="card mt-3">
+        <div class="card-header">
+            <h3>{{ _("API Functions") }}</h3>
+        </div>
+        <div class="card-body">
+            <button class="btn btn-primary m-1" onclick="testAPI('check_member_dues_status')">
+                {{ _("Check Member Status") }}
+            </button>
+            <button class="btn btn-primary m-1" onclick="testAPI('generate_missing_invoices')">
+                {{ _("Generate Invoices") }}
+            </button>
+            <button class="btn btn-primary m-1" onclick="testAPI('validate_sepa_eligibility')">
+                {{ _("Validate SEPA") }}
+            </button>
+            <button class="btn btn-primary m-1" onclick="testAPI('prepare_sepa_batch')">
+                {{ _("Create Batch") }}
+            </button>
+        </div>
+    </div>
+
+    <div class="card mt-3" id="results" style="display: none;">
+        <div class="card-header">
+            <h3>{{ _("Results") }}</h3>
+        </div>
+        <div class="card-body">
+            <div id="results-content"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+function getCSRFToken() {
+    // Try multiple sources for CSRF token
+    if (typeof frappe !== 'undefined' && frappe.csrf_token) {
+        return frappe.csrf_token;
+    }
+
+    // Try to get from meta tag
+    const metaToken = document.querySelector('meta[name="csrf-token"]');
+    if (metaToken) {
+        return metaToken.getAttribute('content');
+    }
+
+    // Try to get from cookie
+    const cookies = document.cookie.split(';');
+    for (let cookie of cookies) {
+        const [name, value] = cookie.trim().split('=');
+        if (name === 'csrf_token') {
+            return value;
+        }
+    }
+
+    return null;
+}
+
+function testAPI(method) {
+    document.getElementById('results').style.display = 'block';
+    document.getElementById('results-content').innerHTML = 'Testing...';
+
+    const csrfToken = getCSRFToken();
+    const headers = {
+        'Content-Type': 'application/json'
+    };
+
+    // Only add CSRF token if we have one
+    if (csrfToken) {
+        headers['X-Frappe-CSRF-Token'] = csrfToken;
+    }
+
+    // Use fetch for web page API calls
+    fetch('/api/method/verenigingen.api.dues_invoice_workflow.' + method, {
+        method: 'POST',
+        headers: headers,
+        credentials: 'include'
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data.message) {
+            document.getElementById('results-content').innerHTML =
+                '<pre>' + JSON.stringify(data.message, null, 2) + '</pre>';
+        } else if (data.exception) {
+            document.getElementById('results-content').innerHTML =
+                'Error: ' + (data.exception || 'Unknown error');
+        } else {
+            document.getElementById('results-content').innerHTML = 'No response data';
+        }
+    })
+    .catch(error => {
+        let errorMessage = 'Error: ' + (error.message || 'Network error');
+        if (error.message.includes('403') || error.message.includes('Forbidden')) {
+            errorMessage += '<br><small>Try refreshing the page to get a fresh CSRF token</small>';
+        }
+        document.getElementById('results-content').innerHTML = errorMessage;
+    });
+}
+</script>
+{% endblock %}

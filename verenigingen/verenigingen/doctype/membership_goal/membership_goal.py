@@ -1,0 +1,273 @@
+# Copyright (c) 2025, Verenigingen and contributors
+# For license information, please see license.txt
+
+from datetime import datetime
+from typing import Union
+
+import frappe
+from frappe.model.document import Document
+from frappe.query_builder import DocType
+from frappe.query_builder.functions import Count
+from frappe.utils import flt, getdate, now_datetime
+
+from verenigingen.utils.api_response import api_response_handler
+from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.validation_utilities import DateRangeValidator, QueryBuilder
+
+
+class MembershipGoal(Document):
+    def validate(self):
+        """Validate goal settings"""
+        # Ensure end date is after start date
+        if DateRangeValidator.is_date_before(self.end_date, self.start_date):
+            frappe.throw("End date must be after start date")
+
+        # Set year based on start date if not set
+        if not self.goal_year:
+            self.goal_year = getdate(self.start_date).year
+
+        # Update current value and achievement
+        self.update_achievement()
+
+    def update_achievement(self):
+        """Calculate current value and achievement percentage"""
+        self.current_value = self.calculate_current_value()
+
+        if self.target_value and self.target_value > 0:
+            self.achievement_percentage = (flt(self.current_value) / flt(self.target_value)) * 100
+        else:
+            self.achievement_percentage = 0
+
+        self.last_updated = now_datetime()
+
+        # Update status based on achievement and dates
+        self.update_status()
+
+    def calculate_current_value(self) -> Union[int, float]:
+        """Calculate the current value based on goal type"""
+        if self.goal_type == "Member Count Growth":
+            return self.calculate_member_growth()
+        elif self.goal_type == "Revenue Growth":
+            return self.calculate_revenue_growth()
+        elif self.goal_type == "Retention Rate":
+            return self.calculate_retention_rate()
+        elif self.goal_type == "New Member Acquisition":
+            return self.calculate_new_members()
+        elif self.goal_type == "Churn Reduction":
+            return self.calculate_churn_rate()
+        elif self.goal_type == "Chapter Expansion":
+            return self.calculate_chapter_expansion()
+        else:
+            return 0
+
+    def calculate_member_growth(self) -> int:
+        """Calculate net member growth"""
+        filters = {"member_since": ["between", [self.start_date, self.end_date]]}
+
+        # Apply scope filters
+        if not self.applies_to_all_chapters and self.chapter:
+            filters["current_chapter_display"] = self.chapter
+
+        # New members
+        new_members = frappe.db.count("Member", filters=filters)
+
+        # Lost members (terminated)
+        termination_filters = {
+            "termination_date": ["between", [self.start_date, self.end_date]],
+            "status": "Completed",
+        }
+
+        if not self.applies_to_all_chapters and self.chapter:
+            # Get members who were in this chapter when terminated
+            termination_filters["member"] = [
+                "in",
+                frappe.get_all("Member", filters={"current_chapter_display": self.chapter}, pluck="name"),
+            ]
+
+        lost_members = frappe.db.count("Membership Termination Request", filters=termination_filters)
+
+        return new_members - lost_members
+
+    def calculate_revenue_growth(self) -> float:
+        """Calculate revenue growth - OPTIMIZED to eliminate N+1 patterns"""
+        # Get revenue from memberships
+        if not self.applies_to_all_types and self.membership_type:
+            membership_filters = {"membership_type": self.membership_type}
+        else:
+            membership_filters = {}
+
+        # OPTIMIZATION: Bulk fetch memberships with member data in single query
+        active_memberships = frappe.get_all(
+            "Membership",
+            filters={"status": "Active", **membership_filters},
+            fields=["name", "membership_type", "member"],  # Include member field
+        )
+
+        if not active_memberships:
+            return 0
+
+        # OPTIMIZATION: Batch load member dues rates to avoid N+1
+        member_names = [m.member for m in active_memberships if m.member]
+        member_dues_map = {}
+
+        if member_names:
+            member_dues = frappe.get_all(
+                "Member",
+                filters={"name": ["in", member_names]},
+                fields=["name", "dues_rate"],
+            )
+            member_dues_map = {m.name: m.dues_rate for m in member_dues if m.dues_rate}
+
+        # OPTIMIZATION: Batch load membership type fees to avoid N+1
+        membership_types = list(set(m.membership_type for m in active_memberships))
+        membership_type_fees = {}
+
+        if membership_types:
+            type_fees = frappe.get_all(
+                "Membership Type",
+                filters={"name": ["in", membership_types]},
+                fields=["name", "minimum_amount"],
+            )
+            membership_type_fees = {t.name: (t.minimum_amount or 0) for t in type_fees}
+
+        # Calculate total revenue using pre-loaded data
+        total_revenue = 0
+        for membership in active_memberships:
+            if not membership.member:
+                continue
+
+            # Use pre-loaded member dues rate or membership type fee
+            fee_override = member_dues_map.get(membership.member)
+            if fee_override:
+                total_revenue += fee_override
+            else:
+                membership_fee = membership_type_fees.get(membership.membership_type, 0)
+                total_revenue += membership_fee
+
+        return total_revenue
+
+    def calculate_retention_rate(self) -> float:
+        """Calculate member retention rate as percentage"""
+        # Get members at start of period
+        start_members = frappe.db.count(
+            "Member", filters={"member_since": ["<", self.start_date], "status": ["!=", "Terminated"]}
+        )
+
+        if start_members == 0:
+            return 0
+
+        # Get members who were terminated during period
+        terminated = frappe.db.count(
+            "Membership Termination Request",
+            filters={
+                "termination_date": ["between", [self.start_date, self.end_date]],
+                "status": "Completed",
+            },
+        )
+
+        retention_rate = ((start_members - terminated) / start_members) * 100
+        return max(0, retention_rate)  # Ensure non-negative
+
+    def calculate_new_members(self) -> int:
+        """Calculate new member acquisitions"""
+        filters = {
+            "member_since": ["between", [self.start_date, self.end_date]],
+            "status": ["!=", "Rejected"],
+        }
+
+        if not self.applies_to_all_chapters and self.chapter:
+            filters["current_chapter_display"] = self.chapter
+
+        return frappe.db.count("Member", filters=filters)
+
+    def calculate_churn_rate(self) -> float:
+        """Calculate churn rate as percentage"""
+        # Total active members at start
+        total_members = frappe.db.count(
+            "Member", filters={"status": "Active", "member_since": ["<", self.start_date]}
+        )
+
+        if total_members == 0:
+            return 0
+
+        # Members lost during period
+        churned = frappe.db.count(
+            "Membership Termination Request",
+            filters={
+                "termination_date": ["between", [self.start_date, self.end_date]],
+                "status": "Completed",
+            },
+        )
+
+        churn_rate = (churned / total_members) * 100
+        return churn_rate
+
+    def calculate_chapter_expansion(self) -> int:
+        """Calculate number of new chapters with active members"""
+        # Count distinct chapters that have members who joined during the goal period
+        try:
+            # Use raw SQL since we need to join with Chapter Member and count distinct chapters
+            query = """
+                SELECT COUNT(DISTINCT cm.parent) as chapter_count
+                FROM `tabMember` m
+                JOIN `tabChapter Member` cm ON cm.member = m.name AND cm.enabled = 1
+                WHERE m.member_since BETWEEN %s AND %s
+            """
+            result = frappe.db.sql(query, (self.start_date, self.end_date), as_dict=True)
+            new_chapters = result[0].chapter_count if result and result[0] else 0
+        except Exception as e:
+            frappe.log_error(f"Error calculating chapter expansion: {str(e)}")
+            new_chapters = 0
+
+        return new_chapters or 0
+
+    def update_status(self):
+        """Update goal status based on achievement and dates"""
+        today = getdate()
+
+        if self.status == "Draft":
+            return
+
+        if today > getdate(self.end_date):
+            # Goal period has ended
+            if self.achievement_percentage >= 100:
+                self.status = "Achieved"
+            else:
+                self.status = "Missed"
+        elif today >= getdate(self.start_date):
+            # Goal period is active
+            if self.achievement_percentage >= 100:
+                self.status = "Achieved"
+            else:
+                self.status = "In Progress"
+        else:
+            # Goal hasn't started yet
+            self.status = "Active"
+
+
+@frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
+@api_response_handler
+def update_all_goals() -> str:
+    """Update achievement for all active goals"""
+    goals = QueryBuilder.get_all_active_records(
+        "Membership Goal", filters={"status": ["in", ["Active", "In Progress"]]}
+    )
+
+    for goal in goals:
+        doc = frappe.get_doc("Membership Goal", goal.name)
+        doc.update_achievement()
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        save_result = secure_document_operation(
+            operation="save",
+            doc=doc,
+            justification=f"Update achievement for membership goal {doc.name} in batch operation",
+            required_permissions=["Membership Goal:write"],
+        )
+
+        if not save_result.success:
+            frappe.log_error(f"Could not update goal {doc.name}: Permission denied")
+
+    frappe.db.commit()
+    return f"Updated {len(goals)} goals"

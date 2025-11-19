@@ -1,0 +1,170 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Generate Test Data") }}{% endblock %}
+
+{% block page_content %}
+<div class="container my-5">
+    <div class="row">
+        <div class="col-md-8 offset-md-2">
+            <h1>{{ _("Generate Test Data for Verenigingen") }}</h1>
+            <p class="lead">{{ _("This page helps you quickly generate test data to explore the Verenigingen app functionality.") }}</p>
+
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h3>{{ _("Test Members") }}</h3>
+                </div>
+                <div class="card-body">
+                    <p>{{ _("Generate realistic test members to explore the member management features.") }}</p>
+                    <p class="text-muted">{{ _("This will create 7 test members with Dutch test data.") }}</p>
+
+                    <div class="mt-3">
+                        <button class="btn btn-primary" id="generate-members">
+                            <i class="fa fa-plus"></i> {{ _("Generate Test Members") }}
+                        </button>
+                        <button class="btn btn-secondary" id="view-status">
+                            <i class="fa fa-info-circle"></i> {{ _("View Status") }}
+                        </button>
+                        <button class="btn btn-danger" id="cleanup-members">
+                            <i class="fa fa-trash"></i> {{ _("Clean Up Test Data") }}
+                        </button>
+                    </div>
+
+                    <div id="result-message" class="mt-3"></div>
+                </div>
+            </div>
+
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h3>{{ _("Quick Links") }}</h3>
+                </div>
+                <div class="card-body">
+                    <ul class="list-unstyled">
+                        <li class="mb-2">
+                            <a href="/app/member" class="btn btn-sm btn-outline-primary">
+                                <i class="fa fa-list"></i> {{ _("View Members") }}
+                            </a>
+                        </li>
+                        <li class="mb-2">
+                            <a href="/app/verenigingen" class="btn btn-sm btn-outline-primary">
+                                <i class="fa fa-home"></i> {{ _("Verenigingen Workspace") }}
+                            </a>
+                        </li>
+                        <li class="mb-2">
+                            <a href="/membership" class="btn btn-sm btn-outline-primary" target="_blank">
+                                <i class="fa fa-external-link"></i> {{ _("Public Membership Form") }}
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="alert alert-info mt-4">
+                <h5>{{ _("How to use the test data:") }}</h5>
+                <ol>
+                    <li>{{ _("Click 'Generate Test Members' to create sample members") }}</li>
+                    <li>{{ _("Go to the Member list to see the created members") }}</li>
+                    <li>{{ _("Explore member details, chapters, and memberships") }}</li>
+                    <li>{{ _("Try different member management features") }}</li>
+                    <li>{{ _("Use 'Clean Up Test Data' when you're done exploring") }}</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+$(document).ready(function() {
+    // Generate test members
+    $('#generate-members').click(function() {
+        var btn = $(this);
+        btn.prop('disabled', true);
+        btn.html('<i class="fa fa-spinner fa-spin"></i> Generating...');
+
+        frappe.call({
+            method: 'verenigingen.api.generate_test_members.generate_test_members',
+            callback: function(r) {
+                btn.prop('disabled', false);
+                btn.html('<i class="fa fa-plus"></i> Generate Test Members');
+
+                if (r.message && r.message.success) {
+                    $('#result-message').html(
+                        '<div class="alert alert-success">' +
+                        r.message.message +
+                        '</div>'
+                    );
+                } else {
+                    $('#result-message').html(
+                        '<div class="alert alert-danger">' +
+                        'Error: ' + (r.message ? r.message.error : 'Unknown error') +
+                        '</div>'
+                    );
+                }
+            }
+        });
+    });
+
+    // View status
+    $('#view-status').click(function() {
+        var btn = $(this);
+        btn.prop('disabled', true);
+
+        frappe.call({
+            method: 'verenigingen.api.generate_test_members.get_test_members_status',
+            callback: function(r) {
+                btn.prop('disabled', false);
+
+                if (r.message) {
+                    var html = '<div class="alert alert-info">';
+                    html += '<h5>Test Members Status</h5>';
+                    html += '<p>Total test members: <strong>' + r.message.total + '</strong></p>';
+
+                    if (r.message.by_status) {
+                        html += '<p>By status:</p><ul>';
+                        for (var status in r.message.by_status) {
+                            html += '<li>' + status + ': ' + r.message.by_status[status] + '</li>';
+                        }
+                        html += '</ul>';
+                    }
+                    html += '</div>';
+
+                    $('#result-message').html(html);
+                }
+            }
+        });
+    });
+
+    // Clean up test data
+    $('#cleanup-members').click(function() {
+        if (!confirm('Are you sure you want to delete all test members? This cannot be undone.')) {
+            return;
+        }
+
+        var btn = $(this);
+        btn.prop('disabled', true);
+        btn.html('<i class="fa fa-spinner fa-spin"></i> Cleaning up...');
+
+        frappe.call({
+            method: 'verenigingen.api.generate_test_members.cleanup_test_members',
+            callback: function(r) {
+                btn.prop('disabled', false);
+                btn.html('<i class="fa fa-trash"></i> Clean Up Test Data');
+
+                if (r.message && r.message.success) {
+                    $('#result-message').html(
+                        '<div class="alert alert-success">' +
+                        r.message.message +
+                        '</div>'
+                    );
+                } else {
+                    $('#result-message').html(
+                        '<div class="alert alert-danger">' +
+                        'Error: ' + (r.message ? r.message.error : 'Unknown error') +
+                        '</div>'
+                    );
+                }
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,81 @@
+{% extends "templates/web.html" %}
+
+{% block style %}
+<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+{% endblock %}
+
+{% block page_content %}
+
+{% macro chapter_button() %}
+	<p><a href="/{{ chapter.route }}" class='btn-primary px-6 py-3 rounded-lg text-white hover:bg-primary-600 transition-colors inline-block'>
+		Go to Chapter Page</a></p>
+{% endmacro %}
+
+<div class="container mx-auto px-4 py-8 max-w-4xl">
+	{% if frappe.session.user=='Guest' %}
+		<div class="text-center py-16 px-6">
+			<h3 class="text-3xl font-bold text-gray-900 mb-4">Join Chapter {{ chapter.name }}</h3>
+			<p class="text-lg text-gray-600 mb-8">Please signup and login to join this chapter</p>
+			<a href="/login?redirect-to=/chapter_join?chapter={{ chapter.name }}" class='btn-primary px-8 py-3 rounded-lg text-white hover:bg-primary-600 transition-colors inline-block text-lg'>Login</a>
+		</div>
+	{% else %}
+		{% if already_member %}
+			<div class="text-center py-16 px-6">
+				<h3 class="text-3xl font-bold text-green-600 mb-4">
+					<i class="fa fa-check-circle mr-3"></i>You're Already a Member!
+				</h3>
+				<p class="text-lg text-gray-600 mb-8">You are already a member of {{ chapter.name }}!</p>
+				{{ chapter_button() }}
+			</div>
+		{% else %}
+			{% if join_success %}
+				<div class="text-center py-16 px-6">
+					<h3 class="text-3xl font-bold text-green-600 mb-4">
+						<i class="fa fa-check-circle mr-3"></i>Welcome!
+					</h3>
+					<p class="text-lg text-gray-600 mb-8">Welcome to chapter {{ chapter.name }}!</p>
+					{{ chapter_button() }}
+				</div>
+			{% else %}
+				<div class="max-w-2xl mx-auto">
+					<div class="form-card">
+						<div class="form-header">
+							<h3>Join Chapter: {{ chapter.name }}</h3>
+						</div>
+						<div class="form-body">
+							{% if join_error %}
+							<div class="alert-danger mb-6">
+								<strong>Error:</strong> {{ join_error }}
+							</div>
+							{% endif %}
+
+							<form name="chapter-join-form" action="/chapter_join?chapter={{ chapter.name }}" method='POST' class="space-y-6">
+								<input name="csrf_token" type="hidden" value="{{ frappe.session.csrf_token }}">
+
+								<div class="input-group">
+									<label for="user" class="input-label">User</label>
+									<input name="user" class="form-input bg-gray-50" type="text" value="{{ frappe.session.user }}" readonly>
+								</div>
+
+								<div class="input-group">
+									<label for="introduction" class="input-label required">Introduction</label>
+									<textarea name="introduction" required class="form-input" rows="5"
+										placeholder="Tell us about yourself, your profession, and how you're associated with our organization">{{ frappe.form_dict.get('introduction', '') }}</textarea>
+									<p class="text-sm text-gray-600 mt-2">Brief introduction about yourself and your interest in this chapter</p>
+								</div>
+
+								<div class="text-center pt-4">
+									<button type="submit" class="btn-primary px-8 py-3 text-lg">
+										<i class="fa fa-users mr-2"></i> Join Chapter
+									</button>
+								</div>
+							</form>
+						</div>
+					</div>
+				</div>
+			{% endif %}
+		{% endif %}
+	{% endif %}
+</div>
+
+{% endblock %}

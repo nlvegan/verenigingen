@@ -1,0 +1,314 @@
+<!-- Skills Dashboard Widget -->
+<div class="skills-dashboard-widget">
+    <div class="card h-100">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h6 class="card-title mb-0">
+                <i class="fa fa-cogs me-2"></i>{{ _("Skills Overview") }}
+            </h6>
+            <div class="dropdown">
+                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button"
+                        data-bs-toggle="dropdown" aria-expanded="false">
+                    <i class="fa fa-ellipsis-v"></i>
+                </button>
+                <ul class="dropdown-menu">
+                    <li><a class="dropdown-item" href="/volunteer/skills">{{ _("Browse All Skills") }}</a></li>
+                    <li><a class="dropdown-item" href="#" onclick="refreshSkillsWidget()">{{ _("Refresh Data") }}</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item" href="#" onclick="exportSkillsData()">{{ _("Export Skills Data") }}</a></li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="card-body">
+            <!-- Loading state -->
+            <div id="skills-widget-loading" class="text-center py-4">
+                <div class="spinner-border spinner-border-sm text-primary" role="status">
+                    <span class="visually-hidden">{{ _("Loading...") }}</span>
+                </div>
+                <p class="text-muted mt-2 mb-0">{{ _("Loading skills data...") }}</p>
+            </div>
+
+            <!-- Error state -->
+            <div id="skills-widget-error" class="text-center py-4 d-none">
+                <i class="fa fa-exclamation-triangle text-warning fa-2x mb-2"></i>
+                <p class="text-muted mb-2">{{ _("Failed to load skills data") }}</p>
+                <button class="btn btn-sm btn-outline-primary" onclick="refreshSkillsWidget()">
+                    {{ _("Try Again") }}
+                </button>
+            </div>
+
+            <!-- Content -->
+            <div id="skills-widget-content" class="d-none">
+                <!-- Quick Stats -->
+                <div class="row text-center mb-3">
+                    <div class="col-4">
+                        <div class="metric-box">
+                            <h4 class="text-primary mb-1" id="total-skills">-</h4>
+                            <small class="text-muted">{{ _("Total Skills") }}</small>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="metric-box">
+                            <h4 class="text-success mb-1" id="active-volunteers">-</h4>
+                            <small class="text-muted">{{ _("Active Volunteers") }}</small>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="metric-box">
+                            <h4 class="text-info mb-1" id="skill-categories">-</h4>
+                            <small class="text-muted">{{ _("Categories") }}</small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Top Skills -->
+                <div class="mb-3">
+                    <h6 class="text-muted border-bottom pb-1 mb-2">{{ _("Most Common Skills") }}</h6>
+                    <div id="top-skills-list">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                </div>
+
+                <!-- Skills by Category -->
+                <div class="mb-3">
+                    <h6 class="text-muted border-bottom pb-1 mb-2">{{ _("Skills by Category") }}</h6>
+                    <div id="category-chart">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                </div>
+
+                <!-- Quick Actions -->
+                <div class="d-grid gap-2">
+                    <a href="/volunteer/skills" class="btn btn-sm btn-primary">
+                        <i class="fa fa-search me-1"></i>{{ _("Search Skills") }}
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.skills-dashboard-widget .metric-box {
+    padding: 0.5rem;
+}
+
+.skills-dashboard-widget .skill-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.25rem 0;
+    border-bottom: 1px solid var(--gray-100);
+}
+
+.skills-dashboard-widget .skill-item:last-child {
+    border-bottom: none;
+}
+
+.skills-dashboard-widget .skill-name {
+    font-weight: 500;
+    font-size: 0.85rem;
+}
+
+.skills-dashboard-widget .skill-count {
+    font-size: 0.75rem;
+    background-color: var(--gray-100);
+    color: var(--gray-700);
+    padding: 0.1rem 0.4rem;
+    border-radius: 0.75rem;
+}
+
+.skills-dashboard-widget .category-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.25rem 0;
+    font-size: 0.8rem;
+}
+
+.skills-dashboard-widget .category-progress {
+    flex-grow: 1;
+    height: 0.5rem;
+    background-color: var(--gray-100);
+    border-radius: 0.25rem;
+    margin: 0 0.5rem;
+    overflow: hidden;
+}
+
+.skills-dashboard-widget .category-progress-bar {
+    height: 100%;
+    background-color: var(--primary);
+    transition: width 0.3s ease;
+}
+</style>
+
+<script>
+// Skills Dashboard Widget JavaScript
+let skillsWidgetData = null;
+
+function initSkillsWidget() {
+    loadSkillsData();
+}
+
+async function loadSkillsData() {
+    showWidgetState('loading');
+
+    try {
+        const response = await frappe.call({
+            method: 'verenigingen.api.volunteer_skills.get_skills_overview',
+            callback: function(r) {
+                if (r.message && r.message.success) {
+                    skillsWidgetData = r.message;
+                    renderSkillsWidget(skillsWidgetData);
+                    showWidgetState('content');
+                } else {
+                    console.error('Skills widget error:', r.message?.error);
+                    showWidgetState('error');
+                }
+            },
+            error: function(error) {
+                console.error('Skills widget API error:', error);
+                showWidgetState('error');
+            }
+        });
+    } catch (error) {
+        console.error('Skills widget load error:', error);
+        showWidgetState('error');
+    }
+}
+
+function renderSkillsWidget(data) {
+    // Update quick stats
+    const totalSkills = data.top_skills?.length || 0;
+    const activeVolunteers = data.skills_by_category?.reduce((sum, cat) => sum + (cat.volunteer_count || 0), 0) || 0;
+    const skillCategories = data.skills_by_category?.length || 0;
+
+    document.getElementById('total-skills').textContent = totalSkills;
+    document.getElementById('active-volunteers').textContent = activeVolunteers;
+    document.getElementById('skill-categories').textContent = skillCategories;
+
+    // Render top skills
+    renderTopSkills(data.top_skills || []);
+
+    // Render category chart
+    renderCategoryChart(data.skills_by_category || []);
+}
+
+function renderTopSkills(topSkills) {
+    const container = document.getElementById('top-skills-list');
+
+    if (!topSkills.length) {
+        container.innerHTML = '<p class="text-muted text-center mb-0">{{ _("No skills data available") }}</p>';
+        return;
+    }
+
+    const maxCount = Math.max(...topSkills.map(s => s.volunteer_count));
+
+    container.innerHTML = topSkills.slice(0, 5).map(skill => `
+        <div class="skill-item">
+            <span class="skill-name">${skill.volunteer_skill}</span>
+            <span class="skill-count">${skill.volunteer_count}</span>
+        </div>
+    `).join('');
+}
+
+function renderCategoryChart(categories) {
+    const container = document.getElementById('category-chart');
+
+    if (!categories.length) {
+        container.innerHTML = '<p class="text-muted text-center mb-0">{{ _("No category data available") }}</p>';
+        return;
+    }
+
+    const maxCount = Math.max(...categories.map(c => c.volunteer_count));
+
+    container.innerHTML = categories.map(category => {
+        const percentage = maxCount > 0 ? (category.volunteer_count / maxCount) * 100 : 0;
+        return `
+            <div class="category-bar">
+                <span class="category-name">${category.skill_category || 'Other'}</span>
+                <div class="category-progress">
+                    <div class="category-progress-bar" style="width: ${percentage}%"></div>
+                </div>
+                <span class="category-count">${category.volunteer_count}</span>
+            </div>
+        `;
+    }).join('');
+}
+
+function showWidgetState(state) {
+    const loading = document.getElementById('skills-widget-loading');
+    const error = document.getElementById('skills-widget-error');
+    const content = document.getElementById('skills-widget-content');
+
+    // Hide all states
+    loading.classList.add('d-none');
+    error.classList.add('d-none');
+    content.classList.add('d-none');
+
+    // Show requested state
+    switch (state) {
+        case 'loading':
+            loading.classList.remove('d-none');
+            break;
+        case 'error':
+            error.classList.remove('d-none');
+            break;
+        case 'content':
+            content.classList.remove('d-none');
+            break;
+    }
+}
+
+function refreshSkillsWidget() {
+    skillsWidgetData = null;
+    loadSkillsData();
+}
+
+function exportSkillsData() {
+    // Simple export functionality
+    frappe.call({
+        method: 'verenigingen.api.volunteer_skills.export_skills_data',
+        args: { format_type: 'json' },
+        callback: function(r) {
+            if (r.message && r.message.success) {
+                // Create downloadable file
+                const data = JSON.stringify(r.message.data, null, 2);
+                const blob = new Blob([data], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `skills_export_${new Date().toISOString().split('T')[0]}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                frappe.show_alert({
+                    message: __('Skills data exported successfully'),
+                    indicator: 'green'
+                });
+            } else {
+                frappe.show_alert({
+                    message: __('Export failed: {0}', [r.message?.error || 'Unknown error']),
+                    indicator: 'red'
+                });
+            }
+        }
+    });
+}
+
+// Initialize widget when DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+    if (document.querySelector('.skills-dashboard-widget')) {
+        initSkillsWidget();
+    }
+});
+
+// Auto-refresh every 5 minutes
+setInterval(function() {
+    if (document.querySelector('.skills-dashboard-widget') && document.getElementById('skills-widget-content').classList.contains('d-none') === false) {
+        refreshSkillsWidget();
+    }
+}, 5 * 60 * 1000);
+</script>

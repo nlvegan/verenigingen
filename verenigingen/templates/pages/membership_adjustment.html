@@ -1,0 +1,856 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Adjust Membership Fee") }}{% endblock %}
+
+{% block head_include %}
+<!-- Bootstrap CSS for modal functionality -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
+{% endblock %}
+
+{% block style %}
+<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+{% from "templates/macros/brand_css.html" import brand_css %}
+{{ brand_css() }}
+<style>
+/* Custom slider styling to prevent overflow and match brand colors */
+#fee-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    outline: none;
+    opacity: 0.9;
+    transition: opacity 0.2s;
+    max-width: 100%;
+    box-sizing: border-box;
+    background: transparent;
+}
+
+#fee-slider:hover {
+    opacity: 1;
+}
+
+/* Webkit slider track */
+#fee-slider::-webkit-slider-track {
+    width: 100%;
+    height: 12px;
+    cursor: pointer;
+    background: #e5e7eb;
+    border-radius: 6px;
+    border: none;
+}
+
+/* Webkit slider thumb */
+#fee-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #cf3131;
+    cursor: pointer;
+    border: 3px solid white;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    margin-top: -6px;
+}
+
+/* Firefox slider track */
+#fee-slider::-moz-range-track {
+    width: 100%;
+    height: 12px;
+    cursor: pointer;
+    background: #e5e7eb;
+    border-radius: 6px;
+    border: none;
+}
+
+/* Firefox slider thumb */
+#fee-slider::-moz-range-thumb {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #cf3131;
+    cursor: pointer;
+    border: 3px solid white;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    border: none;
+}
+
+/* Ensure container doesn't overflow */
+.w-full {
+    max-width: 100%;
+    overflow: hidden;
+}
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div class="max-w-6xl mx-auto p-8">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div class="lg:col-span-2">
+            <h2 class="text-3xl font-bold text-gray-800 mb-8">{{ _("Adjust Your Membership") }}</h2>
+
+            {% if not can_adjust_fee %}
+            <div class="bg-yellow-50 border border-yellow-200 text-yellow-800 p-4 rounded-lg mb-6">
+                <div class="flex items-center">
+                    <i class="fa fa-exclamation-triangle mr-3"></i>
+                    <span>{{ adjustment_message }}</span>
+                </div>
+            </div>
+            {% else %}
+
+            <!-- Adjustment Limit Information -->
+            <div class="bg-blue-50 border border-blue-200 text-blue-800 p-4 rounded-lg mb-6">
+                <div class="flex items-center">
+                    <i class="fa fa-info-circle mr-3"></i>
+                    <div>
+                        <p class="font-medium">{{ _("Dues Rate Adjustment Limits") }}</p>
+                        <ul class="text-sm mt-2 space-y-1">
+                            <li>• {{ _("You can increase your rate up to") }} {{ maximum_fee_multiplier }}x {{ _("the base amount without approval") }}</li>
+                            <li>• {{ _("Adjustments allowed: {0} remaining of {1} per year").format(adjustments_remaining, settings.max_adjustments_per_year) }}</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Current Fee Information -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+                <h4 class="text-lg font-semibold text-gray-800 mb-4">{{ _("Current Membership Information") }}</h4>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Membership Type") }}:</span> {{ membership_type.membership_type_name }}</p>
+                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Standard Dues Rate") }}:</span> €{{ "%.2f"|format(standard_fee) }}</p>
+                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Your Current Rate") }}:</span> €{{ "%.2f"|format(current_fee.amount) }}</p>
+                    </div>
+                    <div>
+                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Minimum Rate") }}:</span> €{{ "%.2f"|format(minimum_fee) }}</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pending Requests -->
+            {% if pending_requests %}
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+                <h4 class="text-lg font-semibold text-gray-800 mb-4">{{ _("Pending Requests") }}</h4>
+                {% for request in pending_requests %}
+                <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                    <div class="flex flex-col md:flex-row md:items-center md:justify-between">
+                        <div>
+                            {% if request.amendment_type == 'Fee Change' %}
+                                <p class="mb-1"><span class="font-medium">{{ _("Type") }}:</span> {{ _("Fee Adjustment") }}</p>
+                                <p class="mb-1"><span class="font-medium">{{ _("Requested Amount") }}:</span> €{{ "%.2f"|format(request.requested_amount) }}</p>
+                            {% elif request.amendment_type == 'Membership Type Change' %}
+                                <p class="mb-1"><span class="font-medium">{{ _("Type") }}:</span> {{ _("Membership Type Change") }}</p>
+                                <p class="mb-1"><span class="font-medium">{{ _("Requested Type") }}:</span> {{ request.requested_membership_type }}</p>
+                            {% endif %}
+                            <p class="mb-1"><span class="font-medium">{{ _("Status") }}:</span> {{ _(request.status) }}</p>
+                            <p class="text-sm text-gray-600">{{ _("Submitted") }}: {{ frappe.utils.format_datetime(request.creation) }}</p>
+                        </div>
+                        <div class="mt-3 md:mt-0">
+                            <a href="/app/contribution-amendment-request/{{ request.name }}" class="inline-flex items-center px-3 py-1 border border-blue-300 text-blue-700 rounded-md hover:bg-blue-50 transition-colors duration-200 text-sm" target="_blank">
+                                {{ _("View Details") }}
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <!-- Fee Adjustment Form -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+                <h4 class="text-lg font-semibold text-gray-800 mb-4">{{ _("Adjust Your Dues Rate") }}</h4>
+
+                <div class="bg-primary-50 border-l-4 border-primary-400 p-4 rounded-r-lg mb-6">
+                    <h6 class="font-medium text-primary-800 mb-2">{{ _("Important Information") }}</h6>
+                    <ul class="text-sm text-primary-700 space-y-1">
+                        <li>{{ _("You can adjust your dues rate up to {0} times per year").format(settings.max_adjustments_per_year) }}</li>
+                        <li>{{ _("Minimum rate is €%.2f")|format(minimum_fee) }}</li>
+                        <li>{{ _("Maximum rate via this form is €%.2f")|format(minimum_fee * maximum_fee_multiplier) }}</li>
+                        <li>{{ _("For higher amounts, please contact us directly") }}</li>
+                        {% if settings.require_approval_for_decreases %}
+                        <li>{{ _("Rate reductions require approval") }}</li>
+                        {% endif %}
+                        {% if settings.require_approval_for_increases %}
+                        <li>{{ _("Rate increases require approval") }}</li>
+                        {% endif %}
+                    </ul>
+                </div>
+
+                <form id="fee-adjustment-form">
+                    <div class="mb-6">
+                        <label for="new-fee-amount" class="block text-sm font-medium text-gray-700 mb-2">{{ _("New {0} Dues Rate").format(_(billing_frequency)) }}</label>
+                        <div class="w-full mb-4">
+                            <input type="range"
+                                   id="fee-slider"
+                                   class="w-full cursor-pointer"
+                                   min="{{ minimum_fee }}"
+                                   max="{{ minimum_fee * maximum_fee_multiplier }}"
+                                   step="1"
+                                   value="{{ current_fee.amount }}">
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <input type="number"
+                                       id="new-fee-amount"
+                                       class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                                       min="{{ minimum_fee }}"
+                                       max="{{ minimum_fee * maximum_fee_multiplier }}"
+                                       step="0.50"
+                                       value="{{ current_fee.amount }}"
+                                       required>
+                            </div>
+                            <div class="flex items-center justify-center">
+                                <div class="text-2xl font-bold text-primary-600" id="fee-display">
+                                    €{{ "%.2f"|format(current_fee.amount) }}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-6">
+                        <label for="effective-date" class="block text-sm font-medium text-gray-700 mb-2">{{ _("When should this change take effect?") }} <span class="text-red-500">*</span></label>
+                        <input type="date"
+                               id="effective-date"
+                               class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                               value="{{ frappe.utils.getdate(frappe.utils.today()).strftime('%Y-%m-%d') }}"
+                               min="{{ frappe.utils.getdate(frappe.utils.today()).strftime('%Y-%m-%d') }}"
+                               required>
+                        <p class="mt-1 text-sm text-gray-500">
+                            {{ _("Select today's date for immediate application, or a future date to schedule the change") }}
+                        </p>
+                    </div>
+
+                    {% if settings.adjustment_reason_required %}
+                    <div class="mb-6">
+                        <label for="adjustment-reason" class="block text-sm font-medium text-gray-700 mb-2">{{ _("Reason for Adjustment") }} <span class="text-red-500">*</span></label>
+                        <textarea id="adjustment-reason"
+                                  class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                                  rows="3"
+                                  placeholder="{{ _('Please explain why you want to adjust your rate...') }}"
+                                  required></textarea>
+                    </div>
+                    {% endif %}
+
+                    <div>
+                        <button type="submit" class="w-full bg-secondary-500 hover:bg-secondary-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-medium py-3 px-6 rounded-md transition-colors duration-200" id="submit-btn">
+                            {{ _("Submit Rate Adjustment") }}
+                        </button>
+                    </div>
+                </form>
+            </div>
+            {% endif %}
+
+            <!-- Membership Type Change Section -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+                <h4 class="text-lg font-semibold text-gray-800 mb-4">{{ _("Change Membership Type") }}</h4>
+
+                <div class="bg-info-50 border-l-4 border-info-400 p-4 rounded-r-lg mb-6">
+                    <h6 class="font-medium text-info-800 mb-2">{{ _("About Membership Type Changes") }}</h6>
+                    <ul class="text-sm text-info-700 space-y-1">
+                        <li>{{ _("All membership type changes require approval") }}</li>
+                        <li>{{ _("Your request will be reviewed.") }}</li>
+                        <li>{{ _("Changes typically take effect at the next dues cycle") }}</li>
+                    </ul>
+                </div>
+
+                <p class="text-gray-600 mb-4">
+                    {{ _("If you need a different membership type (e.g., switching from monthly to quarterly, or to a different membership category), you can request a change here.") }}
+                </p>
+
+                <button type="button" class="w-full bg-primary-500 hover:bg-primary-600 text-white font-medium py-3 px-6 rounded-md transition-colors duration-200" id="change-membership-type-btn">
+                    {{ _("Request Membership Type Change") }}
+                </button>
+            </div>
+        </div>
+
+        <div class="lg:col-span-1">
+            <!-- Sidebar with help information -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+                <h5 class="text-lg font-semibold text-gray-800 mb-3">{{ _("Why Adjust Your Rate?") }}</h5>
+                <p class="text-gray-600 mb-4">{{ _("We believe everyone should be able to contribute according to their ability. You can:") }}</p>
+                <ul class="text-sm text-gray-600 space-y-2">
+                    <li class="flex items-start"><span class="text-green-500 mr-2">•</span>{{ _("Increase dues rate to provide extra support") }}</li>
+                    <li class="flex items-start"><span class="text-green-500 mr-2">•</span>{{ _("Reduce your rate if facing financial difficulties") }}</li>
+                    <li class="flex items-start"><span class="text-green-500 mr-2">•</span>{{ _("Set a rate that reflects your current situation") }}</li>
+                </ul>
+            </div>
+
+            <!-- Income Calculator -->
+            {% if enable_income_calculator %}
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+                <h5 class="text-lg font-semibold text-gray-800 mb-3">{{ _("Contribution Calculator") }}</h5>
+                <p class="text-sm text-gray-600 mb-4">{{ calculator_description }}</p>
+
+                <div class="mb-4">
+                    <label for="calc-monthly-income" class="block text-sm font-medium text-gray-700 mb-1">{{ _("Monthly Net Income (€)") }}</label>
+                    <input type="number" class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-sm" id="calc-monthly-income"
+                           placeholder="3500" min="0" step="0.01">
+                </div>
+
+                <div class="mb-4">
+                    <label for="calc-payment-interval" class="block text-sm font-medium text-gray-700 mb-1">{{ _("Payment Interval") }}</label>
+                    <select class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-sm" id="calc-payment-interval">
+                        <option value="monthly">{{ _("Monthly") }}</option>
+                        <option value="quarterly">{{ _("Quarterly") }}</option>
+                    </select>
+                </div>
+
+                <div id="calc-result" class="bg-accent-50 border border-accent-200 text-accent-800 p-4 rounded-lg mb-4" style="display: none;">
+                    <p class="text-sm font-medium mb-1">{{ _("Suggested Contribution:") }}</p>
+                    <p class="text-lg font-bold">
+                        <span id="calc-suggested-amount"></span>
+                        <span id="calc-payment-frequency"></span>
+                    </p>
+                    <p class="text-xs text-accent-600 mt-1">
+                        {{ _("Based on") }} <span id="calc-income-percentage">{{ income_percentage_rate }}%</span> {{ _("of your monthly income") }}
+                    </p>
+                </div>
+
+                <button type="button" class="w-full bg-gray-600 hover:bg-gray-700 text-white text-sm py-2 px-4 rounded-md transition-colors duration-200" id="apply-calculated-fee" style="display: none;">
+                    {{ _("Use This Amount") }}
+                </button>
+            </div>
+            {% endif %}
+
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h5 class="text-lg font-semibold text-gray-800 mb-3">{{ _("Need Help?") }}</h5>
+                <p class="text-gray-600 mb-4">{{ _("If you have questions about rate adjustments or need financial assistance, please contact us.") }}</p>
+                <a href="mailto:{{ member_contact_email }}" class="inline-flex items-center px-4 py-2 border border-primary-300 text-primary-700 rounded-md hover:bg-primary-50 transition-colors duration-200 text-sm">
+                    {{ _("Contact Support") }}
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Success/Error Messages -->
+<div id="message-container" style="position: fixed; top: 20px; right: 20px; z-index: 1000;"></div>
+{% endblock %}
+
+{% block script %}
+<!-- Bootstrap JS for modal functionality -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+$(document).ready(function() {
+    const feeSlider = $('#fee-slider');
+    const feeInput = $('#new-fee-amount');
+    const feeDisplay = $('#fee-display');
+    const form = $('#fee-adjustment-form');
+    const submitBtn = $('#submit-btn');
+
+    // Income calculator variables
+    const calculatorSettings = {
+        enabled: {{ enable_income_calculator|default(false)|lower }},
+        percentage: {{ income_percentage_rate|default(0.5)|float }}
+    };
+    let calculatedAmount = 0;
+
+    // Sync slider and input
+    feeSlider.on('input', function() {
+        const value = parseFloat($(this).val());
+        feeInput.val(value);
+        updateFeeDisplay(value);
+    });
+
+    feeInput.on('input', function() {
+        const value = parseFloat($(this).val());
+        if (!isNaN(value)) {
+            feeSlider.val(value);
+            updateFeeDisplay(value);
+        }
+    });
+
+    // Update display when effective date changes
+    $('#effective-date').on('change', function() {
+        const currentAmount = parseFloat(feeInput.val());
+        if (!isNaN(currentAmount)) {
+            updateFeeDisplay(currentAmount);
+        }
+    });
+
+    function updateFeeDisplay(amount) {
+        feeDisplay.text('€' + amount.toFixed(2));
+
+        // Update button state based on amount validity
+        const minFee = parseFloat(feeSlider.attr('min'));
+        const maxFee = parseFloat(feeSlider.attr('max'));
+        const currentFee = {{ current_fee.amount|default(0)|float }};
+        const maximumFeeMultiplier = {{ maximum_fee_multiplier|default(10)|float }};
+        const baseFee = {{ standard_fee|default(15)|float }};
+
+        if (amount < minFee || amount > maxFee) {
+            submitBtn.prop('disabled', true);
+            submitBtn.text('{{ _("Contact us for amounts outside this range") }}');
+            submitBtn.attr('title', '{{ _("For amounts outside the normal range, please contact us at {0}").format(member_contact_email|e) }}');
+        } else {
+            submitBtn.prop('disabled', false);
+
+            // Check if approval will be needed
+            let approvalNeeded = false;
+            let approvalMessage = '';
+
+            if (amount > currentFee) {
+                // For increases, check if it exceeds the maximum multiplier
+                if (amount > baseFee * maximumFeeMultiplier) {
+                    approvalNeeded = true;
+                    approvalMessage = '{{ _("Approval Required - Exceeds Maximum") }}';
+                } else {
+                    approvalMessage = '{{ _("No Approval Required") }}';
+                }
+            } else if (amount < currentFee) {
+                // For decreases, always require approval
+                approvalNeeded = true;
+                approvalMessage = '{{ _("Approval Required - Fee Decrease") }}';
+            } else {
+                approvalMessage = '{{ _("No Change") }}';
+            }
+
+            // Check if effective date is today for immediate application
+            const effectiveDate = $('#effective-date').val();
+            const today = new Date().toISOString().split('T')[0];
+            const isImmediate = effectiveDate === today;
+
+            // Update button text to indicate approval requirement and timing
+            if (approvalNeeded) {
+                if (isImmediate) {
+                    submitBtn.text('{{ _("Submit for Immediate Approval") }}');
+                } else {
+                    submitBtn.text('{{ _("Schedule for Approval") }}');
+                }
+                submitBtn.removeClass('bg-secondary-500 hover:bg-secondary-600').addClass('bg-warning-500 hover:bg-warning-600');
+            } else {
+                if (isImmediate) {
+                    submitBtn.text('{{ _("Apply Immediately") }}');
+                } else {
+                    submitBtn.text('{{ _("Schedule Change") }}');
+                }
+                submitBtn.removeClass('bg-warning-500 hover:bg-warning-600').addClass('bg-secondary-500 hover:bg-secondary-600');
+            }
+
+            // Show approval status indicator with timing
+            let timingMessage = approvalMessage;
+            if (isImmediate && !approvalNeeded) {
+                timingMessage += ' - ' + '{{ _("Applied Immediately") }}';
+            } else if (!isImmediate) {
+                const formattedDate = new Date(effectiveDate).toLocaleDateString();
+                timingMessage += ` - {{ _("Effective") }} ${formattedDate}`;
+            }
+            updateApprovalIndicator(approvalNeeded, timingMessage);
+        }
+    }
+
+    function updateApprovalIndicator(approvalNeeded, message) {
+        // Remove existing indicator if any
+        $('.approval-indicator').remove();
+
+        // Add new indicator
+        const indicatorClass = approvalNeeded ? 'text-warning-600' : 'text-success-600';
+        const indicatorIcon = approvalNeeded ? 'fa-exclamation-circle' : 'fa-check-circle';
+
+        const indicatorHtml = `
+            <div class="approval-indicator mt-2 text-sm ${indicatorClass}">
+                <i class="fa ${indicatorIcon}"></i> ${message}
+            </div>
+        `;
+
+        $('#new-fee-amount').parent().append(indicatorHtml);
+    }
+
+    // Income calculator functionality
+    if (calculatorSettings.enabled) {
+        function calculateContribution() {
+            const monthlyIncome = parseFloat($('#calc-monthly-income').val()) || 0;
+            const paymentInterval = $('#calc-payment-interval').val();
+
+            if (monthlyIncome <= 0) {
+                $('#calc-result').hide();
+                $('#apply-calculated-fee').hide();
+                calculatedAmount = 0;
+                return;
+            }
+
+            // Calculate based on percentage of monthly income
+            const monthlyContribution = monthlyIncome * (calculatorSettings.percentage / 100);
+            let displayAmount, displayFrequency;
+
+            if (paymentInterval === 'quarterly') {
+                displayAmount = monthlyContribution * 3; // 3 months worth
+                displayFrequency = '{{ _("per quarter") }}';
+            } else {
+                displayAmount = monthlyContribution;
+                displayFrequency = '{{ _("per month") }}';
+            }
+
+            calculatedAmount = displayAmount;
+
+            // Format currency
+            const formattedAmount = '€' + displayAmount.toFixed(2);
+
+            // Update display
+            $('#calc-suggested-amount').text(formattedAmount);
+            $('#calc-payment-frequency').text(' ' + displayFrequency);
+            $('#calc-result').show();
+            $('#apply-calculated-fee').show();
+        }
+
+        // Bind calculator events
+        $('#calc-monthly-income, #calc-payment-interval').on('input change', calculateContribution);
+
+        // Apply calculated fee to main form
+        $('#apply-calculated-fee').on('click', function() {
+            if (calculatedAmount > 0) {
+                feeInput.val(calculatedAmount.toFixed(2));
+                feeSlider.val(calculatedAmount.toFixed(2));
+                updateFeeDisplay(calculatedAmount);
+
+                // Show confirmation message
+                showMessage('{{ _("Calculated amount applied to fee adjustment form") }}', 'info');
+            }
+        });
+    }
+
+    // Form submission
+    form.on('submit', function(e) {
+        e.preventDefault();
+        console.log('Fee adjustment form submitted');
+
+        const newAmount = parseFloat(feeInput.val());
+        const reason = $('#adjustment-reason').val();
+        const effectiveDate = $('#effective-date').val();
+
+        console.log('New amount:', newAmount);
+        console.log('Reason:', reason);
+        console.log('Effective date:', effectiveDate);
+
+        // Validate
+        if (isNaN(newAmount) || newAmount < parseFloat(feeSlider.attr('min'))) {
+            showMessage('{{ _("Please enter a valid amount above the minimum") }}', 'danger');
+            return;
+        }
+
+        {% if settings.adjustment_reason_required %}
+        if (!reason.trim()) {
+            showMessage('{{ _("Please provide a reason for the adjustment") }}', 'danger');
+            return;
+        }
+        {% endif %}
+
+        // Validate effective date
+        if (!effectiveDate) {
+            showMessage('{{ _("Please select an effective date") }}', 'danger');
+            return;
+        }
+
+        submitBtn.prop('disabled', true);
+        submitBtn.text('{{ _("Processing...") }}');
+
+        // Submit request
+        frappe.call({
+            method: 'verenigingen.templates.pages.membership_adjustment.submit_fee_adjustment_request',
+            args: {
+                new_amount: newAmount,
+                reason: reason || '',
+                effective_date: effectiveDate
+            },
+            callback: function(r) {
+                console.log('Fee adjustment API response:', r);
+
+                if (r.message && r.message.success) {
+                    showMessage(r.message.message, 'success');
+
+                    // Reload page after 2 seconds
+                    setTimeout(function() {
+                        window.location.reload();
+                    }, 2000);
+                } else if (r.message && (r.message.no_change || r.message.validation_error)) {
+                    // Handle specific validation errors
+                    showMessage(r.message.message, 'warning');
+                    submitBtn.prop('disabled', false);
+                    submitBtn.text('{{ _("Submit Rate Adjustment") }}');
+                } else if (r.message === null || r.message === undefined) {
+                    // Handle null response (redirect cases)
+                    showMessage('{{ _("Your request was processed but we could not get the status. Please refresh the page to see the result.") }}', 'info');
+                    setTimeout(function() {
+                        window.location.reload();
+                    }, 3000);
+                } else {
+                    // Handle other error cases
+                    const errorMsg = (r.message && r.message.message) ? r.message.message : '{{ _("An error occurred. Please try again.") }}';
+                    showMessage(errorMsg, 'danger');
+                    submitBtn.prop('disabled', false);
+                    submitBtn.text('{{ _("Submit Rate Adjustment") }}');
+                }
+            },
+            error: function(r) {
+                let errorMsg = '{{ _("An error occurred. Please try again.") }}';
+                if (r && r._server_messages) {
+                    try {
+                        const messages = JSON.parse(r._server_messages);
+                        if (messages.length > 0) {
+                            const parsed = JSON.parse(messages[0]);
+                            errorMsg = parsed.message || errorMsg;
+                        }
+                    } catch (e) {
+                        // Use default error message
+                    }
+                }
+
+                showMessage(errorMsg, 'danger');
+                submitBtn.prop('disabled', false);
+                submitBtn.text('{{ _("Submit Rate Adjustment") }}');
+            }
+        });
+    });
+
+    function showMessage(message, type) {
+        const alertClass = 'alert-' + type;
+        const messageHtml = `
+            <div class="alert ${alertClass} alert-dismissible fade show" role="alert">
+                ${message}
+                <button type="button" class="close" data-dismiss="alert">
+                    <span>&times;</span>
+                </button>
+            </div>
+        `;
+
+        $('#message-container').html(messageHtml);
+
+        // Auto-dismiss after 5 seconds
+        setTimeout(function() {
+            $('.alert').alert('close');
+        }, 5000);
+    }
+
+    // Membership Type Change Functionality
+    $('#change-membership-type-btn').on('click', function() {
+        console.log('Membership type change button clicked');
+
+        // Get available membership types
+        frappe.call({
+            method: 'verenigingen.templates.pages.membership_adjustment.get_available_membership_types',
+            args: {},
+            callback: function(r) {
+                console.log('Membership types API response:', r);
+                if (r.message && r.message.membership_types) {
+                    console.log('Showing membership type dialog with types:', r.message.membership_types);
+                    showMembershipTypeDialog(r.message.membership_types, r.message.current_type);
+                } else {
+                    console.error('No membership types in response:', r);
+                    showMessage('{{ _("Unable to load membership types") }}', 'danger');
+                }
+            },
+            error: function(r) {
+                console.error('Error loading membership types:', r);
+                showMessage('{{ _("An error occurred loading membership types") }}', 'danger');
+            }
+        });
+    });
+
+    function showMembershipTypeDialog(membershipTypes, currentType) {
+        console.log('showMembershipTypeDialog called with:', membershipTypes, 'current:', currentType);
+
+        // Create dialog content
+        let dialogHtml = '<div class="membership-type-selection">';
+        dialogHtml += '<p class="mb-4">Select the membership type you would like to switch to:</p>';
+        dialogHtml += '<div class="membership-types-list">';
+
+        membershipTypes.forEach(function(type) {
+            const isCurrent = type.name === currentType;
+            const currentBadge = isCurrent ? '<span class="badge badge-info ml-2">Current</span>' : '';
+
+            dialogHtml += `
+                <div class="membership-type-option mb-3 p-3 border rounded ${isCurrent ? 'bg-gray-100 cursor-not-allowed' : 'cursor-pointer'}"
+                     data-type="${type.name.replace(/"/g, '&quot;')}" ${isCurrent ? 'data-disabled="true"' : ''}>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <h6 class="mb-1">${type.membership_type_name.replace(/'/g, "\\'").replace(/"/g, '\\"')}${currentBadge}</h6>
+                            <p class="mb-0 text-muted" style="font-size: 0.875rem;">${(type.description || '').replace(/'/g, "\\'").replace(/"/g, '\\"').replace(/\n/g, ' ')}</p>
+                            <p class="mb-0"><strong>Minimum Dues Rate:</strong> €${parseFloat(type.minimum_amount || 0).toFixed(2)}</p>
+                            ${type.suggested_amount && type.suggested_amount !== type.minimum_amount ? '<p class="mb-0 text-muted" style="font-size: 0.875rem;"><em>Suggested: €' + parseFloat(type.suggested_amount || 0).toFixed(2) + '</em></p>' : ''}
+                        </div>
+                        ${!isCurrent ? '<i class="fa fa-chevron-right text-muted"></i>' : ''}
+                    </div>
+                </div>
+            `;
+        });
+
+        dialogHtml += '</div>';
+        dialogHtml += '<div class="mt-4">';
+        dialogHtml += '<label for="change-requested-amount">Requested Amount (optional)</label>';
+        dialogHtml += '<input type="number" id="change-requested-amount" class="form-control" step="0.01" min="0" placeholder="Leave empty to use minimum rate">';
+        dialogHtml += '<small class="form-text text-muted">You can set a custom amount above the minimum rate for your chosen membership type</small>';
+        dialogHtml += '</div>';
+        dialogHtml += '<div class="mt-4">';
+        dialogHtml += '<label for="change-effective-date">Effective Date <span class="text-danger">*</span></label>';
+        dialogHtml += '<input type="date" id="change-effective-date" class="form-control" required>';
+        dialogHtml += '<small class="form-text text-muted">Select when this change should take effect</small>';
+        dialogHtml += '</div>';
+        dialogHtml += '<div class="mt-4">';
+        dialogHtml += '<label for="change-reason">Reason for change <span class="text-danger">*</span></label>';
+        dialogHtml += '<textarea id="change-reason" class="form-control" rows="3" placeholder="Please explain why you want to change your membership type..." required></textarea>';
+        dialogHtml += '</div>';
+        dialogHtml += '</div>';
+
+        // Create a simple Bootstrap modal since we're in web context
+        const modalHtml = `
+            <div class="modal fade" id="membershipTypeModal" tabindex="-1" role="dialog">
+                <div class="modal-dialog modal-lg" role="document">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Change Membership Type</h5>
+                            <button type="button" class="close" data-dismiss="modal">
+                                <span>&times;</span>
+                            </button>
+                        </div>
+                        <div class="modal-body">
+                            ${dialogHtml}
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                            <button type="button" class="btn btn-primary" id="submit-membership-change">Submit Request</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Remove existing modal if any
+        $('#membershipTypeModal').remove();
+
+        // Add modal to page
+        $('body').append(modalHtml);
+
+        // Show modal
+        $('#membershipTypeModal').modal('show');
+
+        // Add click handlers for membership type selection
+        setTimeout(function() {
+            // Set default and minimum date for the effective date field
+            const today = new Date().toISOString().split('T')[0];
+            $('#change-effective-date').val(today).attr('min', today);
+
+            console.log('Setting up click handlers for membership type options');
+            const options = $('#membershipTypeModal .membership-type-option');
+            console.log('Found', options.length, 'membership type options');
+
+            options.on('click', function() {
+                console.log('Membership type option clicked:', $(this).data('type'));
+
+                // Don't allow selection of current type
+                if ($(this).data('disabled')) {
+                    console.log('Option is disabled, ignoring click');
+                    return;
+                }
+
+                // Remove selection from all options
+                $('#membershipTypeModal .membership-type-option').removeClass('selected').css({
+                    'border-color': '',
+                    'background-color': ''
+                });
+
+                // Add selection to clicked option
+                $(this).addClass('selected').css({
+                    'border-color': '#3b82f6',
+                    'background-color': '#eff6ff'
+                });
+
+                console.log('Selected membership type:', $(this).data('type'));
+            });
+
+            // Handle submit button click
+            $('#submit-membership-change').on('click', function() {
+                console.log('Submit button clicked');
+                const selectedElement = $('#membershipTypeModal .membership-type-option.selected');
+                const selectedType = selectedElement.data('type');
+                const reason = $('#membershipTypeModal #change-reason').val();
+                const effectiveDate = $('#membershipTypeModal #change-effective-date').val();
+                const requestedAmount = $('#membershipTypeModal #change-requested-amount').val();
+
+                console.log('Selected element:', selectedElement.length);
+                console.log('Selected type:', selectedType);
+                console.log('Reason:', reason);
+                console.log('Effective date:', effectiveDate);
+                console.log('Requested amount:', requestedAmount);
+
+                if (!selectedType) {
+                    console.log('No membership type selected');
+                    showMessage('{{ _("Please select a membership type") }}', 'warning');
+                    return;
+                }
+
+                if (!reason || !reason.trim()) {
+                    console.log('No reason provided');
+                    showMessage('{{ _("Please provide a reason for the change") }}', 'warning');
+                    return;
+                }
+
+                if (!effectiveDate) {
+                    console.log('No effective date provided');
+                    showMessage('{{ _("Please select an effective date") }}', 'warning');
+                    return;
+                }
+
+                console.log('Submitting membership type change request');
+                $('#membershipTypeModal').modal('hide');
+                submitMembershipTypeChange(selectedType, reason, effectiveDate, requestedAmount);
+            });
+        }, 100);
+    }
+
+    function submitMembershipTypeChange(newType, reason, effectiveDate, requestedAmount) {
+        console.log('submitMembershipTypeChange called with:', newType, reason, effectiveDate, requestedAmount);
+
+        const args = {
+            new_membership_type: newType,
+            reason: reason,
+            effective_date: effectiveDate
+        };
+
+        // Only include requested_amount if it was provided and is a valid number
+        if (requestedAmount !== null && requestedAmount !== undefined && requestedAmount !== '') {
+            const amount = parseFloat(requestedAmount);
+            if (!isNaN(amount) && amount > 0) {
+                args.requested_amount = amount;
+            }
+        }
+
+        frappe.call({
+            method: 'verenigingen.templates.pages.membership_adjustment.submit_membership_type_change_request',
+            args: args,
+            callback: function(r) {
+                console.log('Membership type change response:', r);
+                if (r.message && r.message.success) {
+                    console.log('Success response received');
+                    showMessage(r.message.message, 'success');
+
+                    // Reload page after 2 seconds
+                    setTimeout(function() {
+                        window.location.reload();
+                    }, 2000);
+                } else {
+                    console.log('No success in response:', r);
+                    showMessage('{{ _("An error occurred. Please try again.") }}', 'danger');
+                }
+            },
+            error: function(r) {
+                console.error('Error submitting membership type change:', r);
+                let errorMsg = '{{ _("An error occurred. Please try again.") }}';
+                if (r && r._server_messages) {
+                    try {
+                        const messages = JSON.parse(r._server_messages);
+                        if (messages.length > 0) {
+                            const parsed = JSON.parse(messages[0]);
+                            errorMsg = parsed.message || errorMsg;
+                        }
+                    } catch (e) {
+                        // Use default error message
+                    }
+                }
+
+                showMessage(errorMsg, 'danger');
+            }
+        });
+    }
+});
+</script>
+{% endblock %}

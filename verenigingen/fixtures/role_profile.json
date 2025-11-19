@@ -1,0 +1,322 @@
+[
+  {
+    "doctype": "Role Profile",
+    "docstatus": 0,
+    "name": "Verenigingen Chapter Board Member",
+    "role_profile": "Verenigingen Chapter Board Member",
+    "roles": [
+      {
+        "role": "Verenigingen Member"
+      },
+      {
+        "role": "Verenigingen Chapter Board Member"
+      },
+      {
+        "role": "Verenigingen Volunteer"
+      },
+      {
+        "role": "Employee"
+      },
+      {
+        "role": "Employee Self Service"
+      },
+      {
+        "role": "Projects User"
+      },
+      {
+        "role": "Projects Manager"
+      },
+      {
+        "role": "Expense Approver"
+      },
+      {
+        "role": "Accounts User"
+      },
+      {
+        "role": "Sales User"
+      },
+      {
+        "role": "Purchase User"
+      }
+    ]
+  },
+  {
+    "doctype": "Role Profile",
+    "docstatus": 0,
+    "name": "Verenigingen Auditor",
+    "role_profile": "Verenigingen Auditor",
+    "roles": [
+      {
+        "role": "Verenigingen Member"
+      },
+      {
+        "role": "Verenigingen Volunteer"
+      },
+      {
+        "role": "Employee"
+      },
+      {
+        "role": "Auditor"
+      }
+    ]
+  },
+  {
+    "doctype": "Role Profile",
+    "docstatus": 0,
+    "name": "Verenigingen Volunteer",
+    "role_profile": "Verenigingen Volunteer",
+    "roles": [
+      {
+        "role": "Verenigingen Member"
+      },
+      {
+        "role": "Verenigingen Volunteer"
+      },
+      {
+        "role": "Employee"
+      },
+      {
+        "role": "Employee Self Service"
+      },
+      {
+        "role": "Projects User"
+      }
+    ]
+  },
+  {
+    "doctype": "Role Profile",
+    "docstatus": 0,
+    "name": "Verenigingen System Administrator",
+    "role_profile": "Verenigingen System Administrator",
+    "roles": [
+      {
+        "role": "Verenigingen Administrator"
+      },
+      {
+        "role": "System Manager"
+      },
+      {
+        "role": "Administrator"
+      },
+      {
+        "role": "All"
+      }
+    ]
+  },
+  {
+    "doctype": "Role Profile",
+    "docstatus": 0,
+    "name": "Verenigingen Member",
+    "role_profile": "Verenigingen Member",
+    "roles": [
+      {
+        "role": "Verenigingen Member"
+      },
+      {
+        "role": "All"
+      }
+    ]
+  },
+  {
+    "doctype": "Role Profile",
+    "docstatus": 0,
+    "name": "Verenigingen Treasurer",
+    "role_profile": "Verenigingen Treasurer",
+    "roles": [
+      {
+        "role": "Verenigingen Member"
+      },
+      {
+        "role": "Verenigingen Staff"
+      },
+      {
+        "role": "Accounts Manager"
+      },
+      {
+        "role": "Purchase Manager"
+      },
+      {
+        "role": "Sales Manager"
+      },
+      {
+        "role": "Stock Manager"
+      },
+      {
+        "role": "Verenigingen Chapter Board Member"
+      },
+      {
+        "role": "Verenigingen National Board Member"
+      },
+      {
+        "role": "Projects Manager"
+      },
+      {
+        "role": "Employee"
+      },
+      {
+        "role": "Employee Self Service"
+      },
+      {
+        "role": "Verenigingen Financial Manager"
+      },
+      {
+        "role": "Dashboard Manager"
+      },
+      {
+        "role": "Expense Approver"
+      }
+    ]
+  },
+  {
+    "doctype": "Role Profile",
+    "docstatus": 0,
+    "module_profile": "Verenigingen Management Access",
+    "name": "Verenigingen National Board Member",
+    "role_profile": "Verenigingen National Board Member",
+    "roles": [
+      {
+        "role": "Verenigingen Member"
+      },
+      {
+        "role": "Verenigingen Staff"
+      },
+      {
+        "role": "Verenigingen Chapter Board Member"
+      },
+      {
+        "role": "Verenigingen Volunteer"
+      },
+      {
+        "role": "Employee"
+      },
+      {
+        "role": "Employee Self Service"
+      },
+      {
+        "role": "Projects User"
+      },
+      {
+        "role": "Projects Manager"
+      },
+      {
+        "role": "Expense Approver"
+      },
+      {
+        "role": "Website Manager"
+      },
+      {
+        "role": "Auditor"
+      }
+    ]
+  },
+  {
+    "doctype": "Role Profile",
+    "docstatus": 0,
+    "name": "Verenigingen Team Leader",
+    "role_profile": "Verenigingen Team Leader",
+    "roles": [
+      {
+        "role": "Verenigingen Member"
+      },
+      {
+        "role": "Verenigingen Volunteer"
+      },
+      {
+        "role": "Employee"
+      },
+      {
+        "role": "Employee Self Service"
+      },
+      {
+        "role": "Projects User"
+      },
+      {
+        "role": "Expense Approver"
+      }
+    ]
+  },
+  {
+    "doctype": "Role Profile",
+    "docstatus": 0,
+    "name": "Verenigingen Administrator",
+    "role_profile": "Verenigingen Administrator",
+    "roles": [
+      {
+        "role": "Verenigingen Administrator"
+      },
+      {
+        "role": "Verenigingen Member"
+      },
+      {
+        "role": "Verenigingen Staff"
+      },
+      {
+        "role": "Employee"
+      },
+      {
+        "role": "System Manager"
+      },
+      {
+        "role": "Accounts Manager"
+      },
+      {
+        "role": "Sales Manager"
+      },
+      {
+        "role": "Purchase Manager"
+      }
+    ]
+  },
+  {
+    "doctype": "Role Profile",
+    "docstatus": 0,
+    "name": "Verenigingen Staff",
+    "role_profile": "Verenigingen Staff",
+    "roles": [
+      {
+        "role": "Verenigingen Staff"
+      },
+      {
+        "role": "Verenigingen Member"
+      },
+      {
+        "role": "Employee"
+      },
+      {
+        "role": "Employee Self Service"
+      },
+      {
+        "role": "Projects User"
+      },
+      {
+        "role": "Support Team"
+      },
+      {
+        "role": "Accounts User"
+      },
+      {
+        "role": "Sales User"
+      },
+      {
+        "role": "Purchase User"
+      }
+    ]
+  },
+  {
+    "doctype": "Role Profile",
+    "docstatus": 0,
+    "name": "Verenigingen Webhook User",
+    "role_profile": "Verenigingen Webhook User",
+    "roles": [
+      {
+        "role": "Verenigingen Webhook User"
+      },
+      {
+        "role": "Accounts User"
+      },
+      {
+        "role": "Sales User"
+      }
+    ]
+  }
+]

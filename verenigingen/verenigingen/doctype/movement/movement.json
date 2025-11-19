@@ -1,0 +1,208 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:movement_name",
+ "creation": "2025-10-04 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "basic_information_section",
+  "movement_name",
+  "description",
+  "status",
+  "column_break_basic",
+  "is_national",
+  "coordinator",
+  "start_date",
+  "membership_section",
+  "members",
+  "member_count_html",
+  "tags_section",
+  "related_tags",
+  "tag_discovery_info",
+  "teams_section",
+  "related_teams",
+  "strategy_section",
+  "goals",
+  "key_focus_areas",
+  "metrics_section",
+  "activity_summary_html"
+ ],
+ "fields": [
+  {
+   "fieldname": "basic_information_section",
+   "fieldtype": "Section Break",
+   "label": "Basic Information"
+  },
+  {
+   "fieldname": "movement_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Movement Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Text Editor",
+   "label": "Description"
+  },
+  {
+   "default": "Active",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Active\nInactive\nCompleted\nArchived",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_basic",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "description": "This is a national-level movement (not chapter-specific)",
+   "fieldname": "is_national",
+   "fieldtype": "Check",
+   "label": "National Movement"
+  },
+  {
+   "description": "Primary coordinator for this movement",
+   "fieldname": "coordinator",
+   "fieldtype": "Link",
+   "label": "Coordinator",
+   "options": "User"
+  },
+  {
+   "fieldname": "start_date",
+   "fieldtype": "Date",
+   "label": "Start Date"
+  },
+  {
+   "fieldname": "membership_section",
+   "fieldtype": "Section Break",
+   "label": "Members"
+  },
+  {
+   "fieldname": "members",
+   "fieldtype": "Table",
+   "label": "Members",
+   "options": "Movement Member"
+  },
+  {
+   "fieldname": "member_count_html",
+   "fieldtype": "HTML",
+   "label": "Member Statistics"
+  },
+  {
+   "description": "Tags used to discover volunteers working in this area",
+   "fieldname": "tags_section",
+   "fieldtype": "Section Break",
+   "label": "Related Tags"
+  },
+  {
+   "description": "Activity tags associated with this movement for discovery",
+   "fieldname": "related_tags",
+   "fieldtype": "Table",
+   "label": "Related Tags",
+   "options": "Movement Tag"
+  },
+  {
+   "fieldname": "tag_discovery_info",
+   "fieldtype": "HTML",
+   "label": "Tag Discovery"
+  },
+  {
+   "fieldname": "teams_section",
+   "fieldtype": "Section Break",
+   "label": "Related Teams"
+  },
+  {
+   "description": "Teams working within this movement",
+   "fieldname": "related_teams",
+   "fieldtype": "Small Text",
+   "label": "Related Teams",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "strategy_section",
+   "fieldtype": "Section Break",
+   "label": "Strategy & Goals"
+  },
+  {
+   "fieldname": "goals",
+   "fieldtype": "Text Editor",
+   "label": "Goals"
+  },
+  {
+   "fieldname": "key_focus_areas",
+   "fieldtype": "Small Text",
+   "label": "Key Focus Areas"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "metrics_section",
+   "fieldtype": "Section Break",
+   "label": "Activity Metrics"
+  },
+  {
+   "fieldname": "activity_summary_html",
+   "fieldtype": "HTML",
+   "label": "Activity Summary"
+  }
+ ],
+ "links": [],
+ "modified": "2025-10-04 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Movement",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Chapter Board Member",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Verenigingen Member"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

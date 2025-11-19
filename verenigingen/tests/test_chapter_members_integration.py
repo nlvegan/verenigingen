@@ -1,0 +1,302 @@
+"""
+Phase 4 Mock Elimination: Chapter Member Integration Tests
+=========================================================
+
+This is the converted version of test_chapter_members_basic.py that eliminates
+inappropriate business logic mocks and uses real integration testing patterns.
+
+ELIMINATED MOCKS:
+- ChapterMembershipHistoryManager.add_membership_history()
+- ChapterMembershipHistoryManager.end_chapter_membership()
+
+REPLACED WITH:
+- Real business logic validation
+- Actual database operations with transaction isolation
+- Enhanced Test Factory patterns for realistic data
+
+This conversion demonstrates Phase 4 mock elimination principles:
+1. Keep only external service mocks (email, payment gateways)
+2. Test real business logic and validation
+3. Use Enhanced Test Factory for deterministic test data
+"""
+
+import frappe
+from frappe.utils import today, add_days
+from unittest.mock import patch
+
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+
+class TestChapterMemberIntegration(EnhancedTestCase):
+    """
+    Real integration tests for chapter member operations
+    
+    Tests actual business logic without mocking internal systems
+    """
+    
+    def setUp(self):
+        """Set up test environment with real database operations"""
+        super().setUp()
+        
+        # Create test data using Enhanced Test Factory
+        self.member1 = self.create_test_member(
+            first_name="Integration",
+            last_name="TestMember",
+            birth_date="1990-01-01"  # Valid age for all operations
+        )
+        
+        self.member2 = self.create_test_member(
+            first_name="Integration",
+            last_name="TestMember2", 
+            birth_date="1985-01-01"
+        )
+        
+        # Create test chapter with Enhanced Test Factory
+        self.chapter = self.factory.ensure_test_chapter("Integration Test Chapter", {
+            "short_name": "ITC",
+            "published": 1,
+            "country": "Netherlands"
+        })
+        
+        # Ensure chapter starts clean
+        if self.chapter.members:
+            self.chapter.members = []
+            self.chapter.save()
+    
+    def test_add_member_real_validation(self):
+        """Test adding member with real business logic validation"""
+        
+        # Add member to chapter (no mocks!)
+        self.chapter.append("members", {
+            "member": self.member1.name,
+            "enabled": 1,
+            "status": "Active",
+            "chapter_join_date": today()
+        })
+        
+        # Save and test real validation
+        self.chapter.save()
+        
+        # Validate results with real database queries
+        self.assertEqual(len(self.chapter.members), 1)
+        chapter_member = self.chapter.members[0]
+        self.assertEqual(chapter_member.member, self.member1.name)
+        self.assertEqual(chapter_member.status, "Active")
+        self.assertTrue(chapter_member.enabled)
+        
+        # Test that membership history was actually created (real business logic)
+        history_entries = frappe.get_all(
+            "Chapter Membership History",
+            filters={"member": self.member1.name, "chapter": self.chapter.name},
+            fields=["name", "action", "effective_date"]
+        )
+        
+        # Verify history tracking works in reality
+        self.assertGreater(len(history_entries), 0, "Real history tracking should create entries")
+        history_entry = history_entries[0]
+        self.assertEqual(history_entry.action, "Joined")
+    
+    def test_no_duplicate_members_real_validation(self):
+        """Test duplicate prevention with real business logic"""
+        
+        # Add member first time
+        self.chapter.append("members", {
+            "member": self.member1.name,
+            "enabled": 1,
+            "status": "Active",
+            "chapter_join_date": today()
+        })
+        self.chapter.save()
+        
+        # Try to add same member again - should be prevented by real validation
+        initial_count = len(self.chapter.members)
+        
+        # This should either be prevented by validation or handled gracefully
+        try:
+            self.chapter.append("members", {
+                "member": self.member1.name,
+                "enabled": 1,
+                "status": "Active", 
+                "chapter_join_date": today()
+            })
+            self.chapter.save()
+            
+            # If no exception, check that duplicates were handled
+            # Real business logic might prevent duplicates or mark previous as inactive
+            active_memberships = [m for m in self.chapter.members if m.enabled and m.member == self.member1.name]
+            self.assertLessEqual(len(active_memberships), 1, "Should not have multiple active memberships")
+            
+        except frappe.ValidationError:
+            # This is expected - real validation should prevent duplicates
+            pass
+    
+    def test_remove_member_real_workflow(self):
+        """Test member removal with real business workflow"""
+        
+        # Add member first
+        self.chapter.append("members", {
+            "member": self.member1.name,
+            "enabled": 1,
+            "status": "Active",
+            "chapter_join_date": today()
+        })
+        self.chapter.save()
+        
+        # Remove member using real business logic
+        for member_entry in self.chapter.members:
+            if member_entry.member == self.member1.name:
+                member_entry.enabled = 0
+                member_entry.status = "Inactive"
+                member_entry.chapter_end_date = today()
+                break
+        
+        self.chapter.save()
+        
+        # Validate real results
+        active_members = [m for m in self.chapter.members if m.enabled]
+        self.assertEqual(len(active_members), 0, "No active members after removal")
+        
+        # Verify real membership history reflects the change
+        history_entries = frappe.get_all(
+            "Chapter Membership History",
+            filters={"member": self.member1.name, "chapter": self.chapter.name},
+            fields=["name", "action", "effective_date"],
+            order_by="creation desc"
+        )
+        
+        # Real business logic should track both join and leave
+        actions = [entry.action for entry in history_entries]
+        self.assertIn("Joined", actions, "Should track join action")
+        # Note: Leave tracking might be implemented differently in real system
+    
+    def test_multiple_members_real_operations(self):
+        """Test multiple member operations with real business logic"""
+        
+        # Add multiple members
+        for member in [self.member1, self.member2]:
+            self.chapter.append("members", {
+                "member": member.name,
+                "enabled": 1,
+                "status": "Active",
+                "chapter_join_date": today()
+            })
+        
+        self.chapter.save()
+        
+        # Validate with real database queries
+        self.assertEqual(len(self.chapter.members), 2)
+        
+        # Test real member lookup functionality
+        member_names = [m.member for m in self.chapter.members if m.enabled]
+        self.assertIn(self.member1.name, member_names)
+        self.assertIn(self.member2.name, member_names)
+        
+        # Verify real history tracking for multiple members
+        total_history = frappe.get_all(
+            "Chapter Membership History",
+            filters={"chapter": self.chapter.name},
+            fields=["member", "action"]
+        )
+        
+        # Should have history for both members (real business logic)
+        history_members = [h.member for h in total_history]
+        self.assertIn(self.member1.name, history_members)
+        self.assertIn(self.member2.name, history_members)
+    
+    def test_chapter_member_count_real_calculation(self):
+        """Test member counting with real data"""
+        
+        # Add test members
+        for i, member in enumerate([self.member1, self.member2]):
+            self.chapter.append("members", {
+                "member": member.name,
+                "enabled": 1 if i == 0 else 0,  # Only first member active
+                "status": "Active" if i == 0 else "Inactive"
+            })
+        
+        self.chapter.save()
+        
+        # Test real counting logic (no mocks)
+        active_count = sum(1 for m in self.chapter.members if m.enabled)
+        total_count = len(self.chapter.members)
+        
+        self.assertEqual(active_count, 1, "Only one active member")
+        self.assertEqual(total_count, 2, "Two total member entries")
+        
+        # Test real database aggregation
+        db_active_count = frappe.db.count(
+            "Chapter Member",
+            {"parent": self.chapter.name, "enabled": 1}
+        )
+        
+        self.assertEqual(db_active_count, 1, "Database count matches object count")
+    
+    @patch('frappe.sendmail')  # KEEP: External service mock (appropriate)
+    def test_member_notification_integration(self, mock_sendmail):
+        """Test member notifications with external service mocking"""
+        
+        # Add member
+        self.chapter.append("members", {
+            "member": self.member1.name,
+            "enabled": 1,
+            "status": "Active",
+            "chapter_join_date": today()
+        })
+        
+        # This would trigger real notification logic
+        self.chapter.save()
+        
+        # Verify real business logic executed
+        self.assertEqual(len(self.chapter.members), 1)
+        
+        # External email service appropriately mocked
+        # (Real implementation might send welcome emails)
+        # mock_sendmail can be used to verify email content without sending
+    
+    def tearDown(self):
+        """Clean up test data"""
+        # Enhanced Test Factory handles automatic cleanup via transaction rollback
+        super().tearDown()
+
+
+class TestChapterMemberPerformance(EnhancedTestCase):
+    """Performance tests for chapter member operations"""
+    
+    def test_bulk_member_operations_performance(self):
+        """Test performance of bulk member operations without mocks"""
+        
+        # Create test data
+        members = []
+        for i in range(10):  # Small batch for fast test execution
+            member = self.create_test_member(
+                first_name=f"Bulk{i}",
+                last_name="TestMember",
+                birth_date="1990-01-01"
+            )
+            members.append(member)
+        
+        chapter = self.factory.ensure_test_chapter("Bulk Test Chapter", {
+            "short_name": "BLK"
+        })
+        
+        # Test bulk addition with query count monitoring
+        with self.assertQueryCount(50):  # Reasonable limit for bulk operations
+            for member in members:
+                chapter.append("members", {
+                    "member": member.name,
+                    "enabled": 1,
+                    "status": "Active"
+                })
+            chapter.save()
+        
+        # Validate results
+        self.assertEqual(len(chapter.members), len(members))
+        
+        # Test real database performance
+        active_members = frappe.get_all(
+            "Chapter Member",
+            filters={"parent": chapter.name, "enabled": 1},
+            fields=["member"]
+        )
+        
+        self.assertEqual(len(active_members), len(members))

@@ -1,0 +1,43 @@
+<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+    <h2>Dear {{ donor_name|e }},</h2>
+
+    <p>Thank you for your generous donation to {{ organization_name|e }}!</p>
+
+    <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        <h3>Donation Details</h3>
+        <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;"><strong>Donation ID:</strong></td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">{{ donation_id|e }}</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;"><strong>Amount:</strong></td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">€{{ donation_amount }}</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;"><strong>Date:</strong></td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">{{ donation_date|e }}</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;"><strong>Purpose:</strong></td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">{{ earmarking|e }}</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px 0;"><strong>Status:</strong></td>
+                <td style="padding: 8px 0;">{{ donation_status|e }}</td>
+            </tr>
+        </table>
+    </div>
+
+    <p>Your donation helps us make a positive impact in our community. We will send you a payment confirmation once your payment has been processed.</p>
+
+    {% if donation_notes %}
+    <p><strong>Your message:</strong><br>
+    <em>{{ donation_notes|e }}</em></p>
+    {% endif %}
+
+    <p>If you have any questions about your donation, please don't hesitate to contact us at {{ organization_email|e }}.</p>
+
+    <p>With gratitude,<br>
+    {{ organization_name|e }}</p>
+</div>

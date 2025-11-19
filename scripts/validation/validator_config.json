@@ -1,0 +1,60 @@
+{
+  "framework_methods": [
+    "frappe.client.get",
+    "frappe.client.get_list",
+    "frappe.client.get_count",
+    "frappe.client.set_value",
+    "frappe.client.get_value",
+    "frappe.client.insert",
+    "frappe.client.insert_many",
+    "frappe.client.save",
+    "frappe.client.submit",
+    "frappe.client.cancel",
+    "frappe.client.delete",
+    "frappe.db.get_value",
+    "frappe.db.get_list",
+    "frappe.db.get_all",
+    "frappe.db.exists",
+    "frappe.db.count",
+    "frappe.db.set_value",
+    "frappe.db.sql",
+    "frappe.call",
+    "frappe.model.get_doc",
+    "frappe.model.save_doc",
+    "frappe.model.delete_doc",
+    "frappe.utils.today",
+    "frappe.utils.now",
+    "frappe.utils.nowdate",
+    "frappe.utils.nowtime"
+  ],
+  "exclude_patterns": [
+    "**test**",
+    "**/tests/**",
+    "**/test_*.py",
+    "**/debug_*.py",
+    "**_test.js",
+    "**test*.js"
+  ],
+  "severity_rules": {
+    "framework_methods": "ignore",
+    "test_methods": "low",
+    "debug_methods": "low",
+    "api_methods": "medium",
+    "core_methods": "high"
+  },
+  "path_resolution": {
+    "enable_fuzzy_matching": true,
+    "fuzzy_threshold": 0.8,
+    "search_patterns": [
+      "verenigingen/api/{method_name}.py",
+      "verenigingen/utils/**/{method_name}.py",
+      "verenigingen/**/doctype/**/{method_name}.py",
+      "verenigingen/**/{module_name}.py"
+    ]
+  },
+  "module_discovery": {
+    "index_by_function_name": true,
+    "include_doctype_methods": true,
+    "include_utils_methods": true
+  }
+}

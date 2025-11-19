@@ -1,0 +1,900 @@
+"""
+Context for membership fee adjustment page
+"""
+
+import frappe
+from frappe import _
+from frappe.utils import flt, getdate, today
+
+from verenigingen.utils.member_utils import get_current_user_member_name
+from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+
+# Default fallback fee amount in EUR
+DEFAULT_STANDARD_FEE = 15.0
+
+
+def get_context(context):
+    """Get context for membership fee adjustment page"""
+
+    # Require login
+    if frappe.session.user == "Guest":
+        frappe.throw(_("Please login to access this page"), frappe.PermissionError)
+
+    context.no_cache = 1
+    context.show_sidebar = True
+    context.title = _("Adjust Membership Fee")
+
+    # Get member record using standardized utility with validation
+    from verenigingen.utils.validation_utilities import validate_document_exists
+
+    member = get_current_user_member_name()
+    if not member:
+        frappe.throw(_("No member record found for your account"), frappe.DoesNotExistError)
+
+    # Validate member exists
+    validate_document_exists("Member", member)
+
+    context.member = frappe.get_doc("Member", member)
+
+    # Get active membership
+    membership = frappe.db.get_value(
+        "Membership",
+        {"member": member, "status": "Active", "docstatus": 1},
+        ["name", "membership_type", "start_date", "renewal_date"],
+        as_dict=True,
+    )
+
+    if not membership:
+        frappe.throw(_("No active membership found"), frappe.DoesNotExistError)
+
+    context.membership = membership
+
+    # Get membership type details and minimum fee
+    membership_type = frappe.get_doc("Membership Type", membership.membership_type)
+    context.membership_type = membership_type
+
+    # Calculate minimum fee (could be based on membership type, student status, etc.)
+    minimum_fee = get_minimum_fee(context.member, membership_type, membership)
+    context.minimum_fee = minimum_fee
+
+    # Get current effective fee with billing frequency consideration
+    current_fee = get_effective_fee_for_member(context.member, membership)
+    context.current_fee = current_fee
+
+    # Get standard fee for template display
+    if not membership_type.dues_schedule_template:
+        frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
+    template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+
+    # Get standard fee with proper fallback chain
+    standard_fee = (
+        template.dues_rate
+        or template.suggested_amount
+        or membership_type.minimum_amount
+        or DEFAULT_STANDARD_FEE
+    )
+    # Ensure standard_fee is never None/empty for template rendering
+    context.standard_fee = float(standard_fee) if standard_fee else DEFAULT_STANDARD_FEE
+
+    # Determine billing frequency for display
+    billing_frequency = "Monthly"
+    if membership:
+        if (
+            "kwartaal" in membership.membership_type.lower()
+            or "quarter" in membership.membership_type.lower()
+        ):
+            billing_frequency = "Quarterly"
+        elif "jaar" in membership.membership_type.lower() or "annual" in membership.membership_type.lower():
+            billing_frequency = "Annually"
+    context.billing_frequency = billing_frequency
+
+    # Get fee adjustment settings
+    settings = get_fee_adjustment_settings()
+    context.settings = settings
+
+    # Get member contact email and calculator settings from settings
+    from verenigingen.utils.email_utils import get_member_contact_email
+
+    verenigingen_settings = frappe.get_single("Verenigingen Settings")
+    context.member_contact_email = get_member_contact_email()
+
+    # Get calculator settings for the infobox
+    context.enable_income_calculator = getattr(verenigingen_settings, "enable_income_calculator", 0)
+    context.income_percentage_rate = getattr(verenigingen_settings, "income_percentage_rate", 0.5)
+    context.calculator_description = getattr(
+        verenigingen_settings,
+        "calculator_description",
+        "Our suggested contribution is 0.5% of your monthly net income. This helps ensure fair and equitable contributions based on your financial capacity.",
+    )
+
+    # Get maximum fee multiplier setting
+    context.maximum_fee_multiplier = getattr(verenigingen_settings, "maximum_fee_multiplier", 10)
+
+    # Check if member can adjust their fee
+    can_adjust, message = can_member_adjust_fee(context.member, settings)
+    context.can_adjust_fee = can_adjust
+    context.adjustment_message = message
+
+    # Get adjustment history for the member
+    date_365_days_ago = frappe.utils.add_days(today(), -365)
+    adjustments_past_year = frappe.db.count(
+        "Contribution Amendment Request",
+        filters={
+            "member": member,
+            "amendment_type": "Fee Change",
+            "creation": [">=", date_365_days_ago],
+            "requested_by_member": 1,
+        },
+    )
+    context.adjustments_past_year = adjustments_past_year
+    context.adjustments_remaining = max(
+        0, settings.get("max_adjustments_per_year", 2) - adjustments_past_year
+    )
+
+    # Get pending fee adjustment requests
+    pending_fee_requests = frappe.get_all(
+        "Contribution Amendment Request",
+        filters={
+            "member": member,
+            "amendment_type": "Fee Change",
+            "status": ["in", ["Draft", "Pending Approval"]],
+            "requested_by_member": 1,
+        },
+        fields=["name", "status", "requested_amount", "reason", "creation", "amendment_type"],
+        order_by="creation desc",
+    )
+
+    # Get pending membership type change requests
+    pending_type_requests = frappe.get_all(
+        "Contribution Amendment Request",
+        filters={
+            "member": member,
+            "amendment_type": "Membership Type Change",
+            "status": ["in", ["Draft", "Pending Approval"]],
+            "requested_by_member": 1,
+        },
+        fields=["name", "status", "requested_membership_type", "reason", "creation", "amendment_type"],
+        order_by="creation desc",
+    )
+
+    # Combine all pending requests
+    pending_requests = pending_fee_requests + pending_type_requests
+    pending_requests.sort(key=lambda x: x["creation"], reverse=True)
+    context.pending_requests = pending_requests
+
+    # Add member portal links
+    context.portal_links = [
+        {"title": _("Dashboard"), "route": "/member_dashboard"},
+        {"title": _("Profile"), "route": "/member_portal"},
+        {"title": _("Personal Details"), "route": "/personal_details"},
+        {"title": _("Fee Adjustment"), "route": "/membership_adjustment", "active": True},
+    ]
+
+    return context
+
+
+def get_effective_fee_for_member(member, membership):
+    """Get the actual effective fee considering billing frequency and custom amounts"""
+    try:
+        # PRIORITY 1: Check for active dues schedule (new approach)
+        active_dues_schedule = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"member": member.name, "status": "Active"},
+            ["name", "dues_rate", "contribution_mode", "billing_frequency"],
+            as_dict=True,
+        )
+
+        if active_dues_schedule:
+            return {
+                "amount": active_dues_schedule.dues_rate,
+                "source": "dues_schedule",
+                "reason": f"Active dues schedule ({active_dues_schedule.contribution_mode})",
+                "schedule_name": active_dues_schedule.name,
+            }
+
+        # PRIORITY 2: Check membership record for custom amount (Updated to use dues schedule system)
+        # This priority slot is reserved for future membership-level customizations
+
+        # PRIORITY 3: Fall back to member's override fields (legacy support)
+        if hasattr(member, "dues_rate") and member.dues_rate:
+            return {
+                "amount": member.dues_rate,
+                "source": "member_override",
+                "reason": "Legacy fee override (consider migrating to dues schedule)",
+            }
+
+        # PRIORITY 4: Fall back to member's get_current_membership_fee method
+        return member.get_current_membership_fee()
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error getting effective fee for member {member.name}: {str(e)}", "Fee Calculation Error"
+        )
+        return {"amount": 0, "source": "error"}
+
+
+def get_minimum_fee(member, membership_type, membership=None):
+    """Calculate minimum fee for a member considering billing frequency"""
+    # Get the base amount from template for calculations
+    if not membership_type.dues_schedule_template:
+        frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
+    template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+    base_amount = template.suggested_amount or 0
+
+    # CRITICAL: Use template's minimum_amount as the absolute floor
+    # This ensures portal matches backend validation
+    template_minimum = flt(template.minimum_amount or 0)
+
+    # For quarterly memberships, we need to consider the quarterly amount
+    if membership and (
+        "kwartaal" in membership.membership_type.lower() or "quarter" in membership.membership_type.lower()
+    ):
+        # For quarterly members, use a reasonable quarterly minimum
+        base_minimum = flt(base_amount * 0.5)  # 50% of standard quarterly fee
+    else:
+        base_minimum = flt(base_amount * 0.3)  # 30% of standard fee as absolute minimum
+
+    # Student discount
+    if getattr(member, "student_status", False):
+        base_minimum = max(base_minimum, flt(membership_type.minimum_amount * 0.5))  # Students minimum 50%
+
+    # Income-based minimum (if available)
+    if hasattr(member, "annual_income") and member.annual_income:
+        if member.annual_income in ["Under €25,000", "€25,000 - €40,000"]:
+            base_minimum = max(base_minimum, flt(membership_type.minimum_amount * 0.4))  # Low income 40%
+
+    # Ensure minimum respects template minimum_amount, membership type minimum, and €5 floor
+    return max(base_minimum, template_minimum, flt(membership_type.minimum_amount or 0), 5.0)
+
+
+def get_fee_adjustment_settings():
+    """Get fee adjustment settings from Verenigingen Settings"""
+    try:
+        settings = frappe.get_single("Verenigingen Settings")
+        return {
+            "enable_member_fee_adjustment": getattr(settings, "enable_member_fee_adjustment", 1),
+            "max_adjustments_per_year": getattr(settings, "max_fee_adjustments_per_year", 2),
+            "require_approval_for_increases": getattr(settings, "require_approval_for_increases", 0),
+            "require_approval_for_decreases": getattr(settings, "require_approval_for_decreases", 1),
+            "adjustment_reason_required": getattr(settings, "adjustment_reason_required", 1),
+        }
+    except Exception:
+        # Default settings if Verenigingen Settings doesn't exist or lacks fields
+        return {
+            "enable_member_fee_adjustment": 1,
+            "max_adjustments_per_year": 2,
+            "require_approval_for_increases": 0,
+            "require_approval_for_decreases": 1,
+            "adjustment_reason_required": 1,
+        }
+
+
+def can_member_adjust_fee(member, settings):
+    """Check if member can adjust their fee"""
+    if not settings.get("enable_member_fee_adjustment"):
+        return False, _("Fee adjustment is not enabled")
+
+    # Check how many adjustments in the past 365 days (not just this calendar year)
+    date_365_days_ago = frappe.utils.add_days(today(), -365)
+    adjustments_past_year = frappe.db.count(
+        "Contribution Amendment Request",
+        filters={
+            "member": member.name,
+            "amendment_type": "Fee Change",
+            "creation": [">=", date_365_days_ago],
+            "requested_by_member": 1,
+        },
+    )
+
+    # Get max adjustments from settings
+    max_adjustments = settings.get("max_adjustments_per_year", 2)
+    if adjustments_past_year >= max_adjustments:
+        return False, _(
+            "You have reached the maximum number of fee adjustments ({0}) in the past 365 days"
+        ).format(max_adjustments)
+
+    return True, ""
+
+
+@frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def submit_fee_adjustment_request(new_amount, reason="", effective_date=None):
+    """Submit a fee adjustment request from member portal"""
+    if frappe.session.user == "Guest":
+        frappe.throw(_("Please login"), frappe.PermissionError)
+
+    # Get member using standardized utility
+    member = get_current_user_member_name()
+    if not member:
+        frappe.throw(_("No member record found"))
+
+    member_doc = frappe.get_doc("Member", member)
+
+    # Validate amount
+    new_amount = flt(new_amount)
+    if new_amount <= 0:
+        frappe.throw(_("Amount must be greater than 0"))
+
+    # Get membership and minimum fee
+    membership = frappe.db.get_value(
+        "Membership", {"member": member, "status": "Active", "docstatus": 1}, ["name", "membership_type"]
+    )
+
+    if not membership:
+        frappe.throw(_("No active membership found"))
+
+    membership_type = frappe.get_doc("Membership Type", membership[1])
+    minimum_fee = get_minimum_fee(member_doc, membership_type)
+
+    # Get maximum fee multiplier from settings
+    verenigingen_settings = frappe.get_single("Verenigingen Settings")
+    maximum_fee_multiplier = getattr(verenigingen_settings, "maximum_fee_multiplier", 10)
+    # Use minimum fee as base for calculating maximum (more logical than template suggested amount)
+    maximum_fee = minimum_fee * maximum_fee_multiplier
+
+    if new_amount < minimum_fee:
+        frappe.throw(
+            _("Amount cannot be less than minimum fee of {0}").format(
+                frappe.format_value(minimum_fee, {"fieldtype": "Currency"})
+            )
+        )
+
+    if new_amount > maximum_fee:
+        frappe.throw(
+            _(
+                "Amount cannot be more than maximum fee of {0} (for higher amounts, please contact us directly)"
+            ).format(frappe.format_value(maximum_fee, {"fieldtype": "Currency"}))
+        )
+
+    # Check if member can adjust fee
+    settings = get_fee_adjustment_settings()
+    can_adjust, error_msg = can_member_adjust_fee(member_doc, settings)
+
+    if not can_adjust:
+        frappe.throw(error_msg)
+
+    # Get current fee
+    current_fee = member_doc.get_current_membership_fee()
+    # Fallback to template suggested amount if no current fee
+    if not membership_type.dues_schedule_template:
+        frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
+    template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+    current_amount = current_fee.get("amount", template.suggested_amount or 0)
+
+    # Validate amount is different and reasonable
+    if abs(new_amount - current_amount) < 0.01:
+        # Return a proper API response instead of redirect
+        return {
+            "success": False,
+            "message": _("The requested amount ({0}) is the same as your current membership fee.").format(
+                frappe.utils.fmt_money(new_amount, currency="EUR")
+            ),
+            "no_change": True,
+        }
+
+    # The amendment's before_insert method will determine if approval is needed
+    # based on the settings and business rules
+
+    # Validate reason if required
+    if settings.get("adjustment_reason_required") and not reason.strip():
+        frappe.throw(_("Please provide a reason for the fee adjustment"))
+
+    # Parse and validate effective date
+    if effective_date:
+        effective_date = getdate(effective_date)
+        if effective_date < getdate(today()):
+            frappe.throw(_("Effective date cannot be in the past"))
+    else:
+        effective_date = getdate(today())
+
+    # Get current active membership
+    current_membership = frappe.db.get_value(
+        "Membership", {"member": member, "status": "Active", "docstatus": 1}
+    )
+
+    if not current_membership:
+        frappe.throw(_("No active membership found. Cannot process fee adjustment."))
+
+    # Create amendment request
+    amendment = frappe.get_doc(
+        {
+            "doctype": "Contribution Amendment Request",
+            "member": member,
+            "membership": current_membership,
+            "amendment_type": "Fee Change",
+            "current_amount": current_amount,
+            "requested_amount": new_amount,
+            "reason": reason,
+            # Status will be set by the amendment's before_insert method
+            "requested_by_member": 1,
+            "effective_date": effective_date,
+        }
+    )
+
+    try:
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=amendment,
+            justification=f"Member {member} self-service fee adjustment request from €{current_amount} to €{new_amount} - financial member portal functionality",
+            required_permissions=["Contribution Amendment Request:create"],
+        )
+
+        if not result.success:
+            frappe.log_error(
+                f"Failed to create fee adjustment amendment: {'; '.join(result.errors)}",
+                "Fee Adjustment Security",
+            )
+            return {
+                "success": False,
+                "message": _("Unable to process your request: Permission denied"),
+                "permission_error": True,
+            }
+
+        amendment = frappe.get_doc("Contribution Amendment Request", result.doc_name)
+
+        # If effective date is today and amendment is approved, apply it immediately
+        if effective_date == getdate(today()) and amendment.status == "Approved":
+            try:
+                amendment._force_apply = True
+                apply_result = amendment.apply_amendment()
+                if apply_result.get("status") == "success":
+                    amendment.reload()  # Reload to get updated status
+            except Exception as e:
+                # Use shorter title to avoid truncation issues
+                error_msg = str(e)
+                if len(error_msg) > 100:
+                    error_msg = error_msg[:100] + "..."
+                frappe.log_error(
+                    f"Amendment {amendment.name}: {error_msg}",
+                    "Amendment Apply Error",
+                )
+                # Continue - the amendment is still created and can be applied later
+
+    except frappe.ValidationError as e:
+        # Handle validation errors more gracefully
+        error_msg = str(e)
+        if "same as current amount" in error_msg:
+            return {
+                "success": False,
+                "message": _("No changes were made as the requested amount is the same as your current fee."),
+                "no_change": True,
+            }
+        else:
+            return {
+                "success": False,
+                "message": _("Unable to process your request: {0}").format(error_msg),
+                "validation_error": True,
+            }
+    except Exception as e:
+        # Handle unexpected errors
+        frappe.log_error(f"Error creating fee adjustment amendment: {str(e)}", "Fee Adjustment Error")
+        frappe.throw(_("An unexpected error occurred. Please try again or contact support."))
+
+    # Return response based on the amendment's actual status
+    if amendment.status == "Applied":
+        message = _("Your fee adjustment has been applied immediately and is now active")
+        needs_approval = False
+    elif amendment.status == "Approved" or amendment.status == "Auto-Approved":
+        if effective_date == getdate(today()):
+            message = _("Your fee adjustment has been approved and applied immediately")
+        else:
+            message = _("Your fee adjustment has been approved and will take effect on {0}").format(
+                frappe.utils.formatdate(amendment.effective_date)
+            )
+        needs_approval = False
+    elif amendment.status == "Pending Approval":
+        if effective_date == getdate(today()):
+            message = _(
+                "Your fee adjustment request has been submitted for approval. It will be applied immediately once approved."
+            )
+        else:
+            message = _(
+                "Your fee adjustment request has been submitted for approval and will take effect on {0}"
+            ).format(frappe.utils.formatdate(amendment.effective_date))
+        needs_approval = True
+    else:
+        # Unexpected status
+        message = _("Your fee adjustment request has been submitted")
+        needs_approval = True
+
+    return {
+        "success": True,
+        "message": message,
+        "amendment_id": amendment.name,
+        "needs_approval": needs_approval,
+        "status": amendment.status,
+    }
+
+
+def create_new_dues_schedule(member, new_amount, reason):
+    """DEPRECATED: Direct dues schedule creation is no longer allowed.
+
+    All fee adjustments must go through the Contribution Amendment Request workflow.
+    This function is kept for backward compatibility but should not be used.
+    """
+    frappe.throw(
+        _(
+            "Direct dues schedule creation is no longer allowed. "
+            "Please use the Contribution Amendment Request workflow instead."
+        )
+    )
+
+
+@frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
+def get_fee_calculation_info():
+    """Get fee calculation information for member"""
+    if frappe.session.user == "Guest":
+        frappe.throw(_("Please login"), frappe.PermissionError)
+
+    # Get member using standardized utility
+    member = get_current_user_member_name()
+    if not member:
+        frappe.throw(_("No member record found"))
+
+    member_doc = frappe.get_doc("Member", member)
+
+    # Get membership type
+    membership = frappe.db.get_value(
+        "Membership",
+        {"member": member, "status": "Active", "docstatus": 1},
+        ["name", "membership_type"],
+        as_dict=True,
+    )
+
+    if not membership:
+        frappe.throw(_("No active membership found"))
+
+    membership_type = frappe.get_doc("Membership Type", membership.membership_type)
+
+    # Calculate fees using new priority system
+    if not membership_type.dues_schedule_template:
+        frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
+    template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+
+    # Get standard fee with proper fallback chain
+    standard_fee = (
+        template.dues_rate
+        or template.suggested_amount
+        or membership_type.minimum_amount
+        or DEFAULT_STANDARD_FEE
+    )
+
+    # Ensure standard_fee is never None/empty for template rendering
+    standard_fee = float(standard_fee) if standard_fee else DEFAULT_STANDARD_FEE
+    minimum_fee = get_minimum_fee(member_doc, membership_type)
+    current_fee = get_effective_fee_for_member(member_doc, membership)
+
+    # Get historical fee information
+    fee_history = get_member_fee_history(member)
+
+    return {
+        "standard_fee": standard_fee,
+        "minimum_fee": minimum_fee,
+        "current_fee": current_fee.get("amount", standard_fee),
+        "current_source": current_fee.get("source", "membership_type"),
+        "current_reason": current_fee.get("reason", "Standard membership fee"),
+        "membership_type": membership_type.membership_type_name,
+        "fee_history": fee_history,
+        "active_dues_schedule": current_fee.get("schedule_name"),
+    }
+
+
+def get_member_fee_history(member_name):
+    """Get historical fee information for a member"""
+    try:
+        # Get all dues schedules for the member (active and historical)
+        dues_schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member_name},
+            fields=[
+                "name",
+                "dues_rate",
+                "contribution_mode",
+                "status",
+                "next_invoice_date",
+                "custom_amount_reason",
+                "creation",
+            ],
+            order_by="creation desc",
+        )
+
+        # Get amendment requests
+        amendment_requests = frappe.get_all(
+            "Contribution Amendment Request",
+            filters={"member": member_name, "amendment_type": "Fee Change"},
+            fields=[
+                "name",
+                "current_amount",
+                "requested_amount",
+                "status",
+                "requested_date",
+                "reason",
+                "applied_date",
+            ],
+            order_by="requested_date desc",
+        )
+
+        # Combine and format history
+        history = []
+
+        # Add dues schedules
+        for schedule in dues_schedules:
+            history.append(
+                {
+                    "date": schedule.creation,  # effective_date field doesn't exist
+                    "type": "Dues Schedule",
+                    "amount": schedule.dues_rate,
+                    "status": schedule.status,
+                    "reason": schedule.custom_amount_reason or f"{schedule.contribution_mode} contribution",
+                    "source": "dues_schedule",
+                    "reference": schedule.name,
+                }
+            )
+
+        # Add amendment requests
+        for request in amendment_requests:
+            history.append(
+                {
+                    "date": request.applied_date or request.requested_date,
+                    "type": "Amendment Request",
+                    "amount": request.requested_amount,
+                    "status": request.status,
+                    "reason": request.reason,
+                    "source": "amendment_request",
+                    "reference": request.name,
+                    "previous_amount": request.current_amount,
+                }
+            )
+
+        # Sort by date descending
+        history.sort(key=lambda x: x["date"], reverse=True)
+
+        return history[:10]  # Return last 10 entries
+
+    except Exception as e:
+        frappe.log_error(f"Error getting fee history for {member_name}: {str(e)}", "Fee History Error")
+        return []
+
+
+@frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
+def get_available_membership_types():
+    """Get available membership types for the member to switch to"""
+    if frappe.session.user == "Guest":
+        frappe.throw(_("Please login"), frappe.PermissionError)
+
+    # Get member using standardized utility
+    member = get_current_user_member_name()
+    if not member:
+        frappe.throw(_("No member record found"))
+
+    # Get current membership
+    membership = frappe.db.get_value(
+        "Membership",
+        {"member": member, "status": "Active", "docstatus": 1},
+        ["membership_type"],
+        as_dict=True,
+    )
+
+    if not membership:
+        frappe.throw(_("No active membership found"))
+
+    # Get all active membership types with their suggested fees from templates
+    membership_types_raw = frappe.get_all(
+        "Membership Type",
+        filters={"is_active": 1},
+        fields=["name", "membership_type_name", "minimum_amount", "description", "dues_schedule_template"],
+        order_by="minimum_amount",
+    )
+
+    # Enhance with template fee information
+    membership_types = []
+    for mt in membership_types_raw:
+        # Get the suggested amount from the dues schedule template
+        suggested_amount = mt.minimum_amount  # Fallback to minimum
+
+        if mt.dues_schedule_template:
+            template_amount = frappe.db.get_value(
+                "Membership Dues Schedule", mt.dues_schedule_template, "suggested_amount"
+            )
+            if template_amount:
+                suggested_amount = template_amount
+
+        membership_types.append(
+            {
+                "name": mt.name,
+                "membership_type_name": mt.membership_type_name,
+                "description": mt.description,
+                "minimum_amount": mt.minimum_amount,
+                "amount": suggested_amount,  # This is what the JavaScript expects
+                "suggested_amount": suggested_amount,
+            }
+        )
+
+    return {"membership_types": membership_types, "current_type": membership.membership_type}
+
+
+@frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def submit_membership_type_change_request(
+    new_membership_type, reason="", effective_date=None, requested_amount=None
+):
+    """Submit a membership type change request from member portal"""
+    if frappe.session.user == "Guest":
+        frappe.throw(_("Please login"), frappe.PermissionError)
+
+    # Get member using standardized utility
+    member = get_current_user_member_name()
+    if not member:
+        frappe.throw(_("No member record found"))
+
+    member_doc = frappe.get_doc("Member", member)
+
+    # Get current membership
+    membership = frappe.db.get_value(
+        "Membership",
+        {"member": member, "status": "Active", "docstatus": 1},
+        ["name", "membership_type"],
+        as_dict=True,
+    )
+
+    if not membership:
+        frappe.throw(_("No active membership found"))
+
+    # Validate new membership type
+    if not frappe.db.exists("Membership Type", new_membership_type):
+        frappe.throw(_("Invalid membership type selected"))
+
+    # Check if it's actually a change
+    if membership.membership_type == new_membership_type:
+        frappe.throw(_("You are already on this membership type"))
+
+    # Validate reason
+    if not reason.strip():
+        frappe.throw(_("Please provide a reason for the membership type change"))
+
+    # Parse and validate effective date
+    if effective_date:
+        effective_date = getdate(effective_date)
+        if effective_date < getdate(today()):
+            frappe.throw(_("Effective date cannot be in the past"))
+    else:
+        effective_date = getdate(today())
+
+    # Check if there's already a pending membership type change request
+    pending_request = frappe.db.exists(
+        "Contribution Amendment Request",
+        {
+            "member": member,
+            "amendment_type": "Membership Type Change",
+            "status": ["in", ["Draft", "Pending Approval"]],
+        },
+    )
+
+    if pending_request:
+        frappe.throw(_("You already have a pending membership type change request"))
+
+    # Get new membership type details
+    new_type_doc = frappe.get_doc("Membership Type", new_membership_type)
+    old_type_doc = frappe.get_doc("Membership Type", membership.membership_type)
+
+    # Determine the requested amount
+    # If member provided a custom amount, validate it's at least the minimum
+    if requested_amount:
+        requested_amount = flt(requested_amount)
+        if requested_amount < new_type_doc.minimum_amount:
+            frappe.throw(
+                _("Requested amount (€{0}) cannot be less than the minimum rate (€{1}) for {2}").format(
+                    requested_amount, new_type_doc.minimum_amount, new_type_doc.membership_type_name
+                )
+            )
+    else:
+        # Use the minimum amount if no custom amount provided
+        requested_amount = new_type_doc.minimum_amount
+
+    # Create amendment request
+    amendment = frappe.get_doc(
+        {
+            "doctype": "Contribution Amendment Request",
+            "member": member,
+            "membership": membership.name,
+            "amendment_type": "Membership Type Change",
+            "current_membership_type": membership.membership_type,
+            "requested_membership_type": new_membership_type,
+            "current_amount": old_type_doc.minimum_amount,
+            "requested_amount": requested_amount,
+            "reason": reason,
+            "status": "Pending Approval",  # All membership type changes require approval
+            "requested_by_member": 1,
+            "effective_date": effective_date,
+        }
+    )
+
+    try:
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=amendment,
+            justification=f"Member {member} membership type change request from {membership.membership_type} to {new_membership_type} - member portal functionality",
+            required_permissions=["Contribution Amendment Request:create"],
+        )
+
+        if not result.success:
+            frappe.log_error(
+                f"Failed to create membership type change amendment: {'; '.join(result.errors)}",
+                "Membership Type Change Security",
+            )
+            return {
+                "success": False,
+                "message": _("Unable to process your request: Permission denied"),
+                "permission_error": True,
+            }
+
+        amendment = frappe.get_doc("Contribution Amendment Request", result.doc_name)
+
+        # Send notification to membership committee
+        send_membership_type_change_notification(member_doc, old_type_doc, new_type_doc, reason)
+
+        # Create message with effective date information
+        if effective_date == getdate(today()):
+            message = _(
+                "Your membership type change request has been submitted for approval and will be applied immediately once approved"
+            )
+        else:
+            message = _(
+                "Your membership type change request has been submitted for approval and will take effect on {0}"
+            ).format(frappe.utils.formatdate(effective_date))
+
+        return {
+            "success": True,
+            "message": message,
+            "amendment_id": amendment.name,
+            "effective_date": frappe.utils.formatdate(effective_date),
+        }
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error creating membership type change request: {str(e)}", "Membership Type Change Error"
+        )
+        frappe.throw(_("Error creating membership type change request: {0}").format(str(e)))
+
+
+def send_membership_type_change_notification(member, old_type, new_type, reason):
+    """Send notification about membership type change request"""
+    try:
+        # Get notification recipients (membership committee)
+        settings = frappe.get_single("Verenigingen Settings")
+        recipients = []
+
+        if hasattr(settings, "membership_committee_email"):
+            recipients.append(settings.membership_committee_email)
+
+        # Also notify chapter administrators
+        if hasattr(member, "chapter") and member.chapter:
+            chapter_doc = frappe.get_doc("Chapter", member.chapter)
+            for board_member in chapter_doc.board_members:
+                if board_member.is_active and board_member.chapter_role in ["Chapter Head", "Secretary"]:
+                    recipients.append(board_member.email)
+
+        if recipients:
+            frappe.sendmail(
+                recipients=list(set(recipients)),  # Remove duplicates
+                subject=f"Membership Type Change Request - {member.full_name}",
+                message=f"""
+                <h3>Membership Type Change Request</h3>
+                <p><strong>Member:</strong> {member.full_name} ({member.name})</p>
+                <p><strong>Current Type:</strong> {old_type.membership_type_name} (€{old_type.minimum_amount:.2f})</p>
+                <p><strong>Requested Type:</strong> {new_type.membership_type_name} (€{new_type.minimum_amount:.2f})</p>
+                <p><strong>Reason:</strong> {reason}</p>
+                <p><strong>Submitted:</strong> {frappe.utils.now_datetime()}</p>
+                <br>
+                <p>Please review this request in the system.</p>
+                """,
+                delayed=False,
+            )
+
+    except Exception as e:
+        frappe.log_error(f"Error sending membership type change notification: {str(e)}", "Notification Error")

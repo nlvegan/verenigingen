@@ -1,0 +1,110 @@
+{
+  "actions": [],
+  "app": "verenigingen",
+  "creation": "2025-09-08 12:00:00.000000",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "webhook_section",
+    "webhook_user",
+    "payment_classification_section",
+    "dues_keywords",
+    "donation_keywords",
+    "order_keywords"
+  ],
+  "fields": [
+    {
+      "fieldname": "webhook_section",
+      "fieldtype": "Section Break",
+      "label": "Webhook Settings"
+    },
+    {
+      "fieldname": "webhook_user",
+      "fieldtype": "Link",
+      "label": "Webhook User",
+      "options": "User",
+      "description": "User account for webhook operations. Should have minimal permissions."
+    },
+    {
+      "fieldname": "payment_classification_section",
+      "fieldtype": "Section Break",
+      "label": "Payment Classification Keywords",
+      "description": "Configure keywords used to classify incoming Mollie payments by type"
+    },
+    {
+      "fieldname": "dues_keywords",
+      "fieldtype": "Small Text",
+      "label": "Membership Dues Keywords",
+      "description": "Comma-separated keywords to identify membership dues payments (e.g., contributie)",
+      "default": "contributie"
+    },
+    {
+      "fieldname": "donation_keywords",
+      "fieldtype": "Small Text",
+      "label": "Donation Keywords",
+      "description": "Comma-separated keywords to identify donation payments (e.g., donation, donatie)",
+      "default": "donation, donatie"
+    },
+    {
+      "fieldname": "order_keywords",
+      "fieldtype": "Small Text",
+      "label": "Order Keywords",
+      "description": "Comma-separated keywords to identify shop/WooCommerce order payments (e.g., bestelling, order)",
+      "default": "bestelling, order"
+    }
+  ],
+  "icon": "fa fa-cog",
+  "idx": 0,
+  "is_single": 1,
+  "issingle": 1,
+  "links": [],
+  "modified": "2025-09-08 12:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Verenigingen",
+  "name": "Verenigingen Payments Settings",
+  "naming_rule": "Set by user",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "role": "Verenigingen Administrator",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 0,
+      "delete": 0,
+      "email": 0,
+      "export": 0,
+      "print": 0,
+      "read": 1,
+      "role": "Verenigingen Webhook User",
+      "share": 0,
+      "write": 0
+    }
+  ],
+  "quick_entry": 1,
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1,
+  "track_seen": 1,
+  "track_views": 1
+}

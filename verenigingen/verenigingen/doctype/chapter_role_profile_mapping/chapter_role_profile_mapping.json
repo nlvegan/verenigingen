@@ -1,0 +1,49 @@
+{
+  "actions": [],
+  "app": "verenigingen",
+  "creation": "2025-08-26 12:00:00.000000",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "chapter_role",
+    "role_profile",
+    "column_break_3",
+    "description"
+  ],
+  "fields": [
+    {
+      "fieldname": "chapter_role",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "label": "Chapter Role",
+      "options": "Chapter Role",
+      "reqd": 1
+    },
+    {
+      "fieldname": "role_profile",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "label": "Role Profile",
+      "options": "Role Profile",
+      "reqd": 1
+    },
+    {
+      "fieldname": "column_break_3",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "description",
+      "fieldtype": "Small Text",
+      "label": "Description",
+      "description": "Optional description for this board role profile assignment"
+    }
+  ],
+  "istable": 1,
+  "module": "Verenigingen",
+  "name": "Chapter Role Profile Mapping",
+  "permissions": [],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": []
+}

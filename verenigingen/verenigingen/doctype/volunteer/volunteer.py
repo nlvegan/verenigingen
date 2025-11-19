@@ -1,0 +1,1017 @@
+"""
+Volunteer DocType Implementation
+
+This module implements the Volunteer DocType for the Verenigingen association
+management system. It manages volunteer registration, assignments, tracking,
+and coordination with comprehensive validation and business logic.
+
+Key Features:
+    - Volunteer registration and profile management
+    - Member integration with shared contact information
+    - Assignment tracking and aggregation
+    - Age validation and compliance checking
+    - Dutch name formatting for localization
+    - Address and contact management integration
+
+Business Logic:
+    - Volunteers must be at least 16 years old
+    - Integration with Member records for shared information
+    - Automatic contact information inheritance from linked members
+    - Assignment aggregation from multiple sources
+    - Date validation and consistency checking
+
+Architecture:
+    - Document-based with comprehensive validation hooks
+    - Integration with Member DocType for shared data
+    - Address and contact system integration
+    - Caching for performance optimization
+    - Event-driven assignment tracking
+
+Validation Rules:
+    - Required field validation with sensible defaults
+    - Member link validation and existence checking
+    - Age requirement validation (minimum 16 years)
+    - Date consistency and logical validation
+    - Contact information validation through inheritance
+
+Integration Points:
+    - Member DocType for personal information
+    - Address and Contact systems for location data
+    - Assignment tracking systems
+    - Chapter management for volunteer coordination
+    - Expense management for volunteer reimbursements
+
+Security Model:
+    - Standard document permissions
+    - Member-based access controls
+    - Assignment visibility controls
+    - Personal information protection
+
+Performance Considerations:
+    - Cached aggregated assignments
+    - Efficient member data lookup
+    - Optimized address and contact loading
+    - Query optimization for assignment aggregation
+
+Author: Verenigingen Development Team
+License: MIT
+"""
+
+import frappe
+from frappe import _
+from frappe.contacts.address_and_contact import load_address_and_contact
+from frappe.model.document import Document
+from frappe.query_builder import DocType
+from frappe.utils import getdate, today
+
+from verenigingen.utils.dutch_name_utils import format_dutch_full_name, is_dutch_installation
+from verenigingen.utils.error_handling import cache_with_ttl
+from verenigingen.utils.member_utils import get_volunteer_for_member
+from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
+
+def safe_log_error(message, title=None):
+    """Helper to log errors with length protection"""
+    # Truncate message to prevent log title validation errors
+    safe_message = message[:100] + "..." if len(message) > 100 else message
+    frappe.log_error(safe_message, title)
+
+
+class Volunteer(Document):
+    def onload(self):
+        """Load address and contacts in `__onload`"""
+        # If this volunteer is linked to a member, load member's address and contact info
+        if self.member:
+            # Load address and contact from the linked member instead of volunteer
+            member_doc = frappe.get_doc("Member", self.member)
+            load_address_and_contact(member_doc)
+            # Copy the loaded address and contact info to volunteer
+            if hasattr(member_doc, "__onload"):
+                if not hasattr(self, "__onload"):
+                    self.set("__onload", frappe._dict())
+                self.get("__onload").update(member_doc.get("__onload"))
+        else:
+            # Fallback to volunteer's own address/contact if no member is linked
+            load_address_and_contact(self)
+
+        # Load aggregated assignments
+        self.load_aggregated_assignments()
+
+    def load_aggregated_assignments(self):
+        """Load aggregated assignments from all sources"""
+        self.get("__onload").aggregated_assignments = self.get_aggregated_assignments()
+
+    def validate(self):
+        """Validate volunteer data"""
+        self.validate_required_fields()
+        self.validate_member_link()
+        self.validate_volunteer_age()
+        self.validate_dates()
+
+    def validate_required_fields(self):
+        """Check if required fields are filled"""
+        if not self.start_date:
+            self.start_date = today()
+
+    def validate_member_link(self):
+        """Validate that member link is valid"""
+        if self.member and not DocumentExistenceValidator.validate_document_exists(
+            "Member", self.member, throw_on_error=False
+        ):
+            frappe.throw(_("Member {0} does not exist").format(self.member), frappe.DoesNotExistError)
+
+    def validate_volunteer_age(self):
+        """Validate volunteer age requirements"""
+        if not self.member:
+            return  # Skip if no member linked
+
+        try:
+            # Get member's age
+            member = frappe.get_doc("Member", self.member)
+            if not member.birth_date:
+                return  # Skip if no birth date
+
+            # Calculate age or use existing age field
+            if hasattr(member, "age") and member.age is not None:
+                age = member.age
+            else:
+                from datetime import date, datetime
+
+                today_date = date.today()
+                if isinstance(member.birth_date, str):
+                    born = datetime.strptime(member.birth_date, "%Y-%m-%d").date()
+                else:
+                    born = member.birth_date
+                age = (
+                    today_date.year
+                    - born.year
+                    - ((today_date.month, today_date.day) < (born.month, born.day))
+                )
+
+            # Get minimum volunteer age from Verenigingen Settings
+            settings = frappe.get_single("Verenigingen Settings")
+            min_volunteer_age = settings.get("minimum_volunteer_age") or 12
+
+            if age < min_volunteer_age:
+                frappe.throw(
+                    _("Volunteers must be at least {0} years old. Member age: {1}").format(
+                        min_volunteer_age, age
+                    ),
+                    frappe.ValidationError,
+                )
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error validating volunteer age for {self.name}: {str(e)}", "Volunteer Age Validation Error"
+            )
+
+    def validate_dates(self):
+        """Validate date fields in child tables"""
+        for assignment in self.assignment_history:
+            if assignment.end_date and assignment.start_date:
+                start_date = getdate(assignment.start_date)
+                end_date = getdate(assignment.end_date)
+                if start_date > end_date:
+                    frappe.throw(
+                        _("Assignment start date cannot be after end date for {0}").format(assignment.role)
+                    )
+
+    def before_save(self):
+        """Actions before saving volunteer record"""
+        # Update volunteer status based on assignments
+        self.update_status()
+
+    def after_insert(self):
+        """Actions after inserting new volunteer record"""
+        # Skip automatic account creation during bulk operations (CSV imports, etc.)
+        if getattr(frappe.flags, "bulk_member_operations", False):
+            frappe.logger().info(
+                f"Skipping automatic account creation for volunteer {self.name} due to bulk operations flag"
+            )
+            return
+
+        # Skip automatic account creation during tests if flag is set
+        if frappe.flags.get("skip_volunteer_account_creation", False):
+            frappe.logger().info(
+                f"Skipping automatic account creation for volunteer {self.name} due to test flag"
+            )
+            return
+
+        # Check if the linked member already has a user account
+        existing_user = None
+        if self.member:
+            existing_user = frappe.db.get_value("Member", self.member, "user")
+            if existing_user:
+                frappe.logger().info(
+                    f"Volunteer {self.name} linked to member {self.member} which already has user account {existing_user}"
+                )
+                # Link the volunteer to the existing user account if not already linked
+                if not self.user:
+                    frappe.db.set_value("Volunteer", self.name, "user", existing_user)
+                    frappe.logger().info(f"Linked volunteer {self.name} to existing user {existing_user}")
+                return  # Skip account creation since user already exists
+
+        # Queue secure account creation only if no existing user account
+        if self.email:
+            self.queue_secure_account_creation()
+        else:
+            frappe.logger().warning(
+                f"No email provided for volunteer {self.name} - skipping account creation"
+            )
+
+    def update_status(self):
+        """Update volunteer status based on assignments"""
+        if not self.status or self.status == "New":
+            # If this is a new volunteer record
+            assignments = self.get_aggregated_assignments()
+            if assignments:
+                self.status = "Active"
+            else:
+                self.status = "New"
+
+    def on_trash(self):
+        """Clean up child table records before deletion to prevent orphaned data"""
+        # Clean up volunteer assignment history child table
+        # SECURITY: Whitelist of valid child tables to prevent SQL injection
+        VALID_CHILD_TABLES = {
+            "tabVolunteer Assignment",
+        }
+
+        for table_name in VALID_CHILD_TABLES:
+            try:
+                # Verify table exists before attempting deletion
+                if not frappe.db.table_exists(table_name):
+                    continue
+
+                frappe.db.sql(
+                    f"""
+                    DELETE FROM `{table_name}`
+                    WHERE parent = %s
+                    """,
+                    self.name,
+                )
+                frappe.logger().info(f"Cleaned up {table_name} records for {self.name}")
+            except Exception as e:
+                frappe.logger().debug(f"Could not clean up {table_name}: {str(e)}")
+
+    def get_contact_link_doctype(self):
+        """Override to link contacts to member if available"""
+        if self.member:
+            return "Member"
+        return "Volunteer"
+
+    def get_contact_link_name(self):
+        """Override to link contacts to member if available"""
+        if self.member:
+            return self.member
+        return self.name
+
+    @frappe.whitelist()
+    @standard_api(operation_type=OperationType.UTILITY)
+    def get_aggregated_assignments(self):
+        """Get aggregated assignments from all sources with optimized single query
+
+        Delegates to VolunteerAssignmentService for business logic.
+
+        Returns:
+            List[Dict]: Aggregated assignments from all sources
+        """
+        from verenigingen.services.volunteer.assignment_service import VolunteerAssignmentService
+
+        service = VolunteerAssignmentService(self.name)
+        return service.get_aggregated_assignments()
+
+    # Dead code removed (2025-10-19): Phase 3 refactoring - Assignment service extraction
+    # Removed assignment aggregation methods (~245 lines) - now in VolunteerAssignmentService:
+    # - get_aggregated_assignments_optimized() - moved to service
+    # - get_aggregated_assignments_fallback() - moved to service
+    # - get_volunteer_history_optimized() - moved to service (see below)
+    # - get_volunteer_history_fallback() - moved to service (see below)
+    # - has_active_assignments_optimized() - moved to service (see below)
+    # The service provides centralized assignment aggregation logic using optimized
+    # UNION queries to prevent N+1 query problems across Board, Team, and Activity sources.
+
+    @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.MEMBER_DATA)
+    def add_activity(
+        self,
+        activity_type,
+        role,
+        description=None,
+        start_date=None,
+        end_date=None,
+        reference_doctype=None,
+        reference_name=None,
+        estimated_hours=None,
+        notes=None,
+    ):
+        """Add a new volunteer activity
+
+        Delegates to VolunteerActivityService for business logic.
+
+        Returns:
+            str: Name of created Volunteer Activity record
+        """
+        from verenigingen.services.volunteer.activity_service import VolunteerActivityService
+
+        service = VolunteerActivityService(self.name)
+        return service.add_activity(
+            activity_type=activity_type,
+            role=role,
+            description=description,
+            start_date=start_date,
+            end_date=end_date,
+            reference_doctype=reference_doctype,
+            reference_name=reference_name,
+            estimated_hours=estimated_hours,
+            notes=notes,
+        )
+
+    @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.MEMBER_DATA)
+    def end_activity(self, activity_name, end_date=None, notes=None):
+        """End a volunteer activity
+
+        Delegates to VolunteerActivityService for business logic.
+
+        Returns:
+            bool: True if successful
+        """
+        from verenigingen.services.volunteer.activity_service import VolunteerActivityService
+
+        service = VolunteerActivityService(self.name)
+        service.end_activity(
+            activity_name=activity_name,
+            end_date=end_date,
+            notes=notes,
+        )
+        return True
+
+    @frappe.whitelist()
+    @standard_api(operation_type=OperationType.REPORTING)
+    def get_volunteer_history(self):
+        """Get volunteer history in chronological order with optimized single query
+
+        Delegates to VolunteerAssignmentService for business logic.
+
+        Returns:
+            List[Dict]: Complete volunteer history from all sources
+        """
+        from verenigingen.services.volunteer.assignment_service import VolunteerAssignmentService
+
+        service = VolunteerAssignmentService(self.name)
+        return service.get_volunteer_history()
+
+    @frappe.whitelist()
+    @standard_api(operation_type=OperationType.UTILITY)
+    def get_skills_by_category(self):
+        """Get volunteer skills grouped by category"""
+        skills_by_category = {}
+
+        for skill in self.skills_and_qualifications:
+            category = skill.skill_category
+            if category not in skills_by_category:
+                skills_by_category[category] = []
+
+            skills_by_category[category].append(
+                {
+                    "skill": skill.volunteer_skill,
+                    "level": skill.proficiency_level,
+                    "experience": skill.experience_years,
+                }
+            )
+
+        return skills_by_category
+
+    @frappe.whitelist()
+    @standard_api(operation_type=OperationType.REPORTING)
+    def calculate_total_hours(self):
+        """Calculate total volunteer hours from all activities and assignments"""
+        total_hours = 0
+
+        # Get hours from volunteer activities
+        activities = frappe.get_all(
+            "Volunteer Activity", filters={"volunteer": self.name}, fields=["actual_hours", "estimated_hours"]
+        )
+
+        for activity in activities:
+            # Use actual hours if available, otherwise use estimated hours
+            hours = activity.actual_hours or activity.estimated_hours or 0
+            total_hours += hours
+
+        # Get hours from assignment history (child table)
+        for assignment in self.assignment_history:
+            if assignment.actual_hours:
+                total_hours += assignment.actual_hours
+
+        return total_hours
+
+    # Removed create_minimal_employee method - now handled by secure AccountCreationManager
+
+    def get_expense_approver_from_assignments(self):
+        """Get appropriate expense approver based on volunteer's assignments
+
+        Delegates to VolunteerExpenseApproverService for business logic.
+
+        Returns:
+            str: User email of the expense approver
+        """
+        from verenigingen.services.volunteer.expense_approver_service import VolunteerExpenseApproverService
+
+        service = VolunteerExpenseApproverService(self.name)
+        return service.get_expense_approver()
+
+    def get_board_financial_approver(self, chapter_name, exclude_volunteer=None):
+        """Get financial approver from chapter board (treasurer, financial officer, etc.)
+
+        Delegates to VolunteerExpenseApproverService for business logic.
+
+        Args:
+            chapter_name: Chapter to search for approver
+            exclude_volunteer: Volunteer to exclude (for self-approval prevention)
+
+        Returns:
+            Optional[str]: User email or None
+        """
+        from verenigingen.services.volunteer.expense_approver_service import VolunteerExpenseApproverService
+
+        service = VolunteerExpenseApproverService(self.name)
+        return service.get_board_financial_approver(chapter_name, exclude_volunteer)
+
+    def _ensure_user_has_expense_approver_role(self, user_email):
+        """Ensure user has expense approver role
+
+        Delegates to VolunteerExpenseApproverService for business logic.
+
+        Args:
+            user_email: User to assign role to
+        """
+        from verenigingen.services.volunteer.expense_approver_service import VolunteerExpenseApproverService
+
+        service = VolunteerExpenseApproverService(self.name)
+        service.ensure_user_has_expense_approver_role(user_email)
+
+    # Removed assign_employee_role method - now handled by secure AccountCreationManager
+
+    def queue_secure_account_creation(self):
+        """Queue secure account creation through the AccountCreationManager"""
+        try:
+            # Import the account creation manager
+            from verenigingen.utils.account_creation_manager import queue_account_creation_for_volunteer
+
+            frappe.logger().info(f"Queueing secure account creation for volunteer {self.name}")
+
+            # Queue account creation with proper security validation
+            result = queue_account_creation_for_volunteer(volunteer_name=self.name, priority="Normal")
+
+            frappe.logger().info(f"Account creation queued successfully: {result['request_name']}")
+
+            # Optionally notify the user about the process
+            if frappe.session.user != "Administrator":
+                frappe.publish_realtime(
+                    "volunteer_account_creation_queued",
+                    {
+                        "volunteer_name": self.name,
+                        "request_name": result["request_name"],
+                        "message": "Account creation has been queued and will be processed shortly",
+                    },
+                    user=frappe.session.user,
+                )
+
+        except Exception as e:
+            # Don't fail volunteer creation if account creation queueing fails
+            frappe.logger().error(f"Failed to queue account creation for volunteer {self.name}: {str(e)}")
+            safe_log_error(
+                f"Account creation queueing failed for volunteer {self.name}: {str(e)}",
+                "Volunteer Account Creation Queue Error",
+            )
+
+
+@frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
+def create_from_member(member):
+    """Wrapper function for JavaScript compatibility
+
+    Args:
+        member: Member name to create volunteer from
+
+    Returns:
+        dict: Result from create_volunteer_from_member
+    """
+    return create_volunteer_from_member(member)
+
+
+@frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
+def create_volunteer_from_member(
+    member_name,
+    volunteer_name=None,
+    status="New",
+    interested_skills=None,
+    create_user_account=False,
+    roles=None,
+):
+    """Create a volunteer record from an existing member
+
+    Args:
+        member_name: Name of the Member record to create volunteer from
+        volunteer_name: Optional custom volunteer name (defaults to member's full name)
+        status: Initial volunteer status (default: "New")
+        interested_skills: Optional list/string of skills the volunteer is interested in
+        create_user_account: Whether to create user account via AccountCreationManager (default: False)
+        roles: List of roles to assign if creating user account (default: ["Verenigingen Volunteer"])
+
+    Returns:
+        dict: Result with volunteer name if successful, error message if failed
+    """
+    try:
+        # Validate member exists
+        if not frappe.db.exists("Member", member_name):
+            return {"success": False, "error": f"Member {member_name} does not exist"}
+
+        # Check if volunteer already exists for this member
+        existing_volunteer = get_volunteer_for_member(member_name)
+        if existing_volunteer:
+            return {
+                "success": False,
+                "error": f"Volunteer record already exists for member {member_name}: {existing_volunteer}",
+            }
+
+        # Get member data
+        member = frappe.get_doc("Member", member_name)
+
+        # Determine volunteer name
+        if not volunteer_name:
+            if member.full_name:
+                volunteer_name = member.full_name
+            elif is_dutch_installation() and hasattr(member, "tussenvoegsel") and member.tussenvoegsel:
+                volunteer_name = format_dutch_full_name(
+                    member.first_name, None, member.tussenvoegsel, member.last_name
+                )
+            else:
+                volunteer_name = f"{member.first_name} {member.last_name}".strip()
+
+        if not volunteer_name:
+            volunteer_name = member.email or f"Volunteer-{member.name}"
+
+        # Create volunteer record
+        volunteer_data = {
+            "doctype": "Volunteer",
+            "volunteer_name": volunteer_name,
+            "member": member.name,
+            "email": member.email,
+            "first_name": member.first_name,
+            "last_name": member.last_name,
+            "status": status,
+            "available": 1,
+            "date_joined": frappe.utils.today(),
+            "start_date": frappe.utils.today(),
+        }
+
+        # Copy the user field from member if it exists
+        if hasattr(member, "user") and member.user:
+            volunteer_data["user"] = member.user
+            frappe.logger().info(
+                f"Copying existing user {member.user} from member {member.name} to volunteer"
+            )
+
+        # Add optional fields if available
+        if hasattr(member, "personal_email") and member.personal_email:
+            volunteer_data["personal_email"] = member.personal_email
+        if hasattr(member, "contact_number") and member.contact_number:
+            volunteer_data["contact_number"] = member.contact_number
+
+        volunteer = frappe.get_doc(volunteer_data)
+
+        # Add skills if provided
+        if interested_skills:
+            if isinstance(interested_skills, str):
+                try:
+                    import json
+
+                    interested_skills = json.loads(interested_skills)
+                except json.JSONDecodeError as e:
+                    frappe.log_error(
+                        message=f"Failed to parse JSON skills data '{interested_skills}': {str(e)}",
+                        title="Volunteer - JSON Parsing Error",
+                        reference_doctype="Volunteer",
+                        reference_name=volunteer_data.get("name", "New Volunteer"),
+                    )
+                    # Fallback to treating the string as a single skill
+                    interested_skills = [interested_skills]
+                except Exception as e:
+                    frappe.log_error(
+                        message=f"Unexpected error parsing skills data '{interested_skills}': {str(e)}",
+                        title="Volunteer - Skills Parsing Error",
+                        reference_doctype="Volunteer",
+                        reference_name=volunteer_data.get("name", "New Volunteer"),
+                    )
+                    # Fallback to treating the string as a single skill
+                    interested_skills = [interested_skills]
+
+            if isinstance(interested_skills, list):
+                for skill in interested_skills:
+                    if isinstance(skill, str):
+                        volunteer.append(
+                            "skills_and_qualifications",
+                            {
+                                "volunteer_skill": skill,
+                                "skill_category": "General",
+                                "proficiency_level": "1 - Beginner",
+                            },
+                        )
+                    elif isinstance(skill, dict):
+                        volunteer.append(
+                            "skills_and_qualifications",
+                            {
+                                "volunteer_skill": skill.get("name", skill.get("skill", "Unknown")),
+                                "skill_category": skill.get("category", "General"),
+                                "proficiency_level": skill.get("level", "1 - Beginner"),
+                            },
+                        )
+
+        # Save volunteer with proper permissions - no bypasses
+        # User must have proper permissions to create volunteer records
+        volunteer.insert()
+
+        # Queue account creation if requested
+        account_request_name = None
+        if create_user_account:
+            account_request_name = _queue_volunteer_account_creation(
+                member_name=member_name, volunteer_name=volunteer.name, roles=roles
+            )
+
+        result = {
+            "success": True,
+            "volunteer_name": volunteer.name,
+            "volunteer_display_name": volunteer.volunteer_name,
+            "message": f"Successfully created volunteer record {volunteer.name} for member {member_name}",
+        }
+
+        if account_request_name:
+            result["account_creation_queued"] = True
+            result["account_request"] = account_request_name
+            result["message"] += f". User account creation queued (request: {account_request_name})"
+
+        return result
+
+    except frappe.ValidationError as e:
+        return {"success": False, "error": f"Validation failed: {str(e)}"}
+    except frappe.PermissionError as e:
+        return {"success": False, "error": f"Permission denied: {str(e)}"}
+    except Exception as e:
+        frappe.log_error(
+            f"Error creating volunteer from member {member_name}: {str(e)}", "Volunteer Creation Error"
+        )
+        return {"success": False, "error": f"Failed to create volunteer: {str(e)}"}
+
+
+def _queue_volunteer_account_creation(member_name, volunteer_name, roles=None):
+    """Queue account creation for volunteer via AccountCreationManager
+
+    Args:
+        member_name: Member record name
+        volunteer_name: Volunteer record name
+        roles: List of roles to assign (default: ["Verenigingen Volunteer"])
+
+    Returns:
+        str: Account Creation Request name if successful, None otherwise
+    """
+    try:
+        from verenigingen.utils.account_creation_manager import queue_account_creation_for_member
+
+        # Default roles for volunteers
+        if not roles:
+            roles = ["Verenigingen Volunteer"]
+        elif isinstance(roles, str):
+            import json
+
+            try:
+                roles = json.loads(roles)
+            except json.JSONDecodeError:
+                roles = [roles]
+
+        # Queue account creation via centralized manager
+        result = queue_account_creation_for_member(member_name=member_name, roles=roles, priority="Normal")
+
+        if result and result.get("success"):
+            frappe.logger().info(
+                f"Queued account creation for volunteer {volunteer_name} "
+                f"(member: {member_name}, request: {result.get('request_name')})"
+            )
+            return result.get("request_name")
+        else:
+            frappe.logger().warning(
+                f"Failed to queue account creation for volunteer {volunteer_name}: "
+                f"{result.get('error') if result else 'Unknown error'}"
+            )
+            return None
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error queuing account creation for volunteer {volunteer_name}: {str(e)}",
+            "Volunteer Account Creation Queue Error",
+        )
+        return None
+
+
+@frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
+def search_volunteers_by_skill(skill_name, category=None, min_level=None):
+    """Search volunteers by specific skill
+
+    Args:
+        skill_name: Skill name to search for (partial match)
+        category: Optional skill category filter
+        min_level: Optional minimum proficiency level filter
+
+    Returns:
+        List of volunteers with matching skills
+    """
+    conditions = ["v.status = 'Active'"]
+    params = {"skill_name": f"%{skill_name}%"}
+
+    if category:
+        conditions.append("vs.skill_category = %(category)s")
+        params["category"] = category
+
+    if min_level:
+        conditions.append("CAST(LEFT(vs.proficiency_level, 1) AS UNSIGNED) >= %(min_level)s")
+        params["min_level"] = min_level
+
+    volunteers = frappe.db.sql(
+        """
+        SELECT DISTINCT
+            v.name,
+            v.volunteer_name,
+            v.status,
+            vs.volunteer_skill as matched_skill,
+            vs.proficiency_level,
+            vs.skill_category
+        FROM `tabVolunteer` v
+        INNER JOIN `tabVolunteer Skill` vs ON vs.parent = v.name
+        WHERE v.status = 'Active'
+            AND vs.volunteer_skill LIKE %(skill_name)s
+            {additional_conditions}
+        ORDER BY
+            CAST(LEFT(vs.proficiency_level, 1) AS UNSIGNED) DESC,
+            v.volunteer_name
+    """.format(
+            additional_conditions=" AND " + " AND ".join(conditions[1:]) if len(conditions) > 1 else ""
+        ),
+        params,
+        as_dict=True,
+    )
+
+    return volunteers
+
+
+@frappe.whitelist()
+@standard_api(operation_type=OperationType.PUBLIC)
+def get_all_skills_list():
+    """Get unique list of all skills for autocomplete and overview - cached for performance
+
+    Returns:
+        List of unique skills with usage statistics
+    """
+    return _get_all_skills_list_cached()
+
+
+@cache_with_ttl(ttl=3600)  # Cache for 1 hour - skills change infrequently
+def _get_all_skills_list_cached():
+    """Get all skills using modern Query Builder for better type safety"""
+    from frappe.query_builder.functions import Avg, Cast, Count
+
+    # Define DocTypes for Query Builder (DocType already imported at module level)
+    VolunteerSkill = DocType("Volunteer Skill")
+    Volunteer = DocType("Volunteer")
+
+    try:
+        # Modern Query Builder approach for better maintainability
+        query = (
+            frappe.qb.from_(VolunteerSkill)
+            .inner_join(Volunteer)
+            .on(VolunteerSkill.parent == Volunteer.name)
+            .select(
+                VolunteerSkill.volunteer_skill,
+                VolunteerSkill.skill_category,
+                Count("*").as_("volunteer_count"),
+                Avg(Cast(VolunteerSkill.proficiency_level.left(1), "UNSIGNED")).as_("avg_level"),
+            )
+            .where(
+                (VolunteerSkill.volunteer_skill.isnotnull())
+                & (VolunteerSkill.volunteer_skill != "")
+                & (Volunteer.status == "Active")
+            )
+            .groupby(VolunteerSkill.volunteer_skill, VolunteerSkill.skill_category)
+            .orderby(Count("*"), order=frappe.qb.desc)
+            .orderby(VolunteerSkill.volunteer_skill)
+            .distinct()
+        )
+
+        skills = query.run(as_dict=True)
+        return skills
+
+    except Exception as e:
+        # Fallback to original SQL if Query Builder fails
+        frappe.log_error(f"Query Builder failed for skills query: {str(e)}")
+
+        skills = frappe.db.sql(
+            """
+            SELECT DISTINCT
+                volunteer_skill,
+                skill_category,
+                COUNT(*) as volunteer_count,
+                AVG(CAST(LEFT(proficiency_level, 1) AS UNSIGNED)) as avg_level
+            FROM `tabVolunteer Skill` vs
+            INNER JOIN `tabVolunteer` v ON vs.parent = v.name
+            WHERE vs.volunteer_skill IS NOT NULL
+                AND vs.volunteer_skill != ''
+                AND v.status = 'Active'
+            GROUP BY volunteer_skill, skill_category
+            ORDER BY volunteer_count DESC, volunteer_skill
+        """,
+            as_dict=True,
+        )
+
+        return skills
+
+
+@frappe.whitelist()
+@standard_api(operation_type=OperationType.PUBLIC)
+def get_skill_suggestions(partial_skill):
+    """Get skill suggestions for autocomplete
+
+    Args:
+        partial_skill: Partial skill name to search for
+
+    Returns:
+        List of skill names matching the partial input
+    """
+    if not partial_skill or len(partial_skill) < 2:
+        return []
+
+    suggestions = frappe.db.sql(
+        """
+        SELECT DISTINCT volunteer_skill, COUNT(*) as frequency
+        FROM `tabVolunteer Skill`
+        WHERE volunteer_skill LIKE %(partial)s
+            AND volunteer_skill IS NOT NULL
+            AND volunteer_skill != ''
+        GROUP BY volunteer_skill
+        ORDER BY frequency DESC, volunteer_skill
+        LIMIT 10
+    """,
+        {"partial": f"%{partial_skill}%"},
+        as_dict=True,
+    )
+
+    return [s.volunteer_skill for s in suggestions]
+
+
+@frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
+def get_volunteers_with_filters(category=None, skill=None, min_level=None, max_results=50):
+    """Get volunteers with skill-based filters
+
+    Args:
+        category: Optional skill category filter
+        skill: Optional specific skill filter
+        min_level: Optional minimum proficiency level
+        max_results: Maximum number of results to return
+
+    Returns:
+        List of volunteers matching the filters
+    """
+    conditions = ["v.status = 'Active'"]
+    params = {"max_results": max_results}
+
+    join_clause = ""
+    if skill or category or min_level:
+        join_clause = "INNER JOIN `tabVolunteer Skill` vs ON vs.parent = v.name"
+
+        if skill:
+            conditions.append("vs.volunteer_skill LIKE %(skill)s")
+            params["skill"] = f"%{skill}%"
+        if category:
+            conditions.append("vs.skill_category = %(category)s")
+            params["category"] = category
+        if min_level:
+            conditions.append("CAST(LEFT(vs.proficiency_level, 1) AS UNSIGNED) >= %(min_level)s")
+            params["min_level"] = min_level
+
+    # Build skills summary field based on whether we're joining skills table
+    if join_clause:
+        skills_field = """GROUP_CONCAT(DISTINCT CONCAT(vs.volunteer_skill, ' (', vs.proficiency_level, ')')
+            ORDER BY vs.skill_category, vs.volunteer_skill SEPARATOR ', ') as skills_summary"""
+    else:
+        skills_field = "NULL as skills_summary"
+
+    volunteers = frappe.db.sql(
+        """
+        SELECT DISTINCT
+            v.name,
+            v.volunteer_name,
+            v.status,
+            v.email,
+            {skills_field}
+        FROM `tabVolunteer` v
+        {join_clause}
+        WHERE {conditions}
+        GROUP BY v.name
+        ORDER BY v.volunteer_name
+        LIMIT %(max_results)s
+    """.format(
+            skills_field=skills_field, join_clause=join_clause, conditions=" AND ".join(conditions)
+        ),
+        params,
+        as_dict=True,
+    )
+
+    return volunteers
+
+
+@frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
+def get_skill_insights():
+    """Get skill insights for dashboard
+
+    Returns:
+        Dictionary with popular skills, skill gaps, and category distribution
+    """
+    # Most common skills
+    popular_skills = frappe.db.sql(
+        """
+        SELECT volunteer_skill, skill_category, COUNT(*) as count
+        FROM `tabVolunteer Skill` vs
+        INNER JOIN `tabVolunteer` v ON vs.parent = v.name
+        WHERE v.status = 'Active'
+            AND vs.volunteer_skill IS NOT NULL
+            AND vs.volunteer_skill != ''
+        GROUP BY volunteer_skill, skill_category
+        ORDER BY count DESC
+        LIMIT 10
+    """,
+        as_dict=True,
+    )
+
+    # Skills by category (to identify gaps)
+    category_distribution = frappe.db.sql(
+        """
+        SELECT
+            skill_category,
+            COUNT(DISTINCT parent) as volunteer_count,
+            COUNT(*) as skill_count,
+            AVG(CAST(LEFT(proficiency_level, 1) AS UNSIGNED)) as avg_proficiency
+        FROM `tabVolunteer Skill` vs
+        INNER JOIN `tabVolunteer` v ON vs.parent = v.name
+        WHERE v.status = 'Active'
+        GROUP BY skill_category
+        ORDER BY volunteer_count DESC
+    """,
+        as_dict=True,
+    )
+
+    # High-level skills (Expert level)
+    expert_skills = frappe.db.sql(
+        """
+        SELECT volunteer_skill, skill_category, COUNT(*) as expert_count
+        FROM `tabVolunteer Skill` vs
+        INNER JOIN `tabVolunteer` v ON vs.parent = v.name
+        WHERE v.status = 'Active'
+            AND vs.proficiency_level LIKE '5%'
+        GROUP BY volunteer_skill, skill_category
+        ORDER BY expert_count DESC
+        LIMIT 5
+    """,
+        as_dict=True,
+    )
+
+    # Skills in development (from development goals)
+    development_skills = frappe.db.sql(
+        """
+        SELECT skill, COUNT(*) as learner_count
+        FROM `tabVolunteer Development Goal` vdg
+        INNER JOIN `tabVolunteer` v ON vdg.parent = v.name
+        WHERE v.status = 'Active'
+            AND vdg.skill IS NOT NULL
+            AND vdg.skill != ''
+        GROUP BY skill
+        ORDER BY learner_count DESC
+        LIMIT 5
+    """,
+        as_dict=True,
+    )
+
+    return {
+        "popular_skills": popular_skills,
+        "category_distribution": category_distribution,
+        "expert_skills": expert_skills,
+        "development_skills": development_skills,
+        "total_skills": len(get_all_skills_list()),
+        "total_volunteers_with_skills": frappe.db.count(
+            "Volunteer Skill", filters={"parenttype": "Volunteer"}
+        ),
+    }

@@ -1,0 +1,27 @@
+{
+ "content": null,
+ "creation": "2025-01-23 10:00:00.000000",
+ "docstatus": 0,
+ "doctype": "Page",
+ "idx": 0,
+ "modified": "2025-01-23 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen Payments",
+ "name": "mollie-bulk-payment-discovery",
+ "owner": "Administrator",
+ "page_name": "Mollie Bulk Payment Discovery",
+ "roles": [
+  {
+   "role": "Accounts Manager"
+  },
+  {
+   "role": "Accounts User"
+  },
+  {
+   "role": "Verenigingen Admin"
+  }
+ ],
+ "standard": "Yes",
+ "system_page": 0,
+ "title": "Mollie Bulk Payment Discovery"
+}

@@ -1,0 +1,316 @@
+{
+  "actions": [],
+  "creation": "2025-01-13 10:00:00",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "profile_id",
+    "test_mode",
+    "enable_subscriptions",
+    "encryption_key",
+    "column_break_3",
+    "test_secret_key",
+    "live_secret_key",
+    "section_break_subscription_2",
+    "default_subscription_interval",
+    "subscription_description_template",
+    "quarterly_yearly_payment_months",
+    "payment_day_of_month",
+    "webhook_security_section",
+    "testing_webhook_url",
+    "testing_webhook_secret_key",
+    "column_break_webhook_security",
+    "live_webhook_url",
+    "live_webhook_secret_key",
+    "webhook_rate_limit",
+    "backend_api_section",
+    "enable_backend_api",
+    "organization_access_token",
+    "column_break_backend",
+    "organization_id",
+    "backend_webhook_secret",
+    "reconciliation_section",
+    "mollie_bank_account",
+    "column_break_reconciliation",
+    "mollie_clearing_account",
+    "payment_processing_fees_account",
+    "section_break_payment_creation",
+    "dues_payment_creation_mode",
+    "payment_retrieval_days_back_limit",
+    "section_break_5",
+    "header_img",
+    "column_break_7",
+    "redirect_url"
+  ],
+  "fields": [
+    {
+      "fieldname": "profile_id",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Mollie Profile ID",
+      "reqd": 1
+    },
+    {
+      "fieldname": "column_break_3",
+      "fieldtype": "Column Break"
+    },
+    {
+      "description": "Test API key from Mollie Dashboard (starts with test_)",
+      "fieldname": "test_secret_key",
+      "fieldtype": "Password",
+      "label": "Mollie API Test Secret Key",
+      "reqd": 1
+    },
+    {
+      "description": "Live API key from Mollie Dashboard (starts with live_) - only used when Test Mode is unchecked",
+      "fieldname": "live_secret_key",
+      "fieldtype": "Password",
+      "label": "Mollie API Live Secret Key"
+    },
+    {
+      "default": "1",
+      "description": "When checked, uses Test Secret Key. When unchecked, uses Live Secret Key.",
+      "fieldname": "test_mode",
+      "fieldtype": "Check",
+      "label": "Test Mode"
+    },
+    {
+      "fieldname": "section_break_5",
+      "fieldtype": "Section Break",
+      "label": "Customization"
+    },
+    {
+      "fieldname": "header_img",
+      "fieldtype": "Attach Image",
+      "label": "Header Image"
+    },
+    {
+      "fieldname": "column_break_7",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "redirect_url",
+      "fieldtype": "Data",
+      "label": "Custom Redirect URL"
+    },
+    {
+      "default": "0",
+      "fieldname": "enable_subscriptions",
+      "fieldtype": "Check",
+      "label": "Enable Mollie Subscriptions"
+    },
+    {
+      "description": "Webhook URL for Mollie test environment payments",
+      "fieldname": "testing_webhook_url",
+      "fieldtype": "Data",
+      "label": "Testing Webhook URL",
+      "read_only": 1
+    },
+    {
+      "description": "Webhook URL for Mollie production environment payments",
+      "fieldname": "live_webhook_url",
+      "fieldtype": "Data",
+      "label": "Live Webhook URL",
+      "read_only": 1
+    },
+    {
+      "fieldname": "section_break_subscription_2",
+      "fieldtype": "Section Break",
+      "label": "Subscription Configuration"
+    },
+    {
+      "default": "1 month",
+      "depends_on": "eval:doc.enable_subscriptions",
+      "fieldname": "default_subscription_interval",
+      "fieldtype": "Select",
+      "label": "Default Subscription Interval",
+      "options": "1 day\n7 days\n14 days\n1 month\n3 months\n6 months\n1 year"
+    },
+    {
+      "default": "Membership dues for {member_name}",
+      "depends_on": "eval:doc.enable_subscriptions",
+      "fieldname": "subscription_description_template",
+      "fieldtype": "Small Text",
+      "label": "Subscription Description Template"
+    },
+    {
+      "default": "1,4,7,10",
+      "depends_on": "eval:doc.enable_subscriptions",
+      "description": "Comma-separated list of months (1-12) when quarterly/yearly subscription payments should be scheduled. For example: '1,4,7,10' for Jan, Apr, Jul, Oct. System will select the first month that is at least 2 months from now.",
+      "fieldname": "quarterly_yearly_payment_months",
+      "fieldtype": "Data",
+      "label": "Quarterly/Yearly Payment Months"
+    },
+    {
+      "default": "25",
+      "depends_on": "eval:doc.enable_subscriptions",
+      "description": "Day of the month (1-28) when recurring subscription payments should be charged. Using 1-28 ensures the date is valid in all months.",
+      "fieldname": "payment_day_of_month",
+      "fieldtype": "Int",
+      "label": "Payment Day of Month"
+    },
+    {
+      "fieldname": "webhook_security_section",
+      "fieldtype": "Section Break",
+      "label": "Webhook Settings"
+    },
+    {
+      "description": "Secret key from Mollie for test webhook signature verification",
+      "fieldname": "testing_webhook_secret_key",
+      "fieldtype": "Password",
+      "label": "Testing Webhook Secret Key"
+    },
+    {
+      "fieldname": "column_break_webhook_security",
+      "fieldtype": "Column Break"
+    },
+    {
+      "description": "Secret key from Mollie for live webhook signature verification",
+      "fieldname": "live_webhook_secret_key",
+      "fieldtype": "Password",
+      "label": "Live Webhook Secret Key"
+    },
+    {
+      "default": "100",
+      "description": "Maximum number of webhook requests per hour (3600 seconds) to prevent abuse",
+      "fieldname": "webhook_rate_limit",
+      "fieldtype": "Int",
+      "label": "Webhook Rate Limit (per hour)"
+    },
+    {
+      "fieldname": "backend_api_section",
+      "fieldtype": "Section Break",
+      "label": "Backend API Settings"
+    },
+    {
+      "default": "0",
+      "description": "Enable Mollie Backend API for settlements, balances, and invoices",
+      "fieldname": "enable_backend_api",
+      "fieldtype": "Check",
+      "label": "Enable Backend API"
+    },
+    {
+      "depends_on": "eval:doc.enable_backend_api",
+      "description": "OAuth access token for Mollie organization API",
+      "fieldname": "organization_access_token",
+      "fieldtype": "Password",
+      "label": "Organization Access Token"
+    },
+    {
+      "fieldname": "column_break_backend",
+      "fieldtype": "Column Break"
+    },
+    {
+      "depends_on": "eval:doc.enable_backend_api",
+      "description": "Your Mollie organization ID (org_xxxxx). Leave empty to auto-discover from your Organization Access Token.",
+      "fieldname": "organization_id",
+      "fieldtype": "Data",
+      "label": "Organization ID"
+    },
+    {
+      "depends_on": "eval:doc.enable_backend_api",
+      "description": "Secret for verifying backend webhook signatures",
+      "fieldname": "backend_webhook_secret",
+      "fieldtype": "Password",
+      "label": "Backend Webhook Secret"
+    },
+    {
+      "fieldname": "reconciliation_section",
+      "fieldtype": "Section Break",
+      "label": "Accounting Settings"
+    },
+    {
+      "description": "Bank account where Mollie settlements are received",
+      "fieldname": "mollie_bank_account",
+      "fieldtype": "Link",
+      "label": "Mollie Bank Account",
+      "options": "Account"
+    },
+    {
+      "fieldname": "column_break_reconciliation",
+      "fieldtype": "Column Break"
+    },
+    {
+      "description": "Temporary account for Mollie payment reconciliation",
+      "fieldname": "mollie_clearing_account",
+      "fieldtype": "Link",
+      "label": "Mollie Clearing Account",
+      "options": "Account"
+    },
+    {
+      "description": "Account for recording Mollie transaction fees",
+      "fieldname": "payment_processing_fees_account",
+      "fieldtype": "Link",
+      "label": "Payment Processing Fees Account",
+      "options": "Account"
+    },
+    {
+      "fieldname": "section_break_payment_creation",
+      "fieldtype": "Section Break",
+      "label": "Payment Creation Settings"
+    },
+    {
+      "default": "Bank Transaction",
+      "description": "Bank Transaction (default): Creates unreconciled bank transactions for manual/automated reconciliation via Bank Reconciliation Tool. Payment Entry: Directly creates payment entries (legacy mode, harder to reconcile).",
+      "fieldname": "dues_payment_creation_mode",
+      "fieldtype": "Select",
+      "label": "Dues Payment Creation Mode",
+      "options": "Bank Transaction\nPayment Entry"
+    },
+    {
+      "default": "1825",
+      "description": "Maximum number of days back to allow for bulk payment retrieval (default: 1825 days = 5 years)",
+      "fieldname": "payment_retrieval_days_back_limit",
+      "fieldtype": "Int",
+      "label": "Payment Retrieval Days Back Limit"
+    },
+    {
+      "description": "Internal encryption key for secure data storage",
+      "fieldname": "encryption_key",
+      "fieldtype": "Password",
+      "hidden": 1,
+      "label": "Encryption Key",
+      "read_only": 1
+    }
+  ],
+  "issingle": 1,
+  "links": [],
+  "modified": "2025-09-08 23:08:09.185905",
+  "modified_by": "Administrator",
+  "module": "Verenigingen Payments",
+  "name": "Mollie Settings",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "print": 1,
+      "read": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "print": 1,
+      "read": 1,
+      "role": "Verenigingen Administrator",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "read": 1,
+      "role": "Verenigingen Webhook User"
+    }
+  ],
+  "quick_entry": 1,
+  "row_format": "Dynamic",
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1
+}

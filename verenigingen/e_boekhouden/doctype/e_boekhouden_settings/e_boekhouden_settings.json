@@ -1,0 +1,411 @@
+{
+  "actions": [],
+  "allow_rename": 1,
+  "app": "verenigingen",
+  "creation": "2025-06-25 09:30:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "connection_section",
+    "api_url",
+    "api_token",
+    "source_application",
+    "column_break_6",
+    "connection_status",
+    "last_tested",
+    "mapping_section",
+    "default_company",
+    "default_cost_center",
+    "column_break_11",
+    "default_currency",
+    "fiscal_year_start_month",
+    "payment_gateway_section",
+    "payment_gateway_virtual_account",
+    "payment_gateway_invoice_prefix",
+    "party_creation_section",
+    "auto_create_parties_from_bank_transactions",
+    "account_groups_section",
+    "balance_sheet_group_mappings",
+    "column_break_balance_groups",
+    "pl_group_mappings",
+    "balance_sheet_organization_section",
+    "rebuild_account_tree_button",
+    "vorderingen_group_name",
+    "schulden_group_name",
+    "financial_accounts_group_name",
+    "column_break_org",
+    "tax_payable_group_name",
+    "tax_receivable_group_name",
+    "account_classification_section",
+    "enable_account_classification_service",
+    "column_break_classification",
+    "classification_strategy",
+    "bal_classification_section",
+    "bal_asset_ranges",
+    "bal_liability_ranges",
+    "column_break_bal",
+    "bal_equity_ranges",
+    "bal_equity_keywords",
+    "vw_classification_section",
+    "vw_income_ranges",
+    "vw_expense_ranges",
+    "column_break_vw",
+    "vw_income_keywords",
+    "vw_expense_keywords",
+    "cost_center_section",
+    "parse_groups_button",
+    "cost_center_mappings"
+  ],
+  "fields": [
+    {
+      "fieldname": "connection_section",
+      "fieldtype": "Section Break",
+      "label": "API Connection"
+    },
+    {
+      "default": "https://api.e-boekhouden.nl",
+      "fieldname": "api_url",
+      "fieldtype": "Data",
+      "label": "API URL",
+      "reqd": 1
+    },
+    {
+      "fieldname": "api_token",
+      "fieldtype": "Password",
+      "label": "API Token",
+      "description": "Your e-Boekhouden API token from account settings",
+      "reqd": 1
+    },
+    {
+      "default": "VerenigingenERPNext",
+      "fieldname": "source_application",
+      "fieldtype": "Data",
+      "label": "Source Application",
+      "description": "Application name for API requests (no spaces or special characters)"
+    },
+    {
+      "fieldname": "column_break_6",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "connection_status",
+      "fieldtype": "Data",
+      "label": "Connection Status",
+      "read_only": 1
+    },
+    {
+      "fieldname": "last_tested",
+      "fieldtype": "Datetime",
+      "label": "Last Tested",
+      "read_only": 1
+    },
+    {
+      "fieldname": "mapping_section",
+      "fieldtype": "Section Break",
+      "label": "Default Mapping Settings"
+    },
+    {
+      "fieldname": "default_company",
+      "fieldtype": "Link",
+      "label": "Default Company",
+      "options": "Company",
+      "reqd": 1
+    },
+    {
+      "fieldname": "default_cost_center",
+      "fieldtype": "Link",
+      "label": "Default Cost Center",
+      "options": "Cost Center"
+    },
+    {
+      "fieldname": "column_break_11",
+      "fieldtype": "Column Break"
+    },
+    {
+      "default": "EUR",
+      "fieldname": "default_currency",
+      "fieldtype": "Link",
+      "label": "Default Currency",
+      "options": "Currency",
+      "reqd": 1
+    },
+    {
+      "default": "1",
+      "fieldname": "fiscal_year_start_month",
+      "fieldtype": "Select",
+      "label": "Fiscal Year Start Month",
+      "options": "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12"
+    },
+    {
+      "fieldname": "payment_gateway_section",
+      "fieldtype": "Section Break",
+      "label": "Payment Gateway Adjustment Detection",
+      "description": "Configure detection of internal payment gateway adjustments (e.g., Mollie fee corrections) that should be skipped during import",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "payment_gateway_virtual_account",
+      "fieldtype": "Link",
+      "label": "Virtual Account",
+      "options": "Account",
+      "description": "Select the ERPNext account for the payment gateway's virtual account (e.g., '10460 - Mollie - NVV'). Leave empty to disable adjustment detection."
+    },
+    {
+      "fieldname": "payment_gateway_invoice_prefix",
+      "fieldtype": "Data",
+      "label": "Gateway Invoice Prefix",
+      "description": "Invoice number prefix for gateway invoices (e.g., 'MOL-NL-R' for Mollie). Adjustments for invoices with this prefix will be skipped.",
+      "depends_on": "eval:doc.payment_gateway_virtual_account"
+    },
+    {
+      "fieldname": "party_creation_section",
+      "fieldtype": "Section Break",
+      "label": "Automatic Party Creation",
+      "description": "Configure automatic creation of Customers/Suppliers from bank transaction data",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "auto_create_parties_from_bank_transactions",
+      "fieldtype": "Check",
+      "label": "Auto-create Customers/Suppliers from Bank Transactions",
+      "default": 0,
+      "description": "When enabled, automatically creates new Customer or Supplier records from bank transaction party names if no match is found. Uses IBAN-based matching and fuzzy name matching to avoid duplicates. Disable for manual party management."
+    },
+    {
+      "fieldname": "account_groups_section",
+      "fieldtype": "Section Break",
+      "label": "Account Group Mappings",
+      "description": "Configure account group codes and names for Chart of Accounts import",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "balance_sheet_group_mappings",
+      "fieldtype": "Long Text",
+      "label": "Balance Sheet Group Mappings",
+      "description": "Balance sheet account groups in format: 'code name' (one per line).\nExample:\n001 Vaste activa\n002 Liquide middelen\n004 Vorderingen\n006 Schulden"
+    },
+    {
+      "fieldname": "column_break_balance_groups",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "pl_group_mappings",
+      "fieldtype": "Long Text",
+      "label": "P&L Group Mappings",
+      "description": "Profit & Loss account groups in format: 'code name' (one per line).\nExample:\n055 Opbrengsten\n056 Personeelskosten\n057 Overige kosten"
+    },
+    {
+      "fieldname": "balance_sheet_organization_section",
+      "fieldtype": "Section Break",
+      "label": "Balance Sheet Organization",
+      "description": "Customize names for balance sheet group accounts. Leave empty to use defaults.",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "rebuild_account_tree_button",
+      "fieldtype": "Button",
+      "label": "Rebuild Account Tree",
+      "description": "Reorganize accounts under configured groups (Vorderingen, Financial Accounts, Overlopende activa, Schulden, Belastingen) based on current settings"
+    },
+    {
+      "fieldname": "vorderingen_group_name",
+      "fieldtype": "Data",
+      "label": "Receivables Group Name",
+      "description": "Name for the receivables/debtors group account",
+      "default": "Vorderingen - Receivables"
+    },
+    {
+      "fieldname": "schulden_group_name",
+      "fieldtype": "Data",
+      "label": "Payables Group Name",
+      "description": "Name for the payables/creditors group account",
+      "default": "Schulden - Liabilities"
+    },
+    {
+      "fieldname": "financial_accounts_group_name",
+      "fieldtype": "Data",
+      "label": "Financial Accounts Group Name",
+      "description": "Name for the financial accounts group (bank + cash accounts)",
+      "default": "Financiële rekeningen - Financial Accounts"
+    },
+    {
+      "fieldname": "overlopende_activa_group_name",
+      "fieldtype": "Data",
+      "label": "Prepaid/Accrued Assets Group Name",
+      "description": "Name for the overlopende activa (prepaid/accrued assets) group account",
+      "default": "Overlopende activa - Prepaid Assets"
+    },
+    {
+      "fieldname": "column_break_org",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "tax_payable_group_name",
+      "fieldtype": "Data",
+      "label": "Tax Payable Group Name",
+      "description": "Name for the tax payable group account",
+      "default": "Belastingen - Taxes Payable"
+    },
+    {
+      "fieldname": "tax_receivable_group_name",
+      "fieldtype": "Data",
+      "label": "Tax Receivable Group Name",
+      "description": "Name for the tax receivable group account",
+      "default": "Belastingen - Taxes Receivable"
+    },
+    {
+      "fieldname": "account_classification_section",
+      "fieldtype": "Section Break",
+      "label": "Account Classification Configuration",
+      "description": "Configure how accounts are classified during import. You can use account code ranges and keywords to control classification of BAL (Balance Sheet) and VW (P&L) accounts.",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "enable_account_classification_service",
+      "fieldtype": "Check",
+      "label": "Use Advanced Classification Service",
+      "default": 1,
+      "description": "Enable the AccountClassificationService for more accurate classification using categories, groups, and patterns"
+    },
+    {
+      "fieldname": "column_break_classification",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "classification_strategy",
+      "fieldtype": "Select",
+      "label": "Classification Strategy",
+      "options": "Prefer Groups\nPrefer Code Ranges\nGroups Only\nCode Ranges Only",
+      "default": "Prefer Groups",
+      "description": "Choose whether to prioritize E-Boekhouden groups or account code ranges for classification"
+    },
+    {
+      "fieldname": "bal_classification_section",
+      "fieldtype": "Section Break",
+      "label": "BAL (Balance Sheet) Classification Rules",
+      "description": "Configure account code ranges for Balance Sheet accounts. Use ranges like '0000-2999' for Assets, '3000-4999' for Liabilities. Leave empty to disable code-based classification.",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "bal_asset_ranges",
+      "fieldtype": "Small Text",
+      "label": "Asset Account Ranges",
+      "description": "Account code ranges for Assets (one per line). Leave empty to disable range-based classification. Example based on administratievoeren.nl schema:\n0010-0599 Fixed Assets\n1000-1199 Liquid Assets\n1300-1899 Receivables\n2000-2999 Transfer accounts\n3000-3199 Inventory"
+    },
+    {
+      "fieldname": "bal_liability_ranges",
+      "fieldtype": "Small Text",
+      "label": "Liability Account Ranges",
+      "description": "Account code ranges for Liabilities (one per line). Leave empty to disable range-based classification. Example based on administratievoeren.nl schema:\n0800-0899 Provisions\n0900-0999 Long-term debt\n1600-1699 Creditors"
+    },
+    {
+      "fieldname": "column_break_bal",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "bal_equity_ranges",
+      "fieldtype": "Small Text",
+      "label": "Equity Account Ranges",
+      "description": "Account code ranges for Equity (one per line). Leave empty to disable range-based classification. Example based on administratievoeren.nl schema:\n0600-0699 Equity accounts"
+    },
+    {
+      "fieldname": "bal_equity_keywords",
+      "fieldtype": "Small Text",
+      "label": "Equity Keywords",
+      "description": "Keywords to identify Equity accounts (one per line). Leave empty to disable keyword-based classification."
+    },
+    {
+      "fieldname": "vw_classification_section",
+      "fieldtype": "Section Break",
+      "label": "VW (Profit & Loss) Classification Rules",
+      "description": "Configure account code ranges for P&L accounts. Use ranges like '8000-8999' for Income, '6000-7999' for Expenses. Leave empty to rely on groups only.",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "vw_income_ranges",
+      "fieldtype": "Small Text",
+      "label": "Income Account Ranges",
+      "description": "Account code ranges for Income (one per line). Leave empty to rely on groups and keywords only. Example based on administratievoeren.nl schema:\n8000-8099 Revenue/Sales (Omzet)\n9000-9099 Results from participations\n9800-9899 Payment discounts"
+    },
+    {
+      "fieldname": "vw_expense_ranges",
+      "fieldtype": "Small Text",
+      "label": "Expense Account Ranges",
+      "description": "Account code ranges for Expenses (one per line). Leave empty to rely on groups and keywords only. Example based on administratievoeren.nl schema:\n4000-4999 All expense categories\n5000-5999 Additional expense accounts\n7000-7099 Cost of goods sold"
+    },
+    {
+      "fieldname": "column_break_vw",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "vw_income_keywords",
+      "fieldtype": "Small Text",
+      "label": "Income Keywords",
+      "description": "Keywords to identify Income accounts (one per line). Leave empty to disable keyword-based classification."
+    },
+    {
+      "fieldname": "vw_expense_keywords",
+      "fieldtype": "Small Text",
+      "label": "Expense Keywords",
+      "description": "Keywords to identify Expense accounts (one per line). Leave empty to disable keyword-based classification."
+    },
+    {
+      "fieldname": "cost_center_section",
+      "fieldtype": "Section Break",
+      "label": "Cost Center Configuration",
+      "description": "Configure which account groups should be created as cost centers in ERPNext",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "parse_groups_button",
+      "fieldtype": "Button",
+      "label": "Parse Groups & Configure Cost Centers",
+      "description": "Click to analyze the account groups above and configure cost center creation"
+    },
+    {
+      "fieldname": "cost_center_mappings",
+      "fieldtype": "Table",
+      "label": "Cost Center Mappings",
+      "options": "E-Boekhouden Cost Center Mapping",
+      "description": "Configure which account groups should become cost centers"
+    }
+  ],
+  "index_web_pages_for_search": 1,
+  "issingle": 1,
+  "links": [],
+  "modified": "2025-06-25 09:30:00.000000",
+  "modified_by": "Administrator",
+  "module": "E-Boekhouden",
+  "name": "E-Boekhouden Settings",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "E-Boekhouden Administrator",
+      "share": 1,
+      "write": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1
+}

@@ -1,0 +1,211 @@
+{
+  "actions": [],
+
+  "app": "verenigingen",
+  "allow_rename": 1,
+  "autoname": "field:team_name",
+  "creation": "2025-05-18 12:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "team_name",
+    "description",
+    "status",
+    "team_type_section",
+    "team_type",
+    "chapter",
+    "is_association_wide",
+    "column_break_7",
+    "start_date",
+    "end_date",
+    "team_lead",
+    "cost_center",
+    "team_members_section",
+    "team_members",
+    "role_profile_section",
+    "default_role_profile",
+    "enable_role_specific_profiles",
+    "role_specific_profiles",
+    "team_details_section",
+    "objectives",
+    "key_responsibilities"
+  ],
+  "fields": [
+    {
+      "fieldname": "team_name",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Team Name",
+      "reqd": 1,
+      "unique": 1
+    },
+    {
+      "fieldname": "description",
+      "fieldtype": "Text Editor",
+      "label": "Description"
+    },
+    {
+      "default": "Active",
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "label": "Status",
+      "options": "Active\nInactive\nCompleted\nArchived"
+    },
+    {
+      "fieldname": "team_type_section",
+      "fieldtype": "Section Break",
+      "label": "Team Type"
+    },
+    {
+      "fieldname": "team_type",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "label": "Team Type",
+      "options": "Committee\nWorking Group\nTask Force\nProject Team\nOperational Team\nOther"
+    },
+    {
+      "fieldname": "chapter",
+      "fieldtype": "Link",
+      "label": "Parent Chapter",
+      "options": "Chapter"
+    },
+    {
+      "default": "0",
+      "fieldname": "is_association_wide",
+      "fieldtype": "Check",
+      "label": "Association-wide Team"
+    },
+    {
+      "fieldname": "column_break_7",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "start_date",
+      "fieldtype": "Date",
+      "label": "Start Date"
+    },
+    {
+      "fieldname": "end_date",
+      "fieldtype": "Date",
+      "label": "End Date"
+    },
+    {
+      "fieldname": "team_lead",
+      "fieldtype": "Link",
+      "label": "Team Lead",
+      "options": "User",
+      "read_only": 1
+    },
+    {
+      "fieldname": "cost_center",
+      "fieldtype": "Link",
+      "label": "Cost Center",
+      "options": "Cost Center",
+      "description": "Associated cost center for financial tracking"
+    },
+    {
+      "fieldname": "team_members_section",
+      "fieldtype": "Section Break",
+      "label": "Team Members"
+    },
+    {
+      "fieldname": "team_members",
+      "fieldtype": "Table",
+      "label": "Team Members",
+      "options": "Team Member"
+    },
+    {
+      "fieldname": "role_profile_section",
+      "fieldtype": "Section Break",
+      "label": "Role Profile Configuration",
+      "description": "Configure which role profiles are automatically assigned to team members"
+    },
+    {
+      "fieldname": "default_role_profile",
+      "fieldtype": "Link",
+      "label": "Default Role Profile",
+      "options": "Role Profile",
+      "description": "Role profile assigned to all team members (unless overridden by role-specific configuration)"
+    },
+    {
+      "default": "0",
+      "fieldname": "enable_role_specific_profiles",
+      "fieldtype": "Check",
+      "label": "Enable Role-Specific Profiles",
+      "description": "Allow different role profiles for different team roles"
+    },
+    {
+      "depends_on": "enable_role_specific_profiles",
+      "fieldname": "role_specific_profiles",
+      "fieldtype": "Table",
+      "label": "Role-Specific Profile Assignments",
+      "options": "Team Role Profile Assignment"
+    },
+    {
+      "fieldname": "team_details_section",
+      "fieldtype": "Section Break",
+      "label": "Team Details"
+    },
+    {
+      "fieldname": "objectives",
+      "fieldtype": "Text Editor",
+      "label": "Objectives"
+    },
+    {
+      "fieldname": "key_responsibilities",
+      "fieldtype": "Table",
+      "label": "Key Responsibilities",
+      "options": "Team Responsibility"
+    }
+  ],
+  "links": [],
+  "modified": "2025-05-18 12:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Verenigingen",
+  "name": "Team",
+  "naming_rule": "By fieldname",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Verenigingen Administrator",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "email": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Team Lead",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "read": 1,
+      "role": "Verenigingen Member"
+    }
+  ],
+  "row_format": "Dynamic",
+  "sort_field": "modified",
+  "sort_order": "DESC"
+}

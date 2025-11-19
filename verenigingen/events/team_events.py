@@ -1,0 +1,154 @@
+"""
+Team Event Emission System
+
+This module handles event emission for team status changes and lifecycle events.
+It integrates with the background processing system to enable async operations
+triggered by team document updates.
+
+Events emitted:
+- team_membership_changed: Team member additions, removals, role changes
+- team_settings_changed: Team configuration and settings updates
+- team_leadership_changed: Team lead changes
+
+These events can trigger background operations like:
+- Assignment history updates
+- Role profile management
+- Volunteer integration
+- Notification sending
+- Cache invalidation
+"""
+
+import frappe
+
+
+def emit_team_membership_changed(team_name, membership_data):
+    """
+    Emit event when team membership changes.
+
+    This enables background processing for team member operations.
+
+    Args:
+        team_name (str): Team document name
+        membership_data (dict): Contains volunteer, action, role, old_role, etc.
+    """
+
+    # Skip during bulk operations to prevent event flood
+    if getattr(frappe.flags, "bulk_team_operations", False):
+        return
+
+    event_data = {"team": team_name, **membership_data, "timestamp": frappe.utils.now()}
+
+    frappe.logger("events").info(f"Emitting team_membership_changed event for {team_name}")
+
+    try:
+        _emit_team_event("team_membership_changed", event_data)
+    except Exception as e:
+        frappe.log_error(
+            f"Failed to emit team_membership_changed event for {team_name}: {str(e)}",
+            "Team Event Emission Error",
+        )
+
+
+def emit_team_settings_changed(team_name, settings_data):
+    """
+    Emit event when team settings/configuration changes.
+
+    This enables background processing for configuration updates.
+
+    Args:
+        team_name (str): Team document name
+        settings_data (dict): Contains changed fields and their values
+    """
+
+    # Skip during bulk operations to prevent event flood
+    if getattr(frappe.flags, "bulk_team_operations", False):
+        return
+
+    event_data = {"team": team_name, **settings_data, "timestamp": frappe.utils.now()}
+
+    frappe.logger("events").info(f"Emitting team_settings_changed event for {team_name}")
+
+    try:
+        _emit_team_event("team_settings_changed", event_data)
+    except Exception as e:
+        frappe.log_error(
+            f"Failed to emit team_settings_changed event for {team_name}: {str(e)}",
+            "Team Event Emission Error",
+        )
+
+
+def emit_team_leadership_changed(team_name, leadership_data):
+    """
+    Emit event when team leadership changes.
+
+    This enables background processing for team lead transitions.
+
+    Args:
+        team_name (str): Team document name
+        leadership_data (dict): Contains old_lead, new_lead, reason, etc.
+    """
+
+    # Skip during bulk operations to prevent event flood
+    if getattr(frappe.flags, "bulk_team_operations", False):
+        return
+
+    event_data = {"team": team_name, **leadership_data, "timestamp": frappe.utils.now()}
+
+    frappe.logger("events").info(f"Emitting team_leadership_changed event for {team_name}")
+
+    try:
+        _emit_team_event("team_leadership_changed", event_data)
+    except Exception as e:
+        frappe.log_error(
+            f"Failed to emit team_leadership_changed event for {team_name}: {str(e)}",
+            "Team Event Emission Error",
+        )
+
+
+def _emit_team_event(event_name, event_data):
+    """
+    Internal function to emit team events with background job handling.
+
+    Uses the same pattern as approval_events.py and member_events.py for consistency.
+    """
+
+    team_name = event_data.get("team")
+
+    # Get subscribers for this event
+    subscribers = _get_team_event_subscribers(event_name)
+
+    for subscriber in subscribers:
+        frappe.enqueue(
+            method=subscriber,
+            queue="short",  # Team events are typically quick operations
+            job_name=f"team_{event_name}_{team_name}",
+            dedupe=True,  # Prevent duplicate events for same team
+            timeout=300,
+            delay=1,  # Small delay to ensure team save is committed
+            **{"event_name": event_name, "event_data": event_data},
+        )
+
+
+def _get_team_event_subscribers(event_name):
+    """Get list of background job handlers for team events"""
+
+    event_subscribers = {
+        "team_membership_changed": [
+            "verenigingen.events.subscribers.team_subscribers.handle_assignment_history_updates",
+            "verenigingen.events.subscribers.team_subscribers.handle_role_profile_assignments",
+            "verenigingen.events.subscribers.team_subscribers.handle_membership_notifications",
+            "verenigingen.events.subscribers.team_subscribers.handle_volunteer_integration",
+        ],
+        "team_settings_changed": [
+            "verenigingen.events.subscribers.team_subscribers.handle_settings_notifications",
+            "verenigingen.events.subscribers.team_subscribers.handle_permissions_updates",
+            "verenigingen.events.subscribers.team_subscribers.handle_cache_invalidation",
+        ],
+        "team_leadership_changed": [
+            "verenigingen.events.subscribers.team_subscribers.handle_leadership_notifications",
+            "verenigingen.events.subscribers.team_subscribers.handle_leadership_role_updates",
+            "verenigingen.events.subscribers.team_subscribers.handle_team_lead_permissions",
+        ],
+    }
+
+    return event_subscribers.get(event_name, [])

@@ -1,0 +1,215 @@
+{
+  "app": "verenigingen",
+  "autoname": "hash",
+  "creation": "2025-05-18 12:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "volunteer",
+    "activity_type",
+    "activity_scope",
+    "role",
+    "description",
+    "status",
+    "column_break_5",
+    "start_date",
+    "end_date",
+    "outcome",
+    "visibility",
+    "external_organization_section",
+    "organization_name",
+    "reference_section",
+    "reference_doctype",
+    "reference_name",
+    "movement",
+    "time_section",
+    "estimated_hours",
+    "actual_hours",
+    "categorization_section",
+    "tags",
+    "notes"
+  ],
+  "fields": [
+    {
+      "fieldname": "volunteer",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "label": "Volunteer",
+      "options": "Volunteer",
+      "reqd": 1
+    },
+    {
+      "fieldname": "activity_type",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Activity Type",
+      "options": "Project\nEvent\nWorkshop\nTraining\nCampaign\nExternal Board Position\nCouncil/Government Intervention\nExternal Campaign Support\nCommunity Organizing\nMedia/Advocacy\nCoalition Work\nPublic Speaking\nOther",
+      "reqd": 1
+    },
+    {
+      "fieldname": "activity_scope",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Activity Scope",
+      "options": "Internal\nExternal\nCollaborative",
+      "default": "Internal"
+    },
+    {
+      "fieldname": "role",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Role/Position",
+      "reqd": 1
+    },
+    {
+      "fieldname": "description",
+      "fieldtype": "Small Text",
+      "label": "Description"
+    },
+    {
+      "default": "Active",
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "label": "Status",
+      "options": "Active\nCompleted\nCancelled\nOn Hold",
+      "reqd": 1
+    },
+    {
+      "fieldname": "column_break_5",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "start_date",
+      "fieldtype": "Date",
+      "label": "Start Date",
+      "reqd": 1
+    },
+    {
+      "fieldname": "end_date",
+      "fieldtype": "Date",
+      "label": "End Date"
+    },
+    {
+      "fieldname": "outcome",
+      "fieldtype": "Select",
+      "label": "Outcome",
+      "options": "Successful\nUnsuccessful\nOngoing\nN/A",
+      "default": "N/A"
+    },
+    {
+      "fieldname": "visibility",
+      "fieldtype": "Select",
+      "in_standard_filter": 1,
+      "label": "Visibility",
+      "options": "Public\nInternal\nConfidential",
+      "default": "Internal",
+      "description": "Controls who can see this activity"
+    },
+    {
+      "fieldname": "external_organization_section",
+      "fieldtype": "Section Break",
+      "label": "External Organization",
+      "depends_on": "eval:doc.activity_scope=='External' || doc.activity_scope=='Collaborative'"
+    },
+    {
+      "fieldname": "organization_name",
+      "fieldtype": "Data",
+      "label": "Organization Name",
+      "description": "Name of external organization or entity"
+    },
+    {
+      "fieldname": "reference_section",
+      "fieldtype": "Section Break",
+      "label": "Reference"
+    },
+    {
+      "fieldname": "reference_doctype",
+      "fieldtype": "Link",
+      "label": "Reference DocType",
+      "options": "DocType"
+    },
+    {
+      "fieldname": "reference_name",
+      "fieldtype": "Dynamic Link",
+      "label": "Reference Name",
+      "options": "reference_doctype"
+    },
+    {
+      "fieldname": "movement",
+      "fieldtype": "Link",
+      "label": "Related Movement",
+      "options": "Movement",
+      "description": "Optional: Link this activity to a strategic movement"
+    },
+    {
+      "fieldname": "time_section",
+      "fieldtype": "Section Break",
+      "label": "Time"
+    },
+    {
+      "fieldname": "estimated_hours",
+      "fieldtype": "Float",
+      "label": "Estimated Hours"
+    },
+    {
+      "fieldname": "actual_hours",
+      "fieldtype": "Float",
+      "label": "Actual Hours"
+    },
+    {
+      "fieldname": "categorization_section",
+      "fieldtype": "Section Break",
+      "label": "Categorization"
+    },
+    {
+      "fieldname": "tags",
+      "fieldtype": "Table MultiSelect",
+      "label": "Tags",
+      "options": "Volunteer Activity Tag",
+      "description": "Add tags for flexible categorization and search"
+    },
+    {
+      "fieldname": "notes",
+      "fieldtype": "Small Text",
+      "label": "Notes"
+    }
+  ],
+  "modified": "2025-10-02 12:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Verenigingen",
+  "name": "Volunteer Activity",
+  "owner": "Administrator",
+  "search_fields": "activity_type,activity_scope,organization_name,role,status",
+  "title_field": "role",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Verenigingen Administrator",
+      "share": 1,
+      "write": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC"
+}

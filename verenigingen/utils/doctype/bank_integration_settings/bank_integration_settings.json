@@ -1,0 +1,210 @@
+{
+ "actions": [],
+ "creation": "2025-01-15 15:00:00",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "bank_api_section",
+  "api_endpoint",
+  "access_token",
+  "column_break_2",
+  "account_id",
+  "bank_name",
+  "authentication_section",
+  "client_id",
+  "client_secret",
+  "column_break_auth",
+  "authorization_url",
+  "token_url",
+  "configuration_section",
+  "timeout_seconds",
+  "retry_attempts",
+  "column_break_config",
+  "enable_logging",
+  "rate_limit_per_minute",
+  "status_section",
+  "connection_status",
+  "last_sync",
+  "column_break_status",
+  "total_transactions_imported",
+  "last_error"
+ ],
+ "fields": [
+  {
+   "fieldname": "bank_api_section",
+   "fieldtype": "Section Break",
+   "label": "Bank API Configuration"
+  },
+  {
+   "description": "PSD2 API endpoint URL for your bank (e.g., https://api.bank.nl/psd2)",
+   "fieldname": "api_endpoint",
+   "fieldtype": "Data",
+   "label": "API Endpoint",
+   "reqd": 1
+  },
+  {
+   "description": "OAuth2 Bearer token for API authentication",
+   "fieldname": "access_token",
+   "fieldtype": "Password",
+   "label": "Access Token",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Bank account ID for transaction fetching",
+   "fieldname": "account_id",
+   "fieldtype": "Data",
+   "label": "Account ID",
+   "reqd": 1
+  },
+  {
+   "fieldname": "bank_name",
+   "fieldtype": "Select",
+   "label": "Bank Name",
+   "options": "ABN AMRO\nING Bank\nRabobank\nTriodos Bank\nASN Bank\nSNS Bank\nRegioBank\nOther"
+  },
+  {
+   "fieldname": "authentication_section",
+   "fieldtype": "Section Break",
+   "label": "OAuth2 Authentication"
+  },
+  {
+   "description": "OAuth2 Client ID from your bank's developer portal",
+   "fieldname": "client_id",
+   "fieldtype": "Data",
+   "label": "Client ID"
+  },
+  {
+   "description": "OAuth2 Client Secret from your bank's developer portal",
+   "fieldname": "client_secret",
+   "fieldtype": "Password",
+   "label": "Client Secret"
+  },
+  {
+   "fieldname": "column_break_auth",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "OAuth2 authorization URL for token refresh",
+   "fieldname": "authorization_url",
+   "fieldtype": "Data",
+   "label": "Authorization URL"
+  },
+  {
+   "description": "OAuth2 token endpoint for token refresh",
+   "fieldname": "token_url",
+   "fieldtype": "Data",
+   "label": "Token URL"
+  },
+  {
+   "fieldname": "configuration_section",
+   "fieldtype": "Section Break",
+   "label": "API Configuration"
+  },
+  {
+   "default": "30",
+   "description": "API request timeout in seconds",
+   "fieldname": "timeout_seconds",
+   "fieldtype": "Int",
+   "label": "Timeout (seconds)"
+  },
+  {
+   "default": "3",
+   "description": "Number of retry attempts for failed requests",
+   "fieldname": "retry_attempts",
+   "fieldtype": "Int",
+   "label": "Retry Attempts"
+  },
+  {
+   "fieldname": "column_break_config",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "description": "Enable detailed API logging for debugging",
+   "fieldname": "enable_logging",
+   "fieldtype": "Check",
+   "label": "Enable Logging"
+  },
+  {
+   "default": "10",
+   "description": "Maximum API requests per minute (rate limiting)",
+   "fieldname": "rate_limit_per_minute",
+   "fieldtype": "Int",
+   "label": "Rate Limit (per minute)"
+  },
+  {
+   "fieldname": "status_section",
+   "fieldtype": "Section Break",
+   "label": "Connection Status"
+  },
+  {
+   "fieldname": "connection_status",
+   "fieldtype": "Select",
+   "label": "Connection Status",
+   "options": "Not Tested\nConnected\nAuthentication Failed\nEndpoint Unreachable\nRate Limited\nError",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_sync",
+   "fieldtype": "Datetime",
+   "label": "Last Sync",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_status",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "total_transactions_imported",
+   "fieldtype": "Int",
+   "label": "Total Transactions Imported",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_error",
+   "fieldtype": "Small Text",
+   "label": "Last Error",
+   "read_only": 1
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2025-01-15 15:00:00",
+ "modified_by": "Administrator",
+ "module": "Verenigingen Utils",
+ "name": "Bank Integration Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "quick_entry": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

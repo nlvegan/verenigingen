@@ -1,0 +1,377 @@
+{% extends "templates/base_portal.html" %}
+
+{% block title %}Chapters{% endblock %}
+
+{% block style %}
+{{ super() }}
+<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+{% from "templates/macros/brand_css.html" import brand_css %}
+{{ brand_css() }}
+<link rel="stylesheet" href="/assets/verenigingen/css/member_portal.css">
+<style>
+    /* Use brand colors */
+    .chapter-link:hover {
+        color: var(--brand-primary) !important;
+    }
+
+    .badge-member {
+        background-color: var(--brand-success-light);
+        color: var(--brand-success);
+    }
+
+    .badge-available {
+        background-color: var(--brand-info-light);
+        color: var(--brand-info);
+    }
+
+    .tab-btn:hover {
+        border-color: var(--brand-primary) !important;
+        color: var(--brand-primary) !important;
+    }
+
+    .error-alert {
+        background-color: var(--brand-error-light);
+        border-color: var(--brand-error);
+        color: var(--brand-error);
+    }
+
+    /* Override Tailwind classes with brand colors */
+    .text-primary-600 { color: var(--brand-primary) !important; }
+    .bg-primary-600 { background-color: var(--brand-primary) !important; }
+    .border-primary-600 { border-color: var(--brand-primary) !important; }
+    .hover\:bg-primary-700:hover { background-color: var(--brand-primary-dark) !important; }
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div class="min-h-screen bg-gray-50 py-8">
+    <div class="container max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-gray-900 mb-4">Chapters</h1>
+            <p class="text-xl text-gray-600">Connect with your local chapter community</p>
+        </div>
+
+        <!-- User Info -->
+        <div id="user-info" class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6 hidden">
+            <div class="text-sm text-blue-800">
+                Logged in as: <span class="font-semibold" id="user-email"></span> |
+                Member ID: <span class="font-semibold" id="member-id">None</span>
+            </div>
+        </div>
+
+        <!-- Loading State -->
+        <div id="loading" class="text-center py-12">
+            <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2" style="border-color: var(--brand-primary);"></div>
+            <p class="mt-4 text-gray-600">Loading chapters...</p>
+        </div>
+
+        <!-- Error Container -->
+        <div id="error-container"></div>
+
+        <!-- Main Content -->
+        <div id="content" class="hidden">
+            <!-- Statistics Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div class="bg-white rounded-lg shadow-md p-6 text-center transform transition-transform hover:scale-105">
+                    <div class="text-4xl font-bold text-gray-900" id="total-count">0</div>
+                    <div class="text-gray-600 mt-2">All Chapters</div>
+                </div>
+                <div class="bg-white rounded-lg shadow-md p-6 text-center transform transition-transform hover:scale-105">
+                    <div class="text-4xl font-bold" style="color: var(--brand-success);" id="my-count">0</div>
+                    <div class="text-gray-600 mt-2">My Chapters</div>
+                </div>
+                <div class="bg-white rounded-lg shadow-md p-6 text-center transform transition-transform hover:scale-105">
+                    <div class="text-4xl font-bold" style="color: var(--brand-info);" id="available-count">0</div>
+                    <div class="text-gray-600 mt-2">Available to Join</div>
+                </div>
+            </div>
+
+            <!-- Filter Tabs -->
+            <div class="flex flex-wrap gap-4 mb-8">
+                <button class="tab-btn px-6 py-3 border-2 border-gray-300 rounded-lg font-medium text-gray-700 bg-white hover:border-gray-400 transition-all" onclick="showTab('all', this)">
+                    All Chapters (<span id="all-tab-count">0</span>)
+                </button>
+                <button class="tab-btn active px-6 py-3 border-2 rounded-lg font-medium text-white transition-all" style="background-color: var(--brand-primary); border-color: var(--brand-primary);" onclick="showTab('my', this)">
+                    My Chapters (<span id="my-tab-count">0</span>)
+                </button>
+                <button class="tab-btn px-6 py-3 border-2 border-gray-300 rounded-lg font-medium text-gray-700 bg-white hover:border-gray-400 transition-all" onclick="showTab('available', this)">
+                    Available (<span id="available-tab-count">0</span>)
+                </button>
+            </div>
+
+            <!-- Chapter Lists -->
+            <div id="chapters-container">
+                <div id="all-chapters" class="tab-content hidden"></div>
+                <div id="my-chapters" class="tab-content"></div>
+                <div id="available-chapters" class="tab-content hidden"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+    <script>
+        // Initialize frappe object if not already present
+        if (typeof frappe === 'undefined') {
+            window.frappe = {};
+        }
+
+        let allChapters = [];
+        let myChapters = [];
+        let currentUser = '';
+        let memberInfo = null;
+
+        // Load chapters on page load
+        window.addEventListener('DOMContentLoaded', function() {
+            loadChapters();
+        });
+
+        function loadChapters() {
+            // Get CSRF token from various possible sources
+            const csrfToken = frappe.csrf_token ||
+                             window.csrf_token ||
+                             document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
+                             '';
+
+            fetch('/api/method/verenigingen.api.get_user_chapters.get_user_chapter_data', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Frappe-CSRF-Token': csrfToken
+                },
+                credentials: 'same-origin',
+                body: JSON.stringify({})
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().then(err => {
+                            throw new Error(err.exc || err.message || 'Network response was not ok');
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.message && data.message.success) {
+                        allChapters = data.message.chapters;
+                        myChapters = data.message.user_chapters;
+                        currentUser = data.message.user;
+                        memberInfo = data.message.member;
+
+                        displayChapters();
+
+                        // Show user info
+                        document.getElementById('user-email').textContent = currentUser;
+                        document.getElementById('member-id').textContent = memberInfo || 'None';
+                        document.getElementById('user-info').classList.remove('hidden');
+
+                        document.getElementById('loading').classList.add('hidden');
+                        document.getElementById('content').classList.remove('hidden');
+                    } else {
+                        showError('Failed to load chapters: ' + (data.exc || data.message || 'Unknown error'));
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading chapters:', error);
+                    // Sanitize error message for user display
+                    let userMessage = 'Unable to load chapters. ';
+                    if (error.message.includes('Network')) {
+                        userMessage += 'Please check your internet connection.';
+                    } else if (error.message.includes('verenigingen is not installed')) {
+                        userMessage += 'The application is not properly configured. Please contact support.';
+                    } else {
+                        userMessage += 'Please try again later or contact support if the problem persists.';
+                    }
+                    showError(userMessage);
+                });
+        }
+
+        function displayChapters() {
+            const myChaptersList = allChapters.filter(c => myChapters.includes(c.name));
+            const availableChaptersList = allChapters.filter(c => !myChapters.includes(c.name));
+
+            // Update counts
+            document.getElementById('total-count').textContent = allChapters.length;
+            document.getElementById('my-count').textContent = myChaptersList.length;
+            document.getElementById('available-count').textContent = availableChaptersList.length;
+
+            document.getElementById('all-tab-count').textContent = allChapters.length;
+            document.getElementById('my-tab-count').textContent = myChaptersList.length;
+            document.getElementById('available-tab-count').textContent = availableChaptersList.length;
+
+            // Display all chapters
+            displayChapterList('all-chapters', allChapters, 'all');
+            displayChapterList('my-chapters', myChaptersList, 'my');
+            displayChapterList('available-chapters', availableChaptersList, 'available');
+        }
+
+        function displayChapterList(containerId, chapters, type) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+
+            if (chapters.length === 0) {
+                const emptyMessage = document.createElement('div');
+                emptyMessage.className = 'text-center py-12';
+                if (type === 'my') {
+                    emptyMessage.innerHTML = `
+                        <i class="fa fa-users text-6xl text-gray-300 mb-4"></i>
+                        <h3 class="text-xl font-medium text-gray-600 mb-2">No Chapter Memberships</h3>
+                        <p class="text-gray-500">You are not a member of any chapters yet.</p>
+                    `;
+                } else if (type === 'available') {
+                    emptyMessage.innerHTML = `
+                        <i class="fa fa-star text-6xl text-gray-300 mb-4"></i>
+                        <h3 class="text-xl font-medium text-gray-600 mb-2">All Chapters Joined</h3>
+                        <p class="text-gray-500">You are already a member of all available chapters.</p>
+                    `;
+                } else {
+                    emptyMessage.innerHTML = `
+                        <i class="fa fa-search text-6xl text-gray-300 mb-4"></i>
+                        <h3 class="text-xl font-medium text-gray-600 mb-2">No Chapters Found</h3>
+                        <p class="text-gray-500">No chapters are currently available.</p>
+                    `;
+                }
+                container.appendChild(emptyMessage);
+                return;
+            }
+
+            chapters.forEach(chapter => {
+                const isMember = chapter.is_member || myChapters.includes(chapter.name);
+                const isPending = chapter.is_pending || false;
+                const card = document.createElement('div');
+                card.className = 'bg-white rounded-lg shadow-md p-6 mb-4 hover:shadow-lg transition-shadow';
+
+                // Check if user is logged in
+                const isLoggedIn = currentUser && currentUser !== 'Guest';
+
+                // Determine status badge
+                let statusBadge = '';
+                let actionButton = '';
+
+                if (isMember) {
+                    statusBadge = `<span class="px-3 py-1 rounded-full text-sm font-medium badge-member">Member</span>`;
+                } else if (isPending) {
+                    statusBadge = `<span class="px-3 py-1 rounded-full text-sm font-medium" style="background-color: var(--brand-warning-light); color: var(--brand-warning);">Pending Approval</span>`;
+                } else {
+                    statusBadge = `<span class="px-3 py-1 rounded-full text-sm font-medium badge-available">Available</span>`;
+                    if (isLoggedIn) {
+                        actionButton = `
+                            <button onclick="joinChapter('${chapter.name}')" class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors text-sm font-medium">
+                                Request to Join
+                            </button>
+                        `;
+                    }
+                }
+
+                card.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <div class="flex-1">
+                            <a href="/chapter_dashboard?chapter=${encodeURIComponent(chapter.name)}" class="text-xl font-semibold text-gray-900 transition-colors chapter-link">
+                                ${chapter.name}
+                            </a>
+                            ${chapter.introduction ? `<p class="text-gray-600 mt-2">${chapter.introduction}</p>` : ''}
+                            ${chapter.region ? `<p class="text-sm text-gray-500 mt-2"><span class="font-medium">Region:</span> ${chapter.region}</p>` : ''}
+                        </div>
+                        <div class="flex flex-col items-end gap-2">
+                            ${statusBadge}
+                            ${actionButton}
+                        </div>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function showTab(tab, button) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(t => {
+                t.classList.add('hidden');
+            });
+
+            // Update button styles
+            document.querySelectorAll('.tab-btn').forEach(b => {
+                b.classList.remove('text-white');
+                b.classList.add('bg-white', 'text-gray-700', 'border-gray-300');
+                b.style.backgroundColor = '';
+                b.style.borderColor = '';
+            });
+
+            // Show selected tab
+            document.getElementById(tab + '-chapters').classList.remove('hidden');
+
+            // Style active button
+            button.classList.remove('bg-white', 'text-gray-700', 'border-gray-300');
+            button.classList.add('text-white');
+            button.style.backgroundColor = 'var(--brand-primary)';
+            button.style.borderColor = 'var(--brand-primary)';
+        }
+
+        function showError(message) {
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('error-container').innerHTML =
+                '<div class="error-alert px-4 py-3 rounded-lg border" role="alert">' +
+                '<strong class="font-bold">Error: </strong>' +
+                '<span class="block sm:inline">' + message + '</span>' +
+                '</div>';
+        }
+
+        function joinChapter(chapterName) {
+            if (!confirm(`Would you like to request to join the ${chapterName} chapter? Your request will be reviewed by the chapter board.`)) {
+                return;
+            }
+
+            // Show loading state
+            const button = event.target;
+            const originalText = button.textContent;
+            button.disabled = true;
+            button.textContent = 'Submitting...';
+
+            // Get CSRF token
+            const csrfToken = frappe.csrf_token ||
+                             window.csrf_token ||
+                             document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
+                             '';
+
+            fetch('/api/method/verenigingen.api.chapter_join.join_chapter', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Frappe-CSRF-Token': csrfToken
+                },
+                credentials: 'same-origin',
+                body: JSON.stringify({
+                    chapter_name: chapterName,
+                    introduction: 'Joining via member portal'
+                })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(err => {
+                        throw new Error(err.exc || err.message || 'Failed to submit request');
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('API Response:', data);
+                if (data.message && data.message.success) {
+                    // Show success message from API
+                    alert(data.message.message || 'Your request to join ' + chapterName + ' has been submitted for approval.');
+                    // Reload the page to refresh the chapter list
+                    loadChapters();
+                } else {
+                    // Handle error response - check both Frappe wrapped format and direct format
+                    console.log('Error response data:', data);
+                    const errorMsg = (data.message && data.message.error) || data.error || data.exc || 'Failed to submit request';
+                    throw new Error(errorMsg);
+                }
+            })
+            .catch(error => {
+                console.error('Error joining chapter:', error);
+                alert('Failed to submit join request: ' + error.message);
+                // Reset button
+                button.disabled = false;
+                button.textContent = originalText;
+            });
+        }
+    </script>
+{% endblock %}

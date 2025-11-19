@@ -1,0 +1,27 @@
+<h3>🚨 Stuck Dues Schedules Detected</h3>
+<p>The daily check has found <strong>{{ truly_stuck_count }}</strong> stuck dues schedule(s) that need immediate attention.</p>
+
+<h4>Affected Members:</h4>
+<ul>
+{% for schedule in truly_stuck %}
+    <li>
+        <strong>{{ schedule.member_name }}</strong> (ID: {{ schedule.member }})
+        <ul>
+            <li>Schedule: {{ schedule.name }}</li>
+            <li>Stuck Date: {{ schedule.next_invoice_date }}</li>
+            <li>Dues Rate: €{{ schedule.dues_rate }}</li>
+            <li>Customer: {{ schedule.customer or 'Not linked' }}</li>
+        </ul>
+    </li>
+{% endfor %}
+</ul>
+
+<p><strong>Issue:</strong> These schedules have their next_invoice_date and last_invoice_date
+set to the same value, but no invoice exists for that date. This prevents new invoices from being generated.</p>
+
+<p><strong>Action Required:</strong> Use the fix_stuck_schedule function to repair these schedules:</p>
+<code>
+bench --site dev.veganisme.net execute "verenigingen.api.fix_stuck_dues_schedule.fix_stuck_schedule" --args '["SCHEDULE_NAME"]'
+</code>
+
+<p><em>This check runs daily. If no action is taken, members will not receive their dues invoices.</em></p>

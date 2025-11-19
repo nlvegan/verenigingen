@@ -1,0 +1,31 @@
+[pre_model_sync]
+# Patches added in this section will be executed before doctypes are migrated
+# Read docs to understand patches: https://frappeframework.com/docs/v14/user/en/database-migrations
+verenigingen.patches.v1_0.create_eboekhouden_fields
+
+[post_model_sync]
+# Patches added in this section will be executed after doctypes are migrated
+verenigingen.patches.migrate_contribution_amendment_request
+verenigingen.patches.migrate_contribution_amendment_request_v2
+verenigingen.patches.v1_0.cleanup_workspaces
+verenigingen.patches.fix_onboarding_visibility
+verenigingen.patches.add_national_board_member_role
+verenigingen.patches.v1_0.add_membership_analytics
+verenigingen.patches.remove_unique_constraint_member_dues_schedule
+verenigingen.patches.rename_amount_to_dues_rate
+verenigingen.patches.v2_0.add_workflow_demo_to_workspace
+verenigingen.patches.v2_0.migrate_membership_type_billing_to_dues_schedule
+verenigingen.patches.add_customer_member_link_field
+verenigingen.patches.v2_0.remove_membership_legacy_fields
+verenigingen.patches.v2_0.standardize_donation_field_names
+verenigingen.patches.v2_0.add_donor_auto_creation_fields
+verenigingen.patches.v2_0.migrate_team_role_integration
+verenigingen.patches.v2_1.cleanup_duplicate_dues_schedule_templates
+verenigingen.patches.v2_1.configure_age_validation_settings
+verenigingen.patches.v2_1.clear_deprecated_retry_queue
+verenigingen.patches.v2_1.add_bank_transaction_reference_unique_index
+verenigingen.patches.v15_0.add_chapter_performance_indexes
+verenigingen.patches.v15_0.add_member_performance_indexes
+verenigingen.patches.v15_0.add_volunteer_performance_indexes
+verenigingen.patches.v15_0.add_team_performance_indexes
+verenigingen.patches.v1_0.enable_chapter_notifications_for_existing_installations

@@ -1,0 +1,638 @@
+{% extends "templates/web.html" %}
+
+{% block title %}Mollie Member Reconciliation{% endblock %}
+
+{% block page_content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-12">
+            <h2>Mollie Member Reconciliation</h2>
+            <p class="text-muted">
+                Member-centric view of Mollie subscription data. Only shows membership dues subscriptions.
+            </p>
+
+            <div id="status-messages" class="mb-3"></div>
+
+            <div class="card mb-3">
+                <div class="card-body">
+                    <button id="run-reconciliation" class="btn btn-primary">
+                        <i class="fa fa-refresh"></i> Load Reconciliation Data
+                    </button>
+                    <button id="run-mandate-sync" class="btn btn-secondary ml-2">
+                        <i class="fa fa-link"></i> Sync Mandate IDs
+                    </button>
+                    <div id="progress-bar" class="progress mt-3" style="display: none;">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated"
+                             role="progressbar"
+                             style="width: 0%"
+                             id="progress-indicator">
+                        </div>
+                    </div>
+                    <div id="progress-message" class="mt-2 text-muted"></div>
+                </div>
+            </div>
+
+            <div id="filter-section" class="card mb-3" style="display: none;">
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <label class="form-check-label">
+                                <input type="checkbox" id="filter-issues" class="form-check-input" checked>
+                                Show Only Members with Issues
+                            </label>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-check-label">
+                                <input type="checkbox" id="filter-active" class="form-check-input">
+                                Show Only Active Members
+                            </label>
+                        </div>
+                        <div class="col-md-4">
+                            <input type="text" id="search-box" class="form-control" placeholder="Search by name...">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="summary-section" style="display: none;"></div>
+
+            <div id="results-section" class="mt-4" style="display: none;">
+                <div id="member-list"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.member-card {
+    border-left: 4px solid #17a2b8;
+    margin-bottom: 1rem;
+}
+
+.member-card.has-issues {
+    border-left-color: #dc3545;
+}
+
+.subscription-badge {
+    font-size: 0.875rem;
+    margin-right: 0.5rem;
+}
+
+.discrepancy-alert {
+    background-color: #fff3cd;
+    border: 1px solid #ffc107;
+    padding: 0.75rem;
+    border-radius: 0.25rem;
+    margin-top: 0.5rem;
+}
+
+.subscription-list {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.subscription-item {
+    padding: 0.5rem;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.subscription-item:last-child {
+    border-bottom: none;
+}
+
+.update-buttons {
+    margin-top: 1rem;
+}
+</style>
+
+<script>
+let allMemberData = [];
+let testMode = false;
+
+// HTML escaping function to prevent XSS
+function escapeHtml(unsafe) {
+    if (!unsafe) return '';
+    return String(unsafe)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+document.getElementById('run-reconciliation').addEventListener('click', runReconciliation);
+document.getElementById('run-mandate-sync').addEventListener('click', runMandateSync);
+document.getElementById('filter-issues').addEventListener('change', applyFilters);
+document.getElementById('filter-active').addEventListener('change', applyFilters);
+document.getElementById('search-box').addEventListener('input', applyFilters);
+
+// Listen for realtime progress updates (wait for frappe.realtime to be ready)
+frappe.ready(() => {
+    if (frappe.realtime) {
+        frappe.realtime.on('reconciliation_progress', (data) => {
+            const progressBar = document.getElementById('progress-indicator');
+            const progressMessage = document.getElementById('progress-message');
+
+            progressBar.style.width = data.progress + '%';
+            progressMessage.textContent = data.message;
+        });
+    }
+});
+
+function runMandateSync() {
+    const statusDiv = document.getElementById('status-messages');
+
+    // Ask user if they want dry run or live run
+    frappe.confirm(
+        'Run Mandate Sync in DRY RUN mode (recommended first)?<br><br>' +
+        '<strong>DRY RUN:</strong> Shows what would be done without making changes<br>' +
+        '<strong>LIVE RUN:</strong> Actually updates Member records',
+        function() {
+            // Dry run
+            executeMandateSync(true);
+        },
+        function() {
+            // Live run
+            frappe.confirm(
+                'Are you sure you want to run LIVE mode and update Member records?',
+                function() {
+                    executeMandateSync(false);
+                },
+                function() {
+                    // Cancelled
+                    statusDiv.innerHTML = '<div class="alert alert-info">Mandate sync cancelled.</div>';
+                }
+            );
+        }
+    );
+}
+
+function executeMandateSync(dryRun) {
+    const statusDiv = document.getElementById('status-messages');
+    const mode = dryRun ? 'DRY RUN' : 'LIVE RUN';
+
+    statusDiv.innerHTML = `<div class="alert alert-info">Running mandate sync (${mode})...</div>`;
+
+    frappe.call({
+        method: 'verenigingen.utils.admin_utilities.mandate_sync_utility.run_mandate_sync',
+        args: {
+            dry_run: dryRun
+        },
+        callback: function(r) {
+            if (r.message && r.message.summary) {
+                const summary = r.message.summary;
+                const verb = dryRun ? 'Would Update' : 'Updated';
+
+                statusDiv.innerHTML = `
+                    <div class="alert alert-success">
+                        <h5>Mandate Sync Complete (${mode})</h5>
+                        <ul>
+                            <li><strong>${verb}:</strong> ${summary.updated} members</li>
+                            <li>Already Set: ${summary.already_set} members</li>
+                            <li>No Mandates: ${summary.no_mandates} members</li>
+                            <li>Multiple Mandates (Manual Review Needed): ${summary.multiple_mandates} members</li>
+                            <li>Invalid Mandates: ${summary.invalid_mandates} members</li>
+                            <li>Errors: ${summary.errors}</li>
+                        </ul>
+                        ${dryRun ? '<p><em>No changes were made. Run in LIVE mode to apply updates.</em></p>' : ''}
+                        <p><small>Report saved to private/files/</small></p>
+                    </div>
+                `;
+
+                // If we updated records, reload reconciliation data
+                if (!dryRun && summary.updated > 0) {
+                    frappe.show_alert({message: 'Reloading reconciliation data...', indicator: 'blue'});
+                    setTimeout(runReconciliation, 2000);
+                }
+            } else {
+                statusDiv.innerHTML = `
+                    <div class="alert alert-danger">
+                        Error running mandate sync: ${r.message ? r.message.error : 'Unknown error'}
+                    </div>`;
+            }
+        },
+        error: function(err) {
+            statusDiv.innerHTML = `
+                <div class="alert alert-danger">
+                    Request failed: ${err.message || 'Unknown error'}
+                </div>`;
+        }
+    });
+}
+
+function runReconciliation() {
+    const progressContainer = document.getElementById('progress-bar');
+    const progressBar = document.getElementById('progress-indicator');
+    const progressMessage = document.getElementById('progress-message');
+    const statusDiv = document.getElementById('status-messages');
+
+    progressContainer.style.display = 'block';
+    progressBar.style.width = '0%';
+    progressMessage.textContent = 'Starting reconciliation...';
+    statusDiv.innerHTML = '<div class="alert alert-info">Running reconciliation...</div>';
+
+    frappe.call({
+        method: 'verenigingen.www.mollie_member_reconciliation.get_member_reconciliation_data',
+        callback: function(r) {
+            if (r.message && r.message.success) {
+                allMemberData = r.message.members;
+                testMode = r.message.test_mode;
+
+                displaySummary(r.message);
+                displayMembers(allMemberData);
+
+                document.getElementById('filter-section').style.display = 'block';
+                document.getElementById('results-section').style.display = 'block';
+
+                statusDiv.innerHTML = `
+                    <div class="alert alert-success">
+                        Reconciliation complete! Found ${r.message.total_members} members with Mollie data.
+                        ${testMode ? '<strong>Using TEST mode data</strong>' : ''}
+                    </div>`;
+            } else {
+                statusDiv.innerHTML = `
+                    <div class="alert alert-danger">
+                        Error: ${r.message ? r.message.error : 'Unknown error occurred'}
+                    </div>`;
+            }
+
+            progressContainer.style.display = 'none';
+        },
+        error: function(err) {
+            statusDiv.innerHTML = `
+                <div class="alert alert-danger">
+                    Request failed: ${err.message || 'Unknown error'}
+                </div>`;
+            progressContainer.style.display = 'none';
+        }
+    });
+}
+
+function displaySummary(data) {
+    const summaryDiv = document.getElementById('summary-section');
+    const membersWithIssues = data.members.filter(m => m.has_issues).length;
+    const membersWithFixableSuggestions = data.members.filter(m =>
+        m.has_issues && (m.suggested_subscription_id || m.suggested_status)
+    ).length;
+
+    summaryDiv.innerHTML = `
+        <div class="card mb-3">
+            <div class="card-header bg-info text-white">
+                <h5>Summary</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3">
+                        <strong>Total Members:</strong> ${data.total_members}
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Members with Issues:</strong> <span class="badge badge-danger">${membersWithIssues}</span>
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Dues Keywords:</strong> ${data.dues_keywords.join(', ')}
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Mode:</strong> <span class="badge badge-${testMode ? 'warning' : 'success'}">${testMode ? 'TEST' : 'LIVE'}</span>
+                    </div>
+                </div>
+                ${membersWithFixableSuggestions > 0 ? `
+                <div class="row mt-3">
+                    <div class="col-md-12">
+                        <button class="btn btn-warning" onclick="applyAllQuickFixes()">
+                            <i class="fa fa-magic"></i> Apply Quick Fix to All ${membersWithFixableSuggestions} Members with Suggestions
+                        </button>
+                        <small class="text-muted ml-2">This will fix members one by one (no parallel API calls)</small>
+                    </div>
+                </div>
+                ` : ''}
+            </div>
+        </div>`;
+
+    summaryDiv.style.display = 'block';
+}
+
+function applyFilters() {
+    const showOnlyIssues = document.getElementById('filter-issues').checked;
+    const showOnlyActive = document.getElementById('filter-active').checked;
+    const searchTerm = document.getElementById('search-box').value.toLowerCase();
+
+    let filtered = allMemberData;
+
+    if (showOnlyIssues) {
+        filtered = filtered.filter(m => m.has_issues);
+    }
+
+    if (showOnlyActive) {
+        filtered = filtered.filter(m => m.member_status === 'Active');
+    }
+
+    if (searchTerm) {
+        filtered = filtered.filter(m =>
+            (m.member_name && m.member_name.toLowerCase().includes(searchTerm)) ||
+            (m.member_id && m.member_id.toLowerCase().includes(searchTerm))
+        );
+    }
+
+    displayMembers(filtered);
+}
+
+function displayMembers(members) {
+    const listDiv = document.getElementById('member-list');
+
+    if (members.length === 0) {
+        listDiv.innerHTML = '<div class="alert alert-info">No members match the current filters.</div>';
+        return;
+    }
+
+    let html = '';
+
+    members.forEach(member => {
+        const cardClass = member.has_issues ? 'member-card has-issues' : 'member-card';
+
+        html += `
+            <div class="card ${cardClass}">
+                <div class="card-header">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h5>
+                                <a href="/app/member/${member.member_id}" target="_blank">
+                                    ${member.member_name}
+                                </a>
+                                <span class="badge badge-${getStatusBadgeClass(member.member_status)}">${member.member_status}</span>
+                            </h5>
+                            <small class="text-muted">ID: ${member.member_id} | Customer: ${member.customer_id}</small>
+                        </div>
+                        <div class="col-md-6 text-right">
+                            ${member.has_issues ? '<span class="badge badge-danger">Has Issues</span>' : '<span class="badge badge-success">OK</span>'}
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6>Current Database Fields</h6>
+                            <ul class="list-unstyled">
+                                <li><strong>Subscription Status:</strong> ${member.current_subscription_status || 'None'}</li>
+                                <li><strong>Subscription ID:</strong> <code>${member.current_subscription_id || 'None'}</code></li>
+                                <li><strong>Next Payment:</strong> ${member.current_next_payment_date || 'None'}</li>
+                            </ul>
+                        </div>
+                        <div class="col-md-6">
+                            <h6>Mollie Data</h6>
+                            <p>
+                                <span class="subscription-badge badge badge-success">${member.active_subscriptions.length} Active</span>
+                                <span class="subscription-badge badge badge-secondary">${member.inactive_subscriptions.length} Inactive</span>
+                            </p>
+                        </div>
+                    </div>
+
+                    ${member.discrepancies.length > 0 ? `
+                        <div class="discrepancy-alert">
+                            <strong>⚠️ Issues Found:</strong>
+                            <ul class="mb-0">
+                                ${member.discrepancies.map(d => `<li>${d}</li>`).join('')}
+                            </ul>
+                        </div>
+                    ` : ''}
+
+                    <div class="row mt-3">
+                        <div class="col-md-6">
+                            <h6>Active Subscriptions</h6>
+                            <div class="subscription-list">
+                                ${renderSubscriptions(member.active_subscriptions, true)}
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <h6>Inactive Subscriptions</h6>
+                            <div class="subscription-list">
+                                ${renderSubscriptions(member.inactive_subscriptions, false)}
+                            </div>
+                        </div>
+                    </div>
+
+                    ${member.suggested_subscription_id || member.suggested_status ? `
+                        <div class="update-buttons">
+                            <strong>Suggested Fix:</strong>
+                            <button class="btn btn-sm btn-warning" onclick="applyQuickFix('${escapeHtml(member.member_id)}', '${escapeHtml(member.suggested_subscription_id || '')}', '${escapeHtml(member.suggested_status || '')}', '${escapeHtml(member.suggested_next_invoice_date || '')}')">
+                                <i class="fa fa-magic"></i> Apply Quick Fix
+                            </button>
+                            <small class="text-muted ml-2">
+                                Will set: ${member.suggested_subscription_id ? `subscription_id=${escapeHtml(member.suggested_subscription_id)}` : ''}
+                                ${member.suggested_status ? ` status=${escapeHtml(member.suggested_status)}` : ''}
+                                ${member.suggested_next_invoice_date ? ` next_invoice=${escapeHtml(member.suggested_next_invoice_date)}` : ''}
+                            </small>
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+    });
+
+    listDiv.innerHTML = html;
+}
+
+function renderSubscriptions(subscriptions, isActive) {
+    if (subscriptions.length === 0) {
+        return '<p class="text-muted">None</p>';
+    }
+
+    return subscriptions.map(sub => `
+        <div class="subscription-item">
+            <div><strong>${sub.description}</strong></div>
+            <div><small>ID: <code>${sub.subscription_id}</code></small></div>
+            <div>
+                <span class="badge badge-${sub.status === 'active' ? 'success' : 'secondary'}">${sub.status}</span>
+                <span class="badge badge-light">€${sub.amount}</span>
+                <span class="badge badge-light">${sub.interval}</span>
+            </div>
+            ${sub.next_payment_date ? `<div><small>Next: ${sub.next_payment_date}</small></div>` : ''}
+            ${sub.cancelled_at ? `<div><small>Cancelled: ${sub.cancelled_at}</small></div>` : ''}
+            ${isActive ? `
+                <button class="btn btn-xs btn-primary mt-1" onclick="setMemberSubscription('${sub.subscription_id}')">
+                    Set as Current
+                </button>
+            ` : ''}
+        </div>
+    `).join('');
+}
+
+function getStatusBadgeClass(status) {
+    const statusMap = {
+        'Active': 'success',
+        'Terminated': 'danger',
+        'Pending': 'warning',
+        'Suspended': 'secondary'
+    };
+    return statusMap[status] || 'secondary';
+}
+
+function applyQuickFix(memberId, subscriptionId, status, nextInvoiceDate) {
+    if (!confirm(`Apply suggested fix to member ${memberId}?`)) {
+        return;
+    }
+
+    frappe.call({
+        method: 'verenigingen.www.mollie_member_reconciliation.update_member_mollie_fields',
+        args: {
+            member_id: memberId,
+            mollie_subscription_id: subscriptionId || null,
+            subscription_status: status || null,
+            mollie_subscription_next_invoice_date: nextInvoiceDate || null
+        },
+        callback: function(r) {
+            if (r.message && r.message.success) {
+                frappe.show_alert({message: r.message.message, indicator: 'green'});
+                // Update just this member's data in place (no full reload/API call needed)
+                updateMemberInPlace(r.message.updated_member);
+            } else {
+                frappe.show_alert({message: 'Update failed: ' + (r.message ? r.message.error : 'Unknown error'), indicator: 'red'});
+            }
+        }
+    });
+}
+
+function updateMemberInPlace(updatedMember) {
+    // Find the member in our current data and update their values
+    const member = allMemberData.find(m => m.member_id === updatedMember.member_id);
+    if (member) {
+        // Update the member's current values
+        member.current_subscription_status = updatedMember.current_subscription_status;
+        member.current_subscription_id = updatedMember.current_subscription_id;
+        member.current_next_payment_date = updatedMember.current_next_payment_date;
+        member.current_mollie_next_invoice_date = updatedMember.current_mollie_next_invoice_date;
+
+        // Recalculate discrepancies
+        const discrepancies = [];
+        const activeSubs = member.active_subscriptions || [];
+
+        if (activeSubs.length === 0 && ['active', 'pending'].includes(member.current_subscription_status)) {
+            discrepancies.push("Member claims active subscription but no active subscription in Mollie");
+        } else if (activeSubs.length === 1) {
+            const activeSub = activeSubs[0];
+            if (member.current_subscription_id !== activeSub.subscription_id) {
+                discrepancies.push(`Member subscription ID doesn't match Mollie (${member.current_subscription_id} vs ${activeSub.subscription_id})`);
+            }
+            if (member.current_subscription_status !== activeSub.status) {
+                discrepancies.push(`Status mismatch (${member.current_subscription_status} vs ${activeSub.status})`);
+            }
+        }
+
+        member.discrepancies = discrepancies;
+        member.has_issues = discrepancies.length > 0;
+
+        // Re-render the display with updated data
+        displayMembers(allMemberData);
+    }
+}
+
+function setMemberSubscription(subscriptionId) {
+    // This would need the member ID - would need to adjust the rendering to include it
+    frappe.show_alert({message: 'Feature coming soon', indicator: 'blue'});
+}
+
+async function applyAllQuickFixes() {
+    // Get all members with fixable suggestions
+    const fixableMembers = allMemberData.filter(m =>
+        m.has_issues && (m.suggested_subscription_id || m.suggested_status)
+    );
+
+    if (fixableMembers.length === 0) {
+        frappe.show_alert({message: 'No members with fixable suggestions found', indicator: 'orange'});
+        return;
+    }
+
+    // Confirm with user
+    const confirmMsg = `This will apply quick fixes to ${fixableMembers.length} members.\n\n` +
+        `Fixes will be applied one by one (no parallel API calls).\n\n` +
+        `Continue?`;
+
+    if (!confirm(confirmMsg)) {
+        return;
+    }
+
+    // Create progress dialog
+    const statusDiv = document.getElementById('status-messages');
+    let successCount = 0;
+    let failureCount = 0;
+    let skippedCount = 0;
+
+    statusDiv.innerHTML = `
+        <div class="alert alert-info">
+            <strong>Applying bulk fixes...</strong><br>
+            Progress: <span id="bulk-progress">0</span> / ${fixableMembers.length}<br>
+            <span id="bulk-status">Starting...</span>
+        </div>`;
+
+    // Process members sequentially
+    for (let i = 0; i < fixableMembers.length; i++) {
+        const member = fixableMembers[i];
+        const progressSpan = document.getElementById('bulk-progress');
+        const statusSpan = document.getElementById('bulk-status');
+
+        if (progressSpan) progressSpan.textContent = i + 1;
+        if (statusSpan) statusSpan.textContent = `Processing ${member.member_name}...`;
+
+        try {
+            const result = await applyQuickFixAsync(
+                member.member_id,
+                member.suggested_subscription_id,
+                member.suggested_status,
+                member.suggested_next_invoice_date
+            );
+
+            if (result.success) {
+                successCount++;
+                // Update member in place
+                updateMemberInPlace(result.updated_member);
+            } else {
+                failureCount++;
+            }
+        } catch (error) {
+            failureCount++;
+            console.error(`Failed to fix ${member.member_id}:`, error);
+        }
+
+        // Small delay to avoid overwhelming the server
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    // Show final results
+    statusDiv.innerHTML = `
+        <div class="alert alert-success">
+            <strong>Bulk fix complete!</strong><br>
+            ✅ Success: ${successCount}<br>
+            ❌ Failed: ${failureCount}<br>
+            Total: ${fixableMembers.length}
+        </div>`;
+
+    frappe.show_alert({
+        message: `Bulk fix complete: ${successCount} success, ${failureCount} failed`,
+        indicator: successCount > failureCount ? 'green' : 'orange'
+    });
+}
+
+function applyQuickFixAsync(memberId, subscriptionId, status, nextInvoiceDate) {
+    return new Promise((resolve, reject) => {
+        frappe.call({
+            method: 'verenigingen.www.mollie_member_reconciliation.update_member_mollie_fields',
+            args: {
+                member_id: memberId,
+                mollie_subscription_id: subscriptionId || null,
+                subscription_status: status || null,
+                mollie_subscription_next_invoice_date: nextInvoiceDate || null
+            },
+            callback: function(r) {
+                if (r.message && r.message.success) {
+                    resolve(r.message);
+                } else {
+                    reject(new Error(r.message ? r.message.error : 'Unknown error'));
+                }
+            },
+            error: function(err) {
+                reject(err);
+            }
+        });
+    });
+}
+</script>
+{% endblock %}
