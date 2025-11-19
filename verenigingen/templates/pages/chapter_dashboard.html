@@ -196,13 +196,9 @@
                                             </div>
                                             {% if user_board_role and user_board_role.permissions.can_approve_members %}
                                                 <div class="flex gap-2 flex-shrink-0">
-                                                    <button class="inline-flex items-center justify-center px-2 py-1 text-xs rounded-lg font-medium bg-green-600 text-white hover:bg-green-700 shadow-sm"
-                                                            onclick="approveMember('{{ app.member }}')">
-                                                        Approve
-                                                    </button>
-                                                    <button class="inline-flex items-center justify-center px-2 py-1 text-xs rounded-lg font-medium bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 shadow-sm"
+                                                    <button class="inline-flex items-center justify-center px-3 py-2 text-sm rounded-lg font-semibold bg-primary-600 text-white hover:bg-primary-700 shadow-md hover:shadow-lg transition-all"
                                                             onclick="reviewMember('{{ app.member }}')">
-                                                        Review
+                                                        <i class="fa fa-eye mr-1"></i> Review Application
                                                     </button>
                                                 </div>
                                             {% endif %}

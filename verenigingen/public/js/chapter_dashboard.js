@@ -214,8 +214,7 @@ function showPendingApplications() {
 
 			if (userPermissions.can_approve_members) {
 				html += '<div class="app-actions">';
-				html += `<button class="btn btn-success btn-sm" onclick="approveMember('${app.member}')">Approve</button>`;
-				html += `<button class="btn btn-default btn-sm" onclick="reviewMember('${app.member}')">Review</button>`;
+				html += `<button class="btn btn-primary btn-sm" onclick="reviewMember('${app.member}')"><i class="fa fa-eye"></i> Review Application</button>`;
 				html += '</div>';
 			}
 			html += '</div>';
