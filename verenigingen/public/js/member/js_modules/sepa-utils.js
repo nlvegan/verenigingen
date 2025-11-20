@@ -283,12 +283,11 @@ function create_sepa_mandate_with_dialog(frm, message = null) {
 				// Fallback to server-side BIC derivation
 				if (!d.get_value('bic')) {
 					frappe.call({
-						method:
-              'verenigingen.verenigingen.doctype.member.member.derive_bic_from_iban',
+						method: 'verenigingen.services.payment.validation_service.validate_bank_details_api',
 						args: { iban },
 						callback(r) {
-							if (r.message && r.message.bic) {
-								d.set_value('bic', r.message.bic);
+							if (r.message && r.message.valid && r.message.data && r.message.data.bic) {
+								d.set_value('bic', r.message.data.bic);
 							}
 						}
 					});

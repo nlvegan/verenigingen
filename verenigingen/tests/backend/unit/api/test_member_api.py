@@ -71,7 +71,7 @@ class TestMemberWhitelistMethods(VereningingenTestCase):
 
         # Test via API call (simulating JavaScript)
         customer_name = frappe.call(
-            "verenigingen.verenigingen.doctype.member.member.Member.create_customer", doc=member.as_dict()
+            "verenigingen.verenigingen.doctype.member.member.create_customer", doc=member.as_dict()
         )
 
         # Verify customer was created
@@ -96,7 +96,7 @@ class TestMemberWhitelistMethods(VereningingenTestCase):
 
         # Test via API call
         user_name = frappe.call(
-            "verenigingen.verenigingen.doctype.member.member.Member.create_user", doc=member.as_dict()
+            "verenigingen.verenigingen.doctype.member.member.create_user", doc=member.as_dict()
         )
 
         # Verify user was created
@@ -137,7 +137,7 @@ class TestMemberWhitelistMethods(VereningingenTestCase):
 
         # Test via API call
         active_mandate = frappe.call(
-            "verenigingen.verenigingen.doctype.member.member.Member.get_active_sepa_mandate",
+            "verenigingen.verenigingen.doctype.member.member.get_active_sepa_mandate",
             doc=member.as_dict(),
         )
 
@@ -184,7 +184,7 @@ class TestMemberWhitelistMethods(VereningingenTestCase):
 
         # Test via API call
         donations = frappe.call(
-            "verenigingen.verenigingen.doctype.member.member.Member.get_linked_donations",
+            "verenigingen.verenigingen.doctype.member.member.get_linked_donations",
             doc=member.as_dict(),
         )
 
@@ -209,7 +209,7 @@ class TestMemberWhitelistMethods(VereningingenTestCase):
 
         # Test via API call
         fee = frappe.call(
-            "verenigingen.verenigingen.doctype.member.member.Member.get_current_membership_fee",
+            "verenigingen.verenigingen.doctype.member.member.get_current_membership_fee",
             doc=member.as_dict(),
         )
 
@@ -226,7 +226,7 @@ class TestMemberWhitelistMethods(VereningingenTestCase):
 
         # Test via API call
         display_fee = frappe.call(
-            "verenigingen.verenigingen.doctype.member.member.Member.get_display_membership_fee",
+            "verenigingen.verenigingen.doctype.member.member.get_display_membership_fee",
             doc=member.as_dict(),
         )
 
@@ -243,7 +243,7 @@ class TestMemberWhitelistMethods(VereningingenTestCase):
 
         # Test via API call
         result = frappe.call(
-            "verenigingen.verenigingen.doctype.member.member.Member.reject_application",
+            "verenigingen.verenigingen.doctype.member.member.reject_application",
             doc=member.as_dict(),
             rejection_reason="Incomplete documentation",
         )
@@ -272,7 +272,7 @@ class TestMemberWhitelistMethods(VereningingenTestCase):
 
         # Test via API call
         result = frappe.call(
-            "verenigingen.verenigingen.doctype.member.member.Member.update_membership_duration",
+            "verenigingen.verenigingen.doctype.member.member.update_membership_duration",
             doc=member.as_dict(),
         )
 
@@ -292,7 +292,7 @@ class TestMemberWhitelistMethods(VereningingenTestCase):
 
         # Test via API call
         member_id = frappe.call(
-            "verenigingen.verenigingen.doctype.member.member.Member.ensure_member_id", doc=member.as_dict()
+            "verenigingen.verenigingen.doctype.member.member.ensure_member_id", doc=member.as_dict()
         )
 
         # Verify member_id assigned
@@ -322,7 +322,7 @@ class TestMemberWhitelistMethods(VereningingenTestCase):
 
         # Test via API call
         html = frappe.call(
-            "verenigingen.verenigingen.doctype.member.member.Member.get_address_members_html",
+            "verenigingen.verenigingen.doctype.member.member.get_address_members_html",
             doc=member2.as_dict(),
         )
 
@@ -404,7 +404,7 @@ class TestMemberWhitelistMethods(VereningingenTestCase):
 
         # Test getting current dues schedule details
         details = frappe.call(
-            "verenigingen.verenigingen.doctype.member.member.Member.get_current_dues_schedule_details",
+            "verenigingen.verenigingen.doctype.member.member.get_current_dues_schedule_details",
             doc=member.as_dict(),
         )
 
@@ -524,7 +524,7 @@ class TestMemberWhitelistMethods(VereningingenTestCase):
             # Should not be able to create customer without permissions
             with self.assertRaises(frappe.PermissionError):
                 frappe.call(
-                    "verenigingen.verenigingen.doctype.member.member.Member.create_customer",
+                    "verenigingen.verenigingen.doctype.member.member.create_customer",
                     doc=member.as_dict(),
                 )
 
@@ -559,7 +559,7 @@ class TestMemberWhitelistMethods(VereningingenTestCase):
         # Should handle duplicate email gracefully
         with self.assertRaises(Exception):
             frappe.call(
-                "verenigingen.verenigingen.doctype.member.member.Member.create_user", doc=member.as_dict()
+                "verenigingen.verenigingen.doctype.member.member.create_user", doc=member.as_dict()
             )
 
     def test_data_integrity(self):
@@ -589,11 +589,11 @@ class TestMemberWhitelistMethods(VereningingenTestCase):
 
         # Test customer creation idempotency
         customer1 = frappe.call(
-            "verenigingen.verenigingen.doctype.member.member.Member.create_customer", doc=member.as_dict()
+            "verenigingen.verenigingen.doctype.member.member.create_customer", doc=member.as_dict()
         )
 
         customer2 = frappe.call(
-            "verenigingen.verenigingen.doctype.member.member.Member.create_customer", doc=member.as_dict()
+            "verenigingen.verenigingen.doctype.member.member.create_customer", doc=member.as_dict()
         )
 
         # Should return same customer

@@ -2,6 +2,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, formatdate, today
 
+from verenigingen.utils.employee_user_link import create_employee_for_approved_volunteer
 from verenigingen.utils.member_utils import get_current_user_member_name, get_volunteer_for_current_user
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import high_security_api, standard_api
@@ -635,7 +636,7 @@ def submit_expense(expense_data=None, additional_expenses=None):
                 frappe.logger().info(
                     f"Creating employee record for volunteer {volunteer_doc.name} during expense submission"
                 )
-                employee_id = volunteer_doc.create_minimal_employee()
+                employee_id = create_employee_for_approved_volunteer(volunteer_doc)
                 if employee_id:
                     frappe.logger().info(
                         f"Successfully created employee {employee_id} for volunteer {volunteer_doc.name}"
@@ -1229,7 +1230,6 @@ def submit_multiple_expenses(expenses):
                 ).format(user_email)
             return {"success": False, "message": error_msg}
 
-        created_expenses = []
         errors = []
         total_amount = 0
 

@@ -1611,11 +1611,16 @@ class EnhancedTestCase(FrappeTestCase):
         except Exception:
             pass  # Continue cleanup even if rate limit patch cleanup fails
 
-        # NOTE: We do NOT call frappe.db.rollback() here because:
-        # 1. Frappe's test framework handles rollback at the CLASS level (not method level)
-        # 2. Rolling back here would delete setUp() fixtures needed by other test methods
-        # 3. Test isolation should be ensured by using unique IDs per test method
-        # 4. The class-level rollback in setUpClass cleanup is sufficient
+        # IMPLEMENT PER-METHOD ROLLBACK (as documented above)
+        # This is critical for test isolation - prevents User/Customer duplicate entries
+        try:
+            # Rollback any uncommitted changes from this test method
+            frappe.db.rollback()
+            # Note: Explicitly committed data (via frappe.db.commit() in production code)
+            # will NOT be rolled back - see account_creation_manager.py lines 1170, 1452
+            # Those require additional cleanup or commit-skipping during tests
+        except Exception as e:
+            frappe.logger().warning(f"Rollback failed in tearDown: {e}")
 
         super().tearDown()
 

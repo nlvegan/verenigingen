@@ -250,10 +250,10 @@ def fix_existing_employee_user_links():
 
 
 def enhanced_create_minimal_employee(volunteer_doc):
-    """Enhanced version of create_minimal_employee that includes user creation"""
+    """Enhanced version of employee creation that includes user creation"""
     try:
-        # First create the employee using the existing method
-        employee_id = volunteer_doc.create_minimal_employee()
+        # First create the employee using the secure method
+        employee_id = create_employee_for_approved_volunteer(volunteer_doc)
 
         if employee_id and volunteer_doc.email:
             # Create or link user

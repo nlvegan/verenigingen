@@ -19,11 +19,14 @@ Created: 2025-09-18
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import frappe
 from frappe import _
 from frappe.utils import now_datetime, today
+
+if TYPE_CHECKING:
+    from frappe.model.document import Document
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +43,7 @@ class MemberLifecycleService:
         """Initialize the Member Lifecycle Service"""
         pass
 
-    def approve_application(self, member) -> Dict[str, Any]:
+    def approve_application(self, member: "Document") -> Dict[str, Any]:
         """
         Validate application and assign member_id.
 
@@ -51,7 +54,7 @@ class MemberLifecycleService:
             member: Member document to approve
 
         Returns:
-            Dict containing success status, member_id, and any errors
+            Dict[str, Any]: Dictionary containing success status, member_id, and any errors
         """
         try:
             # Validate pre-conditions
@@ -62,9 +65,12 @@ class MemberLifecycleService:
             # Assign member ID if needed (this is the only field this service should set)
             if not member.member_id:
                 member.member_id = member.generate_member_id()
-                # Save ONLY member_id field to avoid duplicate full saves
-                frappe.db.set_value("Member", member.name, "member_id", member.member_id)
-                frappe.db.commit()
+                # Use document API instead of direct database operations
+                # This ensures validation, hooks, and audit trail are maintained
+                member.flags.ignore_validate_update_after_submit = True
+                member.flags.ignore_mandatory = False  # Keep field validation
+                member.save()
+                # Framework handles commit automatically
 
             return {
                 "success": True,
@@ -80,7 +86,7 @@ class MemberLifecycleService:
                 "errors": [f"Application validation failed: {str(e)}"],
             }
 
-    def reject_application(self, member, reason: str) -> Dict[str, Any]:
+    def reject_application(self, member: "Document", reason: str) -> Dict[str, Any]:
         """
         Reject member application and clean up pending records.
 
@@ -89,7 +95,7 @@ class MemberLifecycleService:
             reason: Reason for rejection
 
         Returns:
-            Dict containing success status and any errors
+            Dict[str, Any]: Dictionary containing success status and any errors
         """
         try:
             # Validate pre-conditions
@@ -503,18 +509,15 @@ class MemberLifecycleService:
         return cleanup_results
 
     def _get_active_membership(self, member):
-        """Get active membership for member"""
-        try:
-            active_membership = frappe.get_all(
-                "Membership",
-                filters={"member": member.name, "renewal_date": [">=", today()], "docstatus": 1},
-                fields=["name", "membership_type"],
-                limit=1,
-            )
+        """
+        Get active membership for member - delegates to MemberMembershipService.
 
-            if active_membership:
-                return frappe.get_doc("Membership", active_membership[0].name)
-            return None
+        REFACTORED: Now uses MemberMembershipService for consistent membership queries.
+        """
+        try:
+            from verenigingen.services.member.core.member_membership_service import MemberMembershipService
+
+            return MemberMembershipService.get_active_membership_for_member_doc(member)
         except Exception:
             return None
 

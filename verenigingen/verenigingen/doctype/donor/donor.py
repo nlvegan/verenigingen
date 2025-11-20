@@ -206,7 +206,9 @@ class Donor(Document):
         import hashlib
 
         # Include fields that should trigger customer sync
-        sync_data = f"{self.donor_name}|{self.donor_email}|{getattr(self, 'phone', '')}"
+        email = self.donor_email or ""
+        phone = getattr(self, "phone", "") or ""
+        sync_data = f"{self.donor_name}|{email}|{phone}"
         # MD5 used for non-security purpose (change detection only)
         return hashlib.md5(sync_data.encode(), usedforsecurity=False).hexdigest()
 

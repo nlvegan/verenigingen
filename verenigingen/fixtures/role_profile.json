@@ -264,6 +264,9 @@
       },
       {
         "role": "Purchase Manager"
+      },
+      {
+        "role": "Projects User"
       }
     ]
   },

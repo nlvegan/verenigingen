@@ -364,8 +364,7 @@
   {
    "fieldname": "donor_email",
    "fieldtype": "Data",
-   "label": "Email",
-   "reqd": 1
+   "label": "Email"
   },
   {
    "fieldname": "connections_section",

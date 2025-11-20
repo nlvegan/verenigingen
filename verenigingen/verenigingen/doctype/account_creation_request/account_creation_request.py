@@ -44,10 +44,62 @@ class AccountCreationRequest(Document):
 
     def validate(self):
         """Validate account creation request"""
+        self.sanitize_inputs()
         self.validate_permissions()
         self.validate_email_uniqueness()
         self.validate_source_record()
         self.set_defaults()
+
+    def sanitize_inputs(self):
+        """Sanitize inputs to prevent XSS and SQL injection"""
+        import re
+
+        # List of dangerous patterns that indicate XSS attempts
+        xss_patterns = [
+            r"<script",
+            r"javascript:",
+            r"onerror=",
+            r"onload=",
+            r"onclick=",
+            r"<iframe",
+            r"<object",
+            r"<embed",
+        ]
+
+        # List of SQL injection patterns
+        sql_patterns = [
+            r"'.*OR.*'.*=.*'",  # ' OR '1'='1
+            r"';.*DROP.*TABLE",  # '; DROP TABLE
+            r"UNION.*SELECT",  # UNION SELECT attacks
+            r"--",  # SQL comments
+            r"/\*.*\*/",  # SQL block comments
+        ]
+
+        # Fields to sanitize
+        text_fields = ["full_name", "email", "source_record"]
+
+        for field in text_fields:
+            value = getattr(self, field, None)
+            if not value:
+                continue
+
+            # Check for XSS patterns
+            for pattern in xss_patterns:
+                if re.search(pattern, str(value), re.IGNORECASE):
+                    frappe.throw(
+                        _("Invalid input detected in {0}. HTML/JavaScript content is not allowed.").format(
+                            field
+                        ),
+                        frappe.ValidationError,
+                    )
+
+            # Check for SQL injection patterns
+            for pattern in sql_patterns:
+                if re.search(pattern, str(value), re.IGNORECASE):
+                    frappe.throw(
+                        _("Invalid input detected in {0}. SQL characters are not allowed.").format(field),
+                        frappe.ValidationError,
+                    )
 
     def before_insert(self):
         """Set audit fields before insertion"""
@@ -170,7 +222,14 @@ class AccountCreationRequest(Document):
 
     def can_request_role(self, role_name):
         """Check if current user can request assignment of this role"""
-        # System managers can assign any role
+        # Restrict System Manager role assignment - requires explicit role manager permission
+        if role_name == "System Manager":
+            # Only allow if user has explicit role manager permission
+            if frappe.has_permission("Role", "write"):
+                return True
+            raise frappe.PermissionError(_("Cannot assign System Manager role without Role write permission"))
+
+        # System managers can assign non-system-manager roles
         if "System Manager" in frappe.get_roles():
             return True
 
@@ -206,7 +265,10 @@ class AccountCreationRequest(Document):
             updates["processing_started_at"] = now()
 
         frappe.db.set_value(self.doctype, self.name, updates, update_modified=True)
-        frappe.db.commit()
+
+        # Commit changes (skip during tests for proper isolation)
+        if not frappe.flags.in_test:
+            frappe.db.commit()
 
         # Reload to get updated values
         self.reload()
@@ -250,7 +312,10 @@ class AccountCreationRequest(Document):
             },
             update_modified=True,
         )
-        frappe.db.commit()
+
+        # Commit changes (skip during tests for proper isolation)
+        if not frappe.flags.in_test:
+            frappe.db.commit()
 
         # Reload the document with fresh data
         self.reload()
@@ -305,6 +370,10 @@ class AccountCreationRequest(Document):
             for field, value in updates.items():
                 frappe.db.set_value(self.doctype, self.name, field, value, update_modified=True)
 
+            # ALWAYS commit completion status - even during tests for proper status validation
+            # This ensures test assertions can verify completion tracking
+            frappe.db.commit()
+
             # Reload to get updated values
             self.reload()
 
@@ -329,6 +398,10 @@ class AccountCreationRequest(Document):
             # Update database directly to avoid validation race conditions
             for field, value in updates.items():
                 frappe.db.set_value(self.doctype, self.name, field, value, update_modified=True)
+
+            # ALWAYS commit failure status - even during tests for proper error handling validation
+            # This ensures test assertions can verify failure tracking
+            frappe.db.commit()
 
             # Reload to get updated values
             self.reload()

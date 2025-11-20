@@ -333,17 +333,6 @@ class ContributionAmendmentRequest(Document):
 
         # Enhanced auto-approval logic - only after all validations pass
         if self.amendment_type == "Fee Change" and self.requested_amount and self.current_amount:
-            member = frappe.get_doc("Member", self.member)
-
-            # Get approval settings from Verenigingen Settings
-            settings = frappe.get_single("Verenigingen Settings")
-            auto_approve_increases = getattr(settings, "auto_approve_fee_increases", 1)
-            auto_approve_member_requests = getattr(settings, "auto_approve_member_requests", 1)
-            max_auto_approve_amount = getattr(settings, "max_auto_approve_amount", 1000)
-
-            # Check if this is a member self-request
-            is_member_request = frappe.session.user in (member.user, member.email)
-
             # Check if requested amount respects minimum fee requirements
             respects_minimum = self._check_respects_minimum_fee()
 
@@ -1376,8 +1365,10 @@ def create_fee_change_amendment(member_name, new_amount, reason, effective_date=
     """
     member = frappe.get_doc("Member", member_name)
 
-    # Get current active membership
-    membership = member.get_active_membership()
+    # Get current active membership using service
+    from verenigingen.services.member.core.member_membership_service import MemberMembershipService
+
+    membership = MemberMembershipService.get_active_membership(member_name)
     if not membership:
         frappe.throw(_("No active membership found for this member"))
 

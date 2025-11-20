@@ -585,42 +585,12 @@ class Member(
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.MEMBER_DATA)
     def get_address_members_html(self):
-        """Get HTML content for address members field - called from JavaScript"""
-        try:
-            if not self.primary_address:
-                return '<div class="text-muted"><i class="fa fa-home"></i> No address selected</div>'
+        """Get HTML content for address members field - delegates to MemberAddressDisplayService"""
+        from verenigingen.services.member.display.member_address_display_service import (
+            MemberAddressDisplayService,
+        )
 
-            # Get other members at the same address
-            other_members = self.get_other_members_at_address()
-
-            if other_members:
-                # Create HTML content for display
-                html_content = f'<div class="address-members-display"><h6>Other Members at This Address ({len(other_members)} found): </h6>'
-
-                for other in other_members:
-                    html_content += f"""
-                    <div class="member-card" style="border: 1px solid #ddd; padding: 8px; margin: 4px 0; border-radius: 4px; background: #f8f9fa;">
-                        <strong>{other.get("full_name", "Unknown")}</strong>
-                        <span class="text-muted">({other.get("name", "Unknown ID")})</span>
-                        <br><small class="text-muted">
-                            <i class="fa fa-users"></i> {other.get("relationship", "Unknown")} |
-                            <i class="fa fa-birthday-cake"></i> {other.get("age_group", "Unknown")} |
-                            <i class="fa fa-circle text-{self._get_status_color(other.get("status", "Unknown"))}"></i> {other.get("status", "Unknown")}
-                        </small>
-                        <br><small class="text-muted">
-                            <i class="fa fa-envelope"></i> {other.get("email", "Unknown")}
-                        </small>
-                    </div>
-                    """
-                html_content += "</div>"
-                return html_content
-            else:
-                # No other members found
-                return '<div class="text-muted"><i class="fa fa-info-circle"></i> No other members found at this address</div>'
-
-        except Exception as e:
-            frappe.log_error(f"Error loading address members for {self.name}: {str(e)}")
-            return f'<div class="text-danger"><i class="fa fa-exclamation-triangle"></i> Error loading member information: {str(e)}</div>'
+        return MemberAddressDisplayService.get_address_members_html(self)
 
     def _get_status_color(self, status):
         """Get Bootstrap color class for member status - delegated to member_status_service"""
@@ -1513,73 +1483,10 @@ class Member(
     @frappe.whitelist()
     @critical_api(operation_type=OperationType.ADMIN)
     def create_user(self):
-        """Create a user account for this member"""
-        self.user = None
-        if self.user:
-            frappe.msgprint(_("User {0} already exists for this member").format(self.user))
-            return self.user
+        """Create a user account for this member - delegates to MemberUserAccountService"""
+        from verenigingen.services.member.account.member_user_account_service import MemberUserAccountService
 
-        if not self.email:
-            frappe.throw(_("Email is required to create a user"))
-
-        if frappe.db.exists("User", self.email):
-            user = frappe.get_doc("User", self.email)
-            self.user = user.name
-            self.save()
-            frappe.msgprint(_("Linked to existing user {0}").format(user.name))
-            return user.name
-
-        user = frappe.new_doc("User")
-        user.email = self.email
-        user.first_name = self.first_name
-
-        # Handle Dutch naming conventions for User creation
-        if is_dutch_installation() and hasattr(self, "tussenvoegsel") and self.tussenvoegsel:
-            # For Dutch installations, use combined last name with tussenvoegsel
-            user.last_name = get_full_last_name(self.last_name, self.tussenvoegsel)
-            # Don't use middle_name for User when we have tussenvoegsel
-        else:
-            # Standard naming for non-Dutch installations or when no tussenvoegsel
-            user.last_name = self.last_name
-            if self.middle_name:
-                user.middle_name = self.middle_name
-
-        user.send_welcome_email = 1
-        user.user_type = "System User"
-
-        # Secure user creation with explicit permission validation
-        user_result = secure_document_operation(
-            operation="insert",
-            doc=user,
-            justification=f"Automated user creation for member {self.name}",
-            required_permissions=["User:create"],
-        )
-
-        if not user_result.success:
-            frappe.throw(_("Failed to create user: {0}").format("; ".join(user_result.errors)))
-
-        # Add member-specific roles after user is created
-        add_member_roles_to_user(user.name)
-
-        # Set allowed modules for member users
-        set_member_user_modules(user.name)
-
-        # Update user field directly to avoid timestamp conflicts
-        frappe.db.set_value("Member", self.name, "user", user.name)
-        self.user = user.name
-
-        # Transfer ownership to the member's user account
-        # This allows members to view and edit their own records
-        if self.owner != user.name:
-            frappe.db.set_value("Member", self.name, "owner", user.name)
-            frappe.logger().info(
-                f"Transferred ownership of member {self.name} from {self.owner} to {user.name}"
-            )
-
-        frappe.db.commit()
-
-        frappe.msgprint(_("User {0} created successfully").format(user.name))
-        return user.name
+        return MemberUserAccountService.create_user_for_member(self)
 
     def handle_fee_override_changes(self):
         """Handle changes to membership fee override using amendment system with better atomicity"""
@@ -1720,22 +1627,18 @@ class Member(
         )
 
     def get_active_membership(self):
-        """Get the currently active membership for this member.
+        """
+        Get the currently active membership for this member.
 
-        Delegates to the existing utility in member_utils for consistent
-        membership lookup with field validation and error handling.
+        EXTRACTED: Moved to MemberMembershipService.get_active_membership_for_member_doc()
+        for service layer separation.
 
         Returns:
             Membership document if found, None otherwise
         """
-        # Use the more sophisticated utility from member_utils
-        membership_data = get_active_membership_for_member(
-            self.name, fields=["name", "membership_type", "start_date", "renewal_date", "status"]
-        )
+        from verenigingen.services.member.core.member_membership_service import MemberMembershipService
 
-        if membership_data:
-            return frappe.get_doc("Membership", membership_data["name"])
-        return None
+        return MemberMembershipService.get_active_membership_for_member_doc(self)
 
     def update_membership_status(self):
         """Update member's membership_status field based on active memberships - delegated to member_status_service"""
@@ -1870,74 +1773,22 @@ class Member(
     @frappe.whitelist()
     @standard_api(operation_type=OperationType.FINANCIAL)
     def get_current_membership_fee(self):
-        """Get current effective membership fee for this member"""
-        if self.dues_rate:
-            return {
-                "amount": self.dues_rate,
-                "source": "custom_override",
-                "reason": getattr(self, "fee_override_reason", None),
-            }
+        """Get current effective membership fee - delegates to MemberFeeCalculationService"""
+        from verenigingen.services.member.financial.member_fee_calculation_service import (
+            MemberFeeCalculationService,
+        )
 
-        # Get from active membership
-        active_membership = self.get_active_membership()
-        if active_membership and active_membership.membership_type:
-            membership_type = frappe.get_doc("Membership Type", active_membership.membership_type)
-            if not membership_type.dues_schedule_template:
-                frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
-            template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
-
-            if not template.suggested_amount:
-                frappe.throw(
-                    f"Dues schedule template '{membership_type.dues_schedule_template}' must have a suggested_amount configured"
-                )
-
-            return {
-                "amount": template.suggested_amount,
-                "source": "template",
-                "membership_type": membership_type.membership_type_name,
-            }
-
-        return {"amount": 0, "source": "none"}
+        return MemberFeeCalculationService.get_current_membership_fee(self)
 
     @frappe.whitelist()
     @standard_api(operation_type=OperationType.FINANCIAL)
     def get_display_membership_fee(self):
-        """Get membership fee for display with amendment status"""
-        current_fee = self.get_current_membership_fee()
-
-        # Check for pending amendments
-        pending_amendments = frappe.get_all(
-            "Contribution Amendment Request",
-            filters={
-                "member": self.name,
-                "status": ["in", ["Draft", "Pending Approval", "Approved"]],
-                "amendment_type": "Fee Change",
-            },
-            fields=["name", "status", "requested_amount", "effective_date", "reason"],
-            order_by="creation desc",
-            limit=1,
+        """Get membership fee for display with amendment status - delegates to MemberFeeCalculationService"""
+        from verenigingen.services.member.financial.member_fee_calculation_service import (
+            MemberFeeCalculationService,
         )
 
-        if pending_amendments:
-            amendment = pending_amendments[0]
-            return {
-                "current_amount": current_fee["amount"],
-                "display_amount": amendment["requested_amount"],
-                "status": f"Pending - Effective {frappe.format_date(amendment['effective_date']) if amendment['effective_date'] else 'TBD'}",
-                "amendment_status": amendment["status"],
-                "amendment_id": amendment["name"],
-                "reason": amendment["reason"],
-                "source": "amendment_pending",
-            }
-
-        # No pending amendments, return current fee
-        return {
-            "current_amount": current_fee["amount"],
-            "display_amount": current_fee["amount"],
-            "status": "Current",
-            "source": current_fee["source"],
-            "reason": current_fee.get("reason"),
-        }
+        return MemberFeeCalculationService.get_display_membership_fee(self)
 
     def get_or_create_membership_item(self):
         """Get or create the membership fee item"""
@@ -2438,780 +2289,94 @@ class Member(
             )
 
     def _update_donation_history(self):
-        """Update donation history for this member"""
+        """Update donation history for this member - delegates to DonationHistoryManager"""
         if not (hasattr(self, "donor") and self.donor):
             return 0
 
-        from verenigingen.utils.donation_history_manager import update_donor_history_table
+        from verenigingen.utils.donation_history_manager import sync_donor_history
 
-        # This already does incremental updates - check if it made changes
+        # Sync uses the proper manager - check if it made changes
         original_donation_count = len(getattr(self, "donation_history", []))
-        update_donor_history_table(self.donor)
+        sync_donor_history(self.donor)
         # Reload to get updated donation history
         self.reload()
         new_donation_count = len(getattr(self, "donation_history", []))
         return abs(new_donation_count - original_donation_count)
 
     def _update_volunteer_expense_history(self):
-        """Update volunteer expense history for this member"""
-        if not (hasattr(self, "employee") and self.employee):
-            return 0
-
-        removed_count = 0
-        updated_count = 0
-        added_count = 0
-
-        # Get the 20 most recent expense claims
-        current_claims = frappe.get_all(
-            "Expense Claim",
-            filters={"employee": self.employee},
-            fields=[
-                "name",
-                "employee",
-                "posting_date",
-                "total_claimed_amount",
-                "total_sanctioned_amount",
-                "status",
-                "approval_status",
-                "docstatus",
-            ],
-            order_by="posting_date desc",
-            limit=20,
+        """Update volunteer expense history - delegates to MemberHistoryUpdateService"""
+        from verenigingen.services.member.history.member_history_update_service import (
+            MemberHistoryUpdateService,
         )
 
-        # Build a lookup of existing expense entries
-        existing_expenses = {row.expense_claim: row for row in (self.volunteer_expenses or [])}
-        current_claim_names = {claim.name for claim in current_claims}
-
-        # Remove entries that are no longer in the top 20
-        rows_to_remove = [
-            idx
-            for idx, row in enumerate(self.volunteer_expenses or [])
-            if row.expense_claim not in current_claim_names
-        ]
-
-        # Remove in reverse order to maintain indices
-        for idx in reversed(rows_to_remove):
-            self.volunteer_expenses.pop(idx)
-            removed_count += 1
-
-        # Try batched version first (93% query reduction)
-        try:
-            expected_rows_list = self._build_expense_entries_batched(current_claims)
-            expected_rows = {row["expense_claim"]: row for row in expected_rows_list}
-        except Exception as e:
-            frappe.log_error(
-                f"Batched expense entry build failed for {self.name}, using fallback: {str(e)}",
-                "Expense Entry Batch Fallback",
-            )
-            # Fallback to individual processing
-            expected_rows = {}
-            for claim in current_claims:
-                expected_row = self._build_lightweight_expense_entry(claim)
-                expected_rows[expected_row["expense_claim"]] = expected_row
-
-        # Process each current claim using pre-built rows
-        for claim in current_claims:
-            expected_row = expected_rows.get(claim.name)
-            if not expected_row:
-                continue  # Skip if batch build failed for this claim
-
-            if claim.name in existing_expenses:
-                # Check if existing row needs updating
-                existing_row = existing_expenses[claim.name]
-                needs_update = any(
-                    getattr(existing_row, field, None) != expected_value
-                    for field, expected_value in expected_row.items()
-                )
-
-                if needs_update:
-                    for field, expected_value in expected_row.items():
-                        setattr(existing_row, field, expected_value)
-                    updated_count += 1
-            else:
-                # Add new row directly (not via batch processor since we're already batching)
-                try:
-                    self.append("volunteer_expenses", expected_row)
-                    added_count += 1
-                except Exception as e:
-                    frappe.log_error(
-                        f"Failed to append volunteer expense {claim_name} for {self.name}: {str(e)}",
-                        "Volunteer Expense Append Error",
-                    )
-                    # Continue processing other entries - don't break entire update
-                    continue
-
-        return removed_count + updated_count + added_count
+        return MemberHistoryUpdateService._update_volunteer_expense_history(self)
 
     def _update_dues_payment_history(self):
-        """Rebuild membership dues payment history from ALL Payment Entries with custom_member field"""
-        removed_count = 0
-        updated_count = 0
-        added_count = 0
-
-        # Get ALL dues payments (Payment Entries linked via custom_member) - full rebuild
-        current_payments = frappe.get_all(
-            "Payment Entry",
-            filters={
-                "custom_member": self.name,
-                "docstatus": 1,  # Only submitted payment entries
-                "payment_type": "Receive",  # Only incoming payments
-            },
-            fields=[
-                "name",
-                "posting_date",
-                "paid_amount",
-                "received_amount",
-                "reference_no",
-                "reference_date",
-                "mode_of_payment",
-                "remarks",
-            ],
-            order_by="posting_date desc",
+        """Rebuild membership dues payment history - delegates to MemberHistoryUpdateService"""
+        from verenigingen.services.member.history.member_history_update_service import (
+            MemberHistoryUpdateService,
         )
 
-        # Build a lookup of existing payment entries in history
-        existing_payments = {row.payment_entry: row for row in (self.payment_history or [])}
-        current_payment_names = {payment.name for payment in current_payments}
-
-        # Remove dues payment entries that no longer exist in database
-        rows_to_remove = [
-            idx
-            for idx, row in enumerate(self.payment_history or [])
-            if row.payment_entry
-            and row.payment_entry not in current_payment_names
-            and row.transaction_type == "Membership Dues Payment"  # Only remove dues payments
-        ]
-
-        # Remove in reverse order to maintain indices
-        for idx in reversed(rows_to_remove):
-            self.payment_history.pop(idx)
-            removed_count += 1
-
-        # Process each current payment
-        for payment in current_payments:
-            expected_row = {
-                "payment_entry": payment.name,
-                "payment_entry_doctype": "Payment Entry",
-                "transaction_type": "Membership Dues Payment",
-                "posting_date": payment.posting_date,
-                "payment_date": payment.posting_date,
-                "amount": payment.received_amount or payment.paid_amount,
-                "paid_amount": payment.received_amount or payment.paid_amount,
-                "payment_status": "Paid",
-                "payment_method": payment.mode_of_payment,
-                "reference_name": payment.reference_no,
-                "reconciled": 0,  # Unallocated payments are not reconciled
-                "notes": payment.remarks or "",
-            }
-
-            if payment.name in existing_payments:
-                # Check if existing row needs updating
-                existing_row = existing_payments[payment.name]
-                needs_update = any(
-                    getattr(existing_row, field, None) != expected_value
-                    for field, expected_value in expected_row.items()
-                )
-
-                if needs_update:
-                    for field, expected_value in expected_row.items():
-                        setattr(existing_row, field, expected_value)
-                    updated_count += 1
-            else:
-                # Add new row
-                try:
-                    self.append("payment_history", expected_row)
-                    added_count += 1
-                except Exception as e:
-                    frappe.log_error(
-                        f"Failed to append dues payment {payment.name} for {self.name}: {str(e)}",
-                        "Dues Payment History Append Error",
-                    )
-                    # Continue processing other entries - don't break entire update
-                    continue
-
-        return removed_count + updated_count + added_count
+        return MemberHistoryUpdateService._update_dues_payment_history(self)
 
     def _update_invoice_payment_history(self):
-        """Rebuild membership invoice payment history from ALL Sales Invoices linked to member's customer"""
-        if not self.customer:
-            return 0
-
-        removed_count = 0
-        updated_count = 0
-        added_count = 0
-
-        # Get ALL Sales Invoices for this member's customer - full rebuild
-        # ✅ OPTIMIZATION: Fetch all fields needed by PaymentHistoryEntryBuilder to avoid N+1
-        current_invoices = frappe.get_all(
-            "Sales Invoice",
-            filters={
-                "customer": self.customer,
-                "docstatus": ["!=", 2],  # Exclude cancelled
-            },
-            fields=[
-                "name",
-                "posting_date",
-                "due_date",
-                "grand_total",
-                "outstanding_amount",
-                "status",
-                "docstatus",  # ✅ Added for payment status determination
-                "custom_coverage_start_date",
-                "custom_coverage_end_date",
-                "membership",
-            ],
-            order_by="posting_date desc",
+        """Rebuild membership invoice payment history - delegates to MemberHistoryUpdateService"""
+        from verenigingen.services.member.history.member_history_update_service import (
+            MemberHistoryUpdateService,
         )
 
-        # Build a lookup of existing invoices in history
-        existing_invoices = {row.invoice: row for row in (self.payment_history or []) if row.invoice}
-        current_invoice_names = {invoice.name for invoice in current_invoices}
-
-        # Remove invoice entries that no longer exist in database
-        rows_to_remove = [
-            idx
-            for idx, row in enumerate(self.payment_history or [])
-            if row.invoice
-            and row.invoice not in current_invoice_names
-            and row.invoice_doctype == "Sales Invoice"  # Only remove sales invoices
-        ]
-
-        # Remove in reverse order to maintain indices
-        for idx in reversed(rows_to_remove):
-            self.payment_history.pop(idx)
-            removed_count += 1
-
-        # ✅ OPTIMIZATION: Prefetch payment information for all invoices to avoid N+1 queries
-        # Fetch payment entry references in bulk
-        invoice_names = [inv.name for inv in current_invoices]
-        payment_refs_by_invoice = {}
-        payment_entries_data = {}
-
-        if invoice_names:
-            # Get all payment references for these invoices in one query
-            payment_refs = frappe.get_all(
-                "Payment Entry Reference",
-                filters={"reference_doctype": "Sales Invoice", "reference_name": ["in", invoice_names]},
-                fields=["reference_name", "parent", "allocated_amount"],
-            )
-
-            # Group by invoice
-            for ref in payment_refs:
-                if ref.reference_name not in payment_refs_by_invoice:
-                    payment_refs_by_invoice[ref.reference_name] = []
-                payment_refs_by_invoice[ref.reference_name].append(ref)
-
-            # Get all unique payment entries in one query
-            payment_entry_names = list(set(ref.parent for ref in payment_refs))
-            if payment_entry_names:
-                payment_entries = frappe.get_all(
-                    "Payment Entry",
-                    filters={"name": ["in", payment_entry_names], "docstatus": ["!=", 2]},
-                    fields=["name", "posting_date", "mode_of_payment"],
-                )
-                payment_entries_data = {pe.name: pe for pe in payment_entries}
-
-        # Process each current invoice
-        for invoice in current_invoices:
-            # Use the payment history builder to create consistent entries
-            from verenigingen.utils.payment_history_builder import PaymentHistoryEntryBuilder
-
-            try:
-                # ✅ OPTIMIZATION: Build entry from prefetched data instead of get_doc()
-                # Calculate payment information from prefetched data
-                payment_refs = payment_refs_by_invoice.get(invoice.name, [])
-                paid_amount = sum(float(ref.allocated_amount or 0) for ref in payment_refs)
-
-                payment_entry = None
-                payment_date = None
-                payment_method = None
-                reconciled = 0
-
-                if payment_refs:
-                    # Find most recent payment entry from prefetched data
-                    parent_names = [ref.parent for ref in payment_refs]
-                    valid_payments = [
-                        payment_entries_data[name] for name in parent_names if name in payment_entries_data
-                    ]
-
-                    if valid_payments:
-                        # Sort by posting date (most recent first)
-                        most_recent = max(valid_payments, key=lambda p: p.posting_date)
-                        payment_entry = most_recent.name
-                        payment_date = most_recent.posting_date  # ast-skip: Payment Entry field
-                        payment_method = most_recent.mode_of_payment  # ast-skip: Payment Entry field
-                        reconciled = 1
-
-                # Determine payment status from invoice data
-                if invoice.docstatus == 0:
-                    payment_status = "Draft"
-                elif invoice.status == "Paid" or invoice.outstanding_amount <= 0:
-                    payment_status = "Paid"
-                elif invoice.status == "Overdue":
-                    payment_status = "Overdue"
-                elif invoice.status == "Cancelled":
-                    payment_status = "Cancelled"
-                elif paid_amount > 0 and paid_amount < invoice.grand_total:
-                    payment_status = "Partially Paid"
-                else:
-                    payment_status = "Unpaid"
-
-                # Build the expected row directly from invoice dict data
-                expected_row = {
-                    "invoice": invoice.name,
-                    "invoice_doctype": "Sales Invoice",
-                    "posting_date": invoice.posting_date,
-                    "due_date": invoice.due_date,
-                    "amount": invoice.grand_total,
-                    "outstanding_amount": invoice.outstanding_amount,
-                    "payment_status": payment_status,
-                    "status": invoice.status,
-                    "payment_date": payment_date,
-                    "payment_entry": payment_entry,
-                    "payment_method": payment_method,
-                    "paid_amount": paid_amount,
-                    "reconciled": reconciled,
-                    "coverage_start_date": invoice.custom_coverage_start_date,
-                    "coverage_end_date": invoice.custom_coverage_end_date,
-                    "transaction_type": "Membership Invoice" if invoice.membership else "Regular Invoice",
-                    "reference_doctype": "Membership" if invoice.membership else None,
-                    "reference_name": invoice.membership,
-                }
-
-                if invoice.name in existing_invoices:
-                    # Check if existing row needs updating
-                    existing_row = existing_invoices[invoice.name]
-                    needs_update = any(
-                        getattr(existing_row, field, None) != expected_value
-                        for field, expected_value in expected_row.items()
-                    )
-
-                    if needs_update:
-                        for field, expected_value in expected_row.items():
-                            setattr(existing_row, field, expected_value)
-                        updated_count += 1
-                else:
-                    # Add new row
-                    try:
-                        self.append("payment_history", expected_row)
-                        added_count += 1
-                    except Exception as e:
-                        frappe.log_error(
-                            f"Failed to append invoice {invoice.name} for {self.name}: {str(e)}",
-                            "Invoice Payment History Append Error",
-                        )
-                        # Continue processing other entries - don't break entire update
-                        continue
-
-            except Exception as e:
-                frappe.log_error(
-                    f"Failed to process invoice {invoice.name} for {self.name}: {str(e)}",
-                    "Invoice Payment History Process Error",
-                )
-                # Continue processing other entries
-                continue
-
-        return removed_count + updated_count + added_count
+        return MemberHistoryUpdateService._update_invoice_payment_history(self)
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.ADMIN)
     def incremental_update_history_tables(self):
-        """
-        Rebuild payment history, donation history, and volunteer expense history tables.
+        """Rebuild payment history tables - delegates to MemberHistoryUpdateService"""
+        from verenigingen.services.member.history.member_history_update_service import (
+            MemberHistoryUpdateService,
+        )
 
-        Performs a FULL rebuild (no record limits) including:
-        - ALL Sales Invoices with coverage dates
-        - ALL Payment Entries (dues payments)
-        - ALL Donations
-        - ALL Volunteer Expenses
-
-        Includes integrity checking and cleanup via HistoryIntegrityManager.
-        """
-        try:
-            changes_made = False
-            donation_changes = 0
-            expense_changes = 0
-            cleanup_removed = 0
-
-            # STEP 1: Clean broken volunteer expense entries (if employee linked)
-            if hasattr(self, "employee") and self.employee:
-                from verenigingen.utils.member_history_integrity import HistoryIntegrityManager
-
-                manager = HistoryIntegrityManager(self)
-                cleanup_stats = manager.cleanup_volunteer_expense_history()
-                cleanup_removed = cleanup_stats["removed"]
-
-                if cleanup_removed > 0:
-                    changes_made = True
-
-            # STEP 2: Update donation history if donor is linked
-            donation_changes = self._update_donation_history()
-            if donation_changes > 0:
-                changes_made = True
-
-            # STEP 2.5: Update dues payment history (from Payment Entry custom_member field)
-            dues_changes = self._update_dues_payment_history()
-            if dues_changes > 0:
-                changes_made = True
-
-            # STEP 2.6: Update invoice payment history (from Sales Invoices linked to member)
-            invoice_changes = self._update_invoice_payment_history()
-            if invoice_changes > 0:
-                changes_made = True
-
-            # STEP 3: Update volunteer expense history if employee is linked
-            expense_changes = self._update_volunteer_expense_history()
-            if expense_changes > 0:
-                changes_made = True
-
-            # Only save if something actually changed
-            if changes_made:
-                # Suppress version tracking for automated history updates
-                self.flags.ignore_version = True
-                # Skip link validation for automated system updates
-                self.flags.ignore_links = True
-                # Suppress activity log spam for automated child table updates
-                self.flags.ignore_comment = True
-                self.save()
-
-            return {
-                "overall_success": True,
-                "volunteer_expenses": {
-                    "success": True,
-                    "count": expense_changes,
-                    "cleaned": cleanup_removed,
-                },
-                "donations": {"success": True, "count": donation_changes},
-                "dues_payments": {"success": True, "count": dues_changes},
-                "invoices": {"success": True, "count": invoice_changes},
-                "message": f"Incremental update: {donation_changes} donation changes, {dues_changes} dues payment changes, {invoice_changes} invoice changes, {expense_changes} expense changes, {cleanup_removed} broken entries cleaned",
-            }
-
-        except Exception as e:
-            frappe.log_error(
-                f"Error in incremental history update for member {self.name}: {str(e)}",
-                "Incremental History Update",
-            )
-            return {
-                "overall_success": False,
-                "volunteer_expenses": {"success": False, "error": str(e)},
-                "donations": {"success": False, "error": str(e)},
-                "message": f"Error updating history tables: {str(e)}",
-            }
+        return MemberHistoryUpdateService.incremental_update_history_tables(self)
 
     def _batch_fetch_with_chunking(self, doctype, name_list, fields, filters=None, chunk_size=500):
         """
-        Fetch records in batches to avoid SQL IN() clause limits.
+        Fetch records in batches - delegates to MemberHistoryUpdateService.
 
-        Args:
-            doctype: DocType to query
-            name_list: List of names to fetch
-            fields: Fields to retrieve
-            filters: Additional filters (will be merged with name IN clause)
-            chunk_size: Maximum items per batch (default: 500)
-
-        Returns:
-            List of fetched records
+        EXTRACTED: This method has been moved to MemberHistoryUpdateService._batch_fetch_with_chunking()
+        for better service layer separation and reusability.
         """
-        if not name_list:
-            return []
+        from verenigingen.services.member.history.member_history_update_service import (
+            MemberHistoryUpdateService,
+        )
 
-        results = []
-        base_filters = filters or {}
-
-        for i in range(0, len(name_list), chunk_size):
-            chunk = name_list[i : i + chunk_size]
-            chunk_filters = {**base_filters, "name": ["in", chunk]}
-
-            chunk_results = frappe.get_all(doctype, filters=chunk_filters, fields=fields)
-            results.extend(chunk_results)
-
-        return results
+        return MemberHistoryUpdateService._batch_fetch_with_chunking(
+            doctype, name_list, fields, filters, chunk_size
+        )
 
     def _build_expense_entries_batched(self, claims):
         """
-        OPTIMIZED: Build all expense entries using batch queries.
+        Build expense entries - delegates to MemberHistoryUpdateService.
 
-        Query Reduction: 41 queries → 3 queries (93% reduction)
-
-        Original pattern (N+1):
-        - 1 query for expense claims
-        - N queries for payment refs (one per claim)
-        - N queries for payment entries (one per claim)
-
-        Optimized pattern (batch):
-        - Claims already fetched (passed in)
-        - 1 batch query for ALL payment refs
-        - 1 batch query for ALL payment entries
-        - 1 batch query for ALL volunteers
-
-        Total: 3 queries for all claims
+        EXTRACTED: Moved to MemberHistoryUpdateService._build_expense_entries_batched()
+        for service layer separation. Query reduction: 41 queries → 3 queries (93%).
         """
-        if not claims:
-            return []
-
-        # QUERY 1: Batch fetch ALL payment references for ALL claims
-        claim_names = [claim.name for claim in claims]
-
-        all_payment_refs = frappe.get_all(
-            "Payment Entry Reference",
-            filters={"reference_doctype": "Expense Claim", "reference_name": ["in", claim_names]},
-            fields=["parent", "allocated_amount", "reference_name"],
+        from verenigingen.services.member.history.member_history_update_service import (
+            MemberHistoryUpdateService,
         )
 
-        # Build lookup: claim_name → [payment_refs]
-        payment_refs_by_claim = {}
-        all_payment_entry_names = set()
-        for ref in all_payment_refs:
-            payment_refs_by_claim.setdefault(ref.reference_name, []).append(ref)
-            all_payment_entry_names.add(ref.parent)
-
-        # QUERY 2: Batch fetch ALL payment entries with chunking
-        all_payment_entries = []
-        if all_payment_entry_names:
-            all_payment_entries = self._batch_fetch_with_chunking(
-                doctype="Payment Entry",
-                name_list=list(all_payment_entry_names),
-                fields=["name", "posting_date", "paid_amount", "mode_of_payment"],
-                filters={"docstatus": 1},
-                chunk_size=500,
-            )
-
-        # Build lookup: payment_name → payment_data
-        payments_by_name = {pe.name: pe for pe in all_payment_entries}
-
-        # QUERY 3: Batch fetch ALL volunteers for ALL employees
-        employee_ids = [
-            getattr(claim, "employee", claim.get("employee"))
-            for claim in claims
-            if hasattr(claim, "employee") or "employee" in claim
-        ]
-        employee_ids = [e for e in employee_ids if e]  # Filter out None values
-
-        # Batch fetch volunteers (defensive empty list check)
-        all_volunteers = []
-        if employee_ids:
-            all_volunteers = frappe.get_all(
-                "Volunteer",
-                filters={"employee_id": ["in", employee_ids]},
-                fields=["name", "employee_id", "member"],
-            )
-
-        # Build lookup: employee_id → volunteer_name (prioritize member match)
-        volunteers_by_employee = {}
-        for vol in all_volunteers:
-            # Prefer volunteers linked to this member
-            if vol.member == self.name:
-                volunteers_by_employee[vol.employee_id] = vol.name
-            # Otherwise use any volunteer with this employee_id (if not already set)
-            elif vol.employee_id not in volunteers_by_employee:
-                volunteers_by_employee[vol.employee_id] = vol.name
-
-        # NOW BUILD ALL ENTRIES WITHOUT QUERIES
-        entries = []
-        success_count = 0
-        error_count = 0
-
-        for claim_data in claims:
-            try:
-                # Get volunteer from lookup (no query!)
-                volunteer_name = None
-                employee = getattr(claim_data, "employee", claim_data.get("employee"))
-                if employee:
-                    volunteer_name = volunteers_by_employee.get(employee)
-
-                # Get basic expense information
-                expense_name = getattr(claim_data, "name", claim_data.get("name"))
-                expense_status = getattr(claim_data, "status", claim_data.get("status", "Draft"))
-                docstatus = getattr(claim_data, "docstatus", claim_data.get("docstatus", 0))
-                approval_status = getattr(claim_data, "approval_status", claim_data.get("approval_status"))
-
-                # Apply status logic
-                if docstatus == 0:
-                    expense_status = "Draft"
-                elif docstatus == 1:
-                    if approval_status == "Rejected":
-                        expense_status = "Rejected"
-
-                # Get payment data from lookups (no queries!)
-                payment_refs = payment_refs_by_claim.get(expense_name, [])
-
-                payment_entry = None
-                payment_date = None
-                paid_amount = 0
-                payment_method = None
-                payment_status = "Pending"
-
-                if payment_refs:
-                    # Get payment entry names from refs
-                    payment_entry_names = [ref.parent for ref in payment_refs]
-                    relevant_payments = [
-                        payments_by_name[name] for name in payment_entry_names if name in payments_by_name
-                    ]
-
-                    if relevant_payments:
-                        # Get most recent payment
-                        most_recent = max(relevant_payments, key=lambda p: p.posting_date)
-                        payment_entry = most_recent.name
-                        payment_date = most_recent.posting_date  # ast-skip: Payment Entry field
-                        paid_amount = most_recent.paid_amount  # ast-skip: Payment Entry field
-                        payment_method = most_recent.mode_of_payment  # ast-skip: Payment Entry field
-                        payment_status = "Paid"
-
-                entries.append(
-                    {
-                        "expense_claim": expense_name,
-                        "volunteer": volunteer_name,
-                        "posting_date": getattr(claim_data, "posting_date", claim_data.get("posting_date")),
-                        "total_claimed_amount": getattr(
-                            claim_data, "total_claimed_amount", claim_data.get("total_claimed_amount", 0)
-                        ),
-                        "total_sanctioned_amount": getattr(
-                            claim_data,
-                            "total_sanctioned_amount",
-                            claim_data.get("total_sanctioned_amount", 0),
-                        ),
-                        "status": expense_status,
-                        "payment_entry": payment_entry,
-                        "payment_date": payment_date,
-                        "paid_amount": paid_amount,
-                        "payment_method": payment_method,
-                        "payment_status": payment_status,
-                    }
-                )
-                success_count += 1
-
-            except Exception as e:
-                error_count += 1
-                frappe.log_error(
-                    f"Error building batched expense entry for {getattr(claim_data, 'name', 'unknown')}: {str(e)}",
-                    "Batched Expense Entry Build Error",
-                )
-                # Continue with other claims
-                continue
-
-        # Log processing summary if there were any errors
-        if error_count > 0:
-            frappe.logger().warning(
-                f"Batched expense entry build for {self.name}: "
-                f"{success_count} succeeded, {error_count} failed"
-            )
-
-        return entries
+        return MemberHistoryUpdateService._build_expense_entries_batched(self, claims)
 
     def _build_lightweight_expense_entry(self, claim_data):
         """
-        Build expense history entry from claim data without loading full document.
-        Uses data already available from frappe.get_all() call.
+        Build expense entry - delegates to MemberHistoryUpdateService.
 
-        DEPRECATED: Use _build_expense_entries_batched() for better performance.
-        Kept for fallback compatibility.
-
-        WARNING: This fallback method uses N+1 query pattern for volunteer lookups
-        (2 queries per expense claim). Only use when batched version fails.
-        For 20 claims: ~40 volunteer lookup queries vs 1 batch query.
+        EXTRACTED: Moved to MemberHistoryUpdateService._build_lightweight_expense_entry()
+        for service layer separation.
         """
-        try:
-            # Get volunteer information
-            volunteer_name = None
-            if hasattr(claim_data, "employee") or "employee" in claim_data:
-                employee = getattr(claim_data, "employee", claim_data.get("employee"))
-                if employee:
-                    # First try to find volunteer by employee_id field and member link
-                    volunteer_name = frappe.db.get_value(
-                        "Volunteer", {"employee_id": employee, "member": self.name}, "name"
-                    )
+        from verenigingen.services.member.history.member_history_update_service import (
+            MemberHistoryUpdateService,
+        )
 
-                    # Fallback: if not found, try without member filter
-                    if not volunteer_name:
-                        volunteer_name = frappe.db.get_value("Volunteer", {"employee_id": employee}, "name")
-
-            # Get basic expense information
-            expense_name = getattr(claim_data, "name", claim_data.get("name"))
-            expense_status = getattr(claim_data, "status", claim_data.get("status", "Draft"))
-            docstatus = getattr(claim_data, "docstatus", claim_data.get("docstatus", 0))
-            approval_status = getattr(claim_data, "approval_status", claim_data.get("approval_status"))
-
-            # Apply status logic based on docstatus and approval_status
-            if docstatus == 0:
-                expense_status = "Draft"
-            elif docstatus == 1:
-                if approval_status == "Rejected":
-                    expense_status = "Rejected"
-                # Otherwise use the status from the expense claim (Paid/Unpaid/Submitted/etc.)
-
-            # Check for existing payment to determine payment_status
-            payment_entry = None
-            payment_date = None
-            paid_amount = 0
-            payment_method = None
-            payment_status = "Pending"
-
-            # Look for payment entries referencing this expense claim
-            payment_refs = frappe.get_all(
-                "Payment Entry Reference",
-                filters={"reference_doctype": "Expense Claim", "reference_name": expense_name},
-                fields=["parent", "allocated_amount"],
-            )
-
-            if payment_refs:
-                # Get the most recent payment
-                payment_entries = frappe.get_all(
-                    "Payment Entry",
-                    filters={"name": ["in", [ref.parent for ref in payment_refs]], "docstatus": 1},
-                    fields=["name", "posting_date", "paid_amount", "mode_of_payment"],
-                    order_by="posting_date desc",
-                )
-
-                if payment_entries:
-                    payment_entry = payment_entries[0].name
-                    payment_date = payment_entries[0].posting_date
-                    paid_amount = payment_entries[0].paid_amount
-                    payment_method = payment_entries[0].mode_of_payment
-                    payment_status = "Paid"
-
-            return {
-                "expense_claim": expense_name,
-                "volunteer": volunteer_name,
-                "posting_date": getattr(claim_data, "posting_date", claim_data.get("posting_date")),
-                "total_claimed_amount": getattr(
-                    claim_data, "total_claimed_amount", claim_data.get("total_claimed_amount", 0)
-                ),
-                "total_sanctioned_amount": getattr(
-                    claim_data, "total_sanctioned_amount", claim_data.get("total_sanctioned_amount", 0)
-                ),
-                "status": expense_status,
-                "payment_entry": payment_entry,
-                "payment_date": payment_date,
-                "paid_amount": paid_amount,
-                "payment_method": payment_method,
-                "payment_status": payment_status,
-            }
-
-        except Exception as e:
-            frappe.log_error(
-                f"Error building lightweight expense entry for {getattr(claim_data, 'name', 'unknown')}: {str(e)}",
-                "Lightweight Expense Entry Build Error",
-            )
-            # Return minimal entry on error
-            return {
-                "expense_claim": getattr(claim_data, "name", claim_data.get("name")),
-                "volunteer": None,
-                "posting_date": getattr(claim_data, "posting_date", claim_data.get("posting_date")),
-                "total_claimed_amount": getattr(
-                    claim_data, "total_claimed_amount", claim_data.get("total_claimed_amount", 0)
-                ),
-                "total_sanctioned_amount": getattr(
-                    claim_data, "total_sanctioned_amount", claim_data.get("total_sanctioned_amount", 0)
-                ),
-                "status": getattr(claim_data, "status", claim_data.get("status", "Draft")),
-                "payment_entry": None,
-                "payment_date": None,
-                "paid_amount": 0,
-                "payment_method": None,
-                "payment_status": "Draft",  # FIXED: Use valid payment status instead of "Unknown"
-            }
+        return MemberHistoryUpdateService._build_lightweight_expense_entry(self, claim_data)
 
     def _get_volunteer_id(self):
         """Get the volunteer ID for this member"""
@@ -3401,55 +2566,10 @@ def get_linked_donations(member):
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def assign_member_id(member_name):
-    """
-    Manually assign a member ID to a member who doesn't have one yet.
-    This can be used for approved applications or existing members without IDs.
-    """
-    if not frappe.has_permission("Member", "write"):
-        frappe.throw(_("Insufficient permissions to assign member ID"))
+    """Assign member ID - delegates to MemberIDService"""
+    from verenigingen.services.member.identification.member_id_service import MemberIDService
 
-    # Only allow System Manager and Verenigingen Staff roles to manually assign member IDs
-    allowed_roles = ["System Manager", "Verenigingen Staff"]
-    user_roles = frappe.get_roles(frappe.session.user)
-    if not any(role in user_roles for role in allowed_roles):
-        frappe.throw(_("Only System Managers and Verenigingen Staffs can manually assign member IDs"))
-
-    try:
-        member = frappe.get_doc("Member", member_name)
-
-        # Check if member already has an ID
-        if member.member_id:
-            return {"success": False, "message": _("Member already has ID: {0}").format(member.member_id)}
-
-        # For application members, they should be approved first
-        if member.is_application_member() and not member.should_have_member_id():
-            return {
-                "success": False,
-                "message": _(
-                    "Application member must be approved before assigning member ID. Current status: {0}"
-                ).format(member.application_status),
-            }
-
-        # Generate and assign member ID
-        from verenigingen.verenigingen.doctype.member.member_id_manager import MemberIDManager
-
-        next_id = MemberIDManager.get_next_member_id()
-        member.member_id = str(next_id)
-
-        # Save the member
-        member.save()
-
-        frappe.msgprint(_("Member ID {0} assigned successfully to {1}").format(next_id, member.full_name))
-
-        return {
-            "success": True,
-            "member_id": str(next_id),
-            "message": _("Member ID {0} assigned successfully").format(next_id),
-        }
-
-    except Exception as e:
-        frappe.log_error(f"Error assigning member ID to {member_name}: {str(e)}")
-        return {"success": False, "message": _("Error assigning member ID: {0}").format(str(e))}
+    return MemberIDService.assign_member_id(member_name)
 
 
 @frappe.whitelist()
@@ -3675,29 +2795,10 @@ def get_active_sepa_mandate(member, iban=None):
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def assign_missing_member_ids():
-    """Assign member IDs to all members who should have them but don't"""
-    members_without_ids = frappe.get_all(
-        "Member",
-        filters={"member_id": ["is", "not set"]},
-        fields=["name", "application_status", "application_id", "full_name"],
-    )
+    """Assign missing member IDs - delegates to MemberIDService"""
+    from verenigingen.services.member.identification.member_id_service import MemberIDService
 
-    assigned_count = 0
-    for member_data in members_without_ids:
-        try:
-            member = frappe.get_doc("Member", member_data.name)
-            if member.should_have_member_id():
-                member.ensure_member_id()
-                assigned_count += 1
-                frappe.logger().info(f"Assigned member ID {member.member_id} to {member.full_name}")
-        except Exception as e:
-            frappe.logger().error(f"Failed to assign member ID to {member_data.name}: {str(e)}")
-
-    return {
-        "total_checked": len(members_without_ids),
-        "assigned": assigned_count,
-        "message": f"Assigned member IDs to {assigned_count} out of {len(members_without_ids)} members",
-    }
+    return MemberIDService.assign_missing_member_ids()
 
 
 @frappe.whitelist()
@@ -3856,32 +2957,18 @@ def create_and_link_mandate_enhanced(
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.UTILITY)
 def debug_member_id_assignment(member_name):
-    """Debug why member ID assignment is failing"""
-    try:
-        member = frappe.get_doc("Member", member_name)
+    """Debug member ID assignment - delegates to MemberIDService"""
+    from verenigingen.services.member.identification.member_id_service import MemberIDService
 
-        debug_info = {
-            "member_name": member.name,
-            "current_member_id": getattr(member, "member_id", None),
-            "has_member_id": bool(getattr(member, "member_id", None)),
-            "is_application_member": member.is_application_member(),
-            "application_id": getattr(member, "application_id", None),
-            "application_status": getattr(member, "application_status", None),
-            "status": getattr(member, "status", None),
-            "should_have_member_id": member.should_have_member_id(),
-            "can_assign_id": not member.member_id and member.should_have_member_id(),
-        }
-
-        return debug_info
-
-    except Exception as e:
-        return {"error": str(e)}
+    return MemberIDService.debug_member_id_assignment(member_name)
 
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def create_member_user_account(member_name, send_welcome_email=True):
     """Create a user account for a member to access portal pages"""
+    from verenigingen.services.member.account.member_role_service import MemberRoleService
+
     try:
         # Get the member document
         member = frappe.get_doc("Member", member_name)
@@ -3911,7 +2998,7 @@ def create_member_user_account(member_name, send_welcome_email=True):
                 frappe.throw(_("Failed to link user to member: {0}").format("; ".join(member_result.errors)))
 
             # Add member roles to existing user
-            add_member_roles_to_user(existing_user)
+            MemberRoleService.add_member_roles_to_user(existing_user)
 
             return {
                 "success": True,
@@ -3944,10 +3031,10 @@ def create_member_user_account(member_name, send_welcome_email=True):
             frappe.throw(_("Failed to create user: {0}").format("; ".join(user_result.errors)))
 
         # Set allowed modules for member users
-        set_member_user_modules(user.name)
+        MemberRoleService.set_member_user_modules(user.name)
 
         # Add member-specific roles
-        add_member_roles_to_user(user.name)
+        MemberRoleService.add_member_roles_to_user(user.name)
 
         # Link user to member
         member.user = user.name
@@ -3980,164 +3067,11 @@ def create_member_user_account(member_name, send_welcome_email=True):
         return {"success": False, "error": str(e)}
 
 
-def add_member_roles_to_user(user_name):
-    """Add appropriate role profile for a member user to access portal pages"""
-    try:
-        # Check if user has permission to modify roles
-        if not frappe.has_permission("User", "write"):
-            frappe.throw(_("Insufficient permissions to modify user roles"))
-
-        # Check if Verenigingen Member role profile exists
-        role_profile_name = "Verenigingen Member"
-        if not frappe.db.exists("Role Profile", role_profile_name):
-            frappe.logger().warning(
-                f"Role Profile {role_profile_name} does not exist. Creating basic roles manually."
-            )
-            # Fallback to individual role assignment
-            return _assign_individual_member_roles(user_name)
-
-        # Add role profile to user
-        user = frappe.get_doc("User", user_name)
-
-        # Clear existing roles first to avoid conflicts with role profile
-        user.roles = []
-
-        # Assign the role profile
-        user.role_profile_name = role_profile_name
-
-        # Ensure user is enabled
-        if not user.enabled:
-            user.enabled = 1
-
-        # Save with proper permissions (no bypass)
-        user.save()
-        frappe.logger().info(f"Assigned role profile '{role_profile_name}' to user {user_name}")
-
-        return user.name
-
-    except Exception as e:
-        frappe.log_error(f"Error adding roles to user {user_name}: {str(e)}")
-        return None
-
-
-def _assign_individual_member_roles(user_name):
-    """Fallback method to assign individual roles when role profile is not available"""
-    try:
-        # Check permissions
-        if not frappe.has_permission("User", "write"):
-            frappe.throw(_("Insufficient permissions to modify user roles"))
-
-        # Define the roles that members need for portal access
-        member_roles = [
-            "Verenigingen Member",  # Primary member role for all member access
-            "All",  # Standard role for basic system access
-        ]
-
-        # Check if Verenigingen Member role exists, create if not
-        if not frappe.db.exists("Role", "Verenigingen Member"):
-            create_verenigingen_member_role()
-
-        # Add roles to user
-        user = frappe.get_doc("User", user_name)
-
-        # Clear existing roles first to avoid conflicts
-        user.roles = []
-
-        for role in member_roles:
-            if not frappe.db.exists("Role", role):
-                frappe.logger().warning(f"Role {role} does not exist, skipping")
-                continue
-            # Always add the role since we cleared roles above
-            user.append("roles", {"role": role})
-
-        # Ensure user is enabled
-        if not user.enabled:
-            user.enabled = 1
-
-        # Save with proper permissions (no bypass)
-        user.save()
-        frappe.logger().info(f"Assigned individual roles to user {user_name}: {member_roles}")
-
-        return user.name
-
-    except Exception as e:
-        frappe.log_error(f"Error assigning individual member roles to user {user_name}: {str(e)}")
-        raise
-
-
-# Removed create_member_portal_role - consolidated into Verenigingen Member
-
-
-def create_verenigingen_member_role():
-    """Create the Verenigingen Member role for consolidated member access"""
-    try:
-        role = frappe.new_doc("Role")
-        role.role_name = "Verenigingen Member"
-        role.desk_access = 0  # Portal users don't need desk access
-        role.is_custom = 1  # This is a custom role for the app
-        role_result = secure_document_operation(
-            operation="insert",
-            doc=role,
-            justification="Create Verenigingen Member role for member portal access",
-            required_permissions=["Role:create"],
-        )
-
-        if not role_result.success:
-            frappe.logger().error(
-                f"Failed to create Verenigingen Member role: {'; '.join(role_result.errors)}"
-            )
-            frappe.throw(
-                _("Failed to create Verenigingen Member role: {0}").format("; ".join(role_result.errors))
-            )
-
-        frappe.logger().info(
-            "Created Verenigingen Member role (consolidated from Member Portal User and Member)"
-        )
-        return role.name
-
-    except Exception as e:
-        frappe.log_error(f"Error creating Verenigingen Member role: {str(e)}")
-        return None
-
-
-def set_member_user_modules(user_name):
-    """Set allowed modules for member users - restrict to relevant modules only"""
-    try:
-        # Define modules that members should have access to
-        allowed_modules = [
-            "Verenigingen",  # Main app module
-            "Core",  # Essential Frappe core functionality
-            "Desk",  # Basic desk access
-            "Home",  # Home page access
-        ]
-
-        user = frappe.get_doc("User", user_name)
-
-        # Clear existing module access and set only allowed ones
-        user.set("block_modules", [])
-
-        # Get all available modules
-        all_modules = frappe.get_all("Module Def", fields=["name"])
-
-        # Block all modules except the allowed ones
-        for module in all_modules:
-            if module.name not in allowed_modules:
-                user.append("block_modules", {"module": module.name})
-
-        module_result = secure_document_operation(
-            operation="save",
-            doc=user,
-            justification=f"Set module restrictions for user {user_name}",
-            required_permissions=["User:write"],
-        )
-
-        if not module_result.success:
-            frappe.logger().error(f"Failed to set module restrictions: {'; '.join(module_result.errors)}")
-            frappe.throw(_("Failed to set module restrictions: {0}").format("; ".join(module_result.errors)))
-        frappe.logger().info(f"Set module restrictions for user {user_name}")
-
-    except Exception as e:
-        frappe.log_error(f"Error setting module restrictions for user {user_name}: {str(e)}")
+# NOTE: Member role management functions have been extracted to MemberRoleService
+# - add_member_roles_to_user() → MemberRoleService.add_member_roles_to_user()
+# - set_member_user_modules() → MemberRoleService.set_member_user_modules()
+# - _assign_individual_member_roles() → MemberRoleService._assign_individual_member_roles()
+# - create_verenigingen_member_role() → MemberRoleService.create_verenigingen_member_role()
 
 
 @frappe.whitelist()
@@ -4420,91 +3354,6 @@ def get_member_chapter_display_html(member_name):
 
 
 @frappe.whitelist()
-@development_only_api(operation_type=OperationType.UTILITY)
-def test_dues_schedule_query(member_name):
-    """Test the exact query used in JavaScript"""
-    try:
-        filters = {"member": member_name, "is_template": 0, "status": ["in", ["Active", "Paused"]]}
-        result = frappe.db.get_value(
-            "Membership Dues Schedule",
-            filters,
-            ["name", "dues_rate", "billing_frequency", "status"],
-            as_dict=True,
-        )
-        return {"query_result": result, "filters_used": filters}
-    except Exception as e:
-        return {"error": str(e), "filters_used": filters}
-
-
-@frappe.whitelist()
-@development_only_api(operation_type=OperationType.UTILITY)
-def debug_button_conditions(member_name):
-    """Debug what buttons should appear for a member"""
-    try:
-        member = frappe.get_doc("Member", member_name)
-
-        # Check various conditions
-        has_customer = bool(getattr(member, "customer", None))
-        has_user = bool(getattr(member, "user", None))
-        has_email = bool(getattr(member, "email", None))
-
-        # Check for volunteer
-        has_volunteer = bool(frappe.db.exists("Volunteer", {"member": member_name}))
-
-        # Check for active membership
-        has_active_membership = bool(
-            frappe.db.exists(
-                "Membership",
-                {"member": member_name, "status": ["in", ["Active", "Pending"]], "docstatus": ["!=", 2]},
-            )
-        )
-
-        # Check for donor
-        has_donor = bool(frappe.db.exists("Donor", {"linked_member": member_name}))
-
-        return {
-            "member_name": member_name,
-            "status": member.status,
-            "docstatus": member.docstatus,
-            "has_customer": has_customer,
-            "has_user": has_user,
-            "has_email": has_email,
-            "has_volunteer": has_volunteer,
-            "has_active_membership": has_active_membership,
-            "has_donor": has_donor,
-            "expected_buttons": {
-                "create_customer": not has_customer,
-                "create_user": has_email and not has_user,
-                "create_volunteer": not has_volunteer,
-                "create_membership": not has_active_membership,
-                "create_donor": not has_donor,
-                "dues_management": True,  # Always show if script works
-            },
-        }
-    except Exception as e:
-        return {"error": str(e)}
-
-
-@frappe.whitelist()
-@development_only_api(operation_type=OperationType.UTILITY)
-def debug_member_status(member_name):
-    """Debug member status for button investigation"""
-    try:
-        member = frappe.get_doc("Member", member_name)
-        return {
-            "name": member.name,
-            "status": member.status,
-            "application_status": getattr(member, "application_status", None),
-            "customer": getattr(member, "customer", None),
-            "user": getattr(member, "user", None),
-            "docstatus": member.docstatus,
-            "payment_method": getattr(member, "payment_method", None),
-        }
-    except Exception as e:
-        return {"error": str(e)}
-
-
-@frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
 def sync_member_dues_rate(member_name):
     """Sync member's dues_rate field with their active dues schedule"""
@@ -4764,214 +3613,6 @@ def refresh_fee_change_history(member_name):
         error_msg = str(e)[:100] + "..." if len(str(e)) > 100 else str(e)  # Truncate long errors
         frappe.log_error(f"Fee change history error: {error_msg}", "Fee History Refresh")
         return {"success": False, "message": f"Error: {error_msg}"}
-
-
-@frappe.whitelist()
-@development_only_api(operation_type=OperationType.UTILITY)
-def test_amendment_filtering():
-    """Test the new amendment filtering logic"""
-
-    # Test with a real member that might have amendments
-    member_name = "Assoc-Member-2025-07-0017"
-
-    # Import the function
-    from verenigingen.verenigingen.doctype.contribution_amendment_request.contribution_amendment_request import (
-        get_member_pending_contribution_amendments,
-    )
-
-    # Get amendments with new filtering
-    amendments = get_member_pending_contribution_amendments(member_name)
-
-    print(f"Found {len(amendments)} pending amendments for {member_name}")
-
-    # Also test the raw query to see what would be returned without filtering
-    raw_amendments = frappe.get_all(
-        "Contribution Amendment Request",
-        filters={"member": member_name, "status": ["in", ["Draft", "Pending Approval", "Approved"]]},
-        fields=["name", "status", "effective_date", "creation"],
-        order_by="creation desc",
-    )
-
-    print(f"Raw query returned {len(raw_amendments)} amendments")
-
-    # Show the difference
-    for amendment in raw_amendments:
-        in_filtered = any(a.name == amendment.name for a in amendments)
-        status_str = "✓ INCLUDED" if in_filtered else "✗ FILTERED OUT"
-
-        if amendment.effective_date:
-            date_status = f"(effective: {amendment.effective_date})"
-            if amendment.status == "Approved":
-                # using getdate, today from top-level import
-
-                is_future = getdate(amendment.effective_date) >= getdate(today())
-                date_status += f" - {'FUTURE' if is_future else 'PAST'}"
-        else:
-            date_status = "(no effective date)"
-
-        print(f"  {status_str}: {amendment.name} - {amendment.status} {date_status}")
-
-    return {
-        "member": member_name,
-        "filtered_count": len(amendments),
-        "raw_count": len(raw_amendments),
-        "success": True,
-    }
-
-
-@frappe.whitelist()
-@development_only_api(operation_type=OperationType.UTILITY)
-def test_automatic_fee_history_update(member_name="Assoc-Member-2025-07-0017"):
-    """Test that fee change history updates automatically when dues schedules are modified"""
-
-    print(f"Testing automatic fee change history update for {member_name}")
-
-    # Get current fee change history count
-    current_count = frappe.db.count("Member Fee Change History", {"parent": member_name})
-    print(f"Current fee change history count: {current_count}")
-
-    # Get member's current active dues schedule
-    active_schedule = frappe.db.get_value(
-        "Membership Dues Schedule",
-        {"member": member_name, "status": "Active"},
-        ["name", "dues_rate"],
-        as_dict=True,
-    )
-
-    if not active_schedule:
-        return {"success": False, "message": "No active dues schedule found for member"}
-
-    print(f"Current active schedule: {active_schedule.name} with rate: €{active_schedule.dues_rate}")
-
-    # Update the dues rate to trigger the automatic fee change history update
-    schedule_doc = frappe.get_doc("Membership Dues Schedule", active_schedule.name)
-    old_rate = schedule_doc.dues_rate
-    new_rate = max(old_rate + 5.00, 10.00)  # Add €5 or set to €10, whichever is higher
-
-    print(f"Changing dues rate from €{old_rate} to €{new_rate}")
-
-    # Update the schedule
-    schedule_doc.dues_rate = new_rate
-    schedule_doc.save()
-
-    # Check if fee change history was updated automatically
-    new_count = frappe.db.count("Member Fee Change History", {"parent": member_name})
-    print(f"New fee change history count: {new_count}")
-
-    success = new_count > current_count
-
-    if success:
-        print("✅ SUCCESS: Fee change history was updated automatically!")
-
-        # Get the latest entry
-        latest_entry = frappe.db.get_value(
-            "Member Fee Change History",
-            {"parent": member_name},
-            ["change_date", "old_dues_rate", "new_dues_rate", "change_type"],
-            as_dict=True,
-            order_by="idx DESC",
-        )
-
-        if latest_entry:
-            print(
-                f"Latest entry: {latest_entry.change_type} - €{latest_entry.old_dues_rate} → €{latest_entry.new_dues_rate}"  # ast-skip: Member Fee Change History field
-            )
-    else:
-        print("❌ FAILED: Fee change history was not updated automatically")
-
-    # Revert the change
-    schedule_doc.dues_rate = old_rate
-    schedule_doc.save()
-    print(f"Reverted dues rate back to €{old_rate}")
-
-    return {
-        "success": success,
-        "current_count": current_count,
-        "new_count": new_count,
-        "test_completed": True,
-    }
-
-
-@frappe.whitelist()
-@development_only_api(operation_type=OperationType.UTILITY)
-def test_fee_history_functionality(member_name="Assoc-Member-2025-07-0030"):
-    """Test function to validate fee change history functionality"""
-    try:
-        # Call the refresh function
-        result = refresh_fee_change_history(member_name)
-
-        # Get member data
-        member = frappe.get_doc("Member", member_name)
-
-        # Get dues schedules
-        dues_schedules = frappe.get_all(
-            "Membership Dues Schedule",
-            filters={"member": member_name},
-            fields=["name", "schedule_name", "dues_rate", "status"],
-        )
-
-        return {
-            "refresh_result": result,
-            "member_name": member_name,
-            "fee_change_history_count": len(member.fee_change_history or []),
-            "dues_schedules_count": len(dues_schedules),
-            "dues_schedules": dues_schedules,
-            "fee_change_history": [
-                {
-                    "change_date": entry.change_date,
-                    "change_type": entry.change_type,
-                    "old_rate": entry.old_dues_rate,
-                    "new_rate": entry.new_dues_rate,
-                    "reason": entry.reason,
-                    "dues_schedule": entry.dues_schedule,
-                }
-                for entry in (member.fee_change_history or [])
-            ],
-        }
-
-    except Exception as e:
-        frappe.log_error(f"Test fee history error: {str(e)}", "Test Fee History")
-        import traceback
-
-        return {"error": str(e), "traceback": traceback.format_exc()}
-
-
-@frappe.whitelist()
-@critical_api(operation_type=OperationType.ADMIN)
-def fix_existing_member_workflow_status():
-    """Clear application_status for members who have left the application workflow"""
-    try:
-        # Find all members not in "Pending" status but still have application_status set
-        # Application workflow only applies to Pending members; once Active, Terminated, etc.,
-        # the application_status is no longer relevant and should be cleared
-        members_to_fix = frappe.db.sql(
-            """
-            SELECT name, application_status, status
-            FROM `tabMember`
-            WHERE status != 'Pending'
-            AND application_status IS NOT NULL
-            AND application_status IN ('Pending', 'Under Review', 'Approved', 'Rejected', 'Payment Pending')
-        """,
-            as_dict=True,
-        )
-
-        fixed_count = 0
-        for member in members_to_fix:
-            # Clear application_status since member is no longer in application workflow
-            frappe.db.set_value("Member", member.name, "application_status", None)
-            fixed_count += 1
-
-        frappe.db.commit()
-
-        return {
-            "success": True,
-            "message": f"Cleared application_status for {fixed_count} members who have left the application workflow",
-            "fixed_members": [m.name for m in members_to_fix],
-        }
-
-    except Exception as e:
-        frappe.log_error(f"Error fixing member workflow status: {str(e)}", "Member Workflow Fix")
-        return {"success": False, "message": f"Error: {str(e)}"}
 
 
 # =============================================================================
