@@ -33,6 +33,7 @@ import frappe
 from frappe import _
 from frappe.utils import get_site_name, now
 
+from verenigingen.utils.dutch_name_utils import get_full_last_name
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 
@@ -196,10 +197,24 @@ class AccountCreationManager:
             return
 
         try:
-            # Parse name components
-            name_parts = self.request.full_name.split() if self.request.full_name else ["User"]
-            first_name = name_parts[0] if name_parts else "User"
-            last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
+            # Parse name components - handle Dutch tussenvoegsel properly
+            if self.request.request_type == "Member" and self.source_doc:
+                # For Members, use individual name fields to properly handle tussenvoegsel
+                first_name = self.source_doc.first_name or "User"
+
+                # Combine tussenvoegsel with last_name if present
+                if hasattr(self.source_doc, "tussenvoegsel") and self.source_doc.tussenvoegsel:
+                    last_name = get_full_last_name(
+                        self.source_doc.last_name or "",
+                        self.source_doc.tussenvoegsel
+                    )
+                else:
+                    last_name = self.source_doc.last_name or ""
+            else:
+                # For non-Member source docs, fall back to splitting full_name
+                name_parts = self.request.full_name.split() if self.request.full_name else ["User"]
+                first_name = name_parts[0] if name_parts else "User"
+                last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
 
             # Determine user type based on request type
             # Members get Website User for portal access
