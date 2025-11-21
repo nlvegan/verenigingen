@@ -100,7 +100,8 @@ class MemberFeeChangeService:
         if not member_doc.name or member_doc.is_new():
             # For new documents, validate and set audit fields but no change tracking
             if member_doc.dues_rate:
-                # Use centralized validation logic
+                # TODO Phase 3: Extract to MemberFeeValidationService
+                # Accessing protected methods for Member-specific validation (Phase 2D pattern)
                 member_doc._validate_fee_override_amount(member_doc.dues_rate)
                 member_doc._validate_fee_override_reason()
 
@@ -117,24 +118,21 @@ class MemberFeeChangeService:
                     setattr(member_doc, "fee_override_by", frappe.session.user)
             return
 
-        # Get current and old values for existing documents with better error handling
+        # Get current and old values for existing documents
         new_amount = member_doc.dues_rate
         old_amount = None
 
         try:
-            # Get current value from database
-            db_result = frappe.db.sql(
-                """
-                SELECT dues_rate
-                FROM `tabMember`
-                WHERE name = %s
-            """,
-                (member_doc.name,),
-                as_dict=True,
-            )
-
-            if db_result:
-                old_amount = db_result[0].dues_rate
+            # Use Frappe's built-in change tracking instead of DB query for better performance
+            # get_doc_before_save() returns the document state before current changes
+            doc_before_save = member_doc.get_doc_before_save()
+            if doc_before_save:
+                old_amount = doc_before_save.get("dues_rate")
+            else:
+                # Fallback to DB query only if get_doc_before_save() unavailable
+                # (this can happen in some edge cases like background jobs)
+                db_result = frappe.db.get_value("Member", member_doc.name, "dues_rate")
+                old_amount = db_result if db_result is not None else None
 
             # Check if values are actually different
             if old_amount == new_amount:
@@ -152,7 +150,10 @@ class MemberFeeChangeService:
 
             # Validate fee override
             if new_amount:
-                # Use centralized validation logic
+                # TODO Phase 3: Extract these to MemberFeeValidationService for better encapsulation
+                # Currently accessing protected methods is acceptable for Phase 2D literal extraction
+                # These validation methods are Member-specific business rules that will be
+                # extracted to a dedicated validation service in Phase 3
                 member_doc._validate_fee_override_amount(new_amount)
                 member_doc._validate_fee_override_reason()
 
@@ -168,10 +169,18 @@ class MemberFeeChangeService:
             frappe.logger().info(f"Queued fee override change for member {member_doc.name}")
 
         except Exception as e:
-            frappe.logger().error(
-                f"Error processing fee override change for member {member_doc.name}: {str(e)}"
+            # Log error for administrators
+            frappe.log_error(
+                f"Fee override tracking failed for member {member_doc.name}: {str(e)}",
+                "Fee Change Tracking Error"
             )
-            # Don't fail the save operation, just log the error
+            # Notify user that audit tracking failed
+            frappe.msgprint(
+                frappe._("Fee change saved but audit tracking failed. Please contact administrator."),
+                indicator="orange",
+                alert=True
+            )
+            # Don't fail the save operation - allow document to save even if tracking fails
             return
 
     @staticmethod

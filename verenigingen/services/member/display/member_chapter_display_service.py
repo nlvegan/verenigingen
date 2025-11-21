@@ -18,14 +18,16 @@ Architecture:
 - Handles edge cases (no chapters, errors)
 
 Security:
-- All output is HTML-escaped (though using static badge HTML)
-- No user input in generated HTML (chapter data from database)
+- All database-sourced content is HTML-escaped to prevent XSS attacks
+- Chapter names, regions, and dates are escaped before HTML interpolation
+- Static badge HTML is safe (no dynamic content interpolation)
 - Error handling prevents display of sensitive error details
 
 Dependencies:
 - ChapterManagementService - For optimized chapter data queries
 """
 
+from html import escape
 from typing import TYPE_CHECKING, List, Dict, Any
 
 import frappe
@@ -64,7 +66,9 @@ class MemberChapterDisplayService:
             None - Updates member_doc.current_chapter_display (or temp field) in place
 
         Security:
-            - Uses static HTML badges (no user input)
+            - All database content HTML-escaped (chapter names, regions, dates)
+            - Static HTML badges safe from injection
+            - Prevents XSS via malicious chapter names
             - Error messages don't expose sensitive details
             - Handles missing field gracefully
 
@@ -94,9 +98,12 @@ class MemberChapterDisplayService:
             html_items = ['<div class="member-chapters">']
 
             for chapter in chapters:
-                chapter_display = chapter["chapter"]
+                # Escape all database-sourced content to prevent XSS
+                chapter_name = escape(str(chapter["chapter"]))
+                chapter_display = chapter_name
                 if chapter.get("region"):
-                    chapter_display += f" ({chapter['region']})"
+                    region = escape(str(chapter["region"]))
+                    chapter_display += f" ({region})"
 
                 status_badges = []
                 if chapter.get("is_primary"):
@@ -104,8 +111,10 @@ class MemberChapterDisplayService:
                 if chapter.get("is_board"):
                     status_badges.append('<span class="badge badge-info">Board Member</span>')
                 if chapter.get("chapter_join_date"):
+                    # Escape date value to prevent injection via malformed dates
+                    join_date = escape(str(chapter["chapter_join_date"]))
                     status_badges.append(
-                        f'<span class="badge badge-light">Joined: {chapter["chapter_join_date"]}</span>'
+                        f'<span class="badge badge-light">Joined: {join_date}</span>'
                     )
 
                 badges_html = " ".join(status_badges) if status_badges else ""

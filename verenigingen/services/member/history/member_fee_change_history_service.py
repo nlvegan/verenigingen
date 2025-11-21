@@ -56,6 +56,32 @@ class MemberFeeChangeHistoryService:
     - Secure updates with permission validation
     """
 
+    # Valid billing frequencies for fee change history
+    VALID_BILLING_FREQUENCIES = ["Daily", "Monthly", "Quarterly", "Semi-Annual", "Annual", "Custom"]
+
+    @staticmethod
+    def _validate_billing_frequency(frequency: Optional[str] = None) -> str:
+        """
+        Validate and normalize billing frequency.
+
+        Args:
+            frequency: Billing frequency from schedule_data (may be invalid)
+
+        Returns:
+            str: Validated frequency or "Custom" if invalid
+
+        Example:
+            >>> MemberFeeChangeHistoryService._validate_billing_frequency("Monthly")
+            "Monthly"
+            >>> MemberFeeChangeHistoryService._validate_billing_frequency("InvalidValue")
+            "Custom"
+            >>> MemberFeeChangeHistoryService._validate_billing_frequency(None)
+            "Custom"
+        """
+        if frequency and frequency in MemberFeeChangeHistoryService.VALID_BILLING_FREQUENCIES:
+            return frequency
+        return "Custom"
+
     @staticmethod
     def add_fee_change_to_history(member_doc: "Document", schedule_data: Dict[str, Any]) -> None:
         """
@@ -78,7 +104,9 @@ class MemberFeeChangeHistoryService:
                 - amendment_request: Amendment request reference (optional)
 
         Returns:
-            None - Modifies member_doc.fee_change_history in place
+            None - Modifies member_doc.fee_change_history in place.
+                   Caller MUST save document after calling this method.
+                   No automatic save to prevent multiple saves during batch operations.
 
         Security:
             - No direct save operation - caller is responsible for saving
@@ -112,11 +140,8 @@ class MemberFeeChangeHistoryService:
                     break
 
             # Validate billing frequency - use "Custom" for unsupported frequencies
-            valid_frequencies = ["Daily", "Monthly", "Quarterly", "Semi-Annual", "Annual", "Custom"]
-            billing_freq = (
+            billing_freq = MemberFeeChangeHistoryService._validate_billing_frequency(
                 schedule_data.get("billing_frequency")
-                if schedule_data.get("billing_frequency") in valid_frequencies
-                else "Custom"
             )
 
             # Build entry data with all required fields
@@ -184,7 +209,9 @@ class MemberFeeChangeHistoryService:
                 - changed_by: User who made change (default current user)
 
         Returns:
-            None - Modifies member_doc.fee_change_history in place and saves
+            None - Modifies member_doc.fee_change_history in place.
+                   Automatically saves document using secure_document_operation.
+                   Do NOT save document after calling - already saved internally.
 
         Security:
             - Uses secure_document_operation for child table updates
@@ -213,11 +240,8 @@ class MemberFeeChangeHistoryService:
                 if row.dues_schedule == schedule_name:
                     found = True
                     # Update the entry with new data
-                    valid_frequencies = ["Daily", "Monthly", "Quarterly", "Semi-Annual", "Annual", "Custom"]
-                    billing_freq = (
+                    billing_freq = MemberFeeChangeHistoryService._validate_billing_frequency(
                         schedule_data.get("billing_frequency")
-                        if schedule_data.get("billing_frequency") in valid_frequencies
-                        else "Custom"
                     )
 
                     # Update fields
