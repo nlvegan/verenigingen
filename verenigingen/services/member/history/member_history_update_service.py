@@ -5,7 +5,7 @@
 MemberHistoryUpdateService - Complete member history table management
 
 This service provides self-contained history table update logic for members,
-including donations, payments, invoices, and volunteer expenses.
+including donations, payments, invoices, volunteer expenses, and fee changes.
 
 Extracted from member.py:
 - incremental_update_history_tables() - orchestration (lines 2676-2759, 84 LOC)
@@ -13,14 +13,16 @@ Extracted from member.py:
 - _update_volunteer_expense_history() - expense claims (lines 2312-2401, 90 LOC)
 - _update_dues_payment_history() - payment entries (lines 2403-2490, 88 LOC)
 - _update_invoice_payment_history() - sales invoices (lines 2492-2672, 180 LOC)
+- refresh_fee_change_history() - fee history refresh (lines 3143-3327, 185 LOC)
 
-Total: ~456 LOC of business logic now in service layer
+Total: ~641 LOC of business logic now in service layer
 
 Architecture:
 - Self-contained static methods (minimal member method dependencies)
 - Uses existing managers: DonationHistoryManager, HistoryIntegrityManager
 - Coordinates all history updates with proper flags and error handling
 - Optimized queries to avoid N+1 problems
+- Secure operations with permission validation for fee history updates
 
 Dependencies:
 This service is fully independent with no member_doc method dependencies.
@@ -30,6 +32,8 @@ External Service Dependencies:
 - HistoryIntegrityManager - Cleanup of broken expense entries
 - sync_donor_history() - Donor history updates
 - MemberMembershipService - Active membership queries (extracted 2025-11-20)
+- secure_document_operation - Secure document updates with permission validation
+- cleanup_member_history - History integrity checking and cleanup
 """
 
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
@@ -883,6 +887,227 @@ class MemberHistoryUpdateService:
                 "payment_method": None,
                 "payment_status": "Draft",
             }
+
+    @staticmethod
+    def refresh_fee_change_history(member_name: str) -> Dict[str, Any]:
+        """
+        Refresh fee change history from dues schedules and amendments with integrity checking.
+
+        This method performs a complete rebuild of the member's fee_change_history child table
+        by pulling data from:
+        1. Membership Dues Schedules (for schedule creation events)
+        2. Contribution Amendment Requests (for fee adjustments)
+
+        The process includes:
+        - Cleaning broken history entries via HistoryIntegrityManager
+        - Processing applied amendments to capture fee changes
+        - Processing dues schedules for initial schedule creation
+        - Using secure_document_operation for atomic updates
+
+        Args:
+            member_name: Name/ID of the member document
+
+        Returns:
+            Dict[str, Any]: Result dictionary with keys:
+                - success (bool): Whether operation succeeded
+                - message (str): Human-readable result message
+                - history_count (int): Total history entries processed
+                - amendments_found (int): Number of amendments processed
+                - dues_schedules_found (int): Number of schedules processed
+                - removed_entries (int): Number of broken entries cleaned
+                - cleanup_details (dict): Detailed cleanup statistics
+                - method (str): Method used (atomic_with_amendments/no_changes)
+                - reload_doc (bool, optional): Whether to reload document
+        """
+        try:
+            # Import dependencies
+            from verenigingen.utils.member_history_integrity import cleanup_member_history
+            from verenigingen.utils.secure_operations import secure_document_operation
+
+            # Get the member document - use get_doc with for_update to handle concurrency
+            member_doc = frappe.get_doc("Member", member_name, for_update=True)
+
+            # STEP 1: Clean broken history entries (all types for consistency)
+            cleanup_result = cleanup_member_history(member_doc)
+            # Extract fee-specific stats for backward compatibility
+            cleanup_stats = {
+                "removed": cleanup_result["fee_history"]["removed"],
+                "reasons": {"total": cleanup_result["fee_history"]["removed"]},
+                "errors": cleanup_result["fee_history"]["errors"],
+            }
+
+            # Get all dues schedules for this member
+            dues_schedules = frappe.get_all(
+                "Membership Dues Schedule",
+                filters={"member": member_name},
+                fields=["name", "schedule_name", "dues_rate", "billing_frequency", "status", "creation"],
+                order_by="creation",
+            )
+
+            # Get existing fee change history entries - track by both schedule and amendment
+            existing_entries_by_schedule = {
+                row.dues_schedule: row for row in member_doc.fee_change_history or [] if row.dues_schedule
+            }
+            existing_entries_by_amendment = {
+                row.amendment_request: row
+                for row in member_doc.fee_change_history or []
+                if row.amendment_request
+            }
+
+            # STEP 2: Get all applied amendments for this member
+            applied_amendments = frappe.get_all(
+                "Contribution Amendment Request",
+                filters={"member": member_name, "status": "Applied"},
+                fields=[
+                    "name",
+                    "effective_date",
+                    "requested_amount",
+                    "current_amount",
+                    "reason",
+                    "applied_date",
+                    "applied_by",
+                ],
+                order_by="effective_date, applied_date",
+            )
+
+            # Track if any changes are made to avoid unnecessary saves
+            changes_made = False
+
+            # Process amendments first to capture all changes
+            for amendment in applied_amendments:
+                amendment_name = amendment.name
+
+                # Check if we already have an entry for this amendment
+                if amendment_name not in existing_entries_by_amendment:
+                    # Add new amendment entry
+                    amendment_data = {
+                        "amendment_request": amendment_name,
+                        "dues_rate": amendment.requested_amount,
+                        "old_dues_rate": amendment.current_amount or 0,
+                        "change_type": "Fee Adjustment",
+                        "reason": (
+                            f"Amendment: {amendment.reason}"
+                            if amendment.reason
+                            else f"Amendment {amendment_name}"
+                        ),
+                        "change_date": amendment.applied_date or amendment.effective_date,
+                        "changed_by": amendment.applied_by or "Administrator",
+                    }
+                    member_doc.add_fee_change_to_history(amendment_data)
+                    changes_made = True
+
+            # STEP 3: Process schedules (for initial schedule creation only)
+            for schedule in dues_schedules:
+                schedule_name = schedule.name
+
+                # Check if entry already exists for this schedule
+                if schedule_name in existing_entries_by_schedule:
+                    # Update existing entry if needed
+                    existing_entry = existing_entries_by_schedule[schedule_name]
+
+                    # Check if update is needed (compare key fields)
+                    needs_update = (
+                        existing_entry.new_dues_rate != schedule.dues_rate
+                        or existing_entry.billing_frequency  # ast-skip: Dues Schedule field
+                        != schedule.billing_frequency
+                        or existing_entry.reason  # ast-skip: Member Fee Change History field
+                        != f"Dues schedule: {schedule.schedule_name or schedule.name}"
+                    )
+
+                    if needs_update:
+                        # Use atomic update method
+                        schedule_data = {
+                            "name": schedule.name,
+                            "schedule_name": schedule.schedule_name,
+                            "dues_rate": schedule.dues_rate,
+                            "billing_frequency": schedule.billing_frequency,
+                            "old_dues_rate": existing_entry.old_dues_rate,  # Preserve old rate
+                            "change_type": "Fee Adjustment",
+                            "reason": f"Dues schedule: {schedule.schedule_name or schedule.name}",
+                            "change_date": frappe.utils.now_datetime(),  # Update timestamp
+                            "changed_by": frappe.session.user or "Administrator",
+                        }
+                        member_doc.update_fee_change_in_history(schedule_data)
+                        changes_made = True
+                else:
+                    # Add new entry using atomic method (initial schedule creation only)
+                    schedule_data = {
+                        "name": schedule.name,
+                        "schedule_name": schedule.schedule_name,
+                        "dues_rate": schedule.dues_rate,
+                        "billing_frequency": schedule.billing_frequency,
+                        "creation": schedule.creation,
+                        "old_dues_rate": 0,  # First schedule for this member
+                        "change_type": "Schedule Created",
+                        "reason": f"Dues schedule: {schedule.schedule_name or schedule.name}",
+                        "changed_by": frappe.session.user or "Administrator",
+                    }
+                    member_doc.add_fee_change_to_history(schedule_data)
+                    changes_made = True
+
+            # Account for cleanup operations that may have removed entries
+            if cleanup_stats["removed"] > 0:
+                changes_made = True
+
+            # Only save if changes were made
+            if not changes_made:
+                return {
+                    "success": True,
+                    "message": f"Fee change history is already up to date for {member_name}",
+                    "history_count": len(member_doc.fee_change_history or []),
+                    "amendments_found": len(applied_amendments),
+                    "dues_schedules_found": len(dues_schedules),
+                    "removed_entries": 0,
+                    "cleanup_details": cleanup_stats,
+                    "method": "no_changes",
+                }
+
+            # Fee history updates are administrative operations that preserve audit trail
+            member_doc.flags.ignore_validate_update_after_submit = True  # JUSTIFIED: Fee history update
+
+            fee_history_result = secure_document_operation(
+                operation="update_child_table",
+                doc=member_doc,
+                justification=f"Update fee change history for member {member_doc.name}",
+                required_permissions=["Member:write"],
+                allow_system_user=False,  # Require explicit user permissions for financial data
+                bypass_validations=["link_validation"],  # Allow bypass of problematic chapter references
+            )
+
+            if not fee_history_result.success:
+                # Log full traceback for debugging
+                frappe.log_error(
+                    title=f"Fee History Update Failed: {member_doc.name}",
+                    message=f"Errors: {fee_history_result.errors}\n\nTraceback:\n{frappe.get_traceback()}",
+                )
+                frappe.logger().error(
+                    f"Failed to update fee change history: {'; '.join(fee_history_result.errors)}"
+                )
+                frappe.throw(
+                    frappe._("Failed to update fee change history: {0}").format(
+                        "; ".join(fee_history_result.errors)
+                    )
+                )
+
+            # Commit the changes to ensure they're saved
+            frappe.db.commit()
+
+            return {
+                "success": True,
+                "message": f"Fee change history refreshed for {member_name} - {len(applied_amendments)} amendments + {len(dues_schedules)} schedules processed, {cleanup_stats['removed']} broken entries cleaned",
+                "history_count": len(applied_amendments) + len(dues_schedules),
+                "reload_doc": True,  # Signal to reload the document
+                "amendments_found": len(applied_amendments),
+                "dues_schedules_found": len(dues_schedules),
+                "removed_entries": cleanup_stats["removed"],
+                "cleanup_details": cleanup_stats,
+                "method": "atomic_with_amendments",
+            }
+
+        except Exception as e:
+            error_msg = str(e)[:100] + "..." if len(str(e)) > 100 else str(e)  # Truncate long errors
+            frappe.log_error(f"Fee change history error: {error_msg}", "Fee History Refresh")
+            return {"success": False, "message": f"Error: {error_msg}"}
 
 
 def get_member_history_update_service() -> MemberHistoryUpdateService:

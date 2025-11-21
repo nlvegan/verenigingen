@@ -2798,127 +2798,23 @@ def check_donor_exists(member_name):
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def create_donor_from_member(member_name):
-    """Create a donor record from member information"""
-    try:
-        member = frappe.get_doc("Member", member_name)
+    """
+    Create a donor record from member information.
 
-        # Check if donor already exists
-        existing_check = check_donor_exists(member_name)
-        if existing_check.get("exists"):
-            return {
-                "success": False,
-                "message": _("Donor record already exists for this member"),
-                "donor_name": existing_check.get("donor_name"),
-            }
+    EXTRACTED: Moved to MemberDonorIntegrationService.create_donor_from_member()
+    for service layer separation.
 
-        # Create donor record
-        donor = frappe.new_doc("Donor")
+    Args:
+        member_name: Name/ID of the member document
 
-        # Copy basic information from member
-        donor.donor_name = member.full_name
-        donor.donor_email = member.email
+    Returns:
+        dict: Result dictionary with success, message, and donor_name
+    """
+    from verenigingen.services.member.integration.member_donor_integration_service import (
+        MemberDonorIntegrationService,
+    )
 
-        # Set mandatory fields (only donor_name, donor_type, and donor_email are required)
-        donor.donor_type = "Individual"
-
-        # Set optional fields only if they exist in the DocType and have values
-        if member.full_name:
-            donor.contact_person = member.full_name
-
-        # Set phone only if member has a phone number (phone is NOT required in Donor DocType)
-        if member.contact_number and member.contact_number.strip():
-            # If the number doesn't start with +, assume it's Dutch and add +31
-            phone_number = member.contact_number.replace(" ", "")  # Remove spaces for validation
-            if not phone_number.startswith("+"):
-                # Check if it's a Dutch mobile number (starts with 06) or landline
-                if phone_number.startswith("06") or phone_number.startswith("0"):
-                    phone_number = "+31" + phone_number[1:]  # Replace leading 0 with +31
-                else:
-                    phone_number = "+31" + phone_number  # Add +31 prefix
-            donor.phone = phone_number
-        # No else clause - phone is optional, leave it empty if no phone number
-
-        # Set donor category if available
-        donor.donor_category = "Regular Donor"
-
-        # Copy address information if available (using the 'address' field that exists in DocType)
-        if member.primary_address:
-            try:
-                address_doc = frappe.get_doc("Address", member.primary_address)
-                # Use the single 'address' field that exists in the DocType
-                address_parts = []
-                if address_doc.address_line1:
-                    address_parts.append(address_doc.address_line1)
-                if address_doc.address_line2:
-                    address_parts.append(address_doc.address_line2)
-                if address_doc.city:
-                    address_parts.append(address_doc.city)
-                if address_doc.pincode:
-                    address_parts.append(address_doc.pincode)
-                if address_doc.country:
-                    address_parts.append(address_doc.country)
-                donor.address = ", ".join(address_parts)
-            except Exception as addr_e:
-                frappe.logger().warning(f"Could not copy address from member {member_name}: {str(addr_e)}")
-
-        # Link to the member record
-        donor.member = member.name
-
-        # Secure donor creation with explicit permission validation
-        donor_result = secure_document_operation(
-            operation="insert",
-            doc=donor,
-            justification=f"Automated donor creation for member {member.name}",
-            required_permissions=["Donor:create"],
-        )
-
-        if not donor_result.success:
-            return {
-                "success": False,
-                "error": "; ".join(donor_result.errors),
-                "message": _("Failed to create donor record: {0}").format("; ".join(donor_result.errors)),
-            }
-
-        # Link the customer record if it exists
-        if member.customer:
-            try:
-                # Update customer record to link to donor
-                customer_doc = frappe.get_doc("Customer", member.customer)
-                if hasattr(customer_doc, "donor"):
-                    customer_doc.donor = donor.name
-
-                    # Secure customer update with explicit permission validation
-                    customer_result = secure_document_operation(
-                        operation="save",
-                        doc=customer_doc,
-                        justification=f"Link customer {member.customer} to donor {donor.name}",
-                        required_permissions=["Customer:write"],
-                    )
-
-                    if not customer_result.success:
-                        frappe.logger().warning(
-                            f"Could not link customer {member.customer} to donor {donor.name}: "
-                            f"{'; '.join(customer_result.errors)}"
-                        )
-            except Exception as cust_e:
-                frappe.logger().warning(f"Could not link customer to donor: {str(cust_e)}")
-
-        frappe.logger().info(f"Created donor record {donor.name} for member {member.name}")
-
-        return {
-            "success": True,
-            "message": _("Donor record created successfully. Member can now receive donation receipts."),
-            "donor_name": donor.name,
-        }
-
-    except Exception as e:
-        # Very short error message to avoid log truncation
-        frappe.log_error(f"Donor creation failed: {str(e)[:50]}")
-        return {
-            "success": False,
-            "error": str(e),
-            "message": _("Failed to create donor record: {0}").format(str(e)),
-        }
+    return MemberDonorIntegrationService.create_donor_from_member(member_name)
 
     def _load_volunteer_assignment_history(self):
         """Load volunteer assignment history from linked volunteer record"""
@@ -3141,190 +3037,23 @@ def get_current_dues_schedule_details(member):
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
 def refresh_fee_change_history(member_name):
-    """Refresh fee change history from dues schedules with integrity checking (atomic approach)"""
-    try:
-        # Get the member document - use get_doc with for_update to handle concurrency
-        member_doc = frappe.get_doc("Member", member_name, for_update=True)
+    """
+    Refresh fee change history from dues schedules with integrity checking.
 
-        # STEP 1: Clean broken history entries (all types for consistency)
-        from verenigingen.utils.member_history_integrity import cleanup_member_history
+    EXTRACTED: Moved to MemberHistoryUpdateService.refresh_fee_change_history()
+    for service layer separation.
 
-        cleanup_result = cleanup_member_history(member_doc)
-        # Extract fee-specific stats for backward compatibility
-        cleanup_stats = {
-            "removed": cleanup_result["fee_history"]["removed"],
-            "reasons": {"total": cleanup_result["fee_history"]["removed"]},
-            "errors": cleanup_result["fee_history"]["errors"],
-        }
+    Args:
+        member_name: Name/ID of the member document
 
-        # Get all dues schedules for this member
-        dues_schedules = frappe.get_all(
-            "Membership Dues Schedule",
-            filters={"member": member_name},
-            fields=["name", "schedule_name", "dues_rate", "billing_frequency", "status", "creation"],
-            order_by="creation",
-        )
+    Returns:
+        dict: Result dictionary with success, message, and statistics
+    """
+    from verenigingen.services.member.history.member_history_update_service import (
+        MemberHistoryUpdateService,
+    )
 
-        # Get existing fee change history entries - track by both schedule and amendment
-        existing_entries_by_schedule = {
-            row.dues_schedule: row for row in member_doc.fee_change_history or [] if row.dues_schedule
-        }
-        existing_entries_by_amendment = {
-            row.amendment_request: row for row in member_doc.fee_change_history or [] if row.amendment_request
-        }
-
-        # STEP 2: Get all applied amendments for this member
-        applied_amendments = frappe.get_all(
-            "Contribution Amendment Request",
-            filters={"member": member_name, "status": "Applied"},
-            fields=[
-                "name",
-                "effective_date",
-                "requested_amount",
-                "current_amount",
-                "reason",
-                "applied_date",
-                "applied_by",
-            ],
-            order_by="effective_date, applied_date",
-        )
-
-        # Track if any changes are made to avoid unnecessary saves
-        changes_made = False
-
-        # Process amendments first to capture all changes
-        for amendment in applied_amendments:
-            amendment_name = amendment.name
-
-            # Check if we already have an entry for this amendment
-            if amendment_name not in existing_entries_by_amendment:
-                # Add new amendment entry
-                amendment_data = {
-                    "amendment_request": amendment_name,
-                    "dues_rate": amendment.requested_amount,
-                    "old_dues_rate": amendment.current_amount or 0,
-                    "change_type": "Fee Adjustment",
-                    "reason": (
-                        f"Amendment: {amendment.reason}"
-                        if amendment.reason
-                        else f"Amendment {amendment_name}"
-                    ),
-                    "change_date": amendment.applied_date or amendment.effective_date,
-                    "changed_by": amendment.applied_by or "Administrator",
-                }
-                member_doc.add_fee_change_to_history(amendment_data)
-                changes_made = True
-
-        # STEP 3: Process schedules (for initial schedule creation only)
-        for schedule in dues_schedules:
-            schedule_name = schedule.name
-
-            # Check if entry already exists for this schedule
-            if schedule_name in existing_entries_by_schedule:
-                # Update existing entry if needed
-                existing_entry = existing_entries_by_schedule[schedule_name]
-
-                # Check if update is needed (compare key fields)
-                needs_update = (
-                    existing_entry.new_dues_rate != schedule.dues_rate
-                    or existing_entry.billing_frequency  # ast-skip: Dues Schedule field
-                    != schedule.billing_frequency
-                    or existing_entry.reason  # ast-skip: Member Fee Change History field
-                    != f"Dues schedule: {schedule.schedule_name or schedule.name}"
-                )
-
-                if needs_update:
-                    # Use atomic update method
-                    schedule_data = {
-                        "name": schedule.name,
-                        "schedule_name": schedule.schedule_name,
-                        "dues_rate": schedule.dues_rate,
-                        "billing_frequency": schedule.billing_frequency,
-                        "old_dues_rate": existing_entry.old_dues_rate,  # Preserve old rate
-                        "change_type": "Fee Adjustment",
-                        "reason": f"Dues schedule: {schedule.schedule_name or schedule.name}",
-                        "change_date": frappe.utils.now_datetime(),  # Update timestamp
-                        "changed_by": frappe.session.user or "Administrator",
-                    }
-                    member_doc.update_fee_change_in_history(schedule_data)
-                    changes_made = True
-            else:
-                # Add new entry using atomic method (initial schedule creation only)
-                schedule_data = {
-                    "name": schedule.name,
-                    "schedule_name": schedule.schedule_name,
-                    "dues_rate": schedule.dues_rate,
-                    "billing_frequency": schedule.billing_frequency,
-                    "creation": schedule.creation,
-                    "old_dues_rate": 0,  # First schedule for this member
-                    "change_type": "Schedule Created",
-                    "reason": f"Dues schedule: {schedule.schedule_name or schedule.name}",
-                    "changed_by": frappe.session.user or "Administrator",
-                }
-                member_doc.add_fee_change_to_history(schedule_data)
-                changes_made = True
-
-        # Account for cleanup operations that may have removed entries
-        if cleanup_stats["removed"] > 0:
-            changes_made = True
-
-        # Only save if changes were made
-        if not changes_made:
-            return {
-                "success": True,
-                "message": f"Fee change history is already up to date for {member_name}",
-                "history_count": len(member_doc.fee_change_history or []),
-                "amendments_found": len(applied_amendments),
-                "dues_schedules_found": len(dues_schedules),
-                "removed_entries": 0,
-                "cleanup_details": cleanup_stats,
-                "method": "no_changes",
-            }
-
-        # Fee history updates are administrative operations that preserve audit trail
-        member_doc.flags.ignore_validate_update_after_submit = True  # JUSTIFIED: Fee history update
-
-        fee_history_result = secure_document_operation(
-            operation="update_child_table",
-            doc=member_doc,
-            justification=f"Update fee change history for member {member_doc.name}",
-            required_permissions=["Member:write"],
-            allow_system_user=False,  # Require explicit user permissions for financial data
-            bypass_validations=["link_validation"],  # Allow bypass of problematic chapter references
-        )
-
-        if not fee_history_result.success:
-            # Log full traceback for debugging
-            frappe.log_error(
-                title=f"Fee History Update Failed: {member_doc.name}",
-                message=f"Errors: {fee_history_result.errors}\n\nTraceback:\n{frappe.get_traceback()}",
-            )
-            frappe.logger().error(
-                f"Failed to update fee change history: {'; '.join(fee_history_result.errors)}"
-            )
-            frappe.throw(
-                _("Failed to update fee change history: {0}").format("; ".join(fee_history_result.errors))
-            )
-
-        # Commit the changes to ensure they're saved
-        frappe.db.commit()
-
-        return {
-            "success": True,
-            "message": f"Fee change history refreshed for {member_name} - {len(applied_amendments)} amendments + {len(dues_schedules)} schedules processed, {cleanup_stats['removed']} broken entries cleaned",
-            "history_count": len(applied_amendments) + len(dues_schedules),
-            "reload_doc": True,  # Signal to reload the document
-            "amendments_found": len(applied_amendments),
-            "dues_schedules_found": len(dues_schedules),
-            "removed_entries": cleanup_stats["removed"],
-            "cleanup_details": cleanup_stats,
-            "method": "atomic_with_amendments",
-        }
-
-    except Exception as e:
-        error_msg = str(e)[:100] + "..." if len(str(e)) > 100 else str(e)  # Truncate long errors
-        frappe.log_error(f"Fee change history error: {error_msg}", "Fee History Refresh")
-        return {"success": False, "message": f"Error: {error_msg}"}
+    return MemberHistoryUpdateService.refresh_fee_change_history(member_name)
 
 
 # =============================================================================
