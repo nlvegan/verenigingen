@@ -1315,145 +1315,26 @@ class Member(
         return MemberUserAccountService.create_user_for_member(self)
 
     def handle_fee_override_changes(self):
-        """Handle changes to membership fee override using amendment system with better atomicity"""
-        # Skip all fee override handling for CSV imports and bulk operations
-        csv_flag = getattr(self, "_csv_import", False)
-        system_flag = getattr(self, "_system_update", False)
-        # Check if member is part of an active bulk import (persists across saves)
-        in_bulk_import = (
-            hasattr(frappe.local, "bulk_import_members") and self.name in frappe.local.bulk_import_members
-        )
+        """
+        Handle changes to membership fee override using amendment system with better atomicity.
 
-        if csv_flag or system_flag or in_bulk_import:
-            return
+        EXTRACTED: Moved to MemberFeeChangeService.handle_fee_override_changes()
+        for service layer separation.
+        """
+        from verenigingen.services.member.core.member_fee_change_service import MemberFeeChangeService
 
-        # Check permissions for fee override changes
-        self.validate_fee_override_permissions()
-
-        # Skip fee override change tracking for new member applications
-        # Applications should set initial fee amounts without triggering change tracking
-        if not self.name or self.is_new():
-            # For new documents, validate and set audit fields but no change tracking
-            if self.dues_rate:
-                # Use centralized validation logic
-                self._validate_fee_override_amount(self.dues_rate)
-                self._validate_fee_override_reason()
-
-                # For CSV imports, create audit log entry instead of requiring override fields
-                if getattr(self, "_csv_import", False) and self.dues_rate:
-                    frappe.logger().info(
-                        f"CSV Import: Member {self.name or 'NEW'} imported with dues_rate {self.dues_rate}"
-                    )
-
-                # Set audit fields for new members (but no change tracking)
-                if not getattr(self, "fee_override_date", None):
-                    setattr(self, "fee_override_date", today())
-                if not getattr(self, "fee_override_by", None):
-                    setattr(self, "fee_override_by", frappe.session.user)
-            return
-
-        # Get current and old values for existing documents with better error handling
-        new_amount = self.dues_rate
-        old_amount = None
-
-        try:
-            # Get current value from database
-            db_result = frappe.db.sql(
-                """
-                SELECT dues_rate
-                FROM `tabMember`
-                WHERE name = %s
-            """,
-                (self.name,),
-                as_dict=True,
-            )
-
-            if db_result:
-                old_amount = db_result[0].dues_rate
-
-            # Check if values are actually different
-            if old_amount == new_amount:
-                return  # No change detected
-
-            # If we reach here, there's an actual change to process
-            frappe.logger().info(
-                f"Processing fee override change for member {self.name}: {old_amount} -> {new_amount}"
-            )
-
-            # Set audit fields when adding or changing override
-            if new_amount and not old_amount:
-                self.fee_override_date = today()
-                self.fee_override_by = frappe.session.user
-
-            # Validate fee override
-            if new_amount:
-                # Use centralized validation logic
-                self._validate_fee_override_amount(new_amount)
-                self._validate_fee_override_reason()
-
-            # Store change data for deferred processing to avoid save recursion
-            self._pending_fee_change = {
-                "old_amount": old_amount,
-                "new_amount": new_amount,
-                "reason": getattr(self, "fee_override_reason", None) or "No reason provided",
-                "change_date": now(),
-                "changed_by": frappe.session.user if frappe.session.user else "Administrator",
-            }
-
-            frappe.logger().info(f"Queued fee override change for member {self.name}")
-
-        except Exception as e:
-            frappe.logger().error(f"Error processing fee override change for member {self.name}: {str(e)}")
-            # Don't fail the save operation, just log the error
-            return
+        return MemberFeeChangeService.handle_fee_override_changes(self)
 
     def record_fee_change(self, change_data):
-        """Record fee change in history using the financial history manager"""
-        from verenigingen.utils.member_financial_history_manager import get_fee_change_history_manager
+        """
+        Record fee change in history using the financial history manager.
 
-        # Use amendment request name for true idempotency, fallback to schedule+action for other changes
-        amendment_name = change_data.get("amendment_request_name")
-        if amendment_name:
-            entry_id = f"amendment_{amendment_name}"
-            id_field_name = "amendment_request"
-        else:
-            # For non-amendment changes: use schedule name + action type for deduplication
-            # This prevents duplicate entries when same schedule action is processed multiple times
-            # If no schedule name, use change_date for identification
-            schedule_name = change_data.get("dues_schedule_name")
-            if not schedule_name:
-                schedule_name = change_data.get("change_date", "unknown")
-            action = change_data.get("dues_schedule_action", "manual")
-            entry_id = f"{schedule_name}_{action}"
-            id_field_name = "dues_schedule"
+        EXTRACTED: Moved to MemberFeeChangeService.record_fee_change()
+        for service layer separation.
+        """
+        from verenigingen.services.member.core.member_fee_change_service import MemberFeeChangeService
 
-        def build_fee_change_entry():
-            entry_data = {
-                "change_date": change_data["change_date"],
-                "old_dues_rate": change_data["old_amount"],
-                "new_dues_rate": change_data["new_amount"],
-                "change_type": change_data.get("change_type", "Fee Adjustment"),
-                "reason": change_data["reason"],
-                "changed_by": change_data["changed_by"],
-                "dues_schedule": change_data.get("dues_schedule_name", ""),
-            }
-            # Add billing frequency if provided
-            if "billing_frequency" in change_data:
-                entry_data["billing_frequency"] = change_data["billing_frequency"]
-            # Add amendment request reference if available
-            # CRITICAL: Store the actual amendment_name (not entry_id) in the Link field
-            # Link fields require valid document names, not prefixed IDs
-            # The deduplication logic uses entry_id for comparison, but storage must use document name
-            if amendment_name:
-                entry_data["amendment_request"] = amendment_name  # Store actual document name for Link field
-            return entry_data
-
-        fee_history_manager = get_fee_change_history_manager(self)
-        return fee_history_manager.add_or_update_entry(
-            entry_id=entry_id,
-            entry_builder=build_fee_change_entry,
-            id_field_name=id_field_name,
-        )
+        return MemberFeeChangeService.record_fee_change(self, change_data)
 
     def get_active_membership(self):
         """
@@ -1867,138 +1748,30 @@ class Member(
         self.address_display = MemberAddressDisplayService.update_address_display(self)
 
     def add_fee_change_to_history(self, schedule_data):
-        """Add a single fee change to history incrementally"""
-        try:
-            # Check if entry already exists for this schedule or amendment
-            existing_idx = None
-            for idx, row in enumerate(self.fee_change_history or []):
-                row_schedule = getattr(row, "dues_schedule", None)
-                row_amendment = getattr(row, "amendment_request", None)
+        """
+        Add a single fee change to history incrementally.
 
-                # Match by dues schedule
-                if row_schedule and (
-                    row_schedule == schedule_data.get("schedule_name")
-                    or row_schedule == schedule_data.get("name")
-                ):
-                    existing_idx = idx
-                    break
+        EXTRACTED: Moved to MemberFeeChangeHistoryService.add_fee_change_to_history()
+        for service layer separation.
+        """
+        from verenigingen.services.member.history.member_fee_change_history_service import (
+            MemberFeeChangeHistoryService,
+        )
 
-                # Match by amendment request
-                if row_amendment and row_amendment == schedule_data.get("amendment_request"):
-                    existing_idx = idx
-                    break
-
-            # Validate billing frequency - use "Custom" for unsupported frequencies
-            valid_frequencies = ["Daily", "Monthly", "Quarterly", "Semi-Annual", "Annual", "Custom"]
-            billing_freq = (
-                schedule_data.get("billing_frequency")
-                if schedule_data.get("billing_frequency") in valid_frequencies
-                else "Custom"
-            )
-
-            # Build entry data with all required fields
-            entry_data = {
-                "change_date": schedule_data.get("change_date")
-                or schedule_data.get("creation")
-                or frappe.utils.now_datetime(),
-                "dues_schedule": schedule_data.get("name") or schedule_data.get("schedule_name"),
-                "billing_frequency": billing_freq,
-                "old_dues_rate": schedule_data.get("old_dues_rate", 0),
-                "new_dues_rate": schedule_data.get("dues_rate") or schedule_data.get("new_dues_rate"),
-                "change_type": schedule_data.get("change_type", "Schedule Created"),
-                "reason": schedule_data.get("reason")
-                or f"Dues schedule: {schedule_data.get('schedule_name') or schedule_data.get('name')}",
-                "changed_by": schedule_data.get("changed_by") or frappe.session.user or "Administrator",
-            }
-
-            # Add amendment request if provided
-            if schedule_data.get("amendment_request"):
-                entry_data["amendment_request"] = schedule_data.get("amendment_request")
-
-            if existing_idx is not None:
-                # Update existing entry with new values
-                for key, value in entry_data.items():
-                    if value is not None:
-                        setattr(self.fee_change_history[existing_idx], key, value)
-            else:
-                # Add new entry using append method (Frappe converts dict to child doc)
-                self.append("fee_change_history", entry_data)
-
-                # Keep only 50 most recent entries to prevent unlimited growth
-                if len(self.fee_change_history) > 50:
-                    # Remove oldest entries (at the end)
-                    self.fee_change_history = self.fee_change_history[:50]
-
-            # NOTE: Don't save here - caller is responsible for saving after all updates
-            # This prevents multiple saves when refreshing history
-
-        except Exception as e:
-            frappe.log_error(
-                f"Error adding fee change to history for member {self.name}: {str(e)}",
-                "Fee Change History Update",
-            )
-            # Ensure method closure
-            return
+        return MemberFeeChangeHistoryService.add_fee_change_to_history(self, schedule_data)
 
     def update_fee_change_in_history(self, schedule_data):
-        """Update an existing fee change in history"""
-        if not hasattr(self, "fee_change_history") or not self.fee_change_history:
-            # If no history exists, just add it
-            self.add_fee_change_to_history(schedule_data)
-            return
+        """
+        Update an existing fee change in history.
 
-        try:
-            # Find the schedule in fee change history
-            found = False
-            schedule_name = schedule_data.get("name") or schedule_data.get("schedule_name")
+        EXTRACTED: Moved to MemberFeeChangeHistoryService.update_fee_change_in_history()
+        for service layer separation.
+        """
+        from verenigingen.services.member.history.member_fee_change_history_service import (
+            MemberFeeChangeHistoryService,
+        )
 
-            for _idx, row in enumerate(self.fee_change_history):
-                if row.dues_schedule == schedule_name:
-                    found = True
-                    # Update the entry with new data
-                    valid_frequencies = ["Daily", "Monthly", "Quarterly", "Semi-Annual", "Annual", "Custom"]
-                    billing_freq = (
-                        schedule_data.get("billing_frequency")
-                        if schedule_data.get("billing_frequency") in valid_frequencies
-                        else "Custom"
-                    )
-
-                    # Update fields
-                    row.change_date = schedule_data.get("change_date") or frappe.utils.now_datetime()
-                    row.billing_frequency = billing_freq
-                    row.old_dues_rate = schedule_data.get("old_dues_rate", row.old_dues_rate)
-                    row.new_dues_rate = schedule_data.get("dues_rate") or schedule_data.get("new_dues_rate")
-                    row.change_type = schedule_data.get("change_type", "Fee Adjustment")
-                    row.reason = schedule_data.get("reason") or f"Updated: {schedule_name}"
-                    row.changed_by = schedule_data.get("changed_by") or frappe.session.user or "Administrator"
-                    break
-
-            if not found:
-                # Entry not in history, add it
-                self.add_fee_change_to_history(schedule_data)
-            else:
-                # CORRECTED SECURE VERSION: Use secure operations with explicit permission validation
-                result = secure_document_operation(
-                    operation="update_child_table",
-                    doc=self,
-                    justification=f"Update fee change in history for member {self.name}",
-                    required_permissions=["Member:write"],
-                    allow_system_user=True,  # Allow system user for automated financial data tracking
-                    bypass_validations=["link_validation"],  # Allow bypass of problematic chapter references
-                )
-
-                if not result.success:
-                    frappe.log_error(
-                        f"Failed to update fee change in history for member {self.name}: {'; '.join(result.errors)}",
-                        "Fee Change History Manager",
-                    )
-                    return
-
-        except Exception as e:
-            frappe.log_error(
-                f"Error updating fee change in history for member {self.name}: {str(e)}",
-                "Fee Change History Update",
-            )
+        return MemberFeeChangeHistoryService.update_fee_change_in_history(self, schedule_data)
 
     def _update_donation_history(self):
         """Update donation history for this member - delegates to DonationHistoryManager"""
