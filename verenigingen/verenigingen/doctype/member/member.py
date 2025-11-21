@@ -96,194 +96,20 @@ def generate_volunteer_details_html(member_doc):
     """
     Generate HTML display for volunteer details and assignment history.
 
-    Creates a formatted HTML table showing volunteer profile information and complete
-    assignment history for display on the Member form. Used in onload() to populate
-    the volunteer_details_html field via set_onload().
+    EXTRACTED: Moved to MemberVolunteerDisplayService.generate_volunteer_details_html()
+    for service layer separation.
 
     Args:
-        member_doc (Member): Member document instance to generate volunteer details for
+        member_doc: Member document instance
 
     Returns:
-        str: Formatted HTML string containing:
-            - Volunteer ID, name, start date, and status with color-coded badges
-            - Assignment history table (role, organization with links, type, dates, status)
-            - Link to full volunteer record
-            - User-friendly messages for edge cases (no volunteer, no history, errors)
-
-    Security:
-        - ALL user-provided data is escaped with frappe.utils.escape_html()
-        - URLs are validated (DocType existence) and encoded with urllib.parse.quote()
-        - Permission checks ensure user can access volunteer data
-        - Error messages sanitized (no internal details exposed to users)
-
-    Performance:
-        - Makes 2 database queries: get_volunteer_for_member() + frappe.get_doc()
-        - Loads full Volunteer document with assignment_history child table
-        - In-memory sorting of assignments (no additional queries)
-        - Typical execution time: <100ms for volunteers with <50 assignments
-
-    Edge Cases Handled:
-        - Member with no linked volunteer record → "No volunteer record linked"
-        - User without Volunteer read permission → "Volunteer information not accessible"
-        - Empty assignment history → "No assignment history recorded"
-        - None dates in assignments → Sorted using date.min (oldest)
-        - Invalid reference_doctype → Displays name without link
-        - Missing volunteer_name → Skips name display
-        - Errors during generation → Generic error message + detailed logging
-
-    Usage Example:
-        >>> member = frappe.get_doc("Member", "MEMBER-001")
-        >>> html = generate_volunteer_details_html(member)
-        >>> member.set_onload("volunteer_details_html", html)
-
-    Integration:
-        Called from Member.onload() to populate HTML field for client display.
-        JavaScript reads from frm.doc.__onload.volunteer_details_html and renders
-        using Frappe's HTML field API.
-
-    Related:
-        - Member.onload() (lines 705-713): Integration point
-        - member.js (lines 346-384): Client-side rendering
-        - test_volunteer_details_html.py: Comprehensive test suite
-
-    See Also:
-        - update_other_members_at_address_display(): Similar HTML generation pattern
-        - EmailService: Uses similar XSS protection approach
+        str: Formatted HTML string with volunteer details and assignment history
     """
-    try:
-        from datetime import date
-        from urllib.parse import quote
+    from verenigingen.services.member.display.member_volunteer_display_service import (
+        MemberVolunteerDisplayService,
+    )
 
-        # Get linked volunteer record
-        volunteer = get_volunteer_for_member(member_doc.name)
-        if not volunteer:
-            return '<div class="text-muted">No volunteer record linked</div>'
-
-        # Check if user has permission to read Volunteer data
-        # Allow access for administrators and board members
-        admin_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Staff"]
-        has_admin_role = any(role in frappe.get_roles() for role in admin_roles)
-
-        if not has_admin_role and not frappe.has_permission("Volunteer", "read", volunteer):
-            return '<div class="text-muted">Volunteer information not accessible</div>'
-
-        volunteer_doc = frappe.get_doc("Volunteer", volunteer)
-
-        # Build HTML content
-        html_parts = []
-        html_parts.append('<div class="volunteer-details">')
-        html_parts.append(f"<p><strong>Volunteer ID: </strong> {frappe.utils.escape_html(volunteer)}</p>")
-
-        if volunteer_doc.volunteer_name:
-            html_parts.append(
-                f"<p><strong>Volunteer Name: </strong> {frappe.utils.escape_html(volunteer_doc.volunteer_name)}</p>"
-            )
-
-        if volunteer_doc.start_date:
-            html_parts.append(
-                f"<p><strong>Start Date: </strong> {frappe.utils.format_date(volunteer_doc.start_date)}</p>"
-            )
-
-        if volunteer_doc.status:
-            status_color = {"Active": "success", "Inactive": "secondary", "New": "info"}.get(
-                volunteer_doc.status, "secondary"
-            )
-            html_parts.append(
-                f'<p><strong>Status: </strong> <span class="badge badge-{status_color}">{frappe.utils.escape_html(volunteer_doc.status)}</span></p>'
-            )
-
-        # Add volunteer assignment history
-        html_parts.append("<hr>")
-        html_parts.append("<h6><strong>Assignment History</strong></h6>")
-
-        if volunteer_doc.assignment_history and len(volunteer_doc.assignment_history) > 0:
-            html_parts.append('<div class="table-responsive">')
-            html_parts.append('<table class="table table-sm table-bordered">')
-            html_parts.append("<thead><tr>")
-            html_parts.append("<th>Role</th>")
-            html_parts.append("<th>Organization</th>")
-            html_parts.append("<th>Type</th>")
-            html_parts.append("<th>Start Date</th>")
-            html_parts.append("<th>End Date</th>")
-            html_parts.append("<th>Status</th>")
-            html_parts.append("</tr></thead>")
-            html_parts.append("<tbody>")
-
-            # Sort by start_date descending (most recent first)
-            # Use date.min for None values to ensure proper sorting
-            sorted_assignments = sorted(
-                volunteer_doc.assignment_history,
-                key=lambda x: x.start_date if x.start_date else date.min,
-                reverse=True,
-            )
-
-            for assignment in sorted_assignments:
-                html_parts.append("<tr>")
-
-                # Role
-                html_parts.append(f'<td>{frappe.utils.escape_html(assignment.role or "")}</td>')
-
-                # Organization (with link if available)
-                if assignment.reference_name and assignment.reference_doctype:
-                    # Validate reference_doctype is a real DocType and encode URL properly
-                    if frappe.db.exists("DocType", assignment.reference_doctype):
-                        doctype_slug = quote(assignment.reference_doctype.lower().replace(" ", "-"))
-                        reference_slug = quote(assignment.reference_name)
-                        org_link = f"/app/{doctype_slug}/{reference_slug}"
-                        html_parts.append(
-                            f'<td><a href="{org_link}">{frappe.utils.escape_html(assignment.reference_name)}</a></td>'
-                        )
-                    else:
-                        # Invalid DocType - display without link
-                        html_parts.append(
-                            f'<td>{frappe.utils.escape_html(assignment.reference_name or "")}</td>'
-                        )
-                else:
-                    html_parts.append(f'<td>{frappe.utils.escape_html(assignment.reference_name or "")}</td>')
-
-                # Type
-                html_parts.append(f'<td>{frappe.utils.escape_html(assignment.assignment_type or "")}</td>')
-
-                # Start Date
-                start_date = frappe.utils.format_date(assignment.start_date) if assignment.start_date else "-"
-                html_parts.append(f"<td>{start_date}</td>")
-
-                # End Date
-                end_date = frappe.utils.format_date(assignment.end_date) if assignment.end_date else "-"
-                html_parts.append(f"<td>{end_date}</td>")
-
-                # Status
-                status_badge_color = "success" if assignment.status == "Active" else "secondary"
-                html_parts.append(
-                    f'<td><span class="badge badge-{status_badge_color}">{frappe.utils.escape_html(assignment.status or "")}</span></td>'
-                )
-
-                html_parts.append("</tr>")
-
-            html_parts.append("</tbody>")
-            html_parts.append("</table>")
-            html_parts.append("</div>")
-        else:
-            # No assignment history
-            html_parts.append('<p class="text-muted"><em>No assignment history recorded</em></p>')
-
-        # Add link to volunteer record
-        html_parts.append("<hr>")
-        volunteer_url = quote(volunteer)
-        html_parts.append(
-            f'<p><a href="/app/volunteer/{volunteer_url}" class="btn btn-sm btn-default">View Volunteer Record</a></p>'
-        )
-
-        html_parts.append("</div>")
-
-        return "\n".join(html_parts)
-
-    except Exception as e:
-        frappe.log_error(
-            f"Error generating volunteer details HTML for member {member_doc.name}: {str(e)}",
-            title="Member Volunteer HTML Generation Error",
-        )
-        return '<div class="text-danger">Unable to load volunteer details. Please contact support if this persists.</div>'
+    return MemberVolunteerDisplayService.generate_volunteer_details_html(member_doc)
 
 
 class Member(
@@ -1593,7 +1419,10 @@ class Member(
         else:
             # For non-amendment changes: use schedule name + action type for deduplication
             # This prevents duplicate entries when same schedule action is processed multiple times
-            schedule_name = change_data.get("dues_schedule_name", "unknown")
+            # If no schedule name, use change_date for identification
+            schedule_name = change_data.get("dues_schedule_name")
+            if not schedule_name:
+                schedule_name = change_data.get("change_date", "unknown")
             action = change_data.get("dues_schedule_action", "manual")
             entry_id = f"{schedule_name}_{action}"
             id_field_name = "dues_schedule"
@@ -2003,156 +1832,39 @@ class Member(
             return []
 
     def update_other_members_at_address_display(self, save_to_db=False):
-        """Update the other_members_at_address HTML field with data from get_other_members_at_address"""
-        try:
-            if not self.primary_address:
-                html_content = ""
-            else:
-                # Get other members at the same address
-                other_members = self.get_other_members_at_address()
+        """
+        Update the other_members_at_address HTML field with data from get_other_members_at_address.
 
-                if not other_members or not isinstance(other_members, list) or len(other_members) == 0:
-                    html_content = ""
-                else:
-                    # Format the data as HTML with cleaner styling (no blue container)
-                    html_content = '<div class="other-members-container">'
-                    html_content += f'<h6 class="text-muted"><i class="fa fa-users"></i> Other Members at Same Address ({len(other_members)})</h6>'
+        EXTRACTED: HTML generation moved to MemberAddressDisplayService.update_other_members_at_address_display()
+        Database save logic remains here for transaction control.
+        """
+        from verenigingen.services.member.display.member_address_display_service import (
+            MemberAddressDisplayService,
+        )
 
-                    for member in other_members:
-                        member_name = member.get("name", "")
-                        member_full_name = member.get("full_name", "")
+        # Generate HTML content using service
+        html_content = MemberAddressDisplayService.update_other_members_at_address_display(self)
 
-                        # Skip if member_name is empty - this prevents broken links
-                        if not member_name or not member_name.strip():
-                            frappe.log_error(
-                                f"Empty member name in same address display: {member}", "Member DocType"
-                            )
-                            continue
+        # Set the HTML content
+        self.other_members_at_address = html_content
 
-                        status_color = {"Active": "success", "Pending": "warning", "Suspended": "danger"}.get(
-                            member.get("status", ""), "secondary"
-                        )
-
-                        # Calculate age in years
-                        age_text = ""
-                        if member.get("birth_date"):
-                            # Using standardized age calculation utility
-                            from verenigingen.utils.validation_utilities import AgeValidator
-
-                            age_years = int(AgeValidator.calculate_age(member["birth_date"]))
-                            age_text = f"{age_years} years old"
-
-                        # Validate member name format and existence using standardized validator
-                        from verenigingen.utils.validation_utilities import DocumentExistenceValidator
-
-                        if not DocumentExistenceValidator.validate_document_exists(
-                            "Member", member_name, throw_on_error=False
-                        ):
-                            frappe.log_error(
-                                f"Invalid member reference in same address display: {member_name}",
-                                "Member DocType",
-                            )
-                            continue
-
-                        # Use Frappe's built-in escaping for security
-                        import json
-
-                        from frappe.utils import cstr
-
-                        member_name_html = (
-                            frappe.utils.cstr(member_name)
-                            .replace("&", "&amp;")
-                            .replace("<", "&lt;")
-                            .replace(">", "&gt;")
-                            .replace('"', "&quot;")
-                            .replace("'", "&#39;")
-                        )
-                        member_full_name_html = (
-                            frappe.utils.cstr(member_full_name)
-                            .replace("&", "&amp;")
-                            .replace("<", "&lt;")
-                            .replace(">", "&gt;")
-                            .replace('"', "&quot;")
-                            .replace("'", "&#39;")
-                        )
-                        member_name_js = json.dumps(member_name)  # Proper JavaScript string escaping
-
-                        html_content += '<div class="member-card" style="border-left: 3px solid #dee2e6; padding: 10px; margin: 8px 0; background: #f8f9fa;">'
-                        html_content += f'<a href="/app/member/{member_name_html}" onclick="event.preventDefault(); frappe.set_route(\'Form\', \'Member\', {member_name_js}); return false;" style="font-weight: 600; color: #007bff; text-decoration: none; cursor: pointer;" title="View {member_full_name_html}">{member_full_name_html}</a><br>'
-                        html_content += f'<span class="badge badge-{status_color}">{member.get("status", "Unknown")}</span>'
-
-                        if member.get("member_since"):
-                            html_content += (
-                                f' <small class="text-muted">• Member since: {member["member_since"]}</small>'
-                            )
-
-                        if age_text:
-                            html_content += f' <small class="text-muted">• {age_text}</small>'
-
-                        html_content += "</div>"
-
-                    html_content += "</div>"
-
-            # Set the HTML content
-            self.other_members_at_address = html_content
-
-            # Optionally save directly to database
-            if save_to_db and not self.get("__islocal"):
-                frappe.db.set_value("Member", self.name, "other_members_at_address", html_content)
-                frappe.db.commit()
-
-        except Exception as e:
-            frappe.log_error(
-                f"Error updating other members at address display: {str(e)}", "Member Address Display"
-            )
-            html_content = '<p style="color: #dc3545;">Error loading address information</p>'
-            self.other_members_at_address = html_content
-            if save_to_db and not self.get("__islocal"):
-                frappe.db.set_value("Member", self.name, "other_members_at_address", html_content)
-                frappe.db.commit()
+        # Optionally save directly to database
+        if save_to_db and not self.get("__islocal"):
+            frappe.db.set_value("Member", self.name, "other_members_at_address", html_content)
+            frappe.db.commit()
 
     def update_address_display(self):
-        """Update the address_display HTML field with formatted address information"""
-        try:
-            if not self.primary_address:
-                self.address_display = ""
-                return
+        """
+        Update the address_display HTML field with formatted address information.
 
-            # Get the address document
-            address_doc = frappe.get_doc("Address", self.primary_address)
+        EXTRACTED: Moved to MemberAddressDisplayService.update_address_display()
+        for service layer separation.
+        """
+        from verenigingen.services.member.display.member_address_display_service import (
+            MemberAddressDisplayService,
+        )
 
-            # Format the address as HTML
-            html_content = '<div class="address-display" style="background: #f8f9fa; border-left: 3px solid #28a745; padding: 10px; margin: 5px 0;">'
-
-            if address_doc.address_line1:
-                html_content += f"<strong>{address_doc.address_line1}</strong><br>"
-
-            if address_doc.address_line2:
-                html_content += f"{address_doc.address_line2}<br>"
-
-            address_parts = []
-            if address_doc.pincode:
-                address_parts.append(address_doc.pincode)
-            if address_doc.city:
-                address_parts.append(address_doc.city)
-
-            if address_parts:
-                html_content += f'{" ".join(address_parts)}<br>'
-
-            if address_doc.state:
-                html_content += f"{address_doc.state}<br>"
-
-            if address_doc.country:
-                html_content += f'<small class="text-muted">{address_doc.country}</small>'
-
-            html_content += "</div>"
-
-            # Set the HTML content
-            self.address_display = html_content
-
-        except Exception as e:
-            frappe.log_error(f"Error updating address display: {str(e)}", "Member Address Display")
-            self.address_display = '<p style="color: #dc3545;">Error loading address information</p>'
+        self.address_display = MemberAddressDisplayService.update_address_display(self)
 
     def add_fee_change_to_history(self, schedule_data):
         """Add a single fee change to history incrementally"""

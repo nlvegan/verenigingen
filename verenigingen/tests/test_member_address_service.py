@@ -32,11 +32,16 @@ class TestMemberAddressService(VereningingenTestCase):
             birth_date="1985-03-15"
         )
 
-        # Create test address using frappe.get_doc
+        # Create test address with unique street number to avoid collisions
+        # Use frappe.generate_hash to create unique address for each test
+        import hashlib
+        import time
+        unique_id = hashlib.md5(f"{time.time()}{self.test_member.name}".encode()).hexdigest()[:8]
+
         self.test_address = frappe.get_doc({
             "doctype": "Address",
-            "address_title": "Test Address",
-            "address_line1": "Kalverstraat 123",
+            "address_title": f"Test Address {unique_id}",
+            "address_line1": f"Kalverstraat {unique_id}",
             "city": "Amsterdam",
             "pincode": "1012 NX",
             "country": "Netherlands",
