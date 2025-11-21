@@ -1,0 +1,390 @@
+"""
+Unit Tests for Field Synchronization Service
+============================================
+
+Pure unit tests for testing individual service functions in isolation.
+Uses mocking to avoid database dependencies.
+"""
+
+import frappe
+from frappe.tests.utils import FrappeTestCase
+from unittest.mock import Mock, patch, MagicMock, call
+from verenigingen.services.field_sync_service import (
+    _find_target_document,
+    _get_changed_fields,
+    get_sync_config,
+    is_sync_configured,
+    add_sync_config,
+    FIELD_SYNC_CONFIG,
+)
+
+
+class TestFieldSyncServiceUnit(FrappeTestCase):
+    """Unit tests for field sync service helper functions."""
+
+    def test_get_sync_config_returns_config(self):
+        """Test getting sync config for configured DocType pair."""
+        config = get_sync_config("Member", "User")
+
+        self.assertIsNotNone(config)
+        self.assertIn("field_mappings", config)
+        self.assertIn("sync_flag", config)
+
+    def test_get_sync_config_returns_none_for_unconfigured(self):
+        """Test getting sync config for unconfigured DocType pair."""
+        config = get_sync_config("NonExistent", "AlsoNotReal")
+
+        self.assertIsNone(config)
+
+    def test_is_sync_configured_true_for_configured_pair(self):
+        """Test sync configuration check returns True for configured pair."""
+        result = is_sync_configured("Member", "User")
+
+        self.assertTrue(result)
+
+    def test_is_sync_configured_false_for_unconfigured_pair(self):
+        """Test sync configuration check returns False for unconfigured pair."""
+        result = is_sync_configured("NonExistent", "AlsoNotReal")
+
+        self.assertFalse(result)
+
+    def test_add_sync_config_adds_new_config(self):
+        """Test dynamically adding sync configuration."""
+        test_config = {
+            "field_mappings": {"test_field": "target_field"},
+            "sync_flag": "test_sync_flag"
+        }
+
+        add_sync_config("TestDocType", "TargetDocType", test_config)
+
+        # Verify config was added
+        self.assertTrue(is_sync_configured("TestDocType", "TargetDocType"))
+        config = get_sync_config("TestDocType", "TargetDocType")
+        self.assertEqual(config["field_mappings"]["test_field"], "target_field")
+
+        # Cleanup
+        if "TestDocType" in FIELD_SYNC_CONFIG:
+            del FIELD_SYNC_CONFIG["TestDocType"]
+
+    def test_find_target_document_with_link_field(self):
+        """Test finding target document using direct link field."""
+        # Create mock source document
+        source_doc = Mock()
+        source_doc.name = "TEST-001"
+        source_doc.linked_field = "USER-001"
+
+        config = {
+            "link_field": "linked_field"
+        }
+
+        result = _find_target_document(source_doc, "User", config)
+
+        self.assertEqual(result, "USER-001")
+
+    def test_find_target_document_with_reverse_lookup(self):
+        """Test finding target document using reverse lookup."""
+        source_doc = Mock()
+        source_doc.name = "TEST-001"
+
+        config = {
+            "reverse_lookup": {"source_field": "{source_name}"}
+        }
+
+        with patch("frappe.db.get_value") as mock_get_value:
+            mock_get_value.return_value = "TARGET-001"
+
+            result = _find_target_document(source_doc, "TargetDocType", config)
+
+            # Verify db call was made with correct filters
+            mock_get_value.assert_called_once_with(
+                "TargetDocType",
+                {"source_field": "TEST-001"},
+                "name"
+            )
+            self.assertEqual(result, "TARGET-001")
+
+    def test_find_target_document_with_lookup_method(self):
+        """Test finding target document using custom lookup method."""
+        source_doc = Mock()
+        source_doc.name = "TEST-001"
+
+        lookup_fn = Mock(return_value="CUSTOM-LOOKUP-001")
+        config = {
+            "lookup_method": lookup_fn
+        }
+
+        result = _find_target_document(source_doc, "TargetDocType", config)
+
+        # Verify lookup function was called
+        lookup_fn.assert_called_once_with(source_doc)
+        self.assertEqual(result, "CUSTOM-LOOKUP-001")
+
+    def test_find_target_document_returns_none_when_not_found(self):
+        """Test finding target document returns None when no relationship exists."""
+        source_doc = Mock()
+        source_doc.name = "TEST-001"
+
+        config = {
+            "reverse_lookup": {"source_field": "TEST-001"}
+        }
+
+        with patch("frappe.db.get_value") as mock_get_value:
+            mock_get_value.return_value = None
+
+            result = _find_target_document(source_doc, "TargetDocType", config)
+
+            self.assertIsNone(result)
+
+    def test_get_changed_fields_returns_only_changed_fields(self):
+        """Test that only changed fields are returned."""
+        doc = Mock()
+        doc.field1 = "value1"
+        doc.field2 = "value2"
+        doc.field3 = "value3"
+
+        # Mock has_value_changed to return True for field1 and field2 only
+        def mock_has_changed(field_name):
+            return field_name in ["field1", "field2"]
+
+        doc.has_value_changed = mock_has_changed
+
+        field_mappings = {
+            "field1": "target1",
+            "field2": "target2",
+            "field3": "target3"
+        }
+
+        result = _get_changed_fields(doc, field_mappings)
+
+        self.assertEqual(len(result), 2)
+        self.assertIn("field1", result)
+        self.assertIn("field2", result)
+        self.assertNotIn("field3", result)
+        self.assertEqual(result["field1"], "target1")
+        self.assertEqual(result["field2"], "target2")
+
+    def test_get_changed_fields_handles_missing_fields(self):
+        """Test that missing fields on document are skipped."""
+        doc = Mock(spec=["field1", "has_value_changed"])
+        doc.field1 = "value1"
+        doc.has_value_changed = Mock(return_value=True)
+
+        field_mappings = {
+            "field1": "target1",
+            "field2": "target2",  # This field doesn't exist on doc
+            "field3": "target3"   # This field doesn't exist on doc
+        }
+
+        result = _get_changed_fields(doc, field_mappings)
+
+        # Only field1 should be in result
+        self.assertEqual(len(result), 1)
+        self.assertIn("field1", result)
+
+    def test_get_changed_fields_returns_empty_when_no_changes(self):
+        """Test that empty dict is returned when no fields changed."""
+        doc = Mock()
+        doc.field1 = "value1"
+        doc.has_value_changed = Mock(return_value=False)
+
+        field_mappings = {
+            "field1": "target1"
+        }
+
+        result = _get_changed_fields(doc, field_mappings)
+
+        self.assertEqual(len(result), 0)
+        self.assertEqual(result, {})
+
+
+class TestSyncFlagsAndLoopPrevention(FrappeTestCase):
+    """Test sync flag behavior and infinite loop prevention."""
+
+    def test_sync_flag_prevents_recursive_sync(self):
+        """Test that sync flag prevents recursive synchronization."""
+        from verenigingen.services.field_sync_service import _sync_to_target
+
+        # Create mock document
+        source_doc = Mock()
+        source_doc.name = "TEST-001"
+        source_doc.user = "USER-001"
+        source_doc.has_value_changed = Mock(return_value=True)
+
+        config = {
+            "link_field": "user",
+            "field_mappings": {"image": "user_image"},
+            "sync_flag": "syncing_member_user_fields"
+        }
+
+        # Set sync flag
+        frappe.flags.syncing_member_user_fields = True
+
+        try:
+            # Call _sync_to_target - should exit early due to flag
+            with patch("frappe.get_doc") as mock_get_doc:
+                _sync_to_target(source_doc, "User", config)
+
+                # get_doc should NOT be called because sync exits early
+                mock_get_doc.assert_not_called()
+
+        finally:
+            frappe.flags.syncing_member_user_fields = False
+
+    def test_sync_flag_is_cleared_on_exception(self):
+        """Test that sync flag is cleared even when exception occurs."""
+        from verenigingen.services.field_sync_service import _sync_to_target
+
+        source_doc = Mock()
+        source_doc.name = "TEST-001"
+        source_doc.doctype = "Member"
+
+        config = {
+            "link_field": "user",
+            "field_mappings": {"image": "user_image"},
+            "sync_flag": "test_sync_flag"
+        }
+
+        # Mock to raise exception during sync
+        with patch("frappe.get_doc") as mock_get_doc:
+            mock_get_doc.side_effect = Exception("Test exception")
+
+            # Attempt sync - should raise exception
+            with self.assertRaises(Exception):
+                frappe.flags.test_sync_flag = False
+                _sync_to_target(source_doc, "User", config)
+
+            # Flag should be cleared
+            self.assertFalse(frappe.flags.get("test_sync_flag"))
+
+
+class TestConfigurationValidation(FrappeTestCase):
+    """Test configuration validation and error handling."""
+
+    def test_sync_with_unconfigured_doctype_exits_early(self):
+        """Test that sync exits early for unconfigured DocTypes."""
+        from verenigingen.services.field_sync_service import sync_fields
+
+        doc = Mock()
+        doc.doctype = "UnconfiguredDocType"
+
+        with patch("verenigingen.services.field_sync_service._sync_to_target") as mock_sync:
+            sync_fields(doc)
+
+            # Should not attempt sync for unconfigured DocType
+            mock_sync.assert_not_called()
+
+    def test_field_mappings_configuration_structure(self):
+        """Test that field mappings have correct structure."""
+        config = get_sync_config("Member", "User")
+
+        self.assertIsNotNone(config)
+        self.assertIn("field_mappings", config)
+        self.assertIsInstance(config["field_mappings"], dict)
+
+        # Verify mappings are string -> string
+        for source_field, target_field in config["field_mappings"].items():
+            self.assertIsInstance(source_field, str)
+            self.assertIsInstance(target_field, str)
+
+    def test_bidirectional_config_consistency(self):
+        """Test that bidirectional configs are properly configured."""
+        # Member -> User config
+        member_to_user = get_sync_config("Member", "User")
+        # User -> Member config
+        user_to_member = get_sync_config("User", "Member")
+
+        self.assertIsNotNone(member_to_user)
+        self.assertIsNotNone(user_to_member)
+
+        # Both should use same sync flag
+        self.assertEqual(
+            member_to_user.get("sync_flag"),
+            user_to_member.get("sync_flag")
+        )
+
+
+class TestErrorHandling(FrappeTestCase):
+    """Test error handling and logging."""
+
+    def test_sync_logs_error_on_exception(self):
+        """Test that errors are logged but don't block source document save."""
+        from verenigingen.services.field_sync_service import sync_fields
+
+        doc = Mock()
+        doc.doctype = "Member"
+        doc.name = "TEST-001"
+
+        # Mock _sync_to_target to raise exception
+        with patch("verenigingen.services.field_sync_service._sync_to_target") as mock_sync:
+            mock_sync.side_effect = Exception("Test sync error")
+
+            with patch("frappe.log_error") as mock_log_error:
+                # Call sync_fields - should catch exception and log
+                sync_fields(doc)
+
+                # Verify error was logged
+                mock_log_error.assert_called_once()
+                call_args = mock_log_error.call_args
+                self.assertIn("Test sync error", call_args[0][0])
+
+    def test_find_target_handles_database_errors_gracefully(self):
+        """Test that database errors in lookup don't crash sync."""
+        source_doc = Mock()
+        source_doc.name = "TEST-001"
+
+        config = {
+            "reverse_lookup": {"field": "value"}
+        }
+
+        with patch("frappe.db.get_value") as mock_get_value:
+            # Simulate database error
+            mock_get_value.side_effect = Exception("Database connection error")
+
+            # Should raise exception (caller will handle logging)
+            with self.assertRaises(Exception):
+                _find_target_document(source_doc, "TargetDocType", config)
+
+
+class TestPerformanceOptimizations(FrappeTestCase):
+    """Test performance-related behaviors."""
+
+    def test_sync_skips_when_no_fields_changed(self):
+        """Test that sync is skipped when no configured fields changed."""
+        from verenigingen.services.field_sync_service import _sync_to_target
+
+        source_doc = Mock()
+        source_doc.name = "TEST-001"
+        source_doc.user = "USER-001"
+        source_doc.has_value_changed = Mock(return_value=False)
+
+        config = {
+            "link_field": "user",
+            "field_mappings": {"image": "user_image"},
+            "sync_flag": "test_flag"
+        }
+
+        with patch("frappe.get_doc") as mock_get_doc:
+            _sync_to_target(source_doc, "User", config)
+
+            # Should not fetch target document when no fields changed
+            mock_get_doc.assert_not_called()
+
+    def test_sync_exits_early_when_no_target_found(self):
+        """Test that sync exits early when target document doesn't exist."""
+        from verenigingen.services.field_sync_service import _sync_to_target
+
+        source_doc = Mock()
+        source_doc.name = "TEST-001"
+        source_doc.user = None  # No linked user
+
+        config = {
+            "link_field": "user",
+            "field_mappings": {"image": "user_image"},
+            "sync_flag": "test_flag"
+        }
+
+        with patch("frappe.get_doc") as mock_get_doc:
+            _sync_to_target(source_doc, "User", config)
+
+            # Should not attempt to fetch document
+            mock_get_doc.assert_not_called()

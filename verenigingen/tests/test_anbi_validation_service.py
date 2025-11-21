@@ -25,6 +25,11 @@ class TestANBIValidationService(EnhancedTestCase):
         # Note: enable_anbi_functionality serves dual purpose - enables feature
         # and indicates organization has valid ANBI registration
         settings = frappe.get_single("Verenigingen Settings")
+
+        # Clear invalid chapter reference (rollback issue in tests)
+        if settings.get("national_board_chapter") and not frappe.db.exists("Chapter", settings.national_board_chapter):
+            settings.national_board_chapter = None
+
         settings.enable_anbi_functionality = 1
         settings.anbi_minimum_reportable_amount = 500
         settings.save()
@@ -112,7 +117,7 @@ class TestANBIValidationService(EnhancedTestCase):
         )
 
         self.assertTrue(result.success, "Failed to create test donor for validation")
-        donor = result.doc
+        donor = result.document
 
         is_valid, error = self.validator.validate_donor_tax_identifier(donor)
         self.assertFalse(is_valid)
@@ -158,7 +163,7 @@ class TestANBIValidationService(EnhancedTestCase):
         )
 
         self.assertTrue(result.success, "Failed to create test donor for validation")
-        donor = result.doc
+        donor = result.document
 
         is_valid, error = self.validator.validate_donor_tax_identifier(donor)
         self.assertFalse(is_valid)

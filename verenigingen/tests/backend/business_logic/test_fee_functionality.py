@@ -41,8 +41,9 @@ class TestFeeFunctionality(VereningingenTestCase):
         
         # Verify member was created without fee override
         self.assertIsNone(member.application_custom_fee)
-        
+
         # Update their application custom fee (doesn't require reason)
+        member.reload()  # Reload to prevent TimestampMismatchError from hooks
         member.application_custom_fee = 125.0
         member.save()
 
@@ -74,8 +75,9 @@ class TestFeeFunctionality(VereningingenTestCase):
         )
         
         # Test setting application custom fee (doesn't require reason)
+        member.reload()  # Reload to prevent TimestampMismatchError from hooks
         member.application_custom_fee = 100.0
-        
+
         # Save should work with Administrator permissions
         member.save()
         self.assertEqual(member.application_custom_fee, 100.0)

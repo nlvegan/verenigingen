@@ -38,12 +38,22 @@ from verenigingen.tests.fixtures.enhanced_test_factory import (
 
 class TestDutchAssociationBusinessLogic(EnhancedTestCase):
     """Dutch association-specific business logic validation"""
-    
+
     def setUp(self):
         super().setUp()
         self.original_user = frappe.session.user
         # Set Administrator for account creation pipeline testing
         # EnhancedTestCase handles permissions automatically
+
+        # Create test roles for membership type testing
+        for role_name in ["Verenigingen Student", "Verenigingen Senior", "Verenigingen Family"]:
+            if not frappe.db.exists("Role", role_name):
+                role_doc = frappe.get_doc({
+                    "doctype": "Role",
+                    "role_name": role_name,
+                    "desk_access": 0
+                })
+                role_doc.insert(ignore_permissions=True)
         
     def tearDown(self):
         # EnhancedTestCase handles permissions automatically
@@ -52,7 +62,7 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
     def test_volunteer_minimum_age_validation(self):
         """Test 16+ age requirement for volunteers"""
         # Create member who is 15 years old
-        birth_date_15_years = add_days(getdate(), -365 * 15 - 30)  # 15 years and 1 month old
+        birth_date_15_years = add_days(add_years(getdate(), -15), -30)  # 15 years and 1 month old (account for leap years)
         
         young_member = self.create_test_member(
             first_name="Too",
@@ -73,7 +83,7 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
     def test_volunteer_age_validation_at_start_date(self):
         """Test age validation is checked at volunteer start date, not current date"""
         # Create member who will be 16 in 6 months
-        birth_date = add_days(getdate(), -365 * 15 - 180)  # 15.5 years old now
+        birth_date = add_days(add_years(getdate(), -15), -180)  # 15.5 years old now (account for leap years)
         
         future_member = self.create_test_member(
             first_name="Future",
@@ -97,17 +107,17 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
         
     def test_member_age_validation_reasonable_limits(self):
         """Test member age validation for reasonable limits"""
-        # Test very young member (under 16) - should be allowed for members
-        young_birth_date = add_days(getdate(), -365 * 10)  # 10 years old
-        
+        # Test young member (12+) - minimum age for members
+        young_birth_date = add_years(getdate(), -13)  # 13 years old (valid for membership, account for leap years)
+
         young_member = self.create_test_member(
             first_name="Young",
             last_name="Member",
             email="young.member@test.invalid",
             birth_date=young_birth_date
         )
-        
-        # Should succeed for member (only volunteers have 16+ requirement)
+
+        # Should succeed for member (members need 12+, volunteers need 16+)
         self.assertIsNotNone(young_member)
         
         # Test unreasonably old member (over 120) - should fail
@@ -241,8 +251,10 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
         for first_name, last_name in dutch_names:
             with self.subTest(first_name=first_name, last_name=last_name):
                 full_name = f"{first_name} {last_name}"
-                email = f"{first_name.lower()}.{last_name.lower().replace(' ', '.')}@test.invalid"
-                
+                # Use unique email to avoid duplicate entry errors across test runs
+                unique_suffix = frappe.generate_hash(length=6)
+                email = f"{first_name.lower()}.{last_name.lower().replace(' ', '.')}.{unique_suffix}@test.invalid"
+
                 member = self.create_test_member(
                     first_name=first_name,
                     last_name=last_name,
@@ -377,7 +389,7 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
     def test_age_transition_volunteer_eligibility(self):
         """Test volunteer eligibility during age transition periods"""
         # Member turning 16 soon
-        birth_date_almost_16 = add_days(getdate(), -365 * 16 + 30)  # 30 days until 16th birthday
+        birth_date_almost_16 = add_days(add_years(getdate(), -16), 30)  # 30 days until 16th birthday (account for leap years)
         
         transition_member = self.create_test_member(
             first_name="Age",
@@ -466,16 +478,17 @@ class TestAccountCreationBusinessRuleEdgeCases(EnhancedTestCase):
         
     def test_exact_16th_birthday_volunteer_creation(self):
         """Test volunteer creation exactly on 16th birthday"""
-        # Birth date exactly 16 years ago
-        birth_date_16_years = add_days(getdate(), -365 * 16)
-        
+        # Birth date exactly 16 years ago (account for leap years by using add_years)
+        from frappe.utils import add_years
+        birth_date_16_years = add_years(getdate(), -16)
+
         member = self.create_test_member(
             first_name="Exact",
             last_name="Sixteen",
             email="exact.sixteen@test.invalid",
             birth_date=birth_date_16_years
         )
-        
+
         # Should be able to create volunteer starting today (16th birthday)
         volunteer = self.create_test_volunteer(
             member_name=member.name,
@@ -483,17 +496,17 @@ class TestAccountCreationBusinessRuleEdgeCases(EnhancedTestCase):
             email="exact.sixteen@test.invalid",
             start_date=getdate()
         )
-        
+
         self.assertIsNotNone(volunteer)
         
     def test_timezone_edge_cases_age_calculation(self):
         """Test age calculation edge cases with different timezones"""
-        # Test with dates that might have timezone issues
+        # Test with dates that might have timezone issues (use realistic ages 12-100)
         edge_case_dates = [
             "2000-01-01",  # Y2K
             "2000-12-31",  # End of Y2K year
-            "1900-01-01",  # Century boundary
-            "2020-02-29"   # Recent leap year
+            "1950-01-01",  # Mid-century (realistic age ~75)
+            "2012-02-29"   # Leap year (age ~13, valid for membership)
         ]
         
         for birth_date in edge_case_dates:

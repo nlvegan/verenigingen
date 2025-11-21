@@ -35,6 +35,7 @@ class TestMemberStatusTransitions(VereningingenTestCase):
         # Check if suspension_reason field exists in Member doctype
         if hasattr(member, 'suspension_reason'):
             member.suspension_reason = "Payment overdue"
+        member.reload()  # Prevent TimestampMismatchError
         member.save()
 
         # Verify status change
@@ -64,6 +65,7 @@ class TestMemberStatusTransitions(VereningingenTestCase):
         member.status = "Active"
         if hasattr(member, 'suspension_reason'):
             member.suspension_reason = ""  # Clear reason
+        member.reload()  # Prevent TimestampMismatchError
         member.save()
 
         # Verify status change
@@ -92,6 +94,7 @@ class TestMemberStatusTransitions(VereningingenTestCase):
         member.status = "Terminated"
         member.termination_reason = "Voluntary resignation"
         member.termination_date = today()
+        member.reload()  # Prevent TimestampMismatchError
         member.save()
 
         # Verify status change
@@ -158,6 +161,7 @@ class TestMemberStatusTransitions(VereningingenTestCase):
         ]
 
         for new_status, reason in transitions:
+            member.reload()  # Prevent TimestampMismatchError
             member.status = new_status
             if new_status == "Suspended":
                 member.suspension_reason = reason
@@ -280,6 +284,7 @@ class TestMemberStatusTransitions(VereningingenTestCase):
             memberships.append(membership)
 
         # Suspend member
+        member.reload()  # Prevent TimestampMismatchError
         member.status = "Suspended"
         member.suspension_reason = "Test suspension"
         member.save()
@@ -290,6 +295,7 @@ class TestMemberStatusTransitions(VereningingenTestCase):
             self.assertIn(updated_membership.status, ["Suspended", "Pending", "Active"])
 
         # Terminate member
+        member.reload()  # Prevent TimestampMismatchError
         member.status = "Terminated"
         member.termination_reason = "Test termination"
         member.termination_date = today()
@@ -317,6 +323,7 @@ class TestMemberStatusTransitions(VereningingenTestCase):
         )
 
         # Suspend member
+        member.reload()  # Prevent TimestampMismatchError
         member.status = "Suspended"
         member.suspension_reason = "Test suspension"
         member.save()
@@ -326,6 +333,7 @@ class TestMemberStatusTransitions(VereningingenTestCase):
         self.assertIn(updated_volunteer.status, ["Active", "Suspended", "Inactive"])
 
         # Terminate member
+        member.reload()  # Prevent TimestampMismatchError
         member.status = "Terminated"
         member.termination_reason = "Test termination"
         member.termination_date = today()
@@ -350,6 +358,7 @@ class TestMemberStatusTransitions(VereningingenTestCase):
         original_status = member.status
 
         # Change status
+        member.reload()  # Prevent TimestampMismatchError
         member.status = "Suspended"
         member.suspension_reason = "Audit trail test"
         member.save()
@@ -423,6 +432,7 @@ class TestMemberStatusTransitions(VereningingenTestCase):
         )
 
         # Suspend member
+        member.reload()  # Prevent TimestampMismatchError
         member.status = "Suspended"
         member.suspension_reason = "Test suspension"
         member.save()

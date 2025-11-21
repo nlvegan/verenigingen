@@ -282,6 +282,10 @@ class TestANBIDonationAgreementValidation(VereningingenTestCase):
         """Configure ANBI system settings for testing"""
         try:
             settings = frappe.get_single("Verenigingen Settings")
+            # Clear invalid chapter reference (rollback issue in tests)
+            if settings.get("national_board_chapter") and not frappe.db.exists("Chapter", settings.national_board_chapter):
+                settings.national_board_chapter = None
+
             settings.enable_anbi_functionality = enabled
             # Note: org_has_anbi parameter is deprecated (field removed from DocType)
             # ANBI functionality is now solely controlled by enable_anbi_functionality

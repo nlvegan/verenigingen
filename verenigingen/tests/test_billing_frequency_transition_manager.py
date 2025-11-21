@@ -46,11 +46,14 @@ class TestBillingFrequencyTransitionManager(EnhancedTestCase):
             self.monthly_schedule.save()
         else:
             # Fallback: create manually if none exists
+            # Use unique name based on member to avoid duplicate key errors
+            unique_schedule_name = f"Test Monthly Schedule {frappe.generate_hash(length=6)}"
             self.monthly_schedule = frappe.get_doc({
                 "doctype": "Membership Dues Schedule",
                 "member": self.member.name,
                 "membership": self.membership.name,
-                "schedule_name": "Test Monthly Schedule",
+                "membership_type": self.membership.membership_type,  # Required field
+                "schedule_name": unique_schedule_name,
                 "billing_frequency": "Monthly",
                 "dues_rate": 25.0,
                 "start_date": add_days(today(), -30),
@@ -257,13 +260,19 @@ class TestBillingFrequencyTransitionManager(EnhancedTestCase):
 
     def test_quarterly_to_monthly_transition(self):
         """Test transition from quarterly to monthly billing"""
-        
+
+        # Cancel the monthly schedule to avoid conflicts BEFORE creating new schedule
+        self.monthly_schedule.status = "Cancelled"
+        self.monthly_schedule.save()
+
         # Create quarterly schedule manually
+        unique_quarterly_name = f"Test Quarterly Schedule {frappe.generate_hash(length=6)}"
         quarterly_schedule = frappe.get_doc({
             "doctype": "Membership Dues Schedule",
             "member": self.member.name,
             "membership": self.membership.name,
-            "schedule_name": "Test Quarterly Schedule",
+            "membership_type": self.membership.membership_type,  # Required field
+            "schedule_name": unique_quarterly_name,
             "billing_frequency": "Quarterly",
             "dues_rate": 75.0,  # 25/month * 3 months
             "start_date": add_days(today(), -60),
@@ -273,10 +282,6 @@ class TestBillingFrequencyTransitionManager(EnhancedTestCase):
             "currency": "EUR"
         })
         quarterly_schedule.insert()
-        
-        # Cancel the monthly schedule to avoid conflicts
-        self.monthly_schedule.status = "Cancelled"
-        self.monthly_schedule.save()
         
         effective_date = add_days(today(), 7)
         
@@ -301,11 +306,14 @@ class TestBillingFrequencyTransitionManager(EnhancedTestCase):
         effective_date = add_days(today(), 7)
         
         # Create overlapping annual schedule manually
+        # Note: Need to bypass validation to create overlapping schedule for testing
+        unique_annual_name = f"Test Overlapping Annual Schedule {frappe.generate_hash(length=6)}"
         overlapping_schedule = frappe.get_doc({
             "doctype": "Membership Dues Schedule",
             "member": self.member.name,
             "membership": self.membership.name,
-            "schedule_name": "Test Overlapping Annual Schedule",
+            "membership_type": self.membership.membership_type,  # Required field
+            "schedule_name": unique_annual_name,
             "billing_frequency": "Annual",
             "dues_rate": 300.0,
             "start_date": add_days(today(), -10),
@@ -313,6 +321,7 @@ class TestBillingFrequencyTransitionManager(EnhancedTestCase):
             "status": "Active",
             "currency": "EUR"
         })
+        overlapping_schedule.flags.ignore_validate = True
         overlapping_schedule.insert()
         
         # Test validation - should detect overlap

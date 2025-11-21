@@ -865,163 +865,34 @@ class Member(
         """
         Handle cascade deletion of related records when a Member is deleted.
 
-        This prevents LinkExistsError by cleaning up all related documents
-        that have Link fields pointing to this Member.
-
-        Strategy:
-        1. Delete critical child records (Memberships, Chapter Members)
-        2. Handle Customer intelligently (preserve if has transactions)
-        3. Unlink Addresses (preserve for historical reference)
-        4. Clean up all child table records (prevents orphaned data)
+        EXTRACTED: Moved to MemberCleanupService.handle_member_deletion()
+        for service layer separation.
         """
-        # Delete related Membership records (both draft and submitted)
-        memberships = frappe.get_all("Membership", filters={"member": self.name}, pluck="name")
+        from verenigingen.services.member.lifecycle.member_cleanup_service import MemberCleanupService
 
-        for membership_name in memberships:
-            try:
-                membership = frappe.get_doc("Membership", membership_name)
-                # Cancel if submitted, then delete
-                if membership.docstatus == 1:  # Submitted
-                    membership.cancel()
-                frappe.delete_doc("Membership", membership_name, force=True)
-            except Exception as e:
-                frappe.logger().error(f"Error deleting Membership {membership_name}: {str(e)}")
-
-        # Delete Membership Dues Schedules linked to this member
-        dues_schedules = frappe.get_all(
-            "Membership Dues Schedule", filters={"member": self.name}, pluck="name"
-        )
-
-        for schedule_name in dues_schedules:
-            try:
-                frappe.delete_doc("Membership Dues Schedule", schedule_name, force=True)
-                frappe.logger().info(f"Deleted orphaned Membership Dues Schedule {schedule_name}")
-            except Exception as e:
-                frappe.logger().error(f"Error deleting Membership Dues Schedule {schedule_name}: {str(e)}")
-
-        # Clear Member reference from Sales Invoices to allow deletion
-        # This prevents link validation errors when deleting members with invoices
-        try:
-            frappe.db.sql(
-                """
-                UPDATE `tabSales Invoice`
-                SET member = NULL
-                WHERE member = %s
-                """,
-                self.name,
-            )
-            frappe.logger().info(f"Cleared Member references from Sales Invoices for {self.name}")
-        except Exception as e:
-            frappe.logger().error(f"Error clearing Sales Invoice references: {str(e)}")
-
-        # Delete Chapter Member assignments
-        chapter_members = frappe.get_all("Chapter Member", filters={"member": self.name}, pluck="name")
-
-        for chapter_member_name in chapter_members:
-            try:
-                frappe.delete_doc("Chapter Member", chapter_member_name, force=True)
-            except Exception as e:
-                frappe.logger().error(f"Error deleting Chapter Member {chapter_member_name}: {str(e)}")
-
-        # Handle Customer - preserve if has transactions
-        if self.customer:
-            try:
-                has_transactions = (
-                    frappe.db.count("Sales Invoice", {"customer": self.customer}) > 0
-                    or frappe.db.count("Payment Entry", {"party_type": "Customer", "party": self.customer})
-                    > 0
-                )
-
-                if has_transactions:
-                    # Unlink member from Customer's Dynamic Links
-                    self._unlink_from_customer()
-                    frappe.logger().info(
-                        f"Customer {self.customer} has transactions - unlinked Member reference"
-                    )
-                else:
-                    # No transactions - delete Customer
-                    frappe.delete_doc("Customer", self.customer, force=True)
-                    frappe.logger().info(f"Deleted Customer {self.customer}")
-
-            except Exception as e:
-                frappe.logger().error(f"Error handling Customer {self.customer}: {str(e)}")
-
-        # Handle Addresses - unlink from Member but preserve records
-        if self.primary_address:
-            try:
-                self._unlink_from_address(self.primary_address)
-            except Exception as e:
-                frappe.logger().error(f"Error unlinking Address {self.primary_address}: {str(e)}")
-
-        # Clean up all child table records to prevent orphaned data
-        # These are display/cache tables that should be removed with the parent
-        # SECURITY: Whitelist of valid child tables to prevent SQL injection
-        VALID_CHILD_TABLES = {
-            "tabMember Volunteer Expenses",
-            "tabMember Payment History",
-            "tabMember IBAN History",
-            "tabMember SEPA Mandate Link",
-            "tabChapter Membership History",
-            "tabVolunteer Assignment",
-            "tabMember Fee Change History",
-            "tabMember Contact Request",
-            "tabMember CSV Import",
-            "tabMember Subscription History",
-        }
-
-        for table_name in VALID_CHILD_TABLES:
-            try:
-                # Verify table exists before attempting deletion
-                if not frappe.db.table_exists(table_name):
-                    continue
-
-                frappe.db.sql(
-                    f"""
-                    DELETE FROM `{table_name}`
-                    WHERE parent = %s
-                    """,
-                    self.name,
-                )
-                frappe.logger().info(f"Cleaned up {table_name} records for {self.name}")
-            except Exception as e:
-                # Some tables might not exist in all installations, so just log and continue
-                frappe.logger().debug(f"Could not clean up {table_name}: {str(e)}")
+        return MemberCleanupService.handle_member_deletion(self)
 
     def _unlink_from_customer(self):
-        """Remove Member link from Customer's Dynamic Links table"""
-        if not self.customer:
-            return
+        """
+        Remove Member link from Customer's Dynamic Links table.
 
-        customer = frappe.get_doc("Customer", self.customer)
-        # Remove any Dynamic Link entries pointing to this Member
-        links_to_remove = [
-            link
-            for link in customer.get("links", [])
-            if link.link_doctype == "Member" and link.link_name == self.name
-        ]
+        EXTRACTED: Moved to MemberCleanupService._unlink_member_from_customer()
+        for service layer separation.
+        """
+        from verenigingen.services.member.lifecycle.member_cleanup_service import MemberCleanupService
 
-        for link in links_to_remove:
-            customer.remove(link)
-
-        if links_to_remove:
-            customer.save(ignore_permissions=True)
+        return MemberCleanupService._unlink_member_from_customer(self)
 
     def _unlink_from_address(self, address_name):
-        """Remove Member link from Address's links table"""
-        address = frappe.get_doc("Address", address_name)
+        """
+        Remove Member link from Address's links table.
 
-        # Remove any link entries pointing to this Member
-        links_to_remove = [
-            link
-            for link in address.get("links", [])
-            if link.link_doctype == "Member" and link.link_name == self.name
-        ]
+        EXTRACTED: Moved to MemberCleanupService._unlink_member_from_address()
+        for service layer separation.
+        """
+        from verenigingen.services.member.lifecycle.member_cleanup_service import MemberCleanupService
 
-        for link in links_to_remove:
-            address.remove(link)
-
-        if links_to_remove:
-            address.save(ignore_permissions=True)
+        return MemberCleanupService._unlink_member_from_address(self, address_name)
 
     def calculate_age(self):
         """Calculate age based on birth_date field - delegated to member_age_service"""
@@ -2573,9 +2444,7 @@ def refresh_fee_change_history(member_name):
     Returns:
         dict: Result dictionary with success, message, and statistics
     """
-    from verenigingen.services.member.history.member_history_update_service import (
-        MemberHistoryUpdateService,
-    )
+    from verenigingen.services.member.history.member_history_update_service import MemberHistoryUpdateService
 
     return MemberHistoryUpdateService.refresh_fee_change_history(member_name)
 

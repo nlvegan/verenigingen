@@ -109,7 +109,7 @@ class AssignmentQueryBuilder:
                 tm.parent as source_name,
                 COALESCE(t.team_type, 'Team') as source_doctype_display,
                 t.team_name as source_name_display,
-                tm.role,
+                tm.team_role as role,
                 tm.from_date as start_date,
                 tm.to_date as end_date,
                 CASE WHEN tm.status = 'Active' THEN 1 ELSE 0 END as is_active,
@@ -195,7 +195,7 @@ class AssignmentQueryBuilder:
 
             SELECT
                 'Team' as assignment_type,
-                tm.role,
+                tm.team_role as role,
                 tm.parent as reference,
                 tm.from_date as start_date,
                 tm.to_date as end_date,

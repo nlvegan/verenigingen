@@ -383,12 +383,18 @@ class TestIndividualOperations(EnhancedTestCase):
         """UpdateCustomerRecordOperation should only be enabled if member has customer"""
         from verenigingen.utils.termination_operations import UpdateCustomerRecordOperation
 
-        # Member without customer
+        # Store original customer reference
+        original_customer = self.test_member.customer
+
+        # Member without customer - clear auto-created customer
+        self.test_member.customer = None
+        self.test_member.save()
+
         operation = UpdateCustomerRecordOperation(self.test_member.name, self.termination_request)
         self.assertFalse(operation.is_enabled())
 
-        # Add customer to member
-        self.test_member.customer = "CUST-001"
+        # Restore customer to member
+        self.test_member.customer = original_customer
         self.test_member.save()
 
         # Now should be enabled

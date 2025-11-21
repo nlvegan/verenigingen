@@ -596,7 +596,7 @@ def submit_expense(expense_data=None, additional_expenses=None):
                 if settings.national_board_chapter:
                     board_membership = frappe.db.exists(
                         "Chapter Member",
-                        {"parent": settings.national_board_chapter, "volunteer": volunteer.name},
+                        {"parent": settings.national_board_chapter, "member": volunteer.member},
                     )
                     if not board_membership:
                         frappe.throw(_("National board membership required for non-policy national expenses"))

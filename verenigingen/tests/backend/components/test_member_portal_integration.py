@@ -105,9 +105,10 @@ class TestMemberPortalIntegration(EnhancedTestCase):
         
         # Create membership with grace period status
         membership = self.create_test_membership_for_member(member)
-        membership.grace_period_status = "Grace Period"
-        membership.grace_period_expiry_date = add_days(today(), 7)
-        membership.save()
+        # Use db_set to bypass UpdateAfterSubmitError since membership is already submitted
+        membership.db_set("grace_period_status", "Grace Period", update_modified=False)
+        membership.db_set("grace_period_expiry_date", add_days(today(), 7), update_modified=False)
+        membership.reload()
         
         dashboard_content = self.get_member_dashboard_content(member)
         self.assertIn("grace_period_warning", dashboard_content)
@@ -212,9 +213,10 @@ class TestMemberPortalIntegration(EnhancedTestCase):
         
         # Member with grace period membership - can register with warning
         member.status = "Active"
-        membership.grace_period_status = "Grace Period"
-        membership.save()
         member.save()
+        # Use db_set to bypass UpdateAfterSubmitError
+        membership.db_set("grace_period_status", "Grace Period", update_modified=False)
+        membership.reload()
         
         registration_result = self.attempt_event_registration(member, event)
         self.assertTrue(registration_result.get("success"))
@@ -518,7 +520,7 @@ class TestMemberPortalIntegration(EnhancedTestCase):
         event.starts_on = add_days(today(), 30)
         event.ends_on = add_days(today(), 30)
         event.save()
-        self.track_doc("Event", event.name)
+        # Note: Event cleanup handled by test teardown
         return event
         
     def attempt_event_registration(self, member, event):
@@ -637,9 +639,10 @@ class TestMemberPortalIntegration(EnhancedTestCase):
         """Create test dues schedule for member using factory method"""
         return self.create_test_dues_schedule(
             member=member.name,
-            billing_frequency="Monthly",
-            dues_rate=25.0,
-            status="Active"
+            frequency="monthly",  # Fixed: use 'frequency' parameter, not 'billing_frequency'
+            amount=25.0,  # Fixed: use 'amount' parameter, not 'dues_rate'
+            status="Active",
+            payment_terms_template=None  # Avoid missing template error
         )
         
     def create_test_invoice_data_for_member(self, member):
@@ -653,11 +656,11 @@ class TestMemberPortalIntegration(EnhancedTestCase):
         invoice.append("items", {
             "item_code": "MEMBERSHIP-MONTHLY",
             "qty": 1,
-            "rate": 25.0,
-            "income_account": "Sales - TC"
+            "rate": 25.0
+            # Let Frappe use default income account from item/company
         })
         invoice.save()
-        self.track_doc("Sales Invoice", invoice.name)
+        # Note: Invoice cleanup handled by test teardown
         return invoice
         
     def create_test_volunteer_data_for_member(self, member):
@@ -699,9 +702,10 @@ class TestMemberPortalIntegration(EnhancedTestCase):
     
     def create_test_membership_for_member(self, member):
         """Create test membership for member using factory method"""
+        # Fixed: create_test_membership requires positional args: member_name, membership_type_name
         return self.create_test_membership(
-            member=member.name,
-            membership_type="Test Membership",  # Use existing test membership type
+            member.name,  # member_name (positional)
+            "Test Membership",  # membership_type_name (positional)
             start_date=today(),
             status="Active"
         )

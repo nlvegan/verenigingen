@@ -144,10 +144,12 @@ class TestAllImports(EnhancedTestCase):
         import os
         
         app_path = frappe.get_app_path('verenigingen')
+        # Common typos when importing the 'verenigingen' module
         typo_patterns = [
-            'verenigingen.',  # Missing 'g'
-            'verenigigen.',  # Missing 'i'  
-            'verenigingn.',  # Transposed
+            'vereniginen.',   # Missing 'g' (vereniginen instead of verenigingen)
+            'verenigigen.',   # Missing 'i' (only one 'i')
+            'verenigingn.',   # Transposed 'e' and 'n'
+            'verenigngen.',   # Transposed 'i' and 'g'
         ]
         
         files_with_typos = []

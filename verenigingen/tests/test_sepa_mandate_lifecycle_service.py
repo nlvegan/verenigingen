@@ -369,7 +369,7 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
             'errors': ['Integration failed']
         }
 
-        with patch('vereniginen.verenigingen_payments.services.sepa_mandate_member_integration_service.sepa_mandate_member_integration_service', mock_integration_service):
+        with patch('verenigingen.verenigingen_payments.services.sepa_mandate_member_integration_service.sepa_mandate_member_integration_service', mock_integration_service):
 
             result = self.service.handle_mandate_creation(mandate)
 

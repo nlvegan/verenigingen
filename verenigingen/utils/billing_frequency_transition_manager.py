@@ -213,8 +213,9 @@ class BillingFrequencyTransitionManager:
             result["message"] = f"Validation failed: {'; '.join(validation['issues'])}"
             return result
 
-        # Start database transaction
-        frappe.db.begin()
+        # Start database transaction (skip in tests - test framework manages transactions)
+        if not frappe.flags.in_test:
+            frappe.db.begin()
 
         try:
             # Get active schedules to cancel
@@ -229,10 +230,14 @@ class BillingFrequencyTransitionManager:
                     "name",
                     "dues_rate",
                     "next_invoice_date",
+                    "membership_type",
                 ],
             )
 
             effective_date = getdate(transition_params["effective_date"])
+
+            # Store membership_type from first old schedule for new schedule creation
+            membership_type = old_schedules[0]["membership_type"] if old_schedules else None
 
             # Cancel old schedules
             for schedule_data in old_schedules:
@@ -263,6 +268,7 @@ class BillingFrequencyTransitionManager:
                 {
                     "schedule_name": f"Transition-{member}-{transition_params['new_frequency']}-{frappe.utils.now()}",
                     "member": member,
+                    "membership_type": membership_type,  # Required field - carry over from old schedule
                     "billing_frequency": transition_params["new_frequency"],
                     "dues_rate": transition_params.get("new_rate")
                     or (
@@ -332,19 +338,21 @@ class BillingFrequencyTransitionManager:
                 }
             )
 
-            # Commit transaction
-            frappe.db.commit()
+            # Commit transaction (skip in tests - test framework manages transactions)
+            if not frappe.flags.in_test:
+                frappe.db.commit()
 
             result["success"] = True
-            result["message"] = (
-                f"Successfully transitioned from {transition_params['old_frequency']} to {transition_params['new_frequency']} billing"
-            )
+            result[
+                "message"
+            ] = f"Successfully transitioned from {transition_params['old_frequency']} to {transition_params['new_frequency']} billing"
 
             return result
 
         except Exception as e:
-            # Rollback on error
-            frappe.db.rollback()
+            # Rollback on error (skip in tests - test framework manages transactions)
+            if not frappe.flags.in_test:
+                frappe.db.rollback()
             frappe.log_error(f"Error executing billing transition: {str(e)}", "Billing Transition Execution")
 
             result["message"] = f"Transition failed: {str(e)}"
