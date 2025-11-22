@@ -196,9 +196,12 @@ class PaymentProcessor(BaseTransactionProcessor):
 
         self.debug_info.append(f"Using GL account from mapping: {bank_account}")
 
+        # Keep GL Account for Journal Entry creation (accounting documents need GL accounts)
+        gl_account = bank_account
+
         # Convert GL Account to Bank Account name for Bank Transaction creation
-        bank_account = self._convert_to_bank_account_name(bank_account)
-        self.debug_info.append(f"Resolved Bank Account: {bank_account}")
+        bank_account_name = self._convert_to_bank_account_name(bank_account)
+        self.debug_info.append(f"Resolved Bank Account: {bank_account_name} (GL Account: {gl_account})")
 
         # Process all rows to get target accounts with amounts
         # For multi-line mutations, we need to create one JE line per row
@@ -358,7 +361,7 @@ class PaymentProcessor(BaseTransactionProcessor):
             if mutation_type == 5:  # Money Received
                 # Bank account debited (money comes in) - use total of all rows
                 bank_entry = {
-                    "account": bank_account,
+                    "account": gl_account,
                     "debit_in_account_currency": total_row_amount,
                     "credit_in_account_currency": 0,
                     "cost_center": self.cost_center,
@@ -368,7 +371,7 @@ class PaymentProcessor(BaseTransactionProcessor):
                 # Try to assign party to bank account entry if appropriate
                 if party_info:
                     party_assignment = party_extractor.resolve_party_for_journal_entry(
-                        party_info, bank_account
+                        party_info, gl_account
                     )
                     if party_assignment:
                         bank_entry["party_type"] = party_assignment[0]
@@ -404,13 +407,13 @@ class PaymentProcessor(BaseTransactionProcessor):
                     je.append("accounts", income_entry)
 
                 self.debug_info.append(
-                    f"Money Received: Bank {bank_account} debited {total_row_amount}, "
+                    f"Money Received: Bank {gl_account} debited {total_row_amount}, "
                     f"{len(row_entries)} income line(s) credited"
                 )
             else:  # Money Paid (type 6)
                 # Bank account credited (money goes out) - use total of all rows
                 bank_entry = {
-                    "account": bank_account,
+                    "account": gl_account,
                     "debit_in_account_currency": 0,
                     "credit_in_account_currency": total_row_amount,
                     "cost_center": self.cost_center,
@@ -420,7 +423,7 @@ class PaymentProcessor(BaseTransactionProcessor):
                 # Try to assign party to bank account entry if appropriate
                 if party_info:
                     party_assignment = party_extractor.resolve_party_for_journal_entry(
-                        party_info, bank_account
+                        party_info, gl_account
                     )
                     if party_assignment:
                         bank_entry["party_type"] = party_assignment[0]
@@ -456,7 +459,7 @@ class PaymentProcessor(BaseTransactionProcessor):
                     je.append("accounts", expense_entry)
 
                 self.debug_info.append(
-                    f"Money Paid: Bank {bank_account} credited {total_row_amount}, "
+                    f"Money Paid: Bank {gl_account} credited {total_row_amount}, "
                     f"{len(row_entries)} expense line(s) debited"
                 )
 
@@ -465,7 +468,7 @@ class PaymentProcessor(BaseTransactionProcessor):
 
             # Create Bank Transaction with party information
             bank_transaction_name = self._create_bank_transaction_for_journal_entry(
-                mutation, je, bank_account, party_info
+                mutation, je, gl_account, bank_account_name, party_info
             )
 
             if bank_transaction_name:
@@ -754,7 +757,8 @@ class PaymentProcessor(BaseTransactionProcessor):
         self,
         mutation: Dict[str, Any],
         journal_entry: frappe._dict,
-        bank_account: str,
+        gl_account: str,
+        bank_account_name: str,
         party_info: Optional[Dict[str, Any]] = None,
     ) -> Optional[str]:
         """
@@ -763,7 +767,8 @@ class PaymentProcessor(BaseTransactionProcessor):
         Args:
             mutation: E-Boekhouden mutation data
             journal_entry: Created Journal Entry document (draft state)
-            bank_account: Bank account used in Journal Entry
+            gl_account: GL Account used in Journal Entry to find the amount
+            bank_account_name: Bank Account DocType name for Bank Transaction creation
             party_info: Optional party information extracted from mutation
 
         Returns:
@@ -780,7 +785,7 @@ class PaymentProcessor(BaseTransactionProcessor):
             # Get amount from Journal Entry first (needed for both new and existing BT)
             amount = 0
             for account_entry in journal_entry.accounts:
-                if account_entry.account == bank_account:
+                if account_entry.account == gl_account:
                     # Bank account debit = money in (positive), credit = money out (negative)
                     amount = (
                         account_entry.debit_in_account_currency - account_entry.credit_in_account_currency
@@ -856,7 +861,7 @@ class PaymentProcessor(BaseTransactionProcessor):
                 # Handle bank internal transactions - use bank as party
                 if party_info.get("is_bank_internal"):
                     # Extract bank name from the bank account
-                    bank_name = self._extract_bank_name_from_account(bank_account)
+                    bank_name = self._extract_bank_name_from_account(bank_account_name)
                     if bank_name:
                         party_type = "Supplier"
                         party_name = bank_name
@@ -977,7 +982,7 @@ class PaymentProcessor(BaseTransactionProcessor):
 
             bank_transaction_name = creator.create_from_dict(
                 transaction_data=transaction_data,
-                bank_account=bank_account,
+                bank_account=bank_account_name,
                 company=self.company,
                 source_type="E-Boekhouden Import",
             )

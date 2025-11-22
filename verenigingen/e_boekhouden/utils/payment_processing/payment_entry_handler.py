@@ -233,8 +233,12 @@ class PaymentEntryHandler:
                 self._log(f"ERROR: Could not determine bank account for mutation {mutation_id}")
                 return None
 
-            # Convert GL Account to Bank Account name if needed
-            bank_account = self._convert_to_bank_account_name(bank_account)
+            # Keep GL Account for Payment Entry creation (Payment Entry needs GL accounts)
+            gl_account = bank_account
+
+            # Convert GL Account to Bank Account name for Bank Transaction creation if needed
+            bank_account_name = self._convert_to_bank_account_name(bank_account)
+            self._log(f"GL Account: {gl_account}, Bank Account: {bank_account_name}")
 
             # Create payment entry
             pe = self._create_payment_entry(
@@ -242,7 +246,7 @@ class PaymentEntryHandler:
                 payment_type=payment_type,
                 party_type=party_type,
                 party=party,
-                bank_account=bank_account,
+                bank_account=gl_account,
             )
 
             # Handle invoice allocations
@@ -314,7 +318,7 @@ class PaymentEntryHandler:
                     f"(Mutation #{mutation_id}, Amount: {pe.paid_amount or pe.received_amount})"
                 )
 
-                bank_transaction_name = self._create_bank_transaction_for_payment(mutation, pe, bank_account)
+                bank_transaction_name = self._create_bank_transaction_for_payment(mutation, pe, bank_account_name)
 
             if bank_transaction_name:
                 if not existing_bt:
@@ -1360,7 +1364,7 @@ class PaymentEntryHandler:
         )
 
     def _create_bank_transaction_for_payment(
-        self, mutation: Dict, payment_entry: frappe._dict, bank_account: str
+        self, mutation: Dict, payment_entry: frappe._dict, bank_account_name: str
     ) -> Optional[str]:
         """
         Create Bank Transaction for payment mutation with rich description preservation.
@@ -1372,7 +1376,7 @@ class PaymentEntryHandler:
         Args:
             mutation: E-Boekhouden mutation data
             payment_entry: Created Payment Entry document (draft state, not yet submitted)
-            bank_account: Bank account used in Payment Entry
+            bank_account_name: Bank Account DocType name for Bank Transaction creation
 
         Returns:
             Bank Transaction name if created, None on failure
@@ -1425,7 +1429,7 @@ class PaymentEntryHandler:
 
             bank_transaction_name = creator.create_from_dict(
                 transaction_data=transaction_data,
-                bank_account=bank_account,
+                bank_account=bank_account_name,
                 company=self.company,
                 source_type="E-Boekhouden Import",
             )
