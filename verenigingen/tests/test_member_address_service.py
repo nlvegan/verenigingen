@@ -394,6 +394,103 @@ class TestMemberAddressService(VereningingenTestCase):
         self.assertTrue(self.test_member.normalized_address_line.islower())
         self.assertTrue(self.test_member.normalized_city.islower())
 
+    def test_relationship_guessing_same_last_name_similar_age(self):
+        """Test relationship guessing for same last name, similar age"""
+        # Create primary member
+        member1 = self.create_test_member(
+            first_name="John",
+            last_name="Smith",
+            birth_date="1990-01-01"
+        )
+
+        # Create partner with same last name, similar age (2 years difference)
+        member2 = self.create_test_member(
+            first_name="Jane",
+            last_name="Smith",
+            birth_date="1992-01-01"
+        )
+
+        # Link both to same address
+        member1.reload()
+        member1.primary_address = self.test_address.name
+        member1.save(ignore_version=True)
+        member2.reload()
+        member2.primary_address = self.test_address.name
+        member2.save(ignore_version=True)
+
+        # Test relationship guessing - should suggest Spouse/Partner
+        from verenigingen.services.member.core.member_address_service import MemberAddressService
+        address_service = MemberAddressService()
+
+        # Use the actual member document for guessing
+        relationship = address_service.guess_relationship(member1, member2)
+
+        self.assertEqual(relationship, "Spouse/Partner")
+
+    def test_relationship_guessing_same_last_name_large_age_difference(self):
+        """Test relationship guessing for same last name, large age difference"""
+        # Create primary member
+        member1 = self.create_test_member(
+            first_name="John",
+            last_name="Smith",
+            birth_date="1990-01-01"
+        )
+
+        # Create parent with same last name, 30 years older
+        member2 = self.create_test_member(
+            first_name="Bob",
+            last_name="Smith",
+            birth_date="1960-01-01"
+        )
+
+        # Link both to same address
+        member1.reload()
+        member1.primary_address = self.test_address.name
+        member1.save(ignore_version=True)
+        member2.reload()
+        member2.primary_address = self.test_address.name
+        member2.save(ignore_version=True)
+
+        # Test relationship guessing - should suggest Parent/Child or Family Member
+        from verenigingen.services.member.core.member_address_service import MemberAddressService
+        address_service = MemberAddressService()
+
+        relationship = address_service.guess_relationship(member1, member2)
+
+        self.assertIn(relationship, ["Parent/Child", "Family Member"])
+
+    def test_relationship_guessing_different_last_name_similar_age(self):
+        """Test relationship guessing for different last name, similar age"""
+        # Create primary member
+        member1 = self.create_test_member(
+            first_name="John",
+            last_name="Smith",
+            birth_date="1990-01-01"
+        )
+
+        # Create partner with different last name, similar age
+        member2 = self.create_test_member(
+            first_name="Alice",
+            last_name="Johnson",
+            birth_date="1990-06-01"
+        )
+
+        # Link both to same address
+        member1.reload()
+        member1.primary_address = self.test_address.name
+        member1.save(ignore_version=True)
+        member2.reload()
+        member2.primary_address = self.test_address.name
+        member2.save(ignore_version=True)
+
+        # Test relationship guessing - could be Household Member or Partner/Spouse
+        from verenigingen.services.member.core.member_address_service import MemberAddressService
+        address_service = MemberAddressService()
+
+        relationship = address_service.guess_relationship(member1, member2)
+
+        self.assertIn(relationship, ["Household Member", "Partner/Spouse"])
+
     def tearDown(self):
         """Clean up test data"""
         super().tearDown()

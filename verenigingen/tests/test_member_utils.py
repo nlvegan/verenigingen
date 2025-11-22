@@ -537,6 +537,27 @@ class TestMemberUtils(EnhancedTestCase):
         unicode_email = "test.ñoño@domäin.org"
         self.assertIsNone(get_member_name_for_user(unicode_email))
 
+    def test_age_group_categorization(self):
+        """Test age group categorization for privacy using member_age_service"""
+        from verenigingen.services.member.utils.member_age_service import get_age_group
+
+        # Test different age groups based on birth date
+        test_cases = [
+            ("2010-01-01", "Minor"),         # 14-15 years old
+            ("2000-01-01", "Young Adult"),   # 24-25 years old
+            ("1985-01-01", "Adult"),         # 39-40 years old
+            ("1970-01-01", "Middle-aged"),   # 54-55 years old
+            ("1950-01-01", "Senior"),        # 74-75 years old
+        ]
+
+        for birth_date, expected_group in test_cases:
+            age_group = get_age_group(birth_date)
+            self.assertEqual(
+                age_group,
+                expected_group,
+                f"Birth date {birth_date} should be {expected_group}, got {age_group}",
+            )
+
     @classmethod
     def tearDownClass(cls):
         """Clean up after all tests"""
