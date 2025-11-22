@@ -55,22 +55,14 @@ class TestFeeOverrideLogic(EnhancedTestCase):
         # Create membership
         membership = self.create_test_membership(member.name, "Regular")
 
-        # Create simple test dues schedule (skip complex validation)
-        import time
-        schedule_name = f"Test Schedule {int(time.time() * 1000)}"
-        schedule = frappe.get_doc({
-            "doctype": "Membership Dues Schedule",
-            "schedule_name": schedule_name,
-            "member": member.name,
-            "membership_type": "Regular",
-            "billing_frequency": "Annual",
-            "dues_rate": 75.0,  # CSV custom amount
-            "is_template": 0,
-            "status": "Active"
-        })
-        # Bypass template validation by setting flag
-        schedule.flags.ignore_validate = True
-        schedule.insert(ignore_permissions=True, ignore_mandatory=True)
+        # Create dues schedule using factory method
+        schedule = self.create_test_dues_schedule(
+            member=member.name,
+            membership_type="Regular",
+            amount=75.0,  # CSV custom amount
+            frequency="Annual",
+            custom_amount_reason="Board decision - special contribution level"
+        )
 
         # KEY TEST: Verify dues schedule created with custom amount from CSV import
         schedules = frappe.get_all("Membership Dues Schedule",
@@ -109,21 +101,13 @@ class TestFeeOverrideLogic(EnhancedTestCase):
         # Create initial membership
         membership = self.create_test_membership(member.name, "Regular")
 
-        # Create initial dues schedule
-        import time
-        schedule_name = f"Test Schedule {int(time.time() * 1000)}"
-        initial_schedule = frappe.get_doc({
-            "doctype": "Membership Dues Schedule",
-            "schedule_name": schedule_name,
-            "member": member.name,
-            "membership_type": "Regular",
-            "billing_frequency": "Annual",
-            "dues_rate": 50.0,  # Initial rate
-            "is_template": 0,
-            "status": "Active"
-        })
-        initial_schedule.flags.ignore_validate = True
-        initial_schedule.insert(ignore_permissions=True, ignore_mandatory=True)
+        # Create initial dues schedule using factory method
+        initial_schedule = self.create_test_dues_schedule(
+            member=member.name,
+            membership_type="Regular",
+            amount=50.0,  # Initial rate
+            frequency="Annual"
+        )
 
         # Verify initial dues schedule exists
         schedules = frappe.get_all("Membership Dues Schedule",
@@ -141,8 +125,7 @@ class TestFeeOverrideLogic(EnhancedTestCase):
         initial_schedule.reload()
         initial_schedule.dues_rate = new_rate
         initial_schedule.custom_amount_reason = "Backend adjustment - Premium supporter"
-        initial_schedule.flags.ignore_validate = True
-        initial_schedule.save(ignore_permissions=True)
+        initial_schedule.save()
 
         # Verify the dues schedule was updated
         initial_schedule.reload()
@@ -254,21 +237,14 @@ class TestFeeOverrideLogic(EnhancedTestCase):
 
         print(f"✅ Member {member.name} created without dues schedule")
 
-        # Create dues schedule with custom amount
-        import time
-        schedule = frappe.get_doc({
-            "doctype": "Membership Dues Schedule",
-            "schedule_name": f"Test Schedule {int(time.time() * 1000)}",
-            "member": member.name,
-            "membership_type": "Regular",
-            "billing_frequency": "Monthly",
-            "dues_rate": 99.0,
-            "custom_amount_reason": "First-time custom rate - special pricing",
-            "is_template": 0,
-            "status": "Active"
-        })
-        schedule.flags.ignore_validate = True
-        schedule.insert(ignore_permissions=True, ignore_mandatory=True)
+        # Create dues schedule with custom amount using factory method
+        schedule = self.create_test_dues_schedule(
+            member=member.name,
+            membership_type="Regular",
+            amount=99.0,
+            frequency="Monthly",
+            custom_amount_reason="First-time custom rate - special pricing"
+        )
 
         print(f"✅ Dues schedule created with custom rate: €{schedule.dues_rate}")
         print(f"   Reason: {schedule.custom_amount_reason}")
@@ -301,21 +277,14 @@ class TestFeeOverrideLogic(EnhancedTestCase):
         # Create membership first
         membership = self.create_test_membership(member.name, "Regular")
 
-        # Create initial dues schedule with first custom amount
-        import time
-        initial_schedule = frappe.get_doc({
-            "doctype": "Membership Dues Schedule",
-            "schedule_name": f"Test Schedule {int(time.time() * 1000)}",
-            "member": member.name,
-            "membership_type": "Regular",
-            "billing_frequency": "Monthly",
-            "dues_rate": 50.0,
-            "custom_amount_reason": "Initial custom amount - supporter level",
-            "is_template": 0,
-            "status": "Active"
-        })
-        initial_schedule.flags.ignore_validate = True
-        initial_schedule.insert(ignore_permissions=True, ignore_mandatory=True)
+        # Create initial dues schedule with first custom amount using factory method
+        initial_schedule = self.create_test_dues_schedule(
+            member=member.name,
+            membership_type="Regular",
+            amount=50.0,
+            frequency="Monthly",
+            custom_amount_reason="Initial custom amount - supporter level"
+        )
 
         print(f"✅ Member {member.name} created with initial dues schedule")
         print(f"   Initial rate: €{initial_schedule.dues_rate}")
@@ -325,8 +294,7 @@ class TestFeeOverrideLogic(EnhancedTestCase):
         initial_schedule.reload()
         initial_schedule.dues_rate = 150.0
         initial_schedule.custom_amount_reason = "Upgraded to premium supporter - increased contribution"
-        initial_schedule.flags.ignore_validate = True
-        initial_schedule.save(ignore_permissions=True)
+        initial_schedule.save()
 
         # Verify the update
         initial_schedule.reload()

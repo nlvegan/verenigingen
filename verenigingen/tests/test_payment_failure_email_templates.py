@@ -78,6 +78,37 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
                     "use_html": 1
                 }).insert()
 
+    def create_specific_template(self, template_name, subject="Test Subject", response="Test Response"):
+        """
+        Helper method to create a specific email template for testing.
+        Permission bypasses allowed in helper methods.
+        """
+        if not frappe.db.exists("Email Template", template_name):
+            frappe.get_doc({
+                "doctype": "Email Template",
+                "name": template_name,
+                "subject": subject,
+                "response": response
+            }).insert(ignore_permissions=True)
+
+    def delete_specific_template(self, template_name):
+        """
+        Helper method to delete a specific email template for testing.
+        Permission bypasses allowed in helper methods.
+        """
+        if frappe.db.exists("Email Template", template_name):
+            frappe.delete_doc("Email Template", template_name, ignore_permissions=True)
+
+    def delete_all_failure_templates(self):
+        """
+        Helper method to delete all payment failure templates for testing.
+        Permission bypasses allowed in helper methods.
+        """
+        template_names = ["payment_failure_first", "payment_failure_second",
+                         "payment_failure_final", "payment_failure_generic"]
+        for template_name in template_names:
+            self.delete_specific_template(template_name)
+
     @patch('verenigingen.services.communication.email_service.get_email_service')
     def test_payment_failure_first_template_rendering(self, mock_get_service):
         """Test first payment failure template rendering with proper context"""
@@ -164,17 +195,14 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
 
         # Create only the generic email template in the database (real data, not mocked)
         # This ensures payment_failure_first doesn't exist but payment_failure_generic does
-        if not frappe.db.exists("Email Template", "payment_failure_generic"):
-            frappe.get_doc({
-                "doctype": "Email Template",
-                "name": "payment_failure_generic",
-                "subject": "Payment Failed - Generic",
-                "response": "Your payment has failed. Please try again."
-            }).insert(ignore_permissions=True)
+        self.create_specific_template(
+            "payment_failure_generic",
+            subject="Payment Failed - Generic",
+            response="Your payment has failed. Please try again."
+        )
 
         # Ensure the specific template doesn't exist (delete if present)
-        if frappe.db.exists("Email Template", "payment_failure_first"):
-            frappe.delete_doc("Email Template", "payment_failure_first", ignore_permissions=True)
+        self.delete_specific_template("payment_failure_first")
 
         # Mock payment
         mock_payment = Mock()
@@ -197,10 +225,7 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
         mock_get_service.return_value = mock_email_service
 
         # Ensure no email templates exist in the database (real data, not mocked)
-        template_names = ["payment_failure_first", "payment_failure_second", "payment_failure_final", "payment_failure_generic"]
-        for template_name in template_names:
-            if frappe.db.exists("Email Template", template_name):
-                frappe.delete_doc("Email Template", template_name, ignore_permissions=True)
+        self.delete_all_failure_templates()
 
         # Mock payment
         mock_payment = Mock()

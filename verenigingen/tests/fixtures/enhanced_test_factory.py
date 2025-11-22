@@ -3122,7 +3122,11 @@ class EnhancedTestCase(FrappeTestCase):
         })
 
         if has_receivable and has_payable:
-            # CoA already initialized - just ensure defaults are set
+            # CoA already initialized - fix currency if needed and ensure defaults are set
+            company_doc = frappe.get_doc("Company", company_name)
+            if company_doc.default_currency == "AED":
+                company_doc.db_set("default_currency", "EUR", update_modified=False)
+
             self._ensure_company_defaults(company_name)
             return
 
@@ -3167,16 +3171,17 @@ class EnhancedTestCase(FrappeTestCase):
         try:
             from erpnext.accounts.doctype.account.chart_of_accounts.chart_of_accounts import create_charts
 
-            # Ensure company has EUR currency for Dutch association tests
-            company_doc = frappe.get_doc("Company", company_name)
-            if not company_doc.default_currency or company_doc.default_currency == "AED":
-                company_doc.db_set("default_currency", "EUR", update_modified=False)
-
             # Set flag to bypass company validation during CoA creation
             frappe.local.flags.ignore_root_company_validation = True
 
             # Use Standard chart of accounts (works for all countries)
             create_charts(company_name, "Standard", None)
+
+            # Fix currency mismatch: Set company to EUR for Dutch association tests
+            # (Standard CoA creates accounts in EUR but company defaults to AED)
+            company_doc = frappe.get_doc("Company", company_name)
+            if company_doc.default_currency == "AED":
+                company_doc.db_set("default_currency", "EUR", update_modified=False)
 
             # Set company defaults after creation
             self._ensure_company_defaults(company_name)

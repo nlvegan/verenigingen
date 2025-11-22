@@ -342,26 +342,25 @@ class TestPolicyExpenseReporting(EnhancedTestCase):
         )
 
         # Test building report row for policy expense
-        with patch("frappe.db.count", return_value=1):
-            row = build_expense_row(
-                name="EXP-POLICY-001",
-                volunteer_name="Policy Test User",
-                description="Policy-covered travel",
-                amount=150.00,
-                expense_date="2024-12-14",
-                category_name="Travel",
-                organization_type="National",
-                organization_name="National",
-                status="Approved",
-                is_erpnext=True,
-                expense_claim_id="EXP-POLICY-001",
-            )
+        row = build_expense_row(
+            name="EXP-POLICY-001",
+            volunteer_name="Policy Test User",
+            description="Policy-covered travel",
+            amount=150.00,
+            expense_date="2024-12-14",
+            category_name="Travel",
+            organization_type="National",
+            organization_name="National",
+            status="Approved",
+            is_erpnext=True,
+            expense_claim_id="EXP-POLICY-001",
+        )
 
-            # Should create proper report row
-            self.assertEqual(row["name"], "EXP-POLICY-001")
-            self.assertEqual(row["organization_type"], "National")
-            self.assertEqual(row["category_name"], "Travel")
-            self.assertEqual(row["approval_level"], "Financial")
+        # Should create proper report row
+        self.assertEqual(row["name"], "EXP-POLICY-001")
+        self.assertEqual(row["organization_type"], "National")
+        self.assertEqual(row["category_name"], "Travel")
+        self.assertEqual(row["approval_level"], "Financial")
 
     def test_policy_expense_statistics(self):
         """Test statistics calculation for policy expenses"""

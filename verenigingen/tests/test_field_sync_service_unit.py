@@ -204,11 +204,19 @@ class TestSyncFlagsAndLoopPrevention(FrappeTestCase):
         """Test that sync flag prevents recursive synchronization."""
         from verenigingen.services.field_sync_service import _sync_to_target
 
-        # Create mock document
-        source_doc = Mock()
-        source_doc.name = "TEST-001"
-        source_doc.user = "USER-001"
-        source_doc.has_value_changed = Mock(return_value=True)
+        # Create real member with user
+        member = self.create_test_member(
+            first_name="SyncFlag",
+            last_name="Test",
+            email="syncflag.test@example.com"
+        )
+
+        # Get the user that was auto-created
+        user = frappe.get_doc("User", member.email)
+        original_user_image = user.user_image
+
+        # Update member image (this would normally trigger sync)
+        member.image = "/files/new_test_image.jpg"
 
         config = {
             "link_field": "user",
@@ -216,16 +224,17 @@ class TestSyncFlagsAndLoopPrevention(FrappeTestCase):
             "sync_flag": "syncing_member_user_fields"
         }
 
-        # Set sync flag
+        # Set sync flag to prevent recursion
         frappe.flags.syncing_member_user_fields = True
 
         try:
             # Call _sync_to_target - should exit early due to flag
-            with patch("frappe.get_doc") as mock_get_doc:
-                _sync_to_target(source_doc, "User", config)
+            _sync_to_target(member, "User", config)
 
-                # get_doc should NOT be called because sync exits early
-                mock_get_doc.assert_not_called()
+            # Reload user and verify it was NOT updated (early exit)
+            user.reload()
+            self.assertEqual(user.user_image, original_user_image,
+                           "User image should not change when sync flag is set")
 
         finally:
             frappe.flags.syncing_member_user_fields = False
@@ -234,9 +243,16 @@ class TestSyncFlagsAndLoopPrevention(FrappeTestCase):
         """Test that sync flag is cleared even when exception occurs."""
         from verenigingen.services.field_sync_service import _sync_to_target
 
-        source_doc = Mock()
-        source_doc.name = "TEST-001"
-        source_doc.doctype = "Member"
+        # Create member with invalid user reference to trigger exception
+        member = self.create_test_member(
+            first_name="ExceptionTest",
+            last_name="Member",
+            email="exception.test@example.com"
+        )
+
+        # Manually set member.user to non-existent user (will cause exception in get_doc)
+        member.user = "NONEXISTENT-USER-123"
+        member.image = "/files/test.jpg"  # Changed field to trigger sync
 
         config = {
             "link_field": "user",
@@ -244,17 +260,14 @@ class TestSyncFlagsAndLoopPrevention(FrappeTestCase):
             "sync_flag": "test_sync_flag"
         }
 
-        # Mock to raise exception during sync
-        with patch("frappe.get_doc") as mock_get_doc:
-            mock_get_doc.side_effect = Exception("Test exception")
+        # Attempt sync with invalid user reference - should raise exception
+        with self.assertRaises(Exception):
+            frappe.flags.test_sync_flag = False
+            _sync_to_target(member, "User", config)
 
-            # Attempt sync - should raise exception
-            with self.assertRaises(Exception):
-                frappe.flags.test_sync_flag = False
-                _sync_to_target(source_doc, "User", config)
-
-            # Flag should be cleared
-            self.assertFalse(frappe.flags.get("test_sync_flag"))
+        # Flag should be cleared even after exception
+        self.assertFalse(frappe.flags.get("test_sync_flag"),
+                       "Sync flag should be cleared even when exception occurs")
 
 
 class TestConfigurationValidation(FrappeTestCase):
@@ -352,30 +365,47 @@ class TestPerformanceOptimizations(FrappeTestCase):
         """Test that sync is skipped when no configured fields changed."""
         from verenigingen.services.field_sync_service import _sync_to_target
 
-        source_doc = Mock()
-        source_doc.name = "TEST-001"
-        source_doc.user = "USER-001"
-        source_doc.has_value_changed = Mock(return_value=False)
+        # Create member with user
+        member = self.create_test_member(
+            first_name="NoChange",
+            last_name="Test",
+            email="nochange.test@example.com"
+        )
 
+        # Get user and record its modified time
+        user = frappe.get_doc("User", member.email)
+        original_modified = user.modified
+
+        # Don't change the synced field (image)
+        # Just save member without changes to trigger potential sync
         config = {
             "link_field": "user",
             "field_mappings": {"image": "user_image"},
             "sync_flag": "test_flag"
         }
 
-        with patch("frappe.get_doc") as mock_get_doc:
-            _sync_to_target(source_doc, "User", config)
+        # Call sync - should exit early since no fields changed
+        _sync_to_target(member, "User", config)
 
-            # Should not fetch target document when no fields changed
-            mock_get_doc.assert_not_called()
+        # Verify user was not updated (modified time unchanged)
+        user.reload()
+        self.assertEqual(user.modified, original_modified,
+                       "User should not be updated when no fields changed")
 
     def test_sync_exits_early_when_no_target_found(self):
         """Test that sync exits early when target document doesn't exist."""
         from verenigingen.services.field_sync_service import _sync_to_target
 
-        source_doc = Mock()
-        source_doc.name = "TEST-001"
-        source_doc.user = None  # No linked user
+        # Create member with user, then unlink it
+        member = self.create_test_member(
+            first_name="NoTarget",
+            last_name="Test",
+            email="notarget.test@example.com"
+        )
+
+        # Manually unlink user to simulate no target
+        member.user = None
+        member.image = "/files/test.jpg"  # Change field to trigger sync
 
         config = {
             "link_field": "user",
@@ -383,8 +413,9 @@ class TestPerformanceOptimizations(FrappeTestCase):
             "sync_flag": "test_flag"
         }
 
-        with patch("frappe.get_doc") as mock_get_doc:
-            _sync_to_target(source_doc, "User", config)
-
-            # Should not attempt to fetch document
-            mock_get_doc.assert_not_called()
+        # Call sync - should exit early without errors since no target
+        try:
+            _sync_to_target(member, "User", config)
+            # Success - early exit worked gracefully
+        except Exception as e:
+            self.fail(f"Sync should exit gracefully when no target found, but raised: {e}")

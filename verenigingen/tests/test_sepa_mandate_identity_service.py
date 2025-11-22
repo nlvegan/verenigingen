@@ -38,6 +38,26 @@ class TestSEPAMandateIdentityService(EnhancedTestCase):
         """Clean up after each test"""
         super().tearDown()
 
+    def create_sepa_mandate_with_id(self, mandate_reference):
+        """
+        Helper method to create a SEPA Mandate with a specific mandate_reference ID.
+        Used to test ID generation and counter increment logic with real database state.
+        """
+        # Create a test member for the mandate
+        member = self.create_test_member(
+            first_name="SEPA",
+            last_name="Test",
+            email=f"sepa.{mandate_reference.lower().replace('-', '.')}@example.com"
+        )
+
+        # Create mandate with specific ID
+        mandate = self.create_test_sepa_mandate(
+            member_name=member.name,
+            mandate_reference=mandate_reference
+        )
+
+        return mandate
+
     # ========================================================================
     # Tests for generate_mandate_id()
     # ========================================================================
@@ -118,34 +138,34 @@ class TestSEPAMandateIdentityService(EnhancedTestCase):
         mock_datetime = datetime(2024, 9, 18, 10, 30, 0)
 
         with patch('verenigingen.verenigingen_payments.services.sepa_mandate_identity_service.now_datetime', return_value=mock_datetime):
-            with patch('frappe.db.sql', return_value=[]):  # No existing mandates
+            # Use real database state (no existing mandates due to test rollback)
 
-                # Test various date patterns
-                test_cases = [
-                    ("PREFIX-{YYYY}-{MM}-{DD}-###", "PREFIX-2024-09-18-001"),
-                    ("MANDATE-{YY}-{MM}-###", "MANDATE-24-09-001"),
-                    ("TEST.YYYY..MM..DD.####", "TEST-2024-09-18-0001"),
-                    ("{YYYY}{MM}{DD}####", "20240918-0001"),
-                ]
+            # Test various date patterns
+            test_cases = [
+                ("PREFIX-{YYYY}-{MM}-{DD}-###", "PREFIX-2024-09-18-001"),
+                ("MANDATE-{YY}-{MM}-###", "MANDATE-24-09-001"),
+                ("TEST.YYYY..MM..DD.####", "TEST-2024-09-18-0001"),
+                ("{YYYY}{MM}{DD}####", "20240918-0001"),
+            ]
 
-                for pattern, expected_base in test_cases:
-                    with self.subTest(pattern=pattern):
-                        result = self.service._generate_mandate_id_with_counter(pattern, 1)
-                        # Remove the incremented number for comparison
-                        self.assertTrue(result.startswith(expected_base[:-4]) or result.startswith(expected_base[:-3]))
+            for pattern, expected_base in test_cases:
+                with self.subTest(pattern=pattern):
+                    result = self.service._generate_mandate_id_with_counter(pattern, 1)
+                    # Remove the incremented number for comparison
+                    self.assertTrue(result.startswith(expected_base[:-4]) or result.startswith(expected_base[:-3]))
 
     def test_generate_mandate_id_with_counter_existing_mandates(self):
         """Test counter increment based on existing mandates"""
         mock_datetime = datetime(2024, 9, 18, 10, 30, 0)
 
         with patch('verenigingen.verenigingen_payments.services.sepa_mandate_identity_service.now_datetime', return_value=mock_datetime):
-            # Mock existing mandate with counter 5
-            with patch('frappe.db.sql', return_value=[("MANDATE-24-09-0005",)]):
+            # Create real mandate with counter 5
+            self.create_sepa_mandate_with_id("MANDATE-24-09-0005")
 
-                result = self.service._generate_mandate_id_with_counter("MANDATE-.YY.-.MM.-.####", 1)
+            result = self.service._generate_mandate_id_with_counter("MANDATE-.YY.-.MM.-.####", 1)
 
-                # Should increment to 6
-                self.assertEqual(result, "MANDATE-24-09-0006")
+            # Should increment to 6
+            self.assertEqual(result, "MANDATE-24-09-0006")
 
     def test_generate_mandate_id_with_counter_no_counter_pattern(self):
         """Test mandate ID generation without counter pattern"""
@@ -163,45 +183,45 @@ class TestSEPAMandateIdentityService(EnhancedTestCase):
         mock_datetime = datetime(2024, 9, 18, 10, 30, 0)
 
         with patch('verenigingen.verenigingen_payments.services.sepa_mandate_identity_service.now_datetime', return_value=mock_datetime):
-            with patch('frappe.db.sql', return_value=[]):
+            # Use real database state (no existing mandates)
 
-                result = self.service._generate_mandate_id_with_counter("MANDATE-.YY.-.MM.-.####", 10)
+            result = self.service._generate_mandate_id_with_counter("MANDATE-.YY.-.MM.-.####", 10)
 
-                # Should handle Frappe dot notation correctly
-                self.assertEqual(result, "MANDATE-24-09-0010")
+            # Should handle Frappe dot notation correctly
+            self.assertEqual(result, "MANDATE-24-09-0010")
 
     def test_generate_mandate_id_with_counter_malformed_last_mandate(self):
         """Test handling of malformed last mandate ID"""
         mock_datetime = datetime(2024, 9, 18, 10, 30, 0)
 
         with patch('verenigingen.verenigingen_payments.services.sepa_mandate_identity_service.now_datetime', return_value=mock_datetime):
-            # Mock existing mandate without proper counter
-            with patch('frappe.db.sql', return_value=[("MANDATE-24-09-INVALID",)]):
+            # Create real mandate with invalid counter format
+            self.create_sepa_mandate_with_id("MANDATE-24-09-INVALID")
 
-                result = self.service._generate_mandate_id_with_counter("MANDATE-.YY.-.MM.-.####", 100)
+            result = self.service._generate_mandate_id_with_counter("MANDATE-.YY.-.MM.-.####", 100)
 
-                # Should use starting counter when last mandate is malformed
-                self.assertEqual(result, "MANDATE-24-09-0100")
+            # Should use starting counter when last mandate is malformed
+            self.assertEqual(result, "MANDATE-24-09-0100")
 
     def test_generate_mandate_id_with_counter_different_digit_lengths(self):
         """Test counter patterns with different digit lengths"""
         mock_datetime = datetime(2024, 9, 18, 10, 30, 0)
 
         with patch('verenigingen.verenigingen_payments.services.sepa_mandate_identity_service.now_datetime', return_value=mock_datetime):
-            with patch('frappe.db.sql', return_value=[]):
+            # Use real database state (no existing mandates)
 
-                test_cases = [
-                    ("PREFIX-##", "PREFIX-01", 1),
-                    ("PREFIX-###", "PREFIX-001", 1),
-                    ("PREFIX-####", "PREFIX-0001", 1),
-                    ("PREFIX-#####", "PREFIX-00001", 1),
-                    ("PREFIX-##", "PREFIX-99", 99),
-                ]
+            test_cases = [
+                ("PREFIX-##", "PREFIX-01", 1),
+                ("PREFIX-###", "PREFIX-001", 1),
+                ("PREFIX-####", "PREFIX-0001", 1),
+                ("PREFIX-#####", "PREFIX-00001", 1),
+                ("PREFIX-##", "PREFIX-99", 99),
+            ]
 
-                for pattern, expected, starting_counter in test_cases:
-                    with self.subTest(pattern=pattern, starting_counter=starting_counter):
-                        result = self.service._generate_mandate_id_with_counter(pattern, starting_counter)
-                        self.assertEqual(result, expected)
+            for pattern, expected, starting_counter in test_cases:
+                with self.subTest(pattern=pattern, starting_counter=starting_counter):
+                    result = self.service._generate_mandate_id_with_counter(pattern, starting_counter)
+                    self.assertEqual(result, expected)
 
     # ========================================================================
     # Tests for validate_mandate_reference()
@@ -270,42 +290,42 @@ class TestSEPAMandateIdentityService(EnhancedTestCase):
 
     def test_ensure_mandate_uniqueness_unique_id(self):
         """Test uniqueness check for non-existing mandate ID"""
-        with patch('frappe.db.exists', return_value=None):
-            result = self.service.ensure_mandate_uniqueness("UNIQUE-MANDATE-001")
-            self.assertTrue(result, "Non-existing mandate ID should be unique")
+        # Use real database state (no mandate with this ID exists due to test rollback)
+        result = self.service.ensure_mandate_uniqueness("UNIQUE-MANDATE-001")
+        self.assertTrue(result, "Non-existing mandate ID should be unique")
 
     def test_ensure_mandate_uniqueness_duplicate_id(self):
         """Test uniqueness check for existing mandate ID"""
-        with patch('frappe.db.exists', return_value="SEPA-MANDATE-001"):
-            result = self.service.ensure_mandate_uniqueness("EXISTING-MANDATE-001")
-            self.assertFalse(result, "Existing mandate ID should not be unique")
+        # Create real mandate to test duplicate detection
+        existing_mandate = self.create_sepa_mandate_with_id("EXISTING-MANDATE-001")
+
+        result = self.service.ensure_mandate_uniqueness("EXISTING-MANDATE-001")
+        self.assertFalse(result, "Existing mandate ID should not be unique")
 
     def test_ensure_mandate_uniqueness_with_exclude(self):
         """Test uniqueness check excluding current mandate"""
-        # Mock that mandate exists but it's the current one being updated
-        with patch('frappe.db.exists', return_value=None):
-            result = self.service.ensure_mandate_uniqueness(
-                "MANDATE-001",
-                exclude_name="SEPA-MANDATE-001"
-            )
-            self.assertTrue(result, "Should be unique when excluding current mandate")
+        # Create real mandate
+        existing_mandate = self.create_sepa_mandate_with_id("MANDATE-001")
 
-    def test_ensure_mandate_uniqueness_database_query_format(self):
-        """Test that database query uses correct format"""
-        with patch('frappe.db.exists') as mock_exists:
-            mock_exists.return_value = None
+        # Check uniqueness excluding the existing mandate (simulating update scenario)
+        result = self.service.ensure_mandate_uniqueness(
+            "MANDATE-001",
+            exclude_name=existing_mandate.name
+        )
+        self.assertTrue(result, "Should be unique when excluding current mandate")
 
-            # Test without exclude
-            self.service.ensure_mandate_uniqueness("TEST-001")
-            mock_exists.assert_called_with("SEPA Mandate", {"mandate_id": "TEST-001"})
+    def test_ensure_mandate_uniqueness_case_sensitivity(self):
+        """Test uniqueness check is case-sensitive"""
+        # Create mandate with uppercase ID
+        self.create_sepa_mandate_with_id("TEST-MANDATE-001")
 
-            # Test with exclude
-            self.service.ensure_mandate_uniqueness("TEST-002", exclude_name="SEPA-001")
-            expected_filters = {
-                "mandate_id": "TEST-002",
-                "name": ["!=", "SEPA-001"]
-            }
-            mock_exists.assert_called_with("SEPA Mandate", expected_filters)
+        # Lowercase version should be unique (case-sensitive)
+        result = self.service.ensure_mandate_uniqueness("test-mandate-001")
+        self.assertTrue(result, "Mandate IDs should be case-sensitive")
+
+        # Exact match should not be unique
+        result = self.service.ensure_mandate_uniqueness("TEST-MANDATE-001")
+        self.assertFalse(result, "Exact match should not be unique")
 
     # ========================================================================
     # Tests for settings caching and edge cases
@@ -389,19 +409,19 @@ class TestSEPAMandateIdentityService(EnhancedTestCase):
         mock_datetime = datetime(2024, 9, 18, 10, 30, 0)
 
         with patch('verenigingen.verenigingen_payments.services.sepa_mandate_identity_service.now_datetime', return_value=mock_datetime):
-            with patch('frappe.db.sql', return_value=[]):
+            # Use real database state (no existing mandates due to test rollback)
 
-                dutch_patterns = [
-                    ("VEG-{YYYY}-####", "VEG-2024-0001"),
-                    ("ROOD-{YY}{MM}-###", "ROOD-2409-001"),
-                    ("MEMBER.{YYYY}.{MM}.####", "MEMBER.2024.09.0001"),
-                    ("SEPA/{YYYY}/{MM}/{DD}/####", "SEPA/2024/09/18/0001"),
-                ]
+            dutch_patterns = [
+                ("VEG-{YYYY}-####", "VEG-2024-0001"),
+                ("ROOD-{YY}{MM}-###", "ROOD-2409-001"),
+                ("MEMBER.{YYYY}.{MM}.####", "MEMBER.2024.09.0001"),
+                ("SEPA/{YYYY}/{MM}/{DD}/####", "SEPA/2024/09/18/0001"),
+            ]
 
-                for pattern, expected in dutch_patterns:
-                    with self.subTest(pattern=pattern):
-                        result = self.service._generate_mandate_id_with_counter(pattern, 1)
-                        self.assertEqual(result, expected)
+            for pattern, expected in dutch_patterns:
+                with self.subTest(pattern=pattern):
+                    result = self.service._generate_mandate_id_with_counter(pattern, 1)
+                    self.assertEqual(result, expected)
 
     def test_year_boundary_handling(self):
         """Test date handling at year boundaries"""
@@ -409,10 +429,10 @@ class TestSEPAMandateIdentityService(EnhancedTestCase):
         new_year = datetime(2025, 1, 1, 0, 0, 0)
 
         with patch('verenigingen.verenigingen_payments.services.sepa_mandate_identity_service.now_datetime', return_value=new_year):
-            with patch('frappe.db.sql', return_value=[]):
+            # Use real database state (no existing mandates due to test rollback)
 
-                result = self.service._generate_mandate_id_with_counter("MANDATE-{YYYY}-{YY}-{MM}-####", 1)
-                self.assertEqual(result, "MANDATE-2025-25-01-0001")
+            result = self.service._generate_mandate_id_with_counter("MANDATE-{YYYY}-{YY}-{MM}-####", 1)
+            self.assertEqual(result, "MANDATE-2025-25-01-0001")
 
     def test_leap_year_handling(self):
         """Test date handling in leap year"""
@@ -420,23 +440,23 @@ class TestSEPAMandateIdentityService(EnhancedTestCase):
         leap_day = datetime(2024, 2, 29, 12, 0, 0)
 
         with patch('verenigingen.verenigingen_payments.services.sepa_mandate_identity_service.now_datetime', return_value=leap_day):
-            with patch('frappe.db.sql', return_value=[]):
+            # Use real database state (no existing mandates due to test rollback)
 
-                result = self.service._generate_mandate_id_with_counter("LEAP-{YYYY}-{MM}-{DD}-###", 1)
-                self.assertEqual(result, "LEAP-2024-02-29-001")
+            result = self.service._generate_mandate_id_with_counter("LEAP-{YYYY}-{MM}-{DD}-###", 1)
+            self.assertEqual(result, "LEAP-2024-02-29-001")
 
     def test_high_counter_values(self):
         """Test handling of high counter values"""
         mock_datetime = datetime(2024, 9, 18, 10, 30, 0)
 
         with patch('verenigingen.verenigingen_payments.services.sepa_mandate_identity_service.now_datetime', return_value=mock_datetime):
-            # Mock existing mandate with high counter
-            with patch('frappe.db.sql', return_value=[("MANDATE-24-09-9999",)]):
+            # Create real mandate with high counter (9999)
+            self.create_sepa_mandate_with_id("MANDATE-24-09-9999")
 
-                result = self.service._generate_mandate_id_with_counter("MANDATE-.YY.-.MM.-.####", 1)
+            result = self.service._generate_mandate_id_with_counter("MANDATE-.YY.-.MM.-.####", 1)
 
-                # Should increment to 10000 (5 digits)
-                self.assertEqual(result, "MANDATE-24-09-10000")
+            # Should increment to 10000 (5 digits)
+            self.assertEqual(result, "MANDATE-24-09-10000")
 
 
 if __name__ == "__main__":
