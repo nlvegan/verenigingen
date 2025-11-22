@@ -12,9 +12,11 @@ Services:
 - ChapterValidationService: Access validation and field auto-fixing
 - ChapterBoardService: Board member data operations
 - ChapterQueryService: Optimized query operations and permissions
+- ChapterEventService: Change detection and event emission
 """
 
 from verenigingen.services.chapter.chapter_board_service import ChapterBoardService, get_chapter_board_service
+from verenigingen.services.chapter.chapter_event_service import ChapterEventService, get_chapter_event_service
 from verenigingen.services.chapter.chapter_finance_service import (
     ChapterFinanceService,
     get_chapter_finance_service,
@@ -40,4 +42,6 @@ __all__ = [
     "get_chapter_board_service",
     "ChapterQueryService",
     "get_chapter_query_service",
+    "ChapterEventService",
+    "get_chapter_event_service",
 ]
