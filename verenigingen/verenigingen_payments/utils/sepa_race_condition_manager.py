@@ -364,7 +364,7 @@ class SEPADistributedLock:
         Returns:
             True if lock was released
         """
-        if not admin_override and not frappe.has_permission("System Manager"):
+        if not admin_override and "System Manager" not in frappe.get_roles():
             raise SEPAError(_("Only system managers can force release locks"))
 
         try:
@@ -827,7 +827,7 @@ def force_release_batch_lock(resource: str) -> Dict[str, Any]:
     Returns:
         Release result
     """
-    if not frappe.has_permission("System Manager"):
+    if "System Manager" not in frappe.get_roles():
         raise SEPAError(_("Only system managers can force release locks"))
 
     lock_manager = SEPADistributedLock()

@@ -530,7 +530,7 @@ def validate_admin_access(custom_message: str = None) -> None:
     Args:
         custom_message: Custom error message
     """
-    if not frappe.has_permission("System Manager"):
+    if "System Manager" not in frappe.get_roles():
         message = custom_message or "You don't have permission to access this page"
         frappe.throw(_(message), frappe.PermissionError)
 

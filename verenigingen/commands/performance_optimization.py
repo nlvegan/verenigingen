@@ -34,7 +34,7 @@ from frappe import _
 def apply_optimizations():
     """Apply all performance optimizations to the database"""
 
-    if not frappe.has_permission("System Manager"):
+    if "System Manager" not in frappe.get_roles():
         frappe.throw(_("Only System Managers can apply performance optimizations"))
 
     print("🚀 APPLYING PERFORMANCE OPTIMIZATIONS")
@@ -130,7 +130,7 @@ def check_optimization_status():
 def analyze_query_performance():
     """Analyze current query performance and identify bottlenecks"""
 
-    if not frappe.has_permission("System Manager"):
+    if "System Manager" not in frappe.get_roles():
         frappe.throw(_("Only System Managers can run performance analysis"))
 
     print("🔬 QUERY PERFORMANCE ANALYSIS")

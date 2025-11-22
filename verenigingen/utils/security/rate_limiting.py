@@ -460,7 +460,7 @@ def clear_rate_limits(operation: str = None, user: str = None):
         frappe.throw(_("Rate limit clearing is only available in developer mode"), frappe.PermissionError)
 
     # Require admin permission
-    if not frappe.has_permission("System Manager"):
+    if "System Manager" not in frappe.get_roles():
         frappe.throw(_("Only System Managers can clear rate limits"), frappe.PermissionError)
 
     try:

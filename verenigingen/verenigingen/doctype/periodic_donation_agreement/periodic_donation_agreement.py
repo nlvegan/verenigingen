@@ -113,6 +113,9 @@ class PeriodicDonationAgreement(Document):
 
     def validate_annual_amount(self):
         """Validate minimum annual amount"""
+        # Annual amount is required
+        if self.annual_amount is None:
+            frappe.throw(_("Annual amount is required"))
         # No minimum amount for periodic donations according to ANBI rules
         if self.annual_amount <= 0:
             frappe.throw(_("Annual amount must be greater than zero"))

@@ -1089,7 +1089,7 @@ def get_security_tester() -> SecurityTester:
 @high_security_api(operation_type=OperationType.ADMIN)
 def get_security_dashboard():
     """Get real-time security dashboard"""
-    if not frappe.has_permission("System Manager"):
+    if "System Manager" not in frappe.get_roles():
         frappe.throw(_("Access denied"), frappe.PermissionError)
 
     try:
@@ -1103,7 +1103,7 @@ def get_security_dashboard():
 @high_security_api(operation_type=OperationType.ADMIN)
 def resolve_security_incident(incident_id: str, resolution_notes: str):
     """Resolve security incident"""
-    if not frappe.has_permission("System Manager"):
+    if "System Manager" not in frappe.get_roles():
         frappe.throw(_("Access denied"), frappe.PermissionError)
 
     try:
@@ -1118,7 +1118,7 @@ def resolve_security_incident(incident_id: str, resolution_notes: str):
 @high_security_api(operation_type=OperationType.ADMIN)
 def run_security_tests():
     """Run automated security tests"""
-    if not frappe.has_permission("System Manager"):
+    if "System Manager" not in frappe.get_roles():
         frappe.throw(_("Access denied"), frappe.PermissionError)
 
     try:

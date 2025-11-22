@@ -173,7 +173,7 @@ def development_only_api(operation_type: OperationType):
                 frappe.throw(_("Authentication required"), frappe.PermissionError)
 
             # Require admin permission for development APIs
-            if not frappe.has_permission("System Manager"):
+            if "System Manager" not in frappe.get_roles():
                 frappe.throw(_("System Manager permission required"), frappe.PermissionError)
 
             # Log development API usage

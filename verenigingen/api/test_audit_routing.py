@@ -18,7 +18,7 @@ from verenigingen.utils.security.audit_logging import get_audit_logger
 @standard_api(operation_type=OperationType.UTILITY)
 def test_audit_routing():
     """Test that events are routed to the correct audit tables"""
-    if not frappe.has_permission("System Manager"):
+    if "System Manager" not in frappe.get_roles():
         frappe.throw(_("Only System Managers can run audit tests"), frappe.PermissionError)
 
     results = {"success": True, "tests": [], "summary": {}}
@@ -175,7 +175,7 @@ def test_audit_routing():
 @standard_api(operation_type=OperationType.UTILITY)
 def test_field_mapping():
     """Test that field mappings work correctly for both tables"""
-    if not frappe.has_permission("System Manager"):
+    if "System Manager" not in frappe.get_roles():
         frappe.throw(_("Only System Managers can run audit tests"), frappe.PermissionError)
 
     results = {"success": True, "tests": []}
@@ -207,14 +207,14 @@ def test_field_mapping():
             # Validate mappings
             if sepa_doc.process_type != "Mandate Creation":
                 sepa_test["status"] = "FAIL"
-                sepa_test["error"] = (
-                    f"Expected process_type 'Mandate Creation', got '{sepa_doc.process_type}'"
-                )
+                sepa_test[
+                    "error"
+                ] = f"Expected process_type 'Mandate Creation', got '{sepa_doc.process_type}'"
             elif sepa_doc.compliance_status != "Exception":
                 sepa_test["status"] = "FAIL"
-                sepa_test["error"] = (
-                    f"Expected compliance_status 'Exception', got '{sepa_doc.compliance_status}'"
-                )
+                sepa_test[
+                    "error"
+                ] = f"Expected compliance_status 'Exception', got '{sepa_doc.compliance_status}'"
 
             results["tests"].append(sepa_test)
 

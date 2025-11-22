@@ -293,7 +293,7 @@ class TestOverduePaymentsReportReal(EnhancedTestCase):
     def test_user_permission_filtering_real_access_control(self):
         """Test user permission filtering with real access control logic"""
         
-        # This replaces @patch("frappe.get_roles") with real permission testing
+        # Real permission testing - no mocking of frappe.get_roles
         
         # Test with admin-level user (should see all chapters)
         frappe.set_user("Administrator")

@@ -277,7 +277,7 @@ def get_monitoring_system_health():
 @frappe.whitelist()
 def trigger_unified_security_test():
     """Trigger comprehensive security test across all monitoring systems"""
-    if not frappe.has_permission("System Manager"):
+    if "System Manager" not in frappe.get_roles():
         frappe.throw(_("Access denied"), frappe.PermissionError)
 
     try:

@@ -702,7 +702,7 @@ def reset_retry_circuit_breaker(operation_id: str) -> Dict[str, Any]:
     Returns:
         Reset result
     """
-    if not frappe.has_permission("System Manager"):
+    if "System Manager" not in frappe.get_roles():
         raise SEPAError(_("Only system managers can reset circuit breakers"))
 
     retry_manager = SEPARetryManager()

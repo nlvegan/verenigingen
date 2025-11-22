@@ -1043,9 +1043,8 @@ def initiate_sepa_batch_rollback(
     Returns:
         Rollback operation result
     """
-    if not frappe.has_permission("System Manager") and not frappe.has_permission(
-        "Verenigingen Administrator"
-    ):
+    user_roles = frappe.get_roles()
+    if "System Manager" not in user_roles and "Verenigingen Administrator" not in user_roles:
         raise SEPAError(_("Insufficient permissions for batch rollback"))
 
     try:

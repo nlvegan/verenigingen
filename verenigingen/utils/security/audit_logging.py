@@ -859,7 +859,7 @@ def search_audit_logs(**filters):
         List of audit log entries
     """
     # Require admin permission
-    if not frappe.has_permission("System Manager"):
+    if "System Manager" not in frappe.get_roles():
         frappe.throw(_("Only System Managers can access audit logs"), frappe.PermissionError)
 
     try:
@@ -887,7 +887,7 @@ def get_audit_statistics(days: int = 7):
         Dictionary with statistics
     """
     # Require admin permission
-    if not frappe.has_permission("System Manager"):
+    if "System Manager" not in frappe.get_roles():
         frappe.throw(_("Only System Managers can access audit statistics"), frappe.PermissionError)
 
     try:

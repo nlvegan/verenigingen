@@ -233,7 +233,7 @@ def cleanup_chart_of_accounts(company, delete_all_accounts=0, force_delete=0):
 def test_cleanup_small_batch():
     """Test cleanup on a small batch of documents to verify fix"""
     try:
-        if not frappe.has_permission("System Manager"):
+        if "System Manager" not in frappe.get_roles():
             frappe.throw("Only System Managers can perform cleanup testing")
 
         results = {"sales_invoices": 0, "errors": [], "test_completed": True}
@@ -282,7 +282,7 @@ def test_cleanup_small_batch():
 def nuclear_cleanup_all_imported_data():
     """WARNING: Nuclear option - deletes ALL imported data from E-Boekhouden"""
     try:
-        if not frappe.has_permission("System Manager"):
+        if "System Manager" not in frappe.get_roles():
             frappe.throw("Only System Managers can perform nuclear cleanup")
 
         frappe.msgprint(

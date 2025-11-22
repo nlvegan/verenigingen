@@ -48,7 +48,7 @@ class TestOverduePaymentsSimpleReal(EnhancedTestCase):
         """Test get_data with real SQL execution (eliminates frappe.db.sql mocks)"""
         
         # Execute report data function with real database operations
-        # This replaces @patch("frappe.db.sql") with actual SQL execution
+        # Real SQL execution - no database mocking
         data = get_data({})
         
         # Verify real SQL execution returned valid structure

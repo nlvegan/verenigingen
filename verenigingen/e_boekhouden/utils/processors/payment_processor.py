@@ -194,7 +194,11 @@ class PaymentProcessor(BaseTransactionProcessor):
 
             bank_account = _get_appropriate_payment_account(self.company, self.debug_info)["erpnext_account"]
 
-        self.debug_info.append(f"Using bank account: {bank_account}")
+        self.debug_info.append(f"Using GL account from mapping: {bank_account}")
+
+        # Convert GL Account to Bank Account name for Bank Transaction creation
+        bank_account = self._convert_to_bank_account_name(bank_account)
+        self.debug_info.append(f"Resolved Bank Account: {bank_account}")
 
         # Process all rows to get target accounts with amounts
         # For multi-line mutations, we need to create one JE line per row
@@ -1044,6 +1048,69 @@ class PaymentProcessor(BaseTransactionProcessor):
             frappe.logger().warning(f"Could not extract bank name from '{bank_account}': {str(e)}")
 
         return None
+
+    def _convert_to_bank_account_name(self, account: str) -> str:
+        """
+        Convert GL Account to Bank Account name for Bank Transaction creation.
+
+        Bank Transaction DocType requires a Bank Account (DocType) name, not a GL Account.
+        E-Boekhouden ledger mappings return GL Accounts like "1120 - ASN - 97.88.80.455 - NVV",
+        but we need the Bank Account DocType name like "ASN Main Account".
+
+        This conversion is needed for both Frappe v15 and v16 due to ERPNext data model.
+
+        Args:
+            account: Could be either a Bank Account name or GL Account name
+
+        Returns:
+            Bank Account name (guaranteed to be Bank Account DocType)
+
+        Raises:
+            frappe.ValidationError if no Bank Account found for the GL Account
+        """
+        # Check if it's already a Bank Account (not a GL Account)
+        if frappe.db.exists("Bank Account", account):
+            self.debug_info.append(f"Using Bank Account directly: {account}")
+            return account
+
+        # It's a GL Account, convert to Bank Account
+        self.debug_info.append(f"Converting GL Account to Bank Account: {account}")
+
+        # Look up Bank Account that uses this GL Account
+        bank_account_name = frappe.db.get_value(
+            "Bank Account", {"account": account, "company": self.company}, "name"
+        )
+
+        if bank_account_name:
+            self.debug_info.append(f"✓ Resolved Bank Account: {bank_account_name} (GL Account: {account})")
+            return bank_account_name
+
+        # Bank Account not found - provide helpful error
+        available_accounts = frappe.get_all(
+            "Bank Account",
+            filters={"company": self.company, "is_company_account": 1},
+            fields=["name", "account", "bank"],
+            limit=10,
+        )
+
+        error_msg = (
+            f"No Bank Account found for GL Account '{account}' in company {self.company}.\n\n"
+            f"Available Bank Accounts:\n"
+        )
+
+        for ba in available_accounts:
+            error_msg += f"  - {ba.name} (GL Account: {ba.account}, Bank: {ba.bank})\n"
+
+        if not available_accounts:
+            error_msg += "  (No Bank Accounts configured for this company)\n"
+
+        error_msg += (
+            f"\nPlease create a Bank Account that links to GL Account '{account}', "
+            f"or update your E-Boekhouden Ledger Mapping to use an existing Bank Account."
+        )
+
+        self.debug_info.append(f"ERROR: {error_msg}")
+        frappe.throw(error_msg, title="Bank Account Configuration Error")
 
     def _link_bank_transaction_to_journal_entry(
         self, bank_transaction_name: str, journal_entry_name: str, allocated_amount: float

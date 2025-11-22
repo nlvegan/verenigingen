@@ -745,8 +745,30 @@ class EnhancedTestDataFactory:
         # Ensure region exists - only create if missing to avoid duplicate infrastructure
         if not frappe.db.exists("Region", region_name):
             try:
-                # Generate region code from region name (first 2 letters + sequence)
-                region_code = (region_name[:2].upper() + str(self.get_next_sequence('region_code')))
+                # Generate unique region code - keep trying until we find one that doesn't exist
+                import time
+                base_code = region_name[:2].upper()
+                region_code = None
+                max_attempts = 10
+
+                for attempt in range(max_attempts):
+                    # Use timestamp-based suffix for uniqueness
+                    suffix = str(int(time.time() * 1000))[-3:]
+                    test_code = f"{base_code}{suffix}"
+
+                    # Check if this code already exists
+                    if not frappe.db.exists("Region", {"region_code": test_code}):
+                        region_code = test_code
+                        break
+
+                    # Wait a tiny bit to get a different timestamp
+                    time.sleep(0.001)
+
+                if not region_code:
+                    # Fallback: use random suffix if all attempts failed
+                    import random
+                    region_code = f"{base_code}{random.randint(100, 999)}"
+
                 test_region = frappe.get_doc({
                     "doctype": "Region",
                     "region_name": region_name,

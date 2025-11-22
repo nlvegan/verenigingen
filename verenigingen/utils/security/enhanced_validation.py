@@ -708,7 +708,7 @@ def validate_with_schema(schema_name: str, expose_errors: bool = False):
             # Check if validation passed
             if not validation_result["valid"]:
                 # Create secure error response
-                expose_details = expose_errors or frappe.has_permission("System Manager")
+                expose_details = expose_errors or "System Manager" in frappe.get_roles()
                 error_response = validator.create_secure_error_response(validation_result, expose_details)
 
                 if expose_details:
@@ -764,7 +764,7 @@ def validate_business_rules(*rule_functions):
 def get_validation_schemas():
     # Development-only utility operation: Get validation schemas
     """Get list of available validation schemas"""
-    if not frappe.has_permission("System Manager"):
+    if "System Manager" not in frappe.get_roles():
         frappe.throw(_("Access denied"), frappe.PermissionError)
 
     registry = get_schema_registry()
@@ -786,7 +786,7 @@ def get_validation_schemas():
 def validate_data_with_schema(data: str, schema_name: str):
     # Development-only utility operation: Test validation rule
     """API endpoint to validate data against schema"""
-    if not frappe.has_permission("System Manager"):
+    if "System Manager" not in frappe.get_roles():
         frappe.throw(_("Access denied"), frappe.PermissionError)
 
     try:

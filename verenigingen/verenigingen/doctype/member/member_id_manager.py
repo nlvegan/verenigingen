@@ -219,7 +219,7 @@ def validate_member_id_change(doc, method=None):
         new_id = doc.member_id
 
         # Only allow changes by System Managers
-        if not frappe.has_permission("System Manager"):
+        if "System Manager" not in frappe.get_roles():
             frappe.throw(_("Only System Managers can change member IDs"))
 
         # Validate new ID is not in use

@@ -42,6 +42,8 @@ class TestANBIDonationSummaryReportOptimizedReal(EnhancedTestCase):
         settings = frappe.get_single("Verenigingen Settings")
         settings.enable_anbi_functionality = 1
         settings.anbi_minimum_reportable_amount = 500.0
+        # Clear any invalid chapter references from previous test runs
+        settings.national_board_chapter = None
         settings.save()
 
     def test_anbi_settings_real_database_no_mocks(self):
@@ -62,42 +64,36 @@ class TestANBIDonationSummaryReportOptimizedReal(EnhancedTestCase):
 
     def test_donation_aggregation_real_database_optimized(self):
         """ELIMINATES frappe.db.sql mocks - uses real donation aggregation with valid BSN"""
-        
-        # Create test donor with VALID BSN - NO MOCKS
-        test_donor = frappe.get_doc({
-            "doctype": "Donor",
-            "donor_name": "Valid BSN Donor",
-            "donor_type": "Individual",
-            "bsn_citizen_service_number": self.valid_bsn,  # Valid BSN that passes validation
-            "anbi_consent": 1,
-            "donor_email": "valid.bsn@example.com"
-        })
-        test_donor.insert()
-        self.track_doc("Donor", test_donor.name)
-        
+
+        # Create test donor using ETC factory method - handles all validation and cleanup
+        test_donor = self.create_test_donor(
+            donor_name="Valid BSN Donor",
+            donor_type="Individual",
+            bsn_citizen_service_number=self.valid_bsn,  # Valid BSN that passes validation
+            anbi_consent=1,
+            donor_email="valid.bsn@example.com"
+        )
+
         # Create test member for donation context
         test_member = self.create_test_member(
             first_name="ANBI",
             last_name="Test",
             email=f"anbi.{frappe.utils.random_string(4)}@example.com"
         )
-        
-        # Create real donations - NO MOCKS
+
+        # Create real donations using ETC factory - handles submission and cleanup
         donation_amounts = [600.0, 400.0]  # Total: 1000.0, above threshold
-        
+
         for amount in donation_amounts:
-            donation = frappe.get_doc({
-                "doctype": "Donation",
-                "donor": test_donor.name,
-                "amount": amount,
-                "donation_date": today(),
-                "paid": 1,
-                "docstatus": 1,
-                "belastingdienst_reportable": 1 if amount >= 500 else 0,
-                "member": test_member.name
-            })
-            donation.insert()
-            self.track_doc("Donation", donation.name)
+            self.create_test_donation(
+                donor=test_donor.name,
+                amount=amount,
+                donation_date=today(),
+                paid=1,
+                belastingdienst_reportable=1 if amount >= 500 else 0,
+                member=test_member.name,
+                docstatus=1
+            )
         
         # Test real donation data retrieval - NO DATABASE MOCKS
         filters = {"from_date": today(), "to_date": today(), "donor": test_donor.name}
@@ -116,38 +112,32 @@ class TestANBIDonationSummaryReportOptimizedReal(EnhancedTestCase):
 
     def test_bsn_field_access_real_database_optimized(self):
         """ELIMINATES BSN field mocks - validates real Dutch BSN field usage with valid data"""
-        
-        # Create donor with VALID BSN - NO MOCKS
-        bsn_donor = frappe.get_doc({
-            "doctype": "Donor",
-            "donor_name": "BSN Field Test",
-            "donor_type": "Individual",
-            "bsn_citizen_service_number": self.valid_bsn,  # Valid BSN
-            "anbi_consent": 1,
-            "donor_email": "bsn.test@example.com"
-        })
-        bsn_donor.insert()
-        self.track_doc("Donor", bsn_donor.name)
-        
+
+        # Create donor using ETC factory - handles validation and cleanup
+        bsn_donor = self.create_test_donor(
+            donor_name="BSN Field Test",
+            donor_type="Individual",
+            bsn_citizen_service_number=self.valid_bsn,  # Valid BSN
+            anbi_consent=1,
+            donor_email="bsn.test@example.com"
+        )
+
         # Create test member and donation
         member = self.create_test_member(
             first_name="BSN",
             last_name="Test",
             email=f"bsn.{frappe.utils.random_string(4)}@example.com"
         )
-        
-        donation = frappe.get_doc({
-            "doctype": "Donation",
-            "donor": bsn_donor.name,
-            "amount": 750.0,
-            "donation_date": today(),
-            "paid": 1,
-            "docstatus": 1,
-            "belastingdienst_reportable": 1,
-            "member": member.name
-        })
-        donation.insert()
-        self.track_doc("Donation", donation.name)
+
+        self.create_test_donation(
+            donor=bsn_donor.name,
+            amount=750.0,
+            donation_date=today(),
+            paid=1,
+            belastingdienst_reportable=1,
+            member=member.name,
+            docstatus=1
+        )
         
         # Test real BSN field access in report query - NO FIELD MOCKS
         result_data = get_data({"donor": bsn_donor.name})
@@ -156,44 +146,39 @@ class TestANBIDonationSummaryReportOptimizedReal(EnhancedTestCase):
         bsn_result = result_data[0]
         
         # Validate real BSN field retrieval (correct field name: bsn_citizen_service_number)
-        self.assertEqual(bsn_result["tax_id_value"], self.valid_bsn, "Should retrieve real valid BSN")
+        # Report returns 'tax_id' not 'tax_id_value' - see donation_summary.py line 137
+        self.assertEqual(bsn_result["tax_id"], self.valid_bsn, "Should retrieve real valid BSN")
         self.assertEqual(bsn_result["donor_type"], "Individual")
         self.assertTrue(bsn_result["consent_given"], "Should retrieve real consent status")
 
     def test_rsin_field_access_real_database_optimized(self):
         """ELIMINATES RSIN field mocks - validates real Dutch RSIN field usage with valid data"""
-        
-        # Create donor with VALID RSIN - NO MOCKS
-        rsin_donor = frappe.get_doc({
-            "doctype": "Donor",
-            "donor_name": "Valid RSIN Organization",
-            "donor_type": "Organization",
-            "rsin_organization_tax_number": self.valid_rsin,  # Valid RSIN
-            "anbi_consent": 1,
-            "donor_email": "rsin.test@example.com"
-        })
-        rsin_donor.insert()
-        self.track_doc("Donor", rsin_donor.name)
-        
+
+        # Create donor using ETC factory - handles validation and cleanup
+        rsin_donor = self.create_test_donor(
+            donor_name="Valid RSIN Organization",
+            donor_type="Organization",
+            rsin_organization_tax_number=self.valid_rsin,  # Valid RSIN
+            anbi_consent=1,
+            donor_email="rsin.test@example.com"
+        )
+
         # Create test member and donation
         member = self.create_test_member(
             first_name="RSIN",
             last_name="Test",
             email=f"rsin.{frappe.utils.random_string(4)}@example.com"
         )
-        
-        donation = frappe.get_doc({
-            "doctype": "Donation",
-            "donor": rsin_donor.name,
-            "amount": 1200.0,
-            "donation_date": today(),
-            "paid": 1,
-            "docstatus": 1,
-            "belastingdienst_reportable": 1,
-            "member": member.name
-        })
-        donation.insert()
-        self.track_doc("Donation", donation.name)
+
+        self.create_test_donation(
+            donor=rsin_donor.name,
+            amount=1200.0,
+            donation_date=today(),
+            paid=1,
+            belastingdienst_reportable=1,
+            member=member.name,
+            docstatus=1
+        )
         
         # Test real RSIN field access - NO FIELD MOCKS
         result_data = get_data({"donor": rsin_donor.name})
@@ -202,50 +187,45 @@ class TestANBIDonationSummaryReportOptimizedReal(EnhancedTestCase):
         rsin_result = result_data[0]
         
         # Validate real RSIN field retrieval (correct field name: rsin_organization_tax_number)
-        self.assertEqual(rsin_result["tax_id_value"], self.valid_rsin, "Should retrieve real valid RSIN")
+        # Report returns 'tax_id' not 'tax_id_value' - see donation_summary.py line 137
+        self.assertEqual(rsin_result["tax_id"], self.valid_rsin, "Should retrieve real valid RSIN")
         self.assertEqual(rsin_result["donor_type"], "Organization")
         self.assertTrue(rsin_result["consent_given"], "Should retrieve real consent status")
 
     def test_anbi_consent_field_real_database_optimized(self):
         """ELIMINATES anbi_consent mocks - uses real consent field validation with valid data"""
-        
-        # Create donors with different consent status - real field operations with valid identifiers
-        consent_donor = frappe.get_doc({
-            "doctype": "Donor",
-            "donor_name": "Consent Given Valid",
-            "donor_type": "Individual",
-            "bsn_citizen_service_number": self.valid_bsn,  # Valid BSN
-            "anbi_consent": 1,  # Real field name, not anbi_consent_given
-            "donor_email": "consent.given@example.com"
-        })
-        consent_donor.insert()
-        self.track_doc("Donor", consent_donor.name)
-        
+
+        # Create donor using ETC factory - handles all validation
+        consent_donor = self.create_test_donor(
+            donor_name="Consent Given Valid",
+            donor_type="Individual",
+            bsn_citizen_service_number=self.valid_bsn,  # Valid BSN
+            anbi_consent=1,  # Real field name, not anbi_consent_given
+            donor_email="consent.given@example.com"
+        )
+
         # Test consent filtering with real field access - NO MOCKS
         consent_conditions = get_conditions({"consent_status": "Given"})
-        
+
         # Validate real field names are used (corrected from anbi_consent_given)
         self.assertIn("donor.anbi_consent = 1", consent_conditions, "Should use correct consent field name")
-        
+
         # Execute report with consent filter - real database query
         member = self.create_test_member(
             first_name="Consent",
-            last_name="Test", 
+            last_name="Test",
             email=f"consent.{frappe.utils.random_string(4)}@example.com"
         )
-        
-        donation = frappe.get_doc({
-            "doctype": "Donation",
-            "donor": consent_donor.name,
-            "amount": 800.0,
-            "donation_date": today(),
-            "paid": 1,
-            "docstatus": 1,
-            "belastingdienst_reportable": 1,
-            "member": member.name
-        })
-        donation.insert()
-        self.track_doc("Donation", donation.name)
+
+        self.create_test_donation(
+            donor=consent_donor.name,
+            amount=800.0,
+            donation_date=today(),
+            paid=1,
+            belastingdienst_reportable=1,
+            member=member.name,
+            docstatus=1
+        )
         
         consent_data = get_data({"consent_status": "Given"})
         
@@ -258,38 +238,36 @@ class TestANBIDonationSummaryReportOptimizedReal(EnhancedTestCase):
         """Tests encrypted tax ID with real database - preserves infrastructure mock only"""
         mock_decrypt.return_value = "123456789"  # Mock decryption result
         
-        # Create donor with encrypted tax ID - real database storage
-        encrypted_donor = frappe.get_doc({
-            "doctype": "Donor",
-            "donor_name": "Encrypted Tax ID Test",
-            "donor_type": "Organization",
-            "rsin_organization_tax_number": "gAAAAABhMockEncryptedData",  # Simulated encrypted
-            "anbi_consent": 1,
-            "donor_email": "encrypted.test@example.com"
-        })
-        encrypted_donor.insert()
-        self.track_doc("Donor", encrypted_donor.name)
-        
-        # Create donation - real database operation
+        # Create donor using ETC factory with valid RSIN
+        encrypted_donor = self.create_test_donor(
+            donor_name="Encrypted Tax ID Test",
+            donor_type="Organization",
+            rsin_organization_tax_number=self.valid_rsin,  # Valid RSIN for validation
+            anbi_consent=1,
+            donor_email="encrypted.test@example.com"
+        )
+
+        # Simulate encryption by directly updating the database field
+        # This bypasses validation and allows testing the decryption path
+        frappe.db.set_value("Donor", encrypted_donor.name, "rsin_organization_tax_number", "gAAAAABhMockEncryptedData")
+
+        # Create donation using ETC factory
         member = self.create_test_member(
             first_name="Encrypted",
             last_name="Test",
             email=f"encrypted.{frappe.utils.random_string(4)}@example.com"
         )
-        
-        donation = frappe.get_doc({
-            "doctype": "Donation", 
-            "donor": encrypted_donor.name,
-            "amount": 950.0,
-            "donation_date": today(),
-            "paid": 1,
-            "docstatus": 1,
-            "belastingdienst_reportable": 1,
-            "member": member.name
-        })
-        donation.insert()
-        self.track_doc("Donation", donation.name)
-        
+
+        self.create_test_donation(
+            donor=encrypted_donor.name,
+            amount=950.0,
+            donation_date=today(),
+            paid=1,
+            belastingdienst_reportable=1,
+            member=member.name,
+            docstatus=1
+        )
+
         # Test with real database retrieval and mocked decryption
         result_data = get_data({"donor": encrypted_donor.name})
         
@@ -297,7 +275,9 @@ class TestANBIDonationSummaryReportOptimizedReal(EnhancedTestCase):
         encrypted_result = result_data[0]
         
         # Real database field retrieved, infrastructure decryption mocked
-        self.assertEqual(encrypted_result["tax_id_value"], "gAAAAABhMockEncryptedData")
+        # Report returns 'tax_id' not 'tax_id_value' - see donation_summary.py line 137
+        # Report should show decrypted value (from mocked decrypt function)
+        self.assertEqual(encrypted_result["tax_id"], "123456789")
         mock_decrypt.assert_called_with("gAAAAABhMockEncryptedData")
 
     def test_database_mock_elimination_summary_anbi_optimized(self):
@@ -305,42 +285,36 @@ class TestANBIDonationSummaryReportOptimizedReal(EnhancedTestCase):
         import time
         
         start_time = time.time()
-        
-        # Create test data with real operations
-        summary_donor = frappe.get_doc({
-            "doctype": "Donor",
-            "donor_name": "Summary Test Valid",
-            "donor_type": "Individual",
-            "bsn_citizen_service_number": self.valid_bsn,  # Valid BSN
-            "anbi_consent": 1,
-            "donor_email": "summary.test@example.com"
-        })
-        summary_donor.insert()
-        self.track_doc("Donor", summary_donor.name)
-        
+
+        # Create test data using ETC factory methods
+        summary_donor = self.create_test_donor(
+            donor_name="Summary Test Valid",
+            donor_type="Individual",
+            bsn_citizen_service_number=self.valid_bsn,  # Valid BSN
+            anbi_consent=1,
+            donor_email="summary.test@example.com"
+        )
+
         member = self.create_test_member(
             first_name="Summary",
             last_name="Test",
             email=f"summary.{frappe.utils.random_string(4)}@example.com"
         )
-        
+
         # ELIMINATED MOCK 1: frappe.db.get_single_value for ANBI settings
         real_anbi_enabled = frappe.db.get_single_value("Verenigingen Settings", "enable_anbi_functionality")
         real_min_reportable = frappe.db.get_single_value("Verenigingen Settings", "anbi_minimum_reportable_amount")
-        
+
         # ELIMINATED MOCK 2: frappe.db.sql for donation aggregation queries
-        donation = frappe.get_doc({
-            "doctype": "Donation",
-            "donor": summary_donor.name,
-            "amount": 650.0,
-            "donation_date": today(),
-            "paid": 1,
-            "docstatus": 1,
-            "belastingdienst_reportable": 1,
-            "member": member.name
-        })
-        donation.insert()
-        self.track_doc("Donation", donation.name)
+        self.create_test_donation(
+            donor=summary_donor.name,
+            amount=650.0,
+            donation_date=today(),
+            paid=1,
+            belastingdienst_reportable=1,
+            member=member.name,
+            docstatus=1
+        )
         
         real_donation_data = get_data({"donor": summary_donor.name})  # Real SQL execution
         

@@ -1028,7 +1028,7 @@ def toggle_security_integration(enabled: bool = True) -> Dict[str, Any]:
     Returns:
         Status confirmation
     """
-    if not frappe.has_permission("System Manager"):
+    if "System Manager" not in frappe.get_roles():
         frappe.throw(_("Only system managers can toggle security integration"))
 
     try:
@@ -1053,7 +1053,7 @@ def test_alert_system() -> Dict[str, Any]:
     Returns:
         Test results
     """
-    if not frappe.has_permission("System Manager"):
+    if "System Manager" not in frappe.get_roles():
         frappe.throw(_("Only system managers can test the alert system"))
 
     try:

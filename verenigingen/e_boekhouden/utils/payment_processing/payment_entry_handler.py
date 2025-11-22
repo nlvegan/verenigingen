@@ -233,6 +233,9 @@ class PaymentEntryHandler:
                 self._log(f"ERROR: Could not determine bank account for mutation {mutation_id}")
                 return None
 
+            # Convert GL Account to Bank Account name if needed
+            bank_account = self._convert_to_bank_account_name(bank_account)
+
             # Create payment entry
             pe = self._create_payment_entry(
                 mutation=mutation,
@@ -556,6 +559,70 @@ class PaymentEntryHandler:
             "Please ensure bank accounts and cash account are properly configured.",
             title="Payment Account Configuration Error",
         )
+
+    def _convert_to_bank_account_name(self, account: str) -> str:
+        """
+        Convert GL Account to Bank Account name for Bank Transaction creation.
+
+        Bank Transaction DocType requires a Bank Account (DocType) name, not a GL Account.
+        E-Boekhouden ledger mappings return GL Accounts like "1120 - ASN - 97.88.80.455 - NVV",
+        but we need the Bank Account DocType name like "ASN Main Account".
+
+        This conversion is needed for both Frappe v15 and v16 due to ERPNext data model.
+
+        Args:
+            account: Could be either a Bank Account name or GL Account name
+
+        Returns:
+            Bank Account name (guaranteed to be Bank Account DocType)
+
+        Raises:
+            frappe.ValidationError if no Bank Account found for the GL Account
+        """
+        # Check if it's already a Bank Account (not a GL Account)
+        # Bank Account names typically don't have " - " pattern like GL Accounts
+        if frappe.db.exists("Bank Account", account):
+            self._log(f"Using Bank Account directly: {account}")
+            return account
+
+        # It's a GL Account, convert to Bank Account
+        self._log(f"Converting GL Account to Bank Account: {account}")
+
+        # Look up Bank Account that uses this GL Account
+        bank_account_name = frappe.db.get_value(
+            "Bank Account", {"account": account, "company": self.company}, "name"
+        )
+
+        if bank_account_name:
+            self._log(f"✓ Resolved Bank Account: {bank_account_name} (GL Account: {account})")
+            return bank_account_name
+
+        # Bank Account not found - provide helpful error
+        available_accounts = frappe.get_all(
+            "Bank Account",
+            filters={"company": self.company, "is_company_account": 1},
+            fields=["name", "account", "bank"],
+            limit=10,
+        )
+
+        error_msg = (
+            f"No Bank Account found for GL Account '{account}' in company {self.company}.\n\n"
+            f"Available Bank Accounts:\n"
+        )
+
+        for ba in available_accounts:
+            error_msg += f"  - {ba.name} (GL Account: {ba.account}, Bank: {ba.bank})\n"
+
+        if not available_accounts:
+            error_msg += "  (No Bank Accounts configured for this company)\n"
+
+        error_msg += (
+            f"\nPlease create a Bank Account that links to GL Account '{account}', "
+            f"or update your E-Boekhouden Ledger Mapping to use an existing Bank Account."
+        )
+
+        self._log(f"ERROR: {error_msg}")
+        frappe.throw(error_msg, title="Bank Account Configuration Error")
 
     def _get_or_create_party(self, relation_id: str, party_type: str, description: str) -> Optional[str]:
         """Get existing party or create new one."""

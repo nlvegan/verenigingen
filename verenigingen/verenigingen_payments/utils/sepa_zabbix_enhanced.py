@@ -1157,7 +1157,7 @@ def test_sepa_zabbix_integration() -> Dict[str, Any]:
     Returns:
         Test results
     """
-    if not frappe.has_permission("System Manager"):
+    if "System Manager" not in frappe.get_roles():
         frappe.throw(_("Only system managers can test Zabbix integration"))
 
     return _zabbix_integration.test_zabbix_connectivity()

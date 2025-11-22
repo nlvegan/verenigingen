@@ -11,8 +11,6 @@ from typing import Any, Callable, Dict, List, Optional
 import frappe
 from frappe import _
 
-from verenigingen.repositories.dues_schedule_repository import DuesScheduleRepository
-
 
 def _validate_member_fields(fields: List[str]) -> List[str]:
     """
@@ -769,52 +767,15 @@ def get_member_dues_schedule(
         return None
 
     try:
-        # Check if all requested fields are in ScheduleInfo dataclass
-        # If not, use direct query to preserve backward compatibility
-        standard_fields = {
-            "name",
-            "member",
-            "status",
-            "dues_rate",
-            "billing_frequency",
-            "next_invoice_date",
-            "last_invoice_date",
-            "membership_type",
-            "is_template",
-            "contribution_mode",
-            "uses_custom_amount",
-            "membership",  # Added for compatibility
-        }
+        # Build query filters
+        filters = {"member": member_name}
+        if not include_template:
+            filters["is_template"] = 0
+        if status_filter is not None:
+            filters["status"] = status_filter
 
-        has_non_standard_fields = any(field not in standard_fields for field in valid_fields)
-
-        # Use direct query if non-standard fields requested or non-standard status
-        if has_non_standard_fields or (status_filter not in ["Active", "Paused", None]):
-            filters = {"member": member_name}
-            if not include_template:
-                filters["is_template"] = 0
-            if status_filter is not None:
-                filters["status"] = status_filter
-
-            return frappe.db.get_value("Membership Dues Schedule", filters, valid_fields, as_dict=True)
-
-        # Use DuesScheduleRepository for standard queries
-        repository = DuesScheduleRepository()
-
-        # Map to repository method based on status_filter
-        if status_filter == "Active":
-            schedule_info = repository.get_active_schedule(member_name, fields=valid_fields)
-        else:  # status_filter in ["Paused", None]
-            schedule_info = repository.get_active_or_paused_schedule(member_name, fields=valid_fields)
-
-            # If status_filter was specified and doesn't match, return None
-            if schedule_info and status_filter and schedule_info.status != status_filter:
-                schedule_info = None
-
-        # Convert ScheduleInfo dataclass back to dict for backward compatibility
-        if schedule_info:
-            return {field: getattr(schedule_info, field, None) for field in valid_fields}
-        return None
+        # Direct query: Simple, consistent, works for all cases
+        return frappe.db.get_value("Membership Dues Schedule", filters, valid_fields, as_dict=True)
 
     except Exception as e:
         # Log error with context for debugging
@@ -932,14 +893,10 @@ def get_member_active_or_paused_schedule(
         return None
 
     try:
-        # Use DuesScheduleRepository for consistent query pattern
-        repository = DuesScheduleRepository()
-        schedule_info = repository.get_active_or_paused_schedule(member_name, fields=valid_fields)
+        # Direct query for Active OR Paused schedules
+        filters = {"member": member_name, "status": ["in", ["Active", "Paused"]], "is_template": 0}
 
-        # Convert ScheduleInfo dataclass back to dict for backward compatibility
-        if schedule_info:
-            return {field: getattr(schedule_info, field, None) for field in valid_fields}
-        return None
+        return frappe.db.get_value("Membership Dues Schedule", filters, valid_fields, as_dict=True)
 
     except Exception as e:
         frappe.logger().error(
@@ -1006,9 +963,12 @@ def has_active_dues_schedule(member_name: str) -> bool:
         return False
 
     try:
-        # Use DuesScheduleRepository for consistent query pattern
-        repository = DuesScheduleRepository()
-        return repository.has_active_schedule(member_name)
+        # Direct exists check for Active schedule
+        return bool(
+            frappe.db.exists(
+                "Membership Dues Schedule", {"member": member_name, "status": "Active", "is_template": 0}
+            )
+        )
     except Exception as e:
         frappe.logger().error(
             f"Error checking active dues schedule existence for member {member_name}: {str(e)}"

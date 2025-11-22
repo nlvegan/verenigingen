@@ -75,7 +75,7 @@ class TestSuspensionAPIFallbackReal(EnhancedTestCase):
         
         try:
             # Test suspension API with real database operations
-            # This replaces @patch("frappe.db.get_value") with actual database queries
+            # Real database queries - no mocking of frappe.db.get_value
             can_suspend = can_suspend_member(self.target_member.name)
             
             # Board members should have suspension permissions with real system

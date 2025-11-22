@@ -1274,7 +1274,7 @@ def schedule_report(
     Returns:
         Schedule confirmation
     """
-    if not frappe.has_permission("System Manager"):
+    if "System Manager" not in frappe.get_roles():
         frappe.throw(_("Only system managers can schedule reports"))
 
     try:

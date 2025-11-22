@@ -715,7 +715,7 @@ def force_memory_cleanup() -> Dict[str, Any]:
     Returns:
         Cleanup result
     """
-    if not frappe.has_permission("System Manager"):
+    if "System Manager" not in frappe.get_roles():
         frappe.throw(_("Only system managers can force memory cleanup"))
 
     monitor = SEPAMemoryMonitor()

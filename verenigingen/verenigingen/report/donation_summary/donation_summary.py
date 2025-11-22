@@ -91,17 +91,23 @@ def get_data(filters):
         # Get tax ID (may be encrypted)
         tax_id = ""
         if row.get("tax_id_value"):
+            tax_id_raw = row.get("tax_id_value")
+
+            # Handle ENC: prefix (Frappe's encryption format)
+            if tax_id_raw.startswith("ENC:"):
+                tax_id_raw = tax_id_raw[4:]  # Strip ENC: prefix
+
             # Check if it looks like encrypted data (starts with specific patterns)
-            if row.get("tax_id_value", "").startswith(("gAAAAAB", "$")):
+            if tax_id_raw.startswith(("gAAAAAB", "$")):
                 try:
                     from frappe.utils.password import decrypt
 
-                    tax_id = decrypt(row.get("tax_id_value"))
+                    tax_id = decrypt(tax_id_raw)
                 except Exception:
                     tax_id = "***ENCRYPTED***"
             else:
                 # Plain text or already decrypted
-                tax_id = row.get("tax_id_value")
+                tax_id = tax_id_raw
 
         # Determine agreement type
         agreement_type = "One-time Donations"

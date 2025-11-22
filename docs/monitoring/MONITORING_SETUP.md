@@ -110,7 +110,7 @@ import frappe
 from verenigingen.utils.performance_dashboard import PerformanceDashboard
 
 def get_context(context):
-    if not frappe.has_permission("System Manager"):
+    if "System Manager" not in frappe.get_roles():
         raise frappe.PermissionError
 
     dashboard = PerformanceDashboard()
