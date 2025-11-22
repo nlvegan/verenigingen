@@ -190,7 +190,6 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import now_datetime, add_days, add_months, getdate
 
 from .field_validator import FieldValidator, validate_field
-from verenigingen.e_boekhouden.utils.cleanup_utils import cleanup_chart_of_accounts
 
 
 class BusinessRuleError(Exception):
@@ -801,18 +800,13 @@ class EnhancedTestDataFactory:
                 **data
             })
             
-            # Use Administrator for test fixture creation (proper permission context)
-            current_user = frappe.session.user
-            try:
-                frappe.set_user("Administrator")
-                chapter.insert()
+            # Insert with permissions bypassed (test fixture creation)
+            chapter.insert(ignore_permissions=True)
 
-                # Track for cleanup in tearDown
-                self.track_document("Chapter", chapter.name, priority=4)
+            # Track for cleanup in tearDown
+            self.track_document("Chapter", chapter.name, priority=4)
 
-                return chapter
-            finally:
-                frappe.set_user(current_user)
+            return chapter
         except Exception as e:
             raise Exception(f"Failed to create chapter: {e}")
             
@@ -2965,8 +2959,11 @@ class EnhancedTestCase(FrappeTestCase):
         """
         Get or create a receivable account for testing.
 
-        Now simplified since _get_test_company() ensures Chart of Accounts exists.
+        Ensures Chart of Accounts is initialized before looking for receivable account.
         """
+        # Ensure CoA is initialized (will only run once per company)
+        self._ensure_company_chart_of_accounts(company)
+
         # First check company default (should exist after CoA initialization)
         default_receivable = frappe.db.get_value("Company", company, "default_receivable_account")
         if default_receivable:
@@ -3130,26 +3127,50 @@ class EnhancedTestCase(FrappeTestCase):
             return
 
         # Clean up any partial accounts from previous failed runs
-        # Use the production-tested cleanup utility that handles tree deletion properly
-        partial_accounts = frappe.db.get_all("Account", {"company": company_name}, pluck="name")
+        # Delete accounts in reverse rgt order (children before parents) to respect tree structure
+        partial_accounts = frappe.db.sql(
+            """
+            SELECT name
+            FROM `tabAccount`
+            WHERE company = %s
+            ORDER BY rgt DESC
+            """,
+            (company_name,),
+            as_dict=False
+        )
+
         if partial_accounts:
+            # First delete GL entries for these accounts (if any exist)
             try:
-                # Force delete all accounts (including GL entries) for clean CoA setup
-                result = cleanup_chart_of_accounts(
-                    company=company_name,
-                    delete_all_accounts=1,  # Delete all accounts, not just E-Boekhouden ones
-                    force_delete=1  # Aggressive deletion like CoA importer
+                frappe.db.sql(
+                    """
+                    DELETE FROM `tabGL Entry`
+                    WHERE account IN (
+                        SELECT name FROM `tabAccount` WHERE company = %s
+                    )
+                    """,
+                    (company_name,)
                 )
-                if not result.get("success"):
-                    print(f"⚠️  CoA cleanup warning: {result.get('message', 'Unknown error')}")
-            except Exception as e:
-                print(f"⚠️  CoA cleanup failed: {e}")
-                # Continue anyway - CoA creation might still work
+            except Exception:
+                pass  # GL entries may not exist
+
+            # Delete accounts in reverse rgt order (children first)
+            for (account_name,) in partial_accounts:
+                try:
+                    frappe.delete_doc("Account", account_name, force=True, ignore_permissions=True)
+                except Exception:
+                    pass  # Continue deleting other accounts
+
             frappe.db.commit()
 
         # Initialize Chart of Accounts using ERPNext's built-in method
         try:
             from erpnext.accounts.doctype.account.chart_of_accounts.chart_of_accounts import create_charts
+
+            # Ensure company has EUR currency for Dutch association tests
+            company_doc = frappe.get_doc("Company", company_name)
+            if not company_doc.default_currency or company_doc.default_currency == "AED":
+                company_doc.db_set("default_currency", "EUR", update_modified=False)
 
             # Set flag to bypass company validation during CoA creation
             frappe.local.flags.ignore_root_company_validation = True

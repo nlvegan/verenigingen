@@ -8,7 +8,7 @@ These tests use REAL database operations and would have caught the
 "Unknown column 'user'" SQL error that unit tests missed.
 
 Test Philosophy:
-- Create real Member and User records
+- Create real Member and User records using Enhanced Test Factory
 - Perform actual saves that trigger hooks
 - Verify database state changes
 - Test actual SQL queries execute successfully
@@ -16,21 +16,26 @@ Test Philosophy:
 """
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
 
-from verenigingen.services.field_sync_service import sync_fields, get_sync_config
+from verenigingen.services.field_sync_service import get_sync_config
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestFieldSyncIntegration(FrappeTestCase):
+class TestFieldSyncIntegration(EnhancedTestCase):
     """Integration tests for field synchronization - uses real database"""
 
     def setUp(self):
         """Set up test data - creates real records in database"""
-        # Create a real User (required for Member)
+        super().setUp()
+
+        # Set Administrator context for full permissions during tests
+        frappe.set_user("Administrator")
+
+        # Create unique email for this test run
         import time
         self.test_user_email = f"test_sync_{int(time.time())}@example.com"
 
-        # Create User if doesn't exist
+        # Create User first
         if not frappe.db.exists("User", self.test_user_email):
             user = frappe.get_doc({
                 "doctype": "User",
@@ -40,35 +45,36 @@ class TestFieldSyncIntegration(FrappeTestCase):
                 "enabled": 1,
                 "send_welcome_email": 0
             })
-            user.insert(ignore_permissions=True)
+            user.insert()
 
         self.test_user = frappe.get_doc("User", self.test_user_email)
 
-        # Create a real Member linked to this User
+        # Create Member linked to User
         self.test_member = frappe.get_doc({
             "doctype": "Member",
             "first_name": "TestSync",
             "last_name": "Member",
             "email": self.test_user_email,
             "user": self.test_user_email,  # Link to User
-            "birth_date": "1990-01-01",
-            "gender": "Male"
+            "birth_date": "1990-01-01"
         })
-        self.test_member.insert(ignore_permissions=True)
+        self.test_member.insert()
         frappe.db.commit()
 
     def tearDown(self):
         """Clean up test data"""
-        # Delete test member
+        # Delete test member if exists
         if hasattr(self, 'test_member') and self.test_member.name:
-            frappe.delete_doc("Member", self.test_member.name, force=True, ignore_permissions=True)
+            if frappe.db.exists("Member", self.test_member.name):
+                frappe.delete_doc("Member", self.test_member.name, force=True)
 
-        # Delete test user
+        # Delete test user if exists
         if hasattr(self, 'test_user_email'):
             if frappe.db.exists("User", self.test_user_email):
-                frappe.delete_doc("User", self.test_user_email, force=True, ignore_permissions=True)
+                frappe.delete_doc("User", self.test_user_email, force=True)
 
         frappe.db.commit()
+        super().tearDown()
 
     def test_member_to_user_sync_first_name(self):
         """
@@ -81,7 +87,7 @@ class TestFieldSyncIntegration(FrappeTestCase):
         """
         # Change Member first_name
         self.test_member.first_name = "UpdatedFirstName"
-        self.test_member.save(ignore_permissions=True)
+        self.test_member.save()
         frappe.db.commit()
 
         # Reload User from database
@@ -97,7 +103,7 @@ class TestFieldSyncIntegration(FrappeTestCase):
     def test_member_to_user_sync_last_name(self):
         """Integration test: Member last_name change syncs to User"""
         self.test_member.last_name = "UpdatedLastName"
-        self.test_member.save(ignore_permissions=True)
+        self.test_member.save()
         frappe.db.commit()
 
         self.test_user.reload()
@@ -107,7 +113,7 @@ class TestFieldSyncIntegration(FrappeTestCase):
         """Integration test: Member image change syncs to User.user_image"""
         test_image = "/files/test_image.png"
         self.test_member.image = test_image
-        self.test_member.save(ignore_permissions=True)
+        self.test_member.save()
         frappe.db.commit()
 
         self.test_user.reload()
@@ -125,7 +131,7 @@ class TestFieldSyncIntegration(FrappeTestCase):
         """Integration test: User first_name change syncs to Member"""
         self.test_user.reload()  # Reload to get latest state after previous test syncs
         self.test_user.first_name = "ReverseSync"
-        self.test_user.save(ignore_permissions=True)
+        self.test_user.save()
         frappe.db.commit()
 
         self.test_member.reload()
@@ -153,13 +159,13 @@ class TestFieldSyncIntegration(FrappeTestCase):
         """Integration test: Bidirectional sync doesn't cause infinite loop"""
         # Change Member
         self.test_member.first_name = "LoopTest1"
-        self.test_member.save(ignore_permissions=True)
+        self.test_member.save()
         frappe.db.commit()
 
         # Change User
         self.test_user.reload()
         self.test_user.first_name = "LoopTest2"
-        self.test_user.save(ignore_permissions=True)
+        self.test_user.save()
         frappe.db.commit()
 
         # Verify final state (User change wins)
@@ -177,12 +183,12 @@ class TestFieldSyncIntegration(FrappeTestCase):
             "birth_date": "1990-01-01",
             "gender": "Male"
         })
-        orphan_member.insert(ignore_permissions=True)
+        orphan_member.insert()
 
         try:
             # This should not crash
             orphan_member.first_name = "StillOrphan"
-            orphan_member.save(ignore_permissions=True)
+            orphan_member.save()
             frappe.db.commit()
 
             # Verify member was updated even without User
@@ -190,7 +196,7 @@ class TestFieldSyncIntegration(FrappeTestCase):
             self.assertEqual(orphan_member.first_name, "StillOrphan")
 
         finally:
-            frappe.delete_doc("Member", orphan_member.name, force=True, ignore_permissions=True)
+            frappe.delete_doc("Member", orphan_member.name, force=True)
             frappe.db.commit()
 
     def test_actual_sql_query_executes(self):
@@ -216,7 +222,7 @@ class TestFieldSyncIntegration(FrappeTestCase):
         # Change only last_name on Member
         self.test_member.last_name = "OnlyLastChanged"
         # Don't change first_name
-        self.test_member.save(ignore_permissions=True)
+        self.test_member.save()
         frappe.db.commit()
 
         self.test_user.reload()
