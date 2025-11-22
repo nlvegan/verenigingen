@@ -710,91 +710,15 @@ class Chapter(Document):
             self.route = "chapters/" + frappe.scrub(self.name)
 
     def _sync_department(self, old_doc=None):
-        """Synchronize ERPNext Department record with Chapter for native integration
-
-        This enables expense claims to use the native ERPNext department field
-        for filtering and user permissions, while maintaining chapter as the
-        primary organizational unit.
-
-        Security Note:
-            Uses ignore_permissions=True because this is an automated system sync
-            triggered by Chapter document lifecycle hooks (after_insert, on_update).
-            Permission control is enforced at the Chapter level - users must have
-            permission to modify the Chapter to trigger this department sync.
-            This prevents requiring separate Department permissions for chapter
-            administrators while maintaining proper access control.
-
-        Args:
-            old_doc: Previous version of the document (for name change detection)
         """
-        try:
-            # Get company first to check for existing department
-            company = frappe.db.get_single_value("Verenigingen Settings", "company")
-            if not company:
-                # Fallback to global default if not set
-                company = frappe.db.get_single_value("Global Defaults", "default_company")
+        Synchronize ERPNext Department record with Chapter for native integration.
 
-            # Check if department exists with current chapter name and company
-            # Note: Department autoname creates "{department_name} - {company_abbr}",
-            # so we check by department_name field, not by name
-            department_exists = frappe.db.exists(
-                "Department", {"department_name": self.name, "company": company}
-            )
+        EXTRACTED: Moved to DepartmentSyncService.sync_department()
+        for service layer separation (Chapter Phase 1).
+        """
+        from verenigingen.services.chapter.department_sync_service import DepartmentSyncService
 
-            # Map chapter status to department disabled status
-            is_disabled = 0 if self.status == "Active" else 1
-
-            if department_exists:
-                # Update existing department (rename handled in after_rename hook)
-                # Get the actual department name (after autoname)
-                actual_dept_name = frappe.db.get_value(
-                    "Department", {"department_name": self.name, "company": company}, "name"
-                )
-                dept_doc = frappe.get_doc("Department", actual_dept_name)
-
-                # Update status if changed
-                if dept_doc.disabled != is_disabled:
-                    dept_doc.disabled = is_disabled
-                    dept_doc.save(ignore_permissions=True)
-                    frappe.logger().info(
-                        f"Updated Department {actual_dept_name} disabled status to {is_disabled}"
-                    )
-            else:
-                # Create new department (company already retrieved above)
-                dept_doc = frappe.get_doc(
-                    {
-                        "doctype": "Department",
-                        "department_name": self.name,
-                        "parent_department": "All Departments",  # ERPNext default root
-                        "disabled": is_disabled,
-                        "company": company,
-                    }
-                )
-                dept_doc.insert(ignore_permissions=True)
-                frappe.logger().info(
-                    f"Created Department {dept_doc.name} for chapter {self.name} (disabled={is_disabled}, company={company})"
-                )
-
-            # Update the chapter's department field to show the link
-            # Get the actual department name (after autoname, e.g., "Test Chapter - TC")
-            if department_exists:
-                actual_dept_name = frappe.db.get_value(
-                    "Department", {"department_name": self.name, "company": company}, "name"
-                )
-            else:
-                actual_dept_name = dept_doc.name  # Just created, use the autoname'd name
-
-            if actual_dept_name and self.department != actual_dept_name:
-                frappe.db.set_value(
-                    "Chapter", self.name, "department", actual_dept_name, update_modified=False
-                )
-
-        except Exception as e:
-            # Don't block chapter save if department sync fails
-            frappe.log_error(
-                f"Failed to sync Department for chapter {self.name}: {str(e)}",
-                "Chapter Department Sync Error",
-            )
+        DepartmentSyncService.sync_department(self, old_doc)
 
     def _handle_document_changes(self):
         """Handle changes between document versions"""
@@ -971,248 +895,48 @@ class Chapter(Document):
     # ========================================================================
 
     def _create_chapter_cost_center(self):
-        """Create a cost center for this chapter with proper security validation"""
-        frappe.logger().error(f"DEBUG: *** ENTERING _create_chapter_cost_center for chapter {self.name}")
+        """
+        Create a cost center for this chapter with proper security validation.
 
-        try:
-            frappe.logger().error("DEBUG: About to import secure_document_operation...")
-            from verenigingen.utils.secure_operations import secure_document_operation
+        EXTRACTED: Moved to ChapterFinanceService.create_chapter_cost_center()
+        for service layer separation (Chapter Phase 1).
+        """
+        from verenigingen.services.chapter.chapter_finance_service import ChapterFinanceService
 
-            frappe.logger().error("DEBUG: Successfully imported secure_document_operation")
-        except Exception as import_error:
-            frappe.logger().error(f"DEBUG: IMPORT ERROR: {import_error}")
-            raise
-
-        try:
-            # Skip if cost center already exists
-            if self.cost_center and frappe.db.exists("Cost Center", self.cost_center):
-                frappe.log_error(
-                    f"Cost center {self.cost_center} already exists for chapter {self.name}",
-                    "Chapter Cost Center",
-                )
-                return
-
-            # Get and validate company
-            company = self._get_validated_company()
-            if not company:
-                frappe.log_error(
-                    f"No valid company found - cannot create cost center for chapter {self.name}",
-                    "Chapter Cost Center",
-                )
-                return
-
-            # Generate cost center name
-            cost_center_name = f"{self.name} - Chapter"
-
-            # Use transaction to prevent race conditions
-            frappe.db.begin()
-            try:
-                # Check if cost center already exists by name (within transaction)
-                existing_cost_center = frappe.db.exists(
-                    "Cost Center", {"cost_center_name": cost_center_name, "company": company}
-                )
-                if existing_cost_center:
-                    # Link existing cost center to chapter
-                    self.db_set("cost_center", existing_cost_center, update_modified=False)
-                    frappe.log_error(
-                        f"Linked existing cost center {existing_cost_center} to chapter {self.name}",
-                        "Chapter Cost Center",
-                    )
-                    frappe.db.commit()
-                    return
-
-                # Create new cost center
-                cost_center_doc = frappe.new_doc("Cost Center")
-                cost_center_doc.cost_center_name = cost_center_name
-                cost_center_doc.company = company
-                cost_center_doc.is_group = 0  # Individual cost center, not a group
-
-                # Find appropriate parent cost center
-                frappe.logger().info("DEBUG: About to call _get_appropriate_parent_cost_center...")
-                parent_cost_center = self._get_appropriate_parent_cost_center(company)
-                frappe.logger().info(
-                    f"DEBUG: _get_appropriate_parent_cost_center returned: {parent_cost_center}"
-                )
-
-                if parent_cost_center:
-                    cost_center_doc.parent_cost_center = parent_cost_center
-                    frappe.logger().info(f"DEBUG: Set parent_cost_center to: {parent_cost_center}")
-
-                # Use secure operation instead of ignore_permissions
-                frappe.logger().info("DEBUG: About to call secure_document_operation...")
-                result = secure_document_operation(
-                    operation="insert",
-                    doc=cost_center_doc,
-                    justification=f"Auto-create cost center for chapter {self.name}",
-                    required_permissions=["Cost Center:create"],
-                )
-
-                if result.success:
-                    # Link the created cost center to this chapter
-                    self.db_set("cost_center", cost_center_doc.name, update_modified=False)
-                    frappe.log_error(
-                        f"Created cost center {cost_center_doc.name} for chapter {self.name}",
-                        "Chapter Cost Center",
-                    )
-                    frappe.db.commit()
-                else:
-                    frappe.db.rollback()
-                    frappe.log_error(
-                        f"Failed to create cost center for chapter {self.name}: {'; '.join(result.errors)}",
-                        "Chapter Cost Center",
-                    )
-
-            except Exception as transaction_error:
-                frappe.db.rollback()
-                raise transaction_error
-
-        except Exception as e:
-            frappe.log_error(
-                f"Error creating cost center for chapter {self.name}: {str(e)}", "Chapter Cost Center"
-            )
-            # Don't fail chapter creation if cost center creation fails
+        ChapterFinanceService.create_chapter_cost_center(self)
 
     def _get_validated_company(self):
-        """Get and validate company for cost center creation"""
-        # First try default company
-        company = frappe.db.get_single_value("Global Defaults", "default_company")
+        """
+        Get and validate company for cost center creation.
 
-        if company:
-            # Validate the company exists and is active
-            company_data = frappe.db.get_value("Company", company, ["name", "disabled"], as_dict=True)
-            if company_data and not company_data.disabled:
-                return company
-            else:
-                frappe.log_error(
-                    f"Default company {company} is disabled or doesn't exist", "Chapter Cost Center"
-                )
+        EXTRACTED: Moved to ChapterFinanceService.get_validated_company()
+        for service layer separation (Chapter Phase 1).
+        """
+        from verenigingen.services.chapter.chapter_finance_service import ChapterFinanceService
 
-        # Fallback: get first active company, but only if there's exactly one
-        active_companies = frappe.get_all("Company", filters={"disabled": 0}, pluck="name")
-
-        if len(active_companies) == 1:
-            frappe.log_error(
-                f"Using single active company {active_companies[0]} for chapter {self.name}",
-                "Chapter Cost Center",
-            )
-            return active_companies[0]
-        elif len(active_companies) > 1:
-            frappe.log_error(
-                f"Multiple active companies found - cannot auto-select for chapter {self.name}: {active_companies}",
-                "Chapter Cost Center",
-            )
-            return None
-        else:
-            frappe.log_error(f"No active companies found for chapter {self.name}", "Chapter Cost Center")
-            return None
+        return ChapterFinanceService.get_validated_company(self)
 
     def _get_appropriate_parent_cost_center(self, company):
-        """Get appropriate parent cost center for the given company using ORM methods"""
-        frappe.logger().info(f"DEBUG: Starting parent cost center lookup for company: {company}")
+        """
+        Get appropriate parent cost center for the given company.
 
-        try:
-            # First try to find the company's root cost center (should be the company name itself)
-            frappe.logger().info("DEBUG: Attempting root cost center query...")
-            root_cost_centers = frappe.get_all(
-                "Cost Center",
-                filters={"company": company, "is_group": 1, "is_disabled": 0, "cost_center_name": company},
-                fields=["name"],
-                limit=1,
-            )
-            frappe.logger().info(f"DEBUG: Root cost center query succeeded. Results: {root_cost_centers}")
+        EXTRACTED: Moved to ChapterFinanceService.get_appropriate_parent_cost_center()
+        for service layer separation (Chapter Phase 1).
+        """
+        from verenigingen.services.chapter.chapter_finance_service import ChapterFinanceService
 
-            if root_cost_centers:
-                frappe.logger().info(f"DEBUG: Found root cost center: {root_cost_centers[0].name}")
-                return root_cost_centers[0].name
-
-            # Fallback: find any active group cost center, preferring one with minimal hierarchy depth
-            frappe.logger().info("DEBUG: Attempting fallback cost center query...")
-            fallback_cost_centers = frappe.get_all(
-                "Cost Center",
-                filters={"company": company, "is_group": 1, "is_disabled": 0},
-                fields=["name", "cost_center_name"],
-                order_by="lft asc",  # Use nested set ordering for proper hierarchy
-                limit=1,
-            )
-            frappe.logger().info(
-                f"DEBUG: Fallback cost center query succeeded. Results: {fallback_cost_centers}"
-            )
-
-            if fallback_cost_centers:
-                parent_cost_center = fallback_cost_centers[0].name
-                frappe.log_error(
-                    f"Using fallback parent cost center {parent_cost_center} for chapter {self.name}",
-                    "Chapter Cost Center",
-                )
-                frappe.logger().info(f"DEBUG: Using fallback parent: {parent_cost_center}")
-                return parent_cost_center
-            else:
-                frappe.log_error(
-                    f"No suitable parent cost center found for company {company}", "Chapter Cost Center"
-                )
-                frappe.logger().info("DEBUG: No cost centers found")
-                return None
-
-        except Exception as e:
-            frappe.logger().error(f"DEBUG: ERROR in _get_appropriate_parent_cost_center: {e}")
-            frappe.logger().error(f"DEBUG: Exception type: {type(e)}")
-            import traceback
-
-            frappe.logger().error(f"DEBUG: Traceback: {traceback.format_exc()}")
-            raise
+        return ChapterFinanceService.get_appropriate_parent_cost_center(self, company)
 
     def _update_chapter_cost_center_name(self):
-        """Update cost center name when chapter name changes with recreation logic"""
-        from verenigingen.utils.secure_operations import secure_document_operation
+        """
+        Update cost center name when chapter name changes.
 
-        try:
-            if not self.cost_center:
-                # No cost center assigned, try to create one
-                self._create_chapter_cost_center()
-                return
+        EXTRACTED: Moved to ChapterFinanceService.update_chapter_cost_center_name()
+        for service layer separation (Chapter Phase 1).
+        """
+        from verenigingen.services.chapter.chapter_finance_service import ChapterFinanceService
 
-            try:
-                # Get the old cost center document
-                cost_center_doc = frappe.get_doc("Cost Center", self.cost_center)
-
-                # Update cost center name to match new chapter name
-                new_cost_center_name = f"{self.name} - Chapter"
-
-                if cost_center_doc.cost_center_name != new_cost_center_name:
-                    cost_center_doc.cost_center_name = new_cost_center_name
-
-                    # Use secure operation instead of ignore_permissions
-                    result = secure_document_operation(
-                        operation="save",
-                        doc=cost_center_doc,
-                        justification=f"Update cost center name for renamed chapter {self.name}",
-                        required_permissions=["Cost Center:write"],
-                    )
-
-                    if result.success:
-                        frappe.log_error(
-                            f"Updated cost center name to {new_cost_center_name} for chapter {self.name}",
-                            "Chapter Cost Center",
-                        )
-                    else:
-                        frappe.log_error(
-                            f"Failed to update cost center name for chapter {self.name}: {'; '.join(result.errors)}",
-                            "Chapter Cost Center",
-                        )
-
-            except frappe.DoesNotExistError:
-                frappe.log_error(
-                    f"Cost center {self.cost_center} not found for chapter {self.name} - attempting recreation",
-                    "Chapter Cost Center",
-                )
-                # Clear the invalid cost center reference and recreate
-                self.db_set("cost_center", None, update_modified=False)
-                self._create_chapter_cost_center()
-
-        except Exception as e:
-            frappe.log_error(
-                f"Error updating cost center name for chapter {self.name}: {str(e)}", "Chapter Cost Center"
-            )
+        ChapterFinanceService.update_chapter_cost_center_name(self)
 
 
 # ============================================================================
