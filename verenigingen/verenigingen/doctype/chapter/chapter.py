@@ -483,55 +483,15 @@ class Chapter(Document):
     # instead of re-implementing WebsiteGenerator, which will reintroduce the same issues.
 
     def get_user_permissions_optimized(self):
-        """Single query to get all user permissions for this chapter"""
-        try:
-            user = frappe.session.user
-            user_roles = frappe.get_roles(user)
+        """
+        Get all user permissions for this chapter using single optimized query.
 
-            is_system_manager = "System Manager" in user_roles
-            is_verenigingen_manager = "Verenigingen Administrator" in user_roles
+        EXTRACTED: Moved to ChapterQueryService.get_user_permissions_optimized()
+        for service layer separation (Chapter Phase 3).
+        """
+        from verenigingen.services.chapter.chapter_query_service import ChapterQueryService
 
-            if is_system_manager or is_verenigingen_manager:
-                return {
-                    "is_board_member": True,
-                    "board_role": "Admin",
-                    "is_system_manager": is_system_manager,
-                    "can_write_chapter": True,
-                    "can_view_members": True,
-                }
-
-            # Single query to check board membership and get role
-            board_query = """
-                SELECT cbm.chapter_role, cbm.is_active
-                FROM `tabChapter Board Member` cbm
-                JOIN `tabVolunteer` v ON cbm.volunteer = v.name
-                JOIN `tabMember` m ON v.member = m.name
-                WHERE m.user = %s AND cbm.parent = %s AND cbm.is_active = 1
-                LIMIT 1
-            """
-
-            board_result = frappe.db.sql(board_query, (user, self.name), as_dict=True)
-
-            is_board_member = bool(board_result)
-            board_role = board_result[0].chapter_role if board_result else None
-
-            return {
-                "is_board_member": is_board_member,
-                "board_role": board_role,
-                "is_system_manager": is_system_manager,
-                "can_write_chapter": frappe.has_permission("Chapter", doc=self.name, ptype="write"),
-                "can_view_members": is_board_member or is_system_manager or is_verenigingen_manager,
-            }
-
-        except Exception as e:
-            frappe.log_error(f"Error getting user permissions for chapter {self.name}: {str(e)}")
-            return {
-                "is_board_member": False,
-                "board_role": None,
-                "is_system_manager": False,
-                "can_write_chapter": False,
-                "can_view_members": False,
-            }
+        return ChapterQueryService.get_user_permissions_optimized(self)
 
     def get_members_optimized(self):
         """Optimized query to get chapter members with details"""

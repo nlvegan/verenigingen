@@ -11,6 +11,7 @@ Services:
 - ChapterFinanceService: Cost center management and company validation
 - ChapterValidationService: Access validation and field auto-fixing
 - ChapterBoardService: Board member data operations
+- ChapterQueryService: Optimized query operations and permissions
 """
 
 from verenigingen.services.chapter.chapter_board_service import ChapterBoardService, get_chapter_board_service
@@ -18,6 +19,7 @@ from verenigingen.services.chapter.chapter_finance_service import (
     ChapterFinanceService,
     get_chapter_finance_service,
 )
+from verenigingen.services.chapter.chapter_query_service import ChapterQueryService, get_chapter_query_service
 from verenigingen.services.chapter.chapter_validation_service import (
     ChapterValidationService,
     get_chapter_validation_service,
@@ -36,4 +38,6 @@ __all__ = [
     "get_chapter_validation_service",
     "ChapterBoardService",
     "get_chapter_board_service",
+    "ChapterQueryService",
+    "get_chapter_query_service",
 ]
