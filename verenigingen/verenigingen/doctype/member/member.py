@@ -982,45 +982,15 @@ class Member(
         return MemberFeeCalculationService.get_display_membership_fee(self)
 
     def get_or_create_membership_item(self):
-        """Get or create the membership fee item"""
-        try:
-            item_code = "MEMBERSHIP-FEE"
+        """
+        Get or create the membership fee item.
 
-            existing_item = frappe.db.exists("Item", item_code)
-            if existing_item:
-                return frappe.get_doc("Item", existing_item)
+        EXTRACTED: Moved to MemberItemService.get_or_create_membership_item()
+        for service layer separation (Member Phase 2E-1).
+        """
+        from verenigingen.services.member.financial.member_item_service import MemberItemService
 
-            # Create membership fee item
-            item = frappe.get_doc(
-                {
-                    "doctype": "Item",
-                    "item_code": item_code,
-                    "item_name": "Membership Fee",
-                    "item_group": self._get_default_item_group(),
-                    "is_service_item": 1,
-                    "maintain_stock": 0,
-                    "include_item_in_manufacturing": 0,
-                    "is_purchase_item": 0,
-                    "is_sales_item": 1,
-                }
-            )
-
-            item_result = secure_document_operation(
-                operation="insert",
-                doc=item,
-                justification=f"Automated membership item creation for member {self.name}",
-                required_permissions=["Item:create"],
-            )
-
-            if not item_result.success:
-                frappe.logger().error(f"Failed to create membership item: {'; '.join(item_result.errors)}")
-                return None
-            frappe.logger().info(f"Created membership item {item.name}")
-            return item
-
-        except Exception as e:
-            frappe.log_error(f"Error creating membership item: {str(e)}")
-            return None
+        return MemberItemService.get_or_create_membership_item(self)
 
     @frappe.whitelist()
     @standard_api(operation_type=OperationType.ADMIN)
@@ -1114,39 +1084,15 @@ class Member(
             return self.get_current_chapters()
 
     def get_current_chapters(self):
-        """Get current chapter memberships from Chapter Member child table (fallback method)"""
-        if not self.name:
-            return []
+        """
+        Get current chapter memberships from Chapter Member child table.
 
-        try:
-            # Get chapters where this member is listed in the Chapter Member child table
-            # Query within member context - permissions should be respected
-            # Include both Active and Pending memberships to show complete picture
-            chapter_members = frappe.get_all(
-                "Chapter Member",
-                filters={"member": self.name, "enabled": 1},
-                fields=["parent", "chapter_join_date", "status"],
-                order_by="chapter_join_date desc",
-                # FIXED: Removed inappropriate permission bypass
-            )
+        EXTRACTED: Moved to ChapterManagementService.get_member_chapters()
+        for service layer separation (Member Phase 2E-2).
+        """
+        from verenigingen.services.member.chapter.chapter_management_service import ChapterManagementService
 
-            chapters = []
-            for cm in chapter_members:
-                chapters.append(
-                    {
-                        "chapter": cm.parent,
-                        "chapter_join_date": cm.chapter_join_date,
-                        "status": cm.status,
-                        "is_primary": len(chapters) == 0,  # First one is primary
-                        "is_board": self.is_board_member(cm.parent),
-                    }
-                )
-
-            return chapters
-
-        except Exception as e:
-            frappe.log_error(f"Error getting current chapters: {str(e)}", "Member Chapter Query")
-            return []
+        return ChapterManagementService.get_member_chapters(self.name)
 
     def update_other_members_at_address_display(self, save_to_db=False):
         """
