@@ -426,88 +426,6 @@ class Member(
 
     @frappe.whitelist()
     @development_only_api(operation_type=OperationType.UTILITY)
-    def test_member_form_functionality(self):
-        """Test Member form loading and functionality"""
-        results = {"status": "success", "member_name": self.name, "tests": [], "errors": []}
-
-        try:
-            # Test 1: Onload method
-            try:
-                self.onload()
-                results["tests"].append(
-                    {"test": "onload() method", "status": "passed", "message": "Executed without errors"}
-                )
-            except Exception as e:
-                results["tests"].append(
-                    {"test": "onload() method", "status": "failed", "message": f"Error: {str(e)}"}
-                )
-                results["errors"].append(f"Onload error: {str(e)}")
-
-            # Test 2: Address optimization functionality
-            try:
-                if hasattr(self, "get_other_members_at_address"):
-                    other_members = self.get_other_members_at_address()
-                    count = len(other_members) if other_members else 0
-                    results["tests"].append(
-                        {
-                            "test": "Address optimization",
-                            "status": "passed",
-                            "message": f"Found {count} other members",
-                        }
-                    )
-                else:
-                    results["tests"].append(
-                        {"test": "Address optimization", "status": "failed", "message": "Method not found"}
-                    )
-            except Exception as e:
-                results["tests"].append(
-                    {"test": "Address optimization", "status": "failed", "message": f"Error: {str(e)}"}
-                )
-                results["errors"].append(f"Address optimization error: {str(e)}")
-
-            # Test 3: HTML field updates
-            try:
-                if hasattr(self, "update_other_members_at_address_display"):
-                    self.update_other_members_at_address_display()
-                    results["tests"].append(
-                        {
-                            "test": "Address display update",
-                            "status": "passed",
-                            "message": "Completed successfully",
-                        }
-                    )
-                else:
-                    results["tests"].append(
-                        {"test": "Address display update", "status": "failed", "message": "Method not found"}
-                    )
-            except Exception as e:
-                results["tests"].append(
-                    {"test": "Address display update", "status": "failed", "message": f"Error: {str(e)}"}
-                )
-                results["errors"].append(f"Display update error: {str(e)}")
-
-            # Test 4: Check field content
-            try:
-                field_content = getattr(self, "other_members_at_address", None)
-                if field_content:
-                    results["tests"].append(
-                        {"test": "Address links display", "status": "passed", "message": "Field has content"}
-                    )
-                else:
-                    results["tests"].append(
-                        {"test": "Address links display", "status": "warning", "message": "Field is empty"}
-                    )
-            except Exception as e:
-                results["tests"].append(
-                    {"test": "Address links display", "status": "failed", "message": f"Error: {str(e)}"}
-                )
-
-        except Exception as e:
-            results["status"] = "error"
-            results["errors"].append(f"Critical error: {str(e)}")
-
-        return results
-
     def after_save(self):
         """Execute after saving the document"""
         # Note: IBAN history creation is handled in two ways:
@@ -641,51 +559,15 @@ class Member(
         return force_assign_member_id(self)
 
     def _guess_relationship(self, other_member):
-        """Attempt to guess relationship based on name patterns and data"""
-        # Handle both dict and object inputs
-        other_full_name = (
-            other_member.get("full_name")
-            if isinstance(other_member, dict)
-            else getattr(other_member, "full_name", None)
-        )
-        other_birth_date = (
-            other_member.get("birth_date")
-            if isinstance(other_member, dict)
-            else getattr(other_member, "birth_date", None)
-        )
+        """
+        Attempt to guess relationship based on name patterns and data.
 
-        if not other_full_name or not self.full_name:
-            return "Household Member"
+        EXTRACTED: Moved to MemberAddressService.guess_relationship()
+        for service layer separation and better testability.
+        """
+        from verenigingen.services.member.core.member_address_service import member_address_service
 
-        # Check if they share a last name
-        self_parts = self.full_name.strip().split()
-        other_parts = other_full_name.strip().split()
-
-        if len(self_parts) > 0 and len(other_parts) > 0:
-            self_last = self_parts[-1].lower()
-            other_last = other_parts[-1].lower()
-
-            if self_last == other_last:
-                # Same last name - likely family
-                if self.birth_date and other_birth_date:
-                    try:
-                        self_date = getdate(self.birth_date)
-                        other_date = getdate(other_birth_date)
-                        age_diff = abs((self_date - other_date).days // 365)
-
-                        if age_diff < 5:
-                            return "Spouse/Partner"
-                        elif age_diff > 15:
-                            return "Parent/Child"
-                        else:
-                            return "Sibling"
-                    except Exception:
-                        pass
-                return "Family Member"
-            else:
-                return "Partner/Spouse"
-
-        return "Household Member"
+        return member_address_service.guess_relationship(self, other_member)
 
     def _get_age_group(self, birth_date):
         """Get age group for privacy-friendly display - delegated to member_age_service"""

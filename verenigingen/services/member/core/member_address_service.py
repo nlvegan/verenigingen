@@ -24,7 +24,7 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 import frappe
-from frappe.utils import get_datetime, now
+from frappe.utils import get_datetime, getdate, now
 
 from verenigingen.utils.address_matching.dutch_address_normalizer import (
     AddressFingerprintCollisionHandler,
@@ -406,6 +406,85 @@ class MemberAddressService:
 
         html_content += "</div>"
         return html_content
+
+    def guess_relationship(self, member, other_member) -> str:
+        """
+        Attempt to guess relationship between two members based on name patterns and demographics.
+
+        Uses heuristics including shared last names and age differences to infer likely
+        relationships between household members.
+
+        Args:
+            member: Primary member (can be Member doc or dict)
+            other_member: Other member to compare (can be Member doc or dict)
+
+        Returns:
+            str: Relationship label (e.g., "Spouse/Partner", "Parent/Child", "Sibling",
+                 "Family Member", "Household Member")
+
+        Business Logic:
+            - Same last name + age diff < 5 years: "Spouse/Partner"
+            - Same last name + age diff > 15 years: "Parent/Child"
+            - Same last name + age diff 5-15 years: "Sibling"
+            - Same last name (no age data): "Family Member"
+            - Different last name: "Partner/Spouse"
+            - No name data: "Household Member"
+        """
+        # Handle both dict and object inputs for flexibility
+        member_full_name = (
+            member.get("full_name") if isinstance(member, dict) else getattr(member, "full_name", None)
+        )
+        member_birth_date = (
+            member.get("birth_date") if isinstance(member, dict) else getattr(member, "birth_date", None)
+        )
+        other_full_name = (
+            other_member.get("full_name")
+            if isinstance(other_member, dict)
+            else getattr(other_member, "full_name", None)
+        )
+        other_birth_date = (
+            other_member.get("birth_date")
+            if isinstance(other_member, dict)
+            else getattr(other_member, "birth_date", None)
+        )
+
+        # Default to generic household member if no names available
+        if not other_full_name or not member_full_name:
+            return "Household Member"
+
+        # Extract last names for comparison
+        member_parts = member_full_name.strip().split()
+        other_parts = other_full_name.strip().split()
+
+        if len(member_parts) > 0 and len(other_parts) > 0:
+            member_last = member_parts[-1].lower()
+            other_last = other_parts[-1].lower()
+
+            # Same last name - likely family
+            if member_last == other_last:
+                # Use age difference for more specific relationship
+                if member_birth_date and other_birth_date:
+                    try:
+                        member_date = getdate(member_birth_date)
+                        other_date = getdate(other_birth_date)
+                        age_diff = abs((member_date - other_date).days // 365)
+
+                        if age_diff < 5:
+                            return "Spouse/Partner"
+                        elif age_diff > 15:
+                            return "Parent/Child"
+                        else:
+                            return "Sibling"
+                    except Exception:
+                        # Invalid date format - fall through to generic
+                        pass
+
+                return "Family Member"
+            else:
+                # Different last names - likely partner/spouse
+                return "Partner/Spouse"
+
+        return "Household Member"
 
 
 # Singleton instance for global access
