@@ -117,21 +117,14 @@ class TestMemberFeeChangeService(FrappeTestCase):
             def get_doc_before_save(self):
                 return {"dues_rate": 75.0}  # Old value different from new
 
-            def validate_fee_override_permissions(self):
-                pass
-
-            def _validate_fee_override_amount(self, amount):
-                pass
-
-            def _validate_fee_override_reason(self):
-                pass
-
         member_doc = SimpleMemberDoc()
 
-        with patch("frappe.session") as mock_session:
-            mock_session.user = "test@example.com"
-            with patch("frappe.logger"):
-                MemberFeeChangeService.handle_fee_override_changes(member_doc)
+        # Mock validation service to bypass permission checks in test
+        with patch("verenigingen.services.member.core.member_fee_change_service.MemberFeeValidationService"):
+            with patch("frappe.session") as mock_session:
+                mock_session.user = "test@example.com"
+                with patch("frappe.logger"):
+                    MemberFeeChangeService.handle_fee_override_changes(member_doc)
 
         # Verify pending change was created
         self.assertTrue(hasattr(member_doc, "_pending_fee_change"))

@@ -213,35 +213,17 @@ class Member(
         set_member_application_status_defaults(self)
 
     def _should_update_chapter_display(self):
-        """Check if chapter display needs updating to avoid unnecessary processing.
-
-        Implements smart change detection to avoid expensive geographic lookups
-        and database queries when chapter assignment hasn't changed.
-
-        Returns:
-            bool: True if chapter display should be updated
-
-        Triggers:
-            - Existing records being updated (skip for brand new unsaved records)
-            - Address field changes (pincode, city, state)
-            - Explicit chapter assignment operations
         """
-        # Skip for new records that don't exist in DB yet - they won't have chapters
-        # Chapters are assigned after the member is created and saved
-        if self.is_new():
-            return False
+        Check if chapter display needs updating to avoid unnecessary processing.
 
-        # Check if geographic fields have changed that affect chapter assignment
-        chapter_related_fields = ["pincode", "city", "state"]
-        for field in chapter_related_fields:
-            if hasattr(self, "has_value_changed") and self.has_value_changed(field):
-                return True
+        EXTRACTED: Moved to MemberChapterDisplayService.should_update_chapter_display()
+        for service layer separation (Phase 2D-3).
+        """
+        from verenigingen.services.member.display.member_chapter_display_service import (
+            MemberChapterDisplayService,
+        )
 
-        # Allow explicit updates during chapter assignment workflows
-        if hasattr(self, "_chapter_assignment_in_progress"):
-            return True
-
-        return False
+        return MemberChapterDisplayService.should_update_chapter_display(self)
 
     def _update_computed_address_fields(self):
         """Update computed address fields using Address Management Service.
@@ -279,71 +261,43 @@ class Member(
             )
 
     def _validate_fee_override_amount(self, amount):
-        """Validate fee override amount is positive"""
-        if amount and amount <= 0:
-            frappe.throw(_("Membership fee override must be greater than 0"))
+        """
+        Validate fee override amount is positive.
+
+        EXTRACTED: Moved to MemberFeeValidationService.validate_fee_override_amount()
+        for service layer separation (Phase 2D-2).
+        """
+        from verenigingen.services.member.financial.member_fee_validation_service import (
+            MemberFeeValidationService,
+        )
+
+        MemberFeeValidationService.validate_fee_override_amount(amount)
 
     def _validate_fee_override_reason(self):
-        """Centralized fee override reason validation logic"""
-        if not self.dues_rate:
-            return
+        """
+        Validate fee override has documented reason when required.
 
-        is_csv_import = getattr(self, "_csv_import", False)
-        is_system_update = getattr(self, "_system_update", False)
-        is_in_test = getattr(frappe.flags, "in_test", False)
-        fee_override_reason = getattr(self, "fee_override_reason", None)
-
-        frappe.logger("member_validation").info(
-            f"Fee override validation: member={self.name or 'NEW'}, dues_rate={self.dues_rate}, "
-            f"is_csv_import={is_csv_import}, is_system_update={is_system_update}, "
-            f"is_in_test={is_in_test}, fee_override_reason={fee_override_reason}"
+        EXTRACTED: Moved to MemberFeeValidationService.validate_fee_override_reason()
+        for service layer separation (Phase 2D-2).
+        """
+        from verenigingen.services.member.financial.member_fee_validation_service import (
+            MemberFeeValidationService,
         )
 
-        # Skip validation if:
-        # - CSV import, system update, or test environment
-        # - Existing member with reason already set (don't re-validate on every save)
-        if is_csv_import or is_system_update or is_in_test:
-            return
-
-        if not self.is_new() and fee_override_reason:
-            return  # Existing member with reason - don't block saves
-
-        if not fee_override_reason:
-            frappe.throw(_("Please provide a reason for the fee override"))
+        MemberFeeValidationService.validate_fee_override_reason(self)
 
     def validate_fee_override_permissions(self):
-        """Validate that only authorized users can set fee overrides"""
-        # Skip validation for new documents or if no override is set
-        if self.is_new() or not self.dues_rate:
-            return
+        """
+        Validate that only authorized users can set fee overrides.
 
-        # Skip validation if this is a system update (e.g., from amendment request)
-        if getattr(self, "_system_update", False):
-            return
-
-        # Check if fee override value has changed
-        if self.name:
-            old_amount = frappe.db.get_value("Member", self.name, "dues_rate")
-            if old_amount == self.dues_rate:
-                return  # No change, no validation needed
-
-        # Check user permissions for fee override
-        user_roles = frappe.get_roles(frappe.session.user)
-        authorized_roles = ["System Manager", "Verenigingen Staff", "Verenigingen Administrator"]
-
-        if not any(role in user_roles for role in authorized_roles):
-            frappe.throw(
-                _(
-                    "You do not have permission to override membership fees. Only administrators can modify membership fees."
-                ),
-                frappe.PermissionError,
-            )
-
-        # Log the fee override action for audit purposes
-        frappe.logger().info(
-            f"Fee override set by {frappe.session.user} for member {self.name}: "
-            f"Amount: {self.dues_rate}, Reason: {getattr(self, 'fee_override_reason', 'No reason provided')}"
+        EXTRACTED: Moved to MemberFeeValidationService.validate_fee_override_permissions()
+        for service layer separation (Phase 2D-2).
+        """
+        from verenigingen.services.member.financial.member_fee_validation_service import (
+            MemberFeeValidationService,
         )
+
+        MemberFeeValidationService.validate_fee_override_permissions(self)
 
     def has_permission(self, ptype="read", user=None):
         """
@@ -439,37 +393,15 @@ class Member(
             self.create_user_account_if_needed()
 
     def create_user_account_if_needed(self):
-        """Create user account for member if conditions are met"""
-        try:
-            # Don't create user for application members (handled in approval process)
-            if self.is_application_member():
-                return
+        """
+        Create user account for member if conditions are met.
 
-            # Don't create if user already exists
-            if self.user:
-                return
+        EXTRACTED: Moved to MemberUserAccountService.create_user_account_if_needed()
+        for service layer separation.
+        """
+        from verenigingen.services.member.account.member_user_account_service import MemberUserAccountService
 
-            # Must have email to create user
-            if not self.email:
-                return
-
-            # Only create for active members
-            if getattr(self, "status", "") not in ["Active", ""]:
-                return
-
-            # Create user account
-            result = create_member_user_account(self.name, send_welcome_email=False)
-
-            if result.get("success"):
-                frappe.logger().info(f"Auto-created user account for manually created member {self.name}")
-            else:
-                frappe.logger().warning(
-                    f"Could not auto-create user account for member {self.name}: {result.get('error', 'Unknown error')}"
-                )
-
-        except Exception as e:
-            frappe.log_error(f"Error in create_user_account_if_needed for member {self.name}: {str(e)}")
-            # Don't raise exception to avoid blocking member save
+        MemberUserAccountService.create_user_account_if_needed(self)
 
     def onload(self):
         """Execute when document is loaded"""
@@ -1955,105 +1887,22 @@ def debug_member_id_assignment(member_name):
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def create_member_user_account(member_name, send_welcome_email=True):
-    """Create a user account for a member to access portal pages"""
-    from verenigingen.services.member.account.member_role_service import MemberRoleService
+    """
+    Create a user account for a member to access portal pages.
 
-    try:
-        # Get the member document
-        member = frappe.get_doc("Member", member_name)
+    EXTRACTED: Moved to MemberUserAccountService.create_member_user_account()
+    for service layer separation.
 
-        # Check if user already exists
-        if member.user:
-            return {
-                "success": False,
-                "message": _("User account already exists for this member"),
-                "user": member.user,
-            }
+    Args:
+        member_name: Name/ID of the member document
+        send_welcome_email: Whether to send welcome email (default True)
 
-        # Check if a user with this email already exists
-        existing_user = frappe.db.get_value("User", {"email": member.email}, "name")
-        if existing_user:
-            # Link the existing user to the member
-            member.user = existing_user
-            member_result = secure_document_operation(
-                operation="save",
-                doc=member,
-                justification=f"Link existing user {existing_user} to member {member.name}",
-                required_permissions=["Member:write"],
-            )
+    Returns:
+        dict: Result dictionary with success, message, user, and action
+    """
+    from verenigingen.services.member.account.member_user_account_service import MemberUserAccountService
 
-            if not member_result.success:
-                frappe.logger().error(f"Failed to link user to member: {'; '.join(member_result.errors)}")
-                frappe.throw(_("Failed to link user to member: {0}").format("; ".join(member_result.errors)))
-
-            # Add member roles to existing user
-            MemberRoleService.add_member_roles_to_user(existing_user)
-
-            return {
-                "success": True,
-                "message": _("Linked existing user account to member"),
-                "user": existing_user,
-                "action": "linked_existing",
-            }
-
-        # Create new user
-        user = frappe.new_doc("User")
-        user.email = member.email
-        user.first_name = member.first_name or ""
-        user.last_name = member.last_name or ""
-        user.full_name = member.full_name
-        from verenigingen.utils.boolean_utils import cbool
-
-        user.send_welcome_email = cbool(send_welcome_email)
-        user.user_type = "System User"
-        user.enabled = 1
-
-        user_result = secure_document_operation(
-            operation="insert",
-            doc=user,
-            justification=f"Automated user creation for member {member.name}",
-            required_permissions=["User:create"],
-        )
-
-        if not user_result.success:
-            frappe.logger().error(f"Failed to create user: {'; '.join(user_result.errors)}")
-            frappe.throw(_("Failed to create user: {0}").format("; ".join(user_result.errors)))
-
-        # Set allowed modules for member users
-        MemberRoleService.set_member_user_modules(user.name)
-
-        # Add member-specific roles
-        MemberRoleService.add_member_roles_to_user(user.name)
-
-        # Link user to member
-        member.user = user.name
-        member_link_result = secure_document_operation(
-            operation="save",
-            doc=member,
-            justification=f"Link newly created user {user.name} to member {member.name}",
-            required_permissions=["Member:write"],
-        )
-
-        if not member_link_result.success:
-            frappe.logger().error(
-                f"Failed to link new user to member: {'; '.join(member_link_result.errors)}"
-            )
-            frappe.throw(
-                _("Failed to link new user to member: {0}").format("; ".join(member_link_result.errors))
-            )
-
-        frappe.logger().info(f"Created user account {user.name} for member {member.name}")
-
-        return {
-            "success": True,
-            "message": _("User account created successfully"),
-            "user": user.name,
-            "action": "created_new",
-        }
-
-    except Exception as e:
-        frappe.log_error(f"Error creating user account for member {member_name}: {str(e)}")
-        return {"success": False, "error": str(e)}
+    return MemberUserAccountService.create_member_user_account(member_name, send_welcome_email)
 
 
 # NOTE: Member role management functions have been extracted to MemberRoleService

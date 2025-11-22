@@ -30,13 +30,15 @@ Security:
 
 Dependencies:
 - member_financial_history_manager - For fee change history recording
-- Member DocType - _validate_fee_override_amount, _validate_fee_override_reason
+- MemberFeeValidationService - For fee override validation (Phase 2D-2)
 """
 
 from typing import TYPE_CHECKING, Any, Dict
 
 import frappe
 from frappe.utils import now, today
+
+from verenigingen.services.member.financial.member_fee_validation_service import MemberFeeValidationService
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
@@ -93,17 +95,16 @@ class MemberFeeChangeService:
             return
 
         # Check permissions for fee override changes
-        member_doc.validate_fee_override_permissions()
+        MemberFeeValidationService.validate_fee_override_permissions(member_doc)
 
         # Skip fee override change tracking for new member applications
         # Applications should set initial fee amounts without triggering change tracking
         if not member_doc.name or member_doc.is_new():
             # For new documents, validate and set audit fields but no change tracking
             if member_doc.dues_rate:
-                # TODO Phase 3: Extract to MemberFeeValidationService
-                # Accessing protected methods for Member-specific validation (Phase 2D pattern)
-                member_doc._validate_fee_override_amount(member_doc.dues_rate)
-                member_doc._validate_fee_override_reason()
+                # Validate fee override using dedicated validation service (Phase 2D-2)
+                MemberFeeValidationService.validate_fee_override_amount(member_doc.dues_rate)
+                MemberFeeValidationService.validate_fee_override_reason(member_doc)
 
                 # For CSV imports, create audit log entry instead of requiring override fields
                 if getattr(member_doc, "_csv_import", False) and member_doc.dues_rate:
@@ -148,14 +149,10 @@ class MemberFeeChangeService:
                 member_doc.fee_override_date = today()
                 member_doc.fee_override_by = frappe.session.user
 
-            # Validate fee override
+            # Validate fee override using dedicated validation service (Phase 2D-2)
             if new_amount:
-                # TODO Phase 3: Extract these to MemberFeeValidationService for better encapsulation
-                # Currently accessing protected methods is acceptable for Phase 2D literal extraction
-                # These validation methods are Member-specific business rules that will be
-                # extracted to a dedicated validation service in Phase 3
-                member_doc._validate_fee_override_amount(new_amount)
-                member_doc._validate_fee_override_reason()
+                MemberFeeValidationService.validate_fee_override_amount(new_amount)
+                MemberFeeValidationService.validate_fee_override_reason(member_doc)
 
             # Store change data for deferred processing to avoid save recursion
             member_doc._pending_fee_change = {
@@ -172,13 +169,13 @@ class MemberFeeChangeService:
             # Log error for administrators
             frappe.log_error(
                 f"Fee override tracking failed for member {member_doc.name}: {str(e)}",
-                "Fee Change Tracking Error"
+                "Fee Change Tracking Error",
             )
             # Notify user that audit tracking failed
             frappe.msgprint(
                 frappe._("Fee change saved but audit tracking failed. Please contact administrator."),
                 indicator="orange",
-                alert=True
+                alert=True,
             )
             # Don't fail the save operation - allow document to save even if tracking fails
             return

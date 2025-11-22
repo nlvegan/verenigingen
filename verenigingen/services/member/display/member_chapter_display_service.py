@@ -10,6 +10,7 @@ affiliations, including primary chapter, board membership, and join dates.
 Extracted from member.py:
 - update_current_chapter_display() - lines 1601-1658 (58 LOC)
 - get_current_chapters_optimized() - related helper method
+- should_update_chapter_display() - lines 215-244 (30 LOC, Phase 2D-3)
 
 Architecture:
 - Static methods for display generation
@@ -28,7 +29,7 @@ Dependencies:
 """
 
 from html import escape
-from typing import TYPE_CHECKING, List, Dict, Any
+from typing import TYPE_CHECKING, Any, Dict, List
 
 import frappe
 
@@ -41,12 +42,60 @@ class MemberChapterDisplayService:
     Service for generating chapter membership display HTML.
 
     This service handles:
+    - Change detection for chapter display updates
     - HTML generation for chapter affiliations
     - Primary chapter and board membership badges
     - Join date display
     - Error state handling
     - Empty state (no chapters)
     """
+
+    @staticmethod
+    def should_update_chapter_display(member_doc: "Document") -> bool:
+        """
+        Check if chapter display needs updating to avoid unnecessary processing.
+
+        Implements smart change detection to avoid expensive geographic lookups
+        and database queries when chapter assignment hasn't changed.
+
+        Args:
+            member_doc: Member document instance
+
+        Returns:
+            bool: True if chapter display should be updated
+
+        Triggers:
+            - Existing records being updated (skip for brand new unsaved records)
+            - Address field changes (pincode, city, state)
+            - Explicit chapter assignment operations
+
+        Business Logic:
+            - Skip for new records that don't exist in DB yet (chapters assigned after creation)
+            - Check for changes in geographic fields that affect chapter assignment
+            - Allow explicit updates during chapter assignment workflows
+
+        Example:
+            >>> member = frappe.get_doc("Member", "MEM-001")
+            >>> member.pincode = "1012 AB"  # Changed from "3012 CA"
+            >>> MemberChapterDisplayService.should_update_chapter_display(member)
+            True  # Postal code changed - chapter may need reassignment
+        """
+        # Skip for new records that don't exist in DB yet - they won't have chapters
+        # Chapters are assigned after the member is created and saved
+        if member_doc.is_new():
+            return False
+
+        # Check if geographic fields have changed that affect chapter assignment
+        chapter_related_fields = ["pincode", "city", "state"]
+        for field in chapter_related_fields:
+            if hasattr(member_doc, "has_value_changed") and member_doc.has_value_changed(field):
+                return True
+
+        # Allow explicit updates during chapter assignment workflows
+        if hasattr(member_doc, "_chapter_assignment_in_progress"):
+            return True
+
+        return False
 
     @staticmethod
     def update_current_chapter_display(member_doc: "Document") -> None:
@@ -113,9 +162,7 @@ class MemberChapterDisplayService:
                 if chapter.get("chapter_join_date"):
                     # Escape date value to prevent injection via malformed dates
                     join_date = escape(str(chapter["chapter_join_date"]))
-                    status_badges.append(
-                        f'<span class="badge badge-light">Joined: {join_date}</span>'
-                    )
+                    status_badges.append(f'<span class="badge badge-light">Joined: {join_date}</span>')
 
                 badges_html = " ".join(status_badges) if status_badges else ""
 

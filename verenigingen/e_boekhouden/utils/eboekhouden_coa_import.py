@@ -256,7 +256,7 @@ def extract_bank_info_from_account_name(account_name):
     # Handle special account types
     if "spaar" in name.lower():
         bank_info["description"] = (
-            "Spaarrekening" if not bank_info["description"] else "Spaarrekening - {bank_info['description']}"
+            "Spaarrekening" if not bank_info["description"] else f"Spaarrekening - {bank_info['description']}"
         )
     elif "betaal" in name.lower():
         bank_info["description"] = (
@@ -517,7 +517,7 @@ def create_bank_account_record(account, bank_name, bank_info, company):
 
         if bank_info.get("description") and bank_info.get("account_number"):
             bank_account.account_name = (
-                "{bank_info['bank_namef']} - {bank_info['account_number']} - {bank_info['description']}"
+                f"{bank_info['bank_name']} - {bank_info['account_number']} - {bank_info['description']}"
             )
         elif bank_info.get("account_number"):
             bank_account.account_name = f"{bank_info['bank_name']} - {bank_info['account_number']}"
@@ -578,7 +578,7 @@ def create_bank_account_record(account, bank_name, bank_info, company):
         coa_account_type = frappe.db.get_value("Account", bank_account.account, "account_type")
         if coa_account_type != "Bank":
             frappe.logger().warning(
-                "Chart of Accounts account {bank_account.account} should be type 'Bank', got f'{coa_account_type}'"
+                f"Chart of Accounts account {bank_account.account} should be type 'Bank', got '{coa_account_type}'"
             )
 
         frappe.logger().info(f"Created Bank Account: {bank_account.name} mapped to {account_name}")
@@ -692,7 +692,7 @@ def create_bank_accounts_for_existing_coa():
             "created": created_bank_accounts,
             "processed": len(accounts_to_process),
             "errors": errors,
-            "message": "Created {created_bank_accounts} bank accounts from {len(accounts_to_process)} eligible CoA accounts",
+            "message": f"Created {created_bank_accounts} bank accounts from {len(accounts_to_process)} eligible CoA accounts",
         }
 
     except Exception as e:
@@ -730,13 +730,13 @@ def validate_bank_account_mappings(company=None):
             if not ba.account:
                 account_issues.append("Not mapped to Chart of Accounts")
             elif not frappe.db.exists("Account", ba.account):
-                account_issues.append("Mapped to non-existent account {ba.account}")
+                account_issues.append(f"Mapped to non-existent account {ba.account}")
             else:
                 # Check if Chart of Accounts account has proper type
                 account_type = frappe.db.get_value("Account", ba.account, "account_type")
                 if account_type != "Bank":
                     account_issues.append(
-                        "Chart of Accounts account should be type 'Bank', got f'{account_type}'"
+                        f"Chart of Accounts account should be type 'Bank', got '{account_type}'"
                     )
 
                 # Check if account belongs to the same company
@@ -1027,7 +1027,7 @@ def cleanup_duplicate_bank_accounts():
         return {
             "success": True,
             "deleted_count": deleted_count,
-            "message": "Deleted {deleted_count} problematic bank accounts",
+            "message": f"Deleted {deleted_count} problematic bank accounts",
         }
 
     except Exception as e:
