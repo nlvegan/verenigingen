@@ -350,27 +350,15 @@ class Chapter(Document):
                         frappe.throw(_("Chapter Role '{0}' does not exist").format(row.chapter_role))
 
     def validate_chapter_access(self):
-        """Validate chapter access permissions (moved from hooks.py)"""
-        try:
-            if frappe.session.user == "Administrator" or "System Manager" in frappe.get_roles():
-                return
+        """
+        Validate chapter access permissions to prevent unauthorized edits.
 
-            settings = frappe.get_single("Verenigingen Settings")
-            if not settings.get("national_board_chapter"):
-                return
+        EXTRACTED: Moved to ChapterValidationService.validate_chapter_access()
+        for service layer separation (Chapter Phase 2).
+        """
+        from verenigingen.services.chapter.chapter_validation_service import ChapterValidationService
 
-            if self.name == settings.national_board_chapter:
-                user_roles = frappe.get_roles()
-                if "Verenigingen Administrator" in user_roles and "System Manager" not in user_roles:
-                    frappe.throw(
-                        _(
-                            "Verenigingen Administrators cannot edit the National Board chapter. Please contact an administrator."
-                        )
-                    )
-
-        except Exception as e:
-            frappe.log_error(f"Error validating chapter access for {self.name}: {str(e)}")
-            # Don't block access on validation errors
+        ChapterValidationService.validate_chapter_access(self)
 
     def is_board_member(self, member_name=None, user=None, volunteer_name=None):
         """Check if user is board member - delegates to BoardManager"""
@@ -462,80 +450,26 @@ class Chapter(Document):
     # ========================================================================
 
     def update_chapter_head(self):
-        """Update chapter_head based on board members with chair roles using atomic operations"""
-        try:
-            # Use atomic transaction to prevent race conditions
-            frappe.db.begin()
-            try:
-                old_head = self.chapter_head
+        """
+        Update chapter_head field based on board members with chair roles.
 
-                if not self.board_members:
-                    self.chapter_head = None
-                    return False
+        EXTRACTED: Moved to ChapterBoardService.update_chapter_head()
+        for service layer separation (Chapter Phase 2).
+        """
+        from verenigingen.services.chapter.chapter_board_service import ChapterBoardService
 
-                # Use single optimized query to get chair member
-                chair_member = self.get_chapter_chair_optimized()
-
-                if chair_member:
-                    self.chapter_head = chair_member
-                    chair_found = True
-                else:
-                    self.chapter_head = None
-                    chair_found = False
-
-                # Log change if head changed
-                if old_head != self.chapter_head:
-                    frappe.logger().info(
-                        f"Chapter head updated for {self.name}: {old_head} -> {self.chapter_head}"
-                    )
-
-                return chair_found
-
-            except Exception as transaction_error:
-                # Rollback the transaction on error
-                frappe.db.rollback()
-                raise transaction_error
-
-        except Exception as e:
-            frappe.log_error(f"Error updating chapter head for {self.name}: {str(e)}")
-            return False
+        return ChapterBoardService.update_chapter_head(self)
 
     def get_chapter_chair_optimized(self):
-        """Optimized single query to find chapter chair member"""
-        if not self.board_members:
-            return None
-
-        # Extract active volunteers and roles
-        active_board_data = []
-        for board_member in self.board_members:
-            if board_member.is_active and board_member.chapter_role and board_member.volunteer:
-                active_board_data.append((board_member.volunteer, board_member.chapter_role))
-
-        if not active_board_data:
-            return None
-
-        # Use single optimized query to find chair with parameterized query (SQL injection safe)
-        volunteers = [v[0] for v in active_board_data]
-        roles = [v[1] for v in active_board_data]
-
-        placeholders_volunteers = ", ".join(["%s"] * len(volunteers))
-        placeholders_roles = ", ".join(["%s"] * len(roles))
-
-        chair_query = f"""
-            SELECT v.member
-            FROM `tabVolunteer` v
-            JOIN `tabChapter Role` cr ON cr.name IN ({placeholders_roles})
-            WHERE v.name IN ({placeholders_volunteers})
-            AND cr.is_chair = 1
-            AND cr.is_active = 1
-            AND v.member IS NOT NULL
-            LIMIT 1
         """
+        Find chapter chair member using optimized single query.
 
-        # Parameterized query: roles first, then volunteers
-        params = tuple(roles + volunteers)
-        result = frappe.db.sql(chair_query, params, as_dict=True)
-        return result[0].member if result else None
+        EXTRACTED: Moved to ChapterBoardService.get_chapter_chair_optimized()
+        for service layer separation (Chapter Phase 2).
+        """
+        from verenigingen.services.chapter.chapter_board_service import ChapterBoardService
+
+        return ChapterBoardService.get_chapter_chair_optimized(self)
 
     # Chapter no longer uses WebsiteGenerator to avoid Desk form rendering conflicts.
     # WebsiteGenerator was causing child tables to not render for board members because
@@ -634,75 +568,26 @@ class Chapter(Document):
     # ========================================================================
 
     def _auto_fix_required_fields(self):
-        """Auto-fix missing required fields if possible"""
-        try:
-            # Auto-fix missing region
-            if not self.region:
-                if hasattr(self, "name") and self.name:
-                    if "test" in self.name.lower():
-                        # Use the actual test region name from database
-                        test_region = frappe.db.get_value("Region", {"region_code": "TR"}, "name")
-                        self.region = test_region or "test-region"
-                        frappe.log_error(f"Auto-fixed missing region for test chapter {self.name}")
-                    elif not self.get("__islocal"):  # If not a new document
-                        # For existing documents, use a generic region
-                        self.region = "Unspecified Region"
-                        frappe.log_error(f"Auto-fixed missing region for existing chapter {self.name}")
-                else:
-                    # For new documents without region, set default
-                    self.region = "General"
-                    frappe.log_error("Auto-fixed missing region for new chapter")
+        """
+        Auto-fix missing required fields if possible to prevent validation errors.
 
-            # Auto-fix missing introduction for unpublished chapters
-            if not self.introduction and not self.published:
-                if hasattr(self, "name") and self.name and "test" in self.name.lower():
-                    self.introduction = f"This is a test chapter: {self.name}"
-                    frappe.log_error(f"Auto-fixed missing introduction for test chapter {self.name}")
-                else:
-                    self.introduction = "Chapter introduction will be added soon."
-                    frappe.log_error(
-                        f"Auto-fixed missing introduction for chapter {getattr(self, 'name', 'unnamed')}"
-                    )
+        EXTRACTED: Moved to ChapterValidationService.auto_fix_required_fields()
+        for service layer separation (Chapter Phase 2).
+        """
+        from verenigingen.services.chapter.chapter_validation_service import ChapterValidationService
 
-        except Exception as e:
-            frappe.log_error(f"Error auto-fixing chapter fields: {str(e)}")
+        ChapterValidationService.auto_fix_required_fields(self)
 
     def _populate_board_document_fields(self):
-        """Auto-populate uploaded_by and upload_date fields for board documents"""
-        try:
-            import re
+        """
+        Auto-populate uploaded_by and upload_date fields for board documents.
 
-            from verenigingen.utils.file_storage import organize_existing_chapter_document
+        EXTRACTED: Moved to ChapterBoardService.populate_board_document_fields()
+        for service layer separation (Chapter Phase 2).
+        """
+        from verenigingen.services.chapter.chapter_board_service import ChapterBoardService
 
-            for doc in self.board_documents:
-                # Set uploaded_by if not already set
-                if not doc.uploaded_by:
-                    doc.uploaded_by = frappe.session.user
-
-                # Set upload_date if not already set
-                if not doc.upload_date:
-                    doc.upload_date = today()
-
-                # Organize file into hierarchical structure
-                if doc.document_file:
-                    # Extract year from document name
-                    year_match = re.search(r"\b(20\d{2})\b", doc.document_name)
-                    year = year_match.group(1) if year_match else "Other"
-
-                    # Move file to hierarchical structure
-                    new_file_url = organize_existing_chapter_document(
-                        file_url=doc.document_file,
-                        chapter_name=self.name,
-                        category=doc.document_type or "Other",
-                        year=year,
-                    )
-
-                    # Update file URL if it changed
-                    if new_file_url != doc.document_file:
-                        doc.document_file = new_file_url
-
-        except Exception as e:
-            frappe.log_error(f"Error populating board document fields: {str(e)}")
+        ChapterBoardService.populate_board_document_fields(self)
 
     def _ensure_route(self):
         """Ensure route is set"""
