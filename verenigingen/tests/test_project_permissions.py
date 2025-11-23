@@ -56,8 +56,12 @@ class TestProjectPermissionHelpers(EnhancedTestCase):
         member = self.create_test_member(first_name="Test", last_name="User")
         volunteer = self.create_test_volunteer(member.name)
 
+        # Clear cache to ensure fresh lookup
+        get_volunteer_for_user.cache_clear()
+
         # First call should hit database
         member_name1, volunteer1 = get_volunteer_for_user(member.user)
+        self.assertIsNotNone(volunteer1, "Volunteer lookup should return a value")
         self.assertEqual(volunteer1, volunteer.name)
 
         # Second call should use cache (verify by checking it returns same value quickly)
@@ -81,27 +85,31 @@ class TestTeamPermissions(EnhancedTestCase):
         self.member = self.create_test_member(first_name="Team", last_name="Member")
         self.volunteer = self.create_test_volunteer(self.member.name)
 
-        # Create test team
+        # Create unique test team
+        import random
+        team_suffix = random.randint(1000, 9999)
         self.team = frappe.get_doc({
             "doctype": "Team",
-            "team_name": "Test Team",
+            "team_name": f"Test Team {team_suffix}",
             "status": "Active",
         }).insert()
 
     def test_team_leader_permissions(self):
         """Test Team Leader has read, write, create permissions"""
-        # Add volunteer as team leader
-        self.team.append("team_members", {
-            "volunteer": self.volunteer.name,
-            "status": "Active",
-        })
-        self.team.save()
-
         # Create team role with Team Leader permissions
         team_role = frappe.get_doc({
             "doctype": "Team Role",
             "role_name": "Team Leader",
         }).insert()
+
+        # Add volunteer as team leader with required fields
+        self.team.append("team_members", {
+            "volunteer": self.volunteer.name,
+            "team_role": team_role.name,
+            "status": "Active",
+            "from_date": frappe.utils.today(),
+        })
+        self.team.save()
 
         # Test permissions
         self.assertTrue(get_team_permission_level(self.team.name, self.volunteer.name, "read"))
@@ -111,6 +119,14 @@ class TestTeamPermissions(EnhancedTestCase):
 
     def test_regular_member_permissions(self):
         """Test Regular Member has read-only permissions"""
+        # Add volunteer as regular member with required fields
+        self.team.append("team_members", {
+            "volunteer": self.volunteer.name,
+            "status": "Active",
+            "from_date": frappe.utils.today(),
+        })
+        self.team.save()
+
         self.assertTrue(get_team_permission_level(self.team.name, self.volunteer.name, "read"))
         self.assertFalse(get_team_permission_level(self.team.name, self.volunteer.name, "write"))
 
@@ -124,11 +140,22 @@ class TestChapterPermissions(EnhancedTestCase):
         self.member = self.create_test_member(first_name="Board", last_name="Member")
         self.volunteer = self.create_test_volunteer(self.member.name)
 
-        # Create test chapter
+        # Create unique test chapter
+        import random
+        chapter_suffix = random.randint(1000, 9999)
+
+        # Chapter needs a region - create one if it doesn't exist
+        if not frappe.db.exists("Region", "Test Region"):
+            frappe.get_doc({
+                "doctype": "Region",
+                "region_name": "Test Region",
+            }).insert()
+
         self.chapter = frappe.get_doc({
             "doctype": "Chapter",
-            "name": "Test Chapter",
+            "name": f"Test Chapter {chapter_suffix}",
             "status": "Active",
+            "region": "Test Region",
         }).insert()
 
     def test_admin_level_permissions(self):
@@ -140,11 +167,12 @@ class TestChapterPermissions(EnhancedTestCase):
             "permissions_level": "Admin",
         }).insert()
 
-        # Add volunteer to chapter board with Admin role
+        # Add volunteer to chapter board with Admin role and required fields
         self.chapter.append("board_members", {
             "volunteer": self.volunteer.name,
             "chapter_role": admin_role.name,
             "is_active": 1,
+            "from_date": frappe.utils.today(),
         })
         self.chapter.save()
 
@@ -164,11 +192,12 @@ class TestChapterPermissions(EnhancedTestCase):
             "is_chair": 1,
         }).insert()
 
-        # Add volunteer as chair
+        # Add volunteer as chair with required fields
         self.chapter.append("board_members", {
             "volunteer": self.volunteer.name,
             "chapter_role": chair_role.name,
             "is_active": 1,
+            "from_date": frappe.utils.today(),
         })
         self.chapter.save()
 
