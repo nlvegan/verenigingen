@@ -44,7 +44,7 @@ Security:
 """
 
 import sys
-from typing import TYPE_CHECKING, Any, Dict, TypedDict
+from typing import TYPE_CHECKING, Any, Dict, Literal, TypedDict
 
 import frappe
 from frappe.utils import today
@@ -55,6 +55,7 @@ from verenigingen.utils.billing_constants import (
     ERROR_DEDUP_PATTERN,
     MAX_DB_ERROR_LENGTH,
     MAX_LOG_ERROR_LENGTH,
+    RecoveryAction,
 )
 
 if TYPE_CHECKING:
@@ -62,9 +63,14 @@ if TYPE_CHECKING:
 
 
 class RecoveryResult(TypedDict):
-    """Type definition for error recovery result dictionaries."""
+    """
+    Type definition for error recovery result dictionaries.
 
-    action_taken: str  # "retry_tracked", "date_advanced", or "skipped"
+    Uses Literal type for action_taken to provide compile-time validation
+    of allowed values and improved IDE autocomplete support.
+    """
+
+    action_taken: Literal["retry_tracked", "date_advanced", "skipped"]
     retry_count: int
 
 
