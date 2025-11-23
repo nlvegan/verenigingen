@@ -669,60 +669,48 @@ class MembershipDuesSchedule(Document):
 
     def validate_member_eligibility_for_invoice(self):
         """
-        ⚠️ CRITICAL VALIDATION: Check if member is eligible for invoice generation
+        Check if member is eligible for invoice generation.
+
+        DELEGATES: Uses existing EligibilityChecker service for member status
+        and membership validation.
+
         This prevents billing terminated members and those without active memberships.
         Payment method validation is done at DD batch creation time, not invoice generation.
+
+        Returns:
+            bool: True if member is eligible, False otherwise
         """
+        from verenigingen.services.billing.eligibility_checker import EligibilityChecker
+
         if not self.member:
             return False
 
         try:
-            member = frappe.get_doc("Member", self.member)
+            checker = EligibilityChecker(self)
+            member_doc = frappe.get_doc("Member", self.member)
 
-            # Check member status - Suspended members can still be billed
-            if member.status in ["Terminated", "Expelled", "Deceased", "Quit"]:
-                # Aggregate blocked members instead of logging individually
-                if not hasattr(frappe.local, "blocked_members"):
-                    frappe.local.blocked_members = {}
-                if member.status not in frappe.local.blocked_members:
-                    frappe.local.blocked_members[member.status] = []
-                frappe.local.blocked_members[member.status].append(
-                    {
-                        "member": self.member,
-                        "member_name": getattr(member, "member_name", self.member),
-                        "schedule": self.name,
-                    }
-                )
+            # Check member status
+            status_result = checker.check_member_status(member_doc)
+            if not status_result.can_generate:
                 return False
 
-            # Check if member has active membership
-            active_membership = DocumentExistenceValidator.check_document_exists(
-                "Membership", {"member": self.member, "status": "Active", "docstatus": 1}
-            )
-            if not active_membership:
-                frappe.log_error(
-                    f"Invoice blocked: member {self.member} no active membership",
-                    "Membership Status Validation",
-                )
+            # Check active membership
+            membership_result = checker.check_active_membership(member_doc)
+            if not membership_result.can_generate:
                 return False
-
-            # Note: SEPA mandate validation is only done at DD batch creation time
-            # Members with broken payment data can still receive invoices
-            # They just won't be included in Direct Debit batches
 
             return True
 
         except frappe.DoesNotExistError:
-            # Handle the specific case where member doesn't exist
+            # Handle orphaned schedules (member deleted)
             frappe.log_error(
                 f"Orphaned schedule '{self.name}' refs deleted member '{self.member}'",
                 "Orphaned Dues Schedule",
             )
-            # Mark this schedule as orphaned for admin attention
             try:
                 self.add_comment("Comment", f"⚠️ ORPHANED: Member '{self.member}' not found.")
-            except Exception as e:
-                frappe.log_error(f"Failed to add orphaned comment: {e}", "Comment Addition Failed")
+            except Exception:
+                pass
             return False
         except Exception as e:
             frappe.log_error(
