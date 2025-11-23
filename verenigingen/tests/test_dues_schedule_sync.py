@@ -24,21 +24,33 @@ class TestDuesScheduleSync(EnhancedTestCase):
     def setUp(self):
         """Set up test data"""
         super().setUp()
-        
+
         # Create a test member
         self.member = self.create_test_member(
             first_name="Test",
             last_name="Sync",
             birth_date="1990-01-01"
         )
-        
-        # Create a membership type
+
+        # Create a membership type with unique name
+        import time
+        unique_suffix = f"{int(time.time() * 1000000) % 1000000}"
         self.membership_type = frappe.get_doc({
             "doctype": "Membership Type",
-            "membership_type": "Test Sync Type",
-            "amount": 100,
-            "billing_frequency": "Monthly"
+            "membership_type_name": f"Test-Sync-{unique_suffix}",
+            "billing_period": "Monthly"
         }).insert()
+
+        # Create an active membership for the member
+        self.membership = frappe.get_doc({
+            "doctype": "Membership",
+            "member": self.member.name,
+            "membership_type": self.membership_type.name,
+            "start_date": add_days(today(), -30),
+            "end_date": add_days(today(), 335),  # ~1 year
+            "status": "Active"
+        }).insert()
+        self.membership.submit()
         
     def tearDown(self):
         """Clean up test data"""
@@ -50,6 +62,7 @@ class TestDuesScheduleSync(EnhancedTestCase):
         # Create a dues schedule
         schedule = frappe.get_doc({
             "doctype": "Membership Dues Schedule",
+            "schedule_name": f"Test-{self.member.name}-Sync-1",
             "member": self.member.name,
             "membership_type": self.membership_type.name,
             "status": "Active",
@@ -71,6 +84,7 @@ class TestDuesScheduleSync(EnhancedTestCase):
         # Create two schedules
         schedule1 = frappe.get_doc({
             "doctype": "Membership Dues Schedule",
+            "schedule_name": f"Test-{self.member.name}-Sync-2A",
             "member": self.member.name,
             "membership_type": self.membership_type.name,
             "status": "Active",
@@ -78,12 +92,13 @@ class TestDuesScheduleSync(EnhancedTestCase):
             "billing_frequency": "Monthly",
             "next_invoice_date": today()
         }).insert()
-        
+
         # Wait a moment to ensure different creation times
         frappe.db.commit()
-        
+
         schedule2 = frappe.get_doc({
             "doctype": "Membership Dues Schedule",
+            "schedule_name": f"Test-{self.member.name}-Sync-2B",
             "member": self.member.name,
             "membership_type": self.membership_type.name,
             "status": "Active",
@@ -111,6 +126,7 @@ class TestDuesScheduleSync(EnhancedTestCase):
         # Create a dues schedule with past next_invoice_date
         schedule = frappe.get_doc({
             "doctype": "Membership Dues Schedule",
+            "schedule_name": f"Test-{self.member.name}-Sync-3",
             "member": self.member.name,
             "membership_type": self.membership_type.name,
             "status": "Active",
@@ -146,6 +162,7 @@ class TestDuesScheduleSync(EnhancedTestCase):
         # Create a monthly schedule
         schedule = frappe.get_doc({
             "doctype": "Membership Dues Schedule",
+            "schedule_name": f"Test-{self.member.name}-Sync-4",
             "member": self.member.name,
             "membership_type": self.membership_type.name,
             "status": "Active",
@@ -191,6 +208,7 @@ class TestDuesScheduleSync(EnhancedTestCase):
         # Create a schedule
         schedule = frappe.get_doc({
             "doctype": "Membership Dues Schedule",
+            "schedule_name": f"Test-{self.member.name}-Sync-5",
             "member": self.member.name,
             "membership_type": self.membership_type.name,
             "status": "Active",
