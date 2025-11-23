@@ -471,6 +471,140 @@ class DuesScheduleValidationService:
                 alert=True,
             )
 
+    @staticmethod
+    def validate_dates(schedule_doc: "Document") -> None:
+        """
+        Validate schedule dates for consistency and reasonableness.
+
+        Performs comprehensive date validation including:
+        - Last invoice date not in future
+        - Next invoice date after last invoice date
+        - Coverage period alignment warnings
+
+        Args:
+            schedule_doc: MembershipDuesSchedule document instance
+
+        Raises:
+            frappe.ValidationError: If dates are logically inconsistent
+
+        Business Logic:
+            - Auto-corrects future last invoice dates to today
+            - Warns if next invoice date != last invoice date (but allows it)
+            - Warns if invoice timing significantly misaligned with coverage dates
+            - Allows equal dates (invoice already generated for period)
+
+        Example:
+            >>> schedule.last_invoice_date = future_date
+            >>> DuesScheduleValidationService.validate_dates(schedule)
+            # Shows warning, auto-corrects to today
+        """
+        today_date = getdate(today())
+
+        # Validate last_invoice_date is not in the future
+        if schedule_doc.last_invoice_date:
+            last_date = getdate(schedule_doc.last_invoice_date)
+            if last_date > today_date:
+                # Auto-correct invalid future last invoice dates
+                frappe.msgprint(
+                    f"Warning: Last Invoice Date ({last_date}) was in the future and has been reset to today ({today_date}). "
+                    "Last invoice dates should only reflect actual past invoices.",
+                    alert=True,
+                )
+                schedule_doc.last_invoice_date = today_date
+
+        # Allow last_invoice_date == next_invoice_date (means invoice already generated for period)
+        # Coverage dates are the source of truth for overlap detection, not these tracking dates
+        if schedule_doc.last_invoice_date and schedule_doc.next_invoice_date:
+            if getdate(schedule_doc.last_invoice_date) > getdate(schedule_doc.next_invoice_date):
+                frappe.throw("Next Invoice Date cannot be before Last Invoice Date")
+
+        # Warn about significant gaps between next invoice date and coverage end date
+        if schedule_doc.next_invoice_date and schedule_doc.last_invoice_coverage_end:
+            next_date = getdate(schedule_doc.next_invoice_date)
+            coverage_end = getdate(schedule_doc.last_invoice_coverage_end)
+
+            # Calculate gap in days (positive = invoice after coverage ends, negative = invoice before coverage ends)
+            gap_days = (next_date - coverage_end).days
+
+            # Warn if invoice is scheduled more than 30 days after coverage ends
+            if gap_days > 30:
+                frappe.msgprint(
+                    f"Warning: Next Invoice Date ({next_date}) is {gap_days} days after Coverage End Date ({coverage_end}). "
+                    f"This schedule may be trying to invoice for expired coverage.",
+                    indicator="orange",
+                    alert=True,
+                )
+
+            # Warn if invoice is scheduled more than 30 days before coverage ends
+            elif gap_days < -30:
+                frappe.msgprint(
+                    f"Warning: Next Invoice Date ({next_date}) is {abs(gap_days)} days before Coverage End Date ({coverage_end}). "
+                    f"This schedule may not generate invoices before coverage expires.",
+                    indicator="orange",
+                    alert=True,
+                )
+
+    @staticmethod
+    def validate_membership_type_consistency(schedule_doc: "Document") -> Dict[str, Any]:
+        """
+        Verify member's current membership type matches schedule.
+
+        Prevents billing with outdated membership type information by comparing
+        the schedule's membership type against the member's current active membership.
+
+        Args:
+            schedule_doc: MembershipDuesSchedule document instance
+
+        Returns:
+            dict: Validation result with keys:
+                - valid (bool): Whether validation passed
+                - reason (str): Validation outcome message
+
+        Business Logic:
+            - Returns True if no member or membership type (will be caught elsewhere)
+            - Returns True if no active membership (eligibility check handles this)
+            - Returns False only if membership types mismatch
+            - Gracefully handles validation errors (doesn't block generation)
+
+        Example:
+            >>> result = DuesScheduleValidationService.validate_membership_type_consistency(schedule)
+            >>> if not result["valid"]:
+            ...     print(f"Type mismatch: {result['reason']}")
+        """
+        try:
+            if not schedule_doc.member or not schedule_doc.membership_type:
+                return {"valid": True, "reason": "No member or membership type to validate"}
+
+            # Get member's current active membership
+            current_membership = frappe.get_all(
+                "Membership",
+                filters={"member": schedule_doc.member, "status": "Active", "docstatus": 1},
+                fields=["membership_type", "name"],
+                limit=1,
+            )
+
+            if not current_membership:
+                # This will be caught by the member eligibility check
+                return {
+                    "valid": True,
+                    "reason": "No active membership found - will be handled by eligibility check",
+                }
+
+            current_type = current_membership[0].membership_type
+
+            # Check if membership types match
+            if current_type != schedule_doc.membership_type:
+                return {
+                    "valid": False,
+                    "reason": f"Type mismatch: schedule={schedule_doc.membership_type}, current={current_type}",
+                }
+
+            return {"valid": True, "reason": "Membership type consistency validated"}
+
+        except Exception:
+            # Don't block generation on validation errors - continue gracefully
+            return {"valid": True, "reason": "Type validation error - allowing generation"}
+
 
 def get_dues_schedule_validation_service() -> DuesScheduleValidationService:
     """Get singleton instance of DuesScheduleValidationService"""

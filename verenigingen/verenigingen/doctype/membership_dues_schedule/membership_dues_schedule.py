@@ -149,52 +149,15 @@ class MembershipDuesSchedule(Document):
                     self.membership_type = membership_type
 
     def validate_dates(self):
-        """Validate schedule dates"""
-        today_date = getdate(today())
+        """
+        Validate schedule dates.
+        DELEGATES to: DuesScheduleValidationService.validate_dates()
+        """
+        from verenigingen.services.billing.dues_schedule_validation_service import (
+            DuesScheduleValidationService,
+        )
 
-        # Validate last_invoice_date is not in the future
-        if self.last_invoice_date:
-            last_date = getdate(self.last_invoice_date)
-            if last_date > today_date:
-                # Auto-correct invalid future last invoice dates
-                frappe.msgprint(
-                    f"Warning: Last Invoice Date ({last_date}) was in the future and has been reset to today ({today_date}). "
-                    "Last invoice dates should only reflect actual past invoices.",
-                    alert=True,
-                )
-                self.last_invoice_date = today_date
-
-        # Allow last_invoice_date == next_invoice_date (means invoice already generated for period)
-        # Coverage dates are the source of truth for overlap detection, not these tracking dates
-        if self.last_invoice_date and self.next_invoice_date:
-            if getdate(self.last_invoice_date) > getdate(self.next_invoice_date):
-                frappe.throw("Next Invoice Date cannot be before Last Invoice Date")
-
-        # Warn about significant gaps between next invoice date and coverage end date
-        if self.next_invoice_date and self.last_invoice_coverage_end:
-            next_date = getdate(self.next_invoice_date)
-            coverage_end = getdate(self.last_invoice_coverage_end)
-
-            # Calculate gap in days (positive = invoice after coverage ends, negative = invoice before coverage ends)
-            gap_days = (next_date - coverage_end).days
-
-            # Warn if invoice is scheduled more than 30 days after coverage ends
-            if gap_days > 30:
-                frappe.msgprint(
-                    f"Warning: Next Invoice Date ({next_date}) is {gap_days} days after Coverage End Date ({coverage_end}). "
-                    f"This schedule may be trying to invoice for expired coverage.",
-                    indicator="orange",
-                    alert=True,
-                )
-
-            # Warn if invoice is scheduled more than 30 days before coverage ends
-            elif gap_days < -30:
-                frappe.msgprint(
-                    f"Warning: Next Invoice Date ({next_date}) is {abs(gap_days)} days before Coverage End Date ({coverage_end}). "
-                    f"This schedule may not generate invoices before coverage expires.",
-                    indicator="orange",
-                    alert=True,
-                )
+        return DuesScheduleValidationService.validate_dates(self)
 
     def validate_custom_frequency(self):
         """Validate custom frequency settings"""
@@ -667,90 +630,34 @@ class MembershipDuesSchedule(Document):
 
     def validate_membership_type_consistency(self):
         """
-        ✅ NEW: Verify member's current membership type matches schedule
-        Prevents billing with outdated membership type information
+        Verify member's current membership type matches schedule.
+        DELEGATES to: DuesScheduleValidationService.validate_membership_type_consistency()
         """
-        try:
-            if not self.member or not self.membership_type:
-                return {"valid": True, "reason": "No member or membership type to validate"}
+        from verenigingen.services.billing.dues_schedule_validation_service import (
+            DuesScheduleValidationService,
+        )
 
-            # Get member's current active membership
-            current_membership = frappe.get_all(
-                "Membership",
-                filters={"member": self.member, "status": "Active", "docstatus": 1},
-                fields=["membership_type", "name"],
-                limit=1,
-            )
-
-            if not current_membership:
-                # This will be caught by the member eligibility check
-                return {
-                    "valid": True,
-                    "reason": "No active membership found - will be handled by eligibility check",
-                }
-
-            current_type = current_membership[0].membership_type
-
-            # Check if membership types match
-            if current_type != self.membership_type:
-                return {
-                    "valid": False,
-                    "reason": f"Type mismatch: schedule={self.membership_type}, current={current_type}",
-                }
-
-            return {"valid": True, "reason": "Membership type consistency validated"}
-
-        except Exception:
-            # Don't block generation on validation errors - continue gracefully
-            return {"valid": True, "reason": "Type validation error - allowing generation"}
+        return DuesScheduleValidationService.validate_membership_type_consistency(self)
 
     @staticmethod
     def _deduplicate_error_message(error_msg):
         """
-        Remove repetitive error prefixes from nested exception handling.
-
-        Uses regex for efficient single-pass deduplication of patterns like:
-        - "Invoice generation failed: Invoice generation failed: ..."
-        - "Invoice gen failed: Invoice gen failed: ..."
-
-        Args:
-            error_msg (str): Error message potentially containing repeated prefixes
-
-        Returns:
-            str: Cleaned error message with deduplicated prefixes
+        Remove repetitive error prefixes.
+        DELEGATES to: InvoiceErrorHandlerService._deduplicate_error_message()
         """
-        if not error_msg:
-            return error_msg
+        from verenigingen.services.billing.invoice_error_handler_service import InvoiceErrorHandlerService
 
-        # Pattern matches one or more occurrences of "Invoice gen(eration)? failed:" prefix
-        # and replaces with a single occurrence
-        cleaned = re.sub(
-            r"(Invoice gen(?:eration)? failed:\s*)+", "Invoice generation failed: ", str(error_msg)
-        )
-
-        return cleaned.strip()
+        return InvoiceErrorHandlerService._deduplicate_error_message(error_msg)
 
     @staticmethod
     def _is_deadlock_error(error_msg):
         """
-        Check if error message indicates a database deadlock.
-
-        Covers multiple MySQL/MariaDB deadlock error codes:
-        - 1213: Deadlock found when trying to get lock
-        - 1205: Lock wait timeout exceeded
-        - 3058: InnoDB deadlock (newer versions)
-
-        Args:
-            error_msg (str): Error message to check
-
-        Returns:
-            bool: True if error is a deadlock, False otherwise
+        Check if error is a database deadlock.
+        DELEGATES to: InvoiceErrorHandlerService._is_deadlock_error()
         """
-        if not error_msg:
-            return False
+        from verenigingen.services.billing.invoice_error_handler_service import InvoiceErrorHandlerService
 
-        error_lower = str(error_msg).lower()
-        return any(pattern in error_lower for pattern in DEADLOCK_PATTERNS)
+        return InvoiceErrorHandlerService._is_deadlock_error(error_msg)
 
     def generate_invoice(self, force=False):
         """Generate invoice for the current period with enhanced coverage tracking and concurrency protection"""
@@ -929,122 +836,11 @@ class MembershipDuesSchedule(Document):
     def _handle_invoice_generation_failure(self, error_message):
         """
         Handle invoice generation failures with smart recovery logic.
-
-        Returns:
-            dict: Recovery action taken and current retry count
+        DELEGATES to: InvoiceErrorHandlerService.handle_invoice_generation_failure()
         """
-        # Get or initialize retry tracking fields
-        retry_count = getattr(self, "custom_invoice_retry_count", 0) or 0
-        deadlock_count = getattr(self, "custom_deadlock_count", 0) or 0
+        from verenigingen.services.billing.invoice_error_handler_service import InvoiceErrorHandlerService
 
-        # ✅ SPECIAL HANDLING: Deadlocks are transient - don't count them as retries
-        # They should be retried immediately in the next batch without penalty
-        is_deadlock = self._is_deadlock_error(error_message)
-
-        if not is_deadlock:
-            # Increment retry count for real failures
-            retry_count += 1
-        else:
-            # Track deadlocks separately for monitoring
-            deadlock_count += 1
-            frappe.logger().info(
-                f"Deadlock error for {self.name} (#{deadlock_count}) - not incrementing retry count (transient error)"
-            )
-
-            # Alert if excessive deadlocks indicate systemic issue
-            if deadlock_count > 10:
-                try:
-                    frappe.log_error(
-                        title=f"Excessive Deadlocks - {self.name[:50]}",
-                        message=f"Schedule {self.name} has experienced {deadlock_count} deadlocks. "
-                        f"This may indicate database contention issues requiring investigation.\n\n"
-                        f"Latest error: {error_message}",
-                    )
-                except Exception:
-                    frappe.logger().warning(f"Excessive deadlocks for {self.name}: {deadlock_count}")
-
-        # Update retry tracking using secure operations framework
-        from verenigingen.utils.secure_operations import secure_document_operation
-
-        # Clean up error message to avoid repetitive prefixes
-        clean_error = self._deduplicate_error_message(error_message)
-
-        # Log full error details (with safe error handling)
-        full_error_details = (
-            f"Schedule: {self.name}\n"
-            f"Retry Count: {retry_count}\n"
-            f"Deadlock Count: {deadlock_count}\n"
-            f"Is Deadlock: {is_deadlock}\n"
-            f"Error: {clean_error}\n\n"
-            f"Traceback:\n{frappe.get_traceback()}"
-        )
-        try:
-            frappe.log_error(
-                title=f"Invoice Failure #{retry_count} - {self.name[:40]}", message=full_error_details
-            )
-        except Exception as log_err:
-            try:
-                frappe.logger().error(
-                    f"Failed to log invoice generation error for {self.name}: {str(log_err)}\n"
-                    f"Original error: {clean_error}"
-                )
-            except Exception:
-                # Absolute last resort - print to stderr
-                print(f"CRITICAL: All logging failed for {self.name} - Error: {clean_error}", file=sys.stderr)
-
-        # Update the document fields before saving
-        self.custom_invoice_retry_count = retry_count
-        self.custom_deadlock_count = deadlock_count
-        self.custom_last_invoice_failure_date = today()
-        self.custom_last_invoice_error = clean_error[:MAX_DB_ERROR_LENGTH]
-
-        # Use secure document operation for tracking updates
-        retry_update_result = secure_document_operation(
-            operation="save",
-            doc=self,
-            justification=f"Update invoice retry tracking for {self.name}",
-            required_permissions=["Membership Dues Schedule:write"],
-            bypass_validations=["link_validation"],  # Avoid validation loops during error recovery
-        )
-
-        if not retry_update_result.success:
-            error_msg = retry_update_result.errors[0] if retry_update_result.errors else "Unknown error"
-            frappe.log_error(
-                f"Failed to update retry tracking for {self.name}: {error_msg}",
-                "Retry Tracking Update Failure",
-            )
-
-        # Decision logic based on retry count and error patterns
-        if retry_count >= 3:
-            # After 3 failures, check if we should auto-advance or flag for manual review
-            if self._should_auto_advance_schedule(error_message):
-                # Auto-advance dates to prevent infinite loops
-                old_next_date = self.next_invoice_date
-                self._advance_schedule_dates()
-
-                # Log the advancement
-                frappe.log_error(
-                    f"Auto-advanced schedule {self.name} after {retry_count} failures. "
-                    f"Previous next_invoice_date: {old_next_date}, New: {self.next_invoice_date}",
-                    "Schedule Auto-Advanced",
-                )
-
-                return {"action_taken": "date_advanced", "retry_count": retry_count}
-            else:
-                # Flag for manual review (serious validation issues)
-                # Use secure operation to flag for manual review
-                self.custom_requires_manual_review = 1
-                secure_document_operation(
-                    operation="save",
-                    doc=self,
-                    justification=f"Schedule {self.name} flagged for manual review after {retry_count} failures",
-                    required_permissions=["Membership Dues Schedule:write"],
-                    bypass_validations=["link_validation"],
-                )
-                return {"action_taken": "skipped", "retry_count": retry_count}
-        else:
-            # Track failure and retry next time
-            return {"action_taken": "retry_tracked", "retry_count": retry_count}
+        return InvoiceErrorHandlerService.handle_invoice_generation_failure(self, error_message)
 
     def _clear_retry_tracking(self):
         """Clear retry tracking fields after successful invoice generation."""
@@ -1074,134 +870,11 @@ class MembershipDuesSchedule(Document):
     def _should_auto_advance_schedule(self, error_message):
         """
         Determine if a schedule should be auto-advanced based on error patterns.
-
-        Auto-advance for recoverable issues like:
-        - Member eligibility changes
-        - Temporary validation failures
-        - Configuration mismatches
-
-        Require manual review for serious issues like:
-        - Missing customer records
-        - Account setup problems
-        - Data corruption indicators
-
-        ✅ NEW: Also check if the error can be resolved by health system reconstruction
+        DELEGATES to: InvoiceErrorHandlerService.should_auto_advance_schedule()
         """
-        # Patterns that suggest manual review is needed
-        manual_review_patterns = [
-            "customer record",
-            "account",
-            "currency",
-            "company",
-            "permission denied",
-            "access forbidden",
-        ]
+        from verenigingen.services.billing.invoice_error_handler_service import InvoiceErrorHandlerService
 
-        # ✅ ENHANCED: Comprehensive patterns for production scenarios
-        reconstruction_patterns = [
-            # Membership data issues
-            "membership_type",
-            "missing template",
-            "missing membership",
-            "no active membership",
-            "membership.*not.*found",
-            "invalid membership status",
-            # Dues and financial issues
-            "dues_rate",
-            "minimum_amount",
-            "invalid.*amount",
-            "negative.*amount",
-            "amount.*required",
-            "payment.*method",
-            # Data integrity issues
-            "constraint.*violation",
-            "foreign.*key",
-            "reference.*not.*found",
-            "orphaned.*record",
-            "missing.*reference",
-            # Template and configuration issues
-            "template.*missing",
-            "configuration.*incomplete",
-            "settings.*not.*found",
-            "invalid.*configuration",
-            # Customer and account issues (but recoverable)
-            "customer.*missing.*recovery",  # Only auto-fix if marked as recoverable
-            "account.*setup.*incomplete",
-        ]
-
-        # ✅ IMPORTANT: Deadlocks are transient and should be retried, not marked for manual review
-        # They're handled separately below with immediate retry logic
-
-        # ✅ NEW: Patterns that suggest immediate manual review (enhanced)
-        critical_manual_review_patterns = [
-            # Security and permissions
-            "permission denied",
-            "access forbidden",
-            "unauthorized",
-            "authentication failed",
-            "role.*required",
-            # Database and system errors
-            "database.*corruption",
-            "data.*integrity.*critical",
-            "system.*failure",
-            "timeout.*critical",
-            # Customer and accounting (non-recoverable)
-            "customer.*not.*exists",
-            "account.*not.*found",
-            "currency.*mismatch",
-            "company.*invalid",
-            "chart.*accounts.*missing",
-            # Legal and compliance
-            "compliance.*violation",
-            "audit.*requirement",
-            "legal.*constraint",
-        ]
-
-        # ✅ SPECIAL CASE: Deadlocks are transient database locking issues
-        # Don't auto-advance (which would skip the invoice) - instead flag for manual review
-        # so they can be retried in the next batch run when lock contention clears
-        if self._is_deadlock_error(error_message):
-            frappe.logger().info(
-                f"Deadlock detected for schedule {self.name} - flagging for retry in next batch"
-            )
-            # Return False to prevent auto-advance (which would skip this invoice)
-            # The schedule will be retried in the next batch run
-            return False
-
-        # ✅ ENHANCED: Check critical issues first
-        for pattern in critical_manual_review_patterns:
-            if pattern in error_lower:
-                frappe.log_error(
-                    f"Critical error detected for schedule {self.name}: {error_message}",
-                    "Critical Schedule Error - Manual Review Required",
-                )
-                return False
-
-        # Check legacy manual review patterns
-        for pattern in manual_review_patterns:
-            if pattern in error_lower:
-                return False
-
-        # ✅ ENHANCED: Check if this might be fixable by reconstruction
-        reconstruction_triggered = False
-        for pattern in reconstruction_patterns:
-            if pattern in error_lower:
-                # Try to trigger health system reconstruction
-                self._trigger_health_reconstruction(error_message)
-                reconstruction_triggered = True
-                break
-
-        if reconstruction_triggered:
-            # Log the reconstruction attempt
-            frappe.log_error(
-                f"Health reconstruction triggered for schedule {self.name}: {error_message}",
-                "Health Reconstruction Triggered",
-            )
-            # Still auto-advance since we attempted reconstruction
-            return True
-
-        # Default to auto-advance for most validation errors
-        return True
+        return InvoiceErrorHandlerService.should_auto_advance_schedule(self, error_message)
 
     def _trigger_health_reconstruction(self, error_message):
         """
@@ -2217,8 +1890,6 @@ def generate_dues_invoices(test_mode=False):
 
             except Exception as e:
                 # Clean error message to prevent HTML formatting cascade and shorten to avoid database limits
-                import re
-
                 clean_error = str(e)
                 # Remove HTML tags and Error Log references to prevent cascade logging
                 clean_error = re.sub(r"<[^<]+?>", "", clean_error)  # Remove HTML tags
