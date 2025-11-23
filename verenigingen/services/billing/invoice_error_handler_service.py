@@ -43,27 +43,29 @@ Security:
 - Permission-aware escalation to manual review
 """
 
-import re
 import sys
-from typing import TYPE_CHECKING, Any, Dict
+from typing import TYPE_CHECKING, Any, Dict, TypedDict
 
 import frappe
 from frappe.utils import today
 
+# Import shared billing constants (eliminates duplication with controller)
+from verenigingen.utils.billing_constants import (
+    DEADLOCK_PATTERNS,
+    ERROR_DEDUP_PATTERN,
+    MAX_DB_ERROR_LENGTH,
+    MAX_LOG_ERROR_LENGTH,
+)
+
 if TYPE_CHECKING:
     from frappe.model.document import Document
 
-# Constants for error handling
-MAX_DB_ERROR_LENGTH = 255  # For database field storage
-MAX_LOG_ERROR_LENGTH = 100  # For abbreviated log messages
 
-# Database deadlock error patterns (MySQL/MariaDB)
-DEADLOCK_PATTERNS = [
-    "deadlock",  # Generic deadlock message
-    "1213",  # Deadlock found when trying to get lock
-    "1205",  # Lock wait timeout exceeded
-    "3058",  # InnoDB deadlock (newer versions)
-]
+class RecoveryResult(TypedDict):
+    """Type definition for error recovery result dictionaries."""
+
+    action_taken: str  # "retry_tracked", "date_advanced", or "skipped"
+    retry_count: int
 
 
 class InvoiceErrorHandlerService:
@@ -102,11 +104,8 @@ class InvoiceErrorHandlerService:
         if not error_msg:
             return error_msg
 
-        # Pattern matches one or more occurrences of "Invoice gen(eration)? failed:" prefix
-        # and replaces with a single occurrence
-        cleaned = re.sub(
-            r"(Invoice gen(?:eration)? failed:\s*)+", "Invoice generation failed: ", str(error_msg)
-        )
+        # Use compiled regex pattern for performance (single compilation at module load)
+        cleaned = ERROR_DEDUP_PATTERN.sub("Invoice generation failed: ", str(error_msg))
 
         return cleaned.strip()
 
@@ -139,7 +138,7 @@ class InvoiceErrorHandlerService:
         return any(pattern in error_lower for pattern in DEADLOCK_PATTERNS)
 
     @staticmethod
-    def handle_invoice_generation_failure(schedule_doc: "Document", error_message: str) -> Dict[str, Any]:
+    def handle_invoice_generation_failure(schedule_doc: "Document", error_message: str) -> RecoveryResult:
         """
         Handle invoice generation failures with smart recovery logic.
 
@@ -203,8 +202,11 @@ class InvoiceErrorHandlerService:
                         f"This may indicate database contention issues requiring investigation.\n\n"
                         f"Latest error: {error_message}",
                     )
-                except Exception:
-                    frappe.logger().warning(f"Excessive deadlocks for {schedule_doc.name}: {deadlock_count}")
+                except Exception as e:
+                    frappe.logger().warning(
+                        f"Failed to log excessive deadlocks for {schedule_doc.name}: {str(e)}. "
+                        f"Deadlock count: {deadlock_count}"
+                    )
 
         # Update retry tracking using secure operations framework
         from verenigingen.utils.secure_operations import secure_document_operation
@@ -232,10 +234,11 @@ class InvoiceErrorHandlerService:
                     f"Failed to log invoice generation error for {schedule_doc.name}: {str(log_err)}\n"
                     f"Original error: {clean_error}"
                 )
-            except Exception:
-                # Absolute last resort - print to stderr
+            except Exception as e:
+                # Absolute last resort - print to stderr with error details
                 print(
-                    f"CRITICAL: All logging failed for {schedule_doc.name} - Error: {clean_error}",
+                    f"CRITICAL: All logging failed for {schedule_doc.name} - {str(e)}. "
+                    f"Original error: {clean_error}",
                     file=sys.stderr,
                 )
 

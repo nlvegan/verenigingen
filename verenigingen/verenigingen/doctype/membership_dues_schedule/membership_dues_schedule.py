@@ -10,6 +10,12 @@ from frappe.model.document import Document
 from frappe.utils import add_days, add_months, add_years, flt, getdate, today
 
 from verenigingen.services.billing import DuplicateInvoiceDetector
+from verenigingen.utils.billing_constants import (
+    DEADLOCK_PATTERNS,
+    MAX_DB_ERROR_LENGTH,
+    MAX_LOG_ERROR_LENGTH,
+    MAX_USER_ERROR_LENGTH,
+)
 from verenigingen.utils.billing_period_calculator import calculate_billing_period, calculate_next_invoice_date
 from verenigingen.utils.member_utils import get_active_membership_for_member, get_member_chapters
 from verenigingen.utils.security.api_security_framework import (
@@ -20,19 +26,6 @@ from verenigingen.utils.security.api_security_framework import (
     standard_api,
 )
 from verenigingen.utils.validation_utilities import DateRangeValidator, DocumentExistenceValidator
-
-# Error message length constants
-MAX_USER_ERROR_LENGTH = 200  # For user-facing error messages
-MAX_DB_ERROR_LENGTH = 255  # For database field storage
-MAX_LOG_ERROR_LENGTH = 100  # For abbreviated log messages
-
-# Database deadlock error patterns (MySQL/MariaDB)
-DEADLOCK_PATTERNS = [
-    "deadlock",  # Generic deadlock message
-    "1213",  # Deadlock found when trying to get lock
-    "1205",  # Lock wait timeout exceeded
-    "3058",  # InnoDB deadlock (newer versions)
-]
 
 
 class MembershipDuesSchedule(Document):

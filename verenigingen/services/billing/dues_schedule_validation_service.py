@@ -44,14 +44,20 @@ Security:
 - Audit logging for validation bypasses
 """
 
-from typing import TYPE_CHECKING, Any, Dict
+from typing import TYPE_CHECKING, Any, Dict, TypedDict
 
 import frappe
-from frappe import _
 from frappe.utils import getdate, today
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
+
+
+class ValidationResult(TypedDict):
+    """Type definition for validation result dictionaries."""
+
+    valid: bool
+    reason: str
 
 
 class DuesScheduleValidationService:
@@ -261,7 +267,7 @@ class DuesScheduleValidationService:
             )
 
     @staticmethod
-    def validate_dues_rate(schedule_doc: "Document") -> Dict[str, Any]:
+    def validate_dues_rate(schedule_doc: "Document") -> ValidationResult:
         """
         Validate dues rate for reasonableness and business logic.
 
@@ -369,7 +375,11 @@ class DuesScheduleValidationService:
 
             return {"valid": True, "reason": "Rate validation passed"}
 
-        except Exception:
+        except Exception as e:
+            # Log validation error for debugging
+            frappe.logger().warning(
+                f"Rate validation error for schedule {getattr(schedule_doc, 'name', 'Unknown')}: {str(e)}"
+            )
             # Use shorter error message to avoid length limits
             return {"valid": True, "reason": "Rate validation error - allowing generation"}
 
@@ -545,7 +555,7 @@ class DuesScheduleValidationService:
                 )
 
     @staticmethod
-    def validate_membership_type_consistency(schedule_doc: "Document") -> Dict[str, Any]:
+    def validate_membership_type_consistency(schedule_doc: "Document") -> ValidationResult:
         """
         Verify member's current membership type matches schedule.
 
@@ -601,7 +611,11 @@ class DuesScheduleValidationService:
 
             return {"valid": True, "reason": "Membership type consistency validated"}
 
-        except Exception:
+        except Exception as e:
+            # Log validation error for debugging
+            frappe.logger().warning(
+                f"Type consistency validation error for schedule {getattr(schedule_doc, 'name', 'Unknown')}: {str(e)}"
+            )
             # Don't block generation on validation errors - continue gracefully
             return {"valid": True, "reason": "Type validation error - allowing generation"}
 
