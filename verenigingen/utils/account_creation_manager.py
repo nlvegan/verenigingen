@@ -1096,50 +1096,72 @@ def queue_bulk_account_creation_for_members(
         priority=priority,
     )
 
-    # Queue processing in batches using dedicated bulk processor
-    batch_results = []
+    # Split requests into batches
     total_requests = len(created_requests)
+    total_batches = (total_requests + batch_size - 1) // batch_size
 
+    # Create batch metadata for chain-of-responsibility pattern
+    batches = []
     for i in range(0, total_requests, batch_size):
         batch = created_requests[i : i + batch_size]
         batch_number = i // batch_size + 1
-        batch_id = f"bulk_batch_{batch_number}"
+        batches.append(
+            {
+                "batch_id": f"bulk_batch_{batch_number}",
+                "batch_number": batch_number,
+                "request_names": batch,
+                "request_count": len(batch),
+            }
+        )
 
-        # Queue this batch for processing using dedicated bulk queue
-        try:
-            frappe.enqueue(
-                "verenigingen.utils.account_creation_manager.process_bulk_account_creation_batch",
-                request_names=batch,
-                batch_id=batch_id,
-                batch_number=batch_number,
-                tracker_name=tracker.name,
-                queue="long",  # Use long queue for batch processing
-                timeout=3600,  # 1 hour timeout for batch processing
-                job_name=f"bulk_account_creation_{batch_id}",
-            )
+    frappe.logger().info(
+        f"Using chain-of-responsibility pattern: queueing first batch, "
+        f"remaining {total_batches - 1} batches will chain automatically "
+        f"({total_requests} total requests, {batch_size} per batch)"
+    )
 
-            batch_results.append(
-                {
-                    "batch_id": batch_id,
-                    "batch_number": batch_number,
-                    "request_count": len(batch),
-                    "status": "queued",
-                }
-            )
+    # Queue ONLY the first batch - it will chain to the rest
+    first_batch = batches[0]
+    remaining_batches = batches[1:]  # To be queued by the first batch upon completion
 
-            frappe.logger().info(f"Queued batch {batch_id} with {len(batch)} requests")
+    try:
+        frappe.enqueue(
+            "verenigingen.utils.account_creation_manager.process_bulk_account_creation_batch",
+            request_names=first_batch["request_names"],
+            batch_id=first_batch["batch_id"],
+            batch_number=first_batch["batch_number"],
+            tracker_name=tracker.name,
+            remaining_batches=remaining_batches,  # Pass remaining batches for chaining
+            queue="long",
+            timeout=3600,  # 1 hour per batch (not for queueing all batches)
+            job_name=f"bulk_account_creation_{first_batch['batch_id']}",
+        )
 
-        except Exception as e:
-            batch_results.append(
-                {
-                    "batch_id": batch_id,
-                    "batch_number": batch_number,
-                    "request_count": len(batch),
-                    "status": "failed",
-                    "error": str(e),
-                }
-            )
-            frappe.logger().error(f"Failed to queue batch {batch_id}: {str(e)}")
+        frappe.logger().info(
+            f"Queued first batch {first_batch['batch_id']} (1/{total_batches}) with "
+            f"{first_batch['request_count']} requests. Remaining batches will chain automatically."
+        )
+
+        batch_results = [
+            {
+                "batch_id": first_batch["batch_id"],
+                "batch_number": first_batch["batch_number"],
+                "request_count": first_batch["request_count"],
+                "status": "queued",
+            }
+        ]
+
+    except Exception as e:
+        frappe.logger().error(f"Failed to queue first batch: {str(e)}")
+        batch_results = [
+            {
+                "batch_id": first_batch["batch_id"],
+                "batch_number": first_batch["batch_number"],
+                "request_count": first_batch["request_count"],
+                "status": "failed",
+                "error": str(e),
+            }
+        ]
 
     # Start the operation tracking
     tracker.start_operation()
@@ -1170,9 +1192,14 @@ def queue_bulk_account_creation_for_members(
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def process_bulk_account_creation_batch(request_names, batch_id, batch_number, tracker_name):
+def process_bulk_account_creation_batch(
+    request_names, batch_id, batch_number, tracker_name, remaining_batches=None
+):
     """
     Process a batch of account creation requests with parallel processing and enhanced error handling.
+
+    Uses chain-of-responsibility pattern: upon completion, automatically queues the next batch
+    if remaining_batches is provided. This ensures natural flow control without timeout issues.
 
     This is the background job that processes individual batches created by the
     bulk queue function. Requests are processed in parallel (up to 5 at a time)
@@ -1183,6 +1210,7 @@ def process_bulk_account_creation_batch(request_names, batch_id, batch_number, t
         batch_id: Batch identifier for logging
         batch_number: Batch number for progress tracking (1-indexed)
         tracker_name: Name of BulkOperationTracker document
+        remaining_batches: List of remaining batch metadata dicts for chaining (optional)
 
     Returns:
         dict: Batch processing results with success/failure counts
@@ -1360,6 +1388,48 @@ def process_bulk_account_creation_batch(request_names, batch_id, batch_number, t
             + "\n".join(batch_results["errors"][:10]),  # Log first 10 errors
             "Bulk Account Creation Batch Errors",
         )
+
+    # Chain-of-responsibility: Queue next batch if there are remaining batches
+    if remaining_batches and len(remaining_batches) > 0:
+        next_batch = remaining_batches[0]
+        remaining_after_next = remaining_batches[1:]
+
+        frappe.logger().info(
+            f"Batch {batch_id} completed. Chaining to next batch: {next_batch['batch_id']} "
+            f"({next_batch['batch_number']}/{next_batch['batch_number'] + len(remaining_after_next)})"
+        )
+
+        try:
+            frappe.enqueue(
+                "verenigingen.utils.account_creation_manager.process_bulk_account_creation_batch",
+                request_names=next_batch["request_names"],
+                batch_id=next_batch["batch_id"],
+                batch_number=next_batch["batch_number"],
+                tracker_name=tracker_name,
+                remaining_batches=remaining_after_next,  # Pass remaining batches forward
+                queue="long",
+                timeout=3600,
+                job_name=f"bulk_account_creation_{next_batch['batch_id']}",
+            )
+
+            frappe.logger().info(
+                f"Successfully queued next batch {next_batch['batch_id']} "
+                f"with {next_batch['request_count']} requests"
+            )
+
+        except Exception as e:
+            frappe.logger().error(
+                f"Failed to queue next batch {next_batch['batch_id']}: {str(e)}. "
+                f"Chain broken - remaining batches will not be processed!"
+            )
+            frappe.log_error(
+                f"Batch chain broken at {batch_id}. Failed to queue {next_batch['batch_id']}: {str(e)}\n"
+                f"Remaining batches: {len(remaining_batches)}",
+                "Bulk Account Creation Chain Failure",
+            )
+
+    else:
+        frappe.logger().info(f"Batch {batch_id} completed. No remaining batches - bulk operation finished!")
 
     return batch_results
 

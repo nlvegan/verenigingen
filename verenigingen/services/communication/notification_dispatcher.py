@@ -9,6 +9,8 @@ from typing import Any, Dict, List, Union
 
 import frappe
 
+from verenigingen.utils.operation_result import OperationResult
+
 from .email_service import get_email_service
 
 
@@ -40,7 +42,7 @@ class NotificationDispatcher:
 
     def dispatch_notification(
         self, notification_type: str, recipients: Union[str, List[str]], data: Dict[str, Any], **options
-    ) -> Dict[str, Any]:
+    ) -> OperationResult[Dict[str, Any]]:
         """
         Dispatch notification based on type and recipient preferences.
 
@@ -51,16 +53,14 @@ class NotificationDispatcher:
             **options: Additional options
 
         Returns:
-            Dispatch result
+            OperationResult[Dict[str, Any]]: OperationResult with dispatch result data
         """
         try:
             # Validate notification type
             if notification_type not in self.template_mapping:
-                return {
-                    "success": False,
-                    "errors": [f"Unknown notification type: {notification_type}"],
-                    "notification_type": notification_type,
-                }
+                return OperationResult.fail(
+                    f"Unknown notification type: {notification_type}", notification_type=notification_type
+                )
 
             # Get template name
             template_name = self.template_mapping[notification_type]
@@ -69,11 +69,13 @@ class NotificationDispatcher:
             filtered_recipients = self._filter_recipients_by_preferences(recipients, notification_type, data)
 
             if not filtered_recipients:
-                return {
-                    "success": True,
-                    "message": "No recipients after preference filtering",
-                    "skipped_count": len(recipients) if isinstance(recipients, list) else 1,
-                }
+                skipped_count = len(recipients) if isinstance(recipients, list) else 1
+                return OperationResult.ok(
+                    {},
+                    message="No recipients after preference filtering",
+                    skipped_count=skipped_count,
+                    skipped=True,
+                )
 
             # Dispatch via email service
             return self.email_service.send_templated_email(
@@ -84,9 +86,11 @@ class NotificationDispatcher:
             frappe.logger("notification_dispatcher").error(
                 f"Notification dispatch failed for {notification_type}: {str(e)}"
             )
-            return {"success": False, "errors": [str(e)], "notification_type": notification_type}
+            return OperationResult.fail(str(e), notification_type=notification_type)
 
-    def dispatch_bulk_notifications(self, notifications: List[Dict[str, Any]], **options) -> Dict[str, Any]:
+    def dispatch_bulk_notifications(
+        self, notifications: List[Dict[str, Any]], **options
+    ) -> OperationResult[List]:
         """
         Dispatch multiple notifications efficiently.
 
@@ -95,7 +99,7 @@ class NotificationDispatcher:
             **options: Bulk processing options
 
         Returns:
-            Bulk dispatch results
+            OperationResult[List]: OperationResult with results list, metadata includes statistics
         """
         try:
             results = []
@@ -106,7 +110,7 @@ class NotificationDispatcher:
             for notification in notifications:
                 try:
                     result = self.dispatch_notification(**notification)
-                    if result.get("success"):
+                    if result.success:
                         success_count += 1
                     else:
                         failed_count += 1
@@ -114,19 +118,20 @@ class NotificationDispatcher:
 
                 except Exception as e:
                     failed_count += 1
-                    results.append({"success": False, "errors": [str(e)], "notification": notification})
+                    results.append(OperationResult.fail(str(e), notification=notification))
 
-            return {
-                "success": True,
-                "total_notifications": total_notifications,
-                "success_count": success_count,
-                "failed_count": failed_count,
-                "success_rate": (success_count / total_notifications) * 100 if total_notifications > 0 else 0,
-                "results": results,
-            }
+            success_rate = (success_count / total_notifications) * 100 if total_notifications > 0 else 0
+
+            return OperationResult.ok(
+                results,
+                total_notifications=total_notifications,
+                success_count=success_count,
+                failed_count=failed_count,
+                success_rate=success_rate,
+            )
 
         except Exception as e:
-            return {"success": False, "errors": [str(e)], "operation": "dispatch_bulk_notifications"}
+            return OperationResult.fail(str(e), operation="dispatch_bulk_notifications")
 
     def _filter_recipients_by_preferences(
         self, recipients: Union[str, List[str]], notification_type: str, data: Dict[str, Any]

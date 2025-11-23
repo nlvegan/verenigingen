@@ -31,6 +31,7 @@ from verenigingen.utils.address_matching.dutch_address_normalizer import (
     DutchAddressNormalizer,
 )
 from verenigingen.utils.address_matching.simple_optimized_matcher import SimpleOptimizedAddressMatcher
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.validation_utilities import AgeValidator, DocumentExistenceValidator
 
 
@@ -69,7 +70,7 @@ class MemberAddressService:
     def __init__(self):
         self.logger = frappe.logger("MemberAddressService")
 
-    def update_member_address_fields(self, member) -> Dict[str, Any]:
+    def update_member_address_fields(self, member) -> OperationResult[str]:
         """
         Update computed address fields for a member with optimized performance.
 
@@ -80,12 +81,8 @@ class MemberAddressService:
             member: Member document instance
 
         Returns:
-            Dict containing:
-                - success: Boolean operation success
-                - updated_fields: Dict of fields that were updated
-                - fingerprint: Generated address fingerprint
-                - errors: List of any errors encountered
-                - warnings: List of any warnings
+            OperationResult[str]: OperationResult with fingerprint on success,
+                metadata includes updated_fields and warnings
 
         Side Effects:
             - Updates member.address_fingerprint
@@ -94,33 +91,25 @@ class MemberAddressService:
             - Updates member.address_last_updated
         """
         try:
-            result = {
-                "success": False,
-                "updated_fields": {},
-                "fingerprint": None,
-                "errors": [],
-                "warnings": [],
-            }
-
             # Handle case where member has no primary address
             if not member.primary_address:
-                self._clear_address_fields(member, result)
-                result["success"] = True
-                return result
+                warnings = []
+                self._clear_address_fields(member, {"warnings": warnings})
+                return OperationResult.ok(None, cleared=True, warnings=warnings)
 
             # Check if address normalization is needed
             needs_update = self._should_update_address_fields(member)
             if not needs_update and member.address_fingerprint:
-                result["success"] = True
-                result["fingerprint"] = member.address_fingerprint
-                return result
+                return OperationResult.ok(member.address_fingerprint, cached=True)
 
             # Perform address normalization
             normalization_result = self._normalize_member_address(member)
             if not normalization_result["success"]:
-                result["errors"].extend(normalization_result["errors"])
-                self._clear_address_fields(member, result)
-                return result
+                warnings = []
+                self._clear_address_fields(member, {"warnings": warnings})
+                return OperationResult.fail(
+                    "Address normalization failed", errors=normalization_result["errors"], warnings=warnings
+                )
 
             # Set computed fields
             member.address_fingerprint = normalization_result["fingerprint"]
@@ -128,36 +117,24 @@ class MemberAddressService:
             member.normalized_city = normalization_result["normalized_city"]
             member.address_last_updated = now()
 
-            result.update(
-                {
-                    "success": True,
-                    "updated_fields": {
-                        "address_fingerprint": normalization_result["fingerprint"],
-                        "normalized_address_line": normalization_result["normalized_line"],
-                        "normalized_city": normalization_result["normalized_city"],
-                        "address_last_updated": now(),
-                    },
-                    "fingerprint": normalization_result["fingerprint"],
-                }
-            )
+            updated_fields = {
+                "address_fingerprint": normalization_result["fingerprint"],
+                "normalized_address_line": normalization_result["normalized_line"],
+                "normalized_city": normalization_result["normalized_city"],
+                "address_last_updated": now(),
+            }
 
             self.logger.debug(f"Successfully updated address fields for member {member.name}")
-            return result
+            return OperationResult.ok(normalization_result["fingerprint"], updated_fields=updated_fields)
 
         except Exception as e:
             error_msg = f"Error updating address fields for member {member.name}: {str(e)}"
             self.logger.error(error_msg)
-            result = {
-                "success": False,
-                "updated_fields": {},
-                "fingerprint": None,
-                "errors": [error_msg],
-                "warnings": [],
-            }
-            self._clear_address_fields(member, result)
-            return result
+            warnings = []
+            self._clear_address_fields(member, {"warnings": warnings})
+            return OperationResult.fail(error_msg, warnings=warnings)
 
-    def get_colocated_members(self, member) -> Dict[str, Any]:
+    def get_colocated_members(self, member) -> OperationResult[List[Dict]]:
         """
         Get other members living at the same address with relationship inference.
 
@@ -168,20 +145,13 @@ class MemberAddressService:
             member: Member document instance
 
         Returns:
-            Dict containing:
-                - success: Boolean operation success
-                - members: List of member data dictionaries
-                - count: Number of co-located members found
-                - errors: List of any errors encountered
-                - warnings: List of any warnings
+            OperationResult[List[Dict]]: OperationResult with list of member data dictionaries,
+                metadata includes count
         """
         try:
-            result = {"success": False, "members": [], "count": 0, "errors": [], "warnings": []}
-
             if not member.primary_address:
                 self.logger.info(f"No primary address for member {member.name}")
-                result["success"] = True
-                return result
+                return OperationResult.ok([], count=0, no_address=True)
 
             # Use optimized matcher for O(log N) performance
             matching_members = SimpleOptimizedAddressMatcher.get_other_members_at_address_simple(member)
@@ -193,17 +163,15 @@ class MemberAddressService:
                 if enriched_member:
                     enriched_members.append(enriched_member)
 
-            result.update({"success": True, "members": enriched_members, "count": len(enriched_members)})
-
             self.logger.info(f"Found {len(enriched_members)} co-located members for {member.name}")
-            return result
+            return OperationResult.ok(enriched_members, count=len(enriched_members))
 
         except Exception as e:
             error_msg = f"Error getting co-located members for {member.name}: {str(e)}"
             self.logger.error(error_msg)
-            return {"success": False, "members": [], "count": 0, "errors": [error_msg], "warnings": []}
+            return OperationResult.fail(error_msg)
 
-    def generate_address_display_html(self, member, save_to_db: bool = False) -> Dict[str, Any]:
+    def generate_address_display_html(self, member, save_to_db: bool = False) -> OperationResult[str]:
         """
         Generate HTML display of co-located members for UI components.
 
@@ -215,34 +183,24 @@ class MemberAddressService:
             save_to_db: Whether to save the generated HTML to the member document
 
         Returns:
-            Dict containing:
-                - success: Boolean operation success
-                - html_content: Generated HTML string
-                - member_count: Number of members displayed
-                - errors: List of any errors encountered
-                - warnings: List of any warnings
+            OperationResult[str]: OperationResult with HTML content on success,
+                metadata includes member_count
         """
         try:
-            result = {"success": False, "html_content": "", "member_count": 0, "errors": [], "warnings": []}
-
             # Get co-located members
             colocated_result = self.get_colocated_members(member)
-            if not colocated_result["success"]:
-                result["errors"].extend(colocated_result["errors"])
-                return result
+            if not colocated_result.success:
+                return colocated_result.chain("Failed to get co-located members")
 
-            other_members = colocated_result["members"]
+            other_members = colocated_result.data
 
             if not other_members:
-                result["success"] = True
                 if save_to_db:
                     member.other_members_at_address = ""
-                return result
+                return OperationResult.ok("", member_count=0, empty=True)
 
             # Generate HTML content
             html_content = self._build_address_members_html(other_members)
-
-            result.update({"success": True, "html_content": html_content, "member_count": len(other_members)})
 
             if save_to_db:
                 member.other_members_at_address = html_content
@@ -250,18 +208,12 @@ class MemberAddressService:
             self.logger.debug(
                 f"Generated address display HTML for {member.name} with {len(other_members)} members"
             )
-            return result
+            return OperationResult.ok(html_content, member_count=len(other_members))
 
         except Exception as e:
             error_msg = f"Error generating address display HTML for {member.name}: {str(e)}"
             self.logger.error(error_msg)
-            return {
-                "success": False,
-                "html_content": "",
-                "member_count": 0,
-                "errors": [error_msg],
-                "warnings": [],
-            }
+            return OperationResult.fail(error_msg)
 
     def _clear_address_fields(self, member, result: Dict[str, Any]) -> None:
         """Clear all computed address fields to maintain data consistency."""

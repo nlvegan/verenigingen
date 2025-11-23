@@ -74,6 +74,7 @@ from verenigingen.utils.dutch_name_utils import (
     is_dutch_installation,
 )
 from verenigingen.utils.member_utils import get_active_membership_for_member, get_volunteer_for_member
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.safe_member_optimizer import safe_member_optimizer
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import (
@@ -248,14 +249,15 @@ class Member(
         try:
             result = member_address_service.update_member_address_fields(self)
 
-            if not result["success"]:
+            if not result.success:
                 # Log errors from the service
-                for error in result["errors"]:
+                for error in result.errors:
                     frappe.log_error(error, "Member Address Update")
 
                 # Log warnings if any
-                for warning in result["warnings"]:
-                    frappe.logger().warning(warning)
+                if "warnings" in result.metadata:
+                    for warning in result.metadata["warnings"]:
+                        frappe.logger().warning(warning)
 
         except Exception as e:
             frappe.log_error(
@@ -514,12 +516,12 @@ class Member(
         # Use lifecycle service for core approval logic
         result = member_lifecycle_service.approve_application(self)
 
-        if not result["success"]:
+        if not result.success:
             # If there are errors, throw the first one
-            if result["errors"]:
-                frappe.throw(_(result["errors"][0]))
+            if result.errors:
+                frappe.throw(_(result.errors[0]))
             else:
-                frappe.throw(_("Application approval failed"))
+                frappe.throw(_(result.error_message or "Application approval failed"))
 
         # Create membership - this should trigger the dues schedule logic
         return self.create_membership_on_approval()
@@ -560,12 +562,12 @@ class Member(
         # Use lifecycle service for core rejection logic
         result = member_lifecycle_service.reject_application(self, reason)
 
-        if not result["success"]:
+        if not result.success:
             # If there are errors, throw the first one
-            if result["errors"]:
-                frappe.throw(_(result["errors"][0]))
+            if result.errors:
+                frappe.throw(_(result.errors[0]))
             else:
-                frappe.throw(_("Application rejection failed"))
+                frappe.throw(_(result.error_message or "Application rejection failed"))
 
         frappe.logger().info(f"Rejected application for {self.name}")
         return True
@@ -659,12 +661,20 @@ class Member(
                 f"Failed to emit member events for {self.name}: {str(e)}", "Member Event Emission Error"
             )
 
-    def set_application_status_defaults(self):
-        """Set appropriate defaults for application_status based on member type - delegated to member_status_service"""
+    def set_application_status_defaults(self) -> "OperationResult[str]":
+        """Set appropriate defaults for application_status based on member type - delegated to member_status_service
+
+        Returns:
+            OperationResult[str]: OperationResult with application_status on success
+        """
         return set_member_application_status_defaults(self)
 
-    def sync_status_fields(self):
-        """Ensure status and application_status fields are synchronized - delegated to member_status_service"""
+    def sync_status_fields(self) -> "OperationResult[dict]":
+        """Ensure status and application_status fields are synchronized - delegated to member_status_service
+
+        Returns:
+            OperationResult[dict]: OperationResult with status fields on success
+        """
         return sync_member_status_fields(self)
 
     def after_insert(self):
@@ -889,22 +899,22 @@ class Member(
 
             result = member_address_service.get_colocated_members(self)
 
-            if not result["success"]:
+            if not result.success:
                 # Log errors from the service
-                for error in result["errors"]:
+                for error in result.errors:
                     frappe.log_error(error, "Get Colocated Members")
 
                 # Return empty list to ensure valid JSON response
                 return []
 
-            # Log warnings if any
-            for warning in result["warnings"]:
-                frappe.logger().warning(warning)
+            # Log warnings if any (warnings would be in metadata if present)
+            if "warnings" in result.metadata:
+                for warning in result.metadata["warnings"]:
+                    frappe.logger().warning(warning)
 
-            frappe.logger().info(
-                f"Found {result['count']} other members for {self.name} using address service"
-            )
-            return result["members"]
+            member_count = result.metadata.get("count", 0)
+            frappe.logger().info(f"Found {member_count} other members for {self.name} using address service")
+            return result.data
 
         except Exception as e:
             frappe.log_error(f"Error calling address service for {self.name}: {str(e)}")

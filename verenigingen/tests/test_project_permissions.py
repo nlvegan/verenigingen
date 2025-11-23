@@ -54,18 +54,36 @@ class TestProjectPermissionHelpers(EnhancedTestCase):
         """Test that volunteer lookup is cached"""
         # Create test data
         member = self.create_test_member(first_name="Test", last_name="User")
+
+        # Create a User and link it to the Member
+        user_email = f"test_user_{frappe.utils.now_datetime().strftime('%Y%m%d%H%M%S')}@test.com"
+        if not frappe.db.exists("User", user_email):
+            user = frappe.get_doc({
+                "doctype": "User",
+                "email": user_email,
+                "first_name": "Test",
+                "last_name": "User",
+                "send_welcome_email": 0
+            }).insert()
+        else:
+            user = frappe.get_doc("User", user_email)
+
+        # Link user to member
+        member.user = user_email
+        member.save()
+
         volunteer = self.create_test_volunteer(member.name)
 
         # Clear cache to ensure fresh lookup
         get_volunteer_for_user.cache_clear()
 
         # First call should hit database
-        member_name1, volunteer1 = get_volunteer_for_user(member.user)
+        member_name1, volunteer1 = get_volunteer_for_user(user_email)
         self.assertIsNotNone(volunteer1, "Volunteer lookup should return a value")
         self.assertEqual(volunteer1, volunteer.name)
 
         # Second call should use cache (verify by checking it returns same value quickly)
-        member_name2, volunteer2 = get_volunteer_for_user(member.user)
+        member_name2, volunteer2 = get_volunteer_for_user(user_email)
         self.assertEqual(volunteer2, volunteer.name)
         self.assertEqual(volunteer1, volunteer2)
 
@@ -96,11 +114,14 @@ class TestTeamPermissions(EnhancedTestCase):
 
     def test_team_leader_permissions(self):
         """Test Team Leader has read, write, create permissions"""
-        # Create team role with Team Leader permissions
-        team_role = frappe.get_doc({
-            "doctype": "Team Role",
-            "role_name": "Team Leader",
-        }).insert()
+        # Create team role with Team Leader permissions (or get existing)
+        if not frappe.db.exists("Team Role", "Team Leader"):
+            team_role = frappe.get_doc({
+                "doctype": "Team Role",
+                "role_name": "Team Leader",
+            }).insert()
+        else:
+            team_role = frappe.get_doc("Team Role", "Team Leader")
 
         # Add volunteer as team leader with required fields
         self.team.append("team_members", {
@@ -119,9 +140,19 @@ class TestTeamPermissions(EnhancedTestCase):
 
     def test_regular_member_permissions(self):
         """Test Regular Member has read-only permissions"""
+        # Create or get Regular Member role
+        if not frappe.db.exists("Team Role", "Regular Member"):
+            regular_role = frappe.get_doc({
+                "doctype": "Team Role",
+                "role_name": "Regular Member",
+            }).insert()
+        else:
+            regular_role = frappe.get_doc("Team Role", "Regular Member")
+
         # Add volunteer as regular member with required fields
         self.team.append("team_members", {
             "volunteer": self.volunteer.name,
+            "team_role": regular_role.name,
             "status": "Active",
             "from_date": frappe.utils.today(),
         })
@@ -145,27 +176,33 @@ class TestChapterPermissions(EnhancedTestCase):
         chapter_suffix = random.randint(1000, 9999)
 
         # Chapter needs a region - create one if it doesn't exist
-        if not frappe.db.exists("Region", "Test Region"):
+        # Region name is auto-generated from region_name field (becomes "test-region")
+        region_name = "test-region"
+        if not frappe.db.exists("Region", region_name):
             frappe.get_doc({
                 "doctype": "Region",
                 "region_name": "Test Region",
-            }).insert()
+                "region_code": "TR",
+            }).insert(ignore_if_duplicate=True)
 
         self.chapter = frappe.get_doc({
             "doctype": "Chapter",
             "name": f"Test Chapter {chapter_suffix}",
             "status": "Active",
-            "region": "Test Region",
+            "region": region_name,  # Use the auto-generated region name
         }).insert()
 
     def test_admin_level_permissions(self):
         """Test Admin level has all permissions"""
-        # Create Admin role
-        admin_role = frappe.get_doc({
-            "doctype": "Chapter Role",
-            "role_name": "Administrator",
-            "permissions_level": "Admin",
-        }).insert()
+        # Create Admin role (or get existing)
+        if not frappe.db.exists("Chapter Role", "Administrator"):
+            admin_role = frappe.get_doc({
+                "doctype": "Chapter Role",
+                "role_name": "Administrator",
+                "permissions_level": "Admin",
+            }).insert()
+        else:
+            admin_role = frappe.get_doc("Chapter Role", "Administrator")
 
         # Add volunteer to chapter board with Admin role and required fields
         self.chapter.append("board_members", {
@@ -184,13 +221,16 @@ class TestChapterPermissions(EnhancedTestCase):
 
     def test_chair_elevated_permissions(self):
         """Test Chapter Chair gets elevated permissions regardless of base level"""
-        # Create Chair role with Basic level
-        chair_role = frappe.get_doc({
-            "doctype": "Chapter Role",
-            "role_name": "Chair",
-            "permissions_level": "Basic",
-            "is_chair": 1,
-        }).insert()
+        # Create Chair role with Basic level (or get existing)
+        if not frappe.db.exists("Chapter Role", "Chair"):
+            chair_role = frappe.get_doc({
+                "doctype": "Chapter Role",
+                "role_name": "Chair",
+                "permissions_level": "Basic",
+                "is_chair": 1,
+            }).insert()
+        else:
+            chair_role = frappe.get_doc("Chapter Role", "Chair")
 
         # Add volunteer as chair with required fields
         self.chapter.append("board_members", {

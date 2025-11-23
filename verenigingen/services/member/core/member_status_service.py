@@ -15,10 +15,11 @@ import frappe
 
 # Import member utils for active membership lookup
 from verenigingen.utils.member_utils import get_active_membership_for_member
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.service_error_handler import handle_service_error, safe_import
 
 
-def set_member_application_status_defaults(member_doc):
+def set_member_application_status_defaults(member_doc) -> OperationResult[str]:
     """Set appropriate defaults for application_status based on member type.
 
     Extracted from member.py without modification. Implements logic directly
@@ -28,17 +29,14 @@ def set_member_application_status_defaults(member_doc):
         member_doc: Member document instance to update
 
     Returns:
-        dict: Result with success status and any errors
+        OperationResult[str]: OperationResult with application_status on success
     """
     try:
         # Skip application_status setting during CSV import
         # CSV imported members are backend-created, not application-created
         if getattr(member_doc, "_csv_import", False) or getattr(member_doc, "_skip_status_validation", False):
-            return {
-                "success": True,
-                "application_status": getattr(member_doc, "application_status", None),
-                "skipped": True,
-            }
+            current_status = getattr(member_doc, "application_status", None)
+            return OperationResult.ok(current_status, skipped=True)
 
         # Set default application_status if not set
         if not getattr(member_doc, "application_status", ""):
@@ -49,7 +47,7 @@ def set_member_application_status_defaults(member_doc):
                 # Existing member without application status - assume approved
                 member_doc.application_status = "Approved"
 
-        return {"success": True, "application_status": member_doc.application_status}
+        return OperationResult.ok(member_doc.application_status)
 
     except Exception as e:
         handle_service_error(
@@ -59,10 +57,10 @@ def set_member_application_status_defaults(member_doc):
             {"member": getattr(member_doc, "name", "Unknown")},
             raise_error=False,
         )
-        return {"success": False, "errors": [str(e)]}
+        return OperationResult.fail(f"Failed to set application status defaults: {str(e)}")
 
 
-def sync_member_status_fields(member_doc):
+def sync_member_status_fields(member_doc) -> OperationResult[dict]:
     """Ensure status and application_status fields are synchronized.
 
     Extracted from member.py without modification. Implements logic directly
@@ -72,21 +70,24 @@ def sync_member_status_fields(member_doc):
         member_doc: Member document instance to synchronize
 
     Returns:
-        dict: Result with success status and any errors
+        OperationResult[dict]: OperationResult with status fields on success
     """
     try:
         # Ensure application_status is set
-        set_member_application_status_defaults(member_doc)
+        app_status_result = set_member_application_status_defaults(member_doc)
+        if not app_status_result.success:
+            return app_status_result.chain("Failed to set application status")
 
         # Update membership status based on current memberships
         update_member_membership_status(member_doc)
 
-        return {
-            "success": True,
+        status_data = {
             "status": member_doc.status,
             "application_status": member_doc.application_status,
             "membership_status": member_doc.membership_status,
         }
+
+        return OperationResult.ok(status_data)
 
     except Exception as e:
         handle_service_error(
@@ -96,7 +97,7 @@ def sync_member_status_fields(member_doc):
             {"member": getattr(member_doc, "name", "Unknown")},
             raise_error=False,
         )
-        return {"success": False, "errors": [str(e)]}
+        return OperationResult.fail(f"Failed to sync status fields: {str(e)}")
 
 
 def update_member_membership_status(member_doc):

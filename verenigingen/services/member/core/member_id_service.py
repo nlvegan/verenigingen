@@ -17,6 +17,7 @@ import time
 import frappe
 from frappe import _
 
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.service_error_handler import create_service_result, handle_service_error
 
 
@@ -122,44 +123,44 @@ def validate_id_uniqueness(id_value, id_type="member_id"):
     return not bool(exists)
 
 
-def ensure_member_has_id(member_doc):
+def ensure_member_has_id(member_doc) -> OperationResult[str]:
     """Ensure a member document has appropriate ID assigned.
 
     Args:
         member_doc: Member document instance
 
     Returns:
-        dict: Result with success status and message
+        OperationResult[str]: OperationResult with member_id on success
     """
     if not member_doc.member_id and member_doc.should_have_member_id():
         member_doc.member_id = generate_member_id()
         member_doc.save()
-        return {"success": True, "message": _("Member ID assigned successfully")}
-    return {"success": False, "message": _("Member already has an ID or doesn't qualify for one")}
+        return OperationResult.ok(member_doc.member_id, message=_("Member ID assigned successfully"))
+    return OperationResult.fail(_("Member already has an ID or doesn't qualify for one"))
 
 
-def force_assign_member_id(member_doc):
+def force_assign_member_id(member_doc) -> OperationResult[str]:
     """Force assign a member ID regardless of normal rules (admin only).
 
     Args:
         member_doc: Member document instance
 
     Returns:
-        dict: Result with success status and message
+        OperationResult[str]: OperationResult with member_id on success
     """
     # Check if user has permission
     if not frappe.has_permission("Member", "write") or "System Manager" not in frappe.get_roles():
         frappe.throw(_("Only System Managers can force assign member IDs"))
 
     if member_doc.member_id:
-        return {
-            "success": False,
-            "message": _("Member already has a member ID: {0}").format(member_doc.member_id),
-        }
+        return OperationResult.fail(
+            _("Member already has a member ID: {0}").format(member_doc.member_id),
+            existing_id=member_doc.member_id,
+        )
 
     member_doc.member_id = generate_member_id()
     member_doc.save()
-    return {
-        "success": True,
-        "message": _("Member ID force assigned successfully: {0}").format(member_doc.member_id),
-    }
+    return OperationResult.ok(
+        member_doc.member_id,
+        message=_("Member ID force assigned successfully: {0}").format(member_doc.member_id),
+    )

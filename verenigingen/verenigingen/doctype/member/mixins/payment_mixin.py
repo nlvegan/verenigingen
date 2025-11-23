@@ -168,108 +168,6 @@ class PaymentMixin:
             # Fallback to full refresh
             return self.load_payment_history()
 
-    def invalidate_payment_cache_for_entry(self, payment_entry_name):
-        """Invalidate cache entries related to specific payment entry"""
-        try:
-            # Invalidate member-specific cache
-            cache_key = f"payment_history_optimized_{self.name}_{self.modified}"
-            frappe.cache().delete(cache_key)
-
-            # Invalidate payment-specific cache if it exists
-            payment_cache_key = f"payment_entry_cache_{payment_entry_name}"
-            frappe.cache().delete(payment_cache_key)
-
-        except Exception as e:
-            frappe.log_error(f"Cache invalidation failed for {payment_entry_name}: {e}")
-
-    def get_invoices_for_payment(self, payment_entry_name):
-        """Get invoices affected by a specific payment entry"""
-        try:
-            # Get all invoice references for this payment entry
-            payment_refs = frappe.get_all(
-                "Payment Entry Reference",
-                filters={"parent": payment_entry_name, "reference_doctype": "Sales Invoice"},
-                fields=["reference_name"],
-            )
-
-            return [ref.reference_name for ref in payment_refs]
-
-        except Exception as e:
-            frappe.log_error(f"Failed to get invoices for payment {payment_entry_name}: {e}")
-            return []
-
-    def update_payment_history_for_invoices(self, invoice_names):
-        """Update payment history for specific invoices only"""
-        try:
-            if not invoice_names:
-                return {"updated": 0}
-
-            # Remove existing entries for these invoices
-            updated_history = []
-            for entry in self.payment_history:
-                if entry.invoice not in invoice_names:
-                    updated_history.append(entry)
-
-            # Clear and rebuild with filtered entries
-            self.payment_history = []
-            for entry in updated_history:
-                self.append("payment_history", entry)
-
-            # Use batch query to reload data for specific invoices
-            from verenigingen.utils.background_jobs import load_payment_history_batch_optimized
-
-            # Create temporary member doc with only affected invoices
-            # temp_result = self.load_specific_invoices_optimized(invoice_names)  # Result not used
-
-            return {"updated": len(invoice_names)}
-
-        except Exception as e:
-            frappe.log_error(f"Failed to update payment history for invoices: {e}")
-            return {"updated": 0}
-
-    def load_specific_invoices_optimized(self, invoice_names):
-        """Load payment history for specific invoices using optimized batch approach"""
-        try:
-            # This is a simplified version of the batch optimization
-            # that only processes specific invoices
-
-            customer = self.customer
-
-            # Get specific invoices with all fields
-            base_fields = [
-                "name",
-                "posting_date",
-                "due_date",
-                "grand_total",
-                "outstanding_amount",
-                "status",
-                "docstatus",
-                "membership",
-            ]
-
-            coverage_fields = []
-            if frappe.db.has_column("Sales Invoice", "custom_coverage_start_date"):
-                coverage_fields.append("custom_coverage_start_date")
-            if frappe.db.has_column("Sales Invoice", "custom_coverage_end_date"):
-                coverage_fields.append("custom_coverage_end_date")
-
-            query_fields = base_fields + coverage_fields
-
-            invoices = frappe.get_all(
-                "Sales Invoice",
-                filters={"name": ["in", invoice_names], "customer": customer},
-                fields=query_fields,
-            )
-
-            # Use the same batch optimization approach for these specific invoices
-            # (Implementation would mirror load_payment_history_batch_optimized but filtered)
-
-            return {"invoices_processed": len(invoices)}
-
-        except Exception as e:
-            frappe.log_error(f"Failed to load specific invoices: {e}")
-            return {"invoices_processed": 0}
-
     def _load_payment_history_without_save(self):
         """
         Internal method to load payment history without saving.
@@ -1014,32 +912,6 @@ class PaymentMixin:
             )
             return (None, None)
 
-    def _calculate_coverage_from_invoice_date(self, invoice_date, schedule_info):
-        """
-        Calculate coverage period from invoice date and billing frequency.
-
-        CONSOLIDATED: Delegates to CoverageCalculator.calculate_billing_period() for consistent
-        coverage calculation logic across the application.
-        """
-        try:
-            from verenigingen.services.billing.coverage_calculator import CoverageCalculator
-
-            billing_frequency = schedule_info.get("billing_frequency", "Daily")
-            custom_frequency_number = schedule_info.get("custom_frequency_number")
-            custom_frequency_unit = schedule_info.get("custom_frequency_unit")
-
-            # Delegate to coverage calculator service
-            return CoverageCalculator.calculate_billing_period(
-                billing_frequency, invoice_date, custom_frequency_number, custom_frequency_unit
-            )
-
-        except Exception as e:
-            frappe.log_error(
-                f"Error calculating coverage from invoice date {invoice_date}: {str(e)}",
-                "Coverage Calculation Error",
-            )
-            return (None, None)
-
     def _get_coverage_from_invoice(self, invoice):
         """Fallback: get coverage from invoice cache"""
         try:
@@ -1255,48 +1127,6 @@ class PaymentMixin:
         except Exception:
             return True
 
-    def _cleanup_broken_history_entries(self):
-        """
-        Remove invalid/broken entries from ALL member history child tables.
-
-        Uses centralized HistoryIntegrityManager for safe, permission-validated cleanup.
-        Cleans payment_history, fee_change_history, and volunteer_expenses (if applicable).
-
-        Returns:
-            dict: Cleanup statistics including counts of removed entries by reason
-        """
-        from verenigingen.utils.member_history_integrity import HistoryIntegrityManager
-
-        manager = HistoryIntegrityManager(self)
-
-        # Clean all history types
-        payment_stats = manager.cleanup_payment_history()
-        fee_stats = manager.cleanup_fee_history()
-
-        # Also clean volunteer expenses if employee exists
-        expense_stats = {"removed": 0, "errors": 0, "details": [], "error_details": []}
-        if hasattr(self, "employee") and self.employee:
-            expense_stats = manager.cleanup_volunteer_expense_history()
-
-        total_removed = payment_stats["removed"] + fee_stats["removed"] + expense_stats["removed"]
-
-        # Save changes if any entries were removed
-        if total_removed > 0:
-            from verenigingen.utils.member_financial_history_manager import MemberFinancialHistoryManager
-
-            history_manager = MemberFinancialHistoryManager(self, "payment_history")
-            history_manager._save_with_retry(max_retries=3)
-
-        # Convert to legacy format for backward compatibility, include detailed stats
-        return {
-            "removed": total_removed,
-            "reasons": {"total": total_removed},
-            "errors": payment_stats["errors"] + fee_stats["errors"] + expense_stats["errors"],
-            "payment": payment_stats,
-            "fee": fee_stats,
-            "expense": expense_stats,
-        }
-
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.FINANCIAL)
     def refresh_financial_history(self):
@@ -1345,61 +1175,6 @@ class PaymentMixin:
         except Exception as e:
             frappe.logger().error(f"Error refreshing financial history for member {self.name}: {str(e)}")
             return {"success": False, "message": f"Error refreshing financial history: {str(e)}"}
-
-    def _atomic_payment_history_refresh(self):
-        """
-        Atomic payment history refresh - only adds missing invoices, never clears existing data
-        Returns the number of new entries added
-        """
-        if not self.customer:
-            return 0
-
-        try:
-            # Get all invoices for this customer
-            invoices = frappe.get_all(
-                "Sales Invoice",
-                filters={
-                    "customer": self.customer,
-                    "docstatus": ["in", [0, 1]],  # Include both draft and submitted
-                },
-                fields=["name", "posting_date", "creation"],
-                order_by="posting_date desc",
-            )
-
-            # Get existing payment history invoice names for quick lookup
-            existing_invoices = set()
-            for row in self.payment_history or []:
-                if row.invoice:
-                    existing_invoices.add(row.invoice)
-
-            # Add missing invoices only - build entries directly for synchronous refresh
-            added_count = 0
-            for invoice_data in invoices:
-                invoice_name = invoice_data.name
-                if invoice_name not in existing_invoices:
-                    # Build entry directly instead of queuing to batch processor
-                    try:
-                        invoice = frappe.get_doc("Sales Invoice", invoice_name)
-                        entry = self._build_payment_history_entry(invoice)
-                        if entry:
-                            self.append("payment_history", entry)
-                            added_count += 1
-                    except Exception as e:
-                        frappe.logger().error(f"Error adding invoice {invoice_name} to history: {e}")
-                        continue
-
-            # Save all new entries at once using child table update
-            if added_count > 0:
-                from verenigingen.utils.member_financial_history_manager import MemberFinancialHistoryManager
-
-                manager = MemberFinancialHistoryManager(self, "payment_history")
-                manager._save_with_retry(max_retries=3)
-
-            return added_count
-
-        except Exception as e:
-            frappe.logger().error(f"Error in atomic payment history refresh: {str(e)}")
-            return 0
 
     @frappe.whitelist()
     @critical_api(operation_type=OperationType.FINANCIAL)
@@ -1510,13 +1285,6 @@ class PaymentMixin:
                     )
                     return None
         return None
-
-    def remove_invoice_from_payment_history(self, invoice_name):
-        """Remove a cancelled invoice from payment history using batched processing"""
-        from verenigingen.utils.financial_history_batch_processor import queue_payment_removal
-
-        queue_payment_removal(self.name, invoice_name)
-        return True  # Queued successfully
 
     def update_invoice_in_payment_history(self, invoice_name):
         """Update an existing invoice in payment history using consolidated manager"""

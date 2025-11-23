@@ -25,6 +25,8 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime, today
 
+from verenigingen.utils.operation_result import OperationResult
+
 if TYPE_CHECKING:
     from frappe.model.document import Document
 
@@ -43,7 +45,7 @@ class MemberLifecycleService:
         """Initialize the Member Lifecycle Service"""
         pass
 
-    def approve_application(self, member: "Document") -> Dict[str, Any]:
+    def approve_application(self, member: "Document") -> OperationResult[str]:
         """
         Validate application and assign member_id.
 
@@ -54,13 +56,13 @@ class MemberLifecycleService:
             member: Member document to approve
 
         Returns:
-            Dict[str, Any]: Dictionary containing success status, member_id, and any errors
+            OperationResult[str]: OperationResult with member_id on success or error details on failure
         """
         try:
             # Validate pre-conditions
             validation_result = self._validate_application_approval(member)
-            if not validation_result["success"]:
-                return validation_result
+            if not validation_result.success:
+                return validation_result.chain("Application validation failed")
 
             # Assign member ID if needed (this is the only field this service should set)
             if not member.member_id:
@@ -72,21 +74,13 @@ class MemberLifecycleService:
                 member.save()
                 # Framework handles commit automatically
 
-            return {
-                "success": True,
-                "member_id": member.member_id,
-                "errors": [],
-            }
+            return OperationResult.ok(member.member_id, approved=True)
 
         except Exception as e:
             logger.error(f"Error validating application for member {member.name}: {str(e)}")
-            return {
-                "success": False,
-                "member_id": None,
-                "errors": [f"Application validation failed: {str(e)}"],
-            }
+            return OperationResult.fail(f"Application validation failed: {str(e)}")
 
-    def reject_application(self, member: "Document", reason: str) -> Dict[str, Any]:
+    def reject_application(self, member: "Document", reason: str) -> OperationResult[str]:
         """
         Reject member application and clean up pending records.
 
@@ -95,13 +89,13 @@ class MemberLifecycleService:
             reason: Reason for rejection
 
         Returns:
-            Dict[str, Any]: Dictionary containing success status and any errors
+            OperationResult[str]: OperationResult with status on success or error details on failure
         """
         try:
             # Validate pre-conditions
             validation_result = self._validate_application_rejection(member)
-            if not validation_result["success"]:
-                return validation_result
+            if not validation_result.success:
+                return validation_result.chain("Application rejection validation failed")
 
             # Update status fields
             member.application_status = "Rejected"
@@ -112,29 +106,22 @@ class MemberLifecycleService:
 
             # Save with concurrency handling
             save_result = self._save_member_with_retry(member, "reject")
-            if not save_result["success"]:
-                return save_result
+            if not save_result.success:
+                return save_result.chain("Failed to save rejected application")
 
             # Perform post-rejection cleanup
             cleanup_result = self._perform_post_rejection_cleanup(member)
 
-            return {
-                "success": True,
-                "status": member.status,
-                "review_date": member.review_date,
-                "cleanup_results": cleanup_result,
-                "errors": [],
-            }
+            return OperationResult.ok(
+                member.status,
+                rejected=True,
+                review_date=str(member.review_date),
+                cleanup_results=cleanup_result,
+            )
 
         except Exception as e:
             logger.error(f"Error rejecting application for member {member.name}: {str(e)}")
-            return {
-                "success": False,
-                "status": None,
-                "review_date": None,
-                "cleanup_results": {},
-                "errors": [f"Application rejection failed: {str(e)}"],
-            }
+            return OperationResult.fail(f"Application rejection failed: {str(e)}")
 
     def update_membership_status(self, member) -> Dict[str, Any]:
         """
@@ -340,31 +327,47 @@ class MemberLifecycleService:
 
     # Private helper methods
 
-    def _validate_application_approval(self, member) -> Dict[str, Any]:
-        """Validate that application can be approved"""
+    def _validate_application_approval(self, member) -> OperationResult[None]:
+        """Validate that application can be approved
+
+        Returns:
+            OperationResult[None]: Success if validation passes, failure with errors otherwise
+        """
         if not self.is_application_member(member):
-            return {"success": False, "errors": ["This is not an application member"]}
+            return OperationResult.fail(
+                "Not an application member", errors=["This is not an application member"]
+            )
 
         if getattr(member, "application_status", None) == "Approved":
-            return {"success": False, "errors": ["Application is already approved"]}
+            return OperationResult.fail("Already approved", errors=["Application is already approved"])
 
-        return {"success": True, "errors": []}
+        return OperationResult.ok(None)
 
-    def _validate_application_rejection(self, member) -> Dict[str, Any]:
-        """Validate that application can be rejected"""
+    def _validate_application_rejection(self, member) -> OperationResult[None]:
+        """Validate that application can be rejected
+
+        Returns:
+            OperationResult[None]: Success if validation passes, failure with errors otherwise
+        """
         if not self.is_application_member(member):
-            return {"success": False, "errors": ["This is not an application member"]}
+            return OperationResult.fail(
+                "Not an application member", errors=["This is not an application member"]
+            )
 
         if getattr(member, "application_status", None) == "Rejected":
-            return {"success": False, "errors": ["Application is already rejected"]}
+            return OperationResult.fail("Already rejected", errors=["Application is already rejected"])
 
-        return {"success": True, "errors": []}
+        return OperationResult.ok(None)
 
-    def _save_member_with_retry(self, member, operation: str) -> Dict[str, Any]:
-        """Save member with concurrency handling"""
+    def _save_member_with_retry(self, member, operation: str) -> OperationResult[None]:
+        """Save member with concurrency handling
+
+        Returns:
+            OperationResult[None]: Success if save succeeds, failure with errors otherwise
+        """
         try:
             member.save()
-            return {"success": True, "errors": []}
+            return OperationResult.ok(None)
         except frappe.TimestampMismatchError:
             # Reload member and retry save once
             try:
@@ -385,11 +388,11 @@ class MemberLifecycleService:
                     member.review_date = now_datetime()
 
                 member.save()
-                return {"success": True, "errors": []}
+                return OperationResult.ok(None, retried=True)
             except Exception as e:
-                return {"success": False, "errors": [f"Failed to save after retry: {str(e)}"]}
+                return OperationResult.fail(f"Failed to save after retry: {str(e)}")
         except Exception as e:
-            return {"success": False, "errors": [f"Failed to save member: {str(e)}"]}
+            return OperationResult.fail(f"Failed to save member: {str(e)}")
 
     def _perform_post_approval_setup(self, member) -> Dict[str, Any]:
         """Perform post-approval setup tasks"""
