@@ -272,7 +272,49 @@ class AccountCreationManager:
                     frappe.flags.in_import = True
                     frappe.flags.mute_emails = True  # Frappe-native email suppression
 
-                user_doc.insert()
+                # Retry logic for deadlock errors during user creation
+                # MySQL deadlocks can occur when multiple users are created concurrently
+                # and they all try to insert default values (timezone, etc.) simultaneously
+                max_retries = 5
+                retry_delay_base = 0.1  # 100ms base delay
+
+                for attempt in range(max_retries):
+                    try:
+                        user_doc.insert()
+                        break  # Success - exit retry loop
+
+                    except (frappe.exceptions.QueryDeadlockError, frappe.db.InternalError) as deadlock_error:
+                        # Check if it's actually a deadlock (MySQL error 1213)
+                        error_str = str(deadlock_error)
+                        is_deadlock = (
+                            "1213" in error_str or "Deadlock" in error_str or "deadlock" in error_str.lower()
+                        )
+
+                        if not is_deadlock or attempt >= max_retries - 1:
+                            # Not a deadlock or exhausted retries - re-raise
+                            raise
+
+                        # Deadlock detected - retry with exponential backoff + jitter
+                        import random
+                        import time
+
+                        # Exponential backoff: 100ms, 200ms, 400ms, 800ms, 1600ms
+                        delay = retry_delay_base * (2**attempt) + random.uniform(0, 0.05)
+
+                        frappe.logger().warning(
+                            f"Deadlock during user creation for {self.request.email}, "
+                            f"retrying in {delay:.3f}s (attempt {attempt + 1}/{max_retries})"
+                        )
+
+                        time.sleep(delay)
+
+                        # Rollback any partial transaction before retrying
+                        frappe.db.rollback()
+
+                        # Create a fresh user document for retry
+                        user_doc = frappe.get_doc(user_data)
+
+                        continue  # Retry the insert
 
             except frappe.exceptions.UniqueValidationError as e:
                 # Handle duplicate username - Frappe auto-generates username from first name
@@ -285,7 +327,40 @@ class AccountCreationManager:
                     user_doc.username = self.request.email.split("@")[0]  # Use email prefix
                     try:
                         # Email suppression already set via frappe.flags.mute_emails above
-                        user_doc.insert()
+                        # Apply same retry logic for username retry attempt
+                        for retry_attempt in range(max_retries):
+                            try:
+                                user_doc.insert()
+                                break
+                            except (
+                                frappe.exceptions.QueryDeadlockError,
+                                frappe.db.InternalError,
+                            ) as retry_deadlock:
+                                retry_error_str = str(retry_deadlock)
+                                retry_is_deadlock = (
+                                    "1213" in retry_error_str
+                                    or "Deadlock" in retry_error_str
+                                    or "deadlock" in retry_error_str.lower()
+                                )
+
+                                if not retry_is_deadlock or retry_attempt >= max_retries - 1:
+                                    raise
+
+                                import random
+                                import time
+
+                                retry_delay = retry_delay_base * (2**retry_attempt) + random.uniform(
+                                    0, 0.05
+                                )
+                                frappe.logger().warning(
+                                    f"Deadlock on username retry for {self.request.email}, "
+                                    f"retrying in {retry_delay:.3f}s (attempt {retry_attempt + 1}/{max_retries})"
+                                )
+                                time.sleep(retry_delay)
+                                frappe.db.rollback()
+                                user_doc = frappe.get_doc(user_data)
+                                user_doc.username = self.request.email.split("@")[0]
+                                continue
                     except:
                         # If still fails, this is a real duplicate - check if user exists
                         if frappe.db.exists("User", self.request.email):

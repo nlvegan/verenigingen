@@ -59,7 +59,7 @@
       "fieldtype": "Select",
       "in_list_view": 1,
       "label": "Status",
-      "options": "Active\nPending\nCompleted\nTerminated",
+      "options": "Active\nPending\nCompleted\nInactive\nTerminated",
       "columns": 1
     },
     {

@@ -32,6 +32,8 @@ Last Updated: 2025-08-02
 """
 
 import random
+from datetime import date, datetime
+from typing import Any, Dict, List, Optional, Union
 
 import frappe
 from frappe import _
@@ -92,7 +94,7 @@ from verenigingen.verenigingen.doctype.member.mixins.sepa_mixin import SEPAManda
 from verenigingen.verenigingen.doctype.member.mixins.termination_mixin import TerminationMixin
 
 
-def generate_volunteer_details_html(member_doc):
+def generate_volunteer_details_html(member_doc: "Member") -> str:
     """
     Generate HTML display for volunteer details and assignment history.
 
@@ -150,7 +152,7 @@ class Member(
         - Dutch naming convention support
     """
 
-    def before_save(self):
+    def before_save(self) -> None:
         """Execute before saving the document with optimized performance.
 
         Performs necessary field updates and validations before saving,
@@ -364,7 +366,7 @@ class Member(
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.MEMBER_DATA)
-    def get_address_members_html(self):
+    def get_address_members_html(self) -> str:
         """Get HTML content for address members field - delegates to MemberAddressDisplayService"""
         from verenigingen.services.member.display.member_address_display_service import (
             MemberAddressDisplayService,
@@ -380,7 +382,7 @@ class Member(
 
     @frappe.whitelist()
     @development_only_api(operation_type=OperationType.UTILITY)
-    def after_save(self):
+    def after_save(self) -> None:
         """Execute after saving the document"""
         # Note: IBAN history creation is handled in two ways:
         # 1. For application members: During application approval in membership_application_review.py
@@ -457,11 +459,11 @@ class Member(
             frappe.log_error(f"Critical error in onload method for {self.name}: {e}")
             # Don't raise exception to prevent form loading issues
 
-    def is_application_member(self):
+    def is_application_member(self) -> bool:
         """Check if this member was created through the application process"""
         return member_lifecycle_service.is_application_member(self)
 
-    def should_have_member_id(self):
+    def should_have_member_id(self) -> bool:
         """Check if this member should have a member ID assigned"""
         # Non-application members should get member ID immediately
         if not self.is_application_member():
@@ -476,7 +478,7 @@ class Member(
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.ADMIN)
-    def ensure_member_id(self):
+    def ensure_member_id(self) -> Optional[str]:
         """Ensure this member has a member ID if they should have one - delegated to member_id_service"""
         from verenigingen.services.member.core.member_id_service import ensure_member_has_id
 
@@ -484,7 +486,7 @@ class Member(
 
     @frappe.whitelist()
     @critical_api(operation_type=OperationType.ADMIN)
-    def force_assign_member_id(self):
+    def force_assign_member_id(self) -> str:
         """Force assign a member ID regardless of normal rules (admin only) - delegated to member_id_service"""
         from verenigingen.services.member.core.member_id_service import force_assign_member_id
 
@@ -507,7 +509,7 @@ class Member(
 
     @frappe.whitelist()
     @critical_api(operation_type=OperationType.ADMIN)
-    def approve_application(self):
+    def approve_application(self) -> bool:
         """Approve this application and assign member ID"""
         # Use lifecycle service for core approval logic
         result = member_lifecycle_service.approve_application(self)
@@ -553,7 +555,7 @@ class Member(
 
     @frappe.whitelist()
     @critical_api(operation_type=OperationType.ADMIN)
-    def reject_application(self, reason):
+    def reject_application(self, reason: str) -> bool:
         """Reject this application and clean up pending records"""
         # Use lifecycle service for core rejection logic
         result = member_lifecycle_service.reject_application(self, reason)
@@ -568,7 +570,7 @@ class Member(
         frappe.logger().info(f"Rejected application for {self.name}")
         return True
 
-    def validate(self):
+    def validate(self) -> None:
         """Validate document data with optional performance optimizations"""
         # Note: Initial IBAN history for directly created members should be handled manually
         # after creation, or through the application approval process for application members
@@ -769,7 +771,7 @@ class Member(
 
     @frappe.whitelist()
     @critical_api(operation_type=OperationType.FINANCIAL)
-    def create_customer(self):
+    def create_customer(self) -> str:
         """Create a customer for this member in ERPNext - delegated to customer_service"""
         suppress_messages = getattr(self, "_suppress_customer_messages", False)
         customer_name = create_customer_for_member(self, suppress_messages)
@@ -789,7 +791,7 @@ class Member(
 
     @frappe.whitelist()
     @critical_api(operation_type=OperationType.ADMIN)
-    def create_user(self):
+    def create_user(self) -> Dict[str, Any]:
         """Create a user account for this member - delegates to MemberUserAccountService"""
         from verenigingen.services.member.account.member_user_account_service import MemberUserAccountService
 
@@ -909,7 +911,7 @@ class Member(
             # Return empty list to ensure valid JSON response
             return []
 
-    def calculate_cumulative_membership_duration(self):
+    def calculate_cumulative_membership_duration(self) -> None:
         """Calculate and set total membership duration in human-readable format.
 
         Calculates duration on-demand from Membership records (start_date, cancellation_date).

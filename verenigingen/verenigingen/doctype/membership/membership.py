@@ -1,3 +1,6 @@
+from datetime import date
+from typing import Any, Dict, List, Optional
+
 import frappe
 from frappe import _
 from frappe.model.document import Document
@@ -14,7 +17,7 @@ from verenigingen.utils.validation_utilities import DateRangeValidator
 
 
 class Membership(Document):
-    def validate(self):
+    def validate(self) -> None:
         self.validate_dates()
         self.validate_membership_type()
         self.validate_existing_memberships()
@@ -23,7 +26,7 @@ class Membership(Document):
         self.set_grace_period_expiry()  # Set default grace period expiry if needed
         self.set_status()
 
-    def on_submit(self):
+    def on_submit(self) -> None:
         """Create or update dues schedule when membership is submitted"""
         # Skip dues schedule creation if flag is set (used in testing)
         if not getattr(self.flags, "skip_dues_schedule_creation", False):
@@ -52,11 +55,11 @@ class Membership(Document):
         self.update_member_current_membership_plan()
         self.update_member_duration()
 
-    def on_cancel(self):
+    def on_cancel(self) -> None:
         """Handle dues schedule when membership is cancelled"""
         self.pause_dues_schedule()
 
-    def on_trash(self):
+    def on_trash(self) -> None:
         """Clean up Membership Dues Schedules linked to this membership"""
         dues_schedules = frappe.get_all(
             "Membership Dues Schedule", filters={"membership": self.name}, pluck="name"

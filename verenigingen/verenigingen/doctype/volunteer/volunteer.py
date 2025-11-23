@@ -57,6 +57,9 @@ Author: Verenigingen Development Team
 License: MIT
 """
 
+from datetime import date
+from typing import Any, Dict, List, Optional
+
 import frappe
 from frappe import _
 from frappe.contacts.address_and_contact import load_address_and_contact
@@ -72,7 +75,7 @@ from verenigingen.utils.security.api_security_framework import OperationType, hi
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
-def safe_log_error(message, title=None):
+def safe_log_error(message: str, title: Optional[str] = None) -> None:
     """Helper to log errors with length protection"""
     # Truncate message to prevent log title validation errors
     safe_message = message[:100] + "..." if len(message) > 100 else message
@@ -80,7 +83,7 @@ def safe_log_error(message, title=None):
 
 
 class Volunteer(Document):
-    def onload(self):
+    def onload(self) -> None:
         """Load address and contacts in `__onload`"""
         # If this volunteer is linked to a member, load member's address and contact info
         if self.member:
@@ -99,11 +102,11 @@ class Volunteer(Document):
         # Load aggregated assignments
         self.load_aggregated_assignments()
 
-    def load_aggregated_assignments(self):
+    def load_aggregated_assignments(self) -> None:
         """Load aggregated assignments from all sources"""
         self.get("__onload").aggregated_assignments = self.get_aggregated_assignments()
 
-    def validate(self):
+    def validate(self) -> None:
         """Validate volunteer data"""
         self.validate_required_fields()
         self.validate_member_link()
@@ -178,7 +181,7 @@ class Volunteer(Document):
                         _("Assignment start date cannot be after end date for {0}").format(assignment.role)
                     )
 
-    def before_save(self):
+    def before_save(self) -> None:
         """Actions before saving volunteer record"""
         # Update volunteer status based on assignments
         self.update_status()
@@ -270,7 +273,7 @@ class Volunteer(Document):
 
     @frappe.whitelist()
     @standard_api(operation_type=OperationType.UTILITY)
-    def get_aggregated_assignments(self):
+    def get_aggregated_assignments(self) -> List[Dict[str, Any]]:
         """Get aggregated assignments from all sources with optimized single query
 
         Delegates to VolunteerAssignmentService for business logic.
@@ -351,7 +354,7 @@ class Volunteer(Document):
 
     @frappe.whitelist()
     @standard_api(operation_type=OperationType.REPORTING)
-    def get_volunteer_history(self):
+    def get_volunteer_history(self) -> List[Dict[str, Any]]:
         """Get volunteer history in chronological order with optimized single query
 
         Delegates to VolunteerAssignmentService for business logic.

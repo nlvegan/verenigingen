@@ -247,14 +247,97 @@ class AccountCreationRequest(Document):
         # Default deny
         return False
 
+    def _get_queue_depth(self, queue_name="long"):
+        """Get current depth of specified Redis queue"""
+        try:
+            import redis
+            from frappe.utils.background_jobs import get_redis_conn
+
+            conn = get_redis_conn()
+            queue_key = f"rq:queue:{queue_name}"
+
+            # Get queue length (number of jobs waiting to be processed)
+            queue_length = conn.llen(queue_key)
+            return queue_length
+        except Exception as e:
+            frappe.logger().warning(f"Could not check queue depth: {str(e)}")
+            return 0  # Assume empty if we can't check
+
+    def _wait_for_queue_capacity(self, max_queue_depth=200, max_wait_seconds=60):
+        """
+        Wait for queue to have capacity before queueing new job.
+
+        This prevents queue overload during bulk imports by throttling when
+        the queue gets too full. Uses exponential backoff with maximum wait time.
+
+        Args:
+            max_queue_depth: Maximum queue size before throttling (default: 200)
+            max_wait_seconds: Maximum total time to wait (default: 60s)
+        """
+        import time
+
+        # Skip throttling during tests
+        if frappe.flags.in_test:
+            return
+
+        current_depth = self._get_queue_depth()
+
+        if current_depth < max_queue_depth:
+            # Queue has capacity - proceed immediately
+            return
+
+        # Queue is full - need to wait
+        frappe.logger().info(
+            f"Queue throttling: {current_depth} jobs queued (max: {max_queue_depth}), "
+            f"waiting for capacity before queueing {self.name}"
+        )
+
+        wait_start = time.time()
+        retry_delay = 1.0  # Start with 1 second delay
+        max_retry_delay = 10.0  # Cap at 10 seconds between checks
+
+        while True:
+            # Check if we've exceeded maximum wait time
+            elapsed = time.time() - wait_start
+            if elapsed >= max_wait_seconds:
+                frappe.logger().warning(
+                    f"Queue throttling timeout after {elapsed:.1f}s for {self.name}, "
+                    f"proceeding anyway (queue depth: {current_depth})"
+                )
+                break
+
+            # Wait before checking again
+            time.sleep(retry_delay)
+
+            # Check queue depth again
+            current_depth = self._get_queue_depth()
+
+            if current_depth < max_queue_depth:
+                # Queue now has capacity
+                frappe.logger().info(
+                    f"Queue capacity available after {elapsed:.1f}s wait "
+                    f"(depth: {current_depth}/{max_queue_depth}), proceeding with {self.name}"
+                )
+                break
+
+            # Still full - increase retry delay (exponential backoff)
+            retry_delay = min(retry_delay * 1.5, max_retry_delay)
+
+            frappe.logger().debug(
+                f"Queue still full ({current_depth} jobs), waiting {retry_delay:.1f}s before retry"
+            )
+
     @frappe.whitelist()
     @critical_api(operation_type=OperationType.ADMIN)
     def queue_processing(self):
-        """Queue this request for background processing"""
+        """Queue this request for background processing with intelligent throttling"""
         # Get fresh status from database to avoid stale data
         current_status = frappe.db.get_value(self.doctype, self.name, "status")
         if current_status not in ["Requested", "Failed"]:
             frappe.throw(_("Request cannot be processed in status: {0}").format(current_status))
+
+        # Check queue depth and throttle if necessary (prevent queue overload)
+        self._wait_for_queue_capacity()
 
         # Update status using direct DB operation to avoid timestamp conflicts
         updates = {

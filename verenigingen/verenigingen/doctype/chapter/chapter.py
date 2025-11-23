@@ -59,6 +59,9 @@ Author: Verenigingen Development Team
 License: MIT
 """
 
+from datetime import date
+from typing import Any, Dict, List, Optional
+
 import frappe
 from frappe import _
 from frappe.model.document import Document
@@ -109,7 +112,7 @@ class Chapter(Document):
     # CORE DOCUMENT LIFECYCLE
     # ========================================================================
 
-    def validate(self):
+    def validate(self) -> None:
         """Main validation - streamlined workflow with centralized error handling"""
         # Basic validations
         self._ensure_route()
@@ -141,7 +144,7 @@ class Chapter(Document):
                 )
                 frappe.throw(_("Validation failed: {0}").format(", ".join(validation_result.errors)))
 
-    def before_save(self):
+    def before_save(self) -> None:
         """Before save hook - streamlined with safe manager operations"""
         # Auto-populate uploaded_by and upload_date for board documents
         self._populate_board_document_fields()
