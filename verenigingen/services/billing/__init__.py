@@ -9,6 +9,10 @@ from verenigingen.services.billing.duplicate_invoice_detector import (
     DuplicateInvoiceDetectionResult,
     DuplicateInvoiceDetector,
 )
+from verenigingen.services.billing.template_configuration_service import (
+    TemplateConfigurationService,
+    get_template_configuration_service,
+)
 from verenigingen.services.billing.template_creation_service import (
     TemplateCreationService,
     get_template_creation_service,
@@ -19,4 +23,6 @@ __all__ = [
     "DuplicateInvoiceDetectionResult",
     "TemplateCreationService",
     "get_template_creation_service",
+    "TemplateConfigurationService",
+    "get_template_configuration_service",
 ]

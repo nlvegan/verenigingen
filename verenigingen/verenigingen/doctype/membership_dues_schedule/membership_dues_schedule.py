@@ -37,93 +37,23 @@ DEADLOCK_PATTERNS = [
 
 class MembershipDuesSchedule(Document):
     def get_template_values(self):
-        """Get billing and contribution values from template if available"""
-        if not self.membership_type:
-            return {}
+        """
+        Get billing and contribution values from template if available.
 
-        membership_type = frappe.get_doc("Membership Type", self.membership_type)
-        values = {
-            "minimum_amount": 0,
-            "suggested_amount": 0,
-            "billing_frequency": "Annual",
-            "invoice_days_before": 30,
-        }
+        EXTRACTED: Moved to TemplateConfigurationService.get_template_values()
+        for service layer separation (Dues Schedule Phase 3).
 
-        # Get values from template (now required)
-        if not membership_type.dues_schedule_template:
-            frappe.throw(
-                f"Membership Type '{membership_type.name}' must have a dues schedule template assigned"
-            )
+        Returns:
+            dict: Template configuration values (minimum_amount, suggested_amount, etc.)
+        """
+        from verenigingen.services.billing.template_configuration_service import TemplateConfigurationService
 
-        # Calculate membership type minimum first to use as fallback
-        membership_type_minimum = (
-            membership_type.minimum_amount if membership_type.minimum_amount is not None else 0
+        return TemplateConfigurationService.get_template_values(
+            schedule_doc=self,
+            membership_type=self.membership_type,
+            is_template=self.is_template,
+            skip_validation=getattr(self, "_skip_template_validation", False),
         )
-
-        try:
-            # Special case: if this template is calling get_template_values() on itself during validation,
-            # use the current unsaved values instead of loading from database
-            if self.is_template and self.name == membership_type.dues_schedule_template:
-                # Template is looking up its own values - use current state, not database state
-                template = self
-            else:
-                # Load the template from database (normal case for member schedules)
-                template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
-
-            # Validate template has required configuration based on contribution mode
-            # Only require suggested_amount for Calculator mode (not Custom mode)
-            if template.contribution_mode == "Calculator" and not template.suggested_amount:
-                frappe.throw(
-                    f"Dues schedule template '{membership_type.dues_schedule_template}' with Calculator mode must have a suggested_amount configured"
-                )
-
-            values.update(
-                {
-                    "minimum_amount": (
-                        template.minimum_amount
-                        if template.minimum_amount is not None
-                        else membership_type_minimum
-                    ),
-                    "suggested_amount": template.suggested_amount,  # Use current value for self-referencing templates
-                    "billing_frequency": template.billing_frequency
-                    or "Annual",  # Explicit default, validated in template creation
-                    "invoice_days_before": (
-                        template.invoice_days_before if template.invoice_days_before is not None else 30
-                    ),  # Explicit null check
-                }
-            )
-        except Exception as e:
-            frappe.throw(
-                f"Failed to load dues schedule template '{membership_type.dues_schedule_template}': {str(e)}"
-            )
-
-        # Validate template respects membership type minimum (both required)
-        # Skip this validation when updating existing schedules to allow flexible dues rates
-        template_minimum = values["minimum_amount"]  # Already validated above
-        template_suggested = values["suggested_amount"]  # Already validated above
-
-        # Use the maximum of template minimum and membership type minimum
-        # This ensures compliance even if template is misconfigured
-        if not getattr(self, "_skip_template_validation", False):
-            if template_minimum < membership_type_minimum:
-                frappe.logger().warning(
-                    f"Template minimum amount (€{template_minimum:.2f}) is less than "
-                    f"membership type minimum (€{membership_type_minimum:.2f}). "
-                    f"Using membership type minimum instead."
-                )
-                values["minimum_amount"] = membership_type_minimum
-                template_minimum = membership_type_minimum
-
-            # Use the same logic as application helpers: dues_rate takes precedence over suggested_amount
-            effective_amount = template.dues_rate if template.dues_rate else template_suggested
-            if effective_amount < membership_type_minimum:
-                amount_type = "dues rate" if template.dues_rate else "suggested amount"
-                frappe.throw(
-                    f"Template {amount_type} (€{effective_amount:.2f}) cannot be less than "
-                    f"membership type minimum (€{membership_type_minimum:.2f})"
-                )
-
-        return values
 
     def before_save(self):
         """Store document state before save for comparison"""
