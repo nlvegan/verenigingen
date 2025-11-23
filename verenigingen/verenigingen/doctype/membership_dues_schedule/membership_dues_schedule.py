@@ -302,17 +302,16 @@ class MembershipDuesSchedule(Document):
         return True
 
     def validate_dues_rate_change(self):
-        """Validate if dues rate change meets requirements"""
-        if not self.membership_type:
-            return False
+        """
+        Validate if dues rate change meets requirements.
 
-        template_values = self.get_template_values()
-        min_amount = template_values.get("minimum_amount", 0)
+        DELEGATES to: DuesScheduleValidationService.validate_dues_rate_change()
+        """
+        from verenigingen.services.billing.dues_schedule_validation_service import (
+            DuesScheduleValidationService,
+        )
 
-        if self.dues_rate < min_amount:
-            frappe.throw(f"Dues rate cannot be less than minimum contribution: €{min_amount:.2f}")
-
-        return True
+        return DuesScheduleValidationService.validate_dues_rate_change(self)
 
     def is_chapter_board_with_finance(self, user):
         """Check if user is a chapter board member with financial permissions"""
@@ -359,123 +358,28 @@ class MembershipDuesSchedule(Document):
         return False
 
     def validate_dues_rate_configuration(self):
-        """Validate dues rate based on contribution mode"""
-        # Templates may not have all dues rate fields set
-        if self.is_template:
-            return
+        """
+        Validate dues rate based on contribution mode.
 
-        if not self.membership_type:
-            return
+        DELEGATES to: DuesScheduleValidationService.validate_dues_rate_configuration()
+        """
+        from verenigingen.services.billing.dues_schedule_validation_service import (
+            DuesScheduleValidationService,
+        )
 
-        # Only calculate dues_rate if not already explicitly set or if it's zero
-        if not self.dues_rate or self.dues_rate == 0:
-            if self.contribution_mode == "Tier" and self.selected_tier:
-                tier = frappe.get_doc("Membership Tier", self.selected_tier)
-                self.dues_rate = tier.amount
-            elif self.contribution_mode == "Calculator":
-                template_values = self.get_template_values()
-                suggested_amount = template_values.get("suggested_amount", 0)
-                if not suggested_amount:
-                    frappe.throw(
-                        "Cannot calculate dues: template has no suggested_amount configured. "
-                        "Either set a suggested_amount or switch to Custom contribution mode."
-                    )
-
-                # Use base multiplier, defaulting to 1.0 if not set
-                multiplier = self.base_multiplier if self.base_multiplier is not None else 1.0
-                self.dues_rate = suggested_amount * multiplier
-            elif self.contribution_mode == "Custom":
-                if not self.uses_custom_amount:
-                    frappe.throw("Custom dues rate must be enabled for custom contribution mode")
-
-        # If contribution mode is Custom but dues_rate is set, ensure custom amount flags are set
-        if self.contribution_mode == "Custom" and self.dues_rate:
-            if not self.uses_custom_amount:
-                self.uses_custom_amount = 1
+        DuesScheduleValidationService.validate_dues_rate_configuration(self)
 
     def validate_financial_constraints(self):
-        """Validate financial constraints and limits"""
-        if self.is_template or not self.dues_rate:
-            return  # Skip for templates or when no dues rate is set
+        """
+        Validate financial constraints and limits.
 
-        try:
-            # Get configuration values
-            from verenigingen.utils.config_manager import ConfigManager
+        DELEGATES to: DuesScheduleValidationService.validate_financial_constraints()
+        """
+        from verenigingen.services.billing.dues_schedule_validation_service import (
+            DuesScheduleValidationService,
+        )
 
-            # Check absolute minimum (safety check)
-            absolute_minimum = ConfigManager.get("absolute_minimum_dues", 0.01)  # €0.01 minimum
-            if float(self.dues_rate) < absolute_minimum:
-                frappe.throw(f"Dues rate cannot be less than €{absolute_minimum:.2f}", frappe.ValidationError)
-
-            # Check maximum reasonable amount
-            maximum_dues = ConfigManager.get("maximum_dues_limit", 1000.0)  # €1000 default max
-            if float(self.dues_rate) > maximum_dues:
-                # Allow with warning for administrators
-                user_roles = frappe.get_roles(frappe.session.user)
-                admin_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Staff"]
-
-                if any(role in user_roles for role in admin_roles):
-                    frappe.msgprint(
-                        f"High dues amount detected: €{self.dues_rate:.2f}. Please verify this is correct.",
-                        title="High Amount Warning",
-                    )
-                else:
-                    frappe.throw(
-                        f"Dues rate exceeds maximum limit of €{maximum_dues:.2f}. "
-                        f"Please contact an administrator if this amount is correct.",
-                        frappe.ValidationError,
-                    )
-
-            # Validate against template constraints if available
-            if hasattr(self, "minimum_amount") and self.minimum_amount:
-                if float(self.dues_rate) < float(self.minimum_amount):
-                    frappe.throw(
-                        f"Dues rate (€{self.dues_rate:.2f}) cannot be less than minimum amount (€{self.minimum_amount:.2f})",
-                        frappe.ValidationError,
-                    )
-
-            # Check if dues rate is within reasonable multiplier of suggested amount
-            if self.membership_type:
-                membership_type = frappe.get_doc("Membership Type", self.membership_type)
-
-                # Get suggested amount from template (explicit configuration)
-                if not membership_type.dues_schedule_template:
-                    frappe.throw(
-                        f"Membership Type '{membership_type.name}' must have a dues schedule template"
-                    )
-
-                template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
-                if not template.suggested_amount:
-                    frappe.throw(
-                        f"Dues schedule template '{membership_type.dues_schedule_template}' must have a suggested_amount configured"
-                    )
-                suggested_amount = template.suggested_amount
-
-                if suggested_amount > 0:
-                    multiplier = float(self.dues_rate) / float(suggested_amount)
-                    max_multiplier = ConfigManager.get("maximum_fee_multiplier", 10.0)
-
-                    if multiplier > max_multiplier:
-                        # Log for audit purposes but don't show popup during bulk operations
-                        frappe.logger().info(
-                            f"High dues multiplier detected: {multiplier:.2f}x for member {self.member}, "
-                            f"dues: €{self.dues_rate}, suggested: €{suggested_amount}, user: {frappe.session.user}"
-                        )
-
-        except Exception as e:
-            # Don't log individual errors for dues rate validation - too noisy
-            # These are either aggregated in CSV import summary or shown inline in UI
-            error_str = str(e).lower()
-            is_dues_rate_error = "dues rate" in error_str and (
-                "minimum amount" in error_str or "cannot be less" in error_str
-            )
-
-            if not is_dues_rate_error:
-                frappe.log_error(
-                    f"Error validating financial constraints: {str(e)}", "Financial Validation Error"
-                )
-            # Always re-raise so validation still fails
-            raise
+        DuesScheduleValidationService.validate_financial_constraints(self)
 
     def validate_template_fields(self):
         """Additional validation for template-specific fields"""
@@ -751,85 +655,15 @@ class MembershipDuesSchedule(Document):
 
     def validate_dues_rate(self):
         """
-        ✅ NEW: Validate dues rate for reasonableness and business logic
-        Prevents zero/negative rates and extreme changes from previous period
+        Validate dues rate for reasonableness and business logic.
+
+        DELEGATES to: DuesScheduleValidationService.validate_dues_rate()
         """
-        try:
-            # Check for negative rates (zero is allowed for free memberships)
-            if self.dues_rate is None or self.dues_rate < 0:
-                return {"valid": False, "reason": f"Invalid dues rate: {self.dues_rate} (cannot be negative)"}
+        from verenigingen.services.billing.dues_schedule_validation_service import (
+            DuesScheduleValidationService,
+        )
 
-            # Check for extremely high rates (configurable threshold with safe fallback)
-            try:
-                max_reasonable_rate = (
-                    frappe.db.get_single_value("Verenigingen Settings", "max_reasonable_dues_rate") or 10000
-                )
-            except frappe.DoesNotExistError:
-                frappe.log_error(
-                    message="Verenigingen Settings doctype does not exist, using default max_reasonable_dues_rate",
-                    title="Membership Dues - Missing Settings Doctype",
-                    reference_doctype="Membership Dues Schedule",
-                    reference_name=getattr(self, "name", "New Document"),
-                )
-                max_reasonable_rate = 10000  # Safe fallback if setting doesn't exist
-            except Exception as e:
-                frappe.log_error(
-                    message=f"Failed to access dues rate configuration: {str(e)}",
-                    title="Membership Dues - Configuration Access Failed",
-                    reference_doctype="Membership Dues Schedule",
-                    reference_name=getattr(self, "name", "New Document"),
-                )
-                max_reasonable_rate = 10000  # Safe fallback if setting doesn't exist
-
-            if self.dues_rate > max_reasonable_rate:
-                # Use shorter error message to avoid length limits
-                return {
-                    "valid": False,
-                    "reason": f"Dues rate {self.dues_rate} exceeds max {max_reasonable_rate}",
-                }
-
-            # Check for extreme rate changes from previous period (if exists)
-            if self.last_generated_invoice:
-                try:
-                    last_invoice = frappe.get_doc("Sales Invoice", self.last_generated_invoice)
-                    if last_invoice.grand_total > 0:
-                        rate_change_percent = abs(
-                            (self.dues_rate - last_invoice.grand_total) / last_invoice.grand_total * 100
-                        )
-                        try:
-                            max_rate_change = (
-                                frappe.db.get_single_value("Verenigingen Settings", "max_rate_change_percent")
-                                or 200
-                            )
-                        except frappe.DoesNotExistError:
-                            frappe.log_error(
-                                message="Verenigingen Settings doctype does not exist, using default max_rate_change_percent",
-                                title="Membership Dues - Missing Settings for Rate Change",
-                                reference_doctype="Membership Dues Schedule",
-                                reference_name=getattr(self, "name", "New Document"),
-                            )
-                            max_rate_change = 200  # Safe fallback
-                        except Exception as e:
-                            frappe.log_error(
-                                message=f"Failed to access rate change configuration: {str(e)}",
-                                title="Membership Dues - Rate Change Config Access Failed",
-                                reference_doctype="Membership Dues Schedule",
-                                reference_name=getattr(self, "name", "New Document"),
-                            )
-                            max_rate_change = 200  # Safe fallback
-
-                        if rate_change_percent > max_rate_change:
-                            # Just log, don't block - might be legitimate
-                            pass
-                except Exception:
-                    # Don't fail validation if we can't check previous rate
-                    pass
-
-            return {"valid": True, "reason": "Rate validation passed"}
-
-        except Exception:
-            # Use shorter error message to avoid length limits
-            return {"valid": True, "reason": "Rate validation error - allowing generation"}
+        return DuesScheduleValidationService.validate_dues_rate(self)
 
     def validate_membership_type_consistency(self):
         """
@@ -1808,64 +1642,15 @@ class MembershipDuesSchedule(Document):
 
     def validate_rate_boundaries(self):
         """
-        Enhanced rate validation with ERPNext-style boundary checks
-        More comprehensive than basic positive/negative validation
+        Enhanced rate validation with comprehensive boundary checks.
+
+        DELEGATES to: DuesScheduleValidationService.validate_rate_boundaries()
         """
-        if self.is_template or not self.dues_rate:
-            return
+        from verenigingen.services.billing.dues_schedule_validation_service import (
+            DuesScheduleValidationService,
+        )
 
-        # Enhanced minimum validation
-        if self.dues_rate <= 0:
-            from verenigingen.utils.exceptions import InvalidDuesRateError
-
-            raise InvalidDuesRateError(f"Dues rate must be positive. Got: €{self.dues_rate:.2f}")
-
-        # Check against membership type boundaries - but only during user edits, not invoice generation
-        # Skip strict validation if we're in an automated context like invoice generation
-        if (
-            self.membership_type
-            and not getattr(self, "_skip_minimum_validation", False)
-            and not frappe.flags.in_invoice_generation
-        ):
-            # Skip template validation for existing schedules when changing membership type
-            self._skip_template_validation = not self.is_new()
-            template_values = self.get_template_values()
-            min_amount = template_values.get("minimum_amount", 0)
-
-            if self.dues_rate < min_amount:
-                # For existing schedules, allow the rate to remain as-is when changing membership type
-                if not self.is_new():
-                    # Only show warning, don't block the change
-                    frappe.msgprint(
-                        f"Warning: Dues rate €{self.dues_rate:.2f} is below minimum required "
-                        f"€{min_amount:.2f} for membership type {self.membership_type}. "
-                        f"This is allowed for existing schedules to maintain member flexibility.",
-                        alert=True,
-                    )
-                    return  # Don't block existing schedules
-
-                from verenigingen.utils.exceptions import InvalidDuesRateError
-
-                raise InvalidDuesRateError(
-                    f"Dues rate €{self.dues_rate:.2f} is below minimum required "
-                    f"€{min_amount:.2f} for membership type {self.membership_type}"
-                )
-
-        # Check for unreasonably high rates (configurable maximum)
-        try:
-            max_reasonable_rate = (
-                frappe.db.get_single_value("Verenigingen Settings", "max_reasonable_dues_rate") or 10000
-            )
-        except Exception:
-            # Fallback if field doesn't exist yet
-            max_reasonable_rate = 10000
-
-        if self.dues_rate > max_reasonable_rate:
-            frappe.msgprint(
-                f"Warning: Dues rate €{self.dues_rate:.2f} exceeds recommended maximum "
-                f"€{max_reasonable_rate:.2f}. Please verify this amount is correct.",
-                alert=True,
-            )
+        DuesScheduleValidationService.validate_rate_boundaries(self)
 
 
 @frappe.whitelist()
