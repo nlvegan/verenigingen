@@ -108,13 +108,14 @@ class ChapterPermissionLevel:
 
 # Helper Functions
 # ----------------
-def validate_identifier(value, max_length=140):
+def validate_identifier(value, max_length=140, context="identifier"):
     """
     Validate DocType name/identifier for safe SQL usage
 
     Args:
         value: Identifier to validate
         max_length: Maximum allowed length (default: 140, Frappe's DocType name limit)
+        context: Context description for logging (e.g., "team name", "test input")
 
     Returns:
         bool: True if valid, False otherwise
@@ -123,13 +124,19 @@ def validate_identifier(value, max_length=140):
         return False
 
     if len(value) > max_length:
-        frappe.log_error(f"Identifier too long (>{max_length}): {value[:50]}...")
+        frappe.log_error(
+            title=f"Security: Identifier Validation ({context})",
+            message=f"[{context}] Identifier too long (>{max_length}): {value[:50]}..."
+        )
         return False
 
     # Allow alphanumeric, spaces, hyphens, underscores, and common international characters
     # This is more permissive than strict alphanumeric to support international names
     if not re.match(r"^[\w\s\-]+$", value, re.UNICODE):
-        frappe.log_error(f"Invalid characters in identifier: {value}")
+        frappe.log_error(
+            title=f"Security: Identifier Validation ({context})",
+            message=f"[{context}] Invalid characters in identifier: {value}"
+        )
         return False
 
     return True
@@ -769,7 +776,7 @@ def get_project_permission_query_conditions(user):
         # Build conditions for projects accessible via teams
         for team in user_teams:
             # Validate team name before using in SQL
-            if not validate_identifier(team):
+            if not validate_identifier(team, context="team name in permission query"):
                 frappe.log_error(f"Invalid team name in permissions: {team}")
                 continue
 
@@ -797,7 +804,7 @@ def get_project_permission_query_conditions(user):
         # Build conditions for projects accessible via chapters
         for chapter in user_chapters:
             # Validate chapter name before using in SQL
-            if not validate_identifier(chapter):
+            if not validate_identifier(chapter, context="chapter name in permission query"):
                 frappe.log_error(f"Invalid chapter name in permissions: {chapter}")
                 continue
 

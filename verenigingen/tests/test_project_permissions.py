@@ -38,17 +38,17 @@ class TestProjectPermissionHelpers(EnhancedTestCase):
 
     def test_validate_identifier_valid(self):
         """Test validation with valid identifiers"""
-        self.assertTrue(validate_identifier("Team Alpha"))
-        self.assertTrue(validate_identifier("Chapter-Beta"))
-        self.assertTrue(validate_identifier("Project_123"))
-        self.assertTrue(validate_identifier("Team 123 Name"))
+        self.assertTrue(validate_identifier("Team Alpha", context="test: valid team name"))
+        self.assertTrue(validate_identifier("Chapter-Beta", context="test: valid chapter name"))
+        self.assertTrue(validate_identifier("Project_123", context="test: valid project name"))
+        self.assertTrue(validate_identifier("Team 123 Name", context="test: valid team name with numbers"))
 
     def test_validate_identifier_invalid(self):
         """Test validation with invalid identifiers"""
-        self.assertFalse(validate_identifier(None))
-        self.assertFalse(validate_identifier(""))
-        self.assertFalse(validate_identifier("A" * 141))  # Too long
-        self.assertFalse(validate_identifier("Team'; DROP TABLE--"))  # SQL injection attempt
+        self.assertFalse(validate_identifier(None, context="test: None value"))
+        self.assertFalse(validate_identifier("", context="test: empty string"))
+        self.assertFalse(validate_identifier("A" * 141, context="test: length validation"))  # Too long
+        self.assertFalse(validate_identifier("Team'; DROP TABLE--", context="test: SQL injection attempt"))  # SQL injection attempt
 
     def test_get_volunteer_for_user_caching(self):
         """Test that volunteer lookup is cached"""
@@ -221,7 +221,7 @@ class TestSQLInjectionPrevention(EnhancedTestCase):
 
         for name in malicious_names:
             # Should be rejected by validator
-            self.assertFalse(validate_identifier(name))
+            self.assertFalse(validate_identifier(name, context="test: SQL injection prevention"))
 
     def test_escaped_values_in_query_conditions(self):
         """Test that query conditions properly escape values"""
