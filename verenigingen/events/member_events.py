@@ -31,7 +31,9 @@ def emit_member_status_changed(member_name, status_data):
     """
 
     # Skip during bulk operations to prevent event flood
-    if getattr(frappe.flags, "bulk_member_operations", False):
+    if getattr(frappe.flags, "bulk_member_operations", False) or getattr(
+        frappe.flags, "in_bulk_import", False
+    ):
         return
 
     event_data = {"member": member_name, **status_data, "timestamp": frappe.utils.now()}
@@ -59,7 +61,9 @@ def emit_member_lifecycle_changed(member_name, lifecycle_data):
     """
 
     # Skip during bulk operations to prevent event flood
-    if getattr(frappe.flags, "bulk_member_operations", False):
+    if getattr(frappe.flags, "bulk_member_operations", False) or getattr(
+        frappe.flags, "in_bulk_import", False
+    ):
         return
 
     event_data = {"member": member_name, **lifecycle_data, "timestamp": frappe.utils.now()}
@@ -87,6 +91,12 @@ def _emit_member_event(event_name, event_data):
     # Get subscribers for this event
     subscribers = _get_member_event_subscribers(event_name)
 
+    # CRITICAL: Pass bulk import flag as job parameter to handle cross-process coordination
+    # Process-local frappe.flags don't propagate to background worker processes
+    is_bulk_import = getattr(frappe.flags, "in_bulk_import", False) or getattr(
+        frappe.flags, "bulk_member_operations", False
+    )
+
     for subscriber in subscribers:
         frappe.enqueue(
             method=subscriber,
@@ -95,6 +105,7 @@ def _emit_member_event(event_name, event_data):
             dedupe=True,  # Prevent duplicate events for same member
             timeout=300,
             delay=1,  # Skip checks in subscribers handle bulk imports
+            is_bulk_import=is_bulk_import,  # Pass bulk mode to worker process
             **{"event_name": event_name, "event_data": event_data},
         )
 

@@ -6,6 +6,100 @@ The eBoekhouden integration includes comprehensive opening balance import functi
 
 ## Key Features (2025 Enhancements)
 
+### ✅ Automatic Fiscal Year Creation
+
+The system automatically creates fiscal years for opening balance dates if they don't exist.
+
+**Fiscal Year Auto-Creation**:
+
+```python
+def ensure_fiscal_year_exists(transaction_date, company, debug_info):
+    """Ensure fiscal year exists for transaction date"""
+    # Check if fiscal year exists
+    existing_fy = frappe.db.sql(
+        """SELECT name FROM `tabFiscal Year`
+        WHERE %s BETWEEN year_start_date AND year_end_date
+        AND disabled = 0""",
+        (transaction_date,)
+    )
+
+    if not existing_fy:
+        # Create fiscal year for calendar year
+        fiscal_year = frappe.get_doc({
+            "doctype": "Fiscal Year",
+            "year": str(transaction_date.year),
+            "year_start_date": date(transaction_date.year, 1, 1),
+            "year_end_date": date(transaction_date.year, 12, 31)
+        })
+        fiscal_year.insert(ignore_permissions=True)
+```
+
+**Benefits**:
+- Prevents "Fiscal Year not found" errors during opening balance import
+- Automatically creates calendar year fiscal years (Jan 1 - Dec 31)
+- Ensures GL Entries can be created for any opening balance date
+- All fiscal year creations are logged for audit purposes
+
+### ✅ Dynamic Opening Balance Date Detection
+
+Opening balance dates are now automatically detected from eBoekhouden mutation data.
+
+**Date Detection Logic**:
+
+```python
+# Determine opening balance date from mutations
+opening_date = None
+for mutation in mutations_data:
+    if isinstance(mutation, dict) and mutation.get("date"):
+        opening_date = getdate(mutation.get("date"))
+        break
+
+# Fallback to 2018-01-01 if no date found
+if not opening_date:
+    opening_date = getdate("2018-01-01")
+```
+
+**Benefits**:
+- Uses actual opening balance date from eBoekhouden
+- No hardcoded dates that may be incorrect
+- Falls back to safe default if date unavailable
+- Ensures fiscal year matches actual opening balance period
+
+### ✅ Mandatory Party Assignment for Receivable/Payable Accounts
+
+All receivable and payable accounts in opening balances now require proper party assignment.
+
+**Party Assignment Logic**:
+
+```python
+if account_type == "Receivable":
+    party_type = "Customer"
+    party = _get_or_create_company_as_customer(company, debug_info)
+    if not party:
+        # Skip account if party creation fails
+        debug_info.append("ERROR: Failed to create customer")
+        continue
+elif account_type == "Payable":
+    party_type = "Supplier"
+    party = _get_or_create_company_as_supplier(company, debug_info)
+    if not party:
+        # Skip account if party creation fails
+        debug_info.append("ERROR: Failed to create supplier")
+        continue
+```
+
+**Why This Is Important**:
+- ERPNext requires Customer for all Receivable account entries
+- ERPNext requires Supplier for all Payable account entries
+- Without party information, GL Entries cannot be created
+- This was the root cause of opening balances not appearing in ledgers
+
+**How It Works**:
+- Creates/finds a customer named "{Company} (Internal)" for receivables
+- Creates/finds a supplier named "{Company} (Internal)" for payables
+- If party creation fails, the account is skipped with clear error message
+- All party operations are logged for troubleshooting
+
 ### ✅ Automatic Stock Account Detection
 
 The system automatically detects and properly handles stock accounts during opening balance imports.
@@ -215,6 +309,59 @@ Complete audit trail of opening balance processing:
 ## Troubleshooting
 
 ### Common Issues and Solutions
+
+#### Issue: "Opening balances not showing in General Ledger"
+
+**Symptoms**:
+- Journal Entry created and submitted successfully
+- No GL Entries created (count = 0)
+- Balances don't appear in General Ledger, Trial Balance, or other reports
+
+**Root Cause**:
+- Missing party information on Receivable/Payable accounts
+- ERPNext validation prevents GL Entry creation without required parties
+- Missing fiscal year for the opening balance date
+
+**Solution**: ✅ **Automatically handled (as of 2025)**
+
+The system now:
+1. Automatically assigns parties to Receivable/Payable accounts
+2. Creates fiscal years if missing for the opening balance date
+3. Validates party assignment before creating journal entries
+4. Provides clear error messages if party creation fails
+5. Logs all party and fiscal year operations for troubleshooting
+
+**Manual Fix for Existing Data**:
+
+If you have an existing opening balance Journal Entry without GL Entries:
+
+```python
+import frappe
+
+# Get the Journal Entry
+je = frappe.get_doc("Journal Entry", "ACC-JV-2025-00001")
+
+# Fix missing parties
+for acc in je.accounts:
+    account_type = frappe.db.get_value("Account", acc.account, "account_type")
+    if account_type == "Receivable" and not acc.party:
+        acc.party_type = "Customer"
+        acc.party = "Company Name (Internal)"
+    elif account_type == "Payable" and not acc.party:
+        acc.party_type = "Supplier"
+        acc.party = "Company Name (Internal)"
+
+# Cancel, save, and resubmit
+je.cancel()
+je.docstatus = 0
+je.save()
+je.submit()
+frappe.db.commit()
+
+# Verify GL Entries created
+gl_count = frappe.db.count("GL Entry", {"voucher_no": je.name})
+print(f"GL Entries created: {gl_count}")
+```
 
 #### Issue: "Stock accounts found in opening balances"
 

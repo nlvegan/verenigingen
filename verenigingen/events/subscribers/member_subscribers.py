@@ -13,7 +13,7 @@ from frappe import _
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 
-def handle_status_change_notifications(event_name, event_data, **kwargs):
+def handle_status_change_notifications(event_name, event_data, is_bulk_import=False, **kwargs):
     """
     Handle notification sending for member status changes.
 
@@ -22,11 +22,13 @@ def handle_status_change_notifications(event_name, event_data, **kwargs):
     Args:
         event_name: Name of the event being handled
         event_data: Event data dictionary
+        is_bulk_import: Flag passed from main process indicating bulk import mode
         **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
     """
     try:
         # Skip notifications during bulk imports
-        if frappe.flags.in_import or frappe.flags.in_bulk_import:
+        # Check BOTH the parameter (reliable cross-process) AND flags (backwards compatibility)
+        if is_bulk_import or frappe.flags.in_import or frappe.flags.in_bulk_import:
             return
 
         member_name = event_data.get("member")
@@ -68,7 +70,7 @@ def handle_status_change_notifications(event_name, event_data, **kwargs):
         )
 
 
-def handle_chapter_assignment_updates(event_name, event_data, **kwargs):
+def handle_chapter_assignment_updates(event_name, event_data, is_bulk_import=False, **kwargs):
     """
     Handle chapter assignment updates when member status changes.
 
@@ -77,11 +79,13 @@ def handle_chapter_assignment_updates(event_name, event_data, **kwargs):
     Args:
         event_name: Name of the event being handled
         event_data: Event data dictionary
+        is_bulk_import: Flag passed from main process indicating bulk import mode
         **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
     """
     try:
         # Skip during bulk imports
-        if frappe.flags.in_import or frappe.flags.in_bulk_import:
+        # Check BOTH the parameter (reliable cross-process) AND flags (backwards compatibility)
+        if is_bulk_import or frappe.flags.in_import or frappe.flags.in_bulk_import:
             return
 
         # Skip during bulk operations - chapter assignment is handled in bulk
@@ -120,7 +124,7 @@ def handle_chapter_assignment_updates(event_name, event_data, **kwargs):
         )
 
 
-def handle_lifecycle_notifications(event_name, event_data, **kwargs):
+def handle_lifecycle_notifications(event_name, event_data, is_bulk_import=False, **kwargs):
     """
     Handle notifications for member lifecycle changes.
 
@@ -129,9 +133,13 @@ def handle_lifecycle_notifications(event_name, event_data, **kwargs):
     Args:
         event_name: Name of the event being handled
         event_data: Event data dictionary
+        is_bulk_import: Flag passed from main process indicating bulk import mode
         **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
     """
     try:
+        # Skip during bulk imports
+        if is_bulk_import:
+            return
         member_name = event_data.get("member")
         old_status = event_data.get("old_status")
         new_status = event_data.get("new_status")
@@ -166,7 +174,7 @@ def handle_lifecycle_notifications(event_name, event_data, **kwargs):
         )
 
 
-def handle_user_account_updates(event_name, event_data, **kwargs):
+def handle_user_account_updates(event_name, event_data, is_bulk_import=False, **kwargs):
     """
     Handle user account updates when member lifecycle changes.
 
@@ -175,9 +183,13 @@ def handle_user_account_updates(event_name, event_data, **kwargs):
     Args:
         event_name: Name of the event being handled
         event_data: Event data dictionary
+        is_bulk_import: Flag passed from main process indicating bulk import mode
         **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
     """
     try:
+        # Skip during bulk imports - user accounts are handled separately in batch
+        if is_bulk_import:
+            return
         member_name = event_data.get("member")
         old_status = event_data.get("old_status")
         new_status = event_data.get("new_status")
@@ -221,7 +233,7 @@ def handle_user_account_updates(event_name, event_data, **kwargs):
         frappe.log_error(f"User account update failed: {error_msg}", "User Account Update")
 
 
-def handle_cache_invalidation(event_name, event_data, **kwargs):
+def handle_cache_invalidation(event_name, event_data, is_bulk_import=False, **kwargs):
     """
     Handle cache invalidation for member lifecycle changes.
 
@@ -230,9 +242,13 @@ def handle_cache_invalidation(event_name, event_data, **kwargs):
     Args:
         event_name: Name of the event being handled
         event_data: Event data dictionary
+        is_bulk_import: Flag passed from main process indicating bulk import mode
         **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
     """
     try:
+        # Skip during bulk imports - cache will be cleared once at the end
+        if is_bulk_import:
+            return
         member_name = event_data.get("member")
 
         if not member_name:

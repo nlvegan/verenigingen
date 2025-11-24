@@ -33,7 +33,9 @@ def emit_chapter_board_changed(chapter_name, board_data):
     """
 
     # Skip during bulk operations to prevent event flood
-    if getattr(frappe.flags, "bulk_chapter_operations", False):
+    if getattr(frappe.flags, "bulk_chapter_operations", False) or getattr(
+        frappe.flags, "in_bulk_import", False
+    ):
         return
 
     event_data = {"chapter": chapter_name, **board_data, "timestamp": frappe.utils.now()}
@@ -61,7 +63,9 @@ def emit_chapter_membership_changed(chapter_name, membership_data):
     """
 
     # Skip during bulk operations to prevent event flood
-    if getattr(frappe.flags, "bulk_chapter_operations", False):
+    if getattr(frappe.flags, "bulk_chapter_operations", False) or getattr(
+        frappe.flags, "in_bulk_import", False
+    ):
         return
 
     event_data = {"chapter": chapter_name, **membership_data, "timestamp": frappe.utils.now()}
@@ -89,7 +93,9 @@ def emit_chapter_settings_changed(chapter_name, settings_data):
     """
 
     # Skip during bulk operations to prevent event flood
-    if getattr(frappe.flags, "bulk_chapter_operations", False):
+    if getattr(frappe.flags, "bulk_chapter_operations", False) or getattr(
+        frappe.flags, "in_bulk_import", False
+    ):
         return
 
     event_data = {"chapter": chapter_name, **settings_data, "timestamp": frappe.utils.now()}
@@ -117,6 +123,12 @@ def _emit_chapter_event(event_name, event_data):
     # Get subscribers for this event
     subscribers = _get_chapter_event_subscribers(event_name)
 
+    # CRITICAL: Pass bulk import flag as job parameter to handle cross-process coordination
+    # Process-local frappe.flags don't propagate to background worker processes
+    is_bulk_import = getattr(frappe.flags, "in_bulk_import", False) or getattr(
+        frappe.flags, "bulk_member_operations", False
+    )
+
     for subscriber in subscribers:
         frappe.enqueue(
             method=subscriber,
@@ -125,6 +137,7 @@ def _emit_chapter_event(event_name, event_data):
             dedupe=True,  # Prevent duplicate events for same chapter
             timeout=300,
             delay=1,  # Skip checks in subscribers handle bulk imports
+            is_bulk_import=is_bulk_import,  # Pass bulk mode to worker process
             **{"event_name": event_name, "event_data": event_data},
         )
 

@@ -615,8 +615,12 @@ class Member(
         """Emit events for status changes to trigger background operations"""
         try:
             # Skip event emission during bulk operations or tests
-            if getattr(frappe.flags, "bulk_member_operations", False) or getattr(
-                frappe.flags, "in_test", False
+            # CRITICAL: Check both bulk_member_operations (process-local) AND in_bulk_import (set by CSV processor)
+            # The in_bulk_import flag is the reliable one that persists across the import session
+            if (
+                getattr(frappe.flags, "bulk_member_operations", False)
+                or getattr(frappe.flags, "in_bulk_import", False)
+                or getattr(frappe.flags, "in_test", False)
             ):
                 return
 

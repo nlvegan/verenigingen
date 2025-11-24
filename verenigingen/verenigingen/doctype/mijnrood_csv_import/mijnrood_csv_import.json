@@ -35,6 +35,18 @@
     "members_created",
     "members_updated",
     "members_skipped",
+    "account_creation_section",
+    "bulk_operation_tracker",
+    "acrs_created",
+    "acrs_successful",
+    "acrs_failed",
+    "column_break_acr",
+    "users_created",
+    "employees_created",
+    "contacts_created",
+    "account_creation_log_section",
+    "import_log_file",
+    "top_errors_summary",
     "error_log",
     "notes",
     "section_break_dates",
@@ -84,7 +96,7 @@
       "read_only": 1
     },
     {
-      "default": "1",
+      "default": "0",
       "description": "Run in test mode first to preview results without creating records",
       "fieldname": "test_mode",
       "fieldtype": "Check",
@@ -112,7 +124,7 @@
       "options": "Region"
     },
     {
-      "default": "0",
+      "default": "1",
       "description": "Create portal user accounts for imported members. This allows them to login and access self-service features.",
       "fieldname": "create_user_accounts",
       "fieldtype": "Check",
@@ -133,7 +145,7 @@
       "label": "Create Employee Records (for expense claiming)"
     },
     {
-      "default": "1",
+      "default": "0",
       "depends_on": "eval:doc.create_user_accounts == 1",
       "description": "Send welcome emails to newly created user accounts with login instructions",
       "fieldname": "send_welcome_emails",
@@ -246,6 +258,88 @@
       "fieldname": "members_skipped",
       "fieldtype": "Int",
       "label": "Members Skipped",
+      "read_only": 1
+    },
+    {
+      "collapsible": 1,
+      "depends_on": "eval:doc.create_user_accounts == 1",
+      "fieldname": "account_creation_section",
+      "fieldtype": "Section Break",
+      "label": "Account Creation Results"
+    },
+    {
+      "allow_on_submit": 1,
+      "fieldname": "bulk_operation_tracker",
+      "fieldtype": "Link",
+      "label": "Bulk Operation Tracker",
+      "options": "Bulk Operation Tracker",
+      "read_only": 1
+    },
+    {
+      "allow_on_submit": 1,
+      "fieldname": "acrs_created",
+      "fieldtype": "Int",
+      "label": "ACRs Created",
+      "read_only": 1
+    },
+    {
+      "allow_on_submit": 1,
+      "fieldname": "acrs_successful",
+      "fieldtype": "Int",
+      "label": "ACRs Successful",
+      "read_only": 1
+    },
+    {
+      "allow_on_submit": 1,
+      "fieldname": "acrs_failed",
+      "fieldtype": "Int",
+      "label": "ACRs Failed",
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_acr",
+      "fieldtype": "Column Break"
+    },
+    {
+      "allow_on_submit": 1,
+      "fieldname": "users_created",
+      "fieldtype": "Int",
+      "label": "Users Created",
+      "read_only": 1
+    },
+    {
+      "allow_on_submit": 1,
+      "fieldname": "employees_created",
+      "fieldtype": "Int",
+      "label": "Employees Created",
+      "read_only": 1
+    },
+    {
+      "allow_on_submit": 1,
+      "fieldname": "contacts_created",
+      "fieldtype": "Int",
+      "label": "Contacts Created",
+      "read_only": 1
+    },
+    {
+      "collapsible": 1,
+      "depends_on": "eval:doc.create_user_accounts == 1",
+      "fieldname": "account_creation_log_section",
+      "fieldtype": "Section Break",
+      "label": "Import Log & Error Summary"
+    },
+    {
+      "allow_on_submit": 1,
+      "fieldname": "import_log_file",
+      "fieldtype": "Attach",
+      "label": "Import Log File",
+      "read_only": 1
+    },
+    {
+      "allow_on_submit": 1,
+      "fieldname": "top_errors_summary",
+      "fieldtype": "Text",
+      "label": "Top Errors Summary",
       "read_only": 1
     },
     {

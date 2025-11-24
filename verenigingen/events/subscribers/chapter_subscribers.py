@@ -13,7 +13,7 @@ from frappe import _
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 
-def handle_board_role_assignments(event_name, event_data, **kwargs):
+def handle_board_role_assignments(event_name, event_data, is_bulk_import=False, **kwargs):
     """
     Handle role profile assignments when board membership changes.
 
@@ -55,13 +55,17 @@ def handle_board_role_assignments(event_name, event_data, **kwargs):
         )
 
 
-def handle_board_notifications(event_name, event_data, **kwargs):
+def handle_board_notifications(event_name, event_data, is_bulk_import=False, **kwargs):
     """
     Handle notification sending for board changes.
 
     Sends appropriate emails to board members, chapter members, and administrators.
     """
     try:
+        # Skip notifications during bulk imports
+        if is_bulk_import:
+            return
+
         chapter_name = event_data.get("chapter")
         volunteer = event_data.get("volunteer")
         action = event_data.get("action")
@@ -94,7 +98,7 @@ def handle_board_notifications(event_name, event_data, **kwargs):
         frappe.log_error(f"Failed to send board notifications: {str(e)}", "Chapter Board Notification Error")
 
 
-def handle_volunteer_sync(event_name, event_data, **kwargs):
+def handle_volunteer_sync(event_name, event_data, is_bulk_import=False, **kwargs):
     """
     Handle synchronization with volunteer system when board changes.
 
@@ -132,7 +136,7 @@ def handle_volunteer_sync(event_name, event_data, **kwargs):
         frappe.log_error(f"Failed to sync volunteer system: {str(e)}", "Chapter Volunteer Sync Error")
 
 
-def handle_membership_notifications(event_name, event_data, **kwargs):
+def handle_membership_notifications(event_name, event_data, is_bulk_import=False, **kwargs):
     """
     Handle notifications for chapter membership changes.
 
@@ -140,7 +144,8 @@ def handle_membership_notifications(event_name, event_data, **kwargs):
     """
     try:
         # Skip notifications during bulk imports
-        if frappe.flags.in_import or frappe.flags.in_bulk_import:
+        # Check BOTH the parameter (reliable cross-process) AND flags (backwards compatibility)
+        if is_bulk_import or frappe.flags.in_import or frappe.flags.in_bulk_import:
             return
 
         chapter_name = event_data.get("chapter")
@@ -187,7 +192,7 @@ def handle_membership_notifications(event_name, event_data, **kwargs):
         )
 
 
-def handle_member_role_updates(event_name, event_data, **kwargs):
+def handle_member_role_updates(event_name, event_data, is_bulk_import=False, **kwargs):
     """
     Handle member role updates when chapter membership changes.
 
@@ -233,7 +238,7 @@ def handle_member_role_updates(event_name, event_data, **kwargs):
         frappe.log_error(f"Failed to update member roles: {str(e)}", "Chapter Member Role Update Error")
 
 
-def handle_cache_invalidation(event_name, event_data, **kwargs):
+def handle_cache_invalidation(event_name, event_data, is_bulk_import=False, **kwargs):
     """
     Handle cache invalidation for chapter changes.
 
@@ -264,7 +269,7 @@ def handle_cache_invalidation(event_name, event_data, **kwargs):
         frappe.log_error(f"Failed to clear caches: {str(e)}", "Chapter Cache Invalidation Error")
 
 
-def handle_settings_notifications(event_name, event_data, **kwargs):
+def handle_settings_notifications(event_name, event_data, is_bulk_import=False, **kwargs):
     """
     Handle notifications for chapter settings changes.
 
@@ -300,7 +305,7 @@ def handle_settings_notifications(event_name, event_data, **kwargs):
         )
 
 
-def handle_permissions_updates(event_name, event_data, **kwargs):
+def handle_permissions_updates(event_name, event_data, is_bulk_import=False, **kwargs):
     """
     Handle permission updates when chapter settings change.
 
@@ -329,7 +334,7 @@ def handle_permissions_updates(event_name, event_data, **kwargs):
         frappe.log_error(f"Failed to update permissions: {str(e)}", "Chapter Permissions Update Error")
 
 
-def handle_website_updates(event_name, event_data, **kwargs):
+def handle_website_updates(event_name, event_data, is_bulk_import=False, **kwargs):
     """
     Handle website updates when chapter settings change.
 

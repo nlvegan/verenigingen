@@ -1459,10 +1459,34 @@ def _import_opening_balances(company, cost_center, debug_info, dry_run=False):
         if not mutations_data:
             return {"success": True, "message": "No opening balances found", "journal_entry": None}
 
+        # Determine opening balance date from mutations
+        # Opening balances should all have the same date - use the first one
+        opening_date = None
+        for mutation in mutations_data:
+            if isinstance(mutation, dict) and mutation.get("date"):
+                opening_date = getdate(mutation.get("date"))
+                break
+
+        # Fallback to 2018-01-01 if no date found in mutations
+        if not opening_date:
+            opening_date = getdate("2018-01-01")
+            debug_info.append(f"WARNING: No date found in mutations, using fallback date: {opening_date}")
+        else:
+            debug_info.append(f"Using opening balance date from mutations: {opening_date}")
+
+        # Ensure fiscal year exists for opening balance date
+        try:
+            from .invoice_helpers import ensure_fiscal_year_exists
+            fiscal_year = ensure_fiscal_year_exists(opening_date, company, debug_info)
+            debug_info.append(f"Fiscal year {fiscal_year} verified/created for opening balance date")
+        except Exception as fy_error:
+            debug_info.append(f"WARNING: Could not ensure fiscal year for {opening_date}: {str(fy_error)}")
+            # Continue anyway - the submission will fail if fiscal year is truly missing
+
         # Create a single journal entry for all opening balances
         je = frappe.new_doc("Journal Entry")
         je.company = company
-        je.posting_date = "2018-01-01"  # Opening balance date
+        je.posting_date = opening_date
         je.voucher_type = "Opening Entry"
         je.title = "eBoekhouden Opening Balances"
         je.user_remark = "Opening balances imported from eBoekhouden"
@@ -1538,9 +1562,25 @@ def _import_opening_balances(company, cost_center, debug_info, dry_run=False):
             if account_type == "Receivable":
                 party_type = "Customer"
                 party = _get_or_create_company_as_customer(company, debug_info)
+                if not party:
+                    debug_info.append(
+                        f"ERROR: Failed to get/create customer for Receivable account {account}, skipping"
+                    )
+                    skipped_accounts["errors"].append(
+                        {"account": account, "error": "Failed to create/find customer for receivable account"}
+                    )
+                    continue
             elif account_type == "Payable":
                 party_type = "Supplier"
                 party = _get_or_create_company_as_supplier(company, debug_info)
+                if not party:
+                    debug_info.append(
+                        f"ERROR: Failed to get/create supplier for Payable account {account}, skipping"
+                    )
+                    skipped_accounts["errors"].append(
+                        {"account": account, "error": "Failed to create/find supplier for payable account"}
+                    )
+                    continue
 
             # Create journal entry line with proper debit/credit based on account type
             # For balance sheet accounts, respect the natural balance:
@@ -1735,10 +1775,34 @@ def _import_opening_balances_from_data(mutations_data, company, cost_center, deb
         if not mutations_data:
             return {"success": True, "message": "No opening balances found", "journal_entry": None}
 
+        # Determine opening balance date from mutations
+        # Opening balances should all have the same date - use the first one
+        opening_date = None
+        for mutation in mutations_data:
+            if isinstance(mutation, dict) and mutation.get("date"):
+                opening_date = getdate(mutation.get("date"))
+                break
+
+        # Fallback to 2018-01-01 if no date found in mutations
+        if not opening_date:
+            opening_date = getdate("2018-01-01")
+            debug_info.append(f"WARNING: No date found in mutations, using fallback date: {opening_date}")
+        else:
+            debug_info.append(f"Using opening balance date from mutations: {opening_date}")
+
+        # Ensure fiscal year exists for opening balance date
+        try:
+            from .invoice_helpers import ensure_fiscal_year_exists
+            fiscal_year = ensure_fiscal_year_exists(opening_date, company, debug_info)
+            debug_info.append(f"Fiscal year {fiscal_year} verified/created for opening balance date")
+        except Exception as fy_error:
+            debug_info.append(f"WARNING: Could not ensure fiscal year for {opening_date}: {str(fy_error)}")
+            # Continue anyway - the submission will fail if fiscal year is truly missing
+
         # Create a single journal entry for all opening balances
         je = frappe.new_doc("Journal Entry")
         je.company = company
-        je.posting_date = "2018-01-01"  # Opening balance date
+        je.posting_date = opening_date
         je.voucher_type = "Opening Entry"
         je.title = "eBoekhouden Opening Balances (Stock Filtered)"
         je.user_remark = "Opening balances imported from eBoekhouden with stock account filtering"
@@ -1813,9 +1877,25 @@ def _import_opening_balances_from_data(mutations_data, company, cost_center, deb
             if account_type == "Receivable":
                 party_type = "Customer"
                 party = _get_or_create_company_as_customer(company, debug_info)
+                if not party:
+                    debug_info.append(
+                        f"ERROR: Failed to get/create customer for Receivable account {account}, skipping"
+                    )
+                    skipped_accounts["errors"].append(
+                        {"account": account, "error": "Failed to create/find customer for receivable account"}
+                    )
+                    continue
             elif account_type == "Payable":
                 party_type = "Supplier"
                 party = _get_or_create_company_as_supplier(company, debug_info)
+                if not party:
+                    debug_info.append(
+                        f"ERROR: Failed to get/create supplier for Payable account {account}, skipping"
+                    )
+                    skipped_accounts["errors"].append(
+                        {"account": account, "error": "Failed to create/find supplier for payable account"}
+                    )
+                    continue
 
             # Create journal entry line with proper debit/credit based on account type
             if root_type == "Asset":

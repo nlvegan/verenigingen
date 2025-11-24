@@ -387,6 +387,10 @@ class MijnroodCSVImport(Document):
         if error_log:
             self.error_log = "\\n".join(error_log[:50])  # Limit error log size
 
+        # Update account creation tracking from Bulk Operation Tracker
+        if self.create_user_accounts and processed_members:
+            self._update_account_creation_tracking()
+
         # Reload to avoid timestamp mismatch from concurrent progress updates
         self.reload()
 
@@ -490,10 +494,26 @@ class MijnroodCSVImport(Document):
                         "Mijnrood Batch Queue Failures",
                     )
 
-            # Add tracker information to summary if available
+            # Add tracker information to summary if available AND link to import
             if result.get("tracker_name"):
                 tracker_name = result["tracker_name"]
                 summary_parts.append(f"progress tracker: {tracker_name}")
+
+                # CRITICAL: Link the Bulk Operation Tracker to this import
+                # This enables tracking updates in _update_account_creation_tracking()
+                self.bulk_operation_tracker = tracker_name
+                frappe.logger().info(
+                    f"[CSV IMPORT] Linked Bulk Operation Tracker {tracker_name} to import {self.name}"
+                )
+
+                # CRITICAL: Save immediately to persist the link before _finalize_import_results() calls reload()
+                # The finalization method calls self.reload() at line 395 to avoid timestamp conflicts,
+                # which would wipe out this unsaved field value
+                self.save(ignore_permissions=True)
+                frappe.db.commit()
+                frappe.logger().info(
+                    f"[CSV IMPORT] Saved bulk_operation_tracker link to database"
+                )
 
             return summary
 
@@ -531,6 +551,264 @@ class MijnroodCSVImport(Document):
             frappe.log_error(frappe.get_traceback(), "Mijnrood Volunteer Count Error")
             frappe.logger().error(error_msg)
             return f". Volunteer count failed: {str(e)}"
+
+    def _update_account_creation_tracking(self):
+        """
+        Update account creation tracking fields from Bulk Operation Tracker.
+
+        This method uses the linked Bulk Operation Tracker (if available) to extract
+        ACR statistics and queries the database for actual created records.
+        """
+        try:
+            frappe.logger().info(f"[CSV IMPORT] Updating account creation tracking for {self.name}")
+
+            # Use linked Bulk Operation Tracker if available
+            tracker = None
+            if self.bulk_operation_tracker:
+                frappe.logger().info(
+                    f"[CSV IMPORT] Using linked tracker: {self.bulk_operation_tracker}"
+                )
+                try:
+                    tracker_doc = frappe.get_doc("Bulk Operation Tracker", self.bulk_operation_tracker)
+                    tracker = [{
+                        "name": tracker_doc.name,
+                        "total_records": tracker_doc.total_records,
+                        "processed_records": tracker_doc.processed_records,
+                        "successful_records": tracker_doc.successful_records,
+                        "failed_records": tracker_doc.failed_records,
+                        "retry_queue": tracker_doc.retry_queue,
+                    }]
+                except Exception as e:
+                    frappe.logger().warning(
+                        f"[CSV IMPORT] Linked tracker {self.bulk_operation_tracker} not found: {str(e)}"
+                    )
+
+            # Fallback: Search for most recent BOT if no linked tracker
+            if not tracker:
+                frappe.logger().info(
+                    f"[CSV IMPORT] No linked tracker, searching by creation time"
+                )
+                tracker = frappe.get_all(
+                    "Bulk Operation Tracker",
+                    filters={
+                        "operation_type": "Account Creation",
+                        "creation": [">", frappe.utils.add_to_date(self.creation, hours=-1)],
+                    },
+                    fields=["name", "total_records", "processed_records", "successful_records", "failed_records",
+                            "retry_queue"],
+                    order_by="creation desc",
+                    limit=1
+                )
+
+            if tracker:
+                tracker_data = tracker[0]
+                # tracker_data is a dict from get_all or a dict we created from get_doc
+                # Access as dict, not as Document object
+                self.bulk_operation_tracker = tracker_data.get("name") or tracker_data["name"]
+                self.acrs_created = tracker_data.get("total_records", 0)
+                self.acrs_successful = tracker_data.get("successful_records", 0)
+                self.acrs_failed = tracker_data.get("failed_records", 0)
+
+                frappe.logger().info(
+                    f"[CSV IMPORT] Tracker {self.bulk_operation_tracker}: "
+                    f"{self.acrs_created} created, {self.acrs_successful} successful, {self.acrs_failed} failed"
+                )
+
+                # Query actual created records
+                # Get all ACRs from this tracker to find created users/employees
+                if self.acrs_successful > 0:
+                    # Query completed ACRs from the tracker
+                    acr_names = frappe.get_all(
+                        "Account Creation Request",
+                        filters={
+                            "bulk_operation_tracker": self.bulk_operation_tracker,
+                            "status": "Completed"
+                        },
+                        fields=["created_user", "created_employee"],
+                        limit=1000  # Reasonable limit
+                    )
+
+                    # Count actual created records
+                    self.users_created = sum(1 for acr in acr_names if acr.created_user)
+                    self.employees_created = sum(1 for acr in acr_names if acr.created_employee)
+                    # Contacts are created inline with users, so use same count
+                    self.contacts_created = self.users_created
+
+                    frappe.logger().info(
+                        f"[CSV IMPORT] Created records: "
+                        f"{self.users_created} users, {self.employees_created} employees, "
+                        f"{self.contacts_created} contacts"
+                    )
+
+                # Generate top errors summary from failed ACRs
+                if self.acrs_failed > 0:
+                    self.top_errors_summary = self._generate_top_errors_summary(self.bulk_operation_tracker)
+
+            else:
+                frappe.logger().warning(
+                    f"[CSV IMPORT] No Bulk Operation Tracker found for import {self.name}"
+                )
+
+        except Exception as e:
+            frappe.logger().error(
+                f"[CSV IMPORT] Error updating account creation tracking: {str(e)}",
+                exc_info=True
+            )
+            frappe.log_error(
+                message=f"Error updating account creation tracking: {str(e)}\\n{frappe.get_traceback()}",
+                title=f"CSV Import Tracking Update Error: {self.name}",
+            )
+
+    def _generate_top_errors_summary(self, tracker_name: str) -> str:
+        """
+        Generate a summary of top errors from failed ACRs.
+
+        Args:
+            tracker_name: Name of the Bulk Operation Tracker
+
+        Returns:
+            A formatted string summarizing the top errors
+        """
+        try:
+            # Get failed ACRs
+            failed_acrs = frappe.get_all(
+                "Account Creation Request",
+                filters={
+                    "bulk_operation_tracker": tracker_name,
+                    "status": "Failed"
+                },
+                fields=["name", "failure_reason"],
+                limit=500  # Get up to 500 failures
+            )
+
+            if not failed_acrs:
+                return ""
+
+            # Count error types
+            from collections import Counter
+            error_counts = Counter()
+
+            for acr in failed_acrs:
+                # Extract the first line of the error message as the error type
+                if acr.failure_reason:
+                    error_type = acr.failure_reason.split("\\n")[0][:200]  # First 200 chars
+                    error_counts[error_type] += 1
+
+            # Generate summary of top 10 errors
+            summary_lines = [f"Top {min(10, len(error_counts))} Errors:"]
+            for error_type, count in error_counts.most_common(10):
+                summary_lines.append(f"• [{count:>3}] {error_type}")
+
+            return "\\n".join(summary_lines)
+
+        except Exception as e:
+            frappe.logger().error(f"Error generating top errors summary: {str(e)}")
+            return f"Error generating summary: {str(e)}"
+
+    @frappe.whitelist()
+    def retry_failed_account_creations(self):
+        """
+        Retry failed account creation requests from the associated Bulk Operation Tracker.
+
+        This method can be called manually from the UI to reprocess failed ACRs.
+        Returns a summary of the retry operation.
+        """
+        if not self.bulk_operation_tracker:
+            frappe.throw(_("No Bulk Operation Tracker found for this import"))
+
+        try:
+            frappe.logger().info(
+                f"[CSV IMPORT] Retrying failed account creations for {self.name} "
+                f"(tracker: {self.bulk_operation_tracker})"
+            )
+
+            # Get the tracker document
+            tracker = frappe.get_doc("Bulk Operation Tracker", self.bulk_operation_tracker)
+
+            # Check if there are failed items to retry
+            if not tracker.retry_queue:
+                frappe.msgprint(_("No failed account creation requests to retry"))
+                return {"success": False, "message": "No failed items"}
+
+            # Parse retry queue (it's stored as JSON)
+            import json
+            retry_items = json.loads(tracker.retry_queue) if isinstance(tracker.retry_queue, str) else tracker.retry_queue
+
+            if not retry_items:
+                frappe.msgprint(_("No failed account creation requests to retry"))
+                return {"success": False, "message": "No failed items"}
+
+            # Get member names from failed ACRs
+            failed_acrs = frappe.get_all(
+                "Account Creation Request",
+                filters={
+                    "name": ["in", retry_items],
+                    "status": "Failed"
+                },
+                fields=["source_record"],
+                limit=1000
+            )
+
+            if not failed_acrs:
+                frappe.msgprint(_("No failed account creation requests to retry"))
+                return {"success": False, "message": "No failed ACRs found"}
+
+            # Extract member names
+            member_names = [acr.source_record for acr in failed_acrs if acr.source_record]
+
+            if not member_names:
+                frappe.msgprint(_("No member records found for failed ACRs"))
+                return {"success": False, "message": "No members found"}
+
+            # Queue retry using existing account creation function
+            from verenigingen.utils.account_creation_manager import queue_bulk_account_creation_for_members
+
+            # Use same settings as original import
+            if self.create_volunteer_records:
+                roles = ["Verenigingen Member", "Verenigingen Volunteer"]
+                role_profile = "Verenigingen Volunteer"
+            else:
+                roles = ["Verenigingen Member"]
+                role_profile = "Verenigingen Member"
+
+            result = queue_bulk_account_creation_for_members(
+                member_names=member_names,
+                roles=roles,
+                role_profile=role_profile,
+                batch_size=50,
+                priority="Normal",
+                create_employee=bool(getattr(self, "create_employee_records", False)),
+            )
+
+            if result.get("success"):
+                # Update tracking fields after retry
+                frappe.enqueue(
+                    method="verenigingen.verenigingen.doctype.mijnrood_csv_import.mijnrood_csv_import.update_import_tracking_after_retry",
+                    queue="short",
+                    timeout=300,
+                    import_doc_name=self.name,
+                    delay=60  # Wait 60 seconds for retry to process
+                )
+
+                frappe.msgprint(
+                    _(f"Retry queued: {len(retry_items)} failed requests will be reprocessed. "
+                      f"Tracking fields will be updated automatically.")
+                )
+                return {"success": True, "retry_count": len(retry_items)}
+            else:
+                error_msg = result.get("error", "Unknown error")
+                frappe.throw(_("Failed to queue retry: {0}").format(error_msg))
+
+        except Exception as e:
+            frappe.logger().error(
+                f"[CSV IMPORT] Error retrying failed account creations: {str(e)}",
+                exc_info=True
+            )
+            frappe.log_error(
+                message=f"Error retrying failed account creations: {str(e)}\\n{frappe.get_traceback()}",
+                title=f"CSV Import Retry Error: {self.name}",
+            )
+            frappe.throw(_("Error retrying failed account creations: {0}").format(str(e)))
 
     def _aggregate_validation_warnings(self, processed_members: List[str]) -> List[str]:
         """Aggregate validation warnings from Error Log into member-specific summaries"""
@@ -1968,6 +2246,43 @@ def get_import_template():
 
 
 @frappe.whitelist()
+def update_import_tracking_after_retry(import_doc_name: str):
+    """
+    Update import tracking fields after retry processing completes.
+
+    This function is queued after retry_failed_account_creations() to update
+    the tracking fields once the retry has been processed.
+
+    Args:
+        import_doc_name: Name of the Mijnrood CSV Import document
+    """
+    try:
+        frappe.logger().info(f"[CSV IMPORT] Updating tracking after retry for {import_doc_name}")
+
+        # Load the import document
+        import_doc = frappe.get_doc("Mijnrood CSV Import", import_doc_name)
+
+        # Re-run the tracking update to get latest numbers
+        import_doc._update_account_creation_tracking()
+
+        # Save the updated tracking
+        import_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
+        frappe.logger().info(f"[CSV IMPORT] Tracking updated after retry for {import_doc_name}")
+
+    except Exception as e:
+        frappe.logger().error(
+            f"[CSV IMPORT] Error updating tracking after retry: {str(e)}",
+            exc_info=True
+        )
+        frappe.log_error(
+            message=f"Error updating tracking after retry: {str(e)}\\n{frappe.get_traceback()}",
+            title=f"CSV Import Tracking Update After Retry Error: {import_doc_name}",
+        )
+
+
+@frappe.whitelist()
 def process_import_background(import_doc_name: str):
     """
     Background job function to process member CSV import.
@@ -1982,6 +2297,10 @@ def process_import_background(import_doc_name: str):
     frappe.flags.in_background_job = True
     # Disable notifications during bulk import
     frappe.flags.in_bulk_import = True
+    # Suppress chapter events during bulk import to prevent queue overflow (919 events in past imports)
+    frappe.flags.bulk_chapter_operations = True
+    # Suppress member events during bulk import to prevent queue overflow
+    frappe.flags.bulk_member_operations = True
     # Suppress version tracking to prevent activity log flooding during bulk operations
     frappe.flags.ignore_version_changes = True
 

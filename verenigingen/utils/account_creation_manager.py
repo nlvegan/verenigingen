@@ -27,7 +27,10 @@ Architecture:
 Author: Verenigingen Development Team
 """
 
+import random
+import time
 import traceback
+from functools import wraps
 
 import frappe
 from frappe import _
@@ -35,6 +38,64 @@ from frappe.utils import get_site_name, now
 
 from verenigingen.utils.dutch_name_utils import get_full_last_name
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+
+
+def retry_on_deadlock(max_retries=3, initial_delay=0.1):
+    """
+    Decorator to retry database operations on deadlock errors.
+
+    Implements exponential backoff with jitter to handle MySQL deadlocks
+    during concurrent ACR processing.
+
+    Args:
+        max_retries: Maximum number of retry attempts (default 3)
+        initial_delay: Initial delay in seconds before first retry (default 0.1)
+
+    Usage:
+        @retry_on_deadlock(max_retries=3, initial_delay=0.1)
+        def my_database_operation():
+            # ... database operations that might deadlock ...
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    error_msg = str(e)
+
+                    # Check if this is a deadlock error
+                    is_deadlock = "Deadlock" in error_msg or "1213" in error_msg
+                    is_last_attempt = attempt >= max_retries - 1
+
+                    if is_deadlock and not is_last_attempt:
+                        # Calculate exponential backoff with jitter
+                        delay = (initial_delay * (2 ** attempt)) + random.uniform(0, 0.05)
+
+                        frappe.logger().warning(
+                            f"[RETRY] Deadlock detected in {func.__name__}, "
+                            f"retrying in {delay:.3f}s (attempt {attempt + 1}/{max_retries})"
+                        )
+
+                        time.sleep(delay)
+
+                        # Reload any DocType instances that might have stale data
+                        # This is handled by the calling code if needed
+                        continue
+                    else:
+                        # Not a deadlock, or last attempt failed - re-raise
+                        if is_deadlock and is_last_attempt:
+                            frappe.logger().error(
+                                f"[RETRY] Deadlock in {func.__name__} persists after {max_retries} attempts, giving up"
+                            )
+                        raise
+
+            # Should never reach here, but just in case
+            return func(*args, **kwargs)
+
+        return wrapper
+    return decorator
 
 
 class AccountCreationManager:
@@ -103,59 +164,286 @@ class AccountCreationManager:
             raise
 
     def _create_user_and_employee_phase(self):
-        """Phase 1: Create User and Employee records in atomic transaction"""
-        frappe.logger().info(f"Phase 1: Creating User and Employee for {self.request_name}")
+        """Phase 1: Create User and Employee records - tries all subtasks even if some fail (partial success model)"""
+        frappe.logger().info(
+            f"[ACR PIPELINE] ========== PHASE 1 START ========== | "
+            f"ACR: {self.request_name} | Request Type: {self.request.request_type} | "
+            f"Email: {self.request.email} | Create Employee: {self.requires_employee_creation()}"
+        )
 
+        errors = []
+        partial_success = False
+
+        # Subtask 1: Create user account (if not exists)
         try:
-            # Create user account (if not exists)
             if not self.request.created_user:
                 self.create_user_account()
+                partial_success = True
             else:
                 # User already exists - populate instance variable for linking
                 self.created_user = self.request.created_user
-                frappe.logger().info(f"User already exists: {self.created_user}, will reuse for linking")
-
-            # Assign roles and role profile
-            if self.request.pipeline_stage != "Completed":
-                self.assign_roles_and_profile()
-
-            # Create employee record (if needed)
-            if self.requires_employee_creation() and not self.request.created_employee:
-                self.create_employee_record()
-            elif self.request.created_employee:
-                # Employee already exists - populate instance variable for linking
-                self.created_employee = self.request.created_employee
-                frappe.logger().info(
-                    f"Employee already exists: {self.created_employee}, will reuse for linking"
-                )
-
-            frappe.logger().info(
-                f"Phase 1 completed: User={self.created_user}, Employee={self.created_employee}"
-            )
-
+                frappe.logger().info(f"[ACR PIPELINE] User already exists: {self.created_user}, will reuse")
+                partial_success = True
         except Exception as e:
-            frappe.logger().error(f"Phase 1 failed: {str(e)}")
+            error_msg = f"User creation failed: {str(e)[:200]}"
+            errors.append(error_msg)
+            frappe.logger().error(f"[ACR PIPELINE] ✗ {error_msg}")
+            # No user = can't proceed with other steps, re-raise
             raise
 
-    def _link_records_phase(self):
-        """Phase 2: Link all records together in atomic transaction"""
-        frappe.logger().info(f"Phase 2: Linking records for {self.request_name}")
-
+        # Subtask 2: Assign roles and role profile (independent of employee creation)
         try:
-            # Link all records together (no commits inside - single atomic operation)
-            self.link_records()
+            if self.request.pipeline_stage != "Completed":
+                # Wrap role assignment with retry logic for deadlock handling
+                retry_on_deadlock(max_retries=3, initial_delay=0.1)(self.assign_roles_and_profile)()
+        except Exception as e:
+            error_msg = f"Role assignment failed: {str(e)[:200]}"
+            errors.append(error_msg)
+            frappe.logger().warning(
+                f"[ACR PIPELINE] ⚠️ Role assignment failed but continuing with other tasks | "
+                f"ACR: {self.request_name} | Error: {error_msg}"
+            )
+            # Don't re-raise - try employee creation and linking anyway
 
-            # Mark as completed
-            self.request.mark_completed(user=self.created_user, employee=self.created_employee)
+        # Subtask 3: Create employee record (if needed, independent of roles)
+        if self.requires_employee_creation():
+            try:
+                if not self.request.created_employee:
+                    # Wrap employee creation with retry logic for deadlock handling
+                    retry_on_deadlock(max_retries=3, initial_delay=0.1)(self.create_employee_record)()
+                    partial_success = True
+                else:
+                    # Employee already exists - populate instance variable for linking
+                    self.created_employee = self.request.created_employee
+                    frappe.logger().info(
+                        f"[ACR PIPELINE] Employee already exists: {self.created_employee}, will reuse"
+                    )
+                    partial_success = True
+            except Exception as e:
+                error_msg = f"Employee creation failed: {str(e)[:200]}"
+                errors.append(error_msg)
+                frappe.logger().warning(
+                    f"[ACR PIPELINE] ⚠️ Employee creation failed but continuing with linking | "
+                    f"ACR: {self.request_name} | Error: {error_msg}"
+                )
+                # Don't re-raise - user was created, proceed to linking
 
-            frappe.logger().info("Phase 2 completed: All records linked successfully")
+        # Log phase 1 completion (partial or full)
+        if errors:
+            frappe.logger().warning(
+                f"[ACR PIPELINE] ========== PHASE 1 PARTIAL SUCCESS ========== | "
+                f"ACR: {self.request_name} | User: {self.created_user} | "
+                f"Employee: {self.created_employee or 'N/A'} | "
+                f"Errors: {len(errors)} | {'; '.join(errors[:2])}"
+            )
+        else:
+            frappe.logger().info(
+                f"[ACR PIPELINE] ========== PHASE 1 COMPLETE ========== | "
+                f"ACR: {self.request_name} | User: {self.created_user} | "
+                f"Employee: {self.created_employee or 'N/A'}"
+            )
+
+        # Store errors for later reporting but DON'T fail the operation
+        if errors:
+            self.phase1_errors = errors
+
+    def _link_records_phase(self):
+        """Phase 2: Link all records together - tries all links even if some fail (partial success model)"""
+        frappe.logger().info(
+            f"[ACR PIPELINE] ========== PHASE 2 START ========== | "
+            f"ACR: {self.request_name} | User: {self.created_user} | "
+            f"Employee: {self.created_employee or 'N/A'} | Source: {self.request.source_record}"
+        )
+
+        errors = []
+        links_succeeded = 0
+
+        # Try each link independently - don't fail the whole operation if one link fails
+        try:
+            # Link 1: User to source record
+            if self.created_user and hasattr(self.source_doc, "user"):
+                try:
+                    current_user = frappe.db.get_value(
+                        self.request.request_type, self.request.source_record, "user"
+                    )
+                    if not current_user:
+                        frappe.db.set_value(
+                            self.request.request_type,
+                            self.request.source_record,
+                            "user",
+                            self.created_user,
+                            update_modified=False,
+                        )
+                        links_succeeded += 1
+                        frappe.logger().info(
+                            f"[ACR PIPELINE] ✓ Linked user {self.created_user} to {self.request.request_type} {self.request.source_record}"
+                        )
+                except Exception as e:
+                    error_msg = f"Failed to link user to {self.request.request_type}: {str(e)[:150]}"
+                    errors.append(error_msg)
+                    frappe.logger().warning(f"[ACR PIPELINE] ⚠️ {error_msg}")
+
+            # Link 2: Employee to source record
+            if self.created_employee and hasattr(self.source_doc, "employee"):
+                try:
+                    current_employee = frappe.db.get_value(
+                        self.request.request_type, self.request.source_record, "employee"
+                    )
+                    if not current_employee:
+                        frappe.db.set_value(
+                            self.request.request_type,
+                            self.request.source_record,
+                            "employee",
+                            self.created_employee,
+                            update_modified=False,
+                        )
+                        links_succeeded += 1
+                        frappe.logger().info(
+                            f"[ACR PIPELINE] ✓ Linked employee {self.created_employee} to {self.request.request_type} {self.request.source_record}"
+                        )
+                except Exception as e:
+                    error_msg = f"Failed to link employee to {self.request.request_type}: {str(e)[:150]}"
+                    errors.append(error_msg)
+                    frappe.logger().warning(f"[ACR PIPELINE] ⚠️ {error_msg}")
+
+            # Link 3: Contact to Member record (for Member request type only)
+            if self.request.request_type == "Member" and self.created_user:
+                try:
+                    # Find contact for the created user (may not exist yet due to background job timing)
+                    contact_name = frappe.db.get_value(
+                        "Contact", {"user": self.created_user}, "name"
+                    )
+
+                    if contact_name:
+                        # Check if Member has contact field (may not exist in older schemas)
+                        if frappe.db.has_column("Member", "contact"):
+                            current_contact = frappe.db.get_value(
+                                "Member", self.request.source_record, "contact"
+                            )
+                            if not current_contact:
+                                frappe.db.set_value(
+                                    "Member",
+                                    self.request.source_record,
+                                    "contact",
+                                    contact_name,
+                                    update_modified=False,
+                                )
+                                links_succeeded += 1
+                                frappe.logger().info(
+                                    f"[ACR PIPELINE] ✓ Linked contact {contact_name} to Member {self.request.source_record}"
+                                )
+                        else:
+                            frappe.logger().debug(
+                                f"[ACR PIPELINE] Member.contact field does not exist, skipping contact link"
+                            )
+                    else:
+                        frappe.logger().debug(
+                            f"[ACR PIPELINE] Contact not yet created for user {self.created_user} (background job still processing), will be linked later"
+                        )
+                except Exception as e:
+                    error_msg = f"Failed to link contact to Member: {str(e)[:150]}"
+                    errors.append(error_msg)
+                    frappe.logger().warning(f"[ACR PIPELINE] ⚠️ {error_msg}")
+
+            # Link 4 & 5: For Member records, link to associated Volunteer
+            if self.request.request_type == "Member":
+                try:
+                    volunteer_record = frappe.db.get_value(
+                        "Volunteer", {"member": self.request.source_record}, "name"
+                    )
+                    if volunteer_record:
+                        # Link user to volunteer
+                        if self.created_user:
+                            try:
+                                current_volunteer_user = frappe.db.get_value("Volunteer", volunteer_record, "user")
+                                if not current_volunteer_user:
+                                    frappe.db.set_value(
+                                        "Volunteer",
+                                        volunteer_record,
+                                        "user",
+                                        self.created_user,
+                                        update_modified=False,
+                                    )
+                                    links_succeeded += 1
+                                    frappe.logger().info(
+                                        f"[ACR PIPELINE] ✓ Linked user {self.created_user} to Volunteer {volunteer_record}"
+                                    )
+                            except Exception as e:
+                                error_msg = f"Failed to link user to Volunteer: {str(e)[:150]}"
+                                errors.append(error_msg)
+                                frappe.logger().warning(f"[ACR PIPELINE] ⚠️ {error_msg}")
+
+                        # Link employee to volunteer
+                        if self.created_employee:
+                            try:
+                                current_volunteer_employee = frappe.db.get_value(
+                                    "Volunteer", volunteer_record, "employee_id"
+                                )
+                                if not current_volunteer_employee:
+                                    frappe.db.set_value(
+                                        "Volunteer",
+                                        volunteer_record,
+                                        "employee_id",
+                                        self.created_employee,
+                                        update_modified=False,
+                                    )
+                                    links_succeeded += 1
+                                    frappe.logger().info(
+                                        f"[ACR PIPELINE] ✓ Linked employee {self.created_employee} to Volunteer {volunteer_record}"
+                                    )
+                            except Exception as e:
+                                error_msg = f"Failed to link employee to Volunteer: {str(e)[:150]}"
+                                errors.append(error_msg)
+                                frappe.logger().warning(f"[ACR PIPELINE] ⚠️ {error_msg}")
+                except Exception as e:
+                    error_msg = f"Failed to find/link Volunteer record: {str(e)[:150]}"
+                    errors.append(error_msg)
+                    frappe.logger().warning(f"[ACR PIPELINE] ⚠️ {error_msg}")
+
+            # Combine Phase 1 and Phase 2 errors for final status
+            all_errors = getattr(self, 'phase1_errors', []) + errors
+
+            # Determine final status based on what succeeded
+            if all_errors:
+                # Partial success - some things worked, some didn't
+                if self.created_user or links_succeeded > 0:
+                    # Mark as completed but with warnings
+                    self.request.mark_completed(user=self.created_user, employee=self.created_employee)
+                    # Update failure_reason to note partial success
+                    combined_errors = "; ".join(all_errors[:5])
+                    frappe.db.set_value(
+                        "Account Creation Request",
+                        self.request.name,
+                        "failure_reason",
+                        f"⚠️ PARTIAL SUCCESS - Some tasks failed: {combined_errors}",
+                        update_modified=False
+                    )
+                    frappe.logger().warning(
+                        f"[ACR PIPELINE] ========== PHASE 2 PARTIAL SUCCESS ========== | "
+                        f"ACR: {self.request_name} | Links succeeded: {links_succeeded} | "
+                        f"Errors: {len(all_errors)} | {combined_errors}"
+                    )
+                else:
+                    # Nothing succeeded - mark as failed
+                    raise Exception(f"All tasks failed: {'; '.join(all_errors[:3])}")
+            else:
+                # Full success - everything worked
+                self.request.mark_completed(user=self.created_user, employee=self.created_employee)
+                frappe.logger().info(
+                    f"[ACR PIPELINE] ========== PHASE 2 COMPLETE ========== | "
+                    f"ACR: {self.request_name} | All records linked successfully | Links: {links_succeeded}"
+                )
 
         except Exception as e:
-            frappe.logger().error(f"Phase 2 failed: {str(e)}")
+            frappe.logger().error(
+                f"[ACR PIPELINE] ========== PHASE 2 FAILED ========== | "
+                f"ACR: {self.request_name} | Error: {str(e)[:300]}"
+            )
             # User and Employee still exist from Phase 1 - can retry linking
             frappe.logger().warning(
-                "User/Employee creation succeeded, but linking failed. "
-                "Retry will attempt linking with existing User/Employee."
+                f"[ACR PIPELINE] User/Employee may exist but linking failed. "
+                f"User: {self.created_user} | Employee: {self.created_employee or 'N/A'} | "
+                f"Retry will attempt linking with existing records."
             )
             raise
 
@@ -265,12 +553,14 @@ class AccountCreationManager:
             # Save original flag state for restoration
             original_in_import = getattr(frappe.flags, "in_import", False)
             original_mute_emails = getattr(frappe.flags, "mute_emails", False)
+            original_in_install = getattr(frappe.flags, "in_install", False)
 
             try:
                 # Use Frappe's native email muting for bulk operations
                 if is_bulk_operation:
                     frappe.flags.in_import = True
                     frappe.flags.mute_emails = True  # Frappe-native email suppression
+                    frappe.flags.in_install = True  # CRITICAL: Prevents User.after_insert() from queuing background jobs
 
                 # Retry logic for deadlock errors during user creation
                 # MySQL deadlocks can occur when multiple users are created concurrently
@@ -398,11 +688,29 @@ class AccountCreationManager:
                 # Always restore original flag state
                 frappe.flags.in_import = original_in_import
                 frappe.flags.mute_emails = original_mute_emails
+                frappe.flags.in_install = original_in_install
+
+            # CRITICAL: Verify user was actually committed before marking as created
+            # This prevents phantom users where created_user is set but user doesn't exist
+            frappe.db.commit()  # Ensure user is committed
+
+            # Verify user exists in database
+            if not frappe.db.exists("User", user_doc.name):
+                raise frappe.ValidationError(
+                    f"User {user_doc.name} was inserted but does not exist in database. "
+                    f"Possible transaction rollback or hook failure."
+                )
 
             self.created_user = user_doc.name
             self.request.created_user = self.created_user
 
-            frappe.logger().info(f"User account created successfully: {user_doc.name}")
+            frappe.logger().info(f"User account created and verified in database: {user_doc.name}")
+
+            # Note: Contact is created automatically by Frappe's User.after_insert() hook
+            # which queues a background job. Some jobs may fail due to race conditions
+            # (transaction not yet visible), but these failures are non-critical and
+            # contacts will be retried/created eventually. We store the user for contact
+            # linking in the linking phase.
 
             # Return success result for verification in tests
             return {"success": True, "user": user_doc.name}
@@ -449,11 +757,16 @@ class AccountCreationManager:
 
         self.request.mark_processing("Role Assignment")
 
-        frappe.logger().info(f"Assigning roles to user: {self.created_user}")
+        frappe.logger().info(
+            f"[ACR PIPELINE] Role Assignment - Starting for {self.request_name} | User: {self.created_user} | "
+            f"Requested Roles: {[r.role for r in self.request.requested_roles]} | "
+            f"Role Profile: {self.request.role_profile}"
+        )
 
         try:
             user_doc = frappe.get_doc("User", self.created_user)
             existing_roles = [r.role for r in user_doc.roles]
+            frappe.logger().info(f"[ACR PIPELINE] User {self.created_user} existing roles: {existing_roles}")
 
             # Assign individual roles
             roles_added = []
@@ -481,37 +794,17 @@ class AccountCreationManager:
                 frappe.logger().info(f"Role profile {self.request.role_profile} assigned")
 
             # Save with proper permissions - NO ignore_permissions=True
-            # Use retry logic for deadlock handling during concurrent role assignments
+            # Retry logic is handled at higher level via @retry_on_deadlock decorator
             if roles_added or self.request.role_profile:
-                max_retries = 3
-                for attempt in range(max_retries):
-                    try:
-                        user_doc.save()
-                        frappe.logger().info(f"Roles assigned successfully: {roles_added}")
-                        break
-                    except Exception as save_error:
-                        error_msg = str(save_error)
-                        # Retry on deadlock errors (MySQL error 1213)
-                        if ("Deadlock" in error_msg or "1213" in error_msg) and attempt < max_retries - 1:
-                            import random
-                            import time
-
-                            # Exponential backoff: 100ms, 200ms, 400ms + jitter
-                            delay = (0.1 * (2**attempt)) + random.uniform(0, 0.05)
-                            frappe.logger().info(
-                                f"Deadlock during role assignment, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})"
-                            )
-                            time.sleep(delay)
-                            # Reload user to avoid timestamp conflicts
-                            user_doc = frappe.get_doc("User", self.created_user)
-                            # Re-apply roles that aren't already present
-                            existing_roles = [r.role for r in user_doc.roles]
-                            for role in roles_added:
-                                if role not in existing_roles:
-                                    user_doc.append("roles", {"role": role})
-                            continue
-                        else:
-                            raise
+                frappe.logger().info(
+                    f"[ACR PIPELINE] Saving user with roles | "
+                    f"User: {self.created_user} | Roles to add: {roles_added} | Profile: {self.request.role_profile}"
+                )
+                user_doc.save()
+                frappe.logger().info(
+                    f"[ACR PIPELINE] ✓ Role Assignment - SUCCESS | "
+                    f"User: {self.created_user} | Roles Added: {roles_added} | Profile: {self.request.role_profile}"
+                )
             else:
                 frappe.logger().info("No new roles to assign")
 
@@ -521,8 +814,16 @@ class AccountCreationManager:
                 frappe.logger().info(f"Module access configured for member user: {self.created_user}")
 
         except Exception as e:
-            frappe.logger().error(f"Failed to assign roles: {str(e)}")
-            raise frappe.ValidationError(f"Role assignment failed: {str(e)}")
+            error_msg = str(e)
+            is_deadlock = "Deadlock" in error_msg or "1213" in error_msg
+
+            frappe.logger().error(
+                f"[ACR PIPELINE] ✗ Role Assignment - FINAL FAILURE | "
+                f"ACR: {self.request_name} | User: {self.created_user} | "
+                f"Error Type: {'DEADLOCK (will retry)' if is_deadlock else 'NON-RETRIABLE'} | "
+                f"Error: {error_msg[:300]}"
+            )
+            raise frappe.ValidationError(f"Role assignment failed: {error_msg}")
 
     def create_employee_record(self):
         """Create employee record for expense functionality"""
@@ -531,7 +832,10 @@ class AccountCreationManager:
 
         self.request.mark_processing("Employee Creation")
 
-        frappe.logger().info(f"Creating employee record for user: {self.created_user}")
+        frappe.logger().info(
+            f"[ACR PIPELINE] Employee Creation - Starting for {self.request_name} | "
+            f"User: {self.created_user} | Request Type: {self.request.request_type}"
+        )
 
         # Check if employee already exists for this user
         existing_employee = frappe.db.get_value("Employee", {"user_id": self.created_user}, "name")
@@ -540,7 +844,8 @@ class AccountCreationManager:
             self.created_employee = existing_employee
             self.request.created_employee = self.created_employee
             frappe.logger().info(
-                f"Employee record already exists: {existing_employee} for user {self.created_user}, will proceed to linking"
+                f"[ACR PIPELINE] ✓ Employee Creation - SKIPPED (already exists) | "
+                f"ACR: {self.request_name} | Employee: {existing_employee} | User: {self.created_user}"
             )
             return
 
@@ -586,11 +891,23 @@ class AccountCreationManager:
             self.created_employee = employee_doc.name
             self.request.created_employee = self.created_employee
 
-            frappe.logger().info(f"Employee record created successfully: {employee_doc.name}")
+            frappe.logger().info(
+                f"[ACR PIPELINE] ✓ Employee Creation - SUCCESS | "
+                f"ACR: {self.request_name} | Employee: {employee_doc.name} | "
+                f"User: {self.created_user} | Company: {default_company}"
+            )
 
         except Exception as e:
-            frappe.logger().error(f"Failed to create employee record: {str(e)}")
-            raise frappe.ValidationError(f"Employee record creation failed: {str(e)}")
+            error_msg = str(e)
+            is_deadlock = "Deadlock" in error_msg or "1213" in error_msg
+
+            frappe.logger().error(
+                f"[ACR PIPELINE] ✗ Employee Creation - FAILED | "
+                f"ACR: {self.request_name} | User: {self.created_user} | "
+                f"Error Type: {'DEADLOCK (will retry)' if is_deadlock else 'NON-RETRIABLE'} | "
+                f"Error: {error_msg[:300]}"
+            )
+            raise frappe.ValidationError(f"Employee record creation failed: {error_msg}")
 
     def link_records(self):
         """
@@ -1399,6 +1716,79 @@ def process_bulk_account_creation_batch(
             f"({next_batch['batch_number']}/{next_batch['batch_number'] + len(remaining_after_next)})"
         )
 
+        # CRITICAL: Wait for current batch's ACRs to fully complete before queueing next batch
+        # This ensures we don't queue faster than the system can process, preventing queue overflow
+        try:
+            import time
+
+            max_wait_seconds = 600  # 10 minutes max wait for batch completion
+            wait_interval = 3  # Check every 3 seconds
+            waited = 0
+
+            frappe.logger().info(
+                f"Waiting for current batch ({len(request_names)} ACRs) to fully complete "
+                f"before queueing next batch"
+            )
+
+            while waited < max_wait_seconds:
+                # Check how many ACRs from this batch are still processing
+                still_processing = frappe.db.count(
+                    "Account Creation Request",
+                    {
+                        "name": ["in", request_names],
+                        "status": ["in", ["Requested", "Queued", "In Progress"]],
+                    },
+                )
+
+                if still_processing == 0:
+                    # All ACRs from this batch are done (Completed or Failed)
+                    completed = frappe.db.count(
+                        "Account Creation Request",
+                        {"name": ["in", request_names], "status": "Completed"},
+                    )
+                    failed = frappe.db.count(
+                        "Account Creation Request",
+                        {"name": ["in", request_names], "status": "Failed"},
+                    )
+
+                    frappe.logger().info(
+                        f"Batch fully processed: {completed} completed, {failed} failed. "
+                        f"Queuing next batch now."
+                    )
+                    break
+
+                # Some ACRs still processing, wait
+                if waited % 15 == 0:  # Log every 15 seconds
+                    frappe.logger().info(
+                        f"Waiting for batch to complete: {still_processing} ACRs still processing "
+                        f"(waited {waited}s so far)"
+                    )
+
+                time.sleep(wait_interval)
+                waited += wait_interval
+
+            if waited >= max_wait_seconds:
+                # Batch didn't complete in time - queue next batch anyway to avoid stalling
+                still_processing = frappe.db.count(
+                    "Account Creation Request",
+                    {
+                        "name": ["in", request_names],
+                        "status": ["in", ["Requested", "Queued", "In Progress"]],
+                    },
+                )
+
+                frappe.logger().warning(
+                    f"Batch still has {still_processing} ACRs processing after {max_wait_seconds}s wait. "
+                    f"Queuing next batch anyway to avoid stalling (may cause queue saturation)."
+                )
+
+        except Exception as batch_wait_error:
+            frappe.logger().warning(
+                f"Batch completion check failed: {str(batch_wait_error)}, "
+                f"proceeding to queue next batch"
+            )
+
+        # Queue the next batch
         try:
             frappe.enqueue(
                 "verenigingen.utils.account_creation_manager.process_bulk_account_creation_batch",
