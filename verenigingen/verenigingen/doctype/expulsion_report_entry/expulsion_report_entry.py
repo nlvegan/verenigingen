@@ -3,6 +3,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import getdate, now, today
 
+from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -135,7 +136,8 @@ class ExpulsionReportEntry(Document):
         """
 
         try:
-            frappe.sendmail(
+            email_service = get_email_service()
+            email_service.send_simple_email(
                 recipients=governance_emails,
                 subject=subject,
                 message=message,
@@ -212,7 +214,8 @@ class ExpulsionReportEntry(Document):
         """
 
         try:
-            frappe.sendmail(
+            email_service = get_email_service()
+            email_service.send_simple_email(
                 recipients=governance_emails,
                 subject=subject,
                 message=message,

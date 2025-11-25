@@ -7,6 +7,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, today
 
+from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
@@ -63,7 +64,8 @@ def send_follow_up_reminders():
                 <p><a href="/app/member-contact-request/{request.name}">View Contact Request</a></p>
                 """
 
-                frappe.sendmail(
+                email_service = get_email_service()
+                email_service.send_simple_email(
                     recipients=[assigned_user.email],
                     subject=subject,
                     message=message,
@@ -152,7 +154,8 @@ def escalate_contact_request(request, overdue_days):
         <p><a href="/app/member-contact-request/{request.name}">View Contact Request</a></p>
         """
 
-        frappe.sendmail(
+        email_service = get_email_service()
+        email_service.send_simple_email(
             recipients=manager_emails,
             subject=subject,
             message=message,
@@ -245,7 +248,8 @@ def auto_close_resolved_requests():
                 <p><a href="/contact_request">Submit New Contact Request</a></p>
                 """
 
-                frappe.sendmail(
+                email_service = get_email_service()
+                email_service.send_simple_email(
                     recipients=[member_doc.email],
                     subject=subject,
                     message=message,
