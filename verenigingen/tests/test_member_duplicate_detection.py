@@ -307,8 +307,7 @@ class TestAddressDuplicateDetection(EnhancedTestCase):
         import random
         unique_suffix = str(random.randint(1000, 9999))
 
-        # Create address with proper permissions context
-        frappe.set_user("Administrator")
+        # Create address - test user already has System Manager role from setUp()
         address = frappe.get_doc({
             "doctype": "Address",
             "address_title": f"Test Address {unique_suffix}",
@@ -316,7 +315,7 @@ class TestAddressDuplicateDetection(EnhancedTestCase):
             "city": "Amsterdam",
             "pincode": "1234 AB",
             "country": "Netherlands"
-        }).insert(ignore_permissions=True)
+        }).insert()
 
         member1 = self.create_test_member(
             first_name="Jan",
@@ -401,8 +400,7 @@ class TestComprehensiveDuplicateDetection(EnhancedTestCase):
             birth_date=unique_birthdate
         )
 
-        # Create address for low-confidence match
-        frappe.set_user("Administrator")
+        # Create address for low-confidence match - test user already has System Manager role
         address = frappe.get_doc({
             "doctype": "Address",
             "address_title": f"Test Address {unique_suffix}",
@@ -410,7 +408,7 @@ class TestComprehensiveDuplicateDetection(EnhancedTestCase):
             "city": "Amsterdam",
             "pincode": "1234 AB",
             "country": "Netherlands"
-        }).insert(ignore_permissions=True)
+        }).insert()
 
         member2 = self.create_test_member(
             first_name="ThresholdTest",
@@ -461,15 +459,15 @@ class TestAPISecurity(EnhancedTestCase):
 
     def test_api_requires_valid_member_name(self):
         """API should validate member name input"""
-        # Ensure we're authenticated as Administrator
-        frappe.set_user("Administrator")
+        # Test user already has System Manager role from setUp()
 
         # Test with invalid member name
         result = check_duplicate_for_approval("NonExistentMember123")
 
-        self.assertFalse(result["success"])
-        self.assertIn("error", result)
-        self.assertEqual(result["has_duplicates"], False)
+        # OperationResult pattern
+        self.assertFalse(result.success)
+        self.assertIsNotNone(result.error_message)
+        self.assertEqual(result.metadata.get("has_duplicates"), False)
 
     def test_api_permission_check(self):
         """API should check user permissions"""
@@ -496,16 +494,16 @@ class TestAPISecurity(EnhancedTestCase):
 
     def test_api_sanitizes_error_messages(self):
         """API should not expose internal error details"""
-        # Ensure we're authenticated
-        frappe.set_user("Administrator")
+        # Test user already has System Manager role from setUp()
 
         # Test with invalid member name
         result = check_duplicate_for_approval("InvalidName123")
 
-        self.assertFalse(result["success"])
+        # OperationResult pattern
+        self.assertFalse(result.success)
         # Error should be user-friendly, not exposing internals
-        self.assertNotIn("Traceback", result.get("error", ""))
-        self.assertNotIn("Exception", result.get("error", ""))
+        self.assertNotIn("Traceback", result.error_message or "")
+        self.assertNotIn("Exception", result.error_message or "")
 
 
 class TestEdgeCases(EnhancedTestCase):

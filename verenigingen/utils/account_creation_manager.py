@@ -24,6 +24,13 @@ Architecture:
 - Independent retry capability for each pipeline stage
 - Integration with existing Frappe/ERPNext patterns
 
+ERROR HANDLING PATTERN:
+All whitelisted API endpoints in this module follow the OperationResult pattern:
+- Return type: OperationResult[Dict[str, Any]]
+- Never throw exceptions - all errors wrapped in OperationResult.fail()
+- Consistent metadata with context dict: {"operation": "...", "params": {...}}
+- Generic user-facing messages with technical details in errors list
+
 Author: Verenigingen Development Team
 """
 
@@ -31,12 +38,14 @@ import random
 import time
 import traceback
 from functools import wraps
+from typing import Any, Dict
 
 import frappe
 from frappe import _
 from frappe.utils import get_site_name, now
 
 from verenigingen.utils.dutch_name_utils import get_full_last_name
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 
@@ -56,6 +65,7 @@ def retry_on_deadlock(max_retries=3, initial_delay=0.1):
         def my_database_operation():
             # ... database operations that might deadlock ...
     """
+
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
@@ -71,7 +81,7 @@ def retry_on_deadlock(max_retries=3, initial_delay=0.1):
 
                     if is_deadlock and not is_last_attempt:
                         # Calculate exponential backoff with jitter
-                        delay = (initial_delay * (2 ** attempt)) + random.uniform(0, 0.05)
+                        delay = (initial_delay * (2**attempt)) + random.uniform(0, 0.05)
 
                         frappe.logger().warning(
                             f"[RETRY] Deadlock detected in {func.__name__}, "
@@ -95,6 +105,7 @@ def retry_on_deadlock(max_retries=3, initial_delay=0.1):
             return func(*args, **kwargs)
 
         return wrapper
+
     return decorator
 
 
@@ -172,18 +183,15 @@ class AccountCreationManager:
         )
 
         errors = []
-        partial_success = False
 
         # Subtask 1: Create user account (if not exists)
         try:
             if not self.request.created_user:
                 self.create_user_account()
-                partial_success = True
             else:
                 # User already exists - populate instance variable for linking
                 self.created_user = self.request.created_user
                 frappe.logger().info(f"[ACR PIPELINE] User already exists: {self.created_user}, will reuse")
-                partial_success = True
         except Exception as e:
             error_msg = f"User creation failed: {str(e)[:200]}"
             errors.append(error_msg)
@@ -211,14 +219,12 @@ class AccountCreationManager:
                 if not self.request.created_employee:
                     # Wrap employee creation with retry logic for deadlock handling
                     retry_on_deadlock(max_retries=3, initial_delay=0.1)(self.create_employee_record)()
-                    partial_success = True
                 else:
                     # Employee already exists - populate instance variable for linking
                     self.created_employee = self.request.created_employee
                     frappe.logger().info(
                         f"[ACR PIPELINE] Employee already exists: {self.created_employee}, will reuse"
                     )
-                    partial_success = True
             except Exception as e:
                 error_msg = f"Employee creation failed: {str(e)[:200]}"
                 errors.append(error_msg)
@@ -310,9 +316,7 @@ class AccountCreationManager:
             if self.request.request_type == "Member" and self.created_user:
                 try:
                     # Find contact for the created user (may not exist yet due to background job timing)
-                    contact_name = frappe.db.get_value(
-                        "Contact", {"user": self.created_user}, "name"
-                    )
+                    contact_name = frappe.db.get_value("Contact", {"user": self.created_user}, "name")
 
                     if contact_name:
                         # Check if Member has contact field (may not exist in older schemas)
@@ -334,7 +338,7 @@ class AccountCreationManager:
                                 )
                         else:
                             frappe.logger().debug(
-                                f"[ACR PIPELINE] Member.contact field does not exist, skipping contact link"
+                                "[ACR PIPELINE] Member.contact field does not exist, skipping contact link"
                             )
                     else:
                         frappe.logger().debug(
@@ -355,7 +359,9 @@ class AccountCreationManager:
                         # Link user to volunteer
                         if self.created_user:
                             try:
-                                current_volunteer_user = frappe.db.get_value("Volunteer", volunteer_record, "user")
+                                current_volunteer_user = frappe.db.get_value(
+                                    "Volunteer", volunteer_record, "user"
+                                )
                                 if not current_volunteer_user:
                                     frappe.db.set_value(
                                         "Volunteer",
@@ -401,7 +407,7 @@ class AccountCreationManager:
                     frappe.logger().warning(f"[ACR PIPELINE] ⚠️ {error_msg}")
 
             # Combine Phase 1 and Phase 2 errors for final status
-            all_errors = getattr(self, 'phase1_errors', []) + errors
+            all_errors = getattr(self, "phase1_errors", []) + errors
 
             # Determine final status based on what succeeded
             if all_errors:
@@ -416,7 +422,7 @@ class AccountCreationManager:
                         self.request.name,
                         "failure_reason",
                         f"⚠️ PARTIAL SUCCESS - Some tasks failed: {combined_errors}",
-                        update_modified=False
+                        update_modified=False,
                     )
                     frappe.logger().warning(
                         f"[ACR PIPELINE] ========== PHASE 2 PARTIAL SUCCESS ========== | "
@@ -560,7 +566,9 @@ class AccountCreationManager:
                 if is_bulk_operation:
                     frappe.flags.in_import = True
                     frappe.flags.mute_emails = True  # Frappe-native email suppression
-                    frappe.flags.in_install = True  # CRITICAL: Prevents User.after_insert() from queuing background jobs
+                    frappe.flags.in_install = (
+                        True  # CRITICAL: Prevents User.after_insert() from queuing background jobs
+                    )
 
                 # Retry logic for deadlock errors during user creation
                 # MySQL deadlocks can occur when multiple users are created concurrently
@@ -697,7 +705,7 @@ class AccountCreationManager:
             # Verify user exists in database
             if not frappe.db.exists("User", user_doc.name):
                 raise frappe.ValidationError(
-                    f"User {user_doc.name} was inserted but does not exist in database. "
+                    f"User {user_doc.name} was inserted but cannot be found. "
                     f"Possible transaction rollback or hook failure."
                 )
 
@@ -1153,12 +1161,15 @@ class AccountCreationManager:
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def process_account_creation_request(request_name, at_time=None):
+def process_account_creation_request(request_name, at_time=None) -> OperationResult[Dict[str, Any]]:
     """Background job entry point for processing account creation requests
 
     Args:
         request_name: Name of the Account Creation Request to process
         at_time: Scheduled execution time (passed by frappe.enqueue when using at_time parameter)
+
+    Returns:
+        OperationResult[Dict[str, Any]]: Result with success status and message
     """
     # Mark as background job to exempt from rate limits
     frappe.flags.in_background_job = True
@@ -1172,149 +1183,272 @@ def process_account_creation_request(request_name, at_time=None):
     try:
         manager = AccountCreationManager(request_name)
         manager.process_complete_pipeline()
-        return {"success": True, "message": "Account creation completed successfully"}
+        return OperationResult.ok(
+            {"request_name": request_name}, message="Account creation completed successfully"
+        )
 
     except Exception as e:
         frappe.logger().error(f"Account creation job failed for {request_name}: {str(e)}")
-        return {"success": False, "error": str(e)}
-
-
-@frappe.whitelist()
-@critical_api(operation_type=OperationType.ADMIN)
-def queue_account_creation_for_member(member_name, roles=None, role_profile=None, priority="Normal"):
-    """Queue account creation for a member record"""
-    if not frappe.has_permission("User", "create"):
-        frappe.throw(_("Insufficient permissions to create user accounts"))
-
-    # Get member details
-    member = frappe.get_doc("Member", member_name)
-
-    if not member.email:
-        frappe.throw(_("Member must have an email address for account creation"))
-
-    # Note: Even if user exists, we still create a request to ensure proper linking
-    # The AccountCreationManager will detect the existing user and link it to the member
-
-    # Check if request already exists
-    existing_request = frappe.db.exists(
-        "Account Creation Request",
-        {"source_record": member_name, "status": ["not in", ["Completed", "Cancelled"]]},
-    )
-
-    if existing_request:
-        frappe.throw(_("Account creation request already exists: {0}").format(existing_request))
-
-    # Set default roles if not provided
-    if not roles:
-        roles = ["Verenigingen Member"]
-    if not role_profile:
-        role_profile = "Verenigingen Member"
-
-    # All member account requests use "Member" type (source_record links to Member DocType)
-    # Employee creation is controlled via create_employee_record flag
-    request_type = "Member"
-
-    # Determine if employee record should be created
-    # Volunteers need Employee records for expense functionality
-    create_employee = role_profile == "Verenigingen Volunteer"
-
-    # Create request
-    request = frappe.get_doc(
-        {
-            "doctype": "Account Creation Request",
-            "request_type": request_type,
-            "source_record": member_name,
-            "email": member.email,
-            "full_name": member.full_name,
-            "priority": priority,
-            "role_profile": role_profile,
-            "business_justification": "Member account creation for portal access",
-            "create_employee_record": create_employee,
-        }
-    )
-
-    # Add requested roles
-    for role in roles:
-        request.append("requested_roles", {"role": role})
-
-    request.insert()
-
-    # Queue for processing
-    result = request.queue_processing()
-
-    return {
-        "success": True,
-        "request_name": request.name,
-        "message": result.get("message", "Account creation queued"),
-    }
-
-
-@frappe.whitelist()
-@critical_api(operation_type=OperationType.ADMIN)
-def queue_account_creation_for_volunteer(volunteer_name, priority="Normal"):
-    """Queue account creation for a volunteer record"""
-    # Skip permission check during tests if flag is set
-    if not frappe.flags.get("skip_user_permission_check", False):
-        if not frappe.has_permission("User", "create"):
-            frappe.throw(_("Insufficient permissions to create user accounts"))
-
-    # Get volunteer details
-    volunteer = frappe.get_doc("Volunteer", volunteer_name)
-
-    if not volunteer.email:
-        frappe.throw(_("Volunteer must have an email address for account creation"))
-
-    # Check if user already exists for this email
-    if frappe.db.exists("User", volunteer.email):
-        frappe.logger().info(
-            f"User account already exists for volunteer {volunteer_name} with email {volunteer.email}"
+        frappe.log_error(
+            f"Account creation processing failed: {str(e)}\n{traceback.format_exc()}",
+            "Account Creation Request Processing Error",
         )
-        # Return a successful result indicating existing account was found
-        return {
-            "request_name": None,
-            "result": "existing_user",
-            "message": f"User account already exists for {volunteer.email}",
-        }
+        return OperationResult.fail(
+            _("Unable to process account creation request. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "process_account_creation", "params": {"request_name": request_name}},
+        )
 
-    # Check if request already exists
-    existing_request = frappe.db.exists(
-        "Account Creation Request",
-        {"source_record": volunteer_name, "status": ["not in", ["Completed", "Cancelled"]]},
-    )
 
-    if existing_request:
-        frappe.throw(_("Account creation request already exists: {0}").format(existing_request))
+@frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
+def queue_account_creation_for_member(
+    member_name, roles=None, role_profile=None, priority="Normal"
+) -> OperationResult[Dict[str, Any]]:
+    """Queue account creation for a member record
 
-    # Create request with volunteer-specific roles
-    request = frappe.get_doc(
-        {
-            "doctype": "Account Creation Request",
-            "request_type": "Volunteer",
-            "source_record": volunteer_name,
-            "email": volunteer.email,
-            "full_name": volunteer.volunteer_name,
-            "priority": priority,
-            "role_profile": "Verenigingen Volunteer",
-            "business_justification": "Volunteer account creation for system access and expense reporting",
-        }
-    )
+    Args:
+        member_name: Member record name
+        roles: List of roles to assign (default: ["Verenigingen Member"])
+        role_profile: Role profile to assign (default: "Verenigingen Member")
+        priority: Processing priority (default: "Normal")
 
-    # Add volunteer-specific roles
-    volunteer_roles = ["Verenigingen Volunteer", "Employee", "Employee Self Service"]
+    Returns:
+        OperationResult[Dict[str, Any]]: Result with request name and status
+    """
+    try:
+        if not frappe.has_permission("User", "create"):
+            return OperationResult.fail(
+                _("Insufficient permissions to create user accounts"),
+                errors=["Permission denied"],
+                context={"operation": "queue_member_account", "params": {"member_name": member_name}},
+            )
 
-    for role in volunteer_roles:
-        request.append("requested_roles", {"role": role})
+        # Get member details
+        if not frappe.db.exists("Member", member_name):
+            return OperationResult.fail(
+                _("Member not found"),
+                errors=[f"Member {member_name} does not exist"],
+                context={"operation": "queue_member_account", "params": {"member_name": member_name}},
+            )
 
-    request.insert()
+        member = frappe.get_doc("Member", member_name)
 
-    # Queue for processing
-    result = request.queue_processing()
+        if not member.email:
+            return OperationResult.fail(
+                _("Member must have an email address for account creation"),
+                errors=["No email address provided"],
+                context={"operation": "queue_member_account", "params": {"member_name": member_name}},
+            )
 
-    return {
-        "success": True,
-        "request_name": request.name,
-        "message": result.get("message", "Account creation queued"),
-    }
+        # Note: Even if user exists, we still create a request to ensure proper linking
+        # The AccountCreationManager will detect the existing user and link it to the member
+
+        # Check if request already exists
+        existing_request = frappe.db.exists(
+            "Account Creation Request",
+            {"source_record": member_name, "status": ["not in", ["Completed", "Cancelled"]]},
+        )
+
+        if existing_request:
+            return OperationResult.fail(
+                _("Account creation request already exists"),
+                errors=[f"Request {existing_request} already exists"],
+                context={
+                    "operation": "queue_member_account",
+                    "params": {"member_name": member_name, "existing_request": existing_request},
+                },
+            )
+
+        # Set default roles if not provided
+        if not roles:
+            roles = ["Verenigingen Member"]
+        if not role_profile:
+            role_profile = "Verenigingen Member"
+
+        # All member account requests use "Member" type (source_record links to Member DocType)
+        # Employee creation is controlled via create_employee_record flag
+        request_type = "Member"
+
+        # Determine if employee record should be created
+        # Volunteers need Employee records for expense functionality
+        create_employee = role_profile == "Verenigingen Volunteer"
+
+        # Create request
+        request = frappe.get_doc(
+            {
+                "doctype": "Account Creation Request",
+                "request_type": request_type,
+                "source_record": member_name,
+                "email": member.email,
+                "full_name": member.full_name,
+                "priority": priority,
+                "role_profile": role_profile,
+                "business_justification": "Member account creation for portal access",
+                "create_employee_record": create_employee,
+            }
+        )
+
+        # Add requested roles
+        for role in roles:
+            request.append("requested_roles", {"role": role})
+
+        request.insert()
+
+        # Queue for processing
+        queue_result = request.queue_processing()
+
+        return OperationResult.ok(
+            {
+                "request_name": request.name,
+                "member_name": member_name,
+                "email": member.email,
+                "queue_result": queue_result,
+            },
+            message=queue_result.get("message", "Account creation queued"),
+        )
+
+    except Exception as e:
+        frappe.logger().error(f"Error queueing account creation for member {member_name}: {str(e)}")
+        frappe.log_error(
+            f"Failed to queue account creation: {str(e)}\n{traceback.format_exc()}",
+            "Queue Member Account Creation Error",
+        )
+        return OperationResult.fail(
+            _("Unable to queue account creation. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "queue_member_account", "params": {"member_name": member_name}},
+        )
+
+
+@frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
+def queue_account_creation_for_volunteer(
+    volunteer_name, priority="Normal"
+) -> OperationResult[Dict[str, Any]]:
+    """Queue account creation for a volunteer record
+
+    Args:
+        volunteer_name: Volunteer record name
+        priority: Processing priority (default: "Normal")
+
+    Returns:
+        OperationResult[Dict[str, Any]]: Result with request name and status
+    """
+    try:
+        # Skip permission check during tests if flag is set
+        if not frappe.flags.get("skip_user_permission_check", False):
+            if not frappe.has_permission("User", "create"):
+                return OperationResult.fail(
+                    _("Insufficient permissions to create user accounts"),
+                    errors=["Permission denied"],
+                    context={
+                        "operation": "queue_volunteer_account",
+                        "params": {"volunteer_name": volunteer_name},
+                    },
+                )
+
+        # Get volunteer details
+        if not frappe.db.exists("Volunteer", volunteer_name):
+            return OperationResult.fail(
+                _("Volunteer not found"),
+                errors=[f"Volunteer {volunteer_name} does not exist"],
+                context={
+                    "operation": "queue_volunteer_account",
+                    "params": {"volunteer_name": volunteer_name},
+                },
+            )
+
+        volunteer = frappe.get_doc("Volunteer", volunteer_name)
+
+        if not volunteer.email:
+            return OperationResult.fail(
+                _("Volunteer must have an email address for account creation"),
+                errors=["No email address provided"],
+                context={
+                    "operation": "queue_volunteer_account",
+                    "params": {"volunteer_name": volunteer_name},
+                },
+            )
+
+        # Check if user already exists for this email
+        if frappe.db.exists("User", volunteer.email):
+            frappe.logger().info(
+                f"User account already exists for volunteer {volunteer_name} with email {volunteer.email}"
+            )
+            # Return a successful result indicating existing account was found
+            return OperationResult.ok(
+                {
+                    "request_name": None,
+                    "result": "existing_user",
+                    "email": volunteer.email,
+                    "volunteer_name": volunteer_name,
+                },
+                message=f"User account already exists for {volunteer.email}",
+            )
+
+        # Check if request already exists
+        existing_request = frappe.db.exists(
+            "Account Creation Request",
+            {"source_record": volunteer_name, "status": ["not in", ["Completed", "Cancelled"]]},
+        )
+
+        if existing_request:
+            return OperationResult.fail(
+                _("Account creation request already exists"),
+                errors=[f"Request {existing_request} already exists"],
+                context={
+                    "operation": "queue_volunteer_account",
+                    "params": {"volunteer_name": volunteer_name, "existing_request": existing_request},
+                },
+            )
+
+        # Create request with volunteer-specific roles
+        request = frappe.get_doc(
+            {
+                "doctype": "Account Creation Request",
+                "request_type": "Volunteer",
+                "source_record": volunteer_name,
+                "email": volunteer.email,
+                "full_name": volunteer.volunteer_name,
+                "priority": priority,
+                "role_profile": "Verenigingen Volunteer",
+                "business_justification": "Volunteer account creation for system access and expense reporting",
+            }
+        )
+
+        # Add volunteer-specific roles
+        volunteer_roles = ["Verenigingen Volunteer", "Employee", "Employee Self Service"]
+
+        for role in volunteer_roles:
+            request.append("requested_roles", {"role": role})
+
+        request.insert()
+
+        # Queue for processing
+        queue_result = request.queue_processing()
+
+        return OperationResult.ok(
+            {
+                "request_name": request.name,
+                "volunteer_name": volunteer_name,
+                "email": volunteer.email,
+                "queue_result": queue_result,
+            },
+            message=queue_result.get("message", "Account creation queued"),
+        )
+
+    except Exception as e:
+        frappe.logger().error(f"Error queueing account creation for volunteer {volunteer_name}: {str(e)}")
+        frappe.log_error(
+            f"Failed to queue volunteer account creation: {str(e)}\n{traceback.format_exc()}",
+            "Queue Volunteer Account Creation Error",
+        )
+        return OperationResult.fail(
+            _("Unable to queue account creation. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "queue_volunteer_account", "params": {"volunteer_name": volunteer_name}},
+        )
 
 
 # Bulk processing functions
@@ -1324,7 +1458,7 @@ def queue_account_creation_for_volunteer(volunteer_name, priority="Normal"):
 @critical_api(operation_type=OperationType.ADMIN)
 def queue_bulk_account_creation_for_members(
     member_names, roles=None, role_profile=None, batch_size=50, priority="Low", create_employee=False
-):
+) -> OperationResult[Dict[str, Any]]:
     """
     Queue bulk account creation for multiple members using AccountCreationService.
 
@@ -1340,171 +1474,207 @@ def queue_bulk_account_creation_for_members(
         create_employee: Whether to create Employee records (default False)
 
     Returns:
-        dict: Summary with request names, linked users, and validation errors
+        OperationResult[Dict[str, Any]]: Summary with request names, linked users, and validation errors
     """
-    if not frappe.has_permission("User", "create"):
-        frappe.throw(_("Insufficient permissions to create user accounts"))
-
-    if not member_names:
-        return {"success": False, "error": "No member names provided"}
-
-    frappe.logger().info(
-        f"Starting bulk account creation for {len(member_names)} members using AccountCreationService"
-    )
-
-    # Set bulk operations flag for COR rate limiting exemption
-    frappe.flags.bulk_account_creation = True
-    frappe.flags.in_background_job = True  # Mark as background operation
-
-    # Set defaults
-    if not roles:
-        roles = ["Verenigingen Member"]
-    if not role_profile:
-        role_profile = "Verenigingen Member"
-
-    # Use AccountCreationService for all validation, linking, and request creation
-    from verenigingen.services.account.account_creation_service import get_account_creation_service
-
-    service = get_account_creation_service()
-    result = service.queue_bulk_requests(
-        member_names=member_names,
-        roles=roles,
-        role_profile=role_profile,
-        batch_size=batch_size,
-        priority=priority,
-        create_employee=create_employee,
-        filter_by_status=True,  # Only process Active/Pending members
-    )
-
-    # Extract results from service
-    created_requests = result.get("request_names", [])
-    validation_errors = result.get("validation_errors", [])
-    linked_count = result.get("users_linked", 0)
-
-    # If no requests were created, handle appropriately
-    if not created_requests:
-        # Check if we linked any existing users
-        if linked_count > 0:
-            return {
-                "success": True,
-                "requests_created": 0,
-                "users_linked": linked_count,
-                "validation_errors_count": result.get("validation_errors_count", 0),
-                "validation_errors": validation_errors[:50],
-                "message": f"Linked {linked_count} existing user accounts, no new accounts to create",
-            }
-        else:
-            return {
-                "success": False,
-                "error": "No valid members found for processing",
-                "validation_errors_count": result.get("validation_errors_count", 0),
-                "validation_errors": validation_errors[:50],
-            }
-
-    # Create progress tracker for this bulk operation
-    from verenigingen.verenigingen.doctype.bulk_operation_tracker.bulk_operation_tracker import (
-        BulkOperationTracker,
-    )
-
-    tracker = BulkOperationTracker.create_tracker(
-        operation_type="Account Creation",
-        total_records=len(created_requests),
-        batch_size=batch_size,
-        priority=priority,
-    )
-
-    # Split requests into batches
-    total_requests = len(created_requests)
-    total_batches = (total_requests + batch_size - 1) // batch_size
-
-    # Create batch metadata for chain-of-responsibility pattern
-    batches = []
-    for i in range(0, total_requests, batch_size):
-        batch = created_requests[i : i + batch_size]
-        batch_number = i // batch_size + 1
-        batches.append(
-            {
-                "batch_id": f"bulk_batch_{batch_number}",
-                "batch_number": batch_number,
-                "request_names": batch,
-                "request_count": len(batch),
-            }
-        )
-
-    frappe.logger().info(
-        f"Using chain-of-responsibility pattern: queueing first batch, "
-        f"remaining {total_batches - 1} batches will chain automatically "
-        f"({total_requests} total requests, {batch_size} per batch)"
-    )
-
-    # Queue ONLY the first batch - it will chain to the rest
-    first_batch = batches[0]
-    remaining_batches = batches[1:]  # To be queued by the first batch upon completion
-
     try:
-        frappe.enqueue(
-            "verenigingen.utils.account_creation_manager.process_bulk_account_creation_batch",
-            request_names=first_batch["request_names"],
-            batch_id=first_batch["batch_id"],
-            batch_number=first_batch["batch_number"],
-            tracker_name=tracker.name,
-            remaining_batches=remaining_batches,  # Pass remaining batches for chaining
-            queue="long",
-            timeout=3600,  # 1 hour per batch (not for queueing all batches)
-            job_name=f"bulk_account_creation_{first_batch['batch_id']}",
-        )
+        if not frappe.has_permission("User", "create"):
+            return OperationResult.fail(
+                _("Insufficient permissions to create user accounts"),
+                errors=["Permission denied"],
+                context={
+                    "operation": "queue_bulk_accounts",
+                    "params": {"count": len(member_names) if member_names else 0},
+                },
+            )
+
+        if not member_names:
+            return OperationResult.fail(
+                _("No member names provided"),
+                errors=["Empty member_names list"],
+                context={"operation": "queue_bulk_accounts", "params": {}},
+            )
 
         frappe.logger().info(
-            f"Queued first batch {first_batch['batch_id']} (1/{total_batches}) with "
-            f"{first_batch['request_count']} requests. Remaining batches will chain automatically."
+            f"Starting bulk account creation for {len(member_names)} members using AccountCreationService"
         )
 
-        batch_results = [
-            {
-                "batch_id": first_batch["batch_id"],
-                "batch_number": first_batch["batch_number"],
-                "request_count": first_batch["request_count"],
-                "status": "queued",
-            }
-        ]
+        # Set bulk operations flag for COR rate limiting exemption
+        frappe.flags.bulk_account_creation = True
+        frappe.flags.in_background_job = True  # Mark as background operation
+
+        # Set defaults
+        if not roles:
+            roles = ["Verenigingen Member"]
+        if not role_profile:
+            role_profile = "Verenigingen Member"
+
+        # Use AccountCreationService for all validation, linking, and request creation
+        from verenigingen.services.account.account_creation_service import get_account_creation_service
+
+        service = get_account_creation_service()
+        result = service.queue_bulk_requests(
+            member_names=member_names,
+            roles=roles,
+            role_profile=role_profile,
+            batch_size=batch_size,
+            priority=priority,
+            create_employee=create_employee,
+            filter_by_status=True,  # Only process Active/Pending members
+        )
+
+        # Extract results from service
+        created_requests = result.get("request_names", [])
+        validation_errors = result.get("validation_errors", [])
+        linked_count = result.get("users_linked", 0)
+
+        # If no requests were created, handle appropriately
+        if not created_requests:
+            # Check if we linked any existing users
+            if linked_count > 0:
+                return OperationResult.ok(
+                    {
+                        "requests_created": 0,
+                        "users_linked": linked_count,
+                        "validation_errors_count": result.get("validation_errors_count", 0),
+                        "validation_errors": validation_errors[:50],
+                    },
+                    message=f"Linked {linked_count} existing user accounts, no new accounts to create",
+                )
+            else:
+                return OperationResult.fail(
+                    _("No valid members found for processing"),
+                    errors=["No members met validation criteria"],
+                    context={
+                        "operation": "queue_bulk_accounts",
+                        "params": {
+                            "total_provided": len(member_names),
+                            "validation_errors_count": result.get("validation_errors_count", 0),
+                        },
+                    },
+                    metadata={"validation_errors": validation_errors[:50]},
+                )
+
+        # Create progress tracker for this bulk operation
+        from verenigingen.verenigingen.doctype.bulk_operation_tracker.bulk_operation_tracker import (
+            BulkOperationTracker,
+        )
+
+        tracker = BulkOperationTracker.create_tracker(
+            operation_type="Account Creation",
+            total_records=len(created_requests),
+            batch_size=batch_size,
+            priority=priority,
+        )
+
+        # Split requests into batches
+        total_requests = len(created_requests)
+        total_batches = (total_requests + batch_size - 1) // batch_size
+
+        # Create batch metadata for chain-of-responsibility pattern
+        batches = []
+        for i in range(0, total_requests, batch_size):
+            batch = created_requests[i : i + batch_size]
+            batch_number = i // batch_size + 1
+            batches.append(
+                {
+                    "batch_id": f"bulk_batch_{batch_number}",
+                    "batch_number": batch_number,
+                    "request_names": batch,
+                    "request_count": len(batch),
+                }
+            )
+
+        frappe.logger().info(
+            f"Using chain-of-responsibility pattern: queueing first batch, "
+            f"remaining {total_batches - 1} batches will chain automatically "
+            f"({total_requests} total requests, {batch_size} per batch)"
+        )
+
+        # Queue ONLY the first batch - it will chain to the rest
+        first_batch = batches[0]
+        remaining_batches = batches[1:]  # To be queued by the first batch upon completion
+
+        try:
+            frappe.enqueue(
+                "verenigingen.utils.account_creation_manager.process_bulk_account_creation_batch",
+                request_names=first_batch["request_names"],
+                batch_id=first_batch["batch_id"],
+                batch_number=first_batch["batch_number"],
+                tracker_name=tracker.name,
+                remaining_batches=remaining_batches,  # Pass remaining batches for chaining
+                queue="long",
+                timeout=3600,  # 1 hour per batch (not for queueing all batches)
+                job_name=f"bulk_account_creation_{first_batch['batch_id']}",
+            )
+
+            frappe.logger().info(
+                f"Queued first batch {first_batch['batch_id']} (1/{total_batches}) with "
+                f"{first_batch['request_count']} requests. Remaining batches will chain automatically."
+            )
+
+            batch_results = [
+                {
+                    "batch_id": first_batch["batch_id"],
+                    "batch_number": first_batch["batch_number"],
+                    "request_count": first_batch["request_count"],
+                    "status": "queued",
+                }
+            ]
+
+        except Exception as e:
+            frappe.logger().error(f"Failed to queue first batch: {str(e)}")
+            batch_results = [
+                {
+                    "batch_id": first_batch["batch_id"],
+                    "batch_number": first_batch["batch_number"],
+                    "request_count": first_batch["request_count"],
+                    "status": "failed",
+                    "error": str(e),
+                }
+            ]
+
+        # Start the operation tracking
+        tracker.start_operation()
+
+        # Return comprehensive summary
+        return_result = {
+            "total_members_provided": len(member_names),
+            "validation_errors_count": result.get("validation_errors_count", 0),
+            "users_linked": linked_count,
+            "requests_created": len(created_requests),
+            "batch_count": len(batch_results),
+            "batch_size": batch_size,
+            "batches": batch_results,
+            "request_names": created_requests,
+            "tracker_name": tracker.name,
+            "tracker_url": f"/app/bulk-operation-tracker/{tracker.name}",
+            "validation_errors": validation_errors[:50],
+        }
+
+        frappe.logger().info(
+            f"Bulk account creation queued: {len(created_requests)} requests in {len(batch_results)} batches, "
+            f"{linked_count} users linked"
+        )
+
+        return OperationResult.ok(
+            return_result,
+            message=f"Queued {len(created_requests)} account creation requests in {len(batch_results)} batches",
+        )
 
     except Exception as e:
-        frappe.logger().error(f"Failed to queue first batch: {str(e)}")
-        batch_results = [
-            {
-                "batch_id": first_batch["batch_id"],
-                "batch_number": first_batch["batch_number"],
-                "request_count": first_batch["request_count"],
-                "status": "failed",
-                "error": str(e),
-            }
-        ]
-
-    # Start the operation tracking
-    tracker.start_operation()
-
-    # Return comprehensive summary
-    return_result = {
-        "success": True,
-        "total_members_provided": len(member_names),
-        "validation_errors_count": result.get("validation_errors_count", 0),
-        "users_linked": linked_count,
-        "requests_created": len(created_requests),
-        "batch_count": len(batch_results),
-        "batch_size": batch_size,
-        "batches": batch_results,
-        "request_names": created_requests,
-        "tracker_name": tracker.name,
-        "tracker_url": f"/app/bulk-operation-tracker/{tracker.name}",
-        "validation_errors": validation_errors[:50],
-    }
-
-    frappe.logger().info(
-        f"Bulk account creation queued: {len(created_requests)} requests in {len(batch_results)} batches, "
-        f"{linked_count} users linked"
-    )
-
-    return return_result
+        frappe.logger().error(f"Error in bulk account creation queueing: {str(e)}")
+        frappe.log_error(
+            f"Bulk account creation queueing failed: {str(e)}\n{traceback.format_exc()}",
+            "Bulk Account Creation Queue Error",
+        )
+        return OperationResult.fail(
+            _("Unable to queue bulk account creation. Please contact support."),
+            errors=[str(e)],
+            context={
+                "operation": "queue_bulk_accounts",
+                "params": {"count": len(member_names) if member_names else 0},
+            },
+        )
 
 
 @frappe.whitelist()
@@ -1530,7 +1700,7 @@ def process_bulk_account_creation_batch(
         remaining_batches: List of remaining batch metadata dicts for chaining (optional)
 
     Returns:
-        dict: Batch processing results with success/failure counts
+        OperationResult[Dict[str, Any]]: Batch processing results with success/failure counts
     """
     import threading
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -1784,8 +1954,7 @@ def process_bulk_account_creation_batch(
 
         except Exception as batch_wait_error:
             frappe.logger().warning(
-                f"Batch completion check failed: {str(batch_wait_error)}, "
-                f"proceeding to queue next batch"
+                f"Batch completion check failed: {str(batch_wait_error)}, " f"proceeding to queue next batch"
             )
 
         # Queue the next batch
@@ -1821,7 +1990,10 @@ def process_bulk_account_creation_batch(
     else:
         frappe.logger().info(f"Batch {batch_id} completed. No remaining batches - bulk operation finished!")
 
-    return batch_results
+    return OperationResult.ok(
+        batch_results,
+        message=f"Batch {batch_id} completed: {batch_results['completed']} successes, {batch_results['failed']} failures",
+    )
 
 
 # Administrative functions
@@ -1829,45 +2001,106 @@ def process_bulk_account_creation_batch(
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def get_failed_requests():
-    """Get failed account creation requests for admin review"""
-    # Skip permission check during tests if flag is set
-    if not frappe.flags.get("skip_user_permission_check", False):
-        if not frappe.has_permission("Account Creation Request", "read"):
-            frappe.throw(_("Insufficient permissions"))
+def get_failed_requests() -> OperationResult[Dict[str, Any]]:
+    """Get failed account creation requests for admin review
 
-    return frappe.get_all(
-        "Account Creation Request",
-        filters={"status": "Failed"},
-        fields=[
-            "name",
-            "request_type",
-            "source_record",
-            "email",
-            "full_name",
-            "failure_reason",
-            "retry_count",
-            "creation",
-            "pipeline_stage",
-        ],
-        order_by="creation desc",
-    )
+    Returns:
+        OperationResult[Dict[str, Any]]: List of failed requests with details
+    """
+    try:
+        # Skip permission check during tests if flag is set
+        if not frappe.flags.get("skip_user_permission_check", False):
+            if not frappe.has_permission("Account Creation Request", "read"):
+                return OperationResult.fail(
+                    _("Insufficient permissions to view account creation requests"),
+                    errors=["Permission denied"],
+                    context={"operation": "get_failed_requests", "params": {}},
+                )
+
+        failed_requests = frappe.get_all(
+            "Account Creation Request",
+            filters={"status": "Failed"},
+            fields=[
+                "name",
+                "request_type",
+                "source_record",
+                "email",
+                "full_name",
+                "failure_reason",
+                "retry_count",
+                "creation",
+                "pipeline_stage",
+            ],
+            order_by="creation desc",
+        )
+
+        return OperationResult.ok(
+            {"failed_requests": failed_requests, "count": len(failed_requests)},
+            message=f"Found {len(failed_requests)} failed account creation requests",
+        )
+
+    except Exception as e:
+        frappe.logger().error(f"Error retrieving failed requests: {str(e)}")
+        frappe.log_error(
+            f"Failed to retrieve failed requests: {str(e)}\n{traceback.format_exc()}",
+            "Get Failed Requests Error",
+        )
+        return OperationResult.fail(
+            _("Unable to retrieve failed requests. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "get_failed_requests", "params": {}},
+        )
 
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def retry_failed_request(request_name):
-    """Manually retry a failed account creation request"""
-    if not frappe.has_permission("Account Creation Request", "write"):
-        frappe.throw(_("Insufficient permissions"))
+def retry_failed_request(request_name) -> OperationResult[Dict[str, Any]]:
+    """Manually retry a failed account creation request
 
-    request = frappe.get_doc("Account Creation Request", request_name)
-    return request.retry_processing()
+    Args:
+        request_name: Name of the Account Creation Request to retry
+
+    Returns:
+        OperationResult[Dict[str, Any]]: Result of retry operation
+    """
+    try:
+        if not frappe.has_permission("Account Creation Request", "write"):
+            return OperationResult.fail(
+                _("Insufficient permissions to retry account creation requests"),
+                errors=["Permission denied"],
+                context={"operation": "retry_failed_request", "params": {"request_name": request_name}},
+            )
+
+        if not frappe.db.exists("Account Creation Request", request_name):
+            return OperationResult.fail(
+                _("Account creation request not found"),
+                errors=[f"Request {request_name} does not exist"],
+                context={"operation": "retry_failed_request", "params": {"request_name": request_name}},
+            )
+
+        request = frappe.get_doc("Account Creation Request", request_name)
+        retry_result = request.retry_processing()
+
+        return OperationResult.ok(
+            {"request_name": request_name, "retry_result": retry_result},
+            message="Account creation request queued for retry",
+        )
+
+    except Exception as e:
+        frappe.logger().error(f"Error retrying request {request_name}: {str(e)}")
+        frappe.log_error(
+            f"Failed to retry request: {str(e)}\n{traceback.format_exc()}", "Retry Failed Request Error"
+        )
+        return OperationResult.fail(
+            _("Unable to retry account creation request. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "retry_failed_request", "params": {"request_name": request_name}},
+        )
 
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def upgrade_member_to_volunteer_user(member_name):
+def upgrade_member_to_volunteer_user(member_name) -> OperationResult[Dict[str, Any]]:
     """
     Upgrade a member's user account from Website User to System User when they become a volunteer.
 
@@ -1878,17 +2111,32 @@ def upgrade_member_to_volunteer_user(member_name):
         member_name: Name of the Member record
 
     Returns:
-        dict: Result of the upgrade operation
+        OperationResult[Dict[str, Any]]: Result of the upgrade operation
     """
-    if not frappe.has_permission("User", "write"):
-        frappe.throw(_("Insufficient permissions to upgrade user accounts"))
-
     try:
+        if not frappe.has_permission("User", "write"):
+            return OperationResult.fail(
+                _("Insufficient permissions to upgrade user accounts"),
+                errors=["Permission denied"],
+                context={"operation": "upgrade_to_volunteer", "params": {"member_name": member_name}},
+            )
+
         # Get member record
+        if not frappe.db.exists("Member", member_name):
+            return OperationResult.fail(
+                _("Member not found"),
+                errors=[f"Member {member_name} does not exist"],
+                context={"operation": "upgrade_to_volunteer", "params": {"member_name": member_name}},
+            )
+
         member = frappe.get_doc("Member", member_name)
 
         if not member.user:
-            return {"success": False, "error": "No user account linked to this member"}
+            return OperationResult.fail(
+                _("No user account linked to this member"),
+                errors=["Member has no linked user account"],
+                context={"operation": "upgrade_to_volunteer", "params": {"member_name": member_name}},
+            )
 
         # Get user record
         user_doc = frappe.get_doc("User", member.user)
@@ -1896,7 +2144,9 @@ def upgrade_member_to_volunteer_user(member_name):
         # Check if already System User
         if user_doc.user_type == "System User":
             frappe.logger().info(f"User {member.user} is already a System User, no upgrade needed")
-            return {"success": True, "message": "User is already a System User", "already_upgraded": True}
+            return OperationResult.ok(
+                {"user": member.user, "already_upgraded": True}, message="User is already a System User"
+            )
 
         # Upgrade to System User
         frappe.logger().info(f"Upgrading user {member.user} from {user_doc.user_type} to System User")
@@ -1935,21 +2185,27 @@ def upgrade_member_to_volunteer_user(member_name):
 
         frappe.logger().info(f"Successfully upgraded user {member.user} to System User for volunteer access")
 
-        return {
-            "success": True,
-            "message": "User account upgraded to System User for volunteer access",
-            "user": member.user,
-            "previous_type": "Website User",
-        }
+        return OperationResult.ok(
+            {"user": member.user, "previous_type": "Website User", "member_name": member_name},
+            message="User account upgraded to System User for volunteer access",
+        )
 
     except Exception as e:
         frappe.logger().error(f"Failed to upgrade user for member {member_name}: {str(e)}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"User upgrade failed: {str(e)}\n{traceback.format_exc()}",
+            "Upgrade Member to Volunteer User Error",
+        )
+        return OperationResult.fail(
+            _("Unable to upgrade user account. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "upgrade_to_volunteer", "params": {"member_name": member_name}},
+        )
 
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def retry_all_failed_requests(failure_type=None):
+def retry_all_failed_requests(failure_type=None) -> OperationResult[Dict[str, Any]]:
     """
     Retry all failed Account Creation Requests.
 
@@ -1957,69 +2213,92 @@ def retry_all_failed_requests(failure_type=None):
         failure_type: Optional filter - "rate_limit", "employee_exists", or None for all
 
     Returns:
-        dict: Summary of retry operation including success/failure counts
+        OperationResult[Dict[str, Any]]: Summary of retry operation including success/failure counts
     """
-    if not frappe.has_permission("Account Creation Request", "write"):
-        frappe.throw(_("Insufficient permissions to retry account creation requests"))
+    try:
+        if not frappe.has_permission("Account Creation Request", "write"):
+            return OperationResult.fail(
+                _("Insufficient permissions to retry account creation requests"),
+                errors=["Permission denied"],
+                context={"operation": "retry_all_failed", "params": {"failure_type": failure_type}},
+            )
 
-    # Get all failed requests
-    filters = {"status": "Failed", "retry_count": ["<", 3]}  # Only retry if under max retries
+        # Get all failed requests
+        filters = {"status": "Failed", "retry_count": ["<", 3]}  # Only retry if under max retries
 
-    failed_requests = frappe.get_all(
-        "Account Creation Request",
-        filters=filters,
-        fields=["name", "email", "full_name", "failure_reason", "retry_count"],
-    )
+        failed_requests = frappe.get_all(
+            "Account Creation Request",
+            filters=filters,
+            fields=["name", "email", "full_name", "failure_reason", "retry_count"],
+        )
 
-    if not failed_requests:
-        return {"success": True, "message": "No failed requests found that can be retried", "total": 0}
+        if not failed_requests:
+            return OperationResult.ok(
+                {"total": 0, "retried": 0, "errors": 0},
+                message="No failed requests found that can be retried",
+            )
 
-    # Filter by failure type if specified
-    if failure_type:
-        if failure_type == "rate_limit":
-            failed_requests = [
-                r
-                for r in failed_requests
-                if "throttled" in (r.failure_reason or "").lower()
-                or "rate limit" in (r.failure_reason or "").lower()
-            ]
-        elif failure_type == "employee_exists":
-            failed_requests = [
-                r for r in failed_requests if "already assigned to Employee" in (r.failure_reason or "")
-            ]
+        # Filter by failure type if specified
+        if failure_type:
+            if failure_type == "rate_limit":
+                failed_requests = [
+                    r
+                    for r in failed_requests
+                    if "throttled" in (r.failure_reason or "").lower()
+                    or "rate limit" in (r.failure_reason or "").lower()
+                ]
+            elif failure_type == "employee_exists":
+                failed_requests = [
+                    r for r in failed_requests if "already assigned to Employee" in (r.failure_reason or "")
+                ]
 
-    # Set bulk operation flag to bypass rate limiting during retries
-    frappe.flags.bulk_account_creation = True
+        # Set bulk operation flag to bypass rate limiting during retries
+        frappe.flags.bulk_account_creation = True
 
-    retried = []
-    errors = []
+        retried = []
+        errors = []
 
-    frappe.logger().info(f"Starting retry of {len(failed_requests)} failed account creation requests")
+        frappe.logger().info(f"Starting retry of {len(failed_requests)} failed account creation requests")
 
-    for req_data in failed_requests:
-        try:
-            request = frappe.get_doc("Account Creation Request", req_data.name)
+        for req_data in failed_requests:
+            try:
+                request = frappe.get_doc("Account Creation Request", req_data.name)
 
-            # Use the existing retry_processing method
-            request.retry_processing()
+                # Use the existing retry_processing method
+                request.retry_processing()
 
-            retried.append({"name": req_data.name, "email": req_data.email, "full_name": req_data.full_name})
+                retried.append(
+                    {"name": req_data.name, "email": req_data.email, "full_name": req_data.full_name}
+                )
 
-        except Exception as e:
-            error_msg = str(e)
-            errors.append({"name": req_data.name, "email": req_data.email, "error": error_msg})
-            frappe.logger().error(f"Failed to retry {req_data.name}: {error_msg}")
+            except Exception as e:
+                error_msg = str(e)
+                errors.append({"name": req_data.name, "email": req_data.email, "error": error_msg})
+                frappe.logger().error(f"Failed to retry {req_data.name}: {error_msg}")
 
-    # Commit changes (skip during tests for proper isolation)
-    if not frappe.flags.in_test:
-        frappe.db.commit()
+            # Commit changes (skip during tests for proper isolation)
+            if not frappe.flags.in_test:
+                frappe.db.commit()
 
-    return {
-        "success": True,
-        "total_failed": len(failed_requests),
-        "retried": len(retried),
-        "errors": len(errors),
-        "retried_requests": retried[:20],  # Return first 20 for display
-        "error_details": errors[:10],  # Return first 10 errors
-        "message": f"Successfully queued {len(retried)} requests for retry. {len(errors)} errors encountered.",
-    }
+        return OperationResult.ok(
+            {
+                "total_failed": len(failed_requests),
+                "retried": len(retried),
+                "errors": len(errors),
+                "retried_requests": retried[:20],  # Return first 20 for display
+                "error_details": errors[:10],  # Return first 10 errors
+            },
+            message=f"Successfully queued {len(retried)} requests for retry. {len(errors)} errors encountered.",
+        )
+
+    except Exception as e:
+        frappe.logger().error(f"Error retrying all failed requests: {str(e)}")
+        frappe.log_error(
+            f"Retry all failed requests error: {str(e)}\n{traceback.format_exc()}",
+            "Retry All Failed Requests Error",
+        )
+        return OperationResult.fail(
+            _("Unable to retry failed requests. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "retry_all_failed", "params": {"failure_type": failure_type}},
+        )
