@@ -9,6 +9,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, cstr, flt, getdate, today
 
+from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 from verenigingen.verenigingen_payments.utils.batch_performance_optimizer import (
     get_batch_performance_optimizer,
@@ -490,7 +491,8 @@ class SEPAProcessor:
 Organization
             """
 
-            frappe.sendmail(
+            email_service = get_email_service()
+            email_service.send_simple_email(
                 recipients=[member.email],
                 subject=subject,
                 message=message,

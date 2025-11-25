@@ -55,6 +55,7 @@ from frappe import _
 from frappe.utils import add_days, flt, getdate, today
 
 # Import security and error handling
+from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.error_handling import (
     PermissionError,
     ValidationError,
@@ -598,7 +599,8 @@ def escalate_conflicts(batch_id, conflicts):
     recipients = [user.user for user in admin_users]
 
     if recipients:
-        frappe.sendmail(
+        email_service = get_email_service()
+        email_service.send_simple_email(
             recipients=recipients,
             subject=f"Direct Debit Batch Conflicts - {batch_id}",
             message=escalation_message,

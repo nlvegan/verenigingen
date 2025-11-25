@@ -7,6 +7,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, get_weekday, getdate, now_datetime
 
+from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
@@ -376,8 +377,11 @@ def send_batch_creation_notification(result):
         """
 
         # Send email to finance team
+        email_service = get_email_service()
         for manager in finance_managers:
-            frappe.sendmail(recipients=[manager.email], subject=subject, message=message, delayed=False)
+            email_service.send_simple_email(
+                recipients=[manager.email], subject=subject, message=message, delayed=False
+            )
 
     except Exception as e:
         frappe.log_error(f"Error sending batch notification: {str(e)}", "Batch Notification Error")

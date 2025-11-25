@@ -23,6 +23,7 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from frappe import _
 from frappe.utils import get_datetime, now_datetime
 
+from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.secure_operations import secure_document_operation
 
 
@@ -359,7 +360,8 @@ class MollieSecurityManager:
                 system_managers = get_system_managers(only_name=True)
 
                 if system_managers:
-                    frappe.sendmail(
+                    email_service = get_email_service()
+                    email_service.send_simple_email(
                         recipients=system_managers,
                         subject=f"🚨 Critical Mollie Security Alert: {alert_type}",
                         message=f"""
