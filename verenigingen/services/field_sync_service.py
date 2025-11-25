@@ -17,6 +17,18 @@ Architecture:
     - Relationship resolution (direct links and lookups)
     - Comprehensive error handling and logging
 
+ERROR HANDLING PATTERN: OperationResult Pattern
+===============================================
+Testing utility returns OperationResult[Dict] with type-safe error handling.
+Never throws exceptions - all errors returned as OperationResult.fail().
+
+Public API Methods:
+- test_sync_relationship: Returns OperationResult[Dict] (sync test results)
+
+Migration Status: ✅ COMPLETE (2025-11-24)
+- Test utility migrated from dict-based to OperationResult pattern
+- Type-safe error handling with comprehensive test result metadata
+
 Usage:
     This service is automatically invoked via hooks configuration.
     Field mappings are defined in FIELD_SYNC_CONFIG below.
@@ -37,6 +49,8 @@ Example:
         }
     }
 
+See: docs/patterns/OPERATION_RESULT_PATTERN.md
+
 Author: Verenigingen Development Team
 """
 
@@ -44,6 +58,8 @@ from typing import Callable, Dict, List, Optional
 
 import frappe
 from frappe import _
+
+from verenigingen.utils.operation_result import OperationResult
 
 # ==================== CONFIGURATION ====================
 
@@ -303,7 +319,7 @@ def add_sync_config(source_doctype: str, target_doctype: str, config: Dict):
 
 def test_sync_relationship(
     source_doctype: str, source_name: str, target_doctype: str, field_to_test: str, test_value: str
-) -> Dict:
+) -> OperationResult[Dict]:
     """
     Test a sync relationship by updating a field and verifying sync.
 
@@ -315,13 +331,27 @@ def test_sync_relationship(
         test_value: Test value to set
 
     Returns:
-        Dictionary with test results
+        OperationResult[Dict]: Test results with metadata:
+            - source_field: Field tested on source
+            - target_field: Corresponding field on target
+            - test_value: Value set for testing
+            - actual_value: Actual value found on target
+            - target_document: Target document name
+
+    Note:
+        - Never throws exceptions (returns failed OperationResult)
+        - All errors logged and returned as OperationResult.fail()
     """
     try:
         # Get config
         config = get_sync_config(source_doctype, target_doctype)
         if not config:
-            return {"success": False, "error": f"No sync config for {source_doctype} -> {target_doctype}"}
+            return OperationResult.fail(
+                f"No sync config for {source_doctype} -> {target_doctype}",
+                errors=["Missing sync configuration"],
+                source_doctype=source_doctype,
+                target_doctype=target_doctype,
+            )
 
         # Get source document
         source_doc = frappe.get_doc(source_doctype, source_name)
@@ -329,10 +359,13 @@ def test_sync_relationship(
         # Find target document
         target_name = _find_target_document(source_doc, target_doctype, config)
         if not target_name:
-            return {
-                "success": False,
-                "error": f"No related {target_doctype} found for {source_doctype} {source_name}",
-            }
+            return OperationResult.fail(
+                f"No related {target_doctype} found for {source_doctype} {source_name}",
+                errors=["Target document not found"],
+                source_doctype=source_doctype,
+                source_name=source_name,
+                target_doctype=target_doctype,
+            )
 
         # Update field
         setattr(source_doc, field_to_test, test_value)
@@ -344,8 +377,8 @@ def test_sync_relationship(
         target_field = config["field_mappings"].get(field_to_test)
         target_value = getattr(target_doc, target_field, None)
 
-        return {
-            "success": target_value == test_value,
+        sync_success = target_value == test_value
+        result_data = {
             "source_field": field_to_test,
             "target_field": target_field,
             "test_value": test_value,
@@ -353,5 +386,22 @@ def test_sync_relationship(
             "target_document": target_name,
         }
 
+        if sync_success:
+            return OperationResult.ok(
+                result_data, message=f"Sync test passed: {field_to_test} = {test_value}"
+            )
+        else:
+            return OperationResult.fail(
+                f"Sync test failed: expected {test_value}, got {target_value}",
+                errors=["Value mismatch after sync"],
+                **result_data,
+            )
+
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return OperationResult.fail(
+            f"Error testing sync relationship: {str(e)}",
+            errors=[str(e)],
+            source_doctype=source_doctype,
+            source_name=source_name,
+            target_doctype=target_doctype,
+        )

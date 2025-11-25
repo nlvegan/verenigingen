@@ -744,94 +744,32 @@ def get_list_context(context):
 
 
 def get_chapter_permission_query_conditions(user=None):
-    """Get permission query conditions for Chapters with board member access"""
-    try:
-        if not user:
-            user = frappe.session.user
+    """Get permission query conditions for Chapters with board member access.
 
-        if "System Manager" in frappe.get_roles(user) or "Verenigingen Administrator" in frappe.get_roles(
-            user
-        ):
-            return ""
+    EXTRACTED: Moved to ChapterPermissionService.get_permission_query_conditions()
+    for service layer separation (Chapter Phase 2 - Permission Extraction).
 
-        # Check if user is a chapter board member
-        user_roles = frappe.get_roles(user)
-        if "Verenigingen Chapter Board Member" in user_roles:
-            # Get user's member record
-            member = frappe.db.get_value("Member", {"user": user}, "name")
-            if member:
-                # Get user's volunteer record
-                volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")
-                if volunteer:
-                    # Get chapters where user is a board member
-                    board_chapters = frappe.db.sql(
-                        """
-                        SELECT DISTINCT parent
-                        FROM `tabChapter Board Member`
-                        WHERE volunteer = %s AND is_active = 1
-                        """,
-                        volunteer,
-                        as_list=True,
-                    )
+    This function remains as a compatibility wrapper for the hooks system.
+    """
+    from verenigingen.services.chapter.chapter_permission_service import ChapterPermissionService
 
-                    if board_chapters:
-                        chapter_names = [f"'{c[0]}'" for c in board_chapters]
-                        # Board members can see their chapters OR published chapters
-                        return f"(`tabChapter`.name IN ({','.join(chapter_names)}) OR `tabChapter`.published = 1)"
-
-        # For regular users and members, show only published chapters
-        return "`tabChapter`.published = 1"
-
-    except Exception as e:
-        frappe.log_error(f"Error in chapter permission query: {str(e)}")
-        return "`tabChapter`.published = 1"
+    return ChapterPermissionService.get_permission_query_conditions(user)
 
 
 def has_chapter_permission(doc, ptype="read", user=None):
-    """Control document-level access to Chapter
+    """Control document-level access to Chapter.
+
+    EXTRACTED: Moved to ChapterPermissionService.has_chapter_permission()
+    for service layer separation (Chapter Phase 2 - Permission Extraction).
+
+    This function remains as a compatibility wrapper for the hooks system.
 
     Provides row-level security ensuring board members can only access their own chapters.
     Without this, any user with "Verenigingen Chapter Board Member" role could access ALL chapters.
     """
-    if not user:
-        user = frappe.session.user
+    from verenigingen.services.chapter.chapter_permission_service import ChapterPermissionService
 
-    # Admin roles always have access
-    user_roles = frappe.get_roles(user)
-    if (
-        "System Manager" in user_roles
-        or "Verenigingen Administrator" in user_roles
-        or "Verenigingen Staff" in user_roles
-    ):
-        return True
-
-    # Check if user is a board member of this chapter
-    if "Verenigingen Chapter Board Member" in user_roles:
-        member = frappe.db.get_value("Member", {"user": user}, "name")
-        if member:
-            volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")
-            if volunteer:
-                # Check if this volunteer is an active board member of this chapter
-                is_board_member = frappe.db.exists(
-                    "Chapter Board Member", {"parent": doc.name, "volunteer": volunteer, "is_active": 1}
-                )
-                if is_board_member:
-                    return True
-
-        # Board member role but NOT on this chapter's board - explicitly deny
-        return False
-
-    # Regular members can view chapters (read-only)
-    if "Verenigingen Member" in user_roles and ptype == "read":
-        return True
-
-    # Explicitly deny write operations for regular members
-    if "Verenigingen Member" in user_roles and ptype in ["write", "delete", "submit", "cancel"]:
-        return False
-
-    # Default deny - never delegate to role permissions alone for row-level security
-    # Row-level security requires explicit permission grant
-    return False
+    return ChapterPermissionService.has_chapter_permission(doc, ptype, user)
 
 
 def get_user_accessible_chapters_optimized(user):
@@ -895,58 +833,19 @@ def leave(title, member_id, leave_reason):
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
 def get_board_memberships(member_name):
-    """Get board memberships for a member"""
+    """Get board memberships for a member.
+
+    Permission check extracted to ChapterPermissionService.can_user_view_member_board_info()
+    """
+    from verenigingen.services.chapter.chapter_permission_service import ChapterPermissionService
+
     try:
         if not member_name:
             return []
 
         # Check if user has permission to view member information
-        current_user = frappe.session.user
-        user_roles = frappe.get_roles(current_user)
-
-        # Allow if user is System Manager or Verenigingen Administrator
-        if "System Manager" in user_roles or "Verenigingen Administrator" in user_roles:
-            pass  # Full access
-        else:
-            # Check if user is requesting their own board memberships
-            current_member = frappe.db.get_value("Member", {"user": current_user}, "name")
-            if current_member != member_name:
-                # Check if user is a board member of any chapter that this member belongs to
-                member_chapters = frappe.db.sql(
-                    """
-                    SELECT parent FROM `tabChapter Member`
-                    WHERE member = %s AND enabled = 1
-                """,
-                    (member_name,),
-                    as_dict=True,
-                )
-
-                user_board_chapters = []
-                if current_member:
-                    # Get volunteer linked to this member
-                    current_volunteer = frappe.db.get_value("Volunteer", {"member": current_member}, "name")
-                    if current_volunteer:
-                        user_board_chapters = frappe.db.sql(
-                            """
-                            SELECT parent FROM `tabChapter Board Member`
-                            WHERE volunteer = %s AND is_active = 1
-                        """,
-                            (current_volunteer,),
-                            as_dict=True,
-                        )
-
-                # Check if user has board access to any of the chapters this member belongs to
-                has_access = False
-                for member_chapter in member_chapters:
-                    for user_chapter in user_board_chapters:
-                        if member_chapter.parent == user_chapter.parent:
-                            has_access = True
-                            break
-                    if has_access:
-                        break
-
-                if not has_access:
-                    frappe.throw(_("You don't have permission to view this member's board information"))
+        if not ChapterPermissionService.can_user_view_member_board_info(member_name):
+            frappe.throw(_("You don't have permission to view this member's board information"))
 
         # First find the volunteer record for this member
         volunteer_name = frappe.db.get_value("Volunteer", {"member": member_name}, "name")
@@ -988,34 +887,19 @@ def remove_from_board(chapter_name, member_name, end_date=None):
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.REPORTING)
 def get_chapter_board_history(chapter_name):
-    """Get complete board history for a chapter"""
+    """Get complete board history for a chapter.
+
+    Permission check extracted to ChapterPermissionService.can_user_view_chapter_board_history()
+    """
+    from verenigingen.services.chapter.chapter_permission_service import ChapterPermissionService
+
     try:
         if not chapter_name:
             frappe.throw(_("Chapter name is required"))
 
         # Check if user has permission to view chapter board information
-        current_user = frappe.session.user
-        user_roles = frappe.get_roles(current_user)
-
-        # Allow if user is System Manager or Verenigingen Administrator
-        if "System Manager" in user_roles or "Verenigingen Administrator" in user_roles:
-            pass  # Full access
-        else:
-            # Check if user is a board member of this chapter
-            current_member = frappe.db.get_value("Member", {"user": current_user}, "name")
-            if current_member:
-                # Get volunteer linked to this member
-                current_volunteer = frappe.db.get_value("Volunteer", {"member": current_member}, "name")
-                is_board_member = False
-                if current_volunteer:
-                    is_board_member = frappe.db.exists(
-                        "Chapter Board Member",
-                        {"parent": chapter_name, "volunteer": current_volunteer, "is_active": 1},
-                    )
-                if not is_board_member:
-                    frappe.throw(_("You don't have permission to view board history for this chapter"))
-            else:
-                frappe.throw(_("You don't have permission to view board history"))
+        if not ChapterPermissionService.can_user_view_chapter_board_history(chapter_name):
+            frappe.throw(_("You don't have permission to view board history for this chapter"))
 
         chapter = frappe.get_doc("Chapter", chapter_name)
         return chapter.get_board_members(include_inactive=True)
@@ -1048,101 +932,31 @@ def get_chapter_stats(chapter_name):
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.PUBLIC)
 def get_chapters_by_postal_code(postal_code):
-    """Get chapters that match a postal code"""
-    if not postal_code:
-        return []
+    """Get chapters that match a postal code.
 
-    chapters = frappe.get_all(
-        "Chapter", filters={"published": 1}, fields=["name", "region", "postal_codes", "introduction"]
-    )
+    EXTRACTED: Moved to ChapterMatchingService.get_chapters_by_postal_code()
+    for service layer separation (Chapter Phase 4 - Matching Extraction).
 
-    matching_chapters = []
+    This function remains as a compatibility wrapper for the API.
+    """
+    from verenigingen.services.chapter.chapter_matching_service import ChapterMatchingService
 
-    for chapter in chapters:
-        if not chapter.get("postal_codes"):
-            continue
-
-        chapter_doc = frappe.get_doc("Chapter", chapter.name)
-        if chapter_doc.matches_postal_code(postal_code):
-            matching_chapters.append(chapter)
-
-    return matching_chapters
+    return ChapterMatchingService.get_chapters_by_postal_code(postal_code)
 
 
 @frappe.whitelist(allow_guest=True)
 @standard_api(operation_type=OperationType.MEMBER_DATA)
 def suggest_chapters_for_member(member, postal_code=None, state=None, city=None):
-    """Suggest appropriate chapters for a member based on location data"""
-    if not is_chapter_management_enabled():
-        return []
+    """Suggest appropriate chapters for a member based on location data.
 
-    # If no explicit location data provided, try to get it from member's address
-    if not postal_code and not state and not city:
-        member_doc = frappe.get_doc("Member", member)
-        if member_doc.primary_address:
-            try:
-                address_doc = frappe.get_doc("Address", member_doc.primary_address)
-                postal_code = address_doc.pincode
-                state = address_doc.state
-                city = address_doc.city
-            except Exception as e:
-                frappe.log_error(f"Error fetching address for member {member}: {str(e)}")
+    EXTRACTED: Moved to ChapterMatchingService.suggest_chapters_for_member()
+    for service layer separation (Chapter Phase 4 - Matching Extraction).
 
-        # Fallback to member's direct postal code field
-        if not postal_code and hasattr(member_doc, "pincode"):
-            postal_code = member_doc.pincode
+    This function remains as a compatibility wrapper for the API.
+    """
+    from verenigingen.services.chapter.chapter_matching_service import ChapterMatchingService
 
-    # Return format expected by JavaScript (list of chapter suggestions)
-    matching_chapters = []
-
-    if postal_code:
-        chapters_by_postal = get_chapters_by_postal_code(postal_code)
-        for chapter in chapters_by_postal:
-            matching_chapters.append(
-                {
-                    "name": chapter.get("name"),
-                    "city": chapter.get("region", ""),
-                    "state": chapter.get("region", ""),
-                    "match_score": 90,  # High score for postal code match
-                    "distance": "Unknown",  # Could be calculated if needed
-                }
-            )
-
-    # If no postal code matches, try region/city matching
-    if not matching_chapters:
-        all_chapters = frappe.get_all(
-            "Chapter", filters={"published": 1}, fields=["name", "region", "postal_codes", "introduction"]
-        )
-
-        for chapter in all_chapters:
-            score = 0
-            if state and chapter.get("region"):
-                if state.lower() in chapter.get("region").lower():
-                    score += 40
-                elif chapter.get("region").lower() in state.lower():
-                    score += 30
-
-            if city and chapter.get("region"):
-                if city.lower() in chapter.get("region").lower():
-                    score += 35
-                elif city.lower() in chapter.get("name").lower():
-                    score += 45
-
-            if score > 0:
-                matching_chapters.append(
-                    {
-                        "name": chapter.get("name"),
-                        "city": chapter.get("region", ""),
-                        "state": chapter.get("region", ""),
-                        "match_score": score,
-                        "distance": "Unknown",
-                    }
-                )
-
-    # Sort by match score descending
-    matching_chapters.sort(key=lambda x: x.get("match_score", 0), reverse=True)
-
-    return matching_chapters
+    return ChapterMatchingService.suggest_chapters_for_member(member, postal_code, state, city)
 
 
 @frappe.whitelist()
@@ -1153,84 +967,31 @@ def suggest_chapter_for_member(member_name, postal_code=None, state=None, city=N
 
 
 def is_chapter_management_enabled():
-    """Check if chapter management is enabled in settings"""
-    try:
-        return frappe.db.get_single_value("Verenigingen Settings", "enable_chapter_management") == 1
-    except Exception:
-        return True
+    """Check if chapter management is enabled in settings.
+
+    EXTRACTED: Moved to ChapterMatchingService._is_chapter_management_enabled()
+    for service layer separation (Chapter Phase 4 - Matching Extraction).
+
+    This function remains as a compatibility wrapper.
+    """
+    from verenigingen.services.chapter.chapter_matching_service import ChapterMatchingService
+
+    return ChapterMatchingService._is_chapter_management_enabled()
 
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def assign_member_to_chapter(member, chapter, note=None):
-    """Assign a member to a chapter"""
-    if not member or not chapter:
-        frappe.throw(_("Member and Chapter are required"))
+    """Assign a member to a chapter.
 
-    chapter_doc = frappe.get_doc("Chapter", chapter)
-    added = chapter_doc.add_member(member)
+    EXTRACTED: Moved to ChapterAssignmentService.assign_member()
+    for service layer separation (Chapter Phase 3 - Assignment Extraction).
 
-    # Update chapter tracking fields on member using document instead of direct DB update
-    member_doc = frappe.get_doc("Member", member)
-    member_doc.chapter_change_reason = note or f"Assigned to {chapter}"
-    member_doc.chapter_assigned_by = frappe.session.user
+    This function remains as a compatibility wrapper for the API.
+    """
+    from verenigingen.services.chapter.chapter_assignment_service import ChapterAssignmentService
 
-    # Force update chapter display
-    member_doc._chapter_assignment_in_progress = True
-    member_doc.update_current_chapter_display()
-
-    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-    from verenigingen.utils.secure_operations import secure_document_operation
-
-    member_update_result = secure_document_operation(
-        operation="save",
-        doc=member_doc,
-        justification=f"Update member {member} chapter display after assignment to {chapter}",
-        required_permissions=["Member:write"],
-    )
-
-    if not member_update_result.success:
-        frappe.logger().error(
-            f"Failed to update member chapter display: {'; '.join(member_update_result.errors)}"
-        )
-        frappe.throw(
-            _("Failed to update member chapter display: {0}").format("; ".join(member_update_result.errors))
-        )
-
-    if note:
-        frappe.get_doc(
-            {
-                "doctype": "Comment",
-                "comment_type": "Info",
-                "reference_doctype": "Member",
-                "reference_name": member,
-                "content": _("Changed chapter to {0}. Note: {1}").format(chapter, note),
-            }
-        )
-
-        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-        from verenigingen.utils.secure_operations import secure_document_operation
-
-        note_result = secure_document_operation(
-            operation="insert",
-            doc=frappe.get_doc(
-                {
-                    "doctype": "Comment",
-                    "comment_type": "Info",
-                    "reference_doctype": "Member",
-                    "reference_name": member,
-                    "content": _("Changed chapter to {0}. Note: {1}").format(chapter, note),
-                }
-            ),
-            justification=f"Add chapter change note for member {member}",
-            required_permissions=["Comment:create"],
-        )
-
-        if not note_result.success:
-            frappe.logger().error(f"Failed to create chapter change note: {'; '.join(note_result.errors)}")
-            # Don't fail the main operation for note creation failure, just log it
-
-    return {"success": True, "added_to_members": added}
+    return ChapterAssignmentService.assign_member(member, chapter, note)
 
 
 @frappe.whitelist()
@@ -1274,121 +1035,31 @@ def leave_chapter(member_name, chapter_name, leave_reason=None):
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def assign_member_to_chapter_with_cleanup(member, chapter, note=None):
-    """Assign a member to a chapter with automatic cleanup of existing memberships"""
-    if not member or not chapter:
-        frappe.throw(_("Member and Chapter are required"))
+    """Assign a member to a chapter with automatic cleanup of existing memberships.
 
-    try:
-        cleanup_performed = False
+    EXTRACTED: Moved to ChapterAssignmentService.assign_with_cleanup()
+    for service layer separation (Chapter Phase 3 - Assignment Extraction).
 
-        # 1. Check for existing chapter memberships and end them
-        existing_memberships = frappe.get_all(
-            "Chapter Member", filters={"member": member, "enabled": 1}, fields=["parent", "name"]
-        )
+    This function remains as a compatibility wrapper for the API.
+    """
+    from verenigingen.services.chapter.chapter_assignment_service import ChapterAssignmentService
 
-        for membership in existing_memberships:
-            if membership.parent != chapter:  # Don't remove from target chapter
-                try:
-                    # Try to use chapter's remove_member method first
-                    old_chapter_doc = frappe.get_doc("Chapter", membership.parent)
-                    old_chapter_doc.remove_member(member, leave_reason=f"Reassigned to {chapter}")
-                    cleanup_performed = True
-
-                    frappe.logger().info(f"Removed member {member} from chapter {membership.parent}")
-                except Exception as e:
-                    # If chapter method fails, disable the membership directly
-                    try:
-                        frappe.db.set_value("Chapter Member", membership.name, "enabled", 0)
-                        frappe.db.set_value(
-                            "Chapter Member", membership.name, "leave_reason", f"Reassigned to {chapter}"
-                        )
-                        frappe.db.commit()
-                        cleanup_performed = True
-
-                        frappe.logger().info(
-                            f"Directly disabled membership {membership.name} for member {member}"
-                        )
-                    except Exception as e2:
-                        frappe.logger().error(
-                            f"Error removing member from chapter {membership.parent}: {str(e)} and {str(e2)}"
-                        )
-            else:
-                # Member is already in target chapter, just note this
-                frappe.logger().info(f"Member {member} is already in target chapter {chapter}")
-
-        # 2. Check for board memberships and end them
-        # Get volunteer linked to this member
-        volunteer_name = frappe.db.get_value("Volunteer", {"member": member}, "name")
-        board_memberships = []
-        if volunteer_name:
-            board_memberships = frappe.get_all(
-                "Chapter Board Member",
-                filters={"volunteer": volunteer_name, "is_active": 1},
-                fields=["name", "parent"],
-            )
-
-        for board_membership in board_memberships:
-            try:
-                board_doc = frappe.get_doc("Chapter Board Member", board_membership.name)
-                board_doc.is_active = 0
-                board_doc.to_date = today()
-                board_doc.notes = (board_doc.notes or "") + f"\nEnded due to member reassignment to {chapter}"
-                board_doc.save()
-                cleanup_performed = True
-
-                frappe.logger().info(f"Ended board membership {board_membership.name} for member {member}")
-            except Exception as e:
-                frappe.logger().error(f"Error ending board membership {board_membership.name}: {str(e)}")
-
-        # 3. Check if member is already in target chapter
-        already_in_target = any(m.parent == chapter for m in existing_memberships)
-
-        if already_in_target and len(existing_memberships) == 1:
-            # Member is already in target chapter and it's their only chapter
-            result = {"success": True, "added_to_members": False, "cleanup_performed": cleanup_performed}
-
-            if cleanup_performed:
-                result["message"] = _("Member was already in {0}. Board roles have been ended.").format(
-                    chapter
-                )
-            else:
-                result["message"] = _("Member is already assigned to {0}").format(chapter)
-        elif already_in_target and len(existing_memberships) > 1:
-            # Member is in target chapter plus others - cleanup was performed
-            result = {
-                "success": True,
-                "added_to_members": False,
-                "cleanup_performed": True,  # Force true since we cleaned up other chapters
-            }
-            result["message"] = _(
-                "Member was already in {0}. Other chapter memberships and board roles have been ended."
-            ).format(chapter)
-        else:
-            # Assign to new chapter
-            result = assign_member_to_chapter(member, chapter, note)
-
-            if result.get("success"):
-                result["cleanup_performed"] = cleanup_performed
-
-                # Add detailed message
-                if cleanup_performed:
-                    result["message"] = _(
-                        "Member successfully assigned to {0}. Previous memberships and board roles have been ended."
-                    ).format(chapter)
-                else:
-                    result["message"] = _("Member successfully assigned to {0}").format(chapter)
-
-        return result
-
-    except Exception as e:
-        frappe.logger().error(f"Error in assign_member_to_chapter_with_cleanup: {str(e)}")
-        return {"success": False, "message": str(e)}
+    return ChapterAssignmentService.assign_with_cleanup(member, chapter, note)
 
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
 def get_board_role_profile_preview(chapter_name):
-    """Get preview of which role profiles would be assigned to chapter board members"""
+    """Get preview of which role profiles would be assigned to chapter board members.
+
+    CONSOLIDATED: Already uses centralized chapter_role_profile_manager (utils/).
+    Board role profile logic is centralized - this is just an API wrapper.
+
+    Note: Consider moving chapter_role_profile_manager to services/ in future
+    for consistency with other chapter services.
+    """
+    from verenigingen.utils.chapter_role_profile_manager import determine_role_profile_for_board_member
+
     if not chapter_name or not frappe.db.exists("Chapter", chapter_name):
         return {"error": "Chapter not found"}
 
@@ -1409,8 +1080,6 @@ def get_board_role_profile_preview(chapter_name):
                 preview["role_specific_profiles"][row.chapter_role] = row.role_profile
 
     # Preview assignments for current board members
-    from verenigingen.utils.chapter_role_profile_manager import determine_role_profile_for_board_member
-
     for member in chapter_doc.board_members or []:
         if member.volunteer and member.is_active:
             assigned_profile = determine_role_profile_for_board_member(chapter_name, member.chapter_role)
@@ -1443,7 +1112,11 @@ def get_board_role_profile_preview(chapter_name):
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def bulk_apply_chapter_board_role_profiles(chapter_name):
-    """Apply role profiles to all current chapter board members based on chapter configuration"""
+    """Apply role profiles to all current chapter board members.
+
+    CONSOLIDATED: Already uses centralized chapter_role_profile_manager (utils/).
+    Board role profile logic is centralized - this is just an API wrapper.
+    """
     from verenigingen.utils.chapter_role_profile_manager import bulk_assign_chapter_board_role_profiles
 
     if not chapter_name or not frappe.db.exists("Chapter", chapter_name):

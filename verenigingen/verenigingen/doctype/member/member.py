@@ -597,18 +597,21 @@ class Member(
         # Member ID validation
         validate_member_id_change(self)
         self.handle_fee_override_changes()
-        sync_member_status_fields(self)
+
+        # Skip status sync if explicitly flagged (e.g., during approve/reject operations)
+        if not getattr(self.flags, "ignore_status_validation", False):
+            sync_member_status_fields(self)
 
         # Clear application_status once member leaves application workflow
         # Application workflow states are: Pending, Under Review, Approved, Rejected, Payment Pending
         # Once member becomes Active, Terminated, Suspended, etc., application_status is no longer relevant
-        if self.status not in ["Pending"] and self.application_status in [
-            "Pending",
-            "Under Review",
-            "Approved",
-            "Rejected",
-            "Payment Pending",
-        ]:
+        # IMPORTANT: Don't clear if we're in an explicit approve/reject operation (ignore_status_validation flag)
+        # or if status is "Rejected" (rejected status should preserve application_status)
+        if (
+            not getattr(self.flags, "ignore_status_validation", False)
+            and self.status not in ["Pending", "Rejected"]
+            and self.application_status in ["Pending", "Under Review", "Approved", "Payment Pending"]
+        ):
             self.application_status = None
 
     def on_update(self):

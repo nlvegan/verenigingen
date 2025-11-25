@@ -6,25 +6,36 @@ Member ID Management Service
 
 Handles member ID assignment for approved members.
 
-ERROR HANDLING PATTERN: Dict-Based Pattern
+ERROR HANDLING PATTERN: OperationResult Pattern
 ===============================================
-All methods return {"success": bool, ...} dictionaries, never throw exceptions.
+All methods return OperationResult[T] with type-safe error handling.
+Never throws exceptions - all errors returned as OperationResult.fail().
 
 Rationale: Member ID assignment is an admin utility operation where:
 - Callers need detailed error messages for troubleshooting
 - Operations should not abort workflows
+- Type safety prevents runtime errors
 - Results need to be displayed in UI
-- assign_member_id: Returns dict with success/message
-- assign_missing_member_ids: Returns dict with batch results
-- debug_member_id_assignment: Returns dict with diagnostic info
 
-See: docs/patterns/ERROR_HANDLING_PATTERNS.md
+Public Methods:
+- assign_member_id: Returns OperationResult[str] (member_id)
+- assign_missing_member_ids: Returns OperationResult[Dict[str, Any]] (batch results)
+- debug_member_id_assignment: Returns OperationResult[Dict[str, Any]] (diagnostic info)
+
+Migration Status: ✅ COMPLETE (2025-11-24)
+- All 3 methods migrated from dict-based to OperationResult pattern
+- Proper error handling with type-safe generic return types
+- Comprehensive error messages for troubleshooting
+
+See: docs/patterns/OPERATION_RESULT_PATTERN.md
 """
 
 from typing import Any, Dict
 
 import frappe
 from frappe import _
+
+from verenigingen.utils.operation_result import OperationResult
 
 
 class MemberIDService:
@@ -51,7 +62,7 @@ class MemberIDService:
     """
 
     @staticmethod
-    def assign_member_id(member_name: str) -> Dict[str, Any]:
+    def assign_member_id(member_name: str) -> OperationResult[str]:
         """
         Assign member ID to a single member.
 
@@ -62,52 +73,53 @@ class MemberIDService:
             member_name: Name of the Member document
 
         Returns:
-            Dict with result:
-                - success: Boolean indicating if assignment succeeded
-                - member_id: The assigned member ID (if successful)
-                - message: Human-readable result message
+            OperationResult[str]: Assigned member ID on success
 
         Example:
             >>> result = MemberIDService.assign_member_id("Member-001")
-            >>> if result["success"]:
-            >>>     print(f"Assigned ID: {result['member_id']}")
+            >>> if result.success:
+            >>>     print(f"Assigned ID: {result.data}")
 
         Business Rules:
             - Only approved members get IDs
             - Application members use application_id instead
             - IDs are never changed once assigned
 
-        Error Handling:
-            - Returns dict pattern (not exception-based)
-            - success=False if assignment fails
-            - message contains user-friendly explanation
+        Note:
+            - Never throws exceptions (returns failed OperationResult)
         """
         try:
             if not member_name:
-                return {"success": False, "message": _("Member name is required")}
+                return OperationResult.fail(
+                    _("Member name is required"), errors=["Empty member_name parameter"]
+                )
 
             # Verify member exists
             if not frappe.db.exists("Member", member_name):
-                return {"success": False, "message": _("Member {0} does not exist").format(member_name)}
+                return OperationResult.fail(
+                    _("Member {0} does not exist").format(member_name),
+                    errors=[f"Member not found: {member_name}"],
+                )
 
             member = frappe.get_doc("Member", member_name)
 
             # Check if member already has an ID
             if member.member_id:
-                return {
-                    "success": False,
-                    "message": _("Member already has ID: {0}").format(member.member_id),
-                    "member_id": member.member_id,
-                }
+                return OperationResult.fail(
+                    _("Member already has ID: {0}").format(member.member_id),
+                    errors=["Member already has ID"],
+                    existing_member_id=member.member_id,
+                )
 
             # For application members, they should be approved first
             if member.is_application_member() and not member.should_have_member_id():
-                return {
-                    "success": False,
-                    "message": _(
+                return OperationResult.fail(
+                    _(
                         "Application member must be approved before assigning member ID. Current status: {0}"
                     ).format(member.application_status),
-                }
+                    errors=["Member not eligible for ID"],
+                    application_status=member.application_status,
+                )
 
             # Generate and assign member ID using MemberIDManager
             from verenigingen.verenigingen.doctype.member.member_id_manager import MemberIDManager
@@ -120,18 +132,18 @@ class MemberIDService:
 
             frappe.logger().info(f"MemberIDService: Assigned member ID {member.member_id} to {member_name}")
 
-            return {
-                "success": True,
-                "member_id": str(next_id),
-                "message": _("Member ID {0} assigned successfully").format(next_id),
-            }
+            return OperationResult.ok(
+                str(next_id), message=_("Member ID {0} assigned successfully").format(next_id)
+            )
 
         except Exception as e:
             frappe.log_error(f"Error assigning member ID to {member_name}: {str(e)}", "MemberIDService")
-            return {"success": False, "message": _("Error assigning member ID: {0}").format(str(e))}
+            return OperationResult.fail(
+                _("Error assigning member ID: {0}").format(str(e)), errors=[str(e)], member=member_name
+            )
 
     @staticmethod
-    def assign_missing_member_ids() -> Dict[str, Any]:
+    def assign_missing_member_ids() -> OperationResult[Dict[str, Any]]:
         """
         Bulk assign member IDs to all eligible members who don't have one.
 
@@ -139,10 +151,9 @@ class MemberIDService:
         Useful for data migration or fixing members who should have IDs but don't.
 
         Returns:
-            Dict with results:
+            OperationResult[Dict[str, Any]]: Results dict with:
                 - total_checked: Number of members examined
                 - assigned: Number of IDs successfully assigned
-                - message: Human-readable summary
                 - errors: List of error messages (if any)
 
         Security:
@@ -151,8 +162,8 @@ class MemberIDService:
 
         Example:
             >>> result = MemberIDService.assign_missing_member_ids()
-            >>> print(result["message"])
-            # "Assigned member IDs to 15 out of 20 members"
+            >>> if result.success:
+            >>>     print(f"Assigned {result.data['assigned']} IDs")
 
         Performance:
             - Processes members in batches
@@ -163,63 +174,77 @@ class MemberIDService:
             - This operation is idempotent (safe to run multiple times)
             - Only assigns IDs to members without them
             - Skips members who don't qualify
+            - Never throws exceptions (returns failed OperationResult)
         """
         frappe.logger().info("MemberIDService: Starting bulk member ID assignment")
 
-        # Find all members without IDs
-        members_without_ids = frappe.get_all(
-            "Member",
-            filters={"member_id": ["is", "not set"]},
-            fields=["name", "application_status", "application_id", "full_name", "status"],
-        )
+        try:
+            # Find all members without IDs
+            members_without_ids = frappe.get_all(
+                "Member",
+                filters={"member_id": ["is", "not set"]},
+                fields=["name", "application_status", "application_id", "full_name", "status"],
+            )
 
-        total_checked = len(members_without_ids)
-        assigned_count = 0
-        errors = []
+            total_checked = len(members_without_ids)
+            assigned_count = 0
+            errors = []
 
-        frappe.logger().info(f"MemberIDService: Found {total_checked} members without member IDs")
+            frappe.logger().info(f"MemberIDService: Found {total_checked} members without member IDs")
 
-        for member_data in members_without_ids:
-            try:
-                member = frappe.get_doc("Member", member_data.name)
+            for member_data in members_without_ids:
+                try:
+                    member = frappe.get_doc("Member", member_data.name)
 
-                # Check if member should have an ID
-                if member.should_have_member_id():
-                    member.ensure_member_id()
-                    assigned_count += 1
+                    # Check if member should have an ID
+                    if member.should_have_member_id():
+                        member.ensure_member_id()
+                        assigned_count += 1
 
-                    frappe.logger().info(
-                        f"MemberIDService: Assigned ID {member.member_id} to {member.full_name} ({member.name})"
-                    )
-                else:
-                    frappe.logger().debug(
-                        f"MemberIDService: Skipping {member.name} - does not qualify for member ID "
-                        f"(status: {member.status})"
-                    )
+                        frappe.logger().info(
+                            f"MemberIDService: Assigned ID {member.member_id} to {member.full_name} ({member.name})"
+                        )
+                    else:
+                        frappe.logger().debug(
+                            f"MemberIDService: Skipping {member.name} - does not qualify for member ID "
+                            f"(status: {member.status})"
+                        )
 
-            except Exception as e:
-                error_msg = f"Failed to assign ID to {member_data.name}: {str(e)}"
-                frappe.logger().error(f"MemberIDService: {error_msg}")
-                errors.append(error_msg)
+                except Exception as e:
+                    error_msg = f"Failed to assign ID to {member_data.name}: {str(e)}"
+                    frappe.logger().error(f"MemberIDService: {error_msg}")
+                    errors.append(error_msg)
 
-        # Summary message
-        message = f"Assigned member IDs to {assigned_count} out of {total_checked} members"
+            # Summary message
+            message = f"Assigned member IDs to {assigned_count} out of {total_checked} members"
 
-        if errors:
-            message += f" ({len(errors)} errors)"
+            if errors:
+                message += f" ({len(errors)} errors)"
 
-        frappe.logger().info(f"MemberIDService: {message}")
+            frappe.logger().info(f"MemberIDService: {message}")
 
-        return {
-            "success": assigned_count > 0 or total_checked == 0,
-            "total_checked": total_checked,
-            "assigned": assigned_count,
-            "message": message,
-            "errors": errors if errors else None,
-        }
+            results = {
+                "total_checked": total_checked,
+                "assigned": assigned_count,
+                "errors": errors if errors else [],
+            }
+
+            # Success if we assigned at least one ID, or if there were no members to process
+            if assigned_count > 0 or total_checked == 0:
+                return OperationResult.ok(results, message=message)
+            else:
+                return OperationResult.fail(
+                    "No member IDs were assigned",
+                    errors=errors if errors else ["No eligible members found"],
+                    **results,
+                )
+
+        except Exception as e:
+            frappe.log_error(f"Bulk member ID assignment failed: {str(e)}", "MemberIDService")
+            return OperationResult.fail(f"Bulk member ID assignment failed: {str(e)}", errors=[str(e)])
 
     @staticmethod
-    def debug_member_id_assignment(member_name: str) -> Dict[str, Any]:
+    def debug_member_id_assignment(member_name: str) -> OperationResult[Dict[str, Any]]:
         """
         Debug utility for troubleshooting member ID assignment.
 
@@ -230,7 +255,7 @@ class MemberIDService:
             member_name: Name of the Member document
 
         Returns:
-            Dict with diagnostic info:
+            OperationResult[Dict[str, Any]]: Diagnostic information dict with:
                 - member_name: Document name
                 - current_member_id: Current ID (or None)
                 - has_member_id: Boolean
@@ -240,33 +265,39 @@ class MemberIDService:
                 - status: Current member status
                 - should_have_member_id: Boolean (eligibility check)
                 - can_assign_id: Boolean (can assign now)
-                - error: Error message (if check failed)
+                - explanation: Human-readable explanation of current state
 
         Security:
             - @development_only_api (disabled in production)
-            - Never throws exceptions
-            - Returns {"error": str} on failure
+            - Never throws exceptions (returns failed OperationResult)
 
         Example:
-            >>> debug_info = MemberIDService.debug_member_id_assignment("Member-001")
-            >>> if debug_info["can_assign_id"]:
+            >>> result = MemberIDService.debug_member_id_assignment("Member-001")
+            >>> if result.success and result.data["can_assign_id"]:
             >>>     print("Member can receive an ID")
-            >>> else:
-            >>>     print(f"Reason: {debug_info['status']}")
+            >>> elif result.success:
+            >>>     print(f"Reason: {result.data['explanation']}")
 
         Use Cases:
             - Support troubleshooting
             - Understanding ID assignment rules
             - Verifying member state transitions
+
+        Note:
+            - Never throws exceptions (returns failed OperationResult)
         """
         try:
             # Validate input
             if not member_name:
-                return {"error": "Member name is required"}
+                return OperationResult.fail("Member name is required", errors=["Empty member_name parameter"])
 
             # Verify member exists
             if not frappe.db.exists("Member", member_name):
-                return {"error": f"Member {member_name} does not exist"}
+                return OperationResult.fail(
+                    f"Member {member_name} does not exist",
+                    errors=[f"Member not found: {member_name}"],
+                    member=member_name,
+                )
 
             member = frappe.get_doc("Member", member_name)
 
@@ -293,24 +324,26 @@ class MemberIDService:
             elif debug_info["can_assign_id"]:
                 debug_info["explanation"] = "Member is eligible and can receive an ID"
             elif debug_info["is_application_member"]:
-                debug_info["explanation"] = (
-                    f"Application member uses application_id: {debug_info['application_id']}"
-                )
+                debug_info[
+                    "explanation"
+                ] = f"Application member uses application_id: {debug_info['application_id']}"
             else:
-                debug_info["explanation"] = (
-                    f"Member status '{debug_info['status']}' does not qualify for member ID"
-                )
+                debug_info[
+                    "explanation"
+                ] = f"Member status '{debug_info['status']}' does not qualify for member ID"
 
             frappe.logger().debug(f"MemberIDService: Debug info for {member_name}: {debug_info}")
 
-            return debug_info
+            return OperationResult.ok(debug_info)
 
         except Exception as e:
             error_msg = str(e)
             frappe.logger().error(
                 f"MemberIDService: Error in debug_member_id_assignment for {member_name}: {error_msg}"
             )
-            return {"error": error_msg, "member_name": member_name}
+            return OperationResult.fail(
+                f"Failed to retrieve debug information: {error_msg}", errors=[error_msg], member=member_name
+            )
 
 
 # Convenience function for backward compatibility

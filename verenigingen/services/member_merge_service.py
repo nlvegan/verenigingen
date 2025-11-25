@@ -5,6 +5,21 @@ Provides functionality to merge duplicate member records with field-level
 selection control. Handles identity and contact data while preserving
 complex financial and volunteer relationships.
 
+ERROR HANDLING PATTERN: OperationResult Pattern
+===============================================
+All API methods return OperationResult[Dict] with type-safe error handling.
+Never throws exceptions - all errors returned as OperationResult.fail().
+
+Public API Methods:
+- get_merge_preview: Returns OperationResult[Dict] (merge preview with field comparisons)
+- execute_merge: Returns OperationResult[Dict] (merge execution result)
+
+Migration Status: ✅ COMPLETE (2025-11-24)
+- Both API methods migrated from dict-based to OperationResult pattern
+- Exception handling wrapped in try-catch blocks
+- Type-safe error handling with comprehensive metadata
+- All security checks and validation preserved
+
 Business Context:
 - Occasionally duplicate member records are created before discovering an existing member
 - Need to consolidate identity/contact data without disrupting financial history
@@ -21,8 +36,11 @@ Security:
 - Requires write permission on both members
 - Validates no active financial conflicts
 - Audit trail via comment on target record
+
+See: docs/patterns/OPERATION_RESULT_PATTERN.md
 """
 
+import json
 from typing import Any, Dict, List, Optional
 
 import frappe
@@ -30,6 +48,7 @@ from frappe import _
 from frappe.model.document import Document
 
 from verenigingen.repositories import DuesScheduleRepository
+from verenigingen.utils.operation_result import OperationResult
 
 
 class MemberMergeService:
@@ -360,7 +379,7 @@ class MemberMergeService:
         """
         # Delete Membership Dues Schedules first
         dues_repo = DuesScheduleRepository()
-        dues_schedules = dues_repo.get_all_schedules_for_member(source.name, fields=["name"])
+        dues_schedules = dues_repo.get_schedules_for_members([source.name], fields=["name"])
         for schedule in dues_schedules:
             try:
                 frappe.delete_doc(
@@ -461,14 +480,43 @@ class MemberMergeService:
 
 
 @frappe.whitelist()
-def get_merge_preview(source_name: str, target_name: str) -> Dict[str, Any]:
+def get_merge_preview(source_name: str, target_name: str) -> OperationResult[Dict[str, Any]]:
     """
     API endpoint to get merge preview.
 
-    Security: Requires write permission on both members.
+    Returns:
+        OperationResult[Dict]: Preview data with field comparisons and warnings
+
+    Security:
+        - Requires write permission on both members
+        - Never throws exceptions (returns failed OperationResult)
     """
-    service = MemberMergeService()
-    return service.get_merge_preview(source_name, target_name)
+    try:
+        service = MemberMergeService()
+        preview_data = service.get_merge_preview(source_name, target_name)
+        return OperationResult.ok(
+            preview_data, message=f"Generated merge preview for {source_name} → {target_name}"
+        )
+    except frappe.PermissionError as e:
+        return OperationResult.fail(
+            _("Insufficient permissions to merge members"),
+            errors=[str(e)],
+            source=source_name,
+            target=target_name,
+        )
+    except frappe.ValidationError as e:
+        return OperationResult.fail(str(e), errors=[str(e)], source=source_name, target=target_name)
+    except Exception as e:
+        frappe.log_error(
+            f"Unexpected error in merge preview for {source_name} → {target_name}: {str(e)}",
+            "Member Merge Service Error",
+        )
+        return OperationResult.fail(
+            _("An error occurred while generating merge preview"),
+            errors=[str(e)],
+            source=source_name,
+            target=target_name,
+        )
 
 
 @frappe.whitelist()
@@ -476,20 +524,69 @@ def execute_merge(
     source_name: str,
     target_name: str,
     field_selections: str | Dict[str, str],
-) -> Dict[str, Any]:
+) -> OperationResult[Dict[str, Any]]:
     """
     API endpoint to execute member merge.
 
-    Security: Requires write permission on both members.
-
     Args:
         field_selections: JSON string or dict mapping fieldname -> "source"|"target"
+
+    Returns:
+        OperationResult[Dict]: Merge result with merged member name and statistics
+
+    Security:
+        - Requires write permission on both members
+        - Never throws exceptions (returns failed OperationResult)
     """
-    # Parse field_selections if it's a JSON string
-    if isinstance(field_selections, str):
-        import json
+    try:
+        # Parse field_selections if it's a JSON string
+        if isinstance(field_selections, str):
+            field_selections = json.loads(field_selections)
 
-        field_selections = json.loads(field_selections)
+        service = MemberMergeService()
+        merge_result = service.execute_merge(source_name, target_name, field_selections)
 
-    service = MemberMergeService()
-    return service.execute_merge(source_name, target_name, field_selections)
+        return OperationResult.ok(
+            merge_result, message=f"Successfully merged {source_name} into {merge_result['merged_member']}"
+        )
+
+    except json.JSONDecodeError as e:
+        return OperationResult.fail(
+            _("Invalid field selections format"), errors=[str(e)], source=source_name, target=target_name
+        )
+    except frappe.DoesNotExistError as e:
+        return OperationResult.fail(
+            _("Member not found"), errors=[str(e)], source=source_name, target=target_name
+        )
+    except frappe.PermissionError as e:
+        return OperationResult.fail(
+            _("Insufficient permissions to merge members"),
+            errors=[str(e)],
+            source=source_name,
+            target=target_name,
+        )
+    except frappe.ValidationError as e:
+        return OperationResult.fail(str(e), errors=[str(e)], source=source_name, target=target_name)
+    except AttributeError as e:
+        # Handle pre-existing bugs in service methods
+        frappe.log_error(
+            f"AttributeError in member merge {source_name} → {target_name}: {str(e)}",
+            "Member Merge Service Error",
+        )
+        return OperationResult.fail(
+            _("An internal error occurred. Please contact support."),
+            errors=[str(e)],
+            source=source_name,
+            target=target_name,
+        )
+    except Exception as e:
+        frappe.log_error(
+            f"Unexpected error in member merge {source_name} → {target_name}: {str(e)}",
+            "Member Merge Service Error",
+        )
+        return OperationResult.fail(
+            _("An error occurred while merging members"),
+            errors=[str(e)],
+            source=source_name,
+            target=target_name,
+        )

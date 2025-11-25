@@ -17,6 +17,25 @@ Architecture:
 - Secure document operations
 - Role and module assignment
 - Ownership transfer
+
+ERROR HANDLING PATTERN: OperationResult Pattern
+===============================================
+API method returns OperationResult[str] with type-safe error handling.
+Never throws exceptions - all errors returned as OperationResult.fail().
+
+Public API Methods:
+- create_member_user_account: Returns OperationResult[str] (username created/linked)
+
+Migration Status: ✅ COMPLETE (2025-11-24)
+- API method migrated from dict-based to OperationResult pattern
+- All security features and document operations preserved
+- Type-safe error handling with comprehensive metadata
+
+Legacy Methods (still throw exceptions):
+- create_user_for_member: Direct user creation (throws ValidationError)
+- create_user_account_if_needed: Hook-based creation (logs errors, doesn't throw)
+
+See: docs/patterns/OPERATION_RESULT_PATTERN.md
 """
 
 from typing import TYPE_CHECKING
@@ -26,6 +45,7 @@ from frappe import _
 
 from verenigingen.services.member.account.member_role_service import MemberRoleService
 from verenigingen.utils.dutch_name_utils import get_full_last_name, is_dutch_installation
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.secure_operations import secure_document_operation
 
 if TYPE_CHECKING:
@@ -132,22 +152,25 @@ class MemberUserAccountService:
         # This allows members to view and edit their own records
         if member_doc.owner != user.name:
             original_owner = member_doc.owner
-            member_doc.owner = user.name
+            # Use direct database update to bypass "set only once" validation on owner field
+            frappe.db.set_value("Member", member_doc.name, "owner", user.name, update_modified=False)
+            member_doc.reload()
             frappe.logger().info(
                 f"Transferred ownership of member {member_doc.name} from {original_owner} to {user.name}"
             )
 
-        # Save member document with proper validation and audit trail
-        # Using flags to avoid triggering unnecessary business logic
-        member_doc.flags.ignore_validate_update_after_submit = True
-        member_doc.flags.ignore_mandatory = False  # Keep validation
-        member_doc.save()
+        # Update user field and save member document with proper validation and audit trail
+        if member_doc.user != user.name:
+            member_doc.user = user.name
+            member_doc.flags.ignore_validate_update_after_submit = True
+            member_doc.flags.ignore_mandatory = False  # Keep validation
+            member_doc.save()
 
         frappe.msgprint(_("User {0} created successfully").format(user.name))
         return user.name
 
     @staticmethod
-    def create_member_user_account(member_name: str, send_welcome_email: bool = True) -> dict:
+    def create_member_user_account(member_name: str, send_welcome_email: bool = True) -> OperationResult[str]:
         """
         Create a user account for a member - API-compatible wrapper.
 
@@ -159,17 +182,18 @@ class MemberUserAccountService:
             send_welcome_email: Whether to send welcome email (default True)
 
         Returns:
-            dict: Result dictionary with keys:
-                - success: Boolean indicating operation success
-                - message: Human-readable result message
-                - user: Username (if successful)
+            OperationResult[str]: Username on success with metadata:
+                - user: Username created/linked
                 - action: "created_new" or "linked_existing"
-                - error: Error message (if failed)
 
         Example:
             >>> result = MemberUserAccountService.create_member_user_account("Member-001")
-            >>> if result["success"]:
-            >>>     print(f"User created: {result['user']}")
+            >>> if result.success:
+            >>>     print(f"User created: {result.data}")
+
+        Note:
+            - Never throws exceptions (returns failed OperationResult)
+            - Uses secure_document_operation for all document operations
         """
         try:
             # Get the member document
@@ -177,11 +201,11 @@ class MemberUserAccountService:
 
             # Check if user already exists
             if member.user:
-                return {
-                    "success": False,
-                    "message": _("User account already exists for this member"),
-                    "user": member.user,
-                }
+                return OperationResult.fail(
+                    _("User account already exists for this member"),
+                    errors=["User already exists"],
+                    user=member.user,
+                )
 
             # Check if a user with this email already exists
             existing_user = frappe.db.get_value("User", {"email": member.email}, "name")
@@ -204,12 +228,11 @@ class MemberUserAccountService:
                 # Add member roles to existing user
                 MemberRoleService.add_member_roles_to_user(existing_user)
 
-                return {
-                    "success": True,
-                    "message": _("Linked existing user account to member"),
-                    "user": existing_user,
-                    "action": "linked_existing",
-                }
+                return OperationResult.ok(
+                    existing_user,
+                    message=_("Linked existing user account to member"),
+                    action="linked_existing",
+                )
 
             # Create new user
             user = frappe.new_doc("User")
@@ -259,16 +282,15 @@ class MemberUserAccountService:
 
             frappe.logger().info(f"Created user account {user.name} for member {member.name}")
 
-            return {
-                "success": True,
-                "message": _("User account created successfully"),
-                "user": user.name,
-                "action": "created_new",
-            }
+            return OperationResult.ok(
+                user.name, message=_("User account created successfully"), action="created_new"
+            )
 
         except Exception as e:
             frappe.log_error(f"Error creating user account for member {member_name}: {str(e)}")
-            return {"success": False, "error": str(e)}
+            return OperationResult.fail(
+                _("Failed to create user account: {0}").format(str(e)), errors=[str(e)], member=member_name
+            )
 
     @staticmethod
     def create_user_account_if_needed(member_doc: "Document") -> None:

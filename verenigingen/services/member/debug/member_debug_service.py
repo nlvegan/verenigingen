@@ -6,19 +6,34 @@ Member Debug Service
 
 Provides diagnostic and testing utilities for member management development.
 
-ERROR HANDLING PATTERN: Dict-Based Pattern
+ERROR HANDLING PATTERN: OperationResult Pattern
 ===============================================
-All methods return {"success": bool, ...} or diagnostic dictionaries, never throw exceptions.
+All methods return OperationResult[Dict[str, Any]] with type-safe error handling.
+Never throws exceptions - all errors returned as OperationResult.fail().
 
 Rationale: Debug utilities should never crash:
 - Safe for exploratory debugging
-- Return {"error": str} on failures
-- Comprehensive diagnostic information
+- Type safety prevents runtime errors
+- Comprehensive diagnostic information in .data dict
 - Never abort developer workflows
+- Clear success/failure indication
+
+Public Methods:
+- test_dues_schedule_query: Returns OperationResult[Dict[str, Any]] (query results)
+- debug_button_conditions: Returns OperationResult[Dict[str, Any]] (button visibility logic)
+- debug_member_status: Returns OperationResult[Dict[str, Any]] (member status fields)
+- test_amendment_filtering: Returns OperationResult[Dict[str, Any]] (filtering test results)
+- test_automatic_fee_history_update: Returns OperationResult[Dict[str, Any]] (history automation test)
+- test_fee_history_functionality: Returns OperationResult[Dict[str, Any]] (fee history test)
+
+Migration Status: ✅ COMPLETE (2025-11-24)
+- All 6 methods migrated from dict-based to OperationResult pattern
+- Proper error handling with type-safe generic return types
+- Enhanced error messages for troubleshooting
 
 SECURITY: All methods use @development_only_api decorator (disabled in production)
 
-See: docs/patterns/ERROR_HANDLING_PATTERNS.md
+See: docs/patterns/OPERATION_RESULT_PATTERN.md
 """
 
 from typing import Any, Dict, List
@@ -26,6 +41,8 @@ from typing import Any, Dict, List
 import frappe
 from frappe import _
 from frappe.utils import getdate, today
+
+from verenigingen.utils.operation_result import OperationResult
 
 
 class MemberDebugService:
@@ -57,7 +74,7 @@ class MemberDebugService:
     """
 
     @staticmethod
-    def test_dues_schedule_query(member_name: str) -> Dict[str, Any]:
+    def test_dues_schedule_query(member_name: str) -> OperationResult[Dict[str, Any]]:
         """
         Test the exact query used in JavaScript for dues schedules.
 
@@ -67,15 +84,18 @@ class MemberDebugService:
             member_name: Name of the Member document
 
         Returns:
-            Dict with query results:
+            OperationResult[Dict[str, Any]]: Query results dict with:
                 - query_result: Result from query (or None)
                 - filters_used: Filters applied to query
-                - error: Error message (if query failed)
 
         Example:
             >>> result = MemberDebugService.test_dues_schedule_query("Member-001")
-            >>> if result.get("query_result"):
-            >>>     print(f"Found schedule: {result['query_result']['name']}")
+            >>> if result.success and result.data.get("query_result"):
+            >>>     print(f"Found schedule: {result.data['query_result']['name']}")
+
+        Note:
+            - Never throws exceptions (returns failed OperationResult)
+            - Returns query_result=None if no schedule found (not an error)
         """
         filters = {"member": member_name, "is_template": 0, "status": ["in", ["Active", "Paused"]]}
 
@@ -86,12 +106,17 @@ class MemberDebugService:
                 ["name", "dues_rate", "billing_frequency", "status"],
                 as_dict=True,
             )
-            return {"query_result": result, "filters_used": filters}
+            return OperationResult.ok(
+                {"query_result": result, "filters_used": filters}, message="Query executed successfully"
+            )
         except Exception as e:
-            return {"error": str(e), "filters_used": filters}
+            frappe.log_error(f"Dues schedule query failed for {member_name}: {str(e)}", "MemberDebugService")
+            return OperationResult.fail(
+                f"Query failed: {str(e)}", errors=[str(e)], filters_used=filters, member=member_name
+            )
 
     @staticmethod
-    def debug_button_conditions(member_name: str) -> Dict[str, Any]:
+    def debug_button_conditions(member_name: str) -> OperationResult[Dict[str, Any]]:
         """
         Debug what buttons should appear for a member in the UI.
 
@@ -101,7 +126,7 @@ class MemberDebugService:
             member_name: Name of the Member document
 
         Returns:
-            Dict with button conditions:
+            OperationResult[Dict[str, Any]]: Button conditions dict with:
                 - member_name: Document name
                 - status: Current member status
                 - docstatus: Document status (0=draft, 1=submitted, 2=cancelled)
@@ -112,12 +137,14 @@ class MemberDebugService:
                 - has_active_membership: Boolean
                 - has_donor: Boolean
                 - expected_buttons: Dict of which buttons should show
-                - error: Error message (if check failed)
 
         Example:
             >>> result = MemberDebugService.debug_button_conditions("Member-001")
-            >>> if result["expected_buttons"]["create_user"]:
+            >>> if result.success and result.data["expected_buttons"]["create_user"]:
             >>>     print("Create User button should be visible")
+
+        Note:
+            - Never throws exceptions (returns failed OperationResult)
         """
         try:
             member = frappe.get_doc("Member", member_name)
@@ -141,7 +168,7 @@ class MemberDebugService:
             # Check for donor
             has_donor = bool(frappe.db.exists("Donor", {"linked_member": member_name}))
 
-            return {
+            button_conditions = {
                 "member_name": member_name,
                 "status": member.status,
                 "docstatus": member.docstatus,
@@ -160,11 +187,19 @@ class MemberDebugService:
                     "dues_management": True,  # Always show if script works
                 },
             }
+
+            return OperationResult.ok(button_conditions)
+
         except Exception as e:
-            return {"error": str(e)}
+            frappe.log_error(
+                f"Button conditions debug failed for {member_name}: {str(e)}", "MemberDebugService"
+            )
+            return OperationResult.fail(
+                f"Failed to retrieve button conditions: {str(e)}", errors=[str(e)], member=member_name
+            )
 
     @staticmethod
-    def debug_member_status(member_name: str) -> Dict[str, Any]:
+    def debug_member_status(member_name: str) -> OperationResult[Dict[str, Any]]:
         """
         Debug member status for button investigation.
 
@@ -174,7 +209,7 @@ class MemberDebugService:
             member_name: Name of the Member document
 
         Returns:
-            Dict with status fields:
+            OperationResult[Dict[str, Any]]: Status fields dict with:
                 - name: Document name
                 - status: Member status
                 - application_status: Application workflow status
@@ -182,15 +217,18 @@ class MemberDebugService:
                 - user: Linked user (if any)
                 - docstatus: Document status
                 - payment_method: Payment method
-                - error: Error message (if check failed)
 
         Example:
             >>> result = MemberDebugService.debug_member_status("Member-001")
-            >>> print(f"Status: {result['status']}, App Status: {result['application_status']}")
+            >>> if result.success:
+            >>>     print(f"Status: {result.data['status']}, App Status: {result.data['application_status']}")
+
+        Note:
+            - Never throws exceptions (returns failed OperationResult)
         """
         try:
             member = frappe.get_doc("Member", member_name)
-            return {
+            status_info = {
                 "name": member.name,
                 "status": member.status,
                 "application_status": getattr(member, "application_status", None),
@@ -199,11 +237,16 @@ class MemberDebugService:
                 "docstatus": member.docstatus,
                 "payment_method": getattr(member, "payment_method", None),
             }
+            return OperationResult.ok(status_info)
+
         except Exception as e:
-            return {"error": str(e)}
+            frappe.log_error(f"Member status debug failed for {member_name}: {str(e)}", "MemberDebugService")
+            return OperationResult.fail(
+                f"Failed to retrieve member status: {str(e)}", errors=[str(e)], member=member_name
+            )
 
     @staticmethod
-    def test_amendment_filtering() -> Dict[str, Any]:
+    def test_amendment_filtering() -> OperationResult[Dict[str, Any]]:
         """
         Test the new amendment filtering logic.
 
@@ -211,21 +254,22 @@ class MemberDebugService:
         Uses a sample member to demonstrate filtering behavior.
 
         Returns:
-            Dict with test results:
+            OperationResult[Dict[str, Any]]: Test results dict with:
                 - member: Member name tested
                 - filtered_count: Number of amendments after filtering
                 - raw_count: Number of amendments before filtering
-                - success: Boolean indicating test completion
                 - details: List of amendments with filter status
 
         Example:
             >>> result = MemberDebugService.test_amendment_filtering()
-            >>> print(f"Filtered: {result['filtered_count']}, Raw: {result['raw_count']}")
+            >>> if result.success:
+            >>>     print(f"Filtered: {result.data['filtered_count']}, Raw: {result.data['raw_count']}")
 
         Note:
             - Uses "Assoc-Member-2025-07-0017" as test member
             - Prints detailed output to console
             - Safe to run multiple times
+            - Never throws exceptions (returns failed OperationResult)
         """
         # Test with a real member that might have amendments
         member_name = "Assoc-Member-2025-07-0017"
@@ -269,19 +313,28 @@ class MemberDebugService:
                 details.append(detail)
                 frappe.logger().info(f"  {detail}")
 
-            return {
+            test_results = {
                 "member": member_name,
                 "filtered_count": len(amendments),
                 "raw_count": len(raw_amendments),
-                "success": True,
                 "details": details,
             }
+
+            return OperationResult.ok(
+                test_results,
+                message=f"Amendment filtering test completed: {len(amendments)}/{len(raw_amendments)} amendments",
+            )
+
         except Exception as e:
-            frappe.log_error(f"Amendment filtering test error: {str(e)}", "Debug Service")
-            return {"success": False, "error": str(e)}
+            frappe.log_error(f"Amendment filtering test error: {str(e)}", "MemberDebugService")
+            return OperationResult.fail(
+                f"Amendment filtering test failed: {str(e)}", errors=[str(e)], member=member_name
+            )
 
     @staticmethod
-    def test_automatic_fee_history_update(member_name: str = "Assoc-Member-2025-07-0017") -> Dict[str, Any]:
+    def test_automatic_fee_history_update(
+        member_name: str = "Assoc-Member-2025-07-0017",
+    ) -> OperationResult[Dict[str, Any]]:
         """
         Test that fee change history updates automatically when dues schedules are modified.
 
@@ -291,12 +344,11 @@ class MemberDebugService:
             member_name: Name of the Member document (default test member)
 
         Returns:
-            Dict with test results:
-                - success: Boolean indicating if history updated automatically
+            OperationResult[Dict[str, Any]]: Test results dict with:
+                - history_updated: Boolean indicating if history updated automatically
                 - current_count: Fee history count before test
                 - new_count: Fee history count after test
                 - test_completed: Boolean
-                - error: Error message (if test failed)
 
         Warning:
             - This test MODIFIES and then REVERTS a dues schedule
@@ -305,8 +357,11 @@ class MemberDebugService:
 
         Example:
             >>> result = MemberDebugService.test_automatic_fee_history_update()
-            >>> if result["success"]:
+            >>> if result.success and result.data["history_updated"]:
             >>>     print("✅ Fee history automation working")
+
+        Note:
+            - Never throws exceptions (returns failed OperationResult)
         """
         try:
             frappe.logger().info(f"Testing automatic fee change history update for {member_name}")
@@ -324,7 +379,11 @@ class MemberDebugService:
             )
 
             if not active_schedule:
-                return {"success": False, "message": "No active dues schedule found for member"}
+                return OperationResult.fail(
+                    "No active dues schedule found for member",
+                    errors=["No active schedule"],
+                    member=member_name,
+                )
 
             frappe.logger().info(
                 f"Current active schedule: {active_schedule.name} with rate: €{active_schedule.dues_rate}"
@@ -345,9 +404,9 @@ class MemberDebugService:
             new_count = frappe.db.count("Member Fee Change History", {"parent": member_name})
             frappe.logger().info(f"New fee change history count: {new_count}")
 
-            success = new_count > current_count
+            history_updated = new_count > current_count
 
-            if success:
+            if history_updated:
                 frappe.logger().info("✅ SUCCESS: Fee change history was updated automatically!")
 
                 # Get the latest entry
@@ -372,19 +431,31 @@ class MemberDebugService:
             schedule_doc.save()
             frappe.logger().info(f"Reverted dues rate back to €{old_rate}")
 
-            return {
-                "success": success,
+            test_results = {
+                "history_updated": history_updated,
                 "current_count": current_count,
                 "new_count": new_count,
                 "test_completed": True,
             }
 
+            return OperationResult.ok(
+                test_results,
+                message=f"Fee history automation test completed: {'✅ PASSED' if history_updated else '❌ FAILED'}",
+            )
+
         except Exception as e:
-            frappe.log_error(f"Fee history automation test error: {str(e)}", "Debug Service")
-            return {"success": False, "error": str(e), "test_completed": False}
+            frappe.log_error(f"Fee history automation test error: {str(e)}", "MemberDebugService")
+            return OperationResult.fail(
+                f"Fee history automation test failed: {str(e)}",
+                errors=[str(e)],
+                member=member_name,
+                test_completed=False,
+            )
 
     @staticmethod
-    def test_fee_history_functionality(member_name: str = "Assoc-Member-2025-07-0030") -> Dict[str, Any]:
+    def test_fee_history_functionality(
+        member_name: str = "Assoc-Member-2025-07-0030",
+    ) -> OperationResult[Dict[str, Any]]:
         """
         Test function to validate fee change history functionality.
 
@@ -394,26 +465,28 @@ class MemberDebugService:
             member_name: Name of the Member document (default test member)
 
         Returns:
-            Dict with test results:
+            OperationResult[Dict[str, Any]]: Test results dict with:
                 - refresh_result: Result from refresh_fee_change_history()
                 - member_name: Member tested
                 - fee_change_history_count: Number of history entries
                 - dues_schedules_count: Number of dues schedules
                 - dues_schedules: List of schedules
                 - fee_change_history: List of history entries
-                - error: Error message (if test failed)
-                - traceback: Full traceback (if error)
 
         Example:
             >>> result = MemberDebugService.test_fee_history_functionality()
-            >>> print(f"History entries: {result['fee_change_history_count']}")
+            >>> if result.success:
+            >>>     print(f"History entries: {result.data['fee_change_history_count']}")
+
+        Note:
+            - Never throws exceptions (returns failed OperationResult)
         """
         try:
             # Import refresh function from member module
             from verenigingen.verenigingen.doctype.member.member import refresh_fee_change_history
 
             # Call the refresh function
-            result = refresh_fee_change_history(member_name)
+            refresh_result = refresh_fee_change_history(member_name)
 
             # Get member data
             member = frappe.get_doc("Member", member_name)
@@ -425,8 +498,8 @@ class MemberDebugService:
                 fields=["name", "schedule_name", "dues_rate", "status"],
             )
 
-            return {
-                "refresh_result": result,
+            test_results = {
+                "refresh_result": refresh_result,
                 "member_name": member_name,
                 "fee_change_history_count": len(member.fee_change_history or []),
                 "dues_schedules_count": len(dues_schedules),
@@ -444,11 +517,21 @@ class MemberDebugService:
                 ],
             }
 
+            return OperationResult.ok(
+                test_results,
+                message=f"Fee history test completed: {len(member.fee_change_history or [])} history entries",
+            )
+
         except Exception as e:
-            frappe.log_error(f"Test fee history error: {str(e)}", "Debug Service")
+            frappe.log_error(f"Test fee history error: {str(e)}", "MemberDebugService")
             import traceback
 
-            return {"error": str(e), "traceback": traceback.format_exc()}
+            return OperationResult.fail(
+                f"Fee history functionality test failed: {str(e)}",
+                errors=[str(e)],
+                member=member_name,
+                traceback=traceback.format_exc(),
+            )
 
 
 # Convenience function for backward compatibility

@@ -24,6 +24,20 @@ Architecture:
 - Optimized queries to avoid N+1 problems
 - Secure operations with permission validation for fee history updates
 
+ERROR HANDLING PATTERN: OperationResult Pattern
+===============================================
+Public API methods return OperationResult[Dict[str, Any]] with type-safe error handling.
+Never throw exceptions - all errors returned as OperationResult.fail().
+
+Public API Methods:
+- incremental_update_history_tables: Returns OperationResult[Dict] (history update summary)
+- refresh_fee_change_history: Returns OperationResult[Dict] (fee history refresh results)
+
+Migration Status: ✅ COMPLETE (2025-11-24)
+- Both API methods migrated from dict-based to OperationResult pattern
+- All secure_document_operation calls and integrity checks preserved
+- Type-safe error handling with comprehensive metadata
+
 Dependencies:
 This service is fully independent with no member_doc method dependencies.
 
@@ -34,11 +48,15 @@ External Service Dependencies:
 - MemberMembershipService - Active membership queries (extracted 2025-11-20)
 - secure_document_operation - Secure document updates with permission validation
 - cleanup_member_history - History integrity checking and cleanup
+
+See: docs/patterns/OPERATION_RESULT_PATTERN.md
 """
 
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import frappe
+
+from verenigingen.utils.operation_result import OperationResult
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
@@ -57,7 +75,7 @@ class MemberHistoryUpdateService:
     """
 
     @staticmethod
-    def incremental_update_history_tables(member_doc: "Document") -> Dict[str, Any]:
+    def incremental_update_history_tables(member_doc: "Document") -> OperationResult[Dict[str, Any]]:
         """
         Rebuild payment history, donation history, and volunteer expense history tables.
 
@@ -73,13 +91,16 @@ class MemberHistoryUpdateService:
             member_doc: Member document object
 
         Returns:
-            Dict[str, Any]: Summary of updates with keys:
-                - overall_success (bool)
+            OperationResult[Dict[str, Any]]: Summary of updates with:
                 - volunteer_expenses (dict): {success, count, cleaned}
                 - donations (dict): {success, count}
                 - dues_payments (dict): {success, count}
                 - invoices (dict): {success, count}
                 - message (str): Human-readable summary
+
+        Note:
+            - Never throws exceptions (returns failed OperationResult)
+            - All errors logged and returned as OperationResult.fail()
         """
         try:
             changes_made = False
@@ -156,8 +177,7 @@ class MemberHistoryUpdateService:
 
                 member_doc.save()
 
-            return {
-                "overall_success": True,
+            result_data = {
                 "volunteer_expenses": {
                     "success": True,
                     "count": expense_changes,
@@ -166,20 +186,25 @@ class MemberHistoryUpdateService:
                 "donations": {"success": True, "count": donation_changes},
                 "dues_payments": {"success": True, "count": dues_changes},
                 "invoices": {"success": True, "count": invoice_changes},
-                "message": f"Incremental update: {donation_changes} donation changes, {dues_changes} dues payment changes, {invoice_changes} invoice changes, {expense_changes} expense changes, {cleanup_removed} broken entries cleaned",
             }
+
+            return OperationResult.ok(
+                result_data,
+                message=f"Incremental update: {donation_changes} donation changes, {dues_changes} dues payment changes, {invoice_changes} invoice changes, {expense_changes} expense changes, {cleanup_removed} broken entries cleaned",
+            )
 
         except Exception as e:
             frappe.log_error(
                 f"Error in incremental history update for member {member_doc.name}: {str(e)}",
                 "Incremental History Update",
             )
-            return {
-                "overall_success": False,
-                "volunteer_expenses": {"success": False, "error": str(e)},
-                "donations": {"success": False, "error": str(e)},
-                "message": f"Error updating history tables: {str(e)}",
-            }
+            return OperationResult.fail(
+                f"Error updating history tables: {str(e)}",
+                errors=[str(e)],
+                volunteer_expenses={"success": False, "error": str(e)},
+                donations={"success": False, "error": str(e)},
+                member=member_doc.name,
+            )
 
     @staticmethod
     def _update_volunteer_expense_history(member_doc: "Document") -> int:
@@ -889,7 +914,7 @@ class MemberHistoryUpdateService:
             }
 
     @staticmethod
-    def refresh_fee_change_history(member_name: str) -> Dict[str, Any]:
+    def refresh_fee_change_history(member_name: str) -> OperationResult[Dict[str, Any]]:
         """
         Refresh fee change history from dues schedules and amendments with integrity checking.
 
@@ -908,9 +933,7 @@ class MemberHistoryUpdateService:
             member_name: Name/ID of the member document
 
         Returns:
-            Dict[str, Any]: Result dictionary with keys:
-                - success (bool): Whether operation succeeded
-                - message (str): Human-readable result message
+            OperationResult[Dict[str, Any]]: Result with metadata:
                 - history_count (int): Total history entries processed
                 - amendments_found (int): Number of amendments processed
                 - dues_schedules_found (int): Number of schedules processed
@@ -918,6 +941,10 @@ class MemberHistoryUpdateService:
                 - cleanup_details (dict): Detailed cleanup statistics
                 - method (str): Method used (atomic_with_amendments/no_changes)
                 - reload_doc (bool, optional): Whether to reload document
+
+        Note:
+            - Never throws exceptions (returns failed OperationResult)
+            - All errors logged and returned as OperationResult.fail()
         """
         try:
             # Import dependencies
@@ -1051,9 +1078,7 @@ class MemberHistoryUpdateService:
 
             # Only save if changes were made
             if not changes_made:
-                return {
-                    "success": True,
-                    "message": f"Fee change history is already up to date for {member_name}",
+                result_data = {
                     "history_count": len(member_doc.fee_change_history or []),
                     "amendments_found": len(applied_amendments),
                     "dues_schedules_found": len(dues_schedules),
@@ -1061,6 +1086,9 @@ class MemberHistoryUpdateService:
                     "cleanup_details": cleanup_stats,
                     "method": "no_changes",
                 }
+                return OperationResult.ok(
+                    result_data, message=f"Fee change history is already up to date for {member_name}"
+                )
 
             # Fee history updates are administrative operations that preserve audit trail
             member_doc.flags.ignore_validate_update_after_submit = True  # JUSTIFIED: Fee history update
@@ -1092,9 +1120,7 @@ class MemberHistoryUpdateService:
             # Commit the changes to ensure they're saved
             frappe.db.commit()
 
-            return {
-                "success": True,
-                "message": f"Fee change history refreshed for {member_name} - {len(applied_amendments)} amendments + {len(dues_schedules)} schedules processed, {cleanup_stats['removed']} broken entries cleaned",
+            result_data = {
                 "history_count": len(applied_amendments) + len(dues_schedules),
                 "reload_doc": True,  # Signal to reload the document
                 "amendments_found": len(applied_amendments),
@@ -1104,10 +1130,15 @@ class MemberHistoryUpdateService:
                 "method": "atomic_with_amendments",
             }
 
+            return OperationResult.ok(
+                result_data,
+                message=f"Fee change history refreshed for {member_name} - {len(applied_amendments)} amendments + {len(dues_schedules)} schedules processed, {cleanup_stats['removed']} broken entries cleaned",
+            )
+
         except Exception as e:
             error_msg = str(e)[:100] + "..." if len(str(e)) > 100 else str(e)  # Truncate long errors
             frappe.log_error(f"Fee change history error: {error_msg}", "Fee History Refresh")
-            return {"success": False, "message": f"Error: {error_msg}"}
+            return OperationResult.fail(f"Error: {error_msg}", errors=[str(e)], member=member_name)
 
 
 def get_member_history_update_service() -> MemberHistoryUpdateService:

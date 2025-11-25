@@ -3,17 +3,35 @@ Service Integration Module
 
 Registers existing services with the service factory and provides
 centralized service management for the Verenigingen application.
+
+ERROR HANDLING PATTERN: OperationResult Pattern
+===============================================
+API methods return OperationResult[Dict] with type-safe error handling.
+Never throws exceptions - all errors returned as OperationResult.fail().
+
+Public API Methods:
+- get_service_infrastructure_status: Returns OperationResult[Dict] (service health status)
+- run_service_integration_tests: Returns OperationResult[Dict] (integration test results)
+
+Migration Status: ✅ COMPLETE (2025-11-25)
+- All API methods migrated from dict-based to OperationResult pattern
+- Consistent error handling with comprehensive metadata
+- Type-safe error handling preserved across all infrastructure endpoints
+
+See: docs/patterns/OPERATION_RESULT_PATTERN.md
 """
 
 import logging
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import frappe
+from frappe import _
 
 from verenigingen.services.customer_handling_service import CustomerHandlingService
 from verenigingen.services.infrastructure.base_service import StatefulService
 from verenigingen.services.infrastructure.example_service import ExampleCalculationService, ExampleDataService
 from verenigingen.services.infrastructure.service_factory import get_service_factory
+from verenigingen.utils.operation_result import OperationResult
 
 
 class ServiceIntegrationManager:
@@ -474,7 +492,7 @@ def run_load_testing(concurrent_workers: int = 5, operations_per_worker: int = 2
 
                     worker_results["operations"] += 1
 
-                except Exception as e:
+                except Exception:
                     worker_results["failures"] += 1
 
             worker_results["total_time"] = time.time() - start_time
@@ -528,40 +546,70 @@ def run_load_testing(concurrent_workers: int = 5, operations_per_worker: int = 2
 
 # API endpoints for monitoring and testing
 @frappe.whitelist()
-def get_service_infrastructure_status():
-    """API endpoint to get service infrastructure status."""
+def get_service_infrastructure_status() -> OperationResult[Dict[str, Any]]:
+    """API endpoint to get service infrastructure status.
+
+    Returns:
+        OperationResult[Dict]: Service health summary with timestamp
+    """
     try:
         manager = get_integration_manager()
         health_summary = manager.get_service_health_summary()
 
-        return {
-            "success": True,
+        status_data = {
             "data": health_summary,
             "timestamp": frappe.utils.now(),
         }
+
+        return OperationResult.ok(status_data, message="Service infrastructure status retrieved successfully")
+
     except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-            "timestamp": frappe.utils.now(),
-        }
+        frappe.log_error(
+            f"Error retrieving service infrastructure status: {str(e)}", "Service Integration Error"
+        )
+        return OperationResult.fail(
+            _("Unable to retrieve service infrastructure status. Please contact support."),
+            errors=[str(e)],
+            timestamp=frappe.utils.now(),
+            context={"operation": "infrastructure_status"},
+        )
 
 
 @frappe.whitelist()
-def run_service_integration_tests():
-    """API endpoint to run service integration tests."""
+def run_service_integration_tests() -> OperationResult[Dict[str, Any]]:
+    """API endpoint to run service integration tests.
+
+    Returns:
+        OperationResult[Dict]: Integration test results with success rate
+    """
     try:
         manager = get_integration_manager()
         test_results = manager.run_integration_tests()
 
-        return {
-            "success": test_results["success_rate"] > 0.8,  # 80% success rate required
+        test_data = {
             "data": test_results,
             "timestamp": frappe.utils.now(),
         }
+
+        # 80% success rate required
+        success_rate = test_results.get("success_rate", 0)
+        if success_rate > 0.8:
+            return OperationResult.ok(
+                test_data, message=f"Integration tests passed with {success_rate:.1%} success rate"
+            )
+        else:
+            return OperationResult.fail(
+                _("Integration tests failed to meet 80% success threshold"),
+                errors=[f"Success rate: {success_rate:.1%}"],
+                **test_data,
+                context={"operation": "integration_tests", "success_rate": success_rate},
+            )
+
     except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-            "timestamp": frappe.utils.now(),
-        }
+        frappe.log_error(f"Error running service integration tests: {str(e)}", "Service Integration Error")
+        return OperationResult.fail(
+            _("Unable to run service integration tests. Please contact support."),
+            errors=[str(e)],
+            timestamp=frappe.utils.now(),
+            context={"operation": "integration_tests"},
+        )

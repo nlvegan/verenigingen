@@ -3,6 +3,27 @@ Donation Reporting Service
 
 Handles all donation reporting and analytics operations.
 Extracted from the Donation DocType controller to follow service-oriented architecture.
+
+ERROR HANDLING PATTERN: OperationResult Pattern
+===============================================
+All API methods return OperationResult with type-safe error handling.
+Never throws exceptions - all errors returned as OperationResult.fail().
+
+Public API Methods:
+- get_anbi_donations_for_reporting: Returns OperationResult[List[Dict]] (ANBI donations for tax reporting)
+- get_donations_by_chapter: Returns OperationResult[Dict] (chapter donations with list and totals)
+- get_donations_by_campaign: Returns OperationResult[Dict] (campaign donations with list and totals)
+- get_donation_summary_by_purpose: Returns OperationResult[Dict] (donation summary by purpose)
+- get_donation_accounting_summary: Returns OperationResult[Dict] (accounting summary with GL entries)
+- create_donation_allocation_report: Returns OperationResult[Dict] (allocation report data)
+
+Migration Status: ✅ COMPLETE (2025-11-24)
+- All 6 API methods migrated to OperationResult pattern
+- Comprehensive exception handling for all endpoints
+- Type-safe error handling with metadata
+- All high_security_api decorations preserved
+
+See: docs/patterns/OPERATION_RESULT_PATTERN.md
 """
 
 from typing import Any, Dict, List, Optional
@@ -11,6 +32,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate
 
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
@@ -369,47 +391,276 @@ class DonationReportingService:
 # Whitelisted API methods that delegate to the service
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.REPORTING)
-def get_anbi_donations_for_reporting(from_date: str, to_date: str):
-    """API: Get ANBI donations for Belastingdienst reporting"""
-    service = DonationReportingService()
-    return service.get_anbi_donations_for_reporting(from_date, to_date)
+def get_anbi_donations_for_reporting(from_date: str, to_date: str) -> OperationResult[List[Dict[str, Any]]]:
+    """
+    API: Get ANBI donations for Belastingdienst reporting
+
+    Returns:
+        OperationResult[List[Dict]]: ANBI donation report data
+
+    Note:
+        - Never throws exceptions (returns failed OperationResult)
+        - High security API with REPORTING operation classification
+    """
+    # Validate date parameters
+    try:
+        getdate(from_date)
+        getdate(to_date)
+    except Exception:
+        return OperationResult.fail(
+            _("Invalid date format. Please use YYYY-MM-DD format."),
+            errors=["Invalid date format provided"],
+            context={"operation": "anbi_reporting", "params": {"from_date": from_date, "to_date": to_date}},
+        )
+
+    try:
+        service = DonationReportingService()
+        donations = service.get_anbi_donations_for_reporting(from_date, to_date)
+        return OperationResult.ok(donations, message=f"Retrieved {len(donations)} ANBI donations")
+    except Exception as e:
+        frappe.log_error(f"Error retrieving ANBI donations: {str(e)}", "Donation Reporting Service Error")
+        return OperationResult.fail(
+            _("Unable to retrieve ANBI donations. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "anbi_reporting", "params": {"from_date": from_date, "to_date": to_date}},
+        )
 
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.REPORTING)
-def get_donations_by_chapter(chapter: str, from_date: str = None, to_date: str = None):
-    """API: Get donations earmarked for a specific chapter"""
-    service = DonationReportingService()
-    return service.get_donations_by_chapter(chapter, from_date, to_date)
+def get_donations_by_chapter(
+    chapter: str, from_date: str = None, to_date: str = None
+) -> OperationResult[Dict[str, Any]]:
+    """
+    API: Get donations earmarked for a specific chapter
+
+    Returns:
+        OperationResult[Dict]: Chapter donation report data with donations list and totals
+
+    Note:
+        - Never throws exceptions (returns failed OperationResult)
+        - High security API with REPORTING operation classification
+    """
+    # Validate date parameters if provided
+    if from_date or to_date:
+        try:
+            if from_date:
+                getdate(from_date)
+            if to_date:
+                getdate(to_date)
+        except Exception:
+            return OperationResult.fail(
+                _("Invalid date format. Please use YYYY-MM-DD format."),
+                errors=["Invalid date format provided"],
+                context={
+                    "operation": "chapter_donations",
+                    "params": {"chapter": chapter, "from_date": from_date, "to_date": to_date},
+                },
+            )
+
+    try:
+        service = DonationReportingService()
+        donations = service.get_donations_by_chapter(chapter, from_date, to_date)
+        return OperationResult.ok(donations, message=f"Retrieved {donations['count']} donations for chapter")
+    except Exception as e:
+        frappe.log_error(f"Error retrieving chapter donations: {str(e)}", "Donation Reporting Service Error")
+        return OperationResult.fail(
+            _("Unable to retrieve chapter donations. Please contact support."),
+            errors=[str(e)],
+            context={
+                "operation": "chapter_donations",
+                "params": {"chapter": chapter, "from_date": from_date, "to_date": to_date},
+            },
+        )
 
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.REPORTING)
-def get_donations_by_campaign(campaign: str, from_date: str = None, to_date: str = None):
-    """API: Get donations for a specific campaign"""
-    service = DonationReportingService()
-    return service.get_donations_by_campaign(campaign, from_date, to_date)
+def get_donations_by_campaign(
+    campaign: str, from_date: str = None, to_date: str = None
+) -> OperationResult[Dict[str, Any]]:
+    """
+    API: Get donations for a specific campaign
+
+    Returns:
+        OperationResult[Dict]: Campaign donation report data with donations list and totals
+
+    Note:
+        - Never throws exceptions (returns failed OperationResult)
+        - High security API with REPORTING operation classification
+    """
+    # Validate date parameters if provided
+    if from_date or to_date:
+        try:
+            if from_date:
+                getdate(from_date)
+            if to_date:
+                getdate(to_date)
+        except Exception:
+            return OperationResult.fail(
+                _("Invalid date format. Please use YYYY-MM-DD format."),
+                errors=["Invalid date format provided"],
+                context={
+                    "operation": "campaign_donations",
+                    "params": {"campaign": campaign, "from_date": from_date, "to_date": to_date},
+                },
+            )
+
+    try:
+        service = DonationReportingService()
+        donations = service.get_donations_by_campaign(campaign, from_date, to_date)
+        return OperationResult.ok(donations, message=f"Retrieved {donations['count']} donations for campaign")
+    except Exception as e:
+        frappe.log_error(f"Error retrieving campaign donations: {str(e)}", "Donation Reporting Service Error")
+        return OperationResult.fail(
+            _("Unable to retrieve campaign donations. Please contact support."),
+            errors=[str(e)],
+            context={
+                "operation": "campaign_donations",
+                "params": {"campaign": campaign, "from_date": from_date, "to_date": to_date},
+            },
+        )
 
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.REPORTING)
-def get_donation_summary_by_purpose(from_date: str = None, to_date: str = None):
-    """API: Get donation summary grouped by purpose type"""
-    service = DonationReportingService()
-    return service.get_donation_summary_by_purpose(from_date, to_date)
+def get_donation_summary_by_purpose(
+    from_date: str = None, to_date: str = None
+) -> OperationResult[Dict[str, Any]]:
+    """
+    API: Get donation summary grouped by purpose type
+
+    Returns:
+        OperationResult[Dict]: Donation summary by purpose type
+
+    Note:
+        - Never throws exceptions (returns failed OperationResult)
+        - High security API with REPORTING operation classification
+    """
+    # Validate date parameters if provided
+    if from_date or to_date:
+        try:
+            if from_date:
+                getdate(from_date)
+            if to_date:
+                getdate(to_date)
+        except Exception:
+            return OperationResult.fail(
+                _("Invalid date format. Please use YYYY-MM-DD format."),
+                errors=["Invalid date format provided"],
+                context={
+                    "operation": "summary_by_purpose",
+                    "params": {"from_date": from_date, "to_date": to_date},
+                },
+            )
+
+    try:
+        service = DonationReportingService()
+        summary = service.get_donation_summary_by_purpose(from_date, to_date)
+        return OperationResult.ok(summary, message="Retrieved donation summary by purpose")
+    except Exception as e:
+        frappe.log_error(f"Error retrieving donation summary: {str(e)}", "Donation Reporting Service Error")
+        return OperationResult.fail(
+            _("Unable to retrieve donation summary. Please contact support."),
+            errors=[str(e)],
+            context={
+                "operation": "summary_by_purpose",
+                "params": {"from_date": from_date, "to_date": to_date},
+            },
+        )
 
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.REPORTING)
-def get_donation_accounting_summary(from_date: str = None, to_date: str = None):
-    """API: Get donation accounting summary with GL entries"""
-    service = DonationReportingService()
-    return service.get_donation_accounting_summary(from_date, to_date)
+def get_donation_accounting_summary(
+    from_date: str = None, to_date: str = None
+) -> OperationResult[Dict[str, Any]]:
+    """
+    API: Get donation accounting summary with GL entries
+
+    Returns:
+        OperationResult[Dict]: Accounting summary with GL entry data
+
+    Note:
+        - Never throws exceptions (returns failed OperationResult)
+        - High security API with REPORTING operation classification
+    """
+    # Validate date parameters if provided
+    if from_date or to_date:
+        try:
+            if from_date:
+                getdate(from_date)
+            if to_date:
+                getdate(to_date)
+        except Exception:
+            return OperationResult.fail(
+                _("Invalid date format. Please use YYYY-MM-DD format."),
+                errors=["Invalid date format provided"],
+                context={
+                    "operation": "accounting_summary",
+                    "params": {"from_date": from_date, "to_date": to_date},
+                },
+            )
+
+    try:
+        service = DonationReportingService()
+        summary = service.get_donation_accounting_summary(from_date, to_date)
+        return OperationResult.ok(summary, message="Retrieved donation accounting summary")
+    except Exception as e:
+        frappe.log_error(f"Error retrieving accounting summary: {str(e)}", "Donation Reporting Service Error")
+        return OperationResult.fail(
+            _("Unable to retrieve accounting summary. Please contact support."),
+            errors=[str(e)],
+            context={
+                "operation": "accounting_summary",
+                "params": {"from_date": from_date, "to_date": to_date},
+            },
+        )
 
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.REPORTING)
-def create_donation_allocation_report(chapter: str = None, from_date: str = None, to_date: str = None):
-    """API: Create detailed donation allocation report"""
-    service = DonationReportingService()
-    return service.create_donation_allocation_report(chapter, from_date, to_date)
+def create_donation_allocation_report(
+    chapter: str = None, from_date: str = None, to_date: str = None
+) -> OperationResult[Dict[str, Any]]:
+    """
+    API: Create detailed donation allocation report
+
+    Returns:
+        OperationResult[Dict]: Donation allocation report data
+
+    Note:
+        - Never throws exceptions (returns failed OperationResult)
+        - High security API with REPORTING operation classification
+    """
+    # Validate date parameters if provided
+    if from_date or to_date:
+        try:
+            if from_date:
+                getdate(from_date)
+            if to_date:
+                getdate(to_date)
+        except Exception:
+            return OperationResult.fail(
+                _("Invalid date format. Please use YYYY-MM-DD format."),
+                errors=["Invalid date format provided"],
+                context={
+                    "operation": "allocation_report",
+                    "params": {"chapter": chapter, "from_date": from_date, "to_date": to_date},
+                },
+            )
+
+    try:
+        service = DonationReportingService()
+        report = service.create_donation_allocation_report(chapter, from_date, to_date)
+        return OperationResult.ok(report, message="Created donation allocation report")
+    except Exception as e:
+        frappe.log_error(f"Error creating allocation report: {str(e)}", "Donation Reporting Service Error")
+        return OperationResult.fail(
+            _("Unable to create allocation report. Please contact support."),
+            errors=[str(e)],
+            context={
+                "operation": "allocation_report",
+                "params": {"chapter": chapter, "from_date": from_date, "to_date": to_date},
+            },
+        )

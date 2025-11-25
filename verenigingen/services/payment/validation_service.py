@@ -4,6 +4,23 @@ Payment Validation Service
 Orchestrates payment validation logic by delegating to canonical validators.
 Provides consistent error formatting and validation patterns across payment operations.
 
+ERROR HANDLING PATTERN: OperationResult Pattern
+===============================================
+All API methods return OperationResult[Dict] with type-safe error handling.
+Never throws exceptions - all errors returned as OperationResult.fail().
+
+Public API Methods:
+- validate_iban_api: Returns OperationResult[Dict] (IBAN validation with masking)
+- validate_bank_details_api: Returns OperationResult[Dict] (comprehensive bank validation)
+- validate_payment_method_api: Returns OperationResult[Dict] (payment method validation)
+- validate_payment_amount_api: Returns OperationResult[Dict] (amount validation with Decimal handling)
+
+Migration Status: ✅ COMPLETE (2025-11-24)
+- All 4 API methods migrated from dict-based to OperationResult pattern
+- ValidationResult internally converted to OperationResult for APIs
+- Sensitive data masking (IBAN prefix only in logs)
+- Type-safe error handling with comprehensive metadata
+
 This service does NOT reimplement validation logic - it orchestrates existing validators:
 - verenigingen.utils.validation.iban_validator (European IBAN validation)
 - verenigingen.utils.services.sepa_service (SEPA-specific validation)
@@ -11,9 +28,12 @@ This service does NOT reimplement validation logic - it orchestrates existing va
 
 Design Principles:
 - Thin orchestration layer (delegates to existing validators)
-- Consistent error response format using Result pattern
+- Consistent error response format using OperationResult pattern
 - Context-aware error messages for better UX
 - Type-safe with comprehensive type hints
+- Sensitive data protection (IBAN masking)
+
+See: docs/patterns/OPERATION_RESULT_PATTERN.md
 """
 
 from dataclasses import dataclass
@@ -22,6 +42,8 @@ from typing import Any, Dict, List, Optional
 
 import frappe
 from frappe import _
+
+from verenigingen.utils.operation_result import OperationResult
 
 
 @dataclass
@@ -439,7 +461,7 @@ def get_payment_validation_service() -> PaymentValidationService:
 
 # Convenience API endpoints for whitelisted access
 @frappe.whitelist()
-def validate_iban_api(iban: str, context: str = "payment") -> Dict[str, Any]:
+def validate_iban_api(iban: str, context: str = "payment") -> OperationResult[Dict[str, Any]]:
     """
     API endpoint for IBAN validation.
 
@@ -448,18 +470,42 @@ def validate_iban_api(iban: str, context: str = "payment") -> Dict[str, Any]:
         context: Validation context
 
     Returns:
-        dict with validation result
-    """
-    service = get_payment_validation_service()
-    result = service.validate_iban_with_context(iban, context)
+        OperationResult[Dict]: Validation result with IBAN data
 
-    return {"valid": result.valid, "message": result.message, "errors": result.errors, "data": result.data}
+    Note:
+        - Never throws exceptions (returns failed OperationResult)
+        - Whitelisted API for payment validation
+    """
+    try:
+        service = get_payment_validation_service()
+        result = service.validate_iban_with_context(iban, context)
+
+        if result.valid:
+            return OperationResult.ok(
+                result.data or {}, message=result.message or "IBAN validation successful"
+            )
+        else:
+            return OperationResult.fail(
+                result.message or "IBAN validation failed",
+                errors=result.errors or [],
+                context={
+                    "operation": "iban_validation",
+                    "params": {"iban": iban[:4] + "****", "context": context},
+                },
+            )
+    except Exception as e:
+        frappe.log_error(f"Error validating IBAN: {str(e)}", "Payment Validation Service Error")
+        return OperationResult.fail(
+            _("Unable to validate IBAN. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "iban_validation", "params": {"context": context}},
+        )
 
 
 @frappe.whitelist()
 def validate_bank_details_api(
     iban: str, bic: Optional[str] = None, account_holder_name: Optional[str] = None
-) -> Dict[str, Any]:
+) -> OperationResult[Dict[str, Any]]:
     """
     API endpoint for comprehensive bank details validation.
 
@@ -469,16 +515,44 @@ def validate_bank_details_api(
         account_holder_name: Optional account holder name
 
     Returns:
-        dict with validation result
-    """
-    service = get_payment_validation_service()
-    result = service.validate_bank_details(iban, bic, account_holder_name)
+        OperationResult[Dict]: Validation result with bank details
 
-    return {"valid": result.valid, "message": result.message, "errors": result.errors, "data": result.data}
+    Note:
+        - Never throws exceptions (returns failed OperationResult)
+        - Whitelisted API for payment validation
+    """
+    try:
+        service = get_payment_validation_service()
+        result = service.validate_bank_details(iban, bic, account_holder_name)
+
+        if result.valid:
+            return OperationResult.ok(
+                result.data or {}, message=result.message or "Bank details validation successful"
+            )
+        else:
+            return OperationResult.fail(
+                result.message or "Bank details validation failed",
+                errors=result.errors or [],
+                context={
+                    "operation": "bank_details_validation",
+                    "params": {
+                        "iban": iban[:4] + "****",
+                        "has_bic": bool(bic),
+                        "has_holder": bool(account_holder_name),
+                    },
+                },
+            )
+    except Exception as e:
+        frappe.log_error(f"Error validating bank details: {str(e)}", "Payment Validation Service Error")
+        return OperationResult.fail(
+            _("Unable to validate bank details. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "bank_details_validation"},
+        )
 
 
 @frappe.whitelist()
-def validate_payment_method_api(method: str) -> Dict[str, Any]:
+def validate_payment_method_api(method: str) -> OperationResult[Dict[str, Any]]:
     """
     API endpoint for payment method validation.
 
@@ -486,16 +560,37 @@ def validate_payment_method_api(method: str) -> Dict[str, Any]:
         method: Mode of Payment name
 
     Returns:
-        dict with validation result
-    """
-    service = get_payment_validation_service()
-    result = service.validate_payment_method(method)
+        OperationResult[Dict]: Validation result with payment method data
 
-    return {"valid": result.valid, "message": result.message, "errors": result.errors, "data": result.data}
+    Note:
+        - Never throws exceptions (returns failed OperationResult)
+        - Whitelisted API for payment validation
+    """
+    try:
+        service = get_payment_validation_service()
+        result = service.validate_payment_method(method)
+
+        if result.valid:
+            return OperationResult.ok(
+                result.data or {}, message=result.message or "Payment method validation successful"
+            )
+        else:
+            return OperationResult.fail(
+                result.message or "Payment method validation failed",
+                errors=result.errors or [],
+                context={"operation": "payment_method_validation", "params": {"method": method}},
+            )
+    except Exception as e:
+        frappe.log_error(f"Error validating payment method: {str(e)}", "Payment Validation Service Error")
+        return OperationResult.fail(
+            _("Unable to validate payment method. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "payment_method_validation", "params": {"method": method}},
+        )
 
 
 @frappe.whitelist()
-def validate_payment_amount_api(amount: float, context: str = "payment") -> Dict[str, Any]:
+def validate_payment_amount_api(amount: float, context: str = "payment") -> OperationResult[Dict[str, Any]]:
     """
     API endpoint for payment amount validation.
 
@@ -504,13 +599,34 @@ def validate_payment_amount_api(amount: float, context: str = "payment") -> Dict
         context: Validation context
 
     Returns:
-        dict with validation result
+        OperationResult[Dict]: Validation result with amount data
+
+    Note:
+        - Never throws exceptions (returns failed OperationResult)
+        - Whitelisted API for payment validation
     """
-    service = get_payment_validation_service()
-    result = service.validate_payment_amount(amount, context)
+    try:
+        service = get_payment_validation_service()
+        result = service.validate_payment_amount(amount, context)
 
-    # Convert Decimal to float for JSON serialization
-    if result.valid and result.data:
-        result.data["amount"] = float(result.data["amount"])
+        # Convert Decimal to float for JSON serialization
+        if result.valid and result.data and "amount" in result.data:
+            result.data["amount"] = float(result.data["amount"])
 
-    return {"valid": result.valid, "message": result.message, "errors": result.errors, "data": result.data}
+        if result.valid:
+            return OperationResult.ok(
+                result.data or {}, message=result.message or "Payment amount validation successful"
+            )
+        else:
+            return OperationResult.fail(
+                result.message or "Payment amount validation failed",
+                errors=result.errors or [],
+                context={"operation": "amount_validation", "params": {"amount": amount, "context": context}},
+            )
+    except Exception as e:
+        frappe.log_error(f"Error validating payment amount: {str(e)}", "Payment Validation Service Error")
+        return OperationResult.fail(
+            _("Unable to validate payment amount. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "amount_validation", "params": {"context": context}},
+        )

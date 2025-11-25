@@ -50,10 +50,16 @@ class MembershipTerminationRequest(Document):
             self.request_date = today()
 
     def before_save(self):
-        self.add_audit_entry("Document Updated", f"Status: {self.status}")
+        """UPDATED: Now uses TerminationAuditService.log_document_update()"""
+        from verenigingen.services.termination import TerminationAuditService
+
+        TerminationAuditService.log_document_update(self)
 
     def after_insert(self):
-        self.add_audit_entry("Request Created", f"Termination type: {self.termination_type}")
+        """UPDATED: Now uses TerminationAuditService.log_request_created()"""
+        from verenigingen.services.termination import TerminationAuditService
+
+        TerminationAuditService.log_request_created(self)
 
     def on_update_after_submit(self):
         """Handle status changes after document is submitted (workflow changes)"""
@@ -66,20 +72,20 @@ class MembershipTerminationRequest(Document):
             self.execute_termination_internal()
 
     def handle_status_change(self):
-        """Handle workflow status changes"""
+        """EXTRACTED: Moved to TerminationAuditService.log_status_change()
+
+        Handle workflow status changes.
+        Now delegates to TerminationAuditService for audit trail, then handles transitions.
+        """
+        from verenigingen.services.termination import TerminationAuditService
+
+        # Log status change to audit trail
+        TerminationAuditService.log_status_change(self)
+
+        # Handle specific status transitions
         old_status = self.get_doc_before_save().status if self.get_doc_before_save() else None
         new_status = self.status
 
-        frappe.logger().info(
-            f"Termination request {self.name} status changed from {old_status} to {new_status}"
-        )
-
-        # Add audit trail entry
-        self.add_audit_entry(
-            "Status Changed", f"Status changed from {old_status} to {new_status}", is_system=True
-        )
-
-        # Handle specific status transitions
         if new_status == "Executed" and old_status != "Executed":
             frappe.logger().info(f"Executing termination for request {self.name}")
             self.execute_termination_internal()
@@ -89,169 +95,34 @@ class MembershipTerminationRequest(Document):
             self.handle_rejected_status()
 
     def execute_termination_internal(self) -> bool:
-        """Internal method for executing termination using safe integration methods"""
-        try:
-            # IDEMPOTENCY CHECK: Prevent double-execution
-            if self.execution_date:
-                frappe.logger().info(
-                    f"Termination {self.name} already executed on {self.execution_date} "
-                    f"by {self.executed_by} - skipping duplicate execution"
-                )
-                frappe.msgprint(
-                    _("This termination was already executed on {0}").format(
-                        frappe.format(self.execution_date, {"fieldtype": "Datetime"})
-                    ),
-                    indicator="blue",
-                )
-                return True
+        """EXTRACTED: Moved to TerminationExecutionService.execute()
 
-            frappe.logger().info(f"Starting termination execution for {self.name}")
+        Internal method for executing termination using safe integration methods.
+        Now delegates to TerminationExecutionService for better testability and reusability.
+        """
+        from verenigingen.services.termination import TerminationExecutionService
 
-            # PRE-EXECUTION VALIDATION: Minimal checks for retry safety
-            # Only check member exists - don't check status, as this enables retry after partial failure
-            if not frappe.db.exists("Member", self.member):
-                frappe.throw(_("Member {0} no longer exists").format(self.member))
-
-            # Log member current status for audit purposes but don't block
-            current_member_status = frappe.db.get_value("Member", self.member, "status")
-            frappe.logger().info(
-                f"Executing termination {self.name} - member {self.member} current status: {current_member_status}"
-            )
-
-            # Validate we can execute
-            if self.status != "Executed":
-                frappe.throw(_("Termination can only be executed when status is 'Executed'"))
-
-            # Execute system updates using safe integration methods
-            results = self.execute_system_updates_safely()
-
-            # Update execution fields
-            if not self.executed_by:
-                self.executed_by = frappe.session.user
-            if not self.execution_date:
-                self.execution_date = now()
-
-            # Update counters from results
-            self.sepa_mandates_cancelled = results.get("sepa_mandates_cancelled", 0)
-            self.positions_ended = results.get("positions_ended", 0)
-            self.newsletters_updated = 1 if results.get("customer_updated") else 0
-            self.outstanding_invoices_cancelled = results.get("outstanding_invoices_cancelled", 0)
-
-            # Save changes (use flags to avoid validation issues)
-            self.flags.ignore_validate_update_after_submit = True
-            self.save()
-
-            self.add_audit_entry(
-                "Termination Executed",
-                f"System updates completed: {len(results.get('actions_taken', []))} actions",
-            )
-
-            frappe.logger().info(f"Termination execution completed for {self.name}")
-
-            # Show success message
-            if results.get("errors"):
-                frappe.msgprint(
-                    _("Membership termination executed with {0} warnings. Check logs for details.").format(
-                        len(results["errors"])
-                    ),
-                    indicator="orange",
-                )
-            else:
-                frappe.msgprint(_("Membership termination executed successfully"))
-
-            return True
-
-        except Exception as e:
-            error_msg = str(e)
-            frappe.logger().error(f"Termination execution failed for {self.name}: {error_msg}")
-            self.add_audit_entry("Execution Failed", f"Error: {error_msg}")
-
-            # Revert status if execution failed
-            self.status = "Approved"
-            self.flags.ignore_validate_update_after_submit = True
-            self.flags.skip_termination_validation = True  # Skip validation during error recovery
-            self.save()
-
-            frappe.throw(_("Failed to execute termination: {0}").format(error_msg))
+        return TerminationExecutionService.execute(self)
 
     def execute_system_updates_safely(self) -> Dict:
-        """Execute system updates using declarative operation pattern"""
-        from verenigingen.utils.termination_operations import (
-            CancelDuesSchedulesOperation,
-            CancelFutureInvoicesOperation,
-            CancelMembershipsOperation,
-            CancelOutstandingInvoicesOperation,
-            CancelSEPAMandatesOperation,
-            DeactivateUserAccountOperation,
-            DisableChapterMembershipsOperation,
-            EndBoardPositionsOperation,
-            SuspendTeamMembershipsOperation,
-            TerminateEmployeeRecordsOperation,
-            TerminateVolunteerRecordsOperation,
-            TerminationExecutor,
-            UpdateCustomerRecordOperation,
-            UpdateMemberStatusOperation,
-            UpdateOutstandingInvoicesOperation,
-        )
+        """EXTRACTED: Moved to TerminationExecutionService.execute_system_updates()
 
-        frappe.logger().info(f"Starting safe system updates for member {self.member}")
+        Execute system updates using declarative operation pattern.
+        Now delegates to TerminationExecutionService for better testability.
+        """
+        from verenigingen.services.termination import TerminationExecutionService
 
-        # Define termination operations in execution order
-        # Order matters: preparatory operations first, member status update last
-        operations = [
-            # Phase 1: Preparatory operations (can be reversed/retried)
-            CancelMembershipsOperation(self.member, self),
-            CancelSEPAMandatesOperation(self.member, self),
-            DisableChapterMembershipsOperation(self.member, self),
-            EndBoardPositionsOperation(self.member, self),
-            SuspendTeamMembershipsOperation(self.member, self),
-            DeactivateUserAccountOperation(self.member, self),
-            TerminateVolunteerRecordsOperation(self.member, self),
-            TerminateEmployeeRecordsOperation(self.member, self),
-            UpdateCustomerRecordOperation(self.member, self),
-            UpdateOutstandingInvoicesOperation(self.member, self),
-            CancelOutstandingInvoicesOperation(self.member, self),
-            CancelFutureInvoicesOperation(self.member, self),
-            CancelDuesSchedulesOperation(self.member, self),
-            # Phase 2: Final commit point (member status change)
-            UpdateMemberStatusOperation(self.member, self),
-        ]
-
-        # Execute all operations and collect results
-        executor = TerminationExecutor(operations)
-        results = executor.execute()
-
-        # Log results summary
-        frappe.logger().info(f"System updates completed: {results}")
-
-        # Add detailed audit entries
-        for action in results["actions_taken"]:
-            self.add_audit_entry("System Update", action, is_system=True)
-
-        for error in results["errors"]:
-            self.add_audit_entry("System Update Error", error, is_system=True)
-
-        return results
+        return TerminationExecutionService.execute_system_updates(self)
 
     def add_audit_entry(self, action: str, details: str, is_system: bool = False) -> None:
-        """Add an entry to the audit trail with proper user handling"""
-        # Handle system entries properly - use Administrator instead of "System"
-        audit_user = frappe.session.user if not is_system else "Administrator"
+        """EXTRACTED: Moved to TerminationAuditService.add_entry()
 
-        # Ensure the user exists
-        if not frappe.db.exists("User", audit_user):
-            audit_user = "Administrator"
+        Add an entry to the audit trail with proper user handling.
+        Now delegates to TerminationAuditService for centralized audit management.
+        """
+        from verenigingen.services.termination import TerminationAuditService
 
-        self.append(
-            "audit_trail",
-            {
-                "timestamp": now(),
-                "action": action,
-                "user": audit_user,
-                "details": details,
-                "system_action": 1 if is_system else 0,
-            },
-        )
+        return TerminationAuditService.add_entry(self, action, details, is_system)
 
     def set_approval_requirements(self):
         """Set whether secondary approval is required based on termination type"""
@@ -295,21 +166,14 @@ class MembershipTerminationRequest(Document):
     @frappe.whitelist()
     @critical_api(operation_type=OperationType.ADMIN)
     def execute_termination(self):
-        """Execute the termination request"""
-        if self.status != "Approved":
-            frappe.throw(_("Only approved requests can be executed"))
+        """EXTRACTED: Moved to TerminationExecutionService.execute_from_api()
 
-        # Update status to executed
-        self.status = "Executed"
+        Execute the termination request via API.
+        Now delegates to TerminationExecutionService for better testability.
+        """
+        from verenigingen.services.termination import TerminationExecutionService
 
-        # Call the internal execution method
-        success = self.execute_termination_internal()
-
-        if success:
-            frappe.msgprint(_("Termination executed successfully"))
-            return {"status": self.status, "message": "Termination executed successfully"}
-        else:
-            frappe.throw(_("Failed to execute termination"))
+        return TerminationExecutionService.execute_from_api(self)
 
     def validate_permissions(self):
         """Validate user permissions for different termination types"""

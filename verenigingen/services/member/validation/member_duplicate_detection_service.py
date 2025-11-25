@@ -9,6 +9,19 @@ Provides comprehensive duplicate member detection using multiple matching strate
 
 Used during membership application approval to prevent duplicate member records.
 
+ERROR HANDLING PATTERN: OperationResult Pattern
+===============================================
+API method returns OperationResult[Dict] with type-safe error handling.
+Never throws exceptions - all errors returned as OperationResult.fail().
+
+Public API Method:
+- check_duplicate_for_approval: Returns OperationResult[Dict] (duplicate detection results)
+
+Migration Status: ✅ COMPLETE (2025-11-24)
+- API method migrated from dict-based to OperationResult pattern
+- All security logging and validation preserved
+- Type-safe error handling with comprehensive metadata
+
 CONFIDENCE SCORING METHODOLOGY:
 - Email exact match: 1.0 (definitive - email must be unique)
 - IBAN exact match: 0.95 (strong - shared bank accounts possible)
@@ -24,6 +37,8 @@ THRESHOLD RECOMMENDATIONS:
 - ≥0.9: High confidence - requires explicit acknowledgment
 - 0.7-0.9: Medium confidence - shown as warning
 - <0.7: Low confidence - informational only
+
+See: docs/patterns/OPERATION_RESULT_PATTERN.md
 """
 
 from difflib import SequenceMatcher
@@ -31,6 +46,8 @@ from typing import Dict, List, Optional, Tuple
 
 import frappe
 from frappe import _
+
+from verenigingen.utils.operation_result import OperationResult
 
 # Import security decorators
 from verenigingen.utils.security.api_security_framework import standard_api
@@ -378,7 +395,7 @@ def _deduplicate_matches(matches: List[DuplicateMatch]) -> List[DuplicateMatch]:
 
 @frappe.whitelist()
 @standard_api()  # Duplicate detection - read-only sensitive data
-def check_duplicate_for_approval(member_name: str) -> Dict:
+def check_duplicate_for_approval(member_name: str) -> OperationResult[Dict]:
     """
     API endpoint to check for duplicates before approving a member application.
 
@@ -386,13 +403,24 @@ def check_duplicate_for_approval(member_name: str) -> Dict:
         member_name: The member name to check
 
     Returns:
-        Dict with duplicate matches and summary information
+        OperationResult[Dict]: Duplicate detection results with:
+            - has_duplicates: Boolean indicating if duplicates found
+            - duplicate_count: Total number of potential duplicates
+            - duplicates: List of all duplicate matches
+            - high_confidence: List of high-confidence matches (≥0.9)
+            - medium_confidence: List of medium-confidence matches (0.7-0.9)
+            - low_confidence: List of low-confidence matches (<0.7)
+            - summary: Dict with counts by confidence level
 
     Security:
         - Input validation via validate_input_security()
         - Permission check via frappe.has_permission()
         - Security event logging for suspicious access
         - Sanitized error messages (no internal details exposed)
+
+    Note:
+        - Never throws exceptions (returns failed OperationResult)
+        - Preserves all security logging and validation
     """
     from verenigingen.utils.security.rate_limiter import log_security_event, validate_input_security
 
@@ -406,12 +434,9 @@ def check_duplicate_for_approval(member_name: str) -> Dict:
             f"Input validation failed for duplicate check: {str(e)}",
             "medium",
         )
-        return {
-            "success": False,
-            "error": _("Invalid input data provided"),
-            "has_duplicates": False,
-            "duplicates": [],
-        }
+        return OperationResult.fail(
+            _("Invalid input data provided"), errors=[str(e)], has_duplicates=False, duplicates=[]
+        )
 
     # SECURITY FIX 2: Validate member exists
     if not frappe.db.exists("Member", member_name):
@@ -421,7 +446,13 @@ def check_duplicate_for_approval(member_name: str) -> Dict:
             f"Attempted duplicate check on non-existent member: {member_name}",
             "medium",
         )
-        return {"success": False, "error": _("Member not found"), "has_duplicates": False, "duplicates": []}
+        return OperationResult.fail(
+            _("Member not found"),
+            errors=["Member does not exist"],
+            has_duplicates=False,
+            duplicates=[],
+            member=member_name,
+        )
 
     # SECURITY FIX 3: Permission validation
     if not frappe.has_permission("Member", "read", member_name):
@@ -453,8 +484,7 @@ def check_duplicate_for_approval(member_name: str) -> Dict:
         medium_confidence = [m for m in duplicates if 0.7 <= m["confidence"] < 0.9]
         low_confidence = [m for m in duplicates if m["confidence"] < 0.7]
 
-        return {
-            "success": True,
+        result_data = {
             "has_duplicates": len(duplicates) > 0,
             "duplicate_count": len(duplicates),
             "duplicates": duplicates,
@@ -468,6 +498,13 @@ def check_duplicate_for_approval(member_name: str) -> Dict:
             },
         }
 
+        return OperationResult.ok(
+            result_data,
+            message=f"Found {len(duplicates)} potential duplicate(s)"
+            if duplicates
+            else "No duplicates found",
+        )
+
     except frappe.DoesNotExistError:
         log_security_event(
             frappe.session.user,
@@ -475,7 +512,13 @@ def check_duplicate_for_approval(member_name: str) -> Dict:
             f"Duplicate check on non-existent member: {member_name}",
             "medium",
         )
-        return {"success": False, "error": _("Member not found"), "has_duplicates": False, "duplicates": []}
+        return OperationResult.fail(
+            _("Member not found"),
+            errors=["Member does not exist"],
+            has_duplicates=False,
+            duplicates=[],
+            member=member_name,
+        )
 
     except frappe.PermissionError:
         log_security_event(
@@ -492,9 +535,10 @@ def check_duplicate_for_approval(member_name: str) -> Dict:
             f"Unexpected error in duplicate detection for {member_name}: {str(e)}",
             "Duplicate Detection System Error",
         )
-        return {
-            "success": False,
-            "error": _("An error occurred while checking for duplicates. Please contact support."),
-            "has_duplicates": False,
-            "duplicates": [],
-        }
+        return OperationResult.fail(
+            _("An error occurred while checking for duplicates. Please contact support."),
+            errors=["Internal error occurred"],
+            has_duplicates=False,
+            duplicates=[],
+            member=member_name,
+        )

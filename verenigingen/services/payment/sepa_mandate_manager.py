@@ -17,6 +17,23 @@ Design Principles:
 - Type-safe with comprehensive type hints
 - Clear separation between business logic and data access
 
+ERROR HANDLING PATTERN: OperationResult Pattern
+===============================================
+API endpoints return OperationResult[Dict] with type-safe error handling.
+Never throw exceptions - all errors returned as OperationResult.fail().
+
+Public API Methods:
+- validate_mandate_creation_api: Returns OperationResult[Dict] (validation results)
+- create_mandate_api: Returns OperationResult[Dict] (mandate creation results)
+- deactivate_mandates_for_iban_change_api: Returns OperationResult[Dict] (deactivation results)
+
+Migration Status: ✅ COMPLETE (2025-11-24)
+- All 3 critical API endpoints migrated from dict-based to OperationResult pattern
+- FINANCIAL operation classification preserved
+- Type-safe error handling with comprehensive mandate metadata
+
+See: docs/patterns/OPERATION_RESULT_PATTERN.md
+
 Author: Verenigingen Development Team
 """
 
@@ -29,6 +46,7 @@ from frappe import _
 from frappe.utils import today
 
 from verenigingen.services.payment.validation_service import ValidationResult, get_payment_validation_service
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
@@ -756,7 +774,7 @@ def get_active_mandates_api(member: str, iban: Optional[str] = None) -> Dict[str
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def validate_mandate_creation_api(member: str, iban: str, mandate_id: str) -> Dict[str, Any]:
+def validate_mandate_creation_api(member: str, iban: str, mandate_id: str) -> OperationResult[Dict[str, Any]]:
     """
     API endpoint to validate mandate creation parameters.
 
@@ -766,12 +784,19 @@ def validate_mandate_creation_api(member: str, iban: str, mandate_id: str) -> Di
         mandate_id: Proposed mandate ID
 
     Returns:
-        dict with validation result
+        OperationResult[Dict]: Validation result with mandate data
+
+    Note:
+        - Never throws exceptions (returns failed OperationResult)
+        - Critical API with FINANCIAL operation classification
     """
     manager = get_sepa_mandate_manager()
     result = manager.validate_mandate_creation(member, iban, mandate_id)
 
-    return {"valid": result.valid, "message": result.message, "errors": result.errors, "data": result.data}
+    if result.valid:
+        return OperationResult.ok(result.data or {}, message=result.message)
+    else:
+        return OperationResult.fail(result.message, errors=result.errors, data=result.data)
 
 
 @frappe.whitelist()
@@ -782,7 +807,7 @@ def create_mandate_api(
     bic: Optional[str] = None,
     account_holder_name: Optional[str] = None,
     mandate_id: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> OperationResult[Dict[str, Any]]:
     """
     API endpoint to create a new SEPA mandate.
 
@@ -794,19 +819,26 @@ def create_mandate_api(
         mandate_id: Optional custom mandate ID
 
     Returns:
-        dict with creation result
+        OperationResult[Dict]: Creation result with mandate data
+
+    Note:
+        - Never throws exceptions (returns failed OperationResult)
+        - Critical API with FINANCIAL operation classification
     """
     manager = get_sepa_mandate_manager()
     result = manager.create_mandate(
         member=member, iban=iban, bic=bic, account_holder_name=account_holder_name, mandate_id=mandate_id
     )
 
-    return {"success": result.valid, "message": result.message, "errors": result.errors, "data": result.data}
+    if result.valid:
+        return OperationResult.ok(result.data or {}, message=result.message)
+    else:
+        return OperationResult.fail(result.message, errors=result.errors, data=result.data)
 
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def deactivate_mandates_for_iban_change_api(member: str, new_iban: str) -> Dict[str, Any]:
+def deactivate_mandates_for_iban_change_api(member: str, new_iban: str) -> OperationResult[Dict[str, Any]]:
     """
     API endpoint to deactivate old mandates when IBAN changes.
 
@@ -815,9 +847,16 @@ def deactivate_mandates_for_iban_change_api(member: str, new_iban: str) -> Dict[
         new_iban: New IBAN
 
     Returns:
-        dict with deactivation result
+        OperationResult[Dict]: Deactivation result with affected mandates
+
+    Note:
+        - Never throws exceptions (returns failed OperationResult)
+        - Critical API with FINANCIAL operation classification
     """
     manager = get_sepa_mandate_manager()
     result = manager.deactivate_mandates_for_iban_change(member, new_iban)
 
-    return {"success": result.valid, "message": result.message, "errors": result.errors, "data": result.data}
+    if result.valid:
+        return OperationResult.ok(result.data or {}, message=result.message)
+    else:
+        return OperationResult.fail(result.message, errors=result.errors, data=result.data)

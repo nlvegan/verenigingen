@@ -47,10 +47,7 @@ class MemberLifecycleService:
 
     def approve_application(self, member: "Document") -> OperationResult[str]:
         """
-        Validate application and assign member_id.
-
-        Status field setting is delegated to create_membership_on_approval()
-        via the approval_fields dict pattern to prevent duplicate saves.
+        Validate application, assign member_id, and update status fields.
 
         Args:
             member: Member document to approve
@@ -64,17 +61,28 @@ class MemberLifecycleService:
             if not validation_result.success:
                 return validation_result.chain("Application validation failed")
 
-            # Assign member ID if needed (this is the only field this service should set)
+            # Assign member ID if needed
             if not member.member_id:
                 member.member_id = member.generate_member_id()
-                # Use document API instead of direct database operations
-                # This ensures validation, hooks, and audit trail are maintained
-                member.flags.ignore_validate_update_after_submit = True
-                member.flags.ignore_mandatory = False  # Keep field validation
-                member.save()
-                # Framework handles commit automatically
 
-            return OperationResult.ok(member.member_id, approved=True)
+            # Update status fields
+            member.application_status = "Approved"
+            member.status = "Active"
+            member.reviewed_by = frappe.session.user
+            member.review_date = now_datetime()
+
+            # Set flag to skip status validation during save to prevent override
+            member.flags.ignore_status_validation = True
+
+            # Save with concurrency handling
+            save_result = self._save_member_with_retry(member, "approve")
+            if not save_result.success:
+                return save_result.chain("Failed to save approved application")
+
+            # Perform post-approval setup (customer creation, user creation, chapter activation)
+            setup_result = self._perform_post_approval_setup(member)
+
+            return OperationResult.ok(member.member_id, approved=True, setup_results=setup_result)
 
         except Exception as e:
             logger.error(f"Error validating application for member {member.name}: {str(e)}")
@@ -104,6 +112,10 @@ class MemberLifecycleService:
             member.review_date = now_datetime()
             member.rejection_reason = reason
 
+            # Set flags to skip status validation and preserve rejection reason for retry
+            member.flags.ignore_status_validation = True
+            member.flags.rejection_reason = reason
+
             # Save with concurrency handling
             save_result = self._save_member_with_retry(member, "reject")
             if not save_result.success:
@@ -123,7 +135,7 @@ class MemberLifecycleService:
             logger.error(f"Error rejecting application for member {member.name}: {str(e)}")
             return OperationResult.fail(f"Application rejection failed: {str(e)}")
 
-    def update_membership_status(self, member) -> Dict[str, Any]:
+    def update_membership_status(self, member) -> OperationResult[Dict[str, Any]]:
         """
         Update member's membership status based on active memberships.
 
@@ -131,7 +143,7 @@ class MemberLifecycleService:
             member: Member document to update
 
         Returns:
-            Dict containing success status, membership status, and membership type
+            OperationResult[Dict]: OperationResult with membership status data on success
         """
         try:
             # Get active membership
@@ -143,13 +155,13 @@ class MemberLifecycleService:
                 if hasattr(member, "current_membership_type"):
                     member.current_membership_type = active_membership.membership_type
 
-                return {
-                    "success": True,
-                    "membership_status": "Active",
-                    "membership_type": active_membership.membership_type,
-                    "membership_name": active_membership.name,
-                    "errors": [],
-                }
+                return OperationResult.ok(
+                    {
+                        "membership_status": "Active",
+                        "membership_type": active_membership.membership_type,
+                        "membership_name": active_membership.name,
+                    }
+                )
             else:
                 # Check for expired memberships
                 expired_membership = self._get_most_recent_expired_membership(member)
@@ -160,38 +172,37 @@ class MemberLifecycleService:
                     if hasattr(member, "current_membership_type"):
                         member.current_membership_type = expired_membership.membership_type
 
-                    return {
-                        "success": True,
-                        "membership_status": "Expired",
-                        "membership_type": expired_membership.membership_type,
-                        "membership_name": expired_membership.name,
-                        "errors": [],
-                    }
+                    return OperationResult.ok(
+                        {
+                            "membership_status": "Expired",
+                            "membership_type": expired_membership.membership_type,
+                            "membership_name": expired_membership.name,
+                        }
+                    )
                 else:
                     # No memberships found
                     member.membership_status = None
                     if hasattr(member, "current_membership_type"):
                         member.current_membership_type = None
 
-                    return {
-                        "success": True,
-                        "membership_status": None,
-                        "membership_type": None,
-                        "membership_name": None,
-                        "errors": [],
-                    }
+                    return OperationResult.ok(
+                        {
+                            "membership_status": None,
+                            "membership_type": None,
+                            "membership_name": None,
+                        }
+                    )
 
         except Exception as e:
             logger.error(f"Error updating membership status for member {member.name}: {str(e)}")
-            return {
-                "success": False,
-                "membership_status": None,
-                "membership_type": None,
-                "membership_name": None,
-                "errors": [f"Membership status update failed: {str(e)}"],
-            }
+            return OperationResult.fail(
+                f"Membership status update failed: {str(e)}",
+                membership_status=None,
+                membership_type=None,
+                membership_name=None,
+            )
 
-    def sync_status_fields(self, member) -> Dict[str, Any]:
+    def sync_status_fields(self, member) -> OperationResult[Dict[str, Any]]:
         """
         Synchronize status and application_status fields.
 
@@ -199,7 +210,7 @@ class MemberLifecycleService:
             member: Member document to synchronize
 
         Returns:
-            Dict containing success status and any changes made
+            OperationResult[Dict]: OperationResult with status sync data on success
         """
         try:
             changes_made = []
@@ -230,25 +241,24 @@ class MemberLifecycleService:
                     member.application_status = "Approved"
                     changes_made.append("Set application_status to Approved (backend-created member)")
 
-            return {
-                "success": True,
-                "changes_made": changes_made,
-                "is_application_member": is_application_member,
-                "final_status": member.status,
-                "final_application_status": getattr(member, "application_status", None),
-                "errors": [],
-            }
+            return OperationResult.ok(
+                {
+                    "changes_made": changes_made,
+                    "is_application_member": is_application_member,
+                    "final_status": member.status,
+                    "final_application_status": getattr(member, "application_status", None),
+                }
+            )
 
         except Exception as e:
             logger.error(f"Error syncing status fields for member {member.name}: {str(e)}")
-            return {
-                "success": False,
-                "changes_made": [],
-                "is_application_member": False,
-                "final_status": None,
-                "final_application_status": None,
-                "errors": [f"Status synchronization failed: {str(e)}"],
-            }
+            return OperationResult.fail(
+                f"Status synchronization failed: {str(e)}",
+                changes_made=[],
+                is_application_member=False,
+                final_status=None,
+                final_application_status=None,
+            )
 
     def get_status_color(self, status: str) -> str:
         """
@@ -283,7 +293,7 @@ class MemberLifecycleService:
         """
         return bool(getattr(member, "application_id", None))
 
-    def set_application_status_defaults(self, member) -> Dict[str, Any]:
+    def set_application_status_defaults(self, member) -> OperationResult[str]:
         """
         Set appropriate defaults for application_status based on member type.
 
@@ -291,7 +301,7 @@ class MemberLifecycleService:
             member: Member document to set defaults for
 
         Returns:
-            Dict containing success status and any changes made
+            OperationResult[str]: OperationResult with application_status on success
         """
         try:
             changes_made = []
@@ -309,21 +319,15 @@ class MemberLifecycleService:
                     member.application_status = "Approved"
                     changes_made.append("Set application_status to Approved (backend-created member)")
 
-            return {
-                "success": True,
-                "changes_made": changes_made,
-                "application_status": getattr(member, "application_status", None),
-                "errors": [],
-            }
+            return OperationResult.ok(getattr(member, "application_status", None), changes_made=changes_made)
 
         except Exception as e:
             logger.error(f"Error setting application status defaults for member {member.name}: {str(e)}")
-            return {
-                "success": False,
-                "changes_made": [],
-                "application_status": None,
-                "errors": [f"Setting application status defaults failed: {str(e)}"],
-            }
+            return OperationResult.fail(
+                f"Setting application status defaults failed: {str(e)}",
+                changes_made=[],
+                application_status=None,
+            )
 
     # Private helper methods
 
@@ -381,11 +385,18 @@ class MemberLifecycleService:
                     member.status = "Active"
                     member.reviewed_by = frappe.session.user
                     member.review_date = now_datetime()
+                    # Preserve flag after reload
+                    member.flags.ignore_status_validation = True
                 elif operation == "reject":
                     member.application_status = "Rejected"
                     member.status = "Rejected"
                     member.reviewed_by = frappe.session.user
                     member.review_date = now_datetime()
+                    # Restore rejection_reason from flags if available
+                    if hasattr(member.flags, "rejection_reason"):
+                        member.rejection_reason = member.flags.rejection_reason
+                    # Preserve flags after reload
+                    member.flags.ignore_status_validation = True
 
                 member.save()
                 return OperationResult.ok(None, retried=True)
@@ -397,37 +408,29 @@ class MemberLifecycleService:
     def _perform_post_approval_setup(self, member) -> Dict[str, Any]:
         """Perform post-approval setup tasks"""
         setup_results = {
-            "user_creation_queued": False,
+            "user_created": False,
             "customer_created": False,
             "chapter_activated": False,
             "errors": [],
         }
 
         try:
-            # Queue user account creation via AccountCreationManager instead of direct creation
+            # Create user account immediately (synchronous) for approval workflow
             if not member.user:
                 try:
-                    from verenigingen.utils.account_creation_manager import queue_account_creation_for_member
-
-                    result = queue_account_creation_for_member(
-                        member_name=member.name,
-                        roles=["Verenigingen Member"],
-                        priority="High",  # Approval workflow gets high priority
+                    from verenigingen.services.member.account.member_user_account_service import (
+                        MemberUserAccountService,
                     )
 
-                    if result and result.get("success"):
-                        setup_results["user_creation_queued"] = True
-                        setup_results["account_request"] = result.get("request_name")
-                        logger.info(
-                            f"Queued account creation for member {member.name}: {result.get('request_name')}"
-                        )
-                    else:
-                        error_msg = result.get("error") if result else "Unknown error"
-                        setup_results["errors"].append(f"Failed to queue user creation: {error_msg}")
-                        logger.error(f"Account creation queue failed for {member.name}: {error_msg}")
+                    user_name = MemberUserAccountService.create_user_for_member(member)
+                    setup_results["user_created"] = True
+                    setup_results["user_name"] = user_name
+                    logger.info(f"Created user account {user_name} for member {member.name}")
+                    # Reload member to get updated user field
+                    member.reload()
                 except Exception as e:
-                    setup_results["errors"].append(f"Failed to queue user creation: {str(e)}")
-                    logger.error(f"Exception queuing account creation for {member.name}: {str(e)}")
+                    setup_results["errors"].append(f"Failed to create user: {str(e)}")
+                    logger.error(f"Exception creating user for {member.name}: {str(e)}")
 
             # Create customer if not exists
             if not member.customer:

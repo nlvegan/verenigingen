@@ -13,14 +13,20 @@ Services:
 - ChapterBoardService: Board member data operations
 - ChapterQueryService: Optimized query operations and permissions
 - ChapterEventService: Change detection and event emission
+- ChapterPermissionService: Permission checking and access control
+- ChapterAssignmentService: Member assignment and reassignment operations
+- ChapterMatchingService: Chapter matching and suggestion algorithms
 """
 
+from verenigingen.services.chapter.chapter_assignment_service import ChapterAssignmentService
 from verenigingen.services.chapter.chapter_board_service import ChapterBoardService, get_chapter_board_service
 from verenigingen.services.chapter.chapter_event_service import ChapterEventService, get_chapter_event_service
 from verenigingen.services.chapter.chapter_finance_service import (
     ChapterFinanceService,
     get_chapter_finance_service,
 )
+from verenigingen.services.chapter.chapter_matching_service import ChapterMatchingService
+from verenigingen.services.chapter.chapter_permission_service import ChapterPermissionService
 from verenigingen.services.chapter.chapter_query_service import ChapterQueryService, get_chapter_query_service
 from verenigingen.services.chapter.chapter_validation_service import (
     ChapterValidationService,
@@ -44,4 +50,7 @@ __all__ = [
     "get_chapter_query_service",
     "ChapterEventService",
     "get_chapter_event_service",
+    "ChapterPermissionService",
+    "ChapterAssignmentService",
+    "ChapterMatchingService",
 ]
