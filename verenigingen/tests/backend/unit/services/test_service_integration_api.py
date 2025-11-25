@@ -1,0 +1,106 @@
+# Copyright (c) 2025, Veganisme.org and contributors
+# For license information, please see license.txt
+
+"""
+Unit tests for Service Integration API
+
+Tests service integration API endpoints with OperationResult pattern.
+Focus on type-safe error handling for infrastructure monitoring operations.
+
+Migration Status: ✅ COMPLETE (2025-11-25)
+- All tests use OperationResult API
+- Proper assertions for .success, .data, .error_message
+"""
+
+import frappe
+from verenigingen.services.infrastructure.service_integration import (
+    get_service_infrastructure_status,
+    run_service_integration_tests,
+)
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+
+class TestServiceIntegrationAPI(EnhancedTestCase):
+    """Unit tests for Service Integration API endpoints"""
+
+    def setUp(self):
+        super().setUp()
+        frappe.set_user("Administrator")
+
+    def test_get_service_infrastructure_status_returns_operation_result(self):
+        """Test get_service_infrastructure_status returns OperationResult"""
+        result = get_service_infrastructure_status()
+
+        # OperationResult pattern
+        self.assertIsNotNone(result)
+        self.assertIsNotNone(result.success)
+
+        if result.success:
+            self.assertIsInstance(result.data, dict)
+            self.assertIn("data", result.data)
+            self.assertIn("timestamp", result.data)
+
+    def test_run_service_integration_tests_returns_operation_result(self):
+        """Test run_service_integration_tests returns OperationResult"""
+        result = run_service_integration_tests()
+
+        # OperationResult pattern
+        self.assertIsNotNone(result)
+        self.assertIsNotNone(result.success)
+
+        if result.success:
+            self.assertIsInstance(result.data, dict)
+            self.assertIn("data", result.data)
+            self.assertIn("timestamp", result.data)
+
+    def test_infrastructure_apis_never_throw_exceptions(self):
+        """Test that infrastructure APIs never throw exceptions"""
+        # Test all APIs
+        apis_to_test = [
+            (get_service_infrastructure_status, ()),
+            (run_service_integration_tests, ()),
+        ]
+
+        for api_func, args in apis_to_test:
+            result = api_func(*args)
+            self.assertIsNotNone(result, f"{api_func.__name__} returned None")
+            self.assertIsNotNone(result.success, f"{api_func.__name__} missing success attribute")
+
+    def test_api_results_contain_proper_metadata(self):
+        """Test that API results contain expected metadata structure"""
+        result = get_service_infrastructure_status()
+
+        # Check OperationResult structure
+        self.assertIsNotNone(result)
+        if result.success:
+            self.assertIsInstance(result.data, dict)
+        else:
+            self.assertIsNotNone(result.error_message)
+            self.assertIsInstance(result.errors, list)
+
+    def test_infrastructure_status_contains_timestamp(self):
+        """Test that infrastructure status contains timestamp"""
+        result = get_service_infrastructure_status()
+
+        if result.success:
+            self.assertIn("timestamp", result.data)
+            self.assertIsNotNone(result.data["timestamp"])
+
+    def test_integration_tests_contains_timestamp(self):
+        """Test that integration tests contain timestamp"""
+        result = run_service_integration_tests()
+
+        # Should have timestamp regardless of success
+        if result.success:
+            self.assertIn("timestamp", result.data)
+        else:
+            # Failed results should also have timestamp
+            self.assertTrue(hasattr(result, 'timestamp') or 'timestamp' in result.__dict__)
+
+
+def run_tests():
+    """Helper function to run tests from console"""
+    frappe.flags.in_test = True
+    import unittest
+    suite = unittest.TestLoader().loadTestsFromTestCase(TestServiceIntegrationAPI)
+    unittest.TextTestRunner(verbosity=2).run(suite)

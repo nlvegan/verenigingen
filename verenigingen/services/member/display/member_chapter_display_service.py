@@ -230,7 +230,7 @@ class MemberChapterDisplayService:
         )
 
         service = get_chapter_management_service()
-        return service.get_current_chapters_for_member(member_doc.name)
+        return service.get_member_chapters_optimized(member_doc.name)
 
 
 def get_member_chapter_display_service() -> MemberChapterDisplayService:
