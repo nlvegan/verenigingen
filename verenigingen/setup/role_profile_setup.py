@@ -7,6 +7,7 @@ This script helps set up and assign role profiles to users based on their functi
 import frappe
 from frappe import _
 
+from verenigingen.constants.profile_mappings import ROLE_MODULE_MAPPING
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
@@ -16,21 +17,8 @@ def setup_role_profiles():
     This function should be called after installing the fixtures.
     """
 
-    # Map role profiles to module profiles (must match fixtures/module_profile.json)
-    role_module_mapping = {
-        "Verenigingen Member": "Verenigingen Member",
-        "Verenigingen Volunteer": "Verenigingen Volunteer",
-        "Verenigingen Team Leader": "Verenigingen Volunteer",
-        "Verenigingen Chapter Board Member": "Verenigingen Chapter Board Member",
-        "Verenigingen Treasurer": "Verenigingen Treasurer",
-        "Verenigingen Staff": "Verenigingen National Board Member",
-        "Verenigingen Financial Manager": "Verenigingen Treasurer",
-        "Verenigingen System Administrator": None,  # Full access
-        "Verenigingen Auditor": "Verenigingen Auditor",
-    }
-
     # Assign module profiles to role profiles
-    for role_profile_name, module_profile_name in role_module_mapping.items():
+    for role_profile_name, module_profile_name in ROLE_MODULE_MAPPING.items():
         try:
             if frappe.db.exists("Role Profile", role_profile_name):
                 role_profile = frappe.get_doc("Role Profile", role_profile_name)
@@ -212,21 +200,8 @@ def setup_role_profiles_cli():
     try:
         print("🚀 Starting role profile setup...")
 
-        # Setup role profiles directly
-        # Map role profiles to module profiles (must match fixtures/module_profile.json)
-        role_module_mapping = {
-            "Verenigingen Member": "Verenigingen Member",
-            "Verenigingen Volunteer": "Verenigingen Volunteer",
-            "Verenigingen Team Leader": "Verenigingen Volunteer",
-            "Verenigingen Chapter Board Member": "Verenigingen Chapter Board Member",
-            "Verenigingen Treasurer": "Verenigingen Treasurer",
-            "Verenigingen Staff": "Verenigingen National Board Member",
-            "Verenigingen System Administrator": None,  # Full access
-            "Verenigingen Auditor": "Verenigingen Auditor",
-        }
-
         # Assign module profiles to role profiles
-        for role_profile_name, module_profile_name in role_module_mapping.items():
+        for role_profile_name, module_profile_name in ROLE_MODULE_MAPPING.items():
             try:
                 if frappe.db.exists("Role Profile", role_profile_name):
                     role_profile = frappe.get_doc("Role Profile", role_profile_name)
