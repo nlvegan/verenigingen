@@ -2,6 +2,7 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
+from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 
@@ -140,7 +141,8 @@ class MemberContactRequest(Document):
             """
 
             # Send notification
-            frappe.sendmail(
+            email_service = get_email_service()
+            email_service.send_simple_email(
                 recipients=recipients,
                 subject=subject,
                 message=message,
@@ -251,7 +253,8 @@ class MemberContactRequest(Document):
                     <p><a href="/app/member-contact-request/{self.name}">View Contact Request</a></p>
                     """
 
-                    frappe.sendmail(
+                    email_service = get_email_service()
+                    email_service.send_simple_email(
                         recipients=[assigned_user.email],
                         subject=subject,
                         message=message,

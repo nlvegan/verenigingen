@@ -6,6 +6,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import getdate, today
 
+from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -210,7 +211,8 @@ class ChapterJoinRequest(Document):
                     recipients.append(manager.email)
 
             if recipients:
-                frappe.sendmail(
+                email_service = get_email_service()
+                email_service.send_simple_email(
                     recipients=recipients,
                     subject=_("New Chapter Join Request - {0}").format(self.chapter),
                     message=_(
@@ -228,7 +230,8 @@ class ChapterJoinRequest(Document):
     def notify_member_approved(self):
         """Send approval notification to member"""
         try:
-            frappe.sendmail(
+            email_service = get_email_service()
+            email_service.send_simple_email(
                 recipients=[self.member_email],
                 subject=_("Chapter Join Request Approved - {0}").format(self.chapter),
                 message=_(
@@ -247,7 +250,8 @@ class ChapterJoinRequest(Document):
             if self.rejection_reason:
                 message += _("<br><br>Reason: {0}").format(self.rejection_reason)
 
-            frappe.sendmail(
+            email_service = get_email_service()
+            email_service.send_simple_email(
                 recipients=[self.member_email],
                 subject=_("Chapter Join Request Rejected - {0}").format(self.chapter),
                 message=message,
