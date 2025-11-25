@@ -16,7 +16,8 @@
     "event_type",
     "column_break_basic",
     "status",
-    "owner_user",
+    "owner_type",
+    "owner_reference",
     "event_details_section",
     "event_date",
     "event_time",
@@ -69,6 +70,7 @@
       "reqd": 1
     },
     {
+      "description": "The chapter whose members will be contacted",
       "fieldname": "chapter",
       "fieldtype": "Link",
       "in_list_view": 1,
@@ -99,11 +101,21 @@
       "reqd": 1
     },
     {
-      "default": "__user",
-      "fieldname": "owner_user",
-      "fieldtype": "Link",
+      "default": "Chapter",
+      "description": "Who owns/manages this campaign and will do the contacting",
+      "fieldname": "owner_type",
+      "fieldtype": "Select",
+      "label": "Campaign Owner Type",
+      "options": "User\nTeam\nChapter",
+      "reqd": 1
+    },
+    {
+      "depends_on": "owner_type",
+      "description": "Select the user, team, or chapter responsible for this campaign",
+      "fieldname": "owner_reference",
+      "fieldtype": "Dynamic Link",
       "label": "Campaign Owner",
-      "options": "User"
+      "options": "owner_type"
     },
     {
       "fieldname": "event_details_section",
@@ -241,7 +253,7 @@
   ],
   "index_web_pages_for_search": 1,
   "links": [],
-  "modified": "2025-11-25 10:00:00.000000",
+  "modified": "2025-11-25 12:00:00.000000",
   "modified_by": "Administrator",
   "module": "Verenigingen",
   "name": "Event Contact Campaign",

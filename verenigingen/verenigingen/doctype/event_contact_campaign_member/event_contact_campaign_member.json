@@ -11,6 +11,9 @@
     "member_name",
     "email",
     "phone",
+    "column_break_assignment",
+    "assigned_to",
+    "assigned_to_name",
     "column_break_contact",
     "contacted",
     "contact_method",
@@ -34,7 +37,6 @@
       "fetch_from": "member.full_name",
       "fieldname": "member_name",
       "fieldtype": "Data",
-      "in_list_view": 1,
       "label": "Member Name",
       "read_only": 1
     },
@@ -55,6 +57,25 @@
       "read_only": 1
     },
     {
+      "fieldname": "column_break_assignment",
+      "fieldtype": "Column Break"
+    },
+    {
+      "description": "Volunteer responsible for contacting this member",
+      "fieldname": "assigned_to",
+      "fieldtype": "Link",
+      "label": "Assigned To",
+      "options": "Volunteer"
+    },
+    {
+      "fetch_from": "assigned_to.volunteer_name",
+      "fieldname": "assigned_to_name",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Assigned To",
+      "read_only": 1
+    },
+    {
       "fieldname": "column_break_contact",
       "fieldtype": "Column Break"
     },
@@ -70,7 +91,6 @@
       "depends_on": "contacted",
       "fieldname": "contact_method",
       "fieldtype": "Select",
-      "in_list_view": 1,
       "label": "Contact Method",
       "options": "Not Contacted\nEmail\nPhone\nIn Person\nWhatsApp\nOther"
     },
@@ -108,13 +128,14 @@
     {
       "fieldname": "notes",
       "fieldtype": "Data",
+      "in_list_view": 1,
       "label": "Notes"
     }
   ],
   "index_web_pages_for_search": 0,
   "istable": 1,
   "links": [],
-  "modified": "2025-11-25 10:00:00.000000",
+  "modified": "2025-11-25 12:00:00.000000",
   "modified_by": "Administrator",
   "module": "Verenigingen",
   "name": "Event Contact Campaign Member",

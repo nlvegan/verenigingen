@@ -11,12 +11,21 @@ class EventContactCampaign(Document):
     def validate(self):
         self.update_progress_stats()
         self.validate_dates()
+        self.set_default_owner()
 
     def validate_dates(self):
-        """Validate that end_date is after start_date and event_date is set for active campaigns."""
+        """Validate that end_date is after start_date."""
         if self.start_date and self.end_date:
             if self.end_date < self.start_date:
                 frappe.throw(_("Outreach End Date cannot be before Start Date"))
+
+    def set_default_owner(self):
+        """Set default owner_reference based on owner_type if not set."""
+        if not self.owner_reference:
+            if self.owner_type == "Chapter" and self.chapter:
+                self.owner_reference = self.chapter
+            elif self.owner_type == "User":
+                self.owner_reference = frappe.session.user
 
     def update_progress_stats(self):
         """Calculate and update progress statistics based on contact_list."""
@@ -107,8 +116,6 @@ def get_contactable_members(chapter: str) -> list[dict]:
     if not chapter:
         frappe.throw(_("Please select a chapter first"))
 
-    # Query to get contactable members
-    # We need to join Chapter Member (child table) with Member
     members = frappe.db.sql(
         """
         SELECT DISTINCT
@@ -189,7 +196,6 @@ def import_contactable_members(docname: str) -> dict:
             },
         )
 
-    # Save the document
     doc.save()
 
     return {
@@ -207,15 +213,247 @@ def get_progress_dashboard(docname: str) -> str:
     return doc.get_progress_dashboard_html()
 
 
+@frappe.whitelist()
+def get_available_volunteers(docname: str) -> list[dict]:
+    """
+    Get available volunteers based on the campaign's owner_type.
+
+    - If owner_type is 'Chapter': Returns chapter board members
+    - If owner_type is 'Team': Returns team members
+    - If owner_type is 'User': Returns empty list (single user campaigns)
+
+    Args:
+        docname: The name of the Event Contact Campaign document
+
+    Returns:
+        list of dicts with volunteer info (name, volunteer_name)
+    """
+    doc = frappe.get_doc("Event Contact Campaign", docname)
+
+    if doc.owner_type == "Chapter":
+        # Get chapter board members
+        chapter = doc.owner_reference or doc.chapter
+        if not chapter:
+            return []
+
+        volunteers = frappe.db.sql(
+            """
+            SELECT DISTINCT
+                cbm.volunteer as name,
+                v.volunteer_name
+            FROM `tabChapter Board Member` cbm
+            INNER JOIN `tabVolunteer` v ON cbm.volunteer = v.name
+            WHERE cbm.parent = %(chapter)s
+                AND cbm.is_active = 1
+            ORDER BY v.volunteer_name
+            """,
+            {"chapter": chapter},
+            as_dict=True,
+        )
+        return volunteers
+
+    elif doc.owner_type == "Team":
+        # Get team members
+        team = doc.owner_reference
+        if not team:
+            return []
+
+        volunteers = frappe.db.sql(
+            """
+            SELECT DISTINCT
+                tm.volunteer as name,
+                v.volunteer_name
+            FROM `tabTeam Member` tm
+            INNER JOIN `tabVolunteer` v ON tm.volunteer = v.name
+            WHERE tm.parent = %(team)s
+                AND tm.is_active = 1
+            ORDER BY v.volunteer_name
+            """,
+            {"team": team},
+            as_dict=True,
+        )
+        return volunteers
+
+    # For User type or no owner, return empty list
+    return []
+
+
+@frappe.whitelist()
+def distribute_members(docname: str, volunteer_ids: str = None) -> dict:
+    """
+    Distribute members in the contact list among selected volunteers.
+
+    Members are distributed evenly using round-robin assignment.
+    Only unassigned members are distributed.
+
+    Args:
+        docname: The name of the Event Contact Campaign document
+        volunteer_ids: JSON string of volunteer IDs to distribute among.
+                      If not provided, uses all available volunteers.
+
+    Returns:
+        dict with status and distribution summary
+    """
+    import json
+
+    doc = frappe.get_doc("Event Contact Campaign", docname)
+
+    if not doc.contact_list:
+        return {
+            "status": "warning",
+            "message": _("No members in contact list to distribute"),
+        }
+
+    # Get volunteers to distribute among
+    if volunteer_ids:
+        volunteers = json.loads(volunteer_ids)
+    else:
+        available = get_available_volunteers(docname)
+        volunteers = [v["name"] for v in available]
+
+    if not volunteers:
+        return {
+            "status": "warning",
+            "message": _("No volunteers available. Please select a Team or Chapter as campaign owner."),
+        }
+
+    # Get unassigned members
+    unassigned_rows = [row for row in doc.contact_list if not row.assigned_to]
+
+    if not unassigned_rows:
+        return {
+            "status": "info",
+            "message": _("All members are already assigned"),
+        }
+
+    # Distribute using round-robin
+    for idx, row in enumerate(unassigned_rows):
+        volunteer_idx = idx % len(volunteers)
+        row.assigned_to = volunteers[volunteer_idx]
+        # Fetch volunteer name
+        row.assigned_to_name = frappe.db.get_value(
+            "Volunteer", volunteers[volunteer_idx], "volunteer_name"
+        )
+
+    doc.save()
+
+    # Calculate distribution summary
+    distribution = {}
+    for row in doc.contact_list:
+        if row.assigned_to:
+            name = row.assigned_to_name or row.assigned_to
+            distribution[name] = distribution.get(name, 0) + 1
+
+    summary = ", ".join([f"{name}: {count}" for name, count in distribution.items()])
+
+    return {
+        "status": "success",
+        "message": _("Distributed {0} members among {1} volunteers").format(
+            len(unassigned_rows), len(volunteers)
+        ),
+        "distribution": summary,
+        "assigned_count": len(unassigned_rows),
+    }
+
+
+@frappe.whitelist()
+def clear_assignments(docname: str) -> dict:
+    """
+    Clear all volunteer assignments from the contact list.
+
+    Args:
+        docname: The name of the Event Contact Campaign document
+
+    Returns:
+        dict with status and count of cleared assignments
+    """
+    doc = frappe.get_doc("Event Contact Campaign", docname)
+
+    cleared = 0
+    for row in doc.contact_list:
+        if row.assigned_to:
+            row.assigned_to = None
+            row.assigned_to_name = None
+            cleared += 1
+
+    if cleared:
+        doc.save()
+
+    return {
+        "status": "success" if cleared else "info",
+        "message": _("Cleared {0} assignments").format(cleared) if cleared else _("No assignments to clear"),
+        "cleared": cleared,
+    }
+
+
+def _get_user_volunteer(user: str):
+    """Get the volunteer record for a user, if any."""
+    member = frappe.db.get_value("Member", {"user": user}, "name")
+    if member:
+        return frappe.db.get_value("Volunteer", {"member": member}, "name")
+    return None
+
+
+def _is_chapter_board_member(volunteer: str, chapter: str) -> bool:
+    """Check if a volunteer is an active board member of a chapter."""
+    return bool(
+        frappe.db.exists(
+            "Chapter Board Member",
+            {"parent": chapter, "volunteer": volunteer, "is_active": 1},
+        )
+    )
+
+
+def _is_team_member(volunteer: str, team: str) -> bool:
+    """Check if a volunteer is an active member of a team."""
+    return bool(
+        frappe.db.exists(
+            "Team Member",
+            {"parent": team, "volunteer": volunteer, "is_active": 1},
+        )
+    )
+
+
+def _get_user_chapters(volunteer: str) -> list[str]:
+    """Get all chapters where the volunteer is an active board member."""
+    chapters = frappe.db.sql(
+        """
+        SELECT DISTINCT parent
+        FROM `tabChapter Board Member`
+        WHERE volunteer = %s AND is_active = 1
+        """,
+        volunteer,
+        as_list=True,
+    )
+    return [c[0] for c in chapters]
+
+
+def _get_user_teams(volunteer: str) -> list[str]:
+    """Get all teams where the volunteer is an active member."""
+    teams = frappe.db.sql(
+        """
+        SELECT DISTINCT parent
+        FROM `tabTeam Member`
+        WHERE volunteer = %s AND is_active = 1
+        """,
+        volunteer,
+        as_list=True,
+    )
+    return [t[0] for t in teams]
+
+
 def get_permission_query_conditions(user=None):
     """
     Get permission query conditions for Event Contact Campaign.
 
-    Controls which campaigns appear in list views based on user's role and chapter access.
+    Controls which campaigns appear in list views based on user's role and access.
 
     Access Rules:
     - System Manager / Verenigingen Administrator / Verenigingen Staff: See all campaigns
-    - Verenigingen Chapter Board Member: See only campaigns for chapters they are a board member of
+    - Verenigingen Chapter Board Member: See campaigns where:
+      - owner_type = 'Chapter' AND owner_reference is a chapter they are board member of
+      - OR chapter field is a chapter they are board member of
+    - Team members: See campaigns where owner_type = 'Team' AND they are a member of that team
     - Others: No access
     """
     if not user:
@@ -230,30 +468,35 @@ def get_permission_query_conditions(user=None):
     ):
         return ""
 
-    # Chapter Board Members see campaigns for their chapters
-    if "Verenigingen Chapter Board Member" in user_roles:
-        # Get user's member record
-        member = frappe.db.get_value("Member", {"user": user}, "name")
-        if member:
-            # Get user's volunteer record
-            volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")
-            if volunteer:
-                # Get chapters where user is an active board member
-                board_chapters = frappe.db.sql(
-                    """
-                    SELECT DISTINCT parent
-                    FROM `tabChapter Board Member`
-                    WHERE volunteer = %s AND is_active = 1
-                    """,
-                    volunteer,
-                    as_list=True,
+    conditions = []
+
+    # Get user's volunteer record
+    volunteer = _get_user_volunteer(user)
+
+    if volunteer:
+        # Chapter Board Members see campaigns for their chapters
+        if "Verenigingen Chapter Board Member" in user_roles:
+            chapters = _get_user_chapters(volunteer)
+            if chapters:
+                chapter_list = ", ".join([f"'{c}'" for c in chapters])
+                # Access if chapter field matches OR (owner_type='Chapter' AND owner_reference matches)
+                conditions.append(
+                    f"(`tabEvent Contact Campaign`.chapter IN ({chapter_list}) "
+                    f"OR (`tabEvent Contact Campaign`.owner_type = 'Chapter' "
+                    f"AND `tabEvent Contact Campaign`.owner_reference IN ({chapter_list})))"
                 )
 
-                if board_chapters:
-                    chapter_list = ", ".join(
-                        [f"'{c[0]}'" for c in board_chapters]
-                    )
-                    return f"`tabEvent Contact Campaign`.chapter IN ({chapter_list})"
+        # Team members see campaigns owned by their teams
+        teams = _get_user_teams(volunteer)
+        if teams:
+            team_list = ", ".join([f"'{t}'" for t in teams])
+            conditions.append(
+                f"(`tabEvent Contact Campaign`.owner_type = 'Team' "
+                f"AND `tabEvent Contact Campaign`.owner_reference IN ({team_list}))"
+            )
+
+    if conditions:
+        return " OR ".join(conditions)
 
     # Default: no access
     return "1=0"
@@ -264,11 +507,13 @@ def has_permission(doc, ptype="read", user=None):
     Control document-level access to Event Contact Campaign.
 
     Provides row-level security ensuring users can only access campaigns
-    for chapters they have permission to manage.
+    they have permission to manage based on chapter board membership or team membership.
 
     Access Rules:
     - System Manager / Verenigingen Administrator / Verenigingen Staff: Full access
-    - Verenigingen Chapter Board Member: Access only to campaigns for their chapters
+    - Verenigingen Chapter Board Member: Access if they are board member of campaign's chapter
+      or if owner_type='Chapter' and they are board member of owner_reference
+    - Team members: Access if owner_type='Team' and they are member of that team
     - Others: No access
     """
     if not user:
@@ -283,29 +528,29 @@ def has_permission(doc, ptype="read", user=None):
     ):
         return True
 
-    # Chapter Board Members can access campaigns for their chapters
+    # Get user's volunteer record
+    volunteer = _get_user_volunteer(user)
+    if not volunteer:
+        return False
+
+    # Get document attributes
+    chapter = doc.chapter if hasattr(doc, "chapter") else None
+    owner_type = doc.owner_type if hasattr(doc, "owner_type") else None
+    owner_reference = doc.owner_reference if hasattr(doc, "owner_reference") else None
+
+    # Check chapter board membership
     if "Verenigingen Chapter Board Member" in user_roles:
-        # Get the chapter from the document
-        chapter = doc.chapter if hasattr(doc, "chapter") else None
-        if not chapter:
-            return False
+        # Access via chapter field
+        if chapter and _is_chapter_board_member(volunteer, chapter):
+            return True
+        # Access via owner_reference when owner_type is Chapter
+        if owner_type == "Chapter" and owner_reference:
+            if _is_chapter_board_member(volunteer, owner_reference):
+                return True
 
-        # Get user's member record
-        member = frappe.db.get_value("Member", {"user": user}, "name")
-        if not member:
-            return False
-
-        # Get user's volunteer record
-        volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")
-        if not volunteer:
-            return False
-
-        # Check if this volunteer is an active board member of the campaign's chapter
-        is_board_member = frappe.db.exists(
-            "Chapter Board Member",
-            {"parent": chapter, "volunteer": volunteer, "is_active": 1},
-        )
-
-        return bool(is_board_member)
+    # Check team membership
+    if owner_type == "Team" and owner_reference:
+        if _is_team_member(volunteer, owner_reference):
+            return True
 
     return False
