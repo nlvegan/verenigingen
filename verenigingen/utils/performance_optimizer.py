@@ -9,19 +9,29 @@ including database query optimization, caching improvements, and resource usage 
 
 Author: Claude Code - Phase 3 Implementation
 Date: January 2025
+
+ERROR HANDLING PATTERN:
+All @frappe.whitelist() functions return OperationResult[Dict[str, Any]]:
+- Success: OperationResult.ok(data, message="...")
+- Failure: OperationResult.fail(user_message, errors=[...], context={...})
+- Comprehensive error context includes operation name + all parameters
+- Traceback logging for debugging: frappe.log_error(f"...: {str(e)}\\n{traceback.format_exc()}", "Title")
 """
 
 import json
 import threading
 import time
+import traceback
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 import frappe
+from frappe import _
 from frappe.utils import add_to_date, cint, flt, get_datetime, now, now_datetime
 
 from verenigingen.utils.error_handling import get_logger
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.performance_dashboard import _performance_metrics
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
@@ -1006,61 +1016,113 @@ class PerformanceOptimizer:
 # API endpoints for performance optimization
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.ADMIN)
-def run_performance_optimization():
-    """API endpoint to run comprehensive performance optimization"""
+def run_performance_optimization() -> OperationResult[Dict[str, Any]]:
+    """API endpoint to run comprehensive performance optimization
+
+    Returns:
+        OperationResult[Dict[str, Any]]: Optimization results with before/after metrics
+    """
     try:
         optimizer = PerformanceOptimizer()
-        return optimizer.run_comprehensive_optimization()
+        result = optimizer.run_comprehensive_optimization()
+        return OperationResult.ok(result, message="Performance optimization completed")
     except Exception as e:
-        frappe.log_error(f"Error in run_performance_optimization API: {str(e)}")
-        return {"error": str(e)}
+        frappe.log_error(
+            f"Error in run_performance_optimization: {str(e)}\n{traceback.format_exc()}",
+            "Performance Optimization Error",
+        )
+        return OperationResult.fail(
+            _("Unable to run performance optimization. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "run_performance_optimization"},
+        )
 
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.ADMIN)
-def optimize_database_performance():
-    """API endpoint for database-specific optimizations"""
+def optimize_database_performance() -> OperationResult[Dict[str, Any]]:
+    """API endpoint for database-specific optimizations
+
+    Returns:
+        OperationResult[Dict[str, Any]]: Database optimization results
+    """
     try:
         optimizer = PerformanceOptimizer()
-        return optimizer.optimize_database_queries()
+        result = optimizer.optimize_database_queries()
+        return OperationResult.ok(result, message="Database optimization completed")
     except Exception as e:
-        frappe.log_error(f"Error in optimize_database_performance API: {str(e)}")
-        return {"error": str(e)}
+        frappe.log_error(
+            f"Error in optimize_database_performance: {str(e)}\n{traceback.format_exc()}",
+            "Database Optimization Error",
+        )
+        return OperationResult.fail(
+            _("Unable to optimize database performance. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "optimize_database_performance"},
+        )
 
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.ADMIN)
-def implement_caching_improvements():
-    """API endpoint for caching optimizations"""
+def implement_caching_improvements() -> OperationResult[Dict[str, Any]]:
+    """API endpoint for caching optimizations
+
+    Returns:
+        OperationResult[Dict[str, Any]]: Caching optimization results
+    """
     try:
         optimizer = PerformanceOptimizer()
-        return optimizer.implement_caching_optimizations()
+        result = optimizer.implement_caching_optimizations()
+        return OperationResult.ok(result, message="Caching improvements implemented")
     except Exception as e:
-        frappe.log_error(f"Error in implement_caching_improvements API: {str(e)}")
-        return {"error": str(e)}
+        frappe.log_error(
+            f"Error in implement_caching_improvements: {str(e)}\n{traceback.format_exc()}",
+            "Caching Optimization Error",
+        )
+        return OperationResult.fail(
+            _("Unable to implement caching improvements. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "implement_caching_improvements"},
+        )
 
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.ADMIN)
-def optimize_system_resources():
-    """API endpoint for resource optimization"""
+def optimize_system_resources() -> OperationResult[Dict[str, Any]]:
+    """API endpoint for resource optimization
+
+    Returns:
+        OperationResult[Dict[str, Any]]: Resource optimization results
+    """
     try:
         optimizer = PerformanceOptimizer()
-        return optimizer.optimize_resource_usage()
+        result = optimizer.optimize_resource_usage()
+        return OperationResult.ok(result, message="Resource optimization completed")
     except Exception as e:
-        frappe.log_error(f"Error in optimize_system_resources API: {str(e)}")
-        return {"error": str(e)}
+        frappe.log_error(
+            f"Error in optimize_system_resources: {str(e)}\n{traceback.format_exc()}",
+            "Resource Optimization Error",
+        )
+        return OperationResult.fail(
+            _("Unable to optimize system resources. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "optimize_system_resources"},
+        )
 
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def get_optimization_status():
-    """API endpoint to get current optimization status"""
+def get_optimization_status() -> OperationResult[Dict[str, Any]]:
+    """API endpoint to get current optimization status
+
+    Returns:
+        OperationResult[Dict[str, Any]]: Current optimization status and opportunities
+    """
     try:
         optimizer = PerformanceOptimizer()
         baseline_metrics = optimizer._capture_baseline_metrics()
 
-        return {
+        result = {
             "current_metrics": baseline_metrics,
             "optimization_opportunities": {
                 "database_optimization": "Available",
@@ -1071,6 +1133,14 @@ def get_optimization_status():
             "system_health": "Ready for optimization",
             "timestamp": now_datetime().isoformat(),
         }
+        return OperationResult.ok(result, message="Optimization status retrieved")
     except Exception as e:
-        frappe.log_error(f"Error in get_optimization_status API: {str(e)}")
-        return {"error": str(e)}
+        frappe.log_error(
+            f"Error in get_optimization_status: {str(e)}\n{traceback.format_exc()}",
+            "Optimization Status Error",
+        )
+        return OperationResult.fail(
+            _("Unable to retrieve optimization status. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "get_optimization_status"},
+        )

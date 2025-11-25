@@ -58,7 +58,8 @@ def send_application_confirmation_email(member, application_id):
         <p>Best regards,<br>The Membership Team</p>
         """
 
-        frappe.sendmail(
+        email_service = get_email_service()
+        email_service.send_simple_email(
             recipients=[member.email],
             subject=f"Membership Application Received - ID: {application_id}",
             message=message,
@@ -109,7 +110,8 @@ def notify_reviewers_of_new_application(member, application_id):
         </a></p>
         """
 
-        frappe.sendmail(
+        email_service = get_email_service()
+        email_service.send_simple_email(
             recipients=reviewers,
             subject=f"New Application: {application_id} - {member.full_name}",
             message=message,
@@ -157,7 +159,8 @@ def send_approval_email(member, invoice):
         <p>Best regards,<br>The Membership Team</p>
         """
 
-        frappe.sendmail(
+        email_service = get_email_service()
+        email_service.send_simple_email(
             recipients=[member.email],
             subject="Membership Approved - Payment Required",
             message=message,
@@ -193,7 +196,8 @@ def send_rejection_email(member, reason):
         <p>Best regards,<br>The Membership Team</p>
         """
 
-        frappe.sendmail(
+        email_service = get_email_service()
+        email_service.send_simple_email(
             recipients=[member.email],
             subject="Membership Application Update",
             message=message,
@@ -245,7 +249,8 @@ def send_payment_confirmation_email(member, invoice):
         <p>Best regards,<br>The Membership Team</p>
         """
 
-        frappe.sendmail(
+        email_service = get_email_service()
+        email_service.send_simple_email(
             recipients=[member.email],
             subject="Welcome! Your membership is active",
             message=message,
@@ -363,7 +368,8 @@ def notify_admins_of_new_application(member, invoice=None):
         </a></p>
         """
 
-        frappe.sendmail(
+        email_service = get_email_service()
+        email_service.send_simple_email(
             recipients=[admin.email for admin in admins],
             subject=f"New Application: {member.full_name}",
             message=message,
@@ -414,7 +420,8 @@ def check_overdue_applications():
                         email_template_doc = frappe.get_doc(
                             "Email Template", "membership_applications_overdue"
                         )
-                        frappe.sendmail(
+                        email_service = get_email_service()
+                        email_service.send_simple_email(
                             recipients=recipients,
                             subject=frappe.render_template(email_template_doc.subject, args),
                             message=frappe.render_template(email_template_doc.response, args),
@@ -436,7 +443,8 @@ def check_overdue_applications():
                         </ul>
                         <p>Please review these applications as soon as possible.</p>
                         """
-                        frappe.sendmail(
+                        email_service = get_email_service()
+                        email_service.send_simple_email(
                             recipients=recipients,
                             subject="Overdue Membership Applications",
                             message=message,
@@ -466,7 +474,8 @@ def send_simple_notification(data, member_id):
         <p>You will receive updates about your application status via email.</p>
         """
 
-        frappe.sendmail(
+        email_service = get_email_service()
+        email_service.send_simple_email(
             recipients=[data.get("email")],
             subject="Membership Application Submitted",
             message=message,

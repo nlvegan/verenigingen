@@ -13,6 +13,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, get_datetime, now_datetime
 
+from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
@@ -440,7 +441,8 @@ class BalanceMonitor:
         """Send emergency notification"""
         try:
             # Send email notification
-            frappe.sendmail(
+            email_service = get_email_service()
+            email_service.send_simple_email(
                 recipients=["finance@company.com"],
                 subject=f"EMERGENCY: {alert['message']}",
                 message=f"""

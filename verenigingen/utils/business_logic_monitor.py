@@ -27,6 +27,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import frappe
 
+from verenigingen.services.communication.email_service import get_email_service
+
 logger = logging.getLogger(__name__)
 
 
@@ -549,7 +551,10 @@ class BusinessLogicMonitor:
             message = self._format_alert_email(alerts)
 
             # Send email notification
-            frappe.sendmail(recipients=admin_emails, subject=subject, message=message, send_priority=1)
+            email_service = get_email_service()
+            email_service.send_simple_email(
+                recipients=admin_emails, subject=subject, message=message, send_priority=1
+            )
 
             logger.info(f"Sent business logic alerts to {len(admin_emails)} administrators")
 
@@ -667,10 +672,10 @@ def on_payment_entry_submit(doc, method):
     analyze_critical_operation(
         "payment_processing",
         {
-            "amount": doc.paid_amount,
-            "payment_method": doc.mode_of_payment,
-            "member_id": doc.party,
-            "reference": doc.reference_no,
+            "amount": doc.paid_amount,  # ast-skip: Payment Entry field
+            "payment_method": doc.mode_of_payment,  # ast-skip: Payment Entry field
+            "member_id": doc.party,  # ast-skip: Payment Entry field
+            "reference": doc.reference_no,  # ast-skip: Payment Entry field
         },
     )
 

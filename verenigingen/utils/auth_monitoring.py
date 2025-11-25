@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 
 import frappe
 
+from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
@@ -170,7 +171,10 @@ def alert_if_auth_issues():
             )
 
             if recipients:
-                frappe.sendmail(recipients=recipients, subject=subject, message=message, delayed=False)
+                email_service = get_email_service()
+                email_service.send_simple_email(
+                    recipients=recipients, subject=subject, message=message, delayed=False
+                )
 
             frappe.logger().error(f"AUTH_MONITOR: Critical alert sent to {len(recipients)} administrators")
 

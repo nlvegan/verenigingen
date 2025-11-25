@@ -9,19 +9,20 @@ Last Updated: 2025-10-10
 """
 
 # Role to Module Profile mapping
+# Maps role profiles to actual module profiles defined in fixtures/module_profile.json
 ROLE_MODULE_MAPPING = {
-    "Verenigingen Member": "Verenigingen Basic Access",
-    "Verenigingen Volunteer": "Verenigingen Volunteer Access",
-    "Verenigingen Team Leader": "Verenigingen Team Management Access",
-    "Verenigingen Chapter Board Member": "Verenigingen Volunteer Access",
-    "Verenigingen Treasurer": "Verenigingen Financial Access",
-    "Verenigingen Communications Officer": "Verenigingen Communications Access",
-    "Verenigingen Event Coordinator": "Verenigingen Volunteer Access",
-    "Verenigingen Staff": "Verenigingen Management Access",
-    "Verenigingen Finance Manager": "Verenigingen Finance Management Access",
+    "Verenigingen Member": "Verenigingen Member",
+    "Verenigingen Volunteer": "Verenigingen Volunteer",
+    "Verenigingen Team Leader": "Verenigingen Volunteer",
+    "Verenigingen Chapter Board Member": "Verenigingen Chapter Board Member",
+    "Verenigingen Treasurer": "Verenigingen Treasurer",
+    "Verenigingen Communications Officer": "Verenigingen Volunteer",
+    "Verenigingen Event Coordinator": "Verenigingen Volunteer",
+    "Verenigingen Staff": "Verenigingen National Board Member",
+    "Verenigingen Finance Manager": "Verenigingen Treasurer",
     "Verenigingen System Administrator": None,  # Full access
-    "Verenigingen Auditor": "Verenigingen Audit Access",
-    "Verenigingen Guest": "Verenigingen Guest Access",
-    "Verenigingen Kascommissie": "Verenigingen Financial Access",
-    "Verenigingen National Board Member": "Verenigingen Management Access",
+    "Verenigingen Auditor": "Verenigingen Auditor",
+    "Verenigingen Guest": "Verenigingen Member",
+    "Verenigingen Kascommissie": "Verenigingen Auditor",
+    "Verenigingen National Board Member": "Verenigingen National Board Member",
 }

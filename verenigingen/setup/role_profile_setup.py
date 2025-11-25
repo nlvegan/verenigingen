@@ -16,17 +16,17 @@ def setup_role_profiles():
     This function should be called after installing the fixtures.
     """
 
-    # Map role profiles to module profiles
+    # Map role profiles to module profiles (must match fixtures/module_profile.json)
     role_module_mapping = {
-        "Verenigingen Member": "Verenigingen Basic Access",
-        "Verenigingen Volunteer": "Verenigingen Volunteer Access",
-        "Verenigingen Team Leader": "Verenigingen Volunteer Access",
-        "Verenigingen Chapter Board Member": "Verenigingen Volunteer Access",
-        "Verenigingen Treasurer": "Verenigingen Financial Access",
-        "Verenigingen Staff": "Verenigingen Management Access",
-        "Verenigingen Financial Manager": "Verenigingen Financial Access",  # Consolidates Bank Reconciliation User
+        "Verenigingen Member": "Verenigingen Member",
+        "Verenigingen Volunteer": "Verenigingen Volunteer",
+        "Verenigingen Team Leader": "Verenigingen Volunteer",
+        "Verenigingen Chapter Board Member": "Verenigingen Chapter Board Member",
+        "Verenigingen Treasurer": "Verenigingen Treasurer",
+        "Verenigingen Staff": "Verenigingen National Board Member",
+        "Verenigingen Financial Manager": "Verenigingen Treasurer",
         "Verenigingen System Administrator": None,  # Full access
-        "Verenigingen Auditor": "Verenigingen Audit Access",  # Uses ERPNext Auditor role
+        "Verenigingen Auditor": "Verenigingen Auditor",
     }
 
     # Assign module profiles to role profiles
@@ -213,16 +213,16 @@ def setup_role_profiles_cli():
         print("🚀 Starting role profile setup...")
 
         # Setup role profiles directly
-        # Map role profiles to module profiles
+        # Map role profiles to module profiles (must match fixtures/module_profile.json)
         role_module_mapping = {
-            "Verenigingen Member": "Verenigingen Basic Access",
-            "Verenigingen Volunteer": "Verenigingen Volunteer Access",
-            "Verenigingen Team Leader": "Verenigingen Volunteer Access",
-            "Verenigingen Chapter Board Member": "Verenigingen Volunteer Access",
-            "Verenigingen Treasurer": "Verenigingen Financial Access",
-            "Verenigingen Staff": "Verenigingen Management Access",
+            "Verenigingen Member": "Verenigingen Member",
+            "Verenigingen Volunteer": "Verenigingen Volunteer",
+            "Verenigingen Team Leader": "Verenigingen Volunteer",
+            "Verenigingen Chapter Board Member": "Verenigingen Chapter Board Member",
+            "Verenigingen Treasurer": "Verenigingen Treasurer",
+            "Verenigingen Staff": "Verenigingen National Board Member",
             "Verenigingen System Administrator": None,  # Full access
-            "Verenigingen Auditor": "Verenigingen Audit Access",
+            "Verenigingen Auditor": "Verenigingen Auditor",
         }
 
         # Assign module profiles to role profiles
