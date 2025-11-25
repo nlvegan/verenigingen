@@ -822,8 +822,7 @@ class EnhancedTestDataFactory:
                 **data
             })
             
-            # Insert with permissions bypassed (test fixture creation)
-            chapter.insert(ignore_permissions=True)
+            chapter.insert(ignore_permissions=True)  # OK in factory method
 
             # Track for cleanup in tearDown
             self.track_document("Chapter", chapter.name, priority=4)
@@ -1738,6 +1737,7 @@ class EnhancedTestCase(FrappeTestCase):
         self.email_patches = []
         
         # 1. Core sendmail function
+        # Mock justified: External Service - email delivery, prevents actual email sending in tests
         mock_sendmail = lambda *args, **kwargs: capture_email_data('frappe.sendmail', *args, **kwargs)
         self.email_patches.append(patch('frappe.sendmail', side_effect=mock_sendmail))
         
@@ -2067,6 +2067,46 @@ class EnhancedTestCase(FrappeTestCase):
                 # Log cleanup operation
                 frappe.logger().info(f"Test cleanup removed {members_deleted} member patterns")
 
+                # Clean up test customers (created from test members)
+                # Customers are created automatically when members are created
+                # They have names like "Admin User - 56", "Board Member - 81", etc.
+                test_customer_patterns = [
+                    {"name": ["like", "Admin User %"]},
+                    {"name": ["like", "Board Member %"]},
+                    {"name": ["like", "Regular Member %"]},
+                    {"name": ["like", "Test %"]},
+                    {"name": ["like", "TestMember%"]},
+                    {"customer_name": ["like", "Test%"]},
+                ]
+
+                # SAFETY CHECK: Count before deleting
+                pending_customer_deletion = frappe.db.sql("""
+                    SELECT COUNT(*) FROM `tabCustomer`
+                    WHERE name LIKE 'Admin User %'
+                       OR name LIKE 'Board Member %'
+                       OR name LIKE 'Regular Member %'
+                       OR name LIKE 'Test %'
+                       OR name LIKE 'TestMember%'
+                       OR customer_name LIKE 'Test%'
+                """)[0][0]
+
+                if pending_customer_deletion > 10000:
+                    frappe.log_error(
+                        f"Test cleanup would delete {pending_customer_deletion} customers - suspiciously high, skipping for safety",
+                        "Test Cleanup Safety Check"
+                    )
+                else:
+                    customers_deleted = 0
+                    for pattern in test_customer_patterns:
+                        try:
+                            frappe.db.delete("Customer", pattern)
+                            customers_deleted += 1
+                        except Exception:
+                            continue
+
+                    if customers_deleted > 0:
+                        frappe.logger().info(f"Test cleanup removed {customers_deleted} customer patterns")
+
                 # Clean up orphaned Membership Dues Schedules
                 # These are schedules where the linked member or membership no longer exists
                 schedules = frappe.get_all('Membership Dues Schedule',
@@ -2141,7 +2181,10 @@ class EnhancedTestCase(FrappeTestCase):
                 # Clean up test users (be careful - don't delete system users)
                 test_users = frappe.get_all("User",
                     filters=[
-                        ["email", "like", "%@test.invalid"],
+                        ["OR", [
+                            ["email", "like", "%@test.invalid"],
+                            ["email", "like", "%@verenigingen.test"]
+                        ]],
                         ["name", "!=", "Administrator"],
                         ["name", "!=", "Guest"],
                     ],
