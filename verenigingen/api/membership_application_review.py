@@ -6,6 +6,9 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, getdate, now_datetime, today
 
+# Import email service
+from verenigingen.services.communication.email_service import get_email_service
+
 # Import extracted services
 from verenigingen.services.member.approval.member_approval_service import (
     create_member_iban_history,
@@ -403,7 +406,9 @@ def approve_membership_application(
             "Approval Email Exception",
         )
         frappe.msgprint(
-            _("⚠️ Approval successful, but email notification encountered an error. Please check error logs."),
+            _(
+                "⚠️ Approval successful, but email notification encountered an error. Please check error logs."
+            ),
             title=_("Email Error"),
             indicator="orange",
         )
@@ -1825,7 +1830,8 @@ def notify_chapter_of_overdue_applications(chapter_name, applications):
         #     ]
         # )
 
-        frappe.sendmail(
+        email_service = get_email_service()
+        email_service.send_simple_email(
             recipients=recipients,
             subject=f"Action Required: {len(applications)} Overdue Membership Applications",
             message="""
@@ -1865,7 +1871,8 @@ def notify_managers_of_overdue_applications(applications):
             #     ]
             # )
 
-            frappe.sendmail(
+            email_service = get_email_service()
+            email_service.send_simple_email(
                 recipients=recipients,
                 subject=f"Action Required: {len(applications)} Unassigned Overdue Applications",
                 message="""

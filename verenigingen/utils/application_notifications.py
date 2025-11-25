@@ -5,6 +5,8 @@ Notification utilities for membership applications
 import frappe
 from frappe.utils import add_days, getdate, today
 
+from verenigingen.services.communication.email_service import get_email_service
+
 
 def format_email_subject(template, **kwargs):
     """

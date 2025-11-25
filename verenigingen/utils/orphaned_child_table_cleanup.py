@@ -67,12 +67,16 @@ class SimpleLock:
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def verify_child_table_indexes():
+def verify_child_table_indexes() -> OperationResult[Dict[str, Any]]:
     """
     Verify that required indexes exist on child tables for optimal LEFT JOIN performance.
 
     Returns:
-        dict: Index verification results with recommendations
+        OperationResult[Dict[str, Any]]: Index verification results including:
+            - indexes_verified: Count of child tables with optimal indexes
+            - missing_indexes: List of child table names missing recommended indexes
+            - recommendations: List of index creation recommendations with SQL statements
+            - summary: Human-readable summary of verification results
     """
     # SECURITY: Explicit permission validation for database schema introspection
     # Defense-in-depth: verify user has System Settings read permission beyond @critical_api
@@ -140,11 +144,18 @@ def verify_child_table_indexes():
         else:
             results["summary"] = f"All {results['indexes_verified']} child tables have optimal indexes."
 
-        return results
+        return OperationResult.ok(results, message=_(results.get("summary", "Index verification completed")))
 
     except Exception as e:
-        frappe.log_error(f"Error verifying child table indexes: {str(e)}", "Index Verification Error")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error verifying child table indexes: {str(e)}\n{traceback.format_exc()}",
+            "Index Verification Error",
+        )
+        return OperationResult.fail(
+            _("Unable to verify child table indexes. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "verify_child_table_indexes"},
+        )
 
 
 def _validate_table_name(table_name):
@@ -255,11 +266,18 @@ Note: Previous batches were committed successfully. Only the current batch was r
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def detect_orphaned_child_tables():
+def detect_orphaned_child_tables() -> OperationResult[Dict[str, Any]]:
     """
     Scan all child tables (istable=1) and detect orphaned records.
 
     Returns detailed report of orphaned records by table.
+
+    Returns:
+        OperationResult[Dict[str, Any]]: Detection results including:
+            - total_orphaned: Total count of orphaned records found
+            - tables_affected: Number of child tables with orphaned records
+            - details: List of detailed information per affected table with orphan counts
+            - summary: Human-readable summary of detection results
     """
     results = {"success": True, "total_orphaned": 0, "tables_affected": 0, "details": []}
 
@@ -356,18 +374,23 @@ def detect_orphaned_child_tables():
             f"across {results['tables_affected']} child tables"
         )
 
-        return results
+        return OperationResult.ok(results, message=_(results.get("summary", "Detection completed")))
 
     except Exception as e:
         frappe.log_error(
-            f"Error detecting orphaned child tables: {str(e)}", "Orphaned Child Table Detection Error"
+            f"Error detecting orphaned child tables: {str(e)}\n{traceback.format_exc()}",
+            "Orphaned Child Table Detection Error",
         )
-        return {"success": False, "error": str(e)}
+        return OperationResult.fail(
+            _("Unable to detect orphaned child tables. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "detect_orphaned_child_tables"},
+        )
 
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def cleanup_orphaned_child_tables(dry_run=True, table_filter=None):
+def cleanup_orphaned_child_tables(dry_run=True, table_filter=None) -> OperationResult[Dict[str, Any]]:
     """
     Clean up orphaned child table records with concurrent execution protection.
 
@@ -376,7 +399,13 @@ def cleanup_orphaned_child_tables(dry_run=True, table_filter=None):
         table_filter (str): Optional - only clean specific child table name
 
     Returns:
-        dict: Cleanup results with counts and details
+        OperationResult[Dict[str, Any]]: Cleanup results including:
+            - dry_run: Boolean indicating if this was a dry run
+            - total_deleted: Total count of records deleted (or would be deleted)
+            - tables_cleaned: Number of child tables processed
+            - details: List of detailed cleanup information per table
+            - timing_metrics: Performance metrics for each table cleanup
+            - summary: Human-readable summary of cleanup operation
     """
     if isinstance(dry_run, str):
         dry_run = dry_run.lower() in ("true", "1", "yes")
@@ -389,10 +418,11 @@ def cleanup_orphaned_child_tables(dry_run=True, table_filter=None):
 
         lock = SimpleLock(lock_name, timeout=lock_timeout)
         if not lock.acquire(blocking=False):
-            return {
-                "success": False,
-                "error": "Another cleanup operation is currently running. Please wait and try again.",
-            }
+            return OperationResult.fail(
+                _("Another cleanup operation is currently running. Please wait and try again."),
+                errors=["Lock acquisition failed"],
+                context={"operation": "cleanup_orphaned_child_tables", "dry_run": dry_run, "lock": lock_name},
+            )
 
     results = {
         "success": True,
@@ -408,15 +438,31 @@ def cleanup_orphaned_child_tables(dry_run=True, table_filter=None):
     try:
         # PERFORMANCE CHECK: Verify indexes before starting expensive operations
         if not dry_run:
-            index_results = verify_child_table_indexes()
+            index_results_response = verify_child_table_indexes()
+            if not index_results_response.success:
+                return OperationResult.fail(
+                    _("Unable to verify indexes before cleanup. Please try again."),
+                    errors=index_results_response.errors,
+                    context={
+                        "operation": "cleanup_orphaned_child_tables",
+                        "dry_run": dry_run,
+                        "table_filter": table_filter,
+                    },
+                )
+
+            index_results = index_results_response.data
             if index_results.get("missing_indexes"):
-                return {
-                    "success": False,
-                    "error": f"Missing {len(index_results['missing_indexes'])} required indexes. "
-                    f"Run 'Verify Child Table Indexes' first and create recommended indexes for optimal performance.",
-                    "missing_indexes": index_results["missing_indexes"],
-                    "recommendations": index_results.get("recommendations", []),
-                }
+                return OperationResult.fail(
+                    _(
+                        "Missing {0} required indexes. Run 'Verify Child Table Indexes' first and create recommended indexes for optimal performance."
+                    ).format(len(index_results["missing_indexes"])),
+                    errors=["Missing database indexes"],
+                    context={
+                        "operation": "cleanup_orphaned_child_tables",
+                        "missing_indexes": index_results["missing_indexes"],
+                        "recommendations": index_results.get("recommendations", []),
+                    },
+                )
 
         # Get all child table DocTypes
         filters = {"istable": 1}
@@ -576,13 +622,22 @@ def cleanup_orphaned_child_tables(dry_run=True, table_filter=None):
                 "note"
             ] = "This was a dry run. No records were actually deleted. Run with dry_run=False to perform cleanup."
 
-        return results
+        return OperationResult.ok(results, message=_(results.get("summary", "Cleanup completed")))
 
     except Exception as e:
         frappe.log_error(
-            f"Error cleaning orphaned child tables: {str(e)}", "Orphaned Child Table Cleanup Error"
+            f"Error cleaning orphaned child tables: {str(e)}\n{traceback.format_exc()}",
+            "Orphaned Child Table Cleanup Error",
         )
-        return {"success": False, "error": str(e)}
+        return OperationResult.fail(
+            _("Unable to complete orphaned child table cleanup. Please contact support."),
+            errors=[str(e)],
+            context={
+                "operation": "cleanup_orphaned_child_tables",
+                "dry_run": dry_run,
+                "table_filter": table_filter,
+            },
+        )
 
     finally:
         # Always release lock if acquired
@@ -595,11 +650,22 @@ def cleanup_orphaned_child_tables(dry_run=True, table_filter=None):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def cleanup_member_child_tables_only(dry_run=True):
+def cleanup_member_child_tables_only(dry_run=True) -> OperationResult[Dict[str, Any]]:
     """
     Clean up only Member-related child table orphans with concurrent execution protection.
 
     This is a focused cleanup specifically for Member DocType child tables.
+
+    Args:
+        dry_run (bool): If True, only report what would be deleted
+
+    Returns:
+        OperationResult[Dict[str, Any]]: Cleanup results including:
+            - dry_run: Boolean indicating if this was a dry run
+            - total_deleted: Total count of Member child records deleted (or would be deleted)
+            - details: List of detailed cleanup information per Member child table
+            - audit_log: Audit trail entries for the cleanup operation
+            - summary: Human-readable summary of cleanup operation
     """
     # SECURITY: Hardcoded whitelist of valid Member child tables
     MEMBER_CHILD_TABLES = {
@@ -623,10 +689,15 @@ def cleanup_member_child_tables_only(dry_run=True):
 
         lock = SimpleLock(lock_name, timeout=lock_timeout)
         if not lock.acquire(blocking=False):
-            return {
-                "success": False,
-                "error": "Another Member cleanup operation is currently running. Please wait and try again.",
-            }
+            return OperationResult.fail(
+                _("Another Member cleanup operation is currently running. Please wait and try again."),
+                errors=["Lock acquisition failed"],
+                context={
+                    "operation": "cleanup_member_child_tables_only",
+                    "dry_run": dry_run,
+                    "lock": lock_name,
+                },
+            )
 
     results = {"success": True, "dry_run": dry_run, "total_deleted": 0, "details": [], "audit_log": []}
 
@@ -717,10 +788,18 @@ Timestamp: {frappe.utils.now()}
             f"orphaned Member child table records"
         )
 
-        return results
+        return OperationResult.ok(results, message=_(results.get("summary", "Member cleanup completed")))
 
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error cleaning Member child tables: {str(e)}\n{traceback.format_exc()}",
+            "Member Child Table Cleanup Error",
+        )
+        return OperationResult.fail(
+            _("Unable to complete Member child table cleanup. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "cleanup_member_child_tables_only", "dry_run": dry_run},
+        )
 
     finally:
         # Always release lock if acquired
@@ -733,11 +812,22 @@ Timestamp: {frappe.utils.now()}
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def cleanup_volunteer_child_tables_only(dry_run=True):
+def cleanup_volunteer_child_tables_only(dry_run=True) -> OperationResult[Dict[str, Any]]:
     """
     Clean up only Volunteer-related child table orphans with concurrent execution protection.
 
     This is a focused cleanup specifically for Volunteer DocType child tables.
+
+    Args:
+        dry_run (bool): If True, only report what would be deleted
+
+    Returns:
+        OperationResult[Dict[str, Any]]: Cleanup results including:
+            - dry_run: Boolean indicating if this was a dry run
+            - total_deleted: Total count of Volunteer child records deleted (or would be deleted)
+            - details: List of detailed cleanup information per Volunteer child table
+            - audit_log: Audit trail entries for the cleanup operation
+            - summary: Human-readable summary of cleanup operation
     """
     # SECURITY: Hardcoded whitelist of valid Volunteer child tables
     VOLUNTEER_CHILD_TABLES = {
@@ -758,10 +848,15 @@ def cleanup_volunteer_child_tables_only(dry_run=True):
 
         lock = SimpleLock(lock_name, timeout=lock_timeout)
         if not lock.acquire(blocking=False):
-            return {
-                "success": False,
-                "error": "Another Volunteer cleanup operation is currently running. Please wait and try again.",
-            }
+            return OperationResult.fail(
+                _("Another Volunteer cleanup operation is currently running. Please wait and try again."),
+                errors=["Lock acquisition failed"],
+                context={
+                    "operation": "cleanup_volunteer_child_tables_only",
+                    "dry_run": dry_run,
+                    "lock": lock_name,
+                },
+            )
 
     results = {"success": True, "dry_run": dry_run, "total_deleted": 0, "details": [], "audit_log": []}
 
@@ -862,10 +957,18 @@ Timestamp: {frappe.utils.now()}
             f"orphaned Volunteer child table records"
         )
 
-        return results
+        return OperationResult.ok(results, message=_(results.get("summary", "Volunteer cleanup completed")))
 
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error cleaning Volunteer child tables: {str(e)}\n{traceback.format_exc()}",
+            "Volunteer Child Table Cleanup Error",
+        )
+        return OperationResult.fail(
+            _("Unable to complete Volunteer child table cleanup. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "cleanup_volunteer_child_tables_only", "dry_run": dry_run},
+        )
 
     finally:
         # Always release lock if acquired
