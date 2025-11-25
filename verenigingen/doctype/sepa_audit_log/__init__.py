@@ -1,1 +1,0 @@
-# SEPA Audit Log DocType
