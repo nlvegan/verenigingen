@@ -4,12 +4,23 @@ Invoice Management Utility for Verenigingen Administrators
 
 Provides comprehensive invoice generation and management capabilities
 with proper error handling and orphaned schedule detection.
+
+ERROR HANDLING PATTERN:
+All whitelisted API endpoints in this module follow the OperationResult pattern:
+- Return type: OperationResult[Dict[str, Any]]
+- Never throw exceptions - all errors wrapped in OperationResult.fail()
+- Consistent metadata with context dict: {"operation": "...", "params": {...}}
+- Generic user-facing messages with technical details in errors list
 """
+
+import traceback
+from typing import Any, Dict
 
 import frappe
 from frappe import _
 from frappe.utils import add_days, flt, getdate, today
 
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -21,7 +32,9 @@ from verenigingen.utils.validation_utilities import DateRangeValidator
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def bulk_generate_dues_invoices(filter_criteria=None, dry_run=True, max_invoices=50):
+def bulk_generate_dues_invoices(
+    filter_criteria=None, dry_run=True, max_invoices=50
+) -> OperationResult[Dict[str, Any]]:
     """
     Generate invoices for multiple dues schedules with comprehensive filtering and validation
 
@@ -31,7 +44,7 @@ def bulk_generate_dues_invoices(filter_criteria=None, dry_run=True, max_invoices
         max_invoices (int): Maximum number of invoices to generate in one run
 
     Returns:
-        dict: Results of bulk invoice generation
+        OperationResult[Dict[str, Any]]: Results with schedule counts, invoices generated, and any errors
     """
 
     if not (
@@ -119,7 +132,7 @@ def bulk_generate_dues_invoices(filter_criteria=None, dry_run=True, max_invoices
 
         if not schedules:
             results["message"] = "No dues schedules found matching the criteria"
-            return results
+            return OperationResult.ok(results, message=results["message"])
 
         # Process each schedule
         processed = 0
@@ -215,19 +228,32 @@ def bulk_generate_dues_invoices(filter_criteria=None, dry_run=True, max_invoices
                 f"{len(results['errors'])} errors occurred."
             )
 
-        return results
+        return OperationResult.ok(results, message=results["message"])
 
     except Exception as e:
         # Rollback any uncommitted changes in case of error
         if not dry_run:
             frappe.db.rollback()
-        frappe.log_error(f"Bulk invoice generation failed: {str(e)}", "Bulk Invoice Generation")
-        return {"success": False, "error": str(e), "message": f"Bulk invoice generation failed: {str(e)}"}
+        frappe.log_error(
+            f"Bulk invoice generation failed: {str(e)}\n{traceback.format_exc()}", "Bulk Invoice Generation"
+        )
+        return OperationResult.fail(
+            _("Failed to generate dues invoices"),
+            errors=[str(e)],
+            context={
+                "operation": "bulk_generate_dues_invoices",
+                "params": {
+                    "filter_criteria": filter_criteria,
+                    "dry_run": dry_run,
+                    "max_invoices": max_invoices,
+                },
+            },
+        )
 
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.REPORTING)
-def get_dues_schedules_summary(include_orphaned=True, days_ahead=30):
+def get_dues_schedules_summary(include_orphaned=True, days_ahead=30) -> OperationResult[Dict[str, Any]]:
     """
     Get a comprehensive summary of dues schedules for admin dashboard
 
@@ -236,7 +262,7 @@ def get_dues_schedules_summary(include_orphaned=True, days_ahead=30):
         days_ahead (int): Number of days ahead to look for upcoming invoices
 
     Returns:
-        dict: Summary of dues schedules status
+        OperationResult[Dict[str, Any]]: Summary with schedule counts, due dates, and orphaned details
     """
 
     try:
@@ -312,16 +338,26 @@ def get_dues_schedules_summary(include_orphaned=True, days_ahead=30):
         )
         summary["upcoming_schedules_sample"] = upcoming_schedules
 
-        return summary
+        return OperationResult.ok(summary, message="Dues schedules summary retrieved successfully")
 
     except Exception as e:
-        frappe.log_error(f"Error getting dues schedules summary: {str(e)}", "Dues Schedule Summary")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error getting dues schedules summary: {str(e)}\n{traceback.format_exc()}",
+            "Dues Schedule Summary",
+        )
+        return OperationResult.fail(
+            _("Failed to retrieve dues schedules summary"),
+            errors=[str(e)],
+            context={
+                "operation": "get_dues_schedules_summary",
+                "params": {"include_orphaned": include_orphaned, "days_ahead": days_ahead},
+            },
+        )
 
 
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.ADMIN)
-def cleanup_orphaned_schedules(dry_run=True, max_cleanup=20):
+def cleanup_orphaned_schedules(dry_run=True, max_cleanup=20) -> OperationResult[Dict[str, Any]]:
     """
     Clean up orphaned dues schedules that reference non-existent members
 
@@ -330,7 +366,7 @@ def cleanup_orphaned_schedules(dry_run=True, max_cleanup=20):
         max_cleanup (int): Maximum number of schedules to clean up in one run
 
     Returns:
-        dict: Results of cleanup operation
+        OperationResult[Dict[str, Any]]: Results with orphaned counts, cleanup stats, and any errors
     """
 
     if not (
@@ -381,7 +417,7 @@ def cleanup_orphaned_schedules(dry_run=True, max_cleanup=20):
 
         if not orphaned_schedules:
             results["message"] = "No orphaned dues schedules found"
-            return results
+            return OperationResult.ok(results, message=results["message"])
 
         # Process orphaned schedules
         processed = 0
@@ -449,21 +485,30 @@ def cleanup_orphaned_schedules(dry_run=True, max_cleanup=20):
                 f"{len(results['errors'])} errors occurred."
             )
 
-        return results
+        return OperationResult.ok(results, message=results["message"])
 
     except Exception as e:
-        frappe.log_error(f"Orphaned schedule cleanup failed: {str(e)}", "Schedule Cleanup")
-        return {"success": False, "error": str(e), "message": f"Cleanup failed: {str(e)}"}
+        frappe.log_error(
+            f"Orphaned schedule cleanup failed: {str(e)}\n{traceback.format_exc()}", "Schedule Cleanup"
+        )
+        return OperationResult.fail(
+            _("Failed to clean up orphaned schedules"),
+            errors=[str(e)],
+            context={
+                "operation": "cleanup_orphaned_schedules",
+                "params": {"dry_run": dry_run, "max_cleanup": max_cleanup},
+            },
+        )
 
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.REPORTING)
-def validate_invoice_generation_readiness():
+def validate_invoice_generation_readiness() -> OperationResult[Dict[str, Any]]:
     """
     Validate system readiness for invoice generation and identify potential issues
 
     Returns:
-        dict: System validation results
+        OperationResult[Dict[str, Any]]: Validation results with issues, warnings, and system readiness status
     """
 
     try:
@@ -589,20 +634,26 @@ def validate_invoice_generation_readiness():
         if validation["system_ready"]:
             validation["message"] = "System is ready for invoice generation"
         else:
-            validation["message"] = (
-                f"System has {len(validation['issues'])} critical issues that need resolution"
-            )
+            validation[
+                "message"
+            ] = f"System has {len(validation['issues'])} critical issues that need resolution"
 
-        return validation
+        return OperationResult.ok(validation, message=validation["message"])
 
     except Exception as e:
-        frappe.log_error(f"Invoice generation validation failed: {str(e)}", "Invoice Validation")
-        return {"success": False, "error": str(e), "system_ready": False}
+        frappe.log_error(
+            f"Invoice generation validation failed: {str(e)}\n{traceback.format_exc()}", "Invoice Validation"
+        )
+        return OperationResult.fail(
+            _("Failed to validate invoice generation readiness"),
+            errors=[str(e)],
+            context={"operation": "validate_invoice_generation_readiness", "params": {}},
+        )
 
 
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.ADMIN)
-def cleanup_orphaned_member_references(dry_run=True, max_cleanup=50):
+def cleanup_orphaned_member_references(dry_run=True, max_cleanup=50) -> OperationResult[Dict[str, Any]]:
     """
     Clean up orphaned member references in schedules without deleting the schedules themselves.
     This is useful when you want to preserve the schedules but remove invalid member links.
@@ -612,7 +663,7 @@ def cleanup_orphaned_member_references(dry_run=True, max_cleanup=50):
         max_cleanup (int): Maximum number of references to clean up in one run
 
     Returns:
-        dict: Results of reference cleanup operation
+        OperationResult[Dict[str, Any]]: Results with orphaned reference counts, cleared stats, and any errors
     """
 
     if not (
@@ -643,7 +694,7 @@ def cleanup_orphaned_member_references(dry_run=True, max_cleanup=50):
 
         if not orphaned_schedules:
             results["message"] = "No orphaned member references found"
-            return results
+            return OperationResult.ok(results, message=results["message"])
 
         # Process orphaned references
         processed = 0
@@ -702,16 +753,25 @@ def cleanup_orphaned_member_references(dry_run=True, max_cleanup=50):
                 f"{len(results['errors'])} errors occurred."
             )
 
-        return results
+        return OperationResult.ok(results, message=results["message"])
 
     except Exception as e:
-        frappe.log_error(f"Member reference cleanup failed: {str(e)}", "Reference Cleanup")
-        return {"success": False, "error": str(e), "message": f"Reference cleanup failed: {str(e)}"}
+        frappe.log_error(
+            f"Member reference cleanup failed: {str(e)}\n{traceback.format_exc()}", "Reference Cleanup"
+        )
+        return OperationResult.fail(
+            _("Failed to clean up orphaned member references"),
+            errors=[str(e)],
+            context={
+                "operation": "cleanup_orphaned_member_references",
+                "params": {"dry_run": dry_run, "max_cleanup": max_cleanup},
+            },
+        )
 
 
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.ADMIN)
-def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20):
+def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20) -> OperationResult[Dict[str, Any]]:
     """
     Enhanced cleanup for orphaned membership-related data including:
     - Orphaned dues schedules (existing functionality)
@@ -724,7 +784,7 @@ def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20):
         max_cleanup (int): Maximum number of items to clean up in one run
 
     Returns:
-        dict: Results of comprehensive cleanup operation
+        OperationResult[Dict[str, Any]]: Results with cleanup counts by category, processed items, and any errors
     """
 
     if not (
@@ -826,9 +886,9 @@ def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20):
                     # Check if member still exists before deletion
                     if frappe.db.exists("Member", membership_data["member"]):
                         membership_info["action"] = "member_exists_skipped"
-                        membership_info["note"] = (
-                            f"Member {membership_data['member']} exists - manual review needed"
-                        )
+                        membership_info[
+                            "note"
+                        ] = f"Member {membership_data['member']} exists - manual review needed"
                     else:
                         # Check for dependent records before deletion
                         dependent_records = frappe.db.sql(
@@ -851,9 +911,9 @@ def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20):
 
                         if has_dependencies:
                             membership_info["action"] = "skipped_has_dependencies"
-                            membership_info["note"] = (
-                                f"Membership has dependent records: {', '.join(f'{r.type}({r.count})' for r in dependent_records if r.count > 0)}"
-                            )
+                            membership_info[
+                                "note"
+                            ] = f"Membership has dependent records: {', '.join(f'{r.type}({r.count})' for r in dependent_records if r.count > 0)}"
                         else:
                             # Safe to delete if member doesn't exist and no dependencies
                             frappe.delete_doc("Membership", membership_data["name"], ignore_permissions=True)
@@ -932,9 +992,9 @@ def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20):
             elif len(results["errors"]) > 0:
                 # Rollback if there were any errors to maintain consistency
                 frappe.db.rollback()
-                results["message"] = (
-                    f"Cleanup rolled back due to {len(results['errors'])} errors. No changes were made."
-                )
+                results[
+                    "message"
+                ] = f"Cleanup rolled back due to {len(results['errors'])} errors. No changes were made."
                 results["success"] = False
 
         # Generate summary message
@@ -962,12 +1022,22 @@ def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20):
                 f"{len(results['errors'])} errors occurred."
             )
 
-        return results
+        return OperationResult.ok(results, message=results["message"])
 
     except Exception as e:
         # Rollback transaction on any unexpected error
         if not dry_run:
             frappe.db.rollback()
 
-        frappe.log_error(f"Enhanced membership data cleanup failed: {str(e)}", "Membership Cleanup")
-        return {"success": False, "error": str(e), "message": f"Cleanup failed: {str(e)}"}
+        frappe.log_error(
+            f"Enhanced membership data cleanup failed: {str(e)}\n{traceback.format_exc()}",
+            "Membership Cleanup",
+        )
+        return OperationResult.fail(
+            _("Failed to clean up orphaned membership data"),
+            errors=[str(e)],
+            context={
+                "operation": "cleanup_orphaned_membership_data",
+                "params": {"dry_run": dry_run, "max_cleanup": max_cleanup},
+            },
+        )
