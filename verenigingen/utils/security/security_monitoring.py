@@ -18,6 +18,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, get_datetime
 
+from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     SecurityLevel,
@@ -766,7 +767,8 @@ def run_business_rule_monitoring():
                         <p>Please review this alert and take appropriate action if necessary.</p>
                         """
 
-                        frappe.sendmail(
+                        email_service = get_email_service()
+                        email_service.send_simple_email(
                             recipients=admin_emails,
                             subject=subject,
                             message=message,

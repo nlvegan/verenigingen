@@ -14,6 +14,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, now, today
 
+from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.error_handling import log_error
 from verenigingen.utils.security.types import AuditEventType, AuditSeverity, OperationType
 
@@ -421,7 +422,8 @@ class SEPAAuditLogger:
 
             if admin_emails:
                 # Send email notification
-                frappe.sendmail(
+                email_service = get_email_service()
+                email_service.send_simple_email(
                     recipients=admin_emails,
                     subject=f"Security Alert: {event_type}",
                     message=f"""
