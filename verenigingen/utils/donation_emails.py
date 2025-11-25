@@ -7,6 +7,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, format_date, getdate
 
+from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
@@ -44,7 +45,8 @@ def send_donation_confirmation(donation_id):
         message = frappe.render_template(template.get("message", ""), context)
 
         # Send email
-        frappe.sendmail(
+        email_service = get_email_service()
+        email_service.send_simple_email(
             recipients=[donor_email],
             subject=subject,
             message=message,
@@ -101,7 +103,8 @@ def send_payment_confirmation(donation_id):
         subject = frappe.render_template(template.get("subject", ""), context)
         message = frappe.render_template(template.get("message", ""), context)
 
-        frappe.sendmail(
+        email_service = get_email_service()
+        email_service.send_simple_email(
             recipients=[donor_email],
             subject=subject,
             message=message,
@@ -161,7 +164,8 @@ def send_anbi_receipt(donation_id):
         # Generate PDF receipt if needed
         pdf_attachment = generate_anbi_receipt_pdf(donation, context)
 
-        frappe.sendmail(
+        email_service = get_email_service()
+        email_service.send_simple_email(
             recipients=[donor_email],
             subject=subject,
             message=message,

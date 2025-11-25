@@ -6,6 +6,8 @@ Processes donations submitted through the public web form
 import frappe
 from frappe import _
 
+from verenigingen.services.communication.email_service import get_email_service
+
 
 def get_context(context):
     """Add context for the donation form"""
@@ -236,7 +238,8 @@ def send_donation_confirmation(donation):
         donor = frappe.get_doc("Donor", donation.donor)
 
         if donor.donor_email:
-            frappe.sendmail(
+            email_service = get_email_service()
+            email_service.send_simple_email(
                 recipients=[donor.donor_email],
                 subject=_("Thank you for your donation"),
                 message=get_confirmation_email_content(donation, donor),
@@ -279,7 +282,8 @@ def send_periodic_agreement_info(donor_name, agreement_name):
         agreement = frappe.get_doc("Periodic Donation Agreement", agreement_name)
 
         if donor.donor_email:
-            frappe.sendmail(
+            email_service = get_email_service()
+            email_service.send_simple_email(
                 recipients=[donor.donor_email],
                 subject=_("Periodic Donation Agreement - Next Steps"),
                 message=f"""

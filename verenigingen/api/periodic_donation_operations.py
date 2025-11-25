@@ -10,6 +10,9 @@ import frappe
 from frappe import _
 from frappe.utils import add_years, flt, getdate, today
 
+# Import email service
+from verenigingen.services.communication.email_service import get_email_service
+
 # Import security decorators
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
@@ -498,7 +501,8 @@ def send_renewal_reminders(days_before_expiry=90):
             days_remaining = frappe.utils.date_diff(agreement.end_date, today())
 
             try:
-                frappe.sendmail(
+                email_service = get_email_service()
+                email_service.send_simple_email(
                     recipients=[agreement.donor_email],
                     subject=_("Your Periodic Donation Agreement is Expiring Soon"),
                     message=get_renewal_reminder_email(agreement, days_remaining),

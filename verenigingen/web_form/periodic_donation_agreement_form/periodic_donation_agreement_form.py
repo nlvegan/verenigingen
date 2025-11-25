@@ -7,6 +7,8 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate
 
+from verenigingen.services.communication.email_service import get_email_service
+
 
 def get_context(context):
     """Add context for the periodic donation agreement form"""
@@ -194,7 +196,7 @@ def create_sepa_mandate_for_agreement(donor, iban, account_holder):
 
     # Derive BIC if possible
     if iban.startswith("NL"):
-        from verenigingen.verenigingen_payments.utils.sepa_utils import derive_bic_from_iban
+        from verenigingen.utils.validation.iban_validator import derive_bic_from_iban
 
         mandate.bic = derive_bic_from_iban(iban)
 
@@ -269,7 +271,8 @@ def send_agreement_submission_confirmation(agreement):
         donor = frappe.get_doc("Donor", agreement.donor)
 
         if donor.donor_email:
-            frappe.sendmail(
+            email_service = get_email_service()
+            email_service.send_simple_email(
                 recipients=[donor.donor_email],
                 subject=_("Periodic Donation Agreement Submitted - {0}").format(agreement.agreement_number),
                 message=get_submission_email_content(agreement, donor),
