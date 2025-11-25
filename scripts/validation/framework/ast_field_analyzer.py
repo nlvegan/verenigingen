@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 # Import the original analyzer (now archived)
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "archived"))
 from ast_field_analyzer_original import ASTFieldAnalyzer as OriginalAnalyzer, ValidationContext, ValidationIssue, ConfidenceLevel
 
 # Make the patched analyzer the default export

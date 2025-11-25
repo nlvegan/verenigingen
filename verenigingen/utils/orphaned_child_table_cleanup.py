@@ -7,10 +7,19 @@ creating data integrity issues and blocking document deletions.
 
 SECURITY NOTE: All SQL queries use table names from DocType definitions.
 Table names are validated against database schema to prevent SQL injection.
+
+ERROR HANDLING PATTERN:
+All @frappe.whitelist() functions return OperationResult[Dict[str, Any]]:
+- Success: OperationResult.ok(data, message="...")
+- Failure: OperationResult.fail(user_message, errors=[...], context={...})
+- Comprehensive error context includes operation name + all parameters
+- Traceback logging for debugging: frappe.log_error(f"...: {str(e)}\\n{traceback.format_exc()}", "Title")
 """
 
 import re
 import time
+import traceback
+from typing import Any, Dict
 
 import frappe
 from frappe import _
@@ -18,6 +27,7 @@ from frappe.query_builder import DocType
 from frappe.query_builder.functions import Count
 from frappe.utils.file_lock import create_lock, delete_lock, lock_exists
 
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
@@ -562,9 +572,9 @@ def cleanup_orphaned_child_tables(dry_run=True, table_filter=None):
         )
 
         if dry_run:
-            results["note"] = (
-                "This was a dry run. No records were actually deleted. Run with dry_run=False to perform cleanup."
-            )
+            results[
+                "note"
+            ] = "This was a dry run. No records were actually deleted. Run with dry_run=False to perform cleanup."
 
         return results
 

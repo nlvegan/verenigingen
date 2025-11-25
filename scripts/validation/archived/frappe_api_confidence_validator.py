@@ -24,13 +24,22 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from enum import Enum
 import logging
+import sys
 
-# Import unified DocType loader
+# Import unified DocType loader from parent directory (root)
 try:
     from .doctype_loader import get_unified_doctype_loader, DocTypeLoader
 except ImportError:
-    # Fallback for direct execution
-    from doctype_loader import get_unified_doctype_loader, DocTypeLoader
+    # Fallback for direct script execution - doctype_loader is in parent dir
+    parent_dir = Path(__file__).parent.parent
+    if str(parent_dir) not in sys.path:
+        sys.path.insert(0, str(parent_dir))
+    try:
+        from doctype_loader import get_unified_doctype_loader, DocTypeLoader
+    finally:
+        # Clean up sys.path modification
+        if str(parent_dir) in sys.path:
+            sys.path.remove(str(parent_dir))
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)

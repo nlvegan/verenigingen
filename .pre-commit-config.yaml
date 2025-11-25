@@ -73,7 +73,7 @@ repos:
       - id: block-inappropriate-mocks
         name: 🚫 Block Inappropriate Mocks (Phase 4 Week 3)
         description: Prevent inappropriate business logic mocks based on systematic elimination strategy
-        entry: python scripts/validation/block_inappropriate_mocks.py
+        entry: python scripts/validation/archived/block_inappropriate_mocks.py
         language: system
         files: '^.*test.*\.py$|^.*/tests/.*\.py$'
         pass_filenames: true
@@ -117,7 +117,7 @@ repos:
       # Original validation hooks (RESTORED)
       - id: docfield-checker
         name: Legacy field reference checker (fallback)
-        entry: python scripts/validation/legacy_field_validator.py
+        entry: python scripts/validation/archived/legacy_field_validator.py
         language: system
         pass_filenames: false
         files: \.py$
@@ -125,7 +125,7 @@ repos:
 
       - id: doctype-field-validator
         name: DocType field attribute access validator
-        entry: python scripts/validation/doctype_field_validator.py --pre-commit --reduced-fp-mode
+        entry: python scripts/validation/archived/doctype_field_validator.py --pre-commit --reduced-fp-mode
         language: system
         pass_filenames: true
         files: \.py$
@@ -134,7 +134,7 @@ repos:
 
       - id: sql-field-validator
         name: SQL query field validation
-        entry: python scripts/validation/sql_field_reference_validator.py --pre-commit
+        entry: python scripts/validation/production/sql_field_reference_validator.py --pre-commit
         language: system
         pass_filenames: true
         files: \.py$
@@ -143,7 +143,7 @@ repos:
 
       - id: frappe-api-validator
         name: Balanced field validation (practical mode)
-        entry: python scripts/validation/database_field_reference_validator.py --level balanced --pre-commit
+        entry: python scripts/validation/archived/database_field_reference_validator.py --level balanced --pre-commit
         language: system
         pass_filenames: true
         files: \.py$
@@ -161,7 +161,7 @@ repos:
 
       - id: template-field-validator
         name: HTML/JavaScript template field validation
-        entry: python scripts/validation/template_field_validator.py
+        entry: python scripts/validation/production/template_field_validator.py
         language: system
         pass_filenames: true
         files: '\.(html|js)$'
@@ -170,7 +170,7 @@ repos:
 
       - id: javascript-doctype-validator
         name: JavaScript DocType field validation
-        entry: python scripts/validation/javascript_doctype_field_validator.py
+        entry: python scripts/validation/production/javascript_doctype_field_validator.py
         language: system
         pass_filenames: true
         files: '\.js$'
@@ -187,7 +187,7 @@ repos:
 
       - id: fast-method-validator
         name: Method call validation
-        entry: python scripts/validation/method_resolution_validator.py
+        entry: python scripts/validation/archived/method_resolution_validator.py
         language: system
         pass_filenames: true
         files: '\.py$'
@@ -197,18 +197,18 @@ repos:
       - id: import-path-validator
         name: 🔍 Import Path Validation
         description: Validates that Python import statements reference modules that actually exist
-        entry: python scripts/validation/import_path_validator.py --quick
+        entry: python scripts/validation/archived/import_path_validator.py --quick
         language: system
         pass_filenames: true
         files: '\.py$'
         stages: [pre-commit]
-        exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/testing/|scripts/debug/|.*_test\.py|debug_.*\.py)'
+        exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/testing/|scripts/debug/|scripts/validation/archived/|.*_test\.py|debug_.*\.py)'
         fail_fast: true
 
       - id: deprecated-function-checker
         name: 🚨 Deprecated Function Usage Check
         description: Check for usage of deprecated functions using Codanna
-        entry: python scripts/validation/codanna_deprecated_checker.py --directory verenigingen
+        entry: python scripts/validation/archived/codanna_deprecated_checker.py --directory verenigingen
         language: system
         pass_filenames: false
         stages: [pre-commit]
@@ -216,7 +216,7 @@ repos:
 
       - id: workspace-validator
         name: Workspace integrity validation
-        entry: python scripts/validation/workspace_integrity_validator.py
+        entry: python scripts/validation/workspace/workspace_integrity_validator.py
         language: system
         pass_filenames: false
         files: '^(verenigingen/fixtures/workspace\.json|verenigingen/api/workspace_.*\.py)$'
@@ -233,7 +233,7 @@ repos:
 
       - id: comprehensive-validation
         name: Validation suite runner (field + template)
-        entry: python scripts/validation/validation_suite_runner.py --quiet
+        entry: python scripts/validation/framework/validation_suite_runner.py --quiet
         language: system
         pass_filenames: false
         files: '\.(py|html)$'
@@ -244,7 +244,7 @@ repos:
       - id: validation-orchestrator
         name: 🎯 Validation Orchestrator (Field + Select + Import)
         description: Unified validation using orchestrator (field references, select values, import paths)
-        entry: python scripts/validation/validation_orchestrator.py --parallel --pre-commit --max-files 200 --timeout 90
+        entry: python scripts/validation/archived/validation_orchestrator.py --parallel --pre-commit --max-files 200 --timeout 90
         language: system
         pass_filenames: false
         files: '\.(py)$'
@@ -256,7 +256,7 @@ repos:
       - id: ast-field-analyzer
         name: AST-based field reference analyzer
         description: AST-based field validation using abstract syntax tree analysis
-        entry: python scripts/validation/ast_field_analyzer.py
+        entry: python scripts/validation/framework/ast_field_analyzer.py
         language: system
         pass_filenames: true
         files: \.py$
@@ -266,7 +266,7 @@ repos:
 
       - id: comprehensive-doctype-validator
         name: DocType field analysis with pattern matching
-        entry: python scripts/validation/doctype_field_analyzer.py
+        entry: python scripts/validation/production/doctype_field_analyzer.py
         language: system
         pass_filenames: false
         files: \.py$
@@ -274,7 +274,7 @@ repos:
 
       - id: performance-validator
         name: Field reference validation
-        entry: python scripts/validation/field_reference_validator.py
+        entry: python scripts/validation/production/field_reference_validator.py
         language: system
         pass_filenames: false
         files: \.py$
@@ -282,7 +282,7 @@ repos:
 
       - id: field-validation-only
         name: Database field validation (fast check)
-        entry: python scripts/validation/validation_suite_runner.py --field-only --quiet
+        entry: python scripts/validation/framework/validation_suite_runner.py --field-only --quiet
         language: system
         pass_filenames: false
         files: '\.py$'
@@ -291,7 +291,7 @@ repos:
 
       - id: pragmatic-field-validator-strict
         name: Balanced field validation (strict mode)
-        entry: python scripts/validation/database_field_reference_validator.py --level strict
+        entry: python scripts/validation/archived/database_field_reference_validator.py --level strict
         language: system
         pass_filenames: false
         files: \.py$
@@ -302,7 +302,7 @@ repos:
       - id: frappe-hooks-validator
         name: 🪝 Frappe Hooks Validator
         description: Validate Frappe hooks and event handlers
-        entry: python scripts/validation/frappe_hooks_validator.py
+        entry: python scripts/validation/archived/frappe_hooks_validator.py
         language: system
         pass_filenames: false
         files: '\.(py)$'
@@ -312,7 +312,7 @@ repos:
       - id: api-confidence-validator
         name: 🔍 API Confidence Validator
         description: High-confidence API field validation
-        entry: python scripts/validation/frappe_api_confidence_validator.py
+        entry: python scripts/validation/archived/frappe_api_confidence_validator.py
         language: system
         pass_filenames: true
         files: '\.(py)$'
@@ -343,7 +343,7 @@ repos:
       - id: js-python-parameter-validator
         name: 🔗 JS-Python Parameter Validator
         description: Validate JavaScript to Python API parameter consistency
-        entry: python scripts/validation/js_python_parameter_validator.py
+        entry: python scripts/validation/production/js_python_parameter_validator_enhanced.py
         language: system
         pass_filenames: true
         files: '\.(js|py)$'
@@ -354,7 +354,7 @@ repos:
       - id: method-resolution-validator
         name: 🔧 Method Resolution Validator
         description: Validate method calls and resolution patterns
-        entry: python scripts/validation/method_resolution_validator.py
+        entry: python scripts/validation/archived/method_resolution_validator.py
         language: system
         pass_filenames: true
         files: '\.(py)$'
@@ -386,7 +386,7 @@ repos:
       - id: email-template-validator
         name: 📧 Email Template Validator
         description: Validate email templates and fixtures
-        entry: python scripts/validation/email_template_precommit_check.py
+        entry: python scripts/validation/archived/email_template_precommit_check.py
         language: system
         pass_filenames: false
         files: '\.(json|html|py)$'
@@ -397,7 +397,7 @@ repos:
       - id: unified-validation-engine
         name: 🎯 Specialized Pattern Validator
         description: Validate SQL queries, template variables, API patterns, and database operations
-        entry: python scripts/validation/unified_validation_engine.py
+        entry: python scripts/validation/framework/unified_validation_engine.py
         language: system
         pass_filenames: false
         files: '\.(py|html|js|json)$'

@@ -17,6 +17,9 @@ import re
 from pathlib import Path
 from typing import List, Dict, Set, Optional
 from dataclasses import dataclass
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata
 
 

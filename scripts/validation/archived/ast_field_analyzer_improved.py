@@ -35,15 +35,15 @@ try:
     from .doctype_loader import load_doctypes_detailed
     from .hooks_parser import HooksParser
 except ImportError:
-    current_dir = Path(__file__).parent
-    if str(current_dir) not in sys.path:
-        sys.path.insert(0, str(current_dir))
+    parent_dir = Path(__file__).parent.parent
+    if str(parent_dir) not in sys.path:
+        sys.path.insert(0, str(parent_dir))
     try:
         from doctype_loader import load_doctypes_detailed
         from hooks_parser import HooksParser
     finally:
-        if str(current_dir) in sys.path:
-            sys.path.remove(str(current_dir))
+        if str(parent_dir) in sys.path:
+            sys.path.remove(str(parent_dir))
 
 class ConfidenceLevel(Enum):
     """Confidence levels for issue detection"""

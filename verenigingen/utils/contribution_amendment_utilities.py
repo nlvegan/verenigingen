@@ -7,18 +7,29 @@ Production utilities for Contribution Amendment Request functionality.
 These are valuable administrative and validation functions extracted from
 the ContributionAmendmentRequest controller during refactoring.
 
+ERROR HANDLING PATTERN:
+All @frappe.whitelist() functions return OperationResult[Dict[str, Any]]:
+- Success: OperationResult.ok(data, message="...")
+- Failure: OperationResult.fail(user_message, errors=[...], context={...})
+- Comprehensive error context includes operation name + all parameters
+- Traceback logging for debugging: frappe.log_error(f"...: {str(e)}\\n{traceback.format_exc()}", "Title")
+
 Author: Verenigingen Development Team
 Extracted: 2025-09-11
 """
 
+import traceback
+from typing import Any, Dict
+
 import frappe
 from frappe import _
 
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
 @frappe.whitelist()
-def validate_production_schema():
+def validate_production_schema() -> OperationResult[Dict[str, Any]]:
     """
     Comprehensive validation of production schema readiness.
 
@@ -26,7 +37,7 @@ def validate_production_schema():
     for the Contribution Amendment Request system to function properly.
 
     Returns:
-        dict: Validation results with success status, error details, and recommendations
+        OperationResult[Dict[str, Any]]: Validation results with success status, error details, and recommendations
     """
     frappe.logger().info("Starting Production Schema Validation")
 
@@ -124,7 +135,7 @@ def validate_production_schema():
         for result in results:
             frappe.logger().info(f"  {result}")
 
-        return {
+        data = {
             "success": len(errors) == 0,
             "total_checks": len(results) + len(errors),
             "successful_checks": len(results),
@@ -134,18 +145,27 @@ def validate_production_schema():
             "ready_for_production": len(errors) == 0,
         }
 
+        if len(errors) == 0:
+            return OperationResult.ok(data, message=_("Production schema validation completed successfully"))
+        else:
+            return OperationResult.ok(
+                data, message=_("Production schema validation found {0} errors").format(len(errors))
+            )
+
     except Exception as e:
-        error_msg = f"Fatal error during validation: {str(e)}"
-        frappe.logger().error(error_msg)
-        return {
-            "success": False,
-            "error": error_msg,
-            "ready_for_production": False,
-        }
+        frappe.log_error(
+            f"Fatal error during production schema validation: {str(e)}\n{traceback.format_exc()}",
+            "Schema Validation Error",
+        )
+        return OperationResult.fail(
+            _("Production schema validation failed"),
+            errors=[str(e)],
+            context={"operation": "validate_production_schema"},
+        )
 
 
 @frappe.whitelist()
-def validate_billing_consistency():
+def validate_billing_consistency() -> OperationResult[Dict[str, Any]]:
     """
     Validate that membership types and dues schedule templates have consistent billing frequencies.
 
@@ -153,7 +173,7 @@ def validate_billing_consistency():
     and their associated dues schedule template billing frequencies.
 
     Returns:
-        dict: Validation results with any inconsistencies found
+        OperationResult[Dict[str, Any]]: Validation results with any inconsistencies found
     """
     try:
         inconsistencies = []
@@ -186,7 +206,7 @@ def validate_billing_consistency():
                     }
                 )
 
-        return {
+        data = {
             "success": len(inconsistencies) == 0,
             "total_checked": len(membership_types),
             "inconsistencies_found": len(inconsistencies),
@@ -198,13 +218,27 @@ def validate_billing_consistency():
             ),
         }
 
+        if len(inconsistencies) == 0:
+            return OperationResult.ok(data, message=_("All billing configurations are consistent"))
+        else:
+            return OperationResult.ok(
+                data, message=_("Found {0} billing inconsistencies").format(len(inconsistencies))
+            )
+
     except Exception as e:
-        frappe.log_error(f"Error in validate_billing_consistency: {str(e)}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error in validate_billing_consistency: {str(e)}\n{traceback.format_exc()}",
+            "Billing Consistency Error",
+        )
+        return OperationResult.fail(
+            _("Billing consistency validation failed"),
+            errors=[str(e)],
+            context={"operation": "validate_billing_consistency"},
+        )
 
 
 @frappe.whitelist()
-def fix_membership_type_billing_periods():
+def fix_membership_type_billing_periods() -> OperationResult[Dict[str, Any]]:
     """
     Fix membership types that have inconsistent billing periods with their templates.
 
@@ -212,7 +246,7 @@ def fix_membership_type_billing_periods():
     billing_period doesn't match the billing_frequency of their dues_schedule_template.
 
     Returns:
-        dict: Results of the fix operation including what was changed
+        OperationResult[Dict[str, Any]]: Results of the fix operation including what was changed
     """
     try:
         fixes_applied = []
@@ -221,14 +255,14 @@ def fix_membership_type_billing_periods():
         # First get inconsistencies
         validation_result = validate_billing_consistency()
 
-        if not validation_result.get("success"):
-            return {
-                "success": False,
-                "error": "Could not validate billing consistency before fixing",
-                "validation_error": validation_result.get("error"),
-            }
+        if not validation_result.success:
+            return OperationResult.fail(
+                _("Could not validate billing consistency before fixing"),
+                errors=validation_result.errors if hasattr(validation_result, "errors") else [],
+                context={"operation": "fix_membership_type_billing_periods"},
+            )
 
-        inconsistencies = validation_result.get("inconsistencies", [])
+        inconsistencies = validation_result.data.get("inconsistencies", [])
 
         for inconsistency in inconsistencies:
             try:
@@ -257,20 +291,33 @@ def fix_membership_type_billing_periods():
             except Exception as e:
                 error_msg = f"Failed to fix {inconsistency['membership_type']}: {str(e)}"
                 errors.append(error_msg)
-                frappe.log_error(error_msg)
+                frappe.log_error(
+                    f"Failed to fix membership type {inconsistency['membership_type']}: {str(e)}\n{traceback.format_exc()}",
+                    "Fix Billing Period Error",
+                )
 
-        return {
+        data = {
             "success": len(errors) == 0,
             "fixes_applied": len(fixes_applied),
             "errors": len(errors),
             "fixes_details": fixes_applied,
             "error_details": errors,
-            "message": f"Applied {len(fixes_applied)} fixes with {len(errors)} errors",
         }
 
+        return OperationResult.ok(
+            data, message=_("Applied {0} fixes with {1} errors").format(len(fixes_applied), len(errors))
+        )
+
     except Exception as e:
-        frappe.log_error(f"Error in fix_membership_type_billing_periods: {str(e)}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error in fix_membership_type_billing_periods: {str(e)}\n{traceback.format_exc()}",
+            "Fix Billing Periods Error",
+        )
+        return OperationResult.fail(
+            _("Failed to fix membership type billing periods"),
+            errors=[str(e)],
+            context={"operation": "fix_membership_type_billing_periods"},
+        )
 
 
 def _process_template_schedule(schedule, orphaned_templates, corrected_templates, errors):
@@ -310,7 +357,7 @@ def _cleanup_orphaned_template(orphan, cleanup_results, errors):
 
 
 @frappe.whitelist()
-def fix_orphaned_schedule_templates():
+def fix_orphaned_schedule_templates() -> OperationResult[Dict[str, Any]]:
     """
     Fix or document schedule templates that reference non-existent membership types.
 
@@ -318,7 +365,7 @@ def fix_orphaned_schedule_templates():
     that no longer exist and provides recommendations for cleanup.
 
     Returns:
-        dict: Results of the cleanup operation
+        OperationResult[Dict[str, Any]]: Results of the cleanup operation
     """
     try:
         # Get all template schedules (schedules without a member)
@@ -341,7 +388,7 @@ def fix_orphaned_schedule_templates():
         for orphan in orphaned_templates:
             _cleanup_orphaned_template(orphan, cleanup_results, errors)
 
-        return {
+        data = {
             "success": len(errors) == 0,
             "orphaned_templates_found": len(orphaned_templates),
             "templates_corrected": len(corrected_templates),
@@ -350,16 +397,29 @@ def fix_orphaned_schedule_templates():
             "corrected_templates": corrected_templates,
             "cleanup_results": cleanup_results,
             "error_details": errors,
-            "message": f"Found {len(orphaned_templates)} orphaned templates, documented {len(cleanup_results)} for review",
         }
 
+        return OperationResult.ok(
+            data,
+            message=_("Found {0} orphaned templates, documented {1} for review").format(
+                len(orphaned_templates), len(cleanup_results)
+            ),
+        )
+
     except Exception as e:
-        frappe.log_error(f"Error in fix_orphaned_schedule_templates: {str(e)}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error in fix_orphaned_schedule_templates: {str(e)}\n{traceback.format_exc()}",
+            "Fix Orphaned Templates Error",
+        )
+        return OperationResult.fail(
+            _("Failed to fix orphaned schedule templates"),
+            errors=[str(e)],
+            context={"operation": "fix_orphaned_schedule_templates"},
+        )
 
 
 @frappe.whitelist()
-def check_membership_type_billing_periods():
+def check_membership_type_billing_periods() -> OperationResult[Dict[str, Any]]:
     """
     Check all membership types for proper billing period configuration.
 
@@ -369,7 +429,7 @@ def check_membership_type_billing_periods():
     3. Consistent configuration between type and template
 
     Returns:
-        dict: Analysis results with recommendations
+        OperationResult[Dict[str, Any]]: Analysis results with recommendations
     """
     try:
         membership_types = frappe.get_all(
@@ -401,16 +461,29 @@ def check_membership_type_billing_periods():
             else:
                 valid_configs.append(mt.name)
 
-        return {
+        data = {
             "success": len(issues) == 0,
             "total_membership_types": len(membership_types),
             "valid_configurations": len(valid_configs),
             "issues_found": len(issues),
             "issue_details": issues,
             "valid_types": valid_configs,
-            "message": f"Found {len(issues)} membership types with configuration issues",
         }
 
+        if len(issues) == 0:
+            return OperationResult.ok(data, message=_("All membership types are properly configured"))
+        else:
+            return OperationResult.ok(
+                data, message=_("Found {0} membership types with configuration issues").format(len(issues))
+            )
+
     except Exception as e:
-        frappe.log_error(f"Error in check_membership_type_billing_periods: {str(e)}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error in check_membership_type_billing_periods: {str(e)}\n{traceback.format_exc()}",
+            "Check Billing Periods Error",
+        )
+        return OperationResult.fail(
+            _("Failed to check membership type billing periods"),
+            errors=[str(e)],
+            context={"operation": "check_membership_type_billing_periods"},
+        )

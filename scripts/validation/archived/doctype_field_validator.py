@@ -13,7 +13,7 @@ from typing import Dict, List, Set, Optional, Tuple
 from dataclasses import dataclass
 
 # Import comprehensive DocType loader
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata
 
 @dataclass
