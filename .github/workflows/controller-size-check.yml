@@ -1,0 +1,62 @@
+name: Controller Size Check
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'verenigingen/verenigingen/doctype/*/**.py'
+  workflow_dispatch:
+
+jobs:
+  controller-size-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Check Controller Sizes
+      id: size-check
+      run: |
+        cd apps/verenigingen
+        python scripts/check_controller_size.py
+
+    - name: Add PR Comment (if violation)
+      if: failure()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: `## ❌ Controller Size Violation Detected
+
+            One or more controller files exceed their size limits.
+
+            **Policy**: New business logic must be implemented in the service layer, not in controllers.
+
+            Controllers should only:
+            - Handle Frappe lifecycle hooks (validate, on_update, etc.)
+            - Perform permission checks
+            - Orchestrate service calls
+            - Contain minimal validation that MUST run in controller
+
+            **How to fix**:
+            1. Extract business logic to a service class
+            2. Add tests for the service
+            3. Call the service from the controller
+            4. See: \`docs/architecture/SERVICE_INFRASTRUCTURE_ARCHITECTURE.md\`
+
+            Run locally to see details:
+            \`\`\`bash
+            python scripts/check_controller_size.py
+            \`\`\`
+            `
+          })

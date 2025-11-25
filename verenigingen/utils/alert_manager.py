@@ -3,13 +3,24 @@
 """
 Alert Manager for Verenigingen
 Handles automated alerting system for critical errors and compliance issues
+
+ERROR HANDLING PATTERN:
+All whitelisted API endpoints in this module follow the OperationResult pattern:
+- Return type: OperationResult[Dict[str, Any]]
+- Never throw exceptions - all errors wrapped in OperationResult.fail()
+- Consistent metadata with context dict: {"operation": "...", "params": {...}}
+- Generic user-facing messages with technical details in errors list
 """
 
 import json
+import traceback
+from typing import Any, Dict
 
 import frappe
+from frappe import _
 from frappe.utils import add_to_date, now
 
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -287,28 +298,60 @@ class AlertManager:
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def check_critical_errors():
-    """Send immediate alerts for critical errors"""
+def check_critical_errors() -> OperationResult[Dict[str, Any]]:
+    """Send immediate alerts for critical errors
+
+    Returns:
+        OperationResult[Dict[str, Any]]: Result with critical error count and alert status
+    """
     try:
         critical_errors = frappe.db.count(
             "Error Log", {"creation": (">=", add_to_date(now(), hours=-1)), "error": ("like", "%Critical%")}
         )
+
         if critical_errors > 0:
             alert_manager = AlertManager()
-            alert_manager.send_alert(
+            alert_doc = alert_manager.send_alert(
                 alert_type="CRITICAL_ERRORS",
                 severity="CRITICAL",
                 message=f"Found {critical_errors} critical errors in the last hour",
                 details={"critical_error_count": critical_errors},
             )
+
+            return OperationResult.ok(
+                {
+                    "critical_error_count": critical_errors,
+                    "alert_sent": True,
+                    "alert_name": alert_doc.name if alert_doc else None,
+                },
+                message=f"Critical error alert sent: {critical_errors} errors detected",
+            )
+        else:
+            return OperationResult.ok(
+                {"critical_error_count": 0, "alert_sent": False},
+                message="No critical errors detected in the last hour",
+            )
+
     except Exception as e:
-        frappe.log_error(f"Failed to check critical errors: {str(e)}")
+        frappe.log_error(
+            f"Failed to check critical errors: {str(e)}\n{traceback.format_exc()}",
+            "Check Critical Errors Error",
+        )
+        return OperationResult.fail(
+            _("Unable to check critical errors. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "check_critical_errors", "params": {}},
+        )
 
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def run_hourly_checks():
-    """Run hourly alert checks"""
+def run_hourly_checks() -> OperationResult[Dict[str, Any]]:
+    """Run hourly alert checks
+
+    Returns:
+        OperationResult[Dict[str, Any]]: Result with checks completed status
+    """
     try:
         alert_manager = AlertManager()
         alert_manager.check_error_rate_alert()
@@ -317,49 +360,113 @@ def run_hourly_checks():
         alert_manager.check_business_process_alerts()
 
         frappe.logger().info("Hourly alert checks completed")
+
+        return OperationResult.ok(
+            {
+                "checks_completed": 4,
+                "checks": ["error_rate", "sepa_compliance", "performance", "business_process"],
+            },
+            message="Hourly alert checks completed successfully",
+        )
+
     except Exception as e:
-        frappe.log_error(f"Hourly alert check failed: {str(e)}")
+        frappe.log_error(
+            f"Hourly alert check failed: {str(e)}\n{traceback.format_exc()}", "Hourly Alert Check Error"
+        )
+        return OperationResult.fail(
+            _("Unable to complete hourly alert checks. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "run_hourly_checks", "params": {}},
+        )
 
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def run_daily_checks():
-    """Run daily alert checks and reports"""
+def run_daily_checks() -> OperationResult[Dict[str, Any]]:
+    """Run daily alert checks and reports
+
+    Returns:
+        OperationResult[Dict[str, Any]]: Result with daily checks status
+    """
     try:
         alert_manager = AlertManager()
         alert_manager.generate_daily_report()
         alert_manager.check_data_quality_alerts()
 
         frappe.logger().info("Daily alert checks completed")
+
+        return OperationResult.ok(
+            {"report_generated": True, "data_quality_checked": True, "checks_completed": 2},
+            message="Daily alert checks and report completed successfully",
+        )
+
     except Exception as e:
-        frappe.log_error(f"Daily alert check failed: {str(e)}")
+        frappe.log_error(
+            f"Daily alert check failed: {str(e)}\n{traceback.format_exc()}", "Daily Alert Check Error"
+        )
+        return OperationResult.fail(
+            _("Unable to complete daily alert checks. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "run_daily_checks", "params": {}},
+        )
 
 
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.UTILITY)
-def test_alert_system():
-    """Test the alert system with a sample alert"""
+def test_alert_system() -> OperationResult[Dict[str, Any]]:
+    """Test the alert system with a sample alert
+
+    Returns:
+        OperationResult[Dict[str, Any]]: Result with test alert status
+    """
     try:
         alert_manager = AlertManager()
-        alert_manager.send_alert(
+        alert_doc = alert_manager.send_alert(
             alert_type="TEST_ALERT",
             severity="LOW",
             message="Test alert to verify email notifications are working",
             details={"test": True, "timestamp": now()},
         )
-        return {"status": "success", "message": "Test alert sent successfully"}
+
+        return OperationResult.ok(
+            {
+                "test_alert_sent": True,
+                "alert_name": alert_doc.name if alert_doc else None,
+                "timestamp": now(),
+            },
+            message="Test alert sent successfully",
+        )
+
     except Exception as e:
-        frappe.log_error(f"Test alert failed: {str(e)}")
-        return {"status": "error", "message": str(e)}
+        frappe.log_error(f"Test alert failed: {str(e)}\n{traceback.format_exc()}", "Test Alert System Error")
+        return OperationResult.fail(
+            _("Test alert failed. Please check error logs."),
+            errors=[str(e)],
+            context={"operation": "test_alert_system", "params": {}},
+        )
 
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.REPORTING)
-def get_alert_statistics():
-    """Get alert statistics for dashboard"""
+def get_alert_statistics() -> OperationResult[Dict[str, Any]]:
+    """Get alert statistics for dashboard
+
+    Returns:
+        OperationResult[Dict[str, Any]]: Alert statistics data
+    """
     try:
         alert_manager = AlertManager()
-        return alert_manager.get_alert_statistics()
+        stats = alert_manager.get_alert_statistics()
+
+        return OperationResult.ok(stats, message="Alert statistics retrieved successfully")
+
     except Exception as e:
-        frappe.log_error(f"Failed to get alert statistics: {str(e)}")
-        return {}
+        frappe.log_error(
+            f"Failed to get alert statistics: {str(e)}\n{traceback.format_exc()}",
+            "Get Alert Statistics Error",
+        )
+        return OperationResult.fail(
+            _("Unable to retrieve alert statistics. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "get_alert_statistics", "params": {}},
+        )
