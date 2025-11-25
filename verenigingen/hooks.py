@@ -744,6 +744,7 @@ permission_query_conditions = {
     "Membership Dues Schedule": "verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.get_permission_query_conditions",
     "Project": "verenigingen.utils.project_permissions.get_project_permission_query_conditions",
     "Expense Claim": "verenigingen.permissions.get_expense_claim_permission_query",
+    "Event Contact Campaign": "verenigingen.verenigingen.doctype.event_contact_campaign.event_contact_campaign.get_permission_query_conditions",
 }
 
 has_permission = {
@@ -759,6 +760,7 @@ has_permission = {
     "Membership Dues Schedule": "verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.has_permission",
     "Project": "verenigingen.utils.project_permissions.has_project_permission_via_team",
     "Expense Claim": "verenigingen.permissions.has_expense_claim_permission",
+    "Event Contact Campaign": "verenigingen.verenigingen.doctype.event_contact_campaign.event_contact_campaign.has_permission",
 }
 
 # Workflow Action Handlers

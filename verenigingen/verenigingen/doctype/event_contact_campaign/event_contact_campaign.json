@@ -1,0 +1,303 @@
+{
+  "actions": [],
+  "allow_rename": 1,
+  "app": "verenigingen",
+  "autoname": "naming_series:",
+  "creation": "2025-11-25 10:00:00.000000",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "naming_series",
+    "progress_dashboard",
+    "basic_information_section",
+    "campaign_name",
+    "chapter",
+    "event_type",
+    "column_break_basic",
+    "status",
+    "owner_user",
+    "event_details_section",
+    "event_date",
+    "event_time",
+    "column_break_event",
+    "location",
+    "description",
+    "campaign_period_section",
+    "start_date",
+    "column_break_period",
+    "end_date",
+    "progress_section",
+    "total_members",
+    "members_contacted",
+    "contact_progress",
+    "column_break_progress",
+    "members_attending",
+    "members_not_attending",
+    "members_maybe",
+    "members_pending",
+    "contact_list_section",
+    "contact_list",
+    "notes_section",
+    "notes"
+  ],
+  "fields": [
+    {
+      "default": "ECC-.YYYY.-.####",
+      "fieldname": "naming_series",
+      "fieldtype": "Select",
+      "hidden": 1,
+      "label": "Series",
+      "options": "ECC-.YYYY.-.####",
+      "reqd": 1
+    },
+    {
+      "fieldname": "progress_dashboard",
+      "fieldtype": "HTML",
+      "label": "Progress Dashboard"
+    },
+    {
+      "fieldname": "basic_information_section",
+      "fieldtype": "Section Break",
+      "label": "Basic Information"
+    },
+    {
+      "fieldname": "campaign_name",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Campaign Name",
+      "reqd": 1
+    },
+    {
+      "fieldname": "chapter",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "label": "Chapter",
+      "options": "Chapter",
+      "reqd": 1
+    },
+    {
+      "default": "Member Meeting",
+      "fieldname": "event_type",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "label": "Event Type",
+      "options": "Member Meeting\nWorkshop\nSocial Event\nAnnual Meeting\nInformation Session\nVolunteer Event\nOther",
+      "reqd": 1
+    },
+    {
+      "fieldname": "column_break_basic",
+      "fieldtype": "Column Break"
+    },
+    {
+      "default": "Draft",
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "label": "Status",
+      "options": "Draft\nActive\nCompleted\nCancelled",
+      "reqd": 1
+    },
+    {
+      "default": "__user",
+      "fieldname": "owner_user",
+      "fieldtype": "Link",
+      "label": "Campaign Owner",
+      "options": "User"
+    },
+    {
+      "fieldname": "event_details_section",
+      "fieldtype": "Section Break",
+      "label": "Event Details"
+    },
+    {
+      "fieldname": "event_date",
+      "fieldtype": "Date",
+      "in_list_view": 1,
+      "label": "Event Date"
+    },
+    {
+      "fieldname": "event_time",
+      "fieldtype": "Time",
+      "label": "Event Time"
+    },
+    {
+      "fieldname": "column_break_event",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "location",
+      "fieldtype": "Data",
+      "label": "Location"
+    },
+    {
+      "fieldname": "description",
+      "fieldtype": "Small Text",
+      "label": "Description"
+    },
+    {
+      "fieldname": "campaign_period_section",
+      "fieldtype": "Section Break",
+      "label": "Campaign Period"
+    },
+    {
+      "default": "Today",
+      "fieldname": "start_date",
+      "fieldtype": "Date",
+      "label": "Outreach Start Date"
+    },
+    {
+      "fieldname": "column_break_period",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "end_date",
+      "fieldtype": "Date",
+      "label": "Outreach End Date"
+    },
+    {
+      "collapsible": 1,
+      "collapsible_depends_on": "eval:doc.total_members > 0",
+      "fieldname": "progress_section",
+      "fieldtype": "Section Break",
+      "label": "Progress Statistics"
+    },
+    {
+      "default": "0",
+      "fieldname": "total_members",
+      "fieldtype": "Int",
+      "label": "Total Members",
+      "read_only": 1
+    },
+    {
+      "default": "0",
+      "fieldname": "members_contacted",
+      "fieldtype": "Int",
+      "label": "Members Contacted",
+      "read_only": 1
+    },
+    {
+      "default": "0",
+      "fieldname": "contact_progress",
+      "fieldtype": "Percent",
+      "in_list_view": 1,
+      "label": "Contact Progress",
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_progress",
+      "fieldtype": "Column Break"
+    },
+    {
+      "default": "0",
+      "fieldname": "members_attending",
+      "fieldtype": "Int",
+      "label": "Will Attend",
+      "read_only": 1
+    },
+    {
+      "default": "0",
+      "fieldname": "members_not_attending",
+      "fieldtype": "Int",
+      "label": "Cannot Attend",
+      "read_only": 1
+    },
+    {
+      "default": "0",
+      "fieldname": "members_maybe",
+      "fieldtype": "Int",
+      "label": "Maybe",
+      "read_only": 1
+    },
+    {
+      "default": "0",
+      "fieldname": "members_pending",
+      "fieldtype": "Int",
+      "label": "No Response",
+      "read_only": 1
+    },
+    {
+      "fieldname": "contact_list_section",
+      "fieldtype": "Section Break",
+      "label": "Members to Contact"
+    },
+    {
+      "fieldname": "contact_list",
+      "fieldtype": "Table",
+      "label": "Contact List",
+      "options": "Event Contact Campaign Member"
+    },
+    {
+      "collapsible": 1,
+      "fieldname": "notes_section",
+      "fieldtype": "Section Break",
+      "label": "Notes"
+    },
+    {
+      "fieldname": "notes",
+      "fieldtype": "Text",
+      "label": "Internal Notes"
+    }
+  ],
+  "index_web_pages_for_search": 1,
+  "links": [],
+  "modified": "2025-11-25 10:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Verenigingen",
+  "name": "Event Contact Campaign",
+  "naming_rule": "By \"Naming Series\" field",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Verenigingen Administrator",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Verenigingen Staff",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Verenigingen Chapter Board Member",
+      "share": 1,
+      "write": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "title_field": "campaign_name",
+  "track_changes": 1
+}
