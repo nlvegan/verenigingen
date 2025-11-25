@@ -1,15 +1,31 @@
 """
 Portal menu enhancer to add submenu items
+
+ERROR HANDLING PATTERN:
+All @frappe.whitelist() functions return OperationResult[Dict[str, Any]]:
+- Success: OperationResult.ok(data, message="...")
+- Failure: OperationResult.fail(user_message, errors=[...], context={...})
+- Comprehensive error context includes operation name + all parameters
+- Traceback logging for debugging: frappe.log_error(f"...: {str(e)}\\n{traceback.format_exc()}", "Title")
 """
 
 import html
+import traceback
+from typing import Any, Dict
 
 import frappe
+from frappe import _
+
+from verenigingen.utils.operation_result import OperationResult
 
 
 @frappe.whitelist()
-def debug_portal_settings():
-    """Debug portal settings to see what menu items are available"""
+def debug_portal_settings() -> OperationResult[Dict[str, Any]]:
+    """Debug portal settings to see what menu items are available
+
+    Returns:
+        OperationResult[Dict[str, Any]]: Portal settings debug information
+    """
     try:
         portal_settings = frappe.get_single("Portal Settings")
 
@@ -26,10 +42,19 @@ def debug_portal_settings():
                 }
             )
 
-        return {"success": True, "total_items": len(portal_settings.menu), "menu_items": menu_items}
+        result = {"total_items": len(portal_settings.menu), "menu_items": menu_items}
+        return OperationResult.ok(result, message=_("Portal settings retrieved successfully"))
 
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error retrieving portal settings: {str(e)}\n{traceback.format_exc()}",
+            "Portal Settings Debug Error",
+        )
+        return OperationResult.fail(
+            _("Unable to retrieve portal settings. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "debug_portal_settings"},
+        )
 
 
 def get_membership_portal_menu_items():
@@ -216,8 +241,12 @@ def get_membership_portal_menu_items():
 
 
 @frappe.whitelist()
-def get_user_portal_menu():
-    """Get portal menu items for current user with submenus"""
+def get_user_portal_menu() -> OperationResult[Dict[str, Any]]:
+    """Get portal menu items for current user with submenus
+
+    Returns:
+        OperationResult[Dict[str, Any]]: User portal menu with role-based filtering
+    """
     try:
         user = frappe.session.user
         user_roles = frappe.get_roles(user)
@@ -233,21 +262,34 @@ def get_user_portal_menu():
 
             filtered_menu.append(item)
 
-        return {"success": True, "user": user, "user_roles": user_roles, "menu_items": filtered_menu}
+        result = {"user": user, "user_roles": user_roles, "menu_items": filtered_menu}
+        return OperationResult.ok(result, message=_("Portal menu retrieved successfully"))
 
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error retrieving user portal menu: {str(e)}\n{traceback.format_exc()}",
+            "Portal Menu Retrieval Error",
+        )
+        return OperationResult.fail(
+            _("Unable to retrieve portal menu. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "get_user_portal_menu", "user": frappe.session.user},
+        )
 
 
 @frappe.whitelist()
-def generate_portal_menu_html():
-    """Generate HTML for enhanced portal menu"""
+def generate_portal_menu_html() -> OperationResult[Dict[str, Any]]:
+    """Generate HTML for enhanced portal menu
+
+    Returns:
+        OperationResult[Dict[str, Any]]: HTML markup for portal menu with CSS
+    """
     try:
         menu_data = get_user_portal_menu()
-        if not menu_data["success"]:
+        if not menu_data.success:
             return menu_data
 
-        menu_items = menu_data["menu_items"]
+        menu_items = menu_data.data["menu_items"]
 
         html_parts = []
         html_parts.append('<div class="portal-menu-enhanced">')
@@ -352,35 +394,62 @@ def generate_portal_menu_html():
         </style>
         """
 
-        return {"success": True, "html": css + "".join(html_parts)}
+        result = {"html": css + "".join(html_parts)}
+        return OperationResult.ok(result, message=_("Portal menu HTML generated successfully"))
 
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error generating portal menu HTML: {str(e)}\n{traceback.format_exc()}",
+            "Portal Menu HTML Generation Error",
+        )
+        return OperationResult.fail(
+            _("Unable to generate portal menu HTML. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "generate_portal_menu_html"},
+        )
 
 
 @frappe.whitelist()
-def add_enhanced_sidebar_to_context(context):
-    """Add enhanced sidebar items to any portal page context"""
+def add_enhanced_sidebar_to_context(context) -> OperationResult[Dict[str, Any]]:
+    """Add enhanced sidebar items to any portal page context
+
+    Args:
+        context: Portal page context object to enhance
+
+    Returns:
+        OperationResult[Dict[str, Any]]: Success status of sidebar addition
+    """
     try:
         menu_data = get_user_portal_menu()
-        if menu_data["success"]:
-            context.sidebar_items = menu_data["menu_items"]
+        if menu_data.success:
+            context.sidebar_items = menu_data.data["menu_items"]
             context.show_sidebar = True
             context.parent_template = "templates/base_portal.html"
         else:
             context.sidebar_items = []
             context.show_sidebar = False
 
-        return {"success": True}
+        return OperationResult.ok({}, message=_("Enhanced sidebar added to context"))
 
     except Exception as e:
-        frappe.log_error(f"Error adding enhanced sidebar to context: {str(e)}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error adding enhanced sidebar to context: {str(e)}\n{traceback.format_exc()}",
+            "Portal Sidebar Context Error",
+        )
+        return OperationResult.fail(
+            _("Unable to enhance portal sidebar. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "add_enhanced_sidebar_to_context"},
+        )
 
 
 @frappe.whitelist()
-def analyze_portal_menu_items():
-    """Comprehensive analysis of portal menu items"""
+def analyze_portal_menu_items() -> OperationResult[Dict[str, Any]]:
+    """Comprehensive analysis of portal menu items
+
+    Returns:
+        OperationResult[Dict[str, Any]]: Detailed menu analysis with categorization and recommendations
+    """
     try:
         portal_settings = frappe.get_single("Portal Settings")
 
@@ -502,8 +571,7 @@ def analyze_portal_menu_items():
         for item in missing_items:
             print(f"  - {item['title']} ({item['route']})")
 
-        return {
-            "success": True,
+        result = {
             "summary": {
                 "total_items": len(all_items),
                 "enabled_items": len(enabled_items),
@@ -522,5 +590,15 @@ def analyze_portal_menu_items():
             },
         }
 
+        return OperationResult.ok(result, message=_("Portal menu analysis completed successfully"))
+
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error analyzing portal menu items: {str(e)}\n{traceback.format_exc()}",
+            "Portal Menu Analysis Error",
+        )
+        return OperationResult.fail(
+            _("Unable to analyze portal menu items. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "analyze_portal_menu_items"},
+        )
