@@ -18,6 +18,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, getdate, now, today
 
+from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.error_handling import SEPAError, handle_api_error, log_error
 from verenigingen.utils.performance_utils import performance_monitor
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
@@ -880,9 +881,10 @@ class SEPARollbackManager:
             """
 
             # Send notifications
+            email_service = get_email_service()
             for recipient in recipients:
                 try:
-                    frappe.sendmail(
+                    email_service.send_simple_email(
                         recipients=[recipient],
                         subject=subject,
                         message=message,
