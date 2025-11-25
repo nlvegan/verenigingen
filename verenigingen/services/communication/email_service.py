@@ -312,6 +312,61 @@ class EmailService:
                 e, "EmailService", "Send bulk emails", {"batch_size": len(email_batch)}, raise_error=False
             )
 
+    def send_simple_email(
+        self,
+        recipients: Union[str, List[str]],
+        subject: str,
+        message: str,
+        reference_doctype: str = None,
+        reference_name: str = None,
+        **options,
+    ) -> Dict[str, Any]:
+        """
+        Send simple non-templated email for system notifications and alerts.
+
+        Use this for:
+        - System alerts and monitoring notifications
+        - Error notifications
+        - Administrative messages
+        - Any email that doesn't require a template
+
+        Args:
+            recipients: Email address(es)
+            subject: Email subject
+            message: Email content (plain text or HTML)
+            reference_doctype: Optional DocType reference for tracking
+            reference_name: Optional document name for tracking
+            **options: Additional options (delayed, etc.)
+
+        Returns:
+            Dict with success status and details
+        """
+        try:
+            # Normalize recipients
+            if isinstance(recipients, str):
+                recipients = [recipients]
+
+            return self._send_email_internal(
+                recipients=recipients,
+                subject=subject,
+                content=message,
+                reference_doctype=reference_doctype,
+                reference_name=reference_name,
+                **options,
+            )
+
+        except Exception as e:
+            return handle_service_error(
+                e,
+                "EmailService",
+                "Send simple email",
+                {
+                    "subject": subject,
+                    "recipient_count": len(recipients) if isinstance(recipients, list) else 1,
+                },
+                raise_error=False,
+            )
+
     def _send_email_internal(
         self,
         recipients: List[str],

@@ -20,6 +20,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_to_date, now
 
+from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
@@ -96,7 +97,8 @@ class AlertManager:
                 "alert_recipients", ["admin@dev.veganisme.net"]
             )
 
-            frappe.sendmail(
+            email_service = get_email_service()
+            email_service.send_simple_email(
                 recipients=recipients,
                 subject=f"[{severity}] {alert_type}: {message}",
                 message=self.format_alert_email(alert_type, severity, message, details),
@@ -136,7 +138,8 @@ class AlertManager:
 
             # Send daily report
             recipients = frappe.conf.get("alert_recipients", ["admin@dev.veganisme.net"])
-            frappe.sendmail(
+            email_service = get_email_service()
+            email_service.send_simple_email(
                 recipients=recipients,
                 subject="Daily Monitoring Report",
                 message=self.format_daily_report(daily_stats),
