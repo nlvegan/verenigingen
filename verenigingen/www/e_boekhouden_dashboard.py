@@ -1,8 +1,11 @@
 import json
+import traceback
+from typing import Any, Dict
 
 import frappe
 from frappe import _
 
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
 
 
@@ -217,9 +220,22 @@ def get_system_health():
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
-def get_live_dashboard_data():
-    """API endpoint for live dashboard updates"""
+def get_live_dashboard_data() -> OperationResult[Dict[str, Any]]:
+    """API endpoint for live dashboard updates
+
+    Returns:
+        OperationResult[Dict[str, Any]]: Dashboard data with migration stats and connection status
+    """
     try:
-        return {"success": True, "data": get_dashboard_data()}
+        data = get_dashboard_data()
+        return OperationResult.ok(data, message=_("Dashboard data retrieved successfully"))
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error retrieving dashboard data: {str(e)}\n{traceback.format_exc()}",
+            "E-Boekhouden Dashboard Error",
+        )
+        return OperationResult.fail(
+            _("Unable to retrieve dashboard data. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "get_live_dashboard_data"},
+        )
