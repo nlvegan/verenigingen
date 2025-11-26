@@ -4,21 +4,24 @@ Handles payment plan creation, management, and processing
 """
 
 import json
+import traceback
+from typing import Any, Dict
 
 import frappe
 from frappe import _
 from frappe.utils import add_months, flt, getdate, today
 
-# Import security framework
-from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+# Import security framework and OperationResult
+from verenigingen.utils.operation_result import OperationResult
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, standard_api
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 
-@frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
+@frappe.whitelist()
 def request_payment_plan(
     member, total_amount, preferred_installments=None, preferred_frequency=None, reason=None
-):
+) -> OperationResult[Dict[str, Any]]:
     """
     Submit a payment plan request from member portal
     """
@@ -67,23 +70,28 @@ def request_payment_plan(
         # Send notification to administrators
         send_payment_plan_request_notification(payment_plan)
 
-        return {
-            "success": True,
+        data = {
             "payment_plan_id": payment_plan.name,
-            "message": _("Payment plan request submitted successfully. You will be notified once reviewed."),
             "installment_amount": payment_plan.installment_amount,
             "start_date": payment_plan.start_date,
             "end_date": payment_plan.end_date,
         }
 
+        return OperationResult.ok(
+            data,
+            message=_("Payment plan request submitted successfully. You will be notified once reviewed."),
+        )
+
     except Exception as e:
-        frappe.log_error(f"Error requesting payment plan: {str(e)}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            title=_("Error requesting payment plan"), message=f"{str(e)}\n\n{traceback.format_exc()}"
+        )
+        return OperationResult.fail(message=_("Failed to request payment plan"), error=str(e))
 
 
+@standard_api(operation_type=OperationType.READ)
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.MEMBER_DATA)
-def get_member_payment_plans(member=None):
+def get_member_payment_plans(member=None) -> OperationResult[Dict[str, Any]]:
     """
     Get payment plans for a member
     """
@@ -93,7 +101,7 @@ def get_member_payment_plans(member=None):
             # Get member from current user
             member = frappe.db.get_value("Member", {"email": frappe.session.user}, "name")
             if not member:
-                return {"success": False, "error": "No member record found for current user"}
+                return OperationResult.fail(message=_("No member record found for current user"))
 
         # Validate access
         if frappe.session.user != "Administrator":
@@ -141,16 +149,22 @@ def get_member_payment_plans(member=None):
             )
             plan["installments"] = installments
 
-        return {"success": True, "payment_plans": payment_plans}
+        return OperationResult.ok(
+            {"payment_plans": payment_plans}, message=_("Payment plans retrieved successfully")
+        )
 
     except Exception as e:
-        frappe.log_error(f"Error getting member payment plans: {str(e)}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            title=_("Error getting member payment plans"), message=f"{str(e)}\n\n{traceback.format_exc()}"
+        )
+        return OperationResult.fail(message=_("Failed to retrieve payment plans"), error=str(e))
 
 
-@frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def make_payment_plan_payment(payment_plan_id, installment_number, payment_amount, payment_reference=None):
+@frappe.whitelist()
+def make_payment_plan_payment(
+    payment_plan_id, installment_number, payment_amount, payment_reference=None
+) -> OperationResult[Dict[str, Any]]:
     """
     Record a payment for a payment plan installment
     """
@@ -172,21 +186,23 @@ def make_payment_plan_payment(payment_plan_id, installment_number, payment_amoun
             payment_date=today(),
         )
 
-        return {
-            "success": True,
-            "message": _("Payment recorded successfully"),
+        data = {
             "remaining_balance": payment_plan.remaining_balance,
             "next_payment_date": payment_plan.next_payment_date,
         }
 
+        return OperationResult.ok(data, message=_("Payment recorded successfully"))
+
     except Exception as e:
-        frappe.log_error(f"Error recording payment plan payment: {str(e)}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            title=_("Error recording payment plan payment"), message=f"{str(e)}\n\n{traceback.format_exc()}"
+        )
+        return OperationResult.fail(message=_("Failed to record payment"), error=str(e))
 
 
+@standard_api(operation_type=OperationType.READ)
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.MEMBER_DATA)
-def get_payment_plan_summary(payment_plan_id):
+def get_payment_plan_summary(payment_plan_id) -> OperationResult[Dict[str, Any]]:
     """
     Get detailed summary of a payment plan
     """
@@ -210,8 +226,7 @@ def get_payment_plan_summary(payment_plan_id):
         # Get payment history
         paid_installments = [inst for inst in payment_plan.installments if inst.status == "Paid"]
 
-        return {
-            "success": True,
+        data = {
             "payment_plan": {
                 "name": payment_plan.name,
                 "member_name": member.full_name,
@@ -231,14 +246,18 @@ def get_payment_plan_summary(payment_plan_id):
             },
         }
 
+        return OperationResult.ok(data, message=_("Payment plan summary retrieved successfully"))
+
     except Exception as e:
-        frappe.log_error(f"Error getting payment plan summary: {str(e)}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            title=_("Error getting payment plan summary"), message=f"{str(e)}\n\n{traceback.format_exc()}"
+        )
+        return OperationResult.fail(message=_("Failed to retrieve payment plan summary"), error=str(e))
 
 
+@critical_api(operation_type=OperationType.WRITE)
 @frappe.whitelist()
-@critical_api(operation_type=OperationType.ADMIN)
-def approve_payment_plan_request(payment_plan_id, approval_notes=None):
+def approve_payment_plan_request(payment_plan_id, approval_notes=None) -> OperationResult[Dict[str, Any]]:
     """
     Approve a payment plan request (admin only)
     """
@@ -266,16 +285,18 @@ def approve_payment_plan_request(payment_plan_id, approval_notes=None):
         # Send approval notification to member
         send_payment_plan_approval_notification(payment_plan, approved=True)
 
-        return {"success": True, "message": _("Payment plan approved successfully")}
+        return OperationResult.ok({}, message=_("Payment plan approved successfully"))
 
     except Exception as e:
-        frappe.log_error(f"Error approving payment plan: {str(e)}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            title=_("Error approving payment plan"), message=f"{str(e)}\n\n{traceback.format_exc()}"
+        )
+        return OperationResult.fail(message=_("Failed to approve payment plan"), error=str(e))
 
 
+@critical_api(operation_type=OperationType.WRITE)
 @frappe.whitelist()
-@critical_api(operation_type=OperationType.ADMIN)
-def reject_payment_plan_request(payment_plan_id, rejection_reason=None):
+def reject_payment_plan_request(payment_plan_id, rejection_reason=None) -> OperationResult[Dict[str, Any]]:
     """
     Reject a payment plan request (admin only)
     """
@@ -300,16 +321,18 @@ def reject_payment_plan_request(payment_plan_id, rejection_reason=None):
         # Send rejection notification to member
         send_payment_plan_approval_notification(payment_plan, approved=False, reason=rejection_reason)
 
-        return {"success": True, "message": _("Payment plan rejected")}
+        return OperationResult.ok({}, message=_("Payment plan rejected"))
 
     except Exception as e:
-        frappe.log_error(f"Error rejecting payment plan: {str(e)}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            title=_("Error rejecting payment plan"), message=f"{str(e)}\n\n{traceback.format_exc()}"
+        )
+        return OperationResult.fail(message=_("Failed to reject payment plan"), error=str(e))
 
 
+@standard_api(operation_type=OperationType.READ)
 @frappe.whitelist()
-@critical_api(operation_type=OperationType.ADMIN)
-def get_pending_payment_plan_requests():
+def get_pending_payment_plan_requests() -> OperationResult[Dict[str, Any]]:
     """
     Get all pending payment plan requests (admin only)
     """
@@ -340,11 +363,19 @@ def get_pending_payment_plan_requests():
             plan["member_name"] = member.full_name
             plan["member_email"] = member.email
 
-        return {"success": True, "pending_requests": pending_plans}
+        return OperationResult.ok(
+            {"pending_requests": pending_plans},
+            message=_("Pending payment plan requests retrieved successfully"),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Error getting pending payment plan requests: {str(e)}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            title=_("Error getting pending payment plan requests"),
+            message=f"{str(e)}\n\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(
+            message=_("Failed to retrieve pending payment plan requests"), error=str(e)
+        )
 
 
 # Helper Functions
@@ -460,9 +491,9 @@ def send_payment_plan_approval_notification(payment_plan, approved=True, reason=
         frappe.log_error(f"Error sending payment plan approval notification: {str(e)}")
 
 
+@standard_api(operation_type=OperationType.READ)
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.FINANCIAL)
-def calculate_payment_plan_preview(total_amount, installments, frequency):
+def calculate_payment_plan_preview(total_amount, installments, frequency) -> OperationResult[Dict[str, Any]]:
     """
     Calculate payment plan preview for display
     """
@@ -471,7 +502,7 @@ def calculate_payment_plan_preview(total_amount, installments, frequency):
         installments = int(installments)
 
         if total_amount <= 0 or installments <= 0:
-            return {"success": False, "error": "Invalid amount or installments"}
+            return OperationResult.fail(message=_("Invalid amount or installments"))
 
         installment_amount = flt(total_amount / installments, 2)
 
@@ -489,8 +520,7 @@ def calculate_payment_plan_preview(total_amount, installments, frequency):
         else:
             end_date = add_days(start_date, installments * 30)  # Default
 
-        return {
-            "success": True,
+        data = {
             "preview": {
                 "total_amount": total_amount,
                 "installment_amount": installment_amount,
@@ -501,6 +531,10 @@ def calculate_payment_plan_preview(total_amount, installments, frequency):
             },
         }
 
+        return OperationResult.ok(data, message=_("Payment plan preview calculated successfully"))
+
     except Exception as e:
-        frappe.log_error(f"Error calculating payment plan preview: {str(e)}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            title=_("Error calculating payment plan preview"), message=f"{str(e)}\n\n{traceback.format_exc()}"
+        )
+        return OperationResult.fail(message=_("Failed to calculate payment plan preview"), error=str(e))

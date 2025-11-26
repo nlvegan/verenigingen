@@ -64,6 +64,8 @@ import html
 import json
 import os
 import tempfile
+import traceback
+from typing import Any, Dict
 
 import frappe
 from frappe import _
@@ -77,6 +79,7 @@ from verenigingen.utils.error_handling import (
     log_error,
     validate_required_fields,
 )
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.performance_utils import QueryOptimizer, performance_monitor
 
 # Import comprehensive security framework
@@ -96,8 +99,8 @@ from verenigingen.utils.validation.api_validators import (
 )
 
 
-@frappe.whitelist(methods=["POST"])
 @critical_api(operation_type=OperationType.FINANCIAL)
+@frappe.whitelist(methods=["POST"])
 @handle_api_error
 @performance_monitor(threshold_ms=2000)
 def send_overdue_payment_reminders(
@@ -106,7 +109,7 @@ def send_overdue_payment_reminders(
     custom_message=None,
     send_to_chapters=False,
     filters=None,
-):
+) -> OperationResult[Dict[str, Any]]:
     """
     Send payment reminders to members with overdue payments.
 
@@ -198,229 +201,277 @@ def send_overdue_payment_reminders(
         - Chapter management for administrative notifications
         - Communication tracking for audit purposes
     """
+    try:
+        # Critical Security Fix: Add explicit permission validation
+        if not frappe.has_permission("Sales Invoice", "read"):
+            return OperationResult.fail(
+                error=_("You don't have permission to access overdue payment data"), http_status_code=403
+            )
 
-    # Critical Security Fix: Add explicit permission validation
-    if not frappe.has_permission("Sales Invoice", "read"):
-        frappe.throw(_("You don't have permission to access overdue payment data"), frappe.PermissionError)
+        if not frappe.has_permission("Member", "read"):
+            return OperationResult.fail(
+                error=_("You don't have permission to access member data"), http_status_code=403
+            )
 
-    if not frappe.has_permission("Member", "read"):
-        frappe.throw(_("You don't have permission to access member data"), frappe.PermissionError)
+        # Additional financial operation permission check
+        user_roles = frappe.get_roles(frappe.session.user)
+        required_roles = [
+            "Finance Manager",
+            "Accounts Manager",
+            "System Manager",
+            "Verenigingen Administrator",
+        ]
+        if not any(role in required_roles for role in user_roles):
+            return OperationResult.fail(
+                error=_("You don't have permission to send payment reminders. Required roles: {0}").format(
+                    ", ".join(required_roles)
+                ),
+                http_status_code=403,
+            )
 
-    # Additional financial operation permission check
-    user_roles = frappe.get_roles(frappe.session.user)
-    required_roles = ["Finance Manager", "Accounts Manager", "System Manager", "Verenigingen Administrator"]
-    if not any(role in required_roles for role in user_roles):
-        frappe.throw(
-            _("You don't have permission to send payment reminders. Required roles: {0}").format(
-                ", ".join(required_roles)
-            ),
-            frappe.PermissionError,
+        # Validate inputs
+        validate_required_fields({"reminder_type": reminder_type}, ["reminder_type"])
+
+        reminder_type = APIValidator.sanitize_text(reminder_type, max_length=50)
+        custom_message = (
+            APIValidator.sanitize_text(custom_message, max_length=1000) if custom_message else None
         )
 
-    # Validate inputs
-    validate_required_fields({"reminder_type": reminder_type}, ["reminder_type"])
+        # Get overdue payments based on filters
+        from verenigingen.verenigingen.report.overdue_member_payments.overdue_member_payments import get_data
 
-    reminder_type = APIValidator.sanitize_text(reminder_type, max_length=50)
-    custom_message = APIValidator.sanitize_text(custom_message, max_length=1000) if custom_message else None
+        filters = parse_json_filters(filters)
 
-    # Get overdue payments based on filters
-    from verenigingen.verenigingen.report.overdue_member_payments.overdue_member_payments import get_data
+        overdue_data = get_data(filters)
 
-    filters = parse_json_filters(filters)
+        if not overdue_data:
+            return OperationResult.ok(data={"count": 0}, message=_("No overdue payments found"))
 
-    overdue_data = get_data(filters)
+        sent_count = 0
+        batch_size = ConfigManager.get("email_batch_size", 50)
 
-    if not overdue_data:
-        return {"success": False, "message": _("No overdue payments found"), "count": 0}
+        # Process in batches to avoid overwhelming the email system
+        for i in range(0, len(overdue_data), batch_size):
+            batch = overdue_data[i : i + batch_size]
 
-    sent_count = 0
-    batch_size = ConfigManager.get("email_batch_size", 50)
-
-    # Process in batches to avoid overwhelming the email system
-    for i in range(0, len(overdue_data), batch_size):
-        batch = overdue_data[i : i + batch_size]
-
-        for payment_info in batch:
-            try:
-                # Send reminder to member
-                send_payment_reminder_email(
-                    member_name=payment_info.get("member_name"),
-                    reminder_type=reminder_type,
-                    include_payment_link=include_payment_link,
-                    custom_message=custom_message,
-                    payment_info=payment_info,
-                )
-
-                # Optionally send to chapter board
-                if send_to_chapters and payment_info.get("chapter"):
-                    send_chapter_notification(
-                        chapter=payment_info.get("chapter"),
+            for payment_info in batch:
+                try:
+                    # Send reminder to member
+                    send_payment_reminder_email(
                         member_name=payment_info.get("member_name"),
+                        reminder_type=reminder_type,
+                        include_payment_link=include_payment_link,
+                        custom_message=custom_message,
                         payment_info=payment_info,
                     )
 
-                sent_count += 1
+                    # Optionally send to chapter board
+                    if send_to_chapters and payment_info.get("chapter"):
+                        send_chapter_notification(
+                            chapter=payment_info.get("chapter"),
+                            member_name=payment_info.get("member_name"),
+                            payment_info=payment_info,
+                        )
+
+                    sent_count += 1
+
+                except Exception as e:
+                    log_error(
+                        f"Failed to send reminder to {payment_info.get('member_name')}: {str(e)}",
+                        "Payment Reminder Error",
+                    )
+                    continue
+
+        return OperationResult.ok(
+            data={"count": sent_count}, message=_("Payment reminders sent successfully")
+        )
+
+    except Exception as e:
+        frappe.log_error(
+            message=f"Payment reminder operation failed: {str(e)}\n{traceback.format_exc()}",
+            title="Payment Processing - Send Reminders Failed",
+        )
+        return OperationResult.fail(
+            error=_("Failed to send payment reminders: {0}").format(str(e)), http_status_code=500
+        )
+
+
+@critical_api(operation_type=OperationType.FINANCIAL)
+@frappe.whitelist()
+@handle_api_error
+@performance_monitor(threshold_ms=5000)
+def export_overdue_payments(filters=None, format="CSV") -> OperationResult[Dict[str, Any]]:
+    """Export overdue payments data for external processing"""
+    try:
+        from verenigingen.verenigingen.report.overdue_member_payments.overdue_member_payments import get_data
+
+        filters = parse_json_filters(filters)
+
+        # Validate format parameter
+        if format not in ["CSV", "XLSX"]:
+            return OperationResult.fail(
+                error=_("Invalid export format. Supported formats: CSV, XLSX"), http_status_code=400
+            )
+
+        data = get_data(filters)
+
+        if not data:
+            return OperationResult.ok(data={"count": 0}, message=_("No data to export"))
+
+        # Create export file
+        file_name = f"overdue_payments_{today()}.csv"
+        file_path = os.path.join(tempfile.gettempdir(), file_name)
+
+        try:
+            import csv
+
+            with open(file_path, "w", newline="", encoding="utf-8") as csvfile:
+                fieldnames = [
+                    "member_name",
+                    "member_full_name",
+                    "member_email",
+                    "chapter",
+                    "overdue_count",
+                    "total_overdue",
+                    "oldest_invoice_date",
+                    "days_overdue",
+                    "membership_type",
+                    "last_payment_date",
+                ]
+
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+
+                for row in data:
+                    # Clean the row data for CSV export
+                    clean_row = {}
+                    for field in fieldnames:
+                        value = row.get(field, "")
+                        if field == "total_overdue":
+                            value = flt(value, 2)
+                        clean_row[field] = value
+                    writer.writerow(clean_row)
+
+            # Create file record in Frappe
+            file_doc = frappe.get_doc(
+                {
+                    "doctype": "File",
+                    "file_name": file_name,
+                    "file_url": f"/files/{file_name}",
+                    "is_private": 1,
+                    "folder": "Home",
+                }
+            )
+            file_doc.save()
+
+            return OperationResult.ok(
+                data={
+                    "count": len(data),
+                    "file_url": file_doc.file_url,
+                    "file_name": file_name,
+                },
+                message=_("Export completed successfully"),
+            )
+
+        except Exception as e:
+            log_error(e, {"operation": "export_overdue_payments", "context": "Payment Export Error"})
+            return OperationResult.fail(error=_("Export failed: {0}").format(str(e)), http_status_code=500)
+
+    except Exception as e:
+        frappe.log_error(
+            message=f"Overdue payments export failed: {str(e)}\n{traceback.format_exc()}",
+            title="Payment Processing - Export Failed",
+        )
+        return OperationResult.fail(
+            error=_("Failed to export overdue payments: {0}").format(str(e)), http_status_code=500
+        )
+
+
+@critical_api(operation_type=OperationType.FINANCIAL)
+@frappe.whitelist()
+@handle_api_error
+@performance_monitor(threshold_ms=10000)
+def execute_bulk_payment_action(
+    action, apply_to="All Visible Records", filters=None
+) -> OperationResult[Dict[str, Any]]:
+    """Execute bulk actions on overdue payments"""
+    try:
+        # Validate inputs
+        validate_required_fields({"action": action, "apply_to": apply_to}, ["action", "apply_to"])
+
+        valid_actions = [
+            "Send Payment Reminders",
+            # "Suspend Memberships",  # DISABLED: Automated suspension causes duplicate log entries
+            "Create Payment Plan",
+            "Mark for Collection Agency",
+            "Apply Late Fees",
+        ]
+
+        if action not in valid_actions:
+            return OperationResult.fail(
+                error=_("Invalid action. Valid actions: {0}").format(", ".join(valid_actions)),
+                http_status_code=400,
+            )
+
+        from verenigingen.verenigingen.report.overdue_member_payments.overdue_member_payments import get_data
+
+        filters = parse_json_filters(filters)
+
+        # Modify filters based on apply_to selection
+        if filters is None:
+            filters = {}
+        if apply_to == "Critical Only (>60 days)":
+            filters["critical_only"] = True
+        elif apply_to == "Urgent Only (>30 days)":
+            filters["urgent_only"] = True
+
+        data = get_data(filters)
+
+        if not data:
+            return OperationResult.ok(data={"count": 0}, message=_("No records found"))
+
+        processed_count = 0
+
+        for payment_info in data:
+            try:
+                if action == "Send Payment Reminders":
+                    send_payment_reminder_email(
+                        member_name=payment_info.get("member_name"),
+                        reminder_type="Bulk Reminder",
+                        payment_info=payment_info,
+                    )
+
+                elif action == "Suspend Memberships":
+                    suspend_member_for_nonpayment(payment_info.get("member_name"))
+
+                elif action == "Create Payment Plan":
+                    create_payment_plan(payment_info.get("member_name"), payment_info)
+
+                elif action == "Mark for Collection Agency":
+                    mark_for_collection(payment_info.get("member_name"), payment_info)
+
+                elif action == "Apply Late Fees":
+                    apply_late_fees(payment_info.get("member_name"), payment_info)
+
+                processed_count += 1
 
             except Exception as e:
                 log_error(
-                    f"Failed to send reminder to {payment_info.get('member_name')}: {str(e)}",
-                    "Payment Reminder Error",
+                    f"Bulk action failed for {payment_info.get('member_name')}: {str(e)}",
+                    "Bulk Payment Action Error",
                 )
                 continue
 
-    return {"success": True, "message": _("Payment reminders sent successfully"), "count": sent_count}
-
-
-@frappe.whitelist()
-@critical_api(operation_type=OperationType.FINANCIAL)
-@handle_api_error
-@performance_monitor(threshold_ms=5000)
-def export_overdue_payments(filters=None, format="CSV"):
-    """Export overdue payments data for external processing"""
-
-    from verenigingen.verenigingen.report.overdue_member_payments.overdue_member_payments import get_data
-
-    filters = parse_json_filters(filters)
-
-    # Validate format parameter
-    if format not in ["CSV", "XLSX"]:
-        raise ValidationError("Invalid export format. Supported formats: CSV, XLSX")
-
-    data = get_data(filters)
-
-    if not data:
-        return {"success": False, "message": _("No data to export"), "count": 0}
-
-    # Create export file
-    file_name = f"overdue_payments_{today()}.csv"
-    file_path = os.path.join(tempfile.gettempdir(), file_name)
-
-    try:
-        import csv
-
-        with open(file_path, "w", newline="", encoding="utf-8") as csvfile:
-            fieldnames = [
-                "member_name",
-                "member_full_name",
-                "member_email",
-                "chapter",
-                "overdue_count",
-                "total_overdue",
-                "oldest_invoice_date",
-                "days_overdue",
-                "membership_type",
-                "last_payment_date",
-            ]
-
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writeheader()
-
-            for row in data:
-                # Clean the row data for CSV export
-                clean_row = {}
-                for field in fieldnames:
-                    value = row.get(field, "")
-                    if field == "total_overdue":
-                        value = flt(value, 2)
-                    clean_row[field] = value
-                writer.writerow(clean_row)
-
-        # Create file record in Frappe
-        file_doc = frappe.get_doc(
-            {
-                "doctype": "File",
-                "file_name": file_name,
-                "file_url": f"/files/{file_name}",
-                "is_private": 1,
-                "folder": "Home",
-            }
-        )
-        file_doc.save()
-
-        return {
-            "success": True,
-            "message": _("Export completed successfully"),
-            "count": len(data),
-            "file_url": file_doc.file_url,
-            "file_name": file_name,
-        }
+        return OperationResult.ok(data={"count": processed_count}, message=_("Bulk action completed"))
 
     except Exception as e:
-        log_error(e, {"operation": "export_overdue_payments", "context": "Payment Export Error"})
-        return {"success": False, "message": _("Export failed: {0}").format(str(e))}
-
-
-@frappe.whitelist()
-@critical_api(operation_type=OperationType.FINANCIAL)
-@handle_api_error
-@performance_monitor(threshold_ms=10000)
-def execute_bulk_payment_action(action, apply_to="All Visible Records", filters=None):
-    """Execute bulk actions on overdue payments"""
-
-    # Validate inputs
-    validate_required_fields({"action": action, "apply_to": apply_to}, ["action", "apply_to"])
-
-    valid_actions = [
-        "Send Payment Reminders",
-        # "Suspend Memberships",  # DISABLED: Automated suspension causes duplicate log entries
-        "Create Payment Plan",
-        "Mark for Collection Agency",
-        "Apply Late Fees",
-    ]
-
-    if action not in valid_actions:
-        raise ValidationError(f"Invalid action. Valid actions: {', '.join(valid_actions)}")
-
-    from verenigingen.verenigingen.report.overdue_member_payments.overdue_member_payments import get_data
-
-    filters = parse_json_filters(filters)
-
-    # Modify filters based on apply_to selection
-    if filters is None:
-        filters = {}
-    if apply_to == "Critical Only (>60 days)":
-        filters["critical_only"] = True
-    elif apply_to == "Urgent Only (>30 days)":
-        filters["urgent_only"] = True
-
-    data = get_data(filters)
-
-    if not data:
-        return {"success": False, "message": _("No records found"), "count": 0}
-
-    processed_count = 0
-
-    for payment_info in data:
-        try:
-            if action == "Send Payment Reminders":
-                send_payment_reminder_email(
-                    member_name=payment_info.get("member_name"),
-                    reminder_type="Bulk Reminder",
-                    payment_info=payment_info,
-                )
-
-            elif action == "Suspend Memberships":
-                suspend_member_for_nonpayment(payment_info.get("member_name"))
-
-            elif action == "Create Payment Plan":
-                create_payment_plan(payment_info.get("member_name"), payment_info)
-
-            elif action == "Mark for Collection Agency":
-                mark_for_collection(payment_info.get("member_name"), payment_info)
-
-            elif action == "Apply Late Fees":
-                apply_late_fees(payment_info.get("member_name"), payment_info)
-
-            processed_count += 1
-
-        except Exception as e:
-            log_error(
-                f"Bulk action failed for {payment_info.get('member_name')}: {str(e)}",
-                "Bulk Payment Action Error",
-            )
-            continue
-
-    return {"success": True, "message": _("Bulk action completed"), "count": processed_count}
+        frappe.log_error(
+            message=f"Bulk payment action failed: {str(e)}\n{traceback.format_exc()}",
+            title="Payment Processing - Bulk Action Failed",
+        )
+        return OperationResult.fail(
+            error=_("Failed to execute bulk payment action: {0}").format(str(e)), http_status_code=500
+        )
 
 
 def send_payment_reminder_email(
@@ -765,157 +816,167 @@ def process_application_refund(member_name, reason):
         return {"success": False, "message": f"Refund processing failed: {str(e)}"}
 
 
-@frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
+@frappe.whitelist()
 @handle_api_error
-def check_scheduler_logs():
+def check_scheduler_logs() -> OperationResult[Dict[str, Any]]:
     """Check dues schedule scheduler error logs in the last 7 days"""
-    from datetime import datetime, timedelta
+    try:
+        from datetime import datetime, timedelta
 
-    # Calculate date 7 days ago
-    seven_days_ago = datetime.now() - timedelta(days=7)
+        # Calculate date 7 days ago
+        seven_days_ago = datetime.now() - timedelta(days=7)
 
-    results = {
-        "error_logs": [],
-        "scheduled_jobs": [],
-        "dues_schedule_errors": [],
-        "payment_errors": [],
-        "job_stats": {},
-        "detailed_errors": [],
-    }
+        results = {
+            "error_logs": [],
+            "scheduled_jobs": [],
+            "dues_schedule_errors": [],
+            "payment_errors": [],
+            "job_stats": {},
+            "detailed_errors": [],
+        }
 
-    # Check Error Log for dues schedule-related errors
-    error_logs = frappe.get_all(
-        "Error Log",
-        filters={
-            "error": ["like", "%dues%schedule%"],
-            "creation": [">", seven_days_ago.strftime("%Y-%m-%d")],
-        },
-        fields=["name", "error", "creation", "method"],
-        order_by="creation desc",
-        limit=10,
-    )
+        # Check Error Log for dues schedule-related errors
+        error_logs = frappe.get_all(
+            "Error Log",
+            filters={
+                "error": ["like", "%dues%schedule%"],
+                "creation": [">", seven_days_ago.strftime("%Y-%m-%d")],
+            },
+            fields=["name", "error", "creation", "method"],
+            order_by="creation desc",
+            limit=10,
+        )
 
-    # Also check for membership-related errors
-    membership_error_logs = frappe.get_all(
-        "Error Log",
-        filters={
-            "error": ["like", "%membership%dues%"],
-            "creation": [">", seven_days_ago.strftime("%Y-%m-%d")],
-        },
-        fields=["name", "error", "creation", "method"],
-        order_by="creation desc",
-        limit=10,
-    )
+        # Also check for membership-related errors
+        membership_error_logs = frappe.get_all(
+            "Error Log",
+            filters={
+                "error": ["like", "%membership%dues%"],
+                "creation": [">", seven_days_ago.strftime("%Y-%m-%d")],
+            },
+            fields=["name", "error", "creation", "method"],
+            order_by="creation desc",
+            limit=10,
+        )
 
-    # Combine error logs
-    all_error_logs = error_logs + membership_error_logs
-    # Remove duplicates and sort
-    seen = set()
-    unique_error_logs = []
-    for log in all_error_logs:
-        if log["name"] not in seen:
-            seen.add(log["name"])
-            unique_error_logs.append(log)
-    unique_error_logs.sort(key=lambda x: x["creation"], reverse=True)
-    error_logs = unique_error_logs[:10]  # Keep only top 10
+        # Combine error logs
+        all_error_logs = error_logs + membership_error_logs
+        # Remove duplicates and sort
+        seen = set()
+        unique_error_logs = []
+        for log in all_error_logs:
+            if log["name"] not in seen:
+                seen.add(log["name"])
+                unique_error_logs.append(log)
+        unique_error_logs.sort(key=lambda x: x["creation"], reverse=True)
+        error_logs = unique_error_logs[:10]  # Keep only top 10
 
-    results["error_logs"] = error_logs
+        results["error_logs"] = error_logs
 
-    # Get detailed error information
-    detailed_errors = []
-    for error_log in error_logs[:5]:  # Get details for first 5 errors
-        try:
-            error_doc = frappe.get_doc("Error Log", error_log["name"])
-            detailed_errors.append(
-                {
-                    "name": error_doc.name,
-                    "method": error_doc.method,
-                    "creation": error_doc.creation,
-                    "reference_doctype": getattr(error_doc, "reference_doctype", None),
-                    "reference_name": getattr(error_doc, "reference_name", None),
-                    "error": error_doc.error[:1000],  # First 1000 chars
-                }
-            )
-        except frappe.DoesNotExistError:
-            frappe.log_error(
-                message=f"Error Log {error_log['name']} does not exist",
-                title="Payment Processing - Missing Error Log",
-                reference_doctype="Error Log",
-                reference_name=error_log["name"],
-            )
-            # Continue processing other errors
-        except Exception as e:
-            frappe.log_error(
-                message=f"Failed to retrieve error log details: {str(e)}",
-                title="Payment Processing - Error Log Retrieval Failed",
-                reference_doctype="Error Log",
-                reference_name=error_log.get("name", "Unknown"),
-            )
-            # Continue processing other errors
+        # Get detailed error information
+        detailed_errors = []
+        for error_log in error_logs[:5]:  # Get details for first 5 errors
+            try:
+                error_doc = frappe.get_doc("Error Log", error_log["name"])
+                detailed_errors.append(
+                    {
+                        "name": error_doc.name,
+                        "method": error_doc.method,
+                        "creation": error_doc.creation,
+                        "reference_doctype": getattr(error_doc, "reference_doctype", None),
+                        "reference_name": getattr(error_doc, "reference_name", None),
+                        "error": error_doc.error[:1000],  # First 1000 chars
+                    }
+                )
+            except frappe.DoesNotExistError:
+                frappe.log_error(
+                    message=f"Error Log {error_log['name']} does not exist",
+                    title="Payment Processing - Missing Error Log",
+                    reference_doctype="Error Log",
+                    reference_name=error_log["name"],
+                )
+                # Continue processing other errors
+            except Exception as e:
+                frappe.log_error(
+                    message=f"Failed to retrieve error log details: {str(e)}",
+                    title="Payment Processing - Error Log Retrieval Failed",
+                    reference_doctype="Error Log",
+                    reference_name=error_log.get("name", "Unknown"),
+                )
+                # Continue processing other errors
 
-    results["detailed_errors"] = detailed_errors
+        results["detailed_errors"] = detailed_errors
 
-    # Check Scheduled Job Log
-    scheduled_jobs = frappe.get_all(
-        "Scheduled Job Log",
-        filters={"creation": [">", seven_days_ago.strftime("%Y-%m-%d")]},
-        fields=["name", "scheduled_job_type", "status", "creation", "details"],
-        order_by="creation desc",
-        limit=50,
-    )
+        # Check Scheduled Job Log
+        scheduled_jobs = frappe.get_all(
+            "Scheduled Job Log",
+            filters={"creation": [">", seven_days_ago.strftime("%Y-%m-%d")]},
+            fields=["name", "scheduled_job_type", "status", "creation", "details"],
+            order_by="creation desc",
+            limit=50,
+        )
 
-    # Filter dues schedule and membership-related jobs
-    dues_schedule_jobs = [
-        job
-        for job in scheduled_jobs
-        if "dues" in job.scheduled_job_type.lower()
-        or "membership" in job.scheduled_job_type.lower()
-        or "payment" in job.scheduled_job_type.lower()
-    ]
-    results["scheduled_jobs"] = dues_schedule_jobs
+        # Filter dues schedule and membership-related jobs
+        dues_schedule_jobs = [
+            job
+            for job in scheduled_jobs
+            if "dues" in job.scheduled_job_type.lower()
+            or "membership" in job.scheduled_job_type.lower()
+            or "payment" in job.scheduled_job_type.lower()
+        ]
+        results["scheduled_jobs"] = dues_schedule_jobs
 
-    # Check for dues schedule-related errors
-    dues_schedule_errors = frappe.get_all(
-        "Error Log",
-        filters={
-            "error": ["like", "%dues%schedule%"],
-            "creation": [">", seven_days_ago.strftime("%Y-%m-%d")],
-        },
-        fields=["name", "error", "creation", "method", "reference_name"],
-        order_by="creation desc",
-        limit=5,
-    )
+        # Check for dues schedule-related errors
+        dues_schedule_errors = frappe.get_all(
+            "Error Log",
+            filters={
+                "error": ["like", "%dues%schedule%"],
+                "creation": [">", seven_days_ago.strftime("%Y-%m-%d")],
+            },
+            fields=["name", "error", "creation", "method", "reference_name"],
+            order_by="creation desc",
+            limit=5,
+        )
 
-    # Check for payment processing errors
-    payment_errors = frappe.get_all(
-        "Error Log",
-        filters={
-            "error": ["like", "%payment%processing%"],
-            "creation": [">", seven_days_ago.strftime("%Y-%m-%d")],
-        },
-        fields=["name", "error", "creation", "method", "reference_name"],
-        order_by="creation desc",
-        limit=5,
-    )
+        # Check for payment processing errors
+        payment_errors = frappe.get_all(
+            "Error Log",
+            filters={
+                "error": ["like", "%payment%processing%"],
+                "creation": [">", seven_days_ago.strftime("%Y-%m-%d")],
+            },
+            fields=["name", "error", "creation", "method", "reference_name"],
+            order_by="creation desc",
+            limit=5,
+        )
 
-    # Combine schedule and payment errors
-    all_schedule_errors = dues_schedule_errors + payment_errors
-    start_date_errors = all_schedule_errors[:5]  # Keep only top 5
+        # Combine schedule and payment errors
+        all_schedule_errors = dues_schedule_errors + payment_errors
+        start_date_errors = all_schedule_errors[:5]  # Keep only top 5
 
-    results["dues_schedule_errors"] = start_date_errors
+        results["dues_schedule_errors"] = start_date_errors
 
-    # Group jobs by type and status
-    job_stats = {}
-    for job in scheduled_jobs:
-        job_type = job.scheduled_job_type
-        status = job.status
-        if job_type not in job_stats:
-            job_stats[job_type] = {}
-        if status not in job_stats[job_type]:
-            job_stats[job_type][status] = 0
-        job_stats[job_type][status] += 1
+        # Group jobs by type and status
+        job_stats = {}
+        for job in scheduled_jobs:
+            job_type = job.scheduled_job_type
+            status = job.status
+            if job_type not in job_stats:
+                job_stats[job_type] = {}
+            if status not in job_stats[job_type]:
+                job_stats[job_type][status] = 0
+            job_stats[job_type][status] += 1
 
-    results["job_stats"] = job_stats
+        results["job_stats"] = job_stats
 
-    return results
+        return OperationResult.ok(data=results, message=_("Scheduler logs retrieved successfully"))
+
+    except Exception as e:
+        frappe.log_error(
+            message=f"Check scheduler logs failed: {str(e)}\n{traceback.format_exc()}",
+            title="Payment Processing - Scheduler Logs Check Failed",
+        )
+        return OperationResult.fail(
+            error=_("Failed to check scheduler logs: {0}").format(str(e)), http_status_code=500
+        )
