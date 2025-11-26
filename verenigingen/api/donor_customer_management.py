@@ -5,8 +5,13 @@ This module provides RESTful endpoints for managing the relationship
 between Donor and Customer records.
 """
 
+import traceback
+from typing import Any, Dict
+
 import frappe
 from frappe import _
+
+from verenigingen.utils.operation_result import OperationResult
 
 # Import security framework
 from verenigingen.utils.security.api_security_framework import (
@@ -19,7 +24,7 @@ from verenigingen.utils.security.api_security_framework import (
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def get_donor_customer_info(donor_name):
+def get_donor_customer_info(donor_name) -> OperationResult[Dict[str, Any]]:
     """
     Get comprehensive information about donor and its customer integration
 
@@ -27,12 +32,12 @@ def get_donor_customer_info(donor_name):
         donor_name: Name of the donor record
 
     Returns:
-        dict: Donor and customer information
+        OperationResult: Donor and customer information
     """
     try:
         # Get donor document
         if not frappe.db.exists("Donor", donor_name):
-            return {"error": "Donor not found"}
+            return OperationResult.fail(message=_("Donor not found"), error_code="DONOR_NOT_FOUND")
 
         donor_doc = frappe.get_doc("Donor", donor_name)
 
@@ -42,7 +47,7 @@ def get_donor_customer_info(donor_name):
         # Get donation summary
         donation_summary = get_donor_donation_summary(donor_name)
 
-        return {
+        data = {
             "donor": {
                 "name": donor_doc.name,
                 "donor_name": donor_doc.donor_name,
@@ -63,14 +68,19 @@ def get_donor_customer_info(donor_name):
             },
         }
 
+        return OperationResult.ok(data=data, message=_("Donor-customer information retrieved successfully"))
+
     except Exception as e:
-        frappe.log_error(f"Error getting donor-customer info: {str(e)}")
-        return {"error": str(e)}
+        error_msg = _("Error getting donor-customer info: {0}").format(str(e))
+        frappe.log_error(
+            title=_("Donor Customer Info Error"), message=f"{error_msg}\n\n{traceback.format_exc()}"
+        )
+        return OperationResult.fail(message=error_msg, error_code="DONOR_CUSTOMER_INFO_ERROR")
 
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def force_donor_customer_sync(donor_name):
+def force_donor_customer_sync(donor_name) -> OperationResult[Dict[str, Any]]:
     """
     Force synchronization of donor with customer record
 
@@ -78,11 +88,11 @@ def force_donor_customer_sync(donor_name):
         donor_name: Name of the donor record
 
     Returns:
-        dict: Result of sync operation
+        OperationResult: Result of sync operation
     """
     try:
         if not frappe.db.exists("Donor", donor_name):
-            return {"error": "Donor not found"}
+            return OperationResult.fail(message=_("Donor not found"), error_code="DONOR_NOT_FOUND")
 
         donor_doc = frappe.get_doc("Donor", donor_name)
 
@@ -95,28 +105,32 @@ def force_donor_customer_sync(donor_name):
 
         # Determine what happened
         if not original_customer and donor_doc.customer:
-            action = "created"
+            action = _("created")
         elif original_customer != donor_doc.customer:
-            action = "updated"
+            action = _("updated")
         else:
-            action = "synced"
+            action = _("synced")
 
-        return {
-            "success": True,
-            "message": f"Customer {action} successfully",
+        data = {
             "customer": donor_doc.customer,
             "sync_status": donor_doc.customer_sync_status,
             "last_sync": donor_doc.last_customer_sync,
+            "action": action,
         }
 
+        return OperationResult.ok(data=data, message=_("Customer {0} successfully").format(action))
+
     except Exception as e:
-        frappe.log_error(f"Error forcing donor-customer sync: {str(e)}")
-        return {"error": str(e)}
+        error_msg = _("Error forcing donor-customer sync: {0}").format(str(e))
+        frappe.log_error(
+            title=_("Donor Customer Sync Error"), message=f"{error_msg}\n\n{traceback.format_exc()}"
+        )
+        return OperationResult.fail(message=error_msg, error_code="DONOR_CUSTOMER_SYNC_ERROR")
 
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def unlink_donor_customer(donor_name, remove_customer=False):
+def unlink_donor_customer(donor_name, remove_customer=False) -> OperationResult[Dict[str, Any]]:
     """
     Unlink donor from customer record
 
@@ -125,16 +139,18 @@ def unlink_donor_customer(donor_name, remove_customer=False):
         remove_customer: Whether to also delete the customer record
 
     Returns:
-        dict: Result of unlink operation
+        OperationResult: Result of unlink operation
     """
     try:
         if not frappe.db.exists("Donor", donor_name):
-            return {"error": "Donor not found"}
+            return OperationResult.fail(message=_("Donor not found"), error_code="DONOR_NOT_FOUND")
 
         donor_doc = frappe.get_doc("Donor", donor_name)
 
         if not donor_doc.customer:
-            return {"error": "No customer linked to this donor"}
+            return OperationResult.fail(
+                message=_("No customer linked to this donor"), error_code="NO_CUSTOMER_LINKED"
+            )
 
         customer_name = donor_doc.customer
 
@@ -158,29 +174,40 @@ def unlink_donor_customer(donor_name, remove_customer=False):
 
                 if not has_transactions:
                     customer_doc.delete()
-                    return {"success": True, "message": "Donor unlinked and customer deleted successfully"}
+                    data = {"customer_deleted": True, "customer_name": customer_name}
+                    return OperationResult.ok(
+                        data=data, message=_("Donor unlinked and customer deleted successfully")
+                    )
                 else:
-                    return {
-                        "success": True,
-                        "message": "Donor unlinked but customer retained due to existing transactions",
-                        "warning": "Customer has existing transactions and cannot be deleted",
+                    data = {
+                        "customer_deleted": False,
+                        "customer_name": customer_name,
+                        "warning": _("Customer has existing transactions and cannot be deleted"),
                     }
+                    return OperationResult.ok(
+                        data=data,
+                        message=_("Donor unlinked but customer retained due to existing transactions"),
+                    )
 
-        return {"success": True, "message": "Donor unlinked from customer successfully"}
+        data = {"customer_unlinked": True, "customer_name": customer_name}
+        return OperationResult.ok(data=data, message=_("Donor unlinked from customer successfully"))
 
     except Exception as e:
-        frappe.log_error(f"Error unlinking donor-customer: {str(e)}")
-        return {"error": str(e)}
+        error_msg = _("Error unlinking donor-customer: {0}").format(str(e))
+        frappe.log_error(
+            title=_("Donor Customer Unlink Error"), message=f"{error_msg}\n\n{traceback.format_exc()}"
+        )
+        return OperationResult.fail(message=error_msg, error_code="DONOR_CUSTOMER_UNLINK_ERROR")
 
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
-def get_donor_sync_dashboard():
+def get_donor_sync_dashboard() -> OperationResult[Dict[str, Any]]:
     """
     Get dashboard data for donor-customer synchronization management
 
     Returns:
-        dict: Dashboard statistics and data
+        OperationResult: Dashboard statistics and data
     """
     try:
         from verenigingen.utils.donor_customer_sync import get_sync_status_summary
@@ -239,7 +266,7 @@ def get_donor_sync_dashboard():
             as_dict=True,
         )
 
-        return {
+        data = {
             "summary": sync_summary,
             "recent_syncs": recent_syncs,
             "needs_sync": needs_sync,
@@ -247,9 +274,14 @@ def get_donor_sync_dashboard():
             "dashboard_updated": frappe.utils.now(),
         }
 
+        return OperationResult.ok(data=data, message=_("Donor sync dashboard data retrieved successfully"))
+
     except Exception as e:
-        frappe.log_error(f"Error getting sync dashboard: {str(e)}")
-        return {"error": str(e)}
+        error_msg = _("Error getting sync dashboard: {0}").format(str(e))
+        frappe.log_error(
+            title=_("Donor Sync Dashboard Error"), message=f"{error_msg}\n\n{traceback.format_exc()}"
+        )
+        return OperationResult.fail(message=error_msg, error_code="DONOR_SYNC_DASHBOARD_ERROR")
 
 
 def get_donor_donation_summary(donor_name):

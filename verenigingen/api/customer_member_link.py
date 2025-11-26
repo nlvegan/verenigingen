@@ -46,8 +46,13 @@ Author: Verenigingen Development Team
 License: MIT
 """
 
+import traceback
+from typing import Any, Dict
+
 import frappe
 from frappe import _
+
+from verenigingen.utils.operation_result import OperationResult
 
 # Import security decorators
 from verenigingen.utils.security.api_security_framework import (
@@ -106,9 +111,9 @@ def add_customer_to_member_link():
         return {"message": f"Error: {str(e)}", "success": False}
 
 
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 @frappe.whitelist()
-@standard_api  # Customer-member relationship lookup
-def get_member_from_customer(customer):
+def get_member_from_customer(customer) -> OperationResult[Dict[str, Any]]:
     """
     Retrieve the Member record associated with a Customer record.
 
@@ -121,15 +126,15 @@ def get_member_from_customer(customer):
                        associated Member for. Must be a valid Customer document name.
 
     Returns:
-        dict or None: Member information if found, None if no association exists.
-            Success response:
+        OperationResult[Dict[str, Any]]: Result containing Member information if found.
+            Success response data:
             {
                 'name': 'MEM-2024-001',
                 'full_name': 'John Doe',
                 'status': 'Active'
             }
 
-            None: If no Member is associated with the Customer
+            If no Member is associated, returns success with None data.
 
     Raises:
         frappe.PermissionError: If user lacks access to Customer or Member records
@@ -162,27 +167,39 @@ def get_member_from_customer(customer):
         - Financial system integration
         - Reporting and analytics systems
     """
-    # First try the new direct customer.member field
-    member_name = frappe.db.get_value("Customer", customer, "member")
-    if member_name:
-        member = frappe.db.get_value("Member", member_name, ["name", "full_name", "status"], as_dict=True)
+    try:
+        # First try the new direct customer.member field
+        member_name = frappe.db.get_value("Customer", customer, "member")
+        if member_name:
+            member = frappe.db.get_value("Member", member_name, ["name", "full_name", "status"], as_dict=True)
+            if member:
+                return OperationResult.ok(member, message=_("Member found for customer"))
+
+        # Fallback to old method: search Member table for customer field
+        member = frappe.db.get_value(
+            "Member", {"customer": customer}, ["name", "full_name", "status"], as_dict=True
+        )
         if member:
-            return member
+            return OperationResult.ok(member, message=_("Member found for customer"))
 
-    # Fallback to old method: search Member table for customer field
-    member = frappe.db.get_value(
-        "Member", {"customer": customer}, ["name", "full_name", "status"], as_dict=True
-    )
-    if member:
-        return member
-    return None
+        # No member found - this is a valid state, not an error
+        return OperationResult.ok(None, message=_("No member associated with this customer"))
+
+    except Exception as e:
+        error_msg = _("Failed to retrieve member for customer {0}").format(customer)
+        frappe.log_error(
+            title=_("Get Member From Customer Error"),
+            message=f"{error_msg}\n\nCustomer: {customer}\n\nError: {str(e)}\n\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(error_msg, errors=[str(e)])
 
 
-@frappe.whitelist()
 @development_only_api(operation_type=OperationType.UTILITY)
-def create_customer_member_button():
+@frappe.whitelist()
+def create_customer_member_button() -> OperationResult[Dict[str, Any]]:
     """Add a custom button to Customer form to navigate to Member"""
-    return """
+    try:
+        javascript_code = """
     frappe.ui.form.on('Customer', {
         refresh: function(frm) {
             if (!frm.is_new()) {
@@ -207,3 +224,15 @@ def create_customer_member_button():
         }
     });
     """
+        return OperationResult.ok(
+            {"javascript": javascript_code},
+            message=_("Customer-Member navigation button code generated successfully"),
+        )
+
+    except Exception as e:
+        error_msg = _("Failed to generate customer-member button code")
+        frappe.log_error(
+            title=_("Create Customer Member Button Error"),
+            message=f"{error_msg}\n\nError: {str(e)}\n\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(error_msg, errors=[str(e)])
