@@ -41,10 +41,14 @@ Author: Verenigingen Development Team
 License: MIT
 """
 
+import traceback
+from typing import Any, Dict
+
 import frappe
 from frappe import _
 from frappe.utils import add_days, flt, getdate, today
 
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -55,7 +59,7 @@ from verenigingen.utils.security.api_security_framework import (
 
 @critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
-def generate_manual_invoice(member_name):
+def generate_manual_invoice(member_name) -> OperationResult[Dict[str, Any]]:
     """
     Generate a manual invoice for a member's current active dues schedule.
 
@@ -70,21 +74,12 @@ def generate_manual_invoice(member_name):
                           Member document name with an active dues schedule.
 
     Returns:
-        dict: Comprehensive invoice generation result with the following structure:
-            Success case:
+        OperationResult[Dict[str, Any]]: Invoice generation result with data:
             {
-                'success': True,
-                'message': 'Invoice INV-2024-001 generated successfully',
                 'invoice_name': 'INV-2024-001',
-                'invoice_amount': 25.00,
-                'member_name': 'John Doe',
+                'amount': 25.00,
+                'customer': 'CUST-001',
                 'dues_schedule': 'MDS-2024-001'
-            }
-
-            Error cases:
-            {
-                'success': False,
-                'error': 'Descriptive error message explaining the failure'
             }
 
     Raises:
@@ -123,16 +118,20 @@ def generate_manual_invoice(member_name):
     try:
         # Validate member exists
         if not frappe.db.exists("Member", member_name):
-            return {"success": False, "error": f"Member {member_name} not found"}
+            return OperationResult.fail(
+                _("Member {0} not found").format(member_name), error_code="MEMBER_NOT_FOUND"
+            )
 
         member = frappe.get_doc("Member", member_name)
 
         # Check if member has a customer record
         if not member.customer:
-            return {
-                "success": False,
-                "error": "Member must have a customer record to generate invoices. Please create a customer record first.",
-            }
+            return OperationResult.fail(
+                _(
+                    "Member must have a customer record to generate invoices. Please create a customer record first."
+                ),
+                error_code="NO_CUSTOMER_RECORD",
+            )
 
         # Find the member's active dues schedule
         dues_schedule = frappe.db.get_value(
@@ -143,10 +142,10 @@ def generate_manual_invoice(member_name):
         )
 
         if not dues_schedule:
-            return {
-                "success": False,
-                "error": "No active dues schedule found for this member. Please create a dues schedule first.",
-            }
+            return OperationResult.fail(
+                _("No active dues schedule found for this member. Please create a dues schedule first."),
+                error_code="NO_ACTIVE_DUES_SCHEDULE",
+            )
 
         schedule_doc = frappe.get_doc("Membership Dues Schedule", dues_schedule.name)
 
@@ -155,28 +154,42 @@ def generate_manual_invoice(member_name):
             invoice_name = schedule_doc.generate_invoice(force=True)  # Force generation for manual invoices
 
             if invoice_name:
-                return {
-                    "success": True,
-                    "message": f"Invoice {invoice_name} generated successfully",
+                data = {
                     "invoice_name": invoice_name,
                     "amount": flt(dues_schedule.dues_rate, 2),
                     "customer": member.customer,
                     "dues_schedule": dues_schedule.name,
                 }
+                return OperationResult.ok(
+                    data, message=_("Invoice {0} generated successfully").format(invoice_name)
+                )
             else:
-                return {"success": False, "error": "Failed to generate invoice - no invoice created"}
+                return OperationResult.fail(
+                    _("Failed to generate invoice - no invoice created"),
+                    error_code="INVOICE_GENERATION_FAILED",
+                )
 
         except Exception as invoice_error:
-            return {"success": False, "error": f"Error generating invoice: {str(invoice_error)}"}
+            frappe.log_error(
+                f"Invoice generation error for member {member_name}: {str(invoice_error)}\n{traceback.format_exc()}",
+                "Manual Invoice Generation Error",
+            )
+            return OperationResult.fail(
+                _("Error generating invoice: {0}").format(str(invoice_error)),
+                error_code="INVOICE_GENERATION_ERROR",
+            )
 
     except Exception as e:
-        frappe.log_error(f"Error in manual invoice generation for {member_name}: {str(e)}")
-        return {"success": False, "error": f"Unexpected error: {str(e)}"}
+        frappe.log_error(
+            f"Error in manual invoice generation for {member_name}: {str(e)}\n{traceback.format_exc()}",
+            "Manual Invoice Generation Error",
+        )
+        return OperationResult.fail(_("Unexpected error: {0}").format(str(e)), error_code="UNEXPECTED_ERROR")
 
 
 @standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
-def get_member_invoice_info(member_name):
+def get_member_invoice_info(member_name) -> OperationResult[Dict[str, Any]]:
     """
     Get information about member's dues schedule and recent invoices for UI display
 
@@ -184,11 +197,13 @@ def get_member_invoice_info(member_name):
         member_name: Name of the Member record
 
     Returns:
-        dict: Member invoice information
+        OperationResult[Dict[str, Any]]: Member invoice information
     """
     try:
         if not frappe.db.exists("Member", member_name):
-            return {"success": False, "error": f"Member {member_name} not found"}
+            return OperationResult.fail(
+                _("Member {0} not found").format(member_name), error_code="MEMBER_NOT_FOUND"
+            )
 
         member = frappe.get_doc("Member", member_name)
 
@@ -200,8 +215,7 @@ def get_member_invoice_info(member_name):
             as_dict=True,
         )
 
-        result = {
-            "success": True,
+        data = {
             "member_name": member.full_name,
             "has_customer": bool(member.customer),
             "customer": member.customer,
@@ -209,7 +223,7 @@ def get_member_invoice_info(member_name):
         }
 
         if dues_schedule:
-            result.update(
+            data.update(
                 {
                     "dues_schedule_name": dues_schedule.name,
                     "current_rate": flt(dues_schedule.dues_rate, 2),
@@ -228,18 +242,23 @@ def get_member_invoice_info(member_name):
                     order_by="posting_date desc",
                     limit=5,
                 )
-                result["recent_invoices"] = recent_invoices
+                data["recent_invoices"] = recent_invoices
 
-        return result
+        return OperationResult.ok(data, message=_("Member invoice information retrieved successfully"))
 
     except Exception as e:
-        frappe.log_error(f"Error getting invoice info for {member_name}: {str(e)}")
-        return {"success": False, "error": f"Error retrieving information: {str(e)}"}
+        frappe.log_error(
+            f"Error getting invoice info for {member_name}: {str(e)}\n{traceback.format_exc()}",
+            "Get Member Invoice Info Error",
+        )
+        return OperationResult.fail(
+            _("Error retrieving information: {0}").format(str(e)), error_code="RETRIEVAL_ERROR"
+        )
 
 
 @standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
-def test_settings_creation_user():
+def test_settings_creation_user() -> OperationResult[Dict[str, Any]]:
     """Test if the creation_user field from Verenigingen Settings is accessible"""
     try:
         settings = frappe.get_single("Verenigingen Settings")
@@ -258,8 +277,7 @@ def test_settings_creation_user():
             except Exception:
                 admins = ["Administrator"]  # Final fallback
 
-        result = {
-            "success": True,
+        data = {
             "creation_user": creation_user,
             "has_field": hasattr(settings, "creation_user"),
             "field_value": creation_user if creation_user else "Not set",
@@ -268,23 +286,27 @@ def test_settings_creation_user():
             and (admins[0] == creation_user if creation_user else admins[0] == "Administrator"),
         }
 
-        return result
+        return OperationResult.ok(data, message=_("Creation user settings test completed successfully"))
 
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error testing settings creation user: {str(e)}\n{traceback.format_exc()}",
+            "Settings Creation User Test Error",
+        )
+        return OperationResult.fail(_("Error: {0}").format(str(e)), error_code="TEST_ERROR")
 
 
 @standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
-def test_email_template_variables():
+def test_email_template_variables() -> OperationResult[Dict[str, Any]]:
     """Test email template variable parsing for common issues"""
     try:
-        results = {"success": True, "tests": [], "fixed_issues": [], "remaining_issues": []}
+        data = {"tests": [], "fixed_issues": [], "remaining_issues": []}
 
         # Test 1: Check application confirmation email subject parsing
         test_application_id = "TEST-APP-123"
         test_subject = f"Membership Application Received - ID: {test_application_id}"
-        results["tests"].append(
+        data["tests"].append(
             {
                 "test": "Application confirmation subject",
                 "expected": "Membership Application Received - ID: TEST-APP-123",
@@ -292,7 +314,7 @@ def test_email_template_variables():
                 "passed": test_subject == "Membership Application Received - ID: TEST-APP-123",
             }
         )
-        results["fixed_issues"].append("Application confirmation email subject variable parsing")
+        data["fixed_issues"].append("Application confirmation email subject variable parsing")
 
         # Test 2: Check reviewer notification email subject parsing
         from unittest.mock import Mock
@@ -300,7 +322,7 @@ def test_email_template_variables():
         mock_member = Mock()
         mock_member.full_name = "John Doe"
         test_subject2 = f"New Application: {test_application_id} - {mock_member.full_name}"
-        results["tests"].append(
+        data["tests"].append(
             {
                 "test": "Reviewer notification subject",
                 "expected": "New Application: TEST-APP-123 - John Doe",
@@ -308,11 +330,11 @@ def test_email_template_variables():
                 "passed": test_subject2 == "New Application: TEST-APP-123 - John Doe",
             }
         )
-        results["fixed_issues"].append("Reviewer notification email subject variable parsing")
+        data["fixed_issues"].append("Reviewer notification email subject variable parsing")
 
         # Test 3: Check admin notification email subject parsing
         test_subject3 = f"New Application: {mock_member.full_name}"
-        results["tests"].append(
+        data["tests"].append(
             {
                 "test": "Admin notification subject",
                 "expected": "New Application: John Doe",
@@ -320,7 +342,7 @@ def test_email_template_variables():
                 "passed": test_subject3 == "New Application: John Doe",
             }
         )
-        results["fixed_issues"].append("Admin notification email subject variable parsing")
+        data["fixed_issues"].append("Admin notification email subject variable parsing")
 
         # Test 4: Check approval email payment URL parsing
         from unittest.mock import Mock
@@ -329,7 +351,7 @@ def test_email_template_variables():
         mock_invoice.name = "SINV-2025-001"
         payment_url = frappe.utils.get_url() + f"/payment?invoice={mock_invoice.name}"
         expected_url_pattern = "/payment?invoice=SINV-2025-001"
-        results["tests"].append(
+        data["tests"].append(
             {
                 "test": "Approval email payment URL",
                 "expected": f"Contains: {expected_url_pattern}",
@@ -337,28 +359,38 @@ def test_email_template_variables():
                 "passed": expected_url_pattern in payment_url,
             }
         )
-        results["fixed_issues"].append("Approval email payment URL variable parsing")
+        data["fixed_issues"].append("Approval email payment URL variable parsing")
 
         # Check overall success
-        all_passed = all(test["passed"] for test in results["tests"])
-        results["success"] = all_passed
-        results["summary"] = f"Fixed {len(results['fixed_issues'])} email template variable parsing issues"
+        all_passed = all(test["passed"] for test in data["tests"])
+        data["summary"] = f"Fixed {len(data['fixed_issues'])} email template variable parsing issues"
 
-        return results
+        if all_passed:
+            return OperationResult.ok(data, message=_("Email template variable tests completed successfully"))
+        else:
+            return OperationResult.fail(
+                _("Some email template variable tests failed"), error_code="TEMPLATE_TEST_FAILED", data=data
+            )
 
     except Exception as e:
-        return {"success": False, "error": str(e), "message": "Error testing email template variables"}
+        frappe.log_error(
+            f"Error testing email template variables: {str(e)}\n{traceback.format_exc()}",
+            "Email Template Variable Test Error",
+        )
+        return OperationResult.fail(
+            _("Error testing email template variables: {0}").format(str(e)), error_code="TEMPLATE_TEST_ERROR"
+        )
 
 
 @standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
-def scan_email_template_issues():
+def scan_email_template_issues() -> OperationResult[Dict[str, Any]]:
     """Scan the codebase for potential email template variable parsing issues"""
     try:
         import os
         import re
 
-        results = {"success": True, "scanned_files": 0, "potential_issues": [], "recommendations": []}
+        data = {"scanned_files": 0, "potential_issues": [], "recommendations": []}
 
         # Define patterns that might indicate issues
         problematic_patterns = [
@@ -386,7 +418,7 @@ def scan_email_template_issues():
                     try:
                         with open(file_path, "r", encoding="utf-8") as f:
                             content = f.read()
-                            results["scanned_files"] += 1
+                            data["scanned_files"] += 1
 
                             # Check for each problematic pattern
                             for pattern, description in problematic_patterns:
@@ -396,7 +428,7 @@ def scan_email_template_issues():
                                     line_number = content[: match.start()].count("\n") + 1
                                     relative_path = file_path.replace(app_directory, "")
 
-                                    results["potential_issues"].append(
+                                    data["potential_issues"].append(
                                         {
                                             "file": relative_path,
                                             "line": line_number,
@@ -413,7 +445,7 @@ def scan_email_template_issues():
                         continue
 
         # Add specific recommendations based on what we fixed
-        results["recommendations"] = [
+        data["recommendations"] = [
             "Use f-string formatting for subject lines: subject=f'Text {variable}'",
             "Ensure payment_url variables are properly defined before use",
             "Use frappe.render_template() for complex Jinja2 templates",
@@ -421,19 +453,25 @@ def scan_email_template_issues():
             "Consider creating helper functions for common email patterns",
         ]
 
-        results["summary"] = (
-            f"Scanned {results['scanned_files']} files, found {len(results['potential_issues'])} potential issues"
-        )
+        data[
+            "summary"
+        ] = f"Scanned {data['scanned_files']} files, found {len(data['potential_issues'])} potential issues"
 
-        return results
+        return OperationResult.ok(data, message=_("Email template scan completed successfully"))
 
     except Exception as e:
-        return {"success": False, "error": str(e), "message": "Error scanning for email template issues"}
+        frappe.log_error(
+            f"Error scanning for email template issues: {str(e)}\n{traceback.format_exc()}",
+            "Email Template Scan Error",
+        )
+        return OperationResult.fail(
+            _("Error scanning for email template issues: {0}").format(str(e)), error_code="SCAN_ERROR"
+        )
 
 
 @standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
-def test_sepa_mandate_pattern():
+def test_sepa_mandate_pattern() -> OperationResult[Dict[str, Any]]:
     """Test the configurable SEPA mandate_id generation pattern"""
 
     result = []
@@ -448,7 +486,11 @@ def test_sepa_mandate_pattern():
 
         if current_pattern is None:
             result.append("❌ Field 'sepa_mandate_naming_pattern' not found in Verenigingen Settings!")
-            return {"success": False, "message": "\n".join(result)}
+            return OperationResult.fail(
+                _("Field 'sepa_mandate_naming_pattern' not found in Verenigingen Settings"),
+                error_code="FIELD_NOT_FOUND",
+                data={"message": "\n".join(result)},
+            )
 
         result.append(f"Current SEPA mandate pattern: {current_pattern}")
 
@@ -487,84 +529,103 @@ def test_sepa_mandate_pattern():
 
         if generated_mandate_id and generated_mandate_id.startswith("TEST-REF-"):
             result.append("\n✅ All tests passed! SEPA mandate_id auto-generation is working.")
-            return {
-                "success": True,
+            data = {
                 "message": "\n".join(result),
                 "original_pattern": original_pattern,
                 "generated_mandate_id": generated_mandate_id,
             }
+            return OperationResult.ok(data, message=_("SEPA mandate pattern test completed successfully"))
         else:
             result.append(
                 f"\n❌ Test failed: mandate_id '{generated_mandate_id}' doesn't match expected pattern"
             )
-            return {"success": False, "message": "\n".join(result)}
+            return OperationResult.fail(
+                _("Test failed: mandate_id doesn't match expected pattern"),
+                error_code="PATTERN_MISMATCH",
+                data={"message": "\n".join(result)},
+            )
 
     except Exception as e:
         result.append(f"\n❌ Error during testing: {str(e)}")
-        return {"success": False, "error": str(e), "message": "\n".join(result)}
+        frappe.log_error(
+            f"Error testing SEPA mandate pattern: {str(e)}\n{traceback.format_exc()}",
+            "SEPA Mandate Pattern Test Error",
+        )
+        return OperationResult.fail(
+            _("Error during testing: {0}").format(str(e)),
+            error_code="TEST_ERROR",
+            data={"message": "\n".join(result)},
+        )
 
 
 @standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
-def check_dues_schedules():
+def check_dues_schedules() -> OperationResult[Dict[str, Any]]:
     """Check status of dues schedules"""
+    try:
+        # Get schedules with upcoming invoice dates
+        schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"status": "Active", "auto_generate": 1, "is_template": 0},
+            fields=["name", "member_name", "next_invoice_date", "billing_frequency"],
+            order_by="next_invoice_date",
+            limit=10,
+        )
 
-    # Get schedules with upcoming invoice dates
-    schedules = frappe.get_all(
-        "Membership Dues Schedule",
-        filters={"status": "Active", "auto_generate": 1, "is_template": 0},
-        fields=["name", "member_name", "next_invoice_date", "billing_frequency"],
-        order_by="next_invoice_date",
-        limit=10,
-    )
+        data = {"today": today(), "cutoff_date": add_days(today(), 30), "schedules": schedules}
 
-    result = {"today": today(), "cutoff_date": add_days(today(), 30), "schedules": schedules}
+        # Count schedules by next invoice date range
+        data["due_now"] = frappe.db.count(
+            "Membership Dues Schedule",
+            {"status": "Active", "auto_generate": 1, "next_invoice_date": ["<=", today()], "is_template": 0},
+        )
 
-    # Count schedules by next invoice date range
-    result["due_now"] = frappe.db.count(
-        "Membership Dues Schedule",
-        {"status": "Active", "auto_generate": 1, "next_invoice_date": ["<=", today()], "is_template": 0},
-    )
+        data["due_30_days"] = frappe.db.count(
+            "Membership Dues Schedule",
+            {
+                "status": "Active",
+                "auto_generate": 1,
+                "next_invoice_date": ["<=", add_days(today(), 30)],
+                "is_template": 0,
+            },
+        )
 
-    result["due_30_days"] = frappe.db.count(
-        "Membership Dues Schedule",
-        {
-            "status": "Active",
-            "auto_generate": 1,
-            "next_invoice_date": ["<=", add_days(today(), 30)],
-            "is_template": 0,
-        },
-    )
+        # Get some that are past due if any
+        past_due = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={
+                "status": "Active",
+                "auto_generate": 1,
+                "next_invoice_date": ["<", today()],
+                "is_template": 0,
+            },
+            fields=["name", "member_name", "next_invoice_date"],
+            limit=5,
+        )
 
-    # Get some that are past due if any
-    past_due = frappe.get_all(
-        "Membership Dues Schedule",
-        filters={
-            "status": "Active",
-            "auto_generate": 1,
-            "next_invoice_date": ["<", today()],
-            "is_template": 0,
-        },
-        fields=["name", "member_name", "next_invoice_date"],
-        limit=5,
-    )
+        data["past_due_schedules"] = past_due
 
-    result["past_due_schedules"] = past_due
+        return OperationResult.ok(data, message=_("Dues schedules status retrieved successfully"))
 
-    return result
+    except Exception as e:
+        frappe.log_error(
+            f"Error checking dues schedules: {str(e)}\n{traceback.format_exc()}", "Check Dues Schedules Error"
+        )
+        return OperationResult.fail(
+            _("Error checking dues schedules: {0}").format(str(e)), error_code="CHECK_ERROR"
+        )
 
 
 @standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
-def test_hybrid_payment_history_implementation():
+def test_hybrid_payment_history_implementation() -> OperationResult[Dict[str, Any]]:
     """
     Test the hybrid payment history implementation to verify:
     1. Bulk operations handle their own payment history updates
     2. Individual operations use event handlers
     3. No duplicate processing occurs
     """
-    results = {
-        "success": True,
+    data = {
         "tests": [],
         "bulk_test": {},
         "individual_test": {},
@@ -574,7 +635,7 @@ def test_hybrid_payment_history_implementation():
 
     try:
         # Test 1: Verify bulk processing flag works
-        results["tests"].append("Testing bulk processing flag detection")
+        data["tests"].append("Testing bulk processing flag detection")
 
         # Simulate bulk processing flag
         frappe.flags.bulk_invoice_generation = True
@@ -588,33 +649,33 @@ def test_hybrid_payment_history_implementation():
         # Test that handler respects bulk flag (should return early)
         try:
             handle_invoice_submitted("invoice_submitted", test_event_data)
-            results["bulk_test"]["flag_respected"] = True
+            data["bulk_test"]["flag_respected"] = True
         except Exception as e:
-            results["bulk_test"]["flag_respected"] = False
-            results["bulk_test"]["flag_error"] = str(e)
+            data["bulk_test"]["flag_respected"] = False
+            data["bulk_test"]["flag_error"] = str(e)
 
         # Clear the flag
         delattr(frappe.flags, "bulk_invoice_generation")
 
         # Test 2: Verify individual processing works when flag is not set
-        results["tests"].append("Testing individual processing without bulk flag")
+        data["tests"].append("Testing individual processing without bulk flag")
 
         # Check that handlers work normally without the flag
         try:
             # This should not skip processing (but may fail due to non-existent customer)
             handle_invoice_submitted("invoice_submitted", test_event_data)
-            results["individual_test"]["processes_normally"] = True
+            data["individual_test"]["processes_normally"] = True
         except Exception as e:
             # Expected to fail with non-existent customer, but should not skip due to flag
             if "bulk processing active" in str(e):
-                results["individual_test"]["processes_normally"] = False
-                results["individual_test"]["error"] = "Still skipping despite no bulk flag"
+                data["individual_test"]["processes_normally"] = False
+                data["individual_test"]["error"] = "Still skipping despite no bulk flag"
             else:
-                results["individual_test"]["processes_normally"] = True
-                results["individual_test"]["expected_error"] = str(e)[:100]
+                data["individual_test"]["processes_normally"] = True
+                data["individual_test"]["expected_error"] = str(e)[:100]
 
         # Test 3: Verify invoice events skip emission during bulk processing
-        results["tests"].append("Testing invoice event emission during bulk processing")
+        data["tests"].append("Testing invoice event emission during bulk processing")
 
         # Import invoice events
         from verenigingen.events.invoice_events import _emit_invoice_event
@@ -625,16 +686,16 @@ def test_hybrid_payment_history_implementation():
         try:
             # This should return early without processing
             _emit_invoice_event("invoice_submitted", test_event_data)
-            results["bulk_test"]["event_emission_skipped"] = True
+            data["bulk_test"]["event_emission_skipped"] = True
         except Exception as e:
-            results["bulk_test"]["event_emission_skipped"] = False
-            results["bulk_test"]["emission_error"] = str(e)
+            data["bulk_test"]["event_emission_skipped"] = False
+            data["bulk_test"]["emission_error"] = str(e)
 
         # Clear the flag
         delattr(frappe.flags, "bulk_invoice_generation")
 
         # Test 4: Check that the bulk update function exists and is callable
-        results["tests"].append("Testing bulk payment history update function")
+        data["tests"].append("Testing bulk payment history update function")
 
         try:
             from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import (
@@ -643,33 +704,39 @@ def test_hybrid_payment_history_implementation():
 
             # Test with empty data (should not fail)
             test_result = _bulk_update_payment_history(set(), [])
-            results["bulk_test"]["function_callable"] = True
-            results["bulk_test"]["empty_test_result"] = test_result
+            data["bulk_test"]["function_callable"] = True
+            data["bulk_test"]["empty_test_result"] = test_result
         except Exception as e:
-            results["bulk_test"]["function_callable"] = False
-            results["bulk_test"]["function_error"] = str(e)
+            data["bulk_test"]["function_callable"] = False
+            data["bulk_test"]["function_error"] = str(e)
 
         # Generate summary
         all_passed = (
-            results["bulk_test"].get("flag_respected", False)
-            and results["individual_test"].get("processes_normally", False)
-            and results["bulk_test"].get("event_emission_skipped", False)
-            and results["bulk_test"].get("function_callable", False)
+            data["bulk_test"].get("flag_respected", False)
+            and data["individual_test"].get("processes_normally", False)
+            and data["bulk_test"].get("event_emission_skipped", False)
+            and data["bulk_test"].get("function_callable", False)
         )
 
         if all_passed:
-            results["summary"] = "✅ All hybrid implementation tests passed"
+            data["summary"] = "✅ All hybrid implementation tests passed"
+            return OperationResult.ok(data, message=_("Hybrid payment history implementation tests passed"))
         else:
-            results["summary"] = "❌ Some hybrid implementation tests failed"
-            results["success"] = False
-
-        return results
+            data["summary"] = "❌ Some hybrid implementation tests failed"
+            return OperationResult.fail(
+                _("Some hybrid implementation tests failed"), error_code="HYBRID_TEST_FAILED", data=data
+            )
 
     except Exception as e:
-        results["success"] = False
-        results["errors"].append(f"Test execution error: {str(e)}")
-        results["summary"] = f"❌ Test execution failed: {str(e)}"
-        return results
+        data["errors"].append(f"Test execution error: {str(e)}")
+        data["summary"] = f"❌ Test execution failed: {str(e)}"
+        frappe.log_error(
+            f"Error testing hybrid payment history: {str(e)}\n{traceback.format_exc()}",
+            "Hybrid Payment History Test Error",
+        )
+        return OperationResult.fail(
+            _("Test execution failed: {0}").format(str(e)), error_code="TEST_EXECUTION_ERROR", data=data
+        )
 
     finally:
         # Ensure flag is cleared
@@ -679,17 +746,16 @@ def test_hybrid_payment_history_implementation():
 
 @standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
-def diagnose_auto_submit_setting():
+def diagnose_auto_submit_setting() -> OperationResult[Dict[str, Any]]:
     """
     Diagnose the auto-submit setting for membership invoices to understand
     why invoices might be staying in draft mode instead of being submitted.
 
     Returns:
-        dict: Diagnostic information about auto-submit configuration and recent invoices
+        OperationResult[Dict[str, Any]]: Diagnostic information about auto-submit configuration and recent invoices
     """
     try:
-        results = {
-            "success": True,
+        data = {
             "timestamp": frappe.utils.now(),
             "auto_submit_config": {},
             "recent_invoices": [],
@@ -702,7 +768,7 @@ def diagnose_auto_submit_setting():
             settings = frappe.get_single("Verenigingen Settings")
             auto_submit_value = getattr(settings, "auto_submit_membership_invoices", None)
 
-            results["auto_submit_config"] = {
+            data["auto_submit_config"] = {
                 "field_exists": hasattr(settings, "auto_submit_membership_invoices"),
                 "current_value": auto_submit_value,
                 "value_type": type(auto_submit_value).__name__,
@@ -711,14 +777,14 @@ def diagnose_auto_submit_setting():
             }
 
         except frappe.DoesNotExistError:
-            results["auto_submit_config"] = {
+            data["auto_submit_config"] = {
                 "field_exists": False,
                 "current_value": None,
                 "error": "Verenigingen Settings doctype does not exist",
                 "settings_doctype_exists": False,
             }
         except Exception as e:
-            results["auto_submit_config"] = {
+            data["auto_submit_config"] = {
                 "field_exists": False,
                 "current_value": None,
                 "error": f"Error accessing settings: {str(e)}",
@@ -748,7 +814,7 @@ def diagnose_auto_submit_setting():
                 limit=20,
             )
 
-            results["recent_invoices"] = recent_invoices
+            data["recent_invoices"] = recent_invoices
 
             # Analyze invoice patterns
             draft_count = len([inv for inv in recent_invoices if inv.docstatus == 0])
@@ -757,7 +823,7 @@ def diagnose_auto_submit_setting():
                 [inv for inv in recent_invoices if inv.remarks and "Membership Dues Schedule" in inv.remarks]
             )
 
-            results["invoice_analysis"] = {
+            data["invoice_analysis"] = {
                 "total_recent_invoices": len(recent_invoices),
                 "draft_invoices": draft_count,
                 "submitted_invoices": submitted_count,
@@ -768,8 +834,8 @@ def diagnose_auto_submit_setting():
             }
 
         except Exception as e:
-            results["recent_invoices"] = []
-            results["invoice_analysis"] = {"error": f"Error analyzing recent invoices: {str(e)}"}
+            data["recent_invoices"] = []
+            data["invoice_analysis"] = {"error": f"Error analyzing recent invoices: {str(e)}"}
 
         # Check the actual implementation in membership dues schedule
         try:
@@ -778,47 +844,54 @@ def diagnose_auto_submit_setting():
                 "Verenigingen Settings", "auto_submit_membership_invoices"
             )
 
-            results["implementation_check"] = {
+            data["implementation_check"] = {
                 "setting_accessible_via_db": test_setting_access is not None,
                 "setting_value_via_db": test_setting_access,
                 "setting_type_via_db": type(test_setting_access).__name__,
             }
 
         except Exception as e:
-            results["implementation_check"] = {"error": f"Error checking implementation: {str(e)}"}
+            data["implementation_check"] = {"error": f"Error checking implementation: {str(e)}"}
 
         # Generate recommendations based on findings
-        auto_submit_enabled = results["auto_submit_config"].get("is_enabled", False)
-        high_draft_percentage = results["invoice_analysis"].get("draft_percentage", 0) > 50
+        auto_submit_enabled = data["auto_submit_config"].get("is_enabled", False)
+        high_draft_percentage = data["invoice_analysis"].get("draft_percentage", 0) > 50
 
         if not auto_submit_enabled:
-            results["recommendations"].append(
+            data["recommendations"].append(
                 "Auto-submit is disabled. Enable it in Verenigingen Settings to automatically submit membership invoices."
             )
         elif high_draft_percentage:
-            results["recommendations"].append(
+            data["recommendations"].append(
                 "Auto-submit is enabled but many invoices remain in draft. Check for errors in invoice submission logic."
             )
         else:
-            results["recommendations"].append(
+            data["recommendations"].append(
                 "Auto-submit appears to be working correctly based on recent invoice patterns."
             )
 
-        if not results["auto_submit_config"].get("field_exists", False):
-            results["recommendations"].append(
+        if not data["auto_submit_config"].get("field_exists", False):
+            data["recommendations"].append(
                 "The auto_submit_membership_invoices field is missing from Verenigingen Settings. Add this field to enable auto-submission."
             )
 
         # Add implementation details
-        results["implementation_notes"] = [
+        data["implementation_notes"] = [
             "Auto-submit logic is in MembershipDuesSchedule.create_sales_invoice() method",
             "Setting is checked via frappe.db.get_single_value()",
             "Invoices are submitted with invoice.submit() if auto_submit is True",
             "Errors during submission are logged but don't prevent invoice creation",
         ]
 
-        return results
+        return OperationResult.ok(data, message=_("Auto-submit diagnostic completed successfully"))
 
     except Exception as e:
-        frappe.log_error(f"Error in auto-submit diagnostic: {str(e)}", "Auto-Submit Diagnostic")
-        return {"success": False, "error": f"Diagnostic failed: {str(e)}", "timestamp": frappe.utils.now()}
+        frappe.log_error(
+            f"Error in auto-submit diagnostic: {str(e)}\n{traceback.format_exc()}",
+            "Auto-Submit Diagnostic Error",
+        )
+        return OperationResult.fail(
+            _("Diagnostic failed: {0}").format(str(e)),
+            error_code="DIAGNOSTIC_ERROR",
+            data={"timestamp": frappe.utils.now()},
+        )
