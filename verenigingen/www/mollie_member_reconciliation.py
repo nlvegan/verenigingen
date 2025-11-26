@@ -5,10 +5,14 @@ Member-centric view for reconciling Mollie subscription data with Member records
 Shows all subscriptions per member and allows updating Member fields.
 """
 
+import traceback
+from typing import Any, Dict
+
 import frappe
 from frappe import _
 
 from verenigingen.integrations.mollie.core.mollie_client import MollieClient
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import critical_api
 
 
@@ -37,14 +41,14 @@ def get_context(context):
 
 @frappe.whitelist()
 @critical_api()  # Financial data and member updates
-def get_member_reconciliation_data():
+def get_member_reconciliation_data() -> OperationResult[Dict[str, Any]]:
     """
     Get member-centric reconciliation data showing all Mollie subscriptions per member.
 
     Security: Requires Member read/write, Mollie Settings read permissions.
 
     Returns:
-        dict: Member reconciliation data with subscriptions grouped by member
+        OperationResult[Dict[str, Any]]: Member reconciliation data with subscriptions grouped by member
     """
     try:
         # Get membership dues keywords from settings
@@ -120,17 +124,24 @@ def get_member_reconciliation_data():
             user=frappe.session.user,
         )
 
-        return {
-            "success": True,
+        result = {
             "members": member_data,
             "total_members": len(member_data),
             "dues_keywords": dues_keywords,
             "test_mode": client.test_mode,
         }
 
+        return OperationResult.ok(result, message=_("Member reconciliation completed successfully"))
+
     except Exception as e:
-        frappe.log_error(f"Member reconciliation failed: {str(e)}", "Member Reconciliation")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Member reconciliation failed: {str(e)}\n{traceback.format_exc()}", "Member Reconciliation Error"
+        )
+        return OperationResult.fail(
+            _("Unable to complete member reconciliation. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "get_member_reconciliation_data"},
+        )
 
 
 def _fetch_all_mollie_subscriptions(client):
@@ -278,7 +289,7 @@ def update_member_mollie_fields(
     subscription_status=None,
     next_payment_date=None,
     mollie_subscription_next_invoice_date=None,
-):
+) -> OperationResult[Dict[str, Any]]:
     """
     Update Member's Mollie-related fields and return updated member data.
 
@@ -292,15 +303,17 @@ def update_member_mollie_fields(
         mollie_subscription_next_invoice_date: Next invoice date from Mollie (optional)
 
     Returns:
-        dict: Success status, updated values, and refreshed member data for UI update
+        OperationResult[Dict[str, Any]]: Success status, updated values, and refreshed member data for UI update
     """
     try:
         member = frappe.get_doc("Member", member_id)
 
         # Check write permission
         if not frappe.has_permission("Member", "write", member):
-            frappe.throw(
-                _("Insufficient permissions to update Member {0}").format(member_id), frappe.PermissionError
+            return OperationResult.fail(
+                _("Insufficient permissions to update Member {0}").format(member_id),
+                errors=["Permission denied"],
+                context={"operation": "update_member_mollie_fields", "member_id": member_id},
             )
 
         # Update fields if provided
@@ -327,8 +340,7 @@ def update_member_mollie_fields(
             frappe.db.commit()
 
             # Return updated member data for frontend to use (no new API call needed)
-            return {
-                "success": True,
+            result = {
                 "member_id": member_id,
                 "updated_fields": updated_fields,
                 "message": f"Updated {', '.join(updated_fields)} for {member.full_name}",
@@ -341,12 +353,21 @@ def update_member_mollie_fields(
                     "current_mollie_next_invoice_date": member.mollie_subscription_next_invoice_date,
                 },
             }
+            return OperationResult.ok(result, message=_("Member updated successfully"))
         else:
-            return {
-                "success": False,
-                "error": "No fields to update",
-            }
+            return OperationResult.fail(
+                _("No fields to update"),
+                errors=["No fields provided"],
+                context={"operation": "update_member_mollie_fields", "member_id": member_id},
+            )
 
     except Exception as e:
-        frappe.log_error(f"Failed to update member {member_id}: {str(e)}", "Member Reconciliation")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Failed to update member {member_id}: {str(e)}\n{traceback.format_exc()}",
+            "Member Reconciliation Update Error",
+        )
+        return OperationResult.fail(
+            _("Unable to update member. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "update_member_mollie_fields", "member_id": member_id},
+        )
