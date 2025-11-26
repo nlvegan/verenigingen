@@ -1,11 +1,16 @@
-import frappe
+import traceback
+from typing import Any, Dict
 
+import frappe
+from frappe import _
+
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def check_customer_permissions():
+def check_customer_permissions() -> OperationResult[Dict[str, Any]]:
     """Check Customer DocType permissions"""
 
     try:
@@ -44,8 +49,7 @@ def check_customer_permissions():
         except Exception:
             user_can_access = False
 
-        return {
-            "success": True,
+        data = {
             "roles_with_customer_read": roles_with_read,
             "verenigingen_admin_has_access": has_verenigingen_admin,
             "current_user_can_access": user_can_access,
@@ -53,5 +57,11 @@ def check_customer_permissions():
             "current_user_roles": frappe.get_roles(),
         }
 
+        return OperationResult.ok(data, message=_("Customer permissions retrieved successfully"))
+
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            title=_("Customer Permissions Check Failed"),
+            message=f"{_('Error checking Customer permissions')}: {str(e)}\n\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(_("Failed to check Customer permissions: {0}").format(str(e)))

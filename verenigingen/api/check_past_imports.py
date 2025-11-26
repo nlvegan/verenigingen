@@ -2,8 +2,13 @@
 Check if the failing mutations were imported successfully in the past
 """
 
-import frappe
+import traceback
+from typing import Any, Dict
 
+import frappe
+from frappe import _
+
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -12,9 +17,9 @@ from verenigingen.utils.security.api_security_framework import (
 )
 
 
-@frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def check_existing_journal_entries():
+@frappe.whitelist()
+def check_existing_journal_entries() -> OperationResult[Dict[str, Any]]:
     """Check if these mutation IDs already exist in Journal Entry documents"""
     try:
         failing_mutations = [1256, 4549, 5570, 5577, 6338]
@@ -69,19 +74,31 @@ def check_existing_journal_entries():
                 }
             )
 
-        return {
-            "success": True,
+        data = {
             "mutation_check_results": results,
             "summary": f"Checked {len(failing_mutations)} failing mutations for existing imports",
         }
 
+        return OperationResult.ok(
+            data,
+            message=_("Successfully checked {0} mutations for existing imports").format(
+                len(failing_mutations)
+            ),
+        )
+
     except Exception as e:
-        return {"success": False, "error": str(e), "traceback": frappe.get_traceback()}
+        frappe.log_error(
+            title=_("Failed to check existing journal entries"),
+            message=f"Error: {str(e)}\n\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(
+            message=_("Failed to check existing journal entries: {0}").format(str(e)), error=str(e)
+        )
 
 
-@frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def get_journal_entry_details():
+@frappe.whitelist()
+def get_journal_entry_details() -> OperationResult[Dict[str, Any]]:
     """Get detailed information about existing journal entries for these mutations"""
     try:
         failing_mutations = [1256, 4549, 5570, 5577, 6338]
@@ -135,19 +152,31 @@ def get_journal_entry_details():
                     }
                 )
 
-        return {
-            "success": True,
+        data = {
             "journal_entry_details": results,
             "analysis": "Shows if these mutations were previously imported and how the accounts were handled",
         }
 
+        return OperationResult.ok(
+            data,
+            message=_("Successfully retrieved journal entry details for {0} mutations").format(
+                len(failing_mutations)
+            ),
+        )
+
     except Exception as e:
-        return {"success": False, "error": str(e), "traceback": frappe.get_traceback()}
+        frappe.log_error(
+            title=_("Failed to get journal entry details"),
+            message=f"Error: {str(e)}\n\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(
+            message=_("Failed to get journal entry details: {0}").format(str(e)), error=str(e)
+        )
 
 
-@frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def check_mutation_import_history():
+@frappe.whitelist()
+def check_mutation_import_history() -> OperationResult[Dict[str, Any]]:
     """Check when these mutations might have been imported and what changed"""
     try:
         failing_mutations = [1256, 4549, 5570, 5577, 6338]
@@ -167,12 +196,26 @@ def check_mutation_import_history():
             if docs_with_mutations:
                 all_results[doc_type] = docs_with_mutations
 
-        return {
-            "success": True,
+        found_count = sum(len(docs) for docs in all_results.values())
+
+        data = {
             "import_history": all_results,
-            "found_documents": sum(len(docs) for docs in all_results.values()),
+            "found_documents": found_count,
             "explanation": "Shows if these mutations were imported before and in what document types",
         }
 
+        return OperationResult.ok(
+            data,
+            message=_("Found {0} documents matching {1} mutations").format(
+                found_count, len(failing_mutations)
+            ),
+        )
+
     except Exception as e:
-        return {"success": False, "error": str(e), "traceback": frappe.get_traceback()}
+        frappe.log_error(
+            title=_("Failed to check mutation import history"),
+            message=f"Error: {str(e)}\n\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(
+            message=_("Failed to check mutation import history: {0}").format(str(e)), error=str(e)
+        )

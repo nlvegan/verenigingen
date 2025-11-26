@@ -48,8 +48,13 @@ Usage Context:
     * Proactive system maintenance through early error detection
 """
 
-import frappe
+import traceback
+from typing import Any, Dict
 
+import frappe
+from frappe import _
+
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -60,7 +65,7 @@ from verenigingen.utils.security.api_security_framework import (
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def check_batch_debug_logs():
+def check_batch_debug_logs() -> OperationResult[Dict[str, Any]]:
     """
     Analyze error logs for REST Enhanced Batch Debug entries and processing issues.
 
@@ -83,8 +88,7 @@ def check_batch_debug_logs():
         * Error frequency patterns for system health assessment
 
     Returns:
-        dict: Structured analysis results containing:
-            - success (bool): Whether analysis completed successfully
+        OperationResult[Dict[str, Any]]: Structured analysis results containing:
             - count (int): Number of relevant error logs found
             - logs (list): Detailed analysis of each error log including:
               * log_name: Error log document identifier
@@ -92,7 +96,6 @@ def check_batch_debug_logs():
               * error_preview: First 10 lines of error content for quick assessment
               * contains_mutations: Boolean flag for mutation-related errors
               * contains_batch: Boolean flag for batch processing context
-            - error: Error details if analysis fails
 
     Business Value:
         Helps administrators quickly identify and assess batch processing issues
@@ -137,15 +140,23 @@ def check_batch_debug_logs():
                 }
             )
 
-        return {"success": True, "count": len(logs), "logs": results}
+        data = {"count": len(logs), "logs": results}
+        return OperationResult.ok(data, message=_("Found {0} batch debug error logs").format(len(logs)))
 
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            title=_("Batch Debug Log Analysis Failed"),
+            message=traceback.format_exc(),
+        )
+        return OperationResult.fail(
+            error_code="BATCH_DEBUG_LOG_ANALYSIS_ERROR",
+            message=_("Failed to analyze batch debug logs: {0}").format(str(e)),
+        )
 
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def get_mutation_type_logs():
+def get_mutation_type_logs() -> OperationResult[Dict[str, Any]]:
     """
     Comprehensive analysis of error logs containing mutation type processing information.
 
@@ -176,8 +187,7 @@ def get_mutation_type_logs():
         * Pattern matching confidence indicators
 
     Returns:
-        dict: Comprehensive analysis results containing:
-            - success (bool): Whether analysis completed successfully
+        OperationResult[Dict[str, Any]]: Comprehensive analysis results containing:
             - total_logs (int): Total mutation-related logs found
             - mutation_type_logs (int): Logs specifically related to mutation type processing
             - logs (list): Top 10 most relevant logs with detailed analysis including:
@@ -186,7 +196,6 @@ def get_mutation_type_logs():
               * preview: Content preview for quick error type identification
               * line_count: Log complexity indicator for resource allocation
               * size_kb: Storage impact and content volume assessment
-            - error: Error details if analysis fails
 
     Business Impact:
         Enables rapid identification and prioritization of mutation processing
@@ -245,12 +254,24 @@ def get_mutation_type_logs():
                     }
                 )
 
-        return {
-            "success": True,
+        data = {
             "total_logs": len(logs),
             "mutation_type_logs": len(mutation_type_logs),
             "logs": mutation_type_logs[:10],  # Show first 10
         }
+        return OperationResult.ok(
+            data,
+            message=_("Found {0} mutation type logs out of {1} total mutation-related logs").format(
+                len(mutation_type_logs), len(logs)
+            ),
+        )
 
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            title=_("Mutation Type Log Analysis Failed"),
+            message=traceback.format_exc(),
+        )
+        return OperationResult.fail(
+            error_code="MUTATION_TYPE_LOG_ANALYSIS_ERROR",
+            message=_("Failed to analyze mutation type logs: {0}").format(str(e)),
+        )

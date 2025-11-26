@@ -2,7 +2,12 @@
 Check if opening balances mutation (type 0) includes a date
 """
 
+import traceback
+from typing import Any, Dict
+
 import frappe
+
+from verenigingen.utils.operation_result import OperationResult
 
 # Import security framework
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
@@ -10,7 +15,7 @@ from verenigingen.utils.security.api_security_framework import OperationType, st
 
 @standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
-def check_opening_balance_mutation_date():
+def check_opening_balance_mutation_date() -> OperationResult[Dict[str, Any]]:
     """Check what date information is available in opening balance mutations"""
     try:
         from verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
@@ -47,20 +52,27 @@ def check_opening_balance_mutation_date():
 
             results.append(mutation_analysis)
 
-        return {
-            "success": True,
+        data = {
             "opening_balance_mutations_found": len(opening_balance_mutations),
             "mutations": results,
             "analysis": "Shows date information available in opening balance mutations (type 0)",
         }
 
+        return OperationResult.ok(
+            data, message=_("Opening balance mutation date information retrieved successfully")
+        )
+
     except Exception as e:
-        return {"success": False, "error": str(e), "traceback": frappe.get_traceback()}
+        frappe.log_error(
+            title=_("Opening Balance Mutation Date Check Failed"),
+            message=f"{str(e)}\n\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(error=str(e), message=_("Failed to check opening balance mutation dates"))
 
 
 @standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
-def check_earliest_mutation_date():
+def check_earliest_mutation_date() -> OperationResult[Dict[str, Any]]:
     """Check the earliest mutation date across all types to see the true start of data"""
     try:
         from verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
@@ -109,8 +121,7 @@ def check_earliest_mutation_date():
 
         absolute_earliest = min(all_earliest) if all_earliest else None
 
-        return {
-            "success": True,
+        data = {
             "earliest_dates_by_type": earliest_dates,
             "absolute_earliest_date": absolute_earliest,
             "recommendation": (
@@ -121,13 +132,18 @@ def check_earliest_mutation_date():
             "analysis": "Shows the earliest transaction date by mutation type to determine true data range",
         }
 
+        return OperationResult.ok(data, message=_("Earliest mutation dates retrieved successfully"))
+
     except Exception as e:
-        return {"success": False, "error": str(e), "traceback": frappe.get_traceback()}
+        frappe.log_error(
+            title=_("Earliest Mutation Date Check Failed"), message=f"{str(e)}\n\n{traceback.format_exc()}"
+        )
+        return OperationResult.fail(error=str(e), message=_("Failed to check earliest mutation dates"))
 
 
 @standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
-def get_opening_balance_date_for_js():
+def get_opening_balance_date_for_js() -> OperationResult[Dict[str, Any]]:
     """Get the opening balance date that can be used by JavaScript for date_from setting"""
     try:
         from verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
@@ -159,12 +175,16 @@ def get_opening_balance_date_for_js():
                     continue
             opening_balance_date = earliest_date
 
-        return {
-            "success": True,
+        data = {
             "opening_balance_date": opening_balance_date,
             "has_date": opening_balance_date is not None,
             "usage": "This date can be used as window.eboekhouden_date_range.earliest_date in JavaScript",
         }
 
+        return OperationResult.ok(data, message=_("Opening balance date retrieved successfully"))
+
     except Exception as e:
-        return {"success": False, "error": str(e), "traceback": frappe.get_traceback()}
+        frappe.log_error(
+            title=_("Opening Balance Date Retrieval Failed"), message=f"{str(e)}\n\n{traceback.format_exc()}"
+        )
+        return OperationResult.fail(error=str(e), message=_("Failed to retrieve opening balance date"))
