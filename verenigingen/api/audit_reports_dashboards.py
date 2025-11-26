@@ -1,14 +1,21 @@
 import json
+import traceback
+from typing import Any, Dict
 
 import frappe
 
-from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.operation_result import OperationResult
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
+@standard_api(operation_type=OperationType.READ)
 @frappe.whitelist()
-@critical_api(operation_type=OperationType.ADMIN)
-def audit_verenigingen_reports_and_dashboards():
-    """Comprehensive audit of Verenigingen Reports and Dashboards permissions"""
+def audit_verenigingen_reports_and_dashboards() -> OperationResult[Dict[str, Any]]:
+    """Comprehensive audit of Verenigingen Reports and Dashboards permissions.
+
+    Returns:
+        OperationResult[Dict[str, Any]]: Contains audit results with metadata, issues, and priority fixes
+    """
 
     try:
         # Get all Reports that belong to Verenigingen modules
@@ -126,20 +133,32 @@ def audit_verenigingen_reports_and_dashboards():
         # Create summary report
         create_reports_dashboards_summary(audit_results)
 
-        return {
-            "success": True,
-            "total_reports": len(verenigingen_reports),
-            "total_dashboards": len(verenigingen_dashboards),
-            "reports_with_issues": audit_results["summary"]["reports_with_issues"],
-            "dashboards_with_issues": audit_results["summary"]["dashboards_with_issues"],
-            "critical_issues": len(audit_results["priority_fixes"]["critical"]),
-            "high_issues": len(audit_results["priority_fixes"]["high"]),
-            "medium_issues": len(audit_results["priority_fixes"]["medium"]),
-            "audit_file": audit_file,
-        }
+        return OperationResult.ok(
+            {
+                "total_reports": len(verenigingen_reports),
+                "total_dashboards": len(verenigingen_dashboards),
+                "reports_with_issues": audit_results["summary"]["reports_with_issues"],
+                "dashboards_with_issues": audit_results["summary"]["dashboards_with_issues"],
+                "critical_issues": len(audit_results["priority_fixes"]["critical"]),
+                "high_issues": len(audit_results["priority_fixes"]["high"]),
+                "medium_issues": len(audit_results["priority_fixes"]["medium"]),
+                "audit_file": audit_file,
+            },
+            message=frappe._("Audit completed: {0} reports, {1} dashboards analyzed").format(
+                len(verenigingen_reports), len(verenigingen_dashboards)
+            ),
+        )
 
     except Exception as e:
-        return {"error": str(e), "traceback": frappe.get_traceback()}
+        frappe.log_error(
+            f"Audit reports and dashboards failed: {str(e)}\n{traceback.format_exc()}",
+            "Audit Reports Dashboards Error",
+        )
+        return OperationResult.fail(
+            frappe._("Failed to complete reports and dashboards audit"),
+            errors=[str(e)],
+            context={"operation": "audit_verenigingen_reports_and_dashboards"},
+        )
 
 
 def analyze_verenigingen_report(report_info):

@@ -4,18 +4,17 @@ Handles ANBI compliance operations including tax identifier management and repor
 """
 
 import json
+import traceback
 from datetime import datetime
+from typing import Any, Dict
 
 import frappe
 from frappe import _
 
+from verenigingen.utils.operation_result import OperationResult
+
 # Import security decorators
-from verenigingen.utils.security.api_security_framework import (
-    OperationType,
-    critical_api,
-    high_security_api,
-    standard_api,
-)
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, standard_api
 
 
 def has_donor_permlevel_access(permission_type="read"):
@@ -42,9 +41,11 @@ def has_donor_permlevel_access(permission_type="read"):
     return frappe.has_permission("Donor", ptype=permission_type)
 
 
+@critical_api(operation_type=OperationType.WRITE)
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.FINANCIAL)
-def update_donor_tax_identifiers(donor, bsn=None, rsin=None, verification_method=None):
+def update_donor_tax_identifiers(
+    donor, bsn=None, rsin=None, verification_method=None
+) -> OperationResult[Dict[str, Any]]:
     """
     Update donor tax identifiers with proper security checks and validation.
 
@@ -64,14 +65,12 @@ def update_donor_tax_identifiers(donor, bsn=None, rsin=None, verification_method
                                            (e.g., "ID Card", "Passport", "KvK Extract")
 
     Returns:
-        dict: Operation result containing:
-            - success (bool): Whether update succeeded
-            - message (str): User-friendly status message
+        OperationResult[Dict[str, Any]]: Operation result containing:
             - donor (str): Updated donor document name
 
     Security Controls:
     - Requires permlevel 1 access to Donor doctype
-    - Uses @high_security_api decorator for enhanced logging
+    - Uses @critical_api decorator for enhanced logging
     - No permission bypasses - respects Frappe security model
     - Automatic encryption of stored tax identifiers
     - Comprehensive audit trail for compliance
@@ -115,20 +114,25 @@ def update_donor_tax_identifiers(donor, bsn=None, rsin=None, verification_method
         # Commit transaction - important for security operations
         frappe.db.commit()
 
-        return {
-            "success": True,
-            "message": _("Tax identifiers updated successfully"),
-            "donor": donor_doc.name,
-        }
+        return OperationResult.ok(
+            data={"donor": donor_doc.name}, message=_("Tax identifiers updated successfully")
+        )
 
     except Exception as e:
-        frappe.log_error(f"Failed to update tax identifiers: {str(e)}", "ANBI Tax ID Update Error")
-        return {"success": False, "message": str(e)}
+        frappe.log_error(
+            f"Failed to update tax identifiers: {str(e)}\n{traceback.format_exc()}",
+            "ANBI Tax ID Update Error",
+        )
+        return OperationResult.fail(
+            _("Failed to update tax identifiers"),
+            errors=[str(e)],
+            context={"operation": "update_donor_tax_identifiers", "donor": donor},
+        )
 
 
+@critical_api(operation_type=OperationType.READ)
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.FINANCIAL)
-def get_donor_anbi_data(donor):
+def get_donor_anbi_data(donor) -> OperationResult[Dict[str, Any]]:
     """
     Get ANBI-related data for a donor (with decryption for authorized users)
 
@@ -136,7 +140,16 @@ def get_donor_anbi_data(donor):
         donor: Donor document name
 
     Returns:
-        dict: Donor ANBI data (masked for display)
+        OperationResult[Dict[str, Any]]: Donor ANBI data (masked for display) containing:
+            - donor_name (str): Donor name
+            - donor_type (str): Donor type (Individual/Organization)
+            - bsn (str): BSN (masked by security layer)
+            - rsin (str): RSIN (masked by security layer)
+            - identification_verified (int): Verification status
+            - verification_date (str): Verification date
+            - verification_method (str): Verification method
+            - anbi_consent (int): ANBI consent status
+            - anbi_consent_date (str): Consent date
     """
     # Check permissions
     if not has_donor_permlevel_access("read"):
@@ -162,11 +175,14 @@ def get_donor_anbi_data(donor):
         )
 
         if not donor_data:
-            return {"success": False, "message": "Donor not found"}
+            return OperationResult.fail(
+                _("Donor not found"),
+                errors=["Donor document does not exist"],
+                context={"operation": "get_donor_anbi_data", "donor": donor},
+            )
 
         # Get decrypted values (will be masked by security layer)
-        return {
-            "success": True,
+        data = {
             "donor_name": donor_data.get("donor_name"),
             "donor_type": donor_data.get("donor_type"),
             "bsn": donor_data.get("bsn_citizen_service_number"),  # Will be masked by security layer
@@ -178,14 +194,22 @@ def get_donor_anbi_data(donor):
             "anbi_consent_date": donor_data.get("anbi_consent_date"),
         }
 
+        return OperationResult.ok(data=data, message=_("ANBI data retrieved successfully"))
+
     except Exception as e:
-        frappe.log_error(f"Failed to get ANBI data: {str(e)}", "ANBI Data Retrieval Error")
-        return {"success": False, "message": str(e)}
+        frappe.log_error(
+            f"Failed to get ANBI data: {str(e)}\n{traceback.format_exc()}", "ANBI Data Retrieval Error"
+        )
+        return OperationResult.fail(
+            _("Failed to retrieve ANBI data"),
+            errors=[str(e)],
+            context={"operation": "get_donor_anbi_data", "donor": donor},
+        )
 
 
+@critical_api(operation_type=OperationType.READ)
 @frappe.whitelist()
-@critical_api(operation_type=OperationType.FINANCIAL)
-def generate_anbi_report(from_date, to_date, include_bsn=False):
+def generate_anbi_report(from_date, to_date, include_bsn=False) -> OperationResult[Dict[str, Any]]:
     """
     Generate ANBI report for Belastingdienst reporting
 
@@ -195,7 +219,11 @@ def generate_anbi_report(from_date, to_date, include_bsn=False):
         include_bsn: Whether to include decrypted BSN/RSIN (requires special permission)
 
     Returns:
-        dict: Report data
+        OperationResult[Dict[str, Any]]: Report data containing:
+            - report_date (str): Report generation timestamp
+            - period (dict): From and to dates
+            - summary (dict): Total donations, amount, and tax ID inclusion flag
+            - donations (list): List of donation records with donor information
     """
     # Check permissions
     if not frappe.has_permission("Donation", "read"):
@@ -262,8 +290,7 @@ def generate_anbi_report(from_date, to_date, include_bsn=False):
             f"ANBI report generated by {frappe.session.user} for period {from_date} to {to_date}"
         )
 
-        return {
-            "success": True,
+        data = {
             "report_date": frappe.utils.now(),
             "period": {"from": from_date, "to": to_date},
             "summary": {
@@ -274,14 +301,26 @@ def generate_anbi_report(from_date, to_date, include_bsn=False):
             "donations": report_data,
         }
 
+        return OperationResult.ok(
+            data=data,
+            message=_("ANBI report generated successfully with {0} donations").format(len(donations)),
+        )
+
     except Exception as e:
-        frappe.log_error(f"Failed to generate ANBI report: {str(e)}", "ANBI Report Generation Error")
-        return {"success": False, "message": str(e)}
+        frappe.log_error(
+            f"Failed to generate ANBI report: {str(e)}\n{traceback.format_exc()}",
+            "ANBI Report Generation Error",
+        )
+        return OperationResult.fail(
+            _("Failed to generate ANBI report"),
+            errors=[str(e)],
+            context={"operation": "generate_anbi_report", "from_date": from_date, "to_date": to_date},
+        )
 
 
+@critical_api(operation_type=OperationType.WRITE)
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.FINANCIAL)
-def update_anbi_consent(donor, consent, reason=None):
+def update_anbi_consent(donor, consent, reason=None) -> OperationResult[Dict[str, Any]]:
     """
     Update ANBI consent for a donor
 
@@ -291,7 +330,9 @@ def update_anbi_consent(donor, consent, reason=None):
         reason: Optional reason for consent change
 
     Returns:
-        dict: Success status and message
+        OperationResult[Dict[str, Any]]: Operation result containing:
+            - consent (int): Updated consent status
+            - consent_date (str): Consent date
     """
     try:
         donor_doc = frappe.get_doc("Donor", donor)
@@ -315,21 +356,28 @@ def update_anbi_consent(donor, consent, reason=None):
         donor_doc.reload()  # Ensure we have fresh data
         frappe.db.commit()
 
-        return {
-            "success": True,
-            "message": _("ANBI consent updated successfully"),
-            "consent": donor_doc.anbi_consent,
-            "consent_date": donor_doc.anbi_consent_date,
-        }
+        return OperationResult.ok(
+            data={
+                "consent": donor_doc.anbi_consent,
+                "consent_date": donor_doc.anbi_consent_date,
+            },
+            message=_("ANBI consent updated successfully"),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Failed to update ANBI consent: {str(e)}", "ANBI Consent Update Error")
-        return {"success": False, "message": str(e)}
+        frappe.log_error(
+            f"Failed to update ANBI consent: {str(e)}\n{traceback.format_exc()}", "ANBI Consent Update Error"
+        )
+        return OperationResult.fail(
+            _("Failed to update ANBI consent"),
+            errors=[str(e)],
+            context={"operation": "update_anbi_consent", "donor": donor},
+        )
 
 
+@standard_api(operation_type=OperationType.READ)
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.UTILITY)
-def validate_bsn(bsn):
+def validate_bsn(bsn) -> OperationResult[Dict[str, Any]]:
     """
     Validate a BSN number using the eleven-proof algorithm
 
@@ -337,7 +385,9 @@ def validate_bsn(bsn):
         bsn: BSN number to validate
 
     Returns:
-        dict: Validation result
+        OperationResult[Dict[str, Any]]: Validation result containing:
+            - valid (bool): Whether BSN is valid
+            - cleaned_value (str): Cleaned BSN value (digits only)
     """
     try:
         # Import the validation from donor
@@ -351,24 +401,28 @@ def validate_bsn(bsn):
         clean_bsn = re.sub(r"\D", "", bsn)
 
         if len(clean_bsn) != 9:
-            return {"valid": False, "message": _("BSN must be exactly 9 digits")}
+            return OperationResult.ok(
+                data={"valid": False, "cleaned_value": clean_bsn}, message=_("BSN must be exactly 9 digits")
+            )
 
         # Validate using eleven-proof
         is_valid = donor.validate_bsn_eleven_proof(clean_bsn)
 
-        return {
-            "valid": is_valid,
-            "message": _("Valid BSN") if is_valid else _("Invalid BSN (failed eleven-proof validation)"),
-            "cleaned_value": clean_bsn,
-        }
+        return OperationResult.ok(
+            data={"valid": is_valid, "cleaned_value": clean_bsn},
+            message=_("Valid BSN") if is_valid else _("Invalid BSN (failed eleven-proof validation)"),
+        )
 
     except Exception as e:
-        return {"valid": False, "message": str(e)}
+        frappe.log_error(f"BSN validation error: {str(e)}\n{traceback.format_exc()}", "BSN Validation Error")
+        return OperationResult.fail(
+            _("Failed to validate BSN"), errors=[str(e)], context={"operation": "validate_bsn"}
+        )
 
 
+@standard_api(operation_type=OperationType.READ)
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.REPORTING)
-def get_anbi_statistics(from_date=None, to_date=None):
+def get_anbi_statistics(from_date=None, to_date=None) -> OperationResult[Dict[str, Any]]:
     """
     Get ANBI donation statistics
 
@@ -377,7 +431,13 @@ def get_anbi_statistics(from_date=None, to_date=None):
         to_date: Optional end date
 
     Returns:
-        dict: Statistics data
+        OperationResult[Dict[str, Any]]: Statistics data containing:
+            - statistics (dict): ANBI statistics including:
+                - total_anbi_donations (int): Total number of ANBI donations
+                - total_anbi_amount (float): Total amount of ANBI donations
+                - donors_with_consent (int): Number of donors with ANBI consent
+                - donors_verified (int): Number of donors with verified identification
+                - period (dict): Optional period filter
     """
     try:
         # Note: ANBI tracking is via separate ANBI Donation Agreement DocType
@@ -413,25 +473,32 @@ def get_anbi_statistics(from_date=None, to_date=None):
         # Get donors with verified identification
         donors_verified = frappe.db.count("Donor", {"identification_verified": 1})
 
-        return {
-            "success": True,
+        data = {
             "statistics": {
                 "total_anbi_donations": total_donations,
                 "total_anbi_amount": total_amount,
                 "donors_with_consent": donors_with_consent,
                 "donors_verified": donors_verified,
                 "period": {"from": from_date, "to": to_date} if from_date and to_date else None,
-            },
+            }
         }
 
+        return OperationResult.ok(data=data, message=_("ANBI statistics retrieved successfully"))
+
     except Exception as e:
-        frappe.log_error(f"Failed to get ANBI statistics: {str(e)}", "ANBI Statistics Error")
-        return {"success": False, "message": str(e)}
+        frappe.log_error(
+            f"Failed to get ANBI statistics: {str(e)}\n{traceback.format_exc()}", "ANBI Statistics Error"
+        )
+        return OperationResult.fail(
+            _("Failed to retrieve ANBI statistics"),
+            errors=[str(e)],
+            context={"operation": "get_anbi_statistics", "from_date": from_date, "to_date": to_date},
+        )
 
 
+@critical_api(operation_type=OperationType.READ)
 @frappe.whitelist()
-@critical_api(operation_type=OperationType.FINANCIAL)
-def export_belastingdienst_report(filters):
+def export_belastingdienst_report(filters) -> OperationResult[Dict[str, Any]]:
     """
     Export ANBI report for Belastingdienst in CSV format
 
@@ -439,7 +506,9 @@ def export_belastingdienst_report(filters):
         filters: Report filters dict
 
     Returns:
-        dict: File URL for download
+        OperationResult[Dict[str, Any]]: Operation result containing:
+            - file_url (str): File URL for download
+            - file_name (str): Generated file name
     """
     # Check permissions
     if not frappe.has_permission("Donation", "export"):
@@ -447,6 +516,7 @@ def export_belastingdienst_report(filters):
 
     try:
         import csv
+        import io
         import os
 
         from frappe.utils.file_manager import save_file
@@ -509,8 +579,6 @@ def export_belastingdienst_report(filters):
         )
 
         # Convert to CSV string
-        import io
-
         output = io.StringIO()
         writer = csv.writer(output)
         for row in csv_content:
@@ -525,16 +593,25 @@ def export_belastingdienst_report(filters):
         # Log export for audit (informational, not an error)
         frappe.logger().info(f"ANBI report exported by {frappe.session.user}")
 
-        return {"success": True, "file_url": file_doc.file_url, "file_name": filename}
+        return OperationResult.ok(
+            data={"file_url": file_doc.file_url, "file_name": filename},
+            message=_("ANBI report exported successfully"),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Failed to export ANBI report: {str(e)}", "ANBI Export Error")
-        return {"success": False, "message": str(e)}
+        frappe.log_error(
+            f"Failed to export ANBI report: {str(e)}\n{traceback.format_exc()}", "ANBI Export Error"
+        )
+        return OperationResult.fail(
+            _("Failed to export ANBI report"),
+            errors=[str(e)],
+            context={"operation": "export_belastingdienst_report"},
+        )
 
 
+@standard_api(operation_type=OperationType.WRITE)
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.ADMIN)
-def send_consent_requests(filters=None):
+def send_consent_requests(filters=None) -> OperationResult[Dict[str, Any]]:
     """
     Send ANBI consent request emails to donors without consent
 
@@ -542,7 +619,8 @@ def send_consent_requests(filters=None):
         filters: Optional filters dict
 
     Returns:
-        dict: Number of emails sent
+        OperationResult[Dict[str, Any]]: Operation result containing:
+            - sent_count (int): Number of emails sent successfully
     """
     # Check permissions
     if not frappe.has_permission("Donor", "write"):
@@ -615,12 +693,17 @@ def send_consent_requests(filters=None):
 
         frappe.db.commit()
 
-        return {
-            "success": True,
-            "sent_count": sent_count,
-            "message": _("{0} consent request emails sent").format(sent_count),
-        }
+        return OperationResult.ok(
+            data={"sent_count": sent_count}, message=_("{0} consent request emails sent").format(sent_count)
+        )
 
     except Exception as e:
-        frappe.log_error(f"Failed to send consent requests: {str(e)}", "ANBI Consent Request Error")
-        return {"success": False, "message": str(e)}
+        frappe.log_error(
+            f"Failed to send consent requests: {str(e)}\n{traceback.format_exc()}",
+            "ANBI Consent Request Error",
+        )
+        return OperationResult.fail(
+            _("Failed to send consent requests"),
+            errors=[str(e)],
+            context={"operation": "send_consent_requests"},
+        )
