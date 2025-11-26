@@ -860,42 +860,6 @@ class Member(
         return result
 
     @frappe.whitelist()
-    @development_only_api(operation_type=OperationType.UTILITY)
-    def debug_address_detection(self):
-        """Debug the address detection functionality for troubleshooting"""
-        try:
-            result = {
-                "member_name": self.full_name,
-                "primary_address": self.primary_address,
-                "has_primary_address": bool(self.primary_address),
-            }
-
-            if self.primary_address:
-                # Get address details
-                address_doc = frappe.get_doc("Address", self.primary_address)
-                result["address_details"] = {
-                    "name": address_doc.name,
-                    "address_line1": address_doc.address_line1,
-                    "city": address_doc.city,
-                }
-
-                # Call the address detection method
-                try:
-                    address_result = self.get_other_members_at_address()
-                    result["address_detection_result"] = address_result
-                    result["address_detection_type"] = type(address_result).__name__
-                    result["address_detection_length"] = (
-                        len(address_result) if isinstance(address_result, (list, str)) else "N/A"
-                    )
-                except Exception as e:
-                    result["address_detection_error"] = str(e)
-
-            return result
-
-        except Exception as e:
-            return {"error": str(e)}
-
-    @frappe.whitelist()
     @standard_api(operation_type=OperationType.REPORTING)
     def get_other_members_at_address(self):
         """Get other members living at the same address using Address Management Service"""
@@ -1022,50 +986,6 @@ class Member(
             "success": True,
             "message": "Chapter display updated",
             "current_chapter_display": getattr(self, "current_chapter_display", "Not set"),
-        }
-
-    @frappe.whitelist()
-    @development_only_api(operation_type=OperationType.UTILITY)
-    def debug_chapter_assignment(self):
-        """Debug chapter assignment for this member"""
-        # Check chapter memberships in Chapter Member table
-        chapter_members = frappe.get_all(
-            "Chapter Member",
-            filters={"member": self.name, "enabled": 1},
-            fields=["parent as chapter", "chapter_join_date", "enabled"],
-            order_by="chapter_join_date desc",
-        )
-
-        # Check board memberships
-        # First get volunteer record for this member
-        volunteer = get_volunteer_for_member(self.name)
-        board_members = []
-        if volunteer:
-            board_members = frappe.get_all(
-                "Chapter Board Member",
-                filters={"volunteer": volunteer, "is_active": 1},
-                fields=["parent as chapter", "chapter_role", "is_active"],
-            )
-
-        # Check current chapter display
-        current_chapter_display = getattr(self, "current_chapter_display", "Not set")
-
-        # Get optimized chapters
-        try:
-            optimized_chapters = self.get_current_chapters_optimized()
-        except Exception as e:
-            optimized_chapters = f"Error: {str(e)}"
-
-        return {
-            "member_name": self.full_name,
-            "member_id": self.name,
-            "chapter_members": chapter_members,
-            "board_members": board_members,
-            "current_chapter_display": current_chapter_display,
-            "optimized_chapters": optimized_chapters,
-            "chapter_management_enabled": frappe.db.get_single_value(
-                "Verenigingen Settings", "enable_chapter_management"
-            ),
         }
 
     def update_current_chapter_display(self):
@@ -1462,7 +1382,7 @@ def assign_member_id(member_name):
 @critical_api(operation_type=OperationType.FINANCIAL)
 def validate_mandate_creation(member, iban, mandate_id):
     """
-    Validate mandate creation parameters and check for existing mandates
+    Validate mandate creation parameters and check for existing mandates.
 
     .. deprecated:: 2025-10-14
         Use :func:`verenigingen.services.payment.sepa_mandate_manager.SEPAMandateManager.validate_mandate_creation` instead.
@@ -1470,90 +1390,67 @@ def validate_mandate_creation(member, iban, mandate_id):
     """
     import warnings
 
+    from verenigingen.services.payment.sepa_mandate_manager import get_sepa_mandate_manager
+
     warnings.warn(
         "validate_mandate_creation() is deprecated. Use SEPAMandateManager.validate_mandate_creation() instead.",
         DeprecationWarning,
         stacklevel=2,
     )
-    frappe.log_error(
-        "Deprecated function validate_mandate_creation() called. Migrate to SEPAMandateManager.",
-        "Deprecation Warning",
-    )
-    try:
-        # Check if member exists
-        if not frappe.db.exists("Member", member):
-            return {"error": _("Member does not exist")}
 
-        # Check if mandate ID already exists
-        existing_mandate = frappe.db.exists("SEPA Mandate", {"mandate_id": mandate_id})
-        if existing_mandate:
-            return {"error": _("Mandate ID {0} already exists").format(mandate_id)}
+    # Delegate to service with allow_duplicate_iban=True for legacy behavior
+    # Legacy API returned valid=True with warning for duplicate IBAN
+    manager = get_sepa_mandate_manager()
+    result = manager.validate_mandate_creation(member, iban, mandate_id, allow_duplicate_iban=True)
 
-        # Check for existing active mandates for this member
-        existing_mandates = frappe.get_all(
-            "SEPA Mandate",
-            filters={"member": member, "status": "Active", "is_active": 1},
-            fields=["name", "mandate_id", "iban"],
-        )
-
-        # Check if there's an existing mandate for the same IBAN
-        iban_mandate = None
-        for mandate in existing_mandates:
-            if mandate.iban == iban:
-                iban_mandate = mandate.mandate_id
-                break
-
-        result = {"valid": True}
-
-        if iban_mandate:
-            result["existing_mandate"] = iban_mandate
-            result["warning"] = _("An active mandate already exists for this IBAN: {0}").format(iban_mandate)
-
-        return result
-
-    except Exception as e:
-        frappe.log_error(f"Error validating mandate creation: {str(e)}")
-        return {"error": _("Error validating mandate: {0}").format(str(e))}
+    # Convert ValidationResult to legacy dict format (standardized response)
+    if result.valid:
+        response = {"success": True, "valid": True, **(result.data or {})}
+        # Check for existing mandate with same IBAN and add warning (legacy behavior)
+        existing_mandates = manager.get_active_mandates(member, iban=iban)
+        if existing_mandates:
+            response["existing_mandate"] = existing_mandates[0].mandate_id
+            response["warning"] = _("An active mandate already exists for this IBAN: {0}").format(
+                existing_mandates[0].mandate_id
+            )
+        return response
+    else:
+        response = {"success": False, "valid": False, "error": result.message}
+        if result.errors:
+            response["errors"] = result.errors
+        return response
 
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
 def derive_bic_from_iban(iban):
     """
-    Derive BIC code from IBAN
+    Derive BIC code from IBAN.
 
     .. deprecated:: 2025-10-14
-        Use :func:`verenigingen.services.payment.validation_service.PaymentValidationService.validate_bank_details` with auto_derive_bic=True instead.
+        Use :func:`verenigingen.utils.validation.iban_validator.derive_bic_from_iban` instead.
         This function will be removed in a future version.
     """
     import warnings
 
+    from verenigingen.utils.validation.iban_validator import derive_bic_from_iban as _derive_bic
+
     warnings.warn(
-        "derive_bic_from_iban() is deprecated. Use PaymentValidationService.validate_bank_details() instead.",
+        "member.derive_bic_from_iban() is deprecated. Use iban_validator.derive_bic_from_iban() instead.",
         DeprecationWarning,
         stacklevel=2,
     )
-    frappe.log_error(
-        "Deprecated function derive_bic_from_iban() called. Migrate to PaymentValidationService.",
-        "Deprecation Warning",
-    )
-    try:
-        from verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch import (
-            get_bic_from_iban,
-        )
 
-        bic = get_bic_from_iban(iban)
-        return {"bic": bic} if bic else {"bic": None}
-    except Exception as e:
-        frappe.log_error(f"Error deriving BIC from IBAN {iban}: {str(e)}")
-        return {"bic": None}
+    # Delegate to canonical implementation
+    bic = _derive_bic(iban)
+    return {"bic": bic} if bic else {"bic": None}
 
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def deactivate_old_sepa_mandates(member, new_iban):
     """
-    Deactivate old SEPA mandates when IBAN changes
+    Deactivate old SEPA mandates when IBAN changes.
 
     .. deprecated:: 2025-10-14
         Use :func:`verenigingen.services.payment.sepa_mandate_manager.SEPAMandateManager.deactivate_mandates_for_iban_change` instead.
@@ -1561,65 +1458,26 @@ def deactivate_old_sepa_mandates(member, new_iban):
     """
     import warnings
 
+    from verenigingen.services.payment.sepa_mandate_manager import get_sepa_mandate_manager
+
     warnings.warn(
         "deactivate_old_sepa_mandates() is deprecated. Use SEPAMandateManager.deactivate_mandates_for_iban_change() instead.",
         DeprecationWarning,
         stacklevel=2,
     )
-    frappe.log_error(
-        "Deprecated function deactivate_old_sepa_mandates() called. Migrate to SEPAMandateManager.",
-        "Deprecation Warning",
-    )
-    try:
-        # Get all active mandates for this member
-        active_mandates = frappe.get_all(
-            "SEPA Mandate",
-            filters={"member": member, "status": "Active", "is_active": 1},
-            fields=["name", "iban", "mandate_id", "status"],
-        )
 
-        # ✅ SERVICE LAYER EXTRACTION: Use repository for SEPA mandate operations
-        # Replaces 75 lines of complex batch update logic with clean repository call
-        from verenigingen.repositories import SEPAMandateRepository
+    # Delegate to service
+    manager = get_sepa_mandate_manager()
+    result = manager.deactivate_mandates_for_iban_change(member, new_iban)
 
-        sepa_repo = SEPAMandateRepository()
-
-        # Get actual old IBAN from first active mandate (more reliable than parameter)
-        old_iban = active_mandates[0].iban if active_mandates else new_iban
-
-        # Batch deactivation with detailed reason including IBAN change
-        results = sepa_repo.deactivate_mandates_for_member_iban_change(
-            member_name=member, old_iban=old_iban, new_iban=new_iban
-        )
-
-        # Aggregate results
-        successful = [name for name, r in results.items() if r.success]
-        failed = [name for name, r in results.items() if not r.success]
-
-        deactivated_count = len(successful)
-        deactivated_mandates = []
-
-        # Build response data for successful deactivations
-        for mandate in active_mandates:
-            if mandate.name in successful:
-                deactivated_mandates.append({"mandate_id": mandate.mandate_id, "old_iban": mandate.iban})
-
-        # Log failures
-        if failed:
-            frappe.log_error(
-                f"Failed to deactivate {len(failed)} SEPA mandates: {', '.join(failed)}",
-                "SEPA Mandate Batch Deactivation Failure",
-            )
-
-        return {
-            "success": True,
-            "deactivated_count": deactivated_count,
-            "deactivated_mandates": deactivated_mandates,
-        }
-
-    except Exception as e:
-        frappe.log_error(f"Error deactivating old SEPA mandates for member {member}: {str(e)}")
-        return {"success": False, "error": str(e)}
+    # Convert ValidationResult to legacy dict format (standardized response)
+    if result.valid:
+        return {"success": True, "valid": True, **(result.data or {})}
+    else:
+        response = {"success": False, "valid": False, "error": result.message}
+        if result.errors:
+            response["errors"] = result.errors
+        return response
 
 
 @frappe.whitelist()
@@ -1640,7 +1498,7 @@ def refresh_sepa_mandates(member):
 @high_security_api(operation_type=OperationType.FINANCIAL)
 def get_active_sepa_mandate(member, iban=None):
     """
-    Get active SEPA mandate for a member
+    Get active SEPA mandate for a member.
 
     .. deprecated:: 2025-10-14
         Use :func:`verenigingen.services.payment.sepa_mandate_manager.SEPAMandateManager.get_active_mandates` instead.
@@ -1648,34 +1506,29 @@ def get_active_sepa_mandate(member, iban=None):
     """
     import warnings
 
+    from verenigingen.services.payment.sepa_mandate_manager import get_sepa_mandate_manager
+
     warnings.warn(
         "get_active_sepa_mandate() is deprecated. Use SEPAMandateManager.get_active_mandates() instead.",
         DeprecationWarning,
         stacklevel=2,
     )
-    frappe.log_error(
-        "Deprecated function get_active_sepa_mandate() called. Migrate to SEPAMandateManager.",
-        "Deprecation Warning",
-    )
-    try:
-        filters = {"member": member, "status": "Active", "is_active": 1}
 
-        if iban:
-            filters["iban"] = iban
+    # Delegate to service
+    manager = get_sepa_mandate_manager()
+    mandates = manager.get_active_mandates(member, iban=iban)
 
-        mandates = frappe.get_all(
-            "SEPA Mandate",
-            filters=filters,
-            fields=["name", "mandate_id", "status", "iban", "account_holder_name"],
-            order_by="creation desc",
-            limit=1,
-        )
-
-        return mandates[0] if mandates else None
-
-    except Exception as e:
-        frappe.log_error(f"Error getting active SEPA mandate for member {member}: {str(e)}")
-        return None
+    # Return first mandate or None (legacy API returned single mandate)
+    if mandates:
+        m = mandates[0]
+        return {
+            "name": m.name,
+            "mandate_id": m.mandate_id,
+            "status": m.status,
+            "iban": m.iban,
+            "account_holder_name": m.account_holder_name,
+        }
+    return None
 
 
 @frappe.whitelist()
@@ -1703,141 +1556,89 @@ def create_and_link_mandate_enhanced(
     replace_existing=None,
 ):
     """
-    Create a new SEPA mandate and link it to the member
+    Create a new SEPA mandate and link it to the member.
 
     .. deprecated:: 2025-10-14
         Use :func:`verenigingen.services.payment.sepa_mandate_manager.SEPAMandateManager.create_mandate` instead.
         This function will be removed in a future version.
+
+    Note: This function delegates to SEPAMandateManager.create_mandate() which creates mandates in Draft status.
+    For Active status, activate the mandate after creation.
     """
     import warnings
+
+    from verenigingen.services.payment.sepa_mandate_manager import get_sepa_mandate_manager
+    from verenigingen.utils.boolean_utils import cbool
 
     warnings.warn(
         "create_and_link_mandate_enhanced() is deprecated. Use SEPAMandateManager.create_mandate() instead.",
         DeprecationWarning,
         stacklevel=2,
     )
-    frappe.log_error(
-        "Deprecated function create_and_link_mandate_enhanced() called. Migrate to SEPAMandateManager.",
-        "Deprecation Warning",
+
+    # Validate mandatory fields for backward compatibility
+    # (Legacy API required these; service auto-generates mandate_id if empty)
+    if not mandate_id or not str(mandate_id).strip():
+        return {"success": False, "valid": False, "error": _("Mandate ID is required")}
+    if not iban or not str(iban).strip():
+        return {"success": False, "valid": False, "error": _("IBAN is required for SEPA mandate creation")}
+    if not account_holder_name or not str(account_holder_name).strip():
+        return {"success": False, "valid": False, "error": _("Account holder name is required")}
+
+    # Convert mandate type to internal format with unknown type warning
+    type_mapping = {"One-off": "OOFF", "One-of": "OOFF", "Recurring": "RCUR"}
+    if mandate_type not in type_mapping:
+        frappe.log_error(
+            f"Unknown mandate type '{mandate_type}' for member {member}, defaulting to RCUR",
+            "SEPA Mandate Type Warning",
+        )
+    internal_type = type_mapping.get(mandate_type, "RCUR")
+
+    # Delegate to service with allow_duplicate_iban=True for legacy compatibility
+    # Legacy function allowed creating mandates even with existing IBAN
+    manager = get_sepa_mandate_manager()
+    result = manager.create_mandate(
+        member=member,
+        iban=iban,
+        bic=bic or None,
+        account_holder_name=account_holder_name or None,
+        mandate_id=mandate_id,
+        sign_date=sign_date,
+        used_for_memberships=cbool(used_for_memberships),
+        used_for_donations=cbool(used_for_donations),
+        mandate_type=internal_type,
+        notes=notes or None,
+        allow_duplicate_iban=True,
     )
-    try:
-        # Validate mandatory fields before proceeding
-        if not member or not member.strip():
-            return {"success": False, "error": "Member is required"}
 
-        if not mandate_id or not mandate_id.strip():
-            return {"success": False, "error": "Mandate ID is required"}
+    # Convert ValidationResult to legacy dict format (standardized response)
+    if result.valid:
+        # Activate the mandate for backward compatibility (service creates as Draft)
+        # Use get_doc + save to trigger proper hooks and validation
+        response_data = dict(result.data) if result.data else {}
+        if response_data.get("mandate_name"):
+            mandate_doc = frappe.get_doc("SEPA Mandate", response_data["mandate_name"])
+            mandate_doc.status = "Active"
+            mandate_doc.is_active = 1
+            mandate_doc.save()
+            response_data["status"] = "Active"  # Update return data to reflect actual status
 
-        if not iban or not iban.strip():
-            return {"success": False, "error": "IBAN is required for SEPA mandate creation"}
-
-        if not account_holder_name or not account_holder_name.strip():
-            return {"success": False, "error": "Account holder name is required"}
-
-        # Validate member exists
-        if not frappe.db.exists("Member", member):
-            return {"success": False, "error": f"Member {member} does not exist"}
-
-        # Validate IBAN format
-        from verenigingen.utils.validation.iban_validator import validate_iban
-
-        iban_validation = validate_iban(iban)
-        if not iban_validation.get("valid"):
-            return {
-                "success": False,
-                "error": f"Invalid IBAN: {iban_validation.get('error', 'Unknown IBAN validation error')}",
-            }
-
-        if not sign_date:
-            sign_date = today()
-
-        # Convert mandate type to internal format
-        type_mapping = {"One-off": "OOFF", "One-of": "OOFF", "Recurring": "RCUR"}
-        internal_type = type_mapping.get(mandate_type, "RCUR")
-
-        # Create mandate
-        mandate = frappe.new_doc("SEPA Mandate")
-        mandate.mandate_id = mandate_id
-        mandate.member = member
-        mandate.iban = iban
-        mandate.bic = bic
-        mandate.account_holder_name = account_holder_name
-        mandate.mandate_type = internal_type
-        mandate.sign_date = sign_date
-        from verenigingen.utils.boolean_utils import cbool
-
-        mandate.used_for_memberships = cbool(used_for_memberships)
-        mandate.used_for_donations = cbool(used_for_donations)
-        mandate.status = "Active"
-        mandate.is_active = 1
-        mandate.notes = notes
-
-        mandate.insert()
-
-        # Update member's SEPA mandates table
-        member_doc = frappe.get_doc("Member", member)
-
-        # Mark existing mandates as non-current if replacing
-        if replace_existing:
+            # Also mark this mandate as current in the member's sepa_mandates child table
+            # (Legacy API expected is_current=1 for newly created mandates)
+            member_doc = frappe.get_doc("Member", member)
             for link in member_doc.sepa_mandates:
-                if link.mandate_reference == replace_existing:
-                    link.is_current = 0
+                if link.sepa_mandate == mandate_doc.name:
+                    link.is_current = 1
+                    link.status = "Active"
+                    break
+            member_doc.save()
 
-        # Check if this mandate is already linked to avoid duplicates
-        existing_link = None
-        for link in member_doc.sepa_mandates:
-            if link.mandate_reference == mandate_id:
-                existing_link = link
-                break
-
-        if existing_link:
-            # Update existing link
-            existing_link.sepa_mandate = mandate.name
-            existing_link.is_current = 1
-            existing_link.status = "Active"
-            existing_link.valid_from = sign_date
-        else:
-            # Add new mandate link
-            member_doc.append(
-                "sepa_mandates",
-                {
-                    "sepa_mandate": mandate.name,
-                    "mandate_reference": mandate_id,
-                    "is_current": 1,
-                    "status": "Active",
-                    "valid_from": sign_date,
-                },
-            )
-
-        member_doc.save()
-
-        return {"success": True, "mandate_name": mandate.name, "mandate_id": mandate_id}
-
-    except frappe.ValidationError as e:
-        # Handle validation errors gracefully
-        error_msg = str(e)
-        if "iban" in error_msg.lower():
-            return {"success": False, "error": "Invalid IBAN format. Please provide a valid IBAN."}
-        elif "mandate_id" in error_msg.lower():
-            return {"success": False, "error": "Invalid mandate ID. Please provide a unique mandate ID."}
-        elif "account_holder_name" in error_msg.lower():
-            return {"success": False, "error": "Account holder name is required."}
-        else:
-            return {"success": False, "error": f"Validation error: {error_msg}"}
-
-    except frappe.DuplicateEntryError:
-        return {
-            "success": False,
-            "error": "A mandate with this ID already exists. Please use a different mandate ID.",
-        }
-
-    except Exception as e:
-        # Log unexpected errors for debugging
-        frappe.log_error(f"Unexpected error creating SEPA mandate: {str(e)}", "SEPA Mandate Creation Error")
-        return {
-            "success": False,
-            "error": "An unexpected error occurred while creating the SEPA mandate. Please try again or contact support.",
-        }
+        return {"success": True, "valid": True, **response_data}
+    else:
+        response = {"success": False, "valid": False, "error": result.message}
+        if result.errors:
+            response["errors"] = result.errors
+        return response
 
 
 @frappe.whitelist()

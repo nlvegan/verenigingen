@@ -565,20 +565,3 @@ class TestMemberController(VereningingenUnitTestCase):
                 member.dues_rate = 75.00
                 member.validate_fee_override_permissions()
 
-    def test_debug_methods(self):
-        """Test debug helper methods"""
-        # Create member with chapter
-        test_data = self.builder.with_chapter().with_member().build()
-
-        member = test_data["member"]
-
-        # Test debug_chapter_assignment
-        debug_info = member.debug_chapter_assignment()
-        # Check for the actual keys returned
-        self.assertIn("optimized_chapters", debug_info)
-        self.assertIn("chapter_management_enabled", debug_info)
-
-        # Test debug_address_members - skip if method doesn't exist
-        if hasattr(member, "debug_address_members"):
-            address_debug = member.debug_address_members()
-            self.assertIn("other_members_list", address_debug)

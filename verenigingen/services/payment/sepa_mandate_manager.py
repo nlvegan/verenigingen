@@ -427,6 +427,7 @@ class SEPAMandateManager:
         used_for_donations: bool = False,
         mandate_type: str = "RCUR",
         notes: Optional[str] = None,
+        allow_duplicate_iban: bool = False,
     ) -> ValidationResult:
         """
         Create a new SEPA mandate with comprehensive validation.
@@ -486,7 +487,9 @@ class SEPAMandateManager:
                 mandate_id = self.generate_mandate_reference(member)
 
             # Step 3: Validate mandate creation
-            validation_result = self.validate_mandate_creation(member, validated_iban, mandate_id)
+            validation_result = self.validate_mandate_creation(
+                member, validated_iban, mandate_id, allow_duplicate_iban=allow_duplicate_iban
+            )
             if not validation_result.valid:
                 return validation_result
 

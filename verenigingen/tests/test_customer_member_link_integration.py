@@ -46,8 +46,9 @@ class TestCustomerMemberLinkIntegration(EnhancedTestCase):
         # Test 2: Verify the API function works with new field
         from verenigingen.api.customer_member_link import get_member_from_customer
         api_result = get_member_from_customer(customer.name)
-        self.assertIsNotNone(api_result)
-        self.assertEqual(api_result["name"], member.name)
+        self.assertTrue(api_result.success)
+        self.assertIsNotNone(api_result.data)
+        self.assertEqual(api_result.data["name"], member.name)
         
         # Test 3: Verify cleanup will find customer via both methods
         customers_via_member = frappe.db.get_value("Member", member.name, "customer")

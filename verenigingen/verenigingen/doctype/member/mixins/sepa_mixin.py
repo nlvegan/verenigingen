@@ -8,11 +8,16 @@ from verenigingen.utils.security.api_security_framework import OperationType, cr
 
 
 class SEPAMandateMixin:
-    """Mixin for SEPA mandate-related functionality"""
+    """Mixin for SEPA mandate-related functionality.
+
+    .. note::
+        Most methods delegate to SEPAMandateManager. This mixin provides backward
+        compatibility for code that relies on member.method() patterns.
+    """
 
     def get_active_sepa_mandates(self):
         """
-        Get all active SEPA mandates for this member
+        Get all active SEPA mandates for this member.
 
         .. deprecated:: 2025-10-14
             Use :func:`verenigingen.services.payment.sepa_mandate_manager.SEPAMandateManager.get_active_mandates` instead.
@@ -20,27 +25,31 @@ class SEPAMandateMixin:
         """
         import warnings
 
+        from verenigingen.services.payment.sepa_mandate_manager import get_sepa_mandate_manager
+
         warnings.warn(
             "get_active_sepa_mandates() is deprecated. Use SEPAMandateManager.get_active_mandates() instead.",
             DeprecationWarning,
             stacklevel=2,
         )
-        return frappe.get_all(
-            "SEPA Mandate",
-            filters={"member": self.name, "status": "Active", "is_active": 1},
-            fields=[
-                "name",
-                "mandate_id",
-                "status",
-                "expiry_date",
-                "used_for_memberships",
-                "used_for_donations",
-            ],
-        )
+        # Delegate to service - convert MandateInfo objects to dicts for backward compatibility
+        manager = get_sepa_mandate_manager()
+        mandates = manager.get_active_mandates(self.name)
+        return [
+            frappe._dict(
+                name=m.name,
+                mandate_id=m.mandate_id,
+                status=m.status,
+                expiry_date=m.expiry_date,
+                used_for_memberships=m.used_for_memberships,
+                used_for_donations=m.used_for_donations,
+            )
+            for m in mandates
+        ]
 
     def get_default_sepa_mandate(self):
         """
-        Get the default SEPA mandate for this member
+        Get the default SEPA mandate for this member.
 
         .. deprecated:: 2025-10-14
             Use :func:`verenigingen.services.payment.sepa_mandate_manager.SEPAMandateManager.get_default_mandate` instead.
@@ -48,34 +57,23 @@ class SEPAMandateMixin:
         """
         import warnings
 
+        from verenigingen.services.payment.sepa_mandate_manager import get_sepa_mandate_manager
+
         warnings.warn(
             "get_default_sepa_mandate() is deprecated. Use SEPAMandateManager.get_default_mandate() instead.",
             DeprecationWarning,
             stacklevel=2,
         )
-        for link in self.sepa_mandates:
-            if link.is_current and link.sepa_mandate:
-                try:
-                    mandate = frappe.get_doc("SEPA Mandate", link.sepa_mandate)
-                    if mandate.status == "Active" and mandate.is_active:
-                        return mandate
-                except frappe.DoesNotExistError:
-                    continue
-
-        active_mandates = self.get_active_sepa_mandates()
-        if active_mandates:
-            for link in self.sepa_mandates:
-                if link.sepa_mandate == active_mandates[0].name:
-                    link.is_current = 1
-                    break
-
-            return frappe.get_doc("SEPA Mandate", active_mandates[0].name)
-
+        # Delegate to service - return full doc for backward compatibility
+        manager = get_sepa_mandate_manager()
+        mandate_info = manager.get_default_mandate(self.name)
+        if mandate_info:
+            return frappe.get_doc("SEPA Mandate", mandate_info.name)
         return None
 
     def has_active_sepa_mandate(self, purpose="memberships"):
         """
-        Check if member has an active SEPA mandate for a specific purpose
+        Check if member has an active SEPA mandate for a specific purpose.
 
         .. deprecated:: 2025-10-14
             Use :func:`verenigingen.services.payment.sepa_mandate_manager.SEPAMandateManager.has_active_mandate` instead.
@@ -83,19 +81,16 @@ class SEPAMandateMixin:
         """
         import warnings
 
+        from verenigingen.services.payment.sepa_mandate_manager import get_sepa_mandate_manager
+
         warnings.warn(
             "has_active_sepa_mandate() is deprecated. Use SEPAMandateManager.has_active_mandate() instead.",
             DeprecationWarning,
             stacklevel=2,
         )
-        filters = {"member": self.name, "status": "Active", "is_active": 1}
-
-        if purpose == "memberships":
-            filters["used_for_memberships"] = 1
-        elif purpose == "donations":
-            filters["used_for_donations"] = 1
-
-        return frappe.db.exists("SEPA Mandate", filters)
+        # Delegate to service
+        manager = get_sepa_mandate_manager()
+        return manager.has_active_mandate(self.name, purpose)
 
     def refresh_sepa_mandates_table(self):
         """Refresh the SEPA mandates child table by syncing with actual SEPA Mandate records"""
@@ -143,7 +138,7 @@ class SEPAMandateMixin:
     @critical_api(operation_type=OperationType.FINANCIAL)
     def create_sepa_mandate(self):
         """
-        Create a new SEPA mandate for this member with enhanced prefilling
+        Create a new SEPA mandate for this member with enhanced prefilling.
 
         .. deprecated:: 2025-10-14
             Use :func:`verenigingen.services.payment.sepa_mandate_manager.SEPAMandateManager.create_mandate` instead.
@@ -151,82 +146,52 @@ class SEPAMandateMixin:
         """
         import warnings
 
+        from verenigingen.services.payment.sepa_mandate_manager import get_sepa_mandate_manager
+
         warnings.warn(
             "create_sepa_mandate() is deprecated. Use SEPAMandateManager.create_mandate() instead.",
             DeprecationWarning,
             stacklevel=2,
         )
-        # Show deprecation warning to users
-        frappe.msgprint(
-            "This SEPA mandate creation method is deprecated. "
-            "Please use SEPAMandateManager.create_mandate() for better validation and error handling.",
-            alert=True,
-            indicator="orange",
-        )
-        mandate_ref_result = self._generate_mandate_reference()
-        suggested_reference = mandate_ref_result.get(
-            "mandate_reference", f"M-{self.member_id}-{today().replace('-', '')}"
-        )
+        # Delegate to service
+        manager = get_sepa_mandate_manager()
+        iban = getattr(self, "iban", None) or ""
+        bic = getattr(self, "bic", None)
+        account_holder = getattr(self, "bank_account_name", None) or self.full_name
 
-        mandate = frappe.new_doc("SEPA Mandate")
-        mandate.member = self.name
-        mandate.member_name = self.full_name
-        mandate.mandate_id = suggested_reference
-        mandate.account_holder_name = self.bank_account_name or self.full_name
-        mandate.sign_date = today()
-
-        if hasattr(self, "iban") and self.iban:
-            mandate.iban = self.iban
-        if hasattr(self, "bic") and self.bic:
-            mandate.bic = self.bic
-
-        mandate.used_for_memberships = 1
-        mandate.used_for_donations = 0
-        mandate.mandate_type = "RCUR"
-
-        mandate.notes = f"Created from Member {self.name} on {today()}"
-
-        mandate.insert()
-
-        self.append(
-            "sepa_mandates",
-            {
-                "sepa_mandate": mandate.name,
-                "mandate_reference": mandate.mandate_id,
-                "is_current": 0,
-                "status": "Draft",
-                "valid_from": mandate.sign_date,
-            },
+        result = manager.create_mandate(
+            member=self.name,
+            iban=iban,
+            bic=bic,
+            account_holder_name=account_holder,
+            notes=f"Created from Member {self.name} on {today()}",
         )
 
-        self.save()
-
-        return mandate.name
+        if result.valid:
+            return result.data.get("mandate_name")
+        else:
+            frappe.throw(result.message)
 
     def _generate_mandate_reference(self):
-        """Generate a suggested mandate reference for a member"""
-        member_id = self.member_id or self.name.replace("Assoc-Member-", "").replace("-", "")
+        """
+        Generate a suggested mandate reference for a member.
 
-        from datetime import datetime
+        .. deprecated:: 2025-10-14
+            Use :func:`verenigingen.services.payment.sepa_mandate_manager.SEPAMandateManager.generate_mandate_reference` instead.
+        """
+        import warnings
 
-        now_dt = datetime.now()
-        date_str = now_dt.strftime("%Y%m%d")
+        from verenigingen.services.payment.sepa_mandate_manager import get_sepa_mandate_manager
 
-        existing_mandates_today = frappe.get_all(
-            "SEPA Mandate",
-            filters={
-                "mandate_id": ["like", f"M-{member_id}-{date_str}-%"],
-                "creation": [">=", now_dt.strftime("%Y-%m-%d 00:00:00")],
-            },
-            fields=["mandate_id"],
+        warnings.warn(
+            "_generate_mandate_reference() is deprecated. Use SEPAMandateManager.generate_mandate_reference() instead.",
+            DeprecationWarning,
+            stacklevel=2,
         )
-
-        sequence = len(existing_mandates_today) + 1
-        sequence_str = str(sequence).zfill(3)
-
-        suggested_reference = f"M-{member_id}-{date_str}-{sequence_str}"
-
-        return {"mandate_reference": suggested_reference}
+        # Delegate to service
+        manager = get_sepa_mandate_manager()
+        mandate_ref = manager.generate_mandate_reference(self.name, self.member_id)
+        return {"mandate_reference": mandate_ref}
 
 
 @frappe.whitelist()
@@ -473,7 +438,7 @@ def _deactivate_mandate_for_iban_change(mandate_name, old_iban, new_iban):
     mandate = frappe.get_doc("SEPA Mandate", mandate_name)
     mandate.status = "Cancelled"
     mandate.is_active = 0
-    mandate.cancellation_date = today()
+    mandate.cancelled_date = today()
     mandate.cancellation_reason = f"IBAN changed from {old_iban} to {new_iban} (auto-deactivated)"
     mandate.save()
 
@@ -587,10 +552,10 @@ def _format_issue_list(issues, fields):
 
 def create_sepa_mandate_via_service(self, iban: str, bic: str = None) -> Dict[str, Any]:
     """
-    Service layer integration method for SEPA mandate creation
+    Service layer integration method for SEPA mandate creation.
 
-    This method is called by the SEPAService to preserve existing business logic
-    while adding service layer benefits like enhanced validation and logging.
+    .. deprecated:: 2025-10-14
+        Use :func:`verenigingen.services.payment.sepa_mandate_manager.SEPAMandateManager.create_mandate` instead.
 
     Args:
         iban: International Bank Account Number
@@ -599,92 +564,41 @@ def create_sepa_mandate_via_service(self, iban: str, bic: str = None) -> Dict[st
     Returns:
         Dict containing mandate creation result
     """
-    try:
-        # Use enhanced validation from service layer
-        from verenigingen.utils.services.sepa_service import SEPAService
+    import warnings
 
-        # Validate inputs using service layer
-        if not SEPAService.validate_inputs(self.name, iban):
-            raise ValueError("Invalid input parameters")
+    from verenigingen.services.payment.sepa_mandate_manager import get_sepa_mandate_manager
 
-        if not SEPAService.validate_iban(iban):
-            raise ValueError(f"Invalid IBAN: {iban}")
+    warnings.warn(
+        "create_sepa_mandate_via_service() is deprecated. Use SEPAMandateManager.create_mandate() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
-        # Auto-derive BIC if not provided
-        if not bic and iban.startswith("NL"):
-            bic = SEPAService.derive_bic_from_iban(iban)
+    # Delegate to SEPAMandateManager service
+    manager = get_sepa_mandate_manager()
+    account_holder = getattr(self, "bank_account_name", None) or self.full_name
 
-        # Check for existing mandate with same IBAN
-        existing = SEPAService.get_active_mandate_by_iban(self.name, iban)
-        if existing:
-            return {
-                "success": False,
-                "message": f"Active mandate already exists for IBAN {iban}",
-                "existing_mandate": existing,
-            }
+    result = manager.create_mandate(
+        member=self.name,
+        iban=iban,
+        bic=bic,
+        account_holder_name=account_holder,
+        notes=f"Created via service layer from Member {self.name} on {today()}",
+    )
 
-        # Generate mandate reference using existing logic
-        mandate_ref_result = self._generate_mandate_reference()
-        suggested_reference = mandate_ref_result.get(
-            "mandate_reference", f"M-{self.member_id}-{today().replace('-', '')}"
-        )
-
-        # Create mandate using enhanced approach
-        mandate = frappe.new_doc("SEPA Mandate")
-        mandate.member = self.name
-        mandate.member_name = self.full_name
-        mandate.mandate_id = suggested_reference
-        mandate.account_holder_name = self.bank_account_name or self.full_name
-        mandate.sign_date = today()
-        mandate.iban = iban
-        mandate.bic = bic
-        mandate.used_for_memberships = 1
-        mandate.used_for_donations = 0
-        mandate.mandate_type = "RCUR"
-        mandate.notes = f"Created via service layer from Member {self.name} on {today()}"
-
-        # Save the mandate
-        mandate.insert()
-
-        # Add to member's mandate table
-        self.append(
-            "sepa_mandates",
-            {
-                "sepa_mandate": mandate.name,
-                "mandate_reference": mandate.mandate_id,
-                "status": "Active",
-                "is_current": 1,
-                "valid_from": mandate.sign_date,
-            },
-        )
-
-        # Save member document
-        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-        member_result = secure_document_operation(
-            operation="save",
-            doc=self,
-            justification=f"Update member {self.name} with new SEPA mandate {mandate.mandate_id} via service",
-            required_permissions=["Member:write"],
-        )
-
-        if not member_result.success:
-            frappe.log_error(
-                f"Failed to save SEPA mandate creation: {'; '.join(member_result.errors)}",
-                "Member SEPA Mandate Security",
-            )
-            frappe.throw(
-                _("Failed to update member with SEPA mandate: {0}").format("; ".join(member_result.errors))
-            )
-
+    if result.valid:
+        # Return legacy format for backward compatibility
         return {
             "success": True,
-            "mandate": mandate,
-            "message": f"SEPA mandate {mandate.mandate_id} created successfully",
+            "mandate": frappe.get_doc("SEPA Mandate", result.data.get("mandate_name")),
+            "message": result.message,
         }
-
-    except Exception as e:
-        frappe.log_error(f"Failed to create SEPA mandate via service for {self.name}: {e}")
-        raise
+    else:
+        return {
+            "success": False,
+            "message": result.message,
+            "errors": result.errors,
+        }
 
 
 # Add service layer integration to SEPAMandateMixin class
