@@ -41065,4 +41065,53 @@
     "audit_level": "minimal",
     "alert_on_execution": 0
   }
+,
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "validate_custom_amount_endpoint",
+    "operation_name": "validate_custom_amount_endpoint",
+    "operation_type": "public",
+    "description": "Public custom amount validation for membership contribution",
+    "enabled": 1,
+    "security_level": "low",
+    "business_context": "Real-time contribution amount validation during membership application",
+    "required_roles": "",
+    "rate_limit_calls": 50,
+    "rate_limit_period_seconds": 60,
+    "rate_limit_scope": "per_ip",
+    "audit_level": "minimal",
+    "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "membership_application_validate_custom_amount_endpoint",
+    "operation_name": "membership_application_validate_custom_amount_endpoint",
+    "operation_type": "public",
+    "description": "Module-prefixed custom amount validation endpoint",
+    "enabled": 1,
+    "security_level": "low",
+    "business_context": "Validates custom contribution amounts meet membership type requirements",
+    "required_roles": "",
+    "rate_limit_calls": 50,
+    "rate_limit_period_seconds": 60,
+    "rate_limit_scope": "per_ip",
+    "audit_level": "minimal",
+    "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "api_validate_custom_amount_endpoint",
+    "operation_name": "api_validate_custom_amount_endpoint",
+    "operation_type": "public",
+    "description": "API prefix version - Custom contribution amount validation",
+    "enabled": 1,
+    "security_level": "low",
+    "business_context": "Generic API endpoint for validating custom membership contribution amounts",
+    "required_roles": "",
+    "rate_limit_calls": 50,
+    "rate_limit_period_seconds": 60,
+    "rate_limit_scope": "per_ip",
+    "audit_level": "minimal",
+    "alert_on_execution": 0
+  }
 ]

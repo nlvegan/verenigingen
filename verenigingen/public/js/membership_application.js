@@ -4222,7 +4222,20 @@ class MembershipAPI {
 					clearTimeout(timeoutId);
 
 					if (r.message !== undefined) {
-						resolve(r.message);
+						// Handle OperationResult wrapper pattern
+						// OperationResult has: { success, data, message, timestamp }
+						const msg = r.message;
+						if (msg && typeof msg === 'object' && 'success' in msg && 'data' in msg) {
+							// This is an OperationResult - unwrap it
+							if (msg.success) {
+								resolve(msg.data);
+							} else {
+								reject(new Error(msg.message || 'Operation failed'));
+							}
+						} else {
+							// Legacy response format - return as-is
+							resolve(msg);
+						}
 					} else if (r.exc) {
 						reject(new Error(r.exc));
 					} else {

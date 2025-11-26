@@ -819,8 +819,8 @@ def send_application_confirmation(application, invoice):
         frappe.log_error(f"Error sending confirmation email: {str(e)}")
 
 
-@standard_api(operation_type=OperationType.PUBLIC)
-@frappe.whitelist()
+@public_api(operation_type=OperationType.PUBLIC)
+@frappe.whitelist(allow_guest=True)
 def get_membership_types_for_application() -> OperationResult[Dict[str, Any]]:
     """Get membership types with contribution options for application form.
 
@@ -938,7 +938,7 @@ def get_membership_types_for_application() -> OperationResult[Dict[str, Any]]:
 
 
 @public_api(operation_type=OperationType.PUBLIC)
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
 def get_contribution_calculator_config(membership_type=None) -> OperationResult[Dict[str, Any]]:
     """Get contribution calculator configuration for membership type.
 
