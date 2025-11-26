@@ -3,6 +3,8 @@ Refactored membership application API with improved organization and error handl
 """
 
 import json
+import traceback
+from typing import Any, Dict
 
 import frappe
 from frappe import _
@@ -24,16 +26,12 @@ from verenigingen.utils.application_helpers import (
     get_membership_type_details as get_membership_type_details_util,
 )
 from verenigingen.utils.application_helpers import load_draft_application as load_draft_application_util
-from verenigingen.utils.application_helpers import (
-    parse_application_data,
-)
+from verenigingen.utils.application_helpers import parse_application_data
 from verenigingen.utils.application_helpers import save_draft_application as save_draft_application_util
 from verenigingen.utils.application_helpers import (
     suggest_membership_amounts as suggest_membership_amounts_util,
 )
-from verenigingen.utils.application_helpers import (
-    update_member_from_reapplication,
-)
+from verenigingen.utils.application_helpers import update_member_from_reapplication
 from verenigingen.utils.application_notifications import (
     check_overdue_applications,
     notify_reviewers_of_new_application,
@@ -48,6 +46,7 @@ from verenigingen.utils.config_manager import ConfigManager
 
 # Import enhanced utilities
 from verenigingen.utils.error_handling import PermissionError, ValidationError, handle_api_error, log_error
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.performance_utils import QueryOptimizer, performance_monitor
 
 # Import security decorators
@@ -77,9 +76,7 @@ from verenigingen.utils.validation.application_validators import (
     validate_custom_amount as validate_custom_amount_util,
 )
 from verenigingen.utils.validation.application_validators import validate_email as validate_email_util
-from verenigingen.utils.validation.application_validators import (
-    validate_membership_amount_selection,
-)
+from verenigingen.utils.validation.application_validators import validate_membership_amount_selection
 from verenigingen.utils.validation.application_validators import validate_name as validate_name_util
 from verenigingen.utils.validation.application_validators import (
     validate_phone_number as validate_phone_number_util,
@@ -87,9 +84,7 @@ from verenigingen.utils.validation.application_validators import (
 from verenigingen.utils.validation.application_validators import (
     validate_postal_code as validate_postal_code_util,
 )
-from verenigingen.utils.validation.application_validators import (
-    validate_required_fields,
-)
+from verenigingen.utils.validation.application_validators import validate_required_fields
 
 # Utility functions
 
@@ -122,29 +117,31 @@ def check_rate_limit(endpoint, limit_per_hour=60):
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.UTILITY)
-def test_connection():
+def test_connection() -> OperationResult[Dict[str, Any]]:
     """Simple test method to verify the API is working"""
-    return {
-        "success": True,
-        "message": "Backend connection working",
-        "timestamp": frappe.utils.now(),
-        "user": frappe.session.user,
-        "version": "2.0",
-        "features": [
-            "form_data",
-            "validation",
-            "draft_save",
-            "submission",
-            "payment_methods",
-            "error_handling",
-            "tracking",
-        ],
-    }
+    return OperationResult.ok(
+        {
+            "message": _("Backend connection working"),
+            "timestamp": frappe.utils.now(),
+            "user": frappe.session.user,
+            "version": "2.0",
+            "features": [
+                "form_data",
+                "validation",
+                "draft_save",
+                "submission",
+                "payment_methods",
+                "error_handling",
+                "tracking",
+            ],
+        },
+        message=_("API connection successful"),
+    )
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.UTILITY)
-def test_all_endpoints():
+def test_all_endpoints() -> OperationResult[Dict[str, Any]]:
     """Test that all critical endpoints are accessible"""
     endpoints_tested = []
     try:
@@ -156,26 +153,33 @@ def test_all_endpoints():
         email_test = validate_email_util("test@example.com")
         endpoints_tested.append({"validate_email": "✓" if email_test.get("valid") else "✗"})
 
-        return {"success": True, "message": "All endpoints accessible", "tested": endpoints_tested}
+        return OperationResult.ok({"tested": endpoints_tested}, message=_("All endpoints accessible"))
     except Exception as e:
-        return {"success": False, "error": str(e), "tested": endpoints_tested}
+        frappe.log_error(f"Endpoint test error: {str(e)}\n{traceback.format_exc()}", "Endpoint Test Error")
+        return OperationResult.fail(
+            _("Some endpoints failed testing"),
+            errors=[str(e)],
+            context={"operation": "test_all_endpoints", "tested": endpoints_tested},
+        )
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
-def get_application_form_data():
+def get_application_form_data() -> OperationResult[Dict[str, Any]]:
     """Get data needed for application form"""
     try:
         result = get_form_data()
         # Ensure consistent success format
         if not result.get("success"):
             result["success"] = True
-        return result
+        return OperationResult.ok(result, message=_("Form data retrieved successfully"))
     except Exception as e:
         # Enhanced error logging and fallback
-        frappe.log_error(f"Error in get_form_data: {str(e)}", "Application Form Data Error")
-        return {
-            "success": True,
+        frappe.log_error(
+            f"Error in get_form_data: {str(e)}\n{traceback.format_exc()}", "Application Form Data Error"
+        )
+        # Return fallback data with OperationResult
+        fallback_data = {
             "error": False,  # Not critical error since we have fallbacks
             "membership_types": [],
             "chapters": [],
@@ -193,17 +197,22 @@ def get_application_form_data():
                 {"name": "SEPA Direct Debit", "description": "SEPA Direct Debit (recurring)"},
             ],
         }
+        return OperationResult.ok(fallback_data, message=_("Form data retrieved with fallback defaults"))
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
 @performance_monitor(threshold_ms=200)
 @rate_limit(max_requests=30)
-def validate_email(email):
+def validate_email(email) -> OperationResult[Dict[str, Any]]:
     """Validate email format and check if it already exists"""
 
     if not email:
-        return {"valid": False, "message": "Email is required", "type": "required"}
+        return OperationResult.fail(
+            _("Email is required"),
+            errors=["email_required"],
+            context={"type": "required", "valid": False},
+        )
 
     # Use enhanced API validator
     try:
@@ -212,106 +221,212 @@ def validate_email(email):
 
         # Ensure consistent response format
         if not isinstance(result, dict):
-            return {"valid": False, "message": "Invalid validation response", "type": "server_error"}
+            return OperationResult.fail(
+                _("Invalid validation response"),
+                errors=["invalid_response"],
+                context={"type": "server_error", "valid": False},
+            )
 
-        return result
+        # Wrap validation result in OperationResult
+        if result.get("valid"):
+            return OperationResult.ok(result, message=_("Email is valid"))
+        else:
+            return OperationResult.fail(
+                _(result.get("message", "Email validation failed")),
+                errors=[result.get("type", "validation_error")],
+                context=result,
+            )
 
     except ValidationError as e:
-        return {"valid": False, "message": str(e), "type": "validation_error"}
+        return OperationResult.fail(
+            str(e), errors=["validation_error"], context={"type": "validation_error", "valid": False}
+        )
     except Exception as e:
-        log_error(f"Email validation error: {str(e)}", "Email Validation Error")
-        return {"valid": False, "message": "Validation service error", "type": "server_error"}
+        log_error(f"Email validation error: {str(e)}\n{traceback.format_exc()}", "Email Validation Error")
+        return OperationResult.fail(
+            _("Validation service error"),
+            errors=[str(e)],
+            context={"type": "server_error", "valid": False},
+        )
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
-def validate_email_endpoint(email):
+def validate_email_endpoint(email) -> OperationResult[Dict[str, Any]]:
     """Validate email format and check if it already exists (legacy endpoint)"""
     return validate_email(email)
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
-def validate_postal_code(postal_code, country="Netherlands"):
+def validate_postal_code(postal_code, country="Netherlands") -> OperationResult[Dict[str, Any]]:
     """Validate postal code format and suggest chapters"""
-    result = validate_postal_code_util(postal_code, country)
+    try:
+        result = validate_postal_code_util(postal_code, country)
 
-    if result["valid"]:
-        # Find matching chapters
-        suggested_chapters = []
-        try:
-            from verenigingen.verenigingen.doctype.member.member_utils import find_chapter_by_postal_code
+        if result["valid"]:
+            # Find matching chapters
+            suggested_chapters = []
+            try:
+                from verenigingen.verenigingen.doctype.member.member_utils import find_chapter_by_postal_code
 
-            chapter_result = find_chapter_by_postal_code(postal_code)
+                chapter_result = find_chapter_by_postal_code(postal_code)
 
-            if chapter_result.get("success") and chapter_result.get("matching_chapters"):
-                suggested_chapters = chapter_result["matching_chapters"]
-        except Exception as e:
-            frappe.log_error(f"Error finding chapters for postal code {postal_code}: {str(e)}")
+                if chapter_result.get("success") and chapter_result.get("matching_chapters"):
+                    suggested_chapters = chapter_result["matching_chapters"]
+            except Exception as e:
+                frappe.log_error(
+                    f"Error finding chapters for postal code {postal_code}: {str(e)}\n{traceback.format_exc()}",
+                    "Chapter Lookup Error",
+                )
 
-        result["suggested_chapters"] = suggested_chapters
-
-    return result
+            result["suggested_chapters"] = suggested_chapters
+            return OperationResult.ok(result, message=_("Postal code is valid"))
+        else:
+            return OperationResult.fail(
+                _(result.get("message", "Postal code validation failed")),
+                errors=[result.get("type", "validation_error")],
+                context=result,
+            )
+    except Exception as e:
+        frappe.log_error(
+            f"Postal code validation error: {str(e)}\n{traceback.format_exc()}",
+            "Postal Code Validation Error",
+        )
+        return OperationResult.fail(
+            _("Postal code validation failed"),
+            errors=[str(e)],
+            context={"operation": "validate_postal_code"},
+        )
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
-def validate_postal_code_endpoint(postal_code, country="Netherlands"):
+def validate_postal_code_endpoint(postal_code, country="Netherlands") -> OperationResult[Dict[str, Any]]:
     """Validate postal code format and suggest chapters (legacy endpoint)"""
     return validate_postal_code(postal_code, country)
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
-def validate_phone_number(phone, country="Netherlands"):
+def validate_phone_number(phone, country="Netherlands") -> OperationResult[Dict[str, Any]]:
     """Validate phone number format"""
-    return validate_phone_number_util(phone, country)
+    try:
+        result = validate_phone_number_util(phone, country)
+        if result.get("valid"):
+            return OperationResult.ok(result, message=_("Phone number is valid"))
+        else:
+            return OperationResult.fail(
+                _(result.get("message", "Phone number validation failed")),
+                errors=[result.get("type", "validation_error")],
+                context=result,
+            )
+    except Exception as e:
+        frappe.log_error(
+            f"Phone validation error: {str(e)}\n{traceback.format_exc()}", "Phone Validation Error"
+        )
+        return OperationResult.fail(
+            _("Phone number validation failed"),
+            errors=[str(e)],
+            context={"operation": "validate_phone_number"},
+        )
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
-def validate_phone_number_endpoint(phone, country="Netherlands"):
+def validate_phone_number_endpoint(phone, country="Netherlands") -> OperationResult[Dict[str, Any]]:
     """Validate phone number format (legacy endpoint)"""
     return validate_phone_number(phone, country)
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
-def validate_birth_date(birth_date):
+def validate_birth_date(birth_date) -> OperationResult[Dict[str, Any]]:
     """Validate birth date"""
-    return validate_birth_date_util(birth_date)
+    try:
+        result = validate_birth_date_util(birth_date)
+        if result.get("valid"):
+            return OperationResult.ok(result, message=_("Birth date is valid"))
+        else:
+            return OperationResult.fail(
+                _(result.get("message", "Birth date validation failed")),
+                errors=[result.get("type", "validation_error")],
+                context=result,
+            )
+    except Exception as e:
+        frappe.log_error(
+            f"Birth date validation error: {str(e)}\n{traceback.format_exc()}", "Birth Date Validation Error"
+        )
+        return OperationResult.fail(
+            _("Birth date validation failed"),
+            errors=[str(e)],
+            context={"operation": "validate_birth_date"},
+        )
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
-def validate_birth_date_endpoint(birth_date):
+def validate_birth_date_endpoint(birth_date) -> OperationResult[Dict[str, Any]]:
     """Validate birth date (legacy endpoint)"""
     return validate_birth_date(birth_date)
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
-def validate_name(name, field_name="Name"):
+def validate_name(name, field_name="Name") -> OperationResult[Dict[str, Any]]:
     """Validate name fields"""
-    return validate_name_util(name, field_name)
+    try:
+        result = validate_name_util(name, field_name)
+        if result.get("valid"):
+            return OperationResult.ok(result, message=_("Name is valid"))
+        else:
+            return OperationResult.fail(
+                _(result.get("message", "Name validation failed")),
+                errors=[result.get("type", "validation_error")],
+                context=result,
+            )
+    except Exception as e:
+        frappe.log_error(
+            f"Name validation error: {str(e)}\n{traceback.format_exc()}", "Name Validation Error"
+        )
+        return OperationResult.fail(
+            _("Name validation failed"),
+            errors=[str(e)],
+            context={"operation": "validate_name"},
+        )
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
-def validate_name_endpoint(name, field_name="Name"):
+def validate_name_endpoint(name, field_name="Name") -> OperationResult[Dict[str, Any]]:
     """Validate name fields (legacy endpoint)"""
     return validate_name(name, field_name)
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.MEMBER_DATA)
-def check_application_eligibility_endpoint(data):
+def check_application_eligibility_endpoint(data) -> OperationResult[Dict[str, Any]]:
     """Check if applicant is eligible for membership"""
     try:
         parsed_data = parse_application_data(data)
-        return check_application_eligibility_util(parsed_data)
+        result = check_application_eligibility_util(parsed_data)
+        if result.get("eligible"):
+            return OperationResult.ok(result, message=_("Applicant is eligible for membership"))
+        else:
+            return OperationResult.fail(
+                _("Applicant is not eligible for membership"),
+                errors=result.get("issues", []),
+                context={"warnings": result.get("warnings", [])},
+            )
     except Exception as e:
-        return {"eligible": False, "issues": [str(e)], "warnings": []}
+        frappe.log_error(
+            f"Eligibility check error: {str(e)}\n{traceback.format_exc()}", "Eligibility Check Error"
+        )
+        return OperationResult.fail(
+            _("Eligibility check failed"),
+            errors=[str(e)],
+            context={"operation": "check_application_eligibility"},
+        )
 
 
 @frappe.whitelist(allow_guest=True)
@@ -319,7 +434,7 @@ def check_application_eligibility_endpoint(data):
 @handle_api_error
 @performance_monitor(threshold_ms=3000)
 @rate_limit(max_requests=10)
-def submit_application(**kwargs):
+def submit_application(**kwargs) -> OperationResult[Dict[str, Any]]:
     """Process membership application submission - Main entry point"""
     try:
         # Parse and validate data
@@ -339,11 +454,11 @@ def submit_application(**kwargs):
 
         validation_result = validate_required_fields(data, required_fields)
         if not validation_result["valid"]:
-            return {
-                "success": False,
-                "error": f"Missing required fields: {', '.join(validation_result['missing_fields'])}",
-                "message": f"Missing required fields: {', '.join(validation_result['missing_fields'])}",
-            }
+            return OperationResult.fail(
+                _("Missing required fields: {0}").format(", ".join(validation_result["missing_fields"])),
+                errors=validation_result["missing_fields"],
+                context={"operation": "submit_application", "type": "validation_error"},
+            )
 
         # Check eligibility
         eligibility = check_application_eligibility_util(data)
@@ -353,13 +468,14 @@ def submit_application(**kwargs):
                 title="Application Eligibility Failed",
                 message=f"Email: {data.get('email')}\nIssues: {'; '.join(eligibility['issues'])}",
             )
-            return {
-                "success": False,
-                "error": "Application not eligible",
-                "message": f"Validation failed: {'; '.join(eligibility['issues'])}",
-                "issues": eligibility["issues"],
-                "warnings": eligibility.get("warnings", []),
-            }
+            return OperationResult.fail(
+                _("Validation failed: {0}").format("; ".join(eligibility["issues"])),
+                errors=eligibility["issues"],
+                context={
+                    "warnings": eligibility.get("warnings", []),
+                    "operation": "submit_application",
+                },
+            )
 
         # Check if member with email already exists and handle reapplication scenarios
         existing_member = frappe.db.get_value(
@@ -402,12 +518,11 @@ def submit_application(**kwargs):
                         f"Member {member_name} has Terminated status but no executed termination request found",
                         "Termination Data Integrity",
                     )
-                    return {
-                        "success": False,
-                        "error": "Membership status unclear",
-                        "message": "Please contact us to clarify your membership status before reapplying.",
-                        "requires_contact": True,
-                    }
+                    return OperationResult.fail(
+                        _("Please contact us to clarify your membership status before reapplying."),
+                        errors=["termination_status_unclear"],
+                        context={"requires_contact": True, "operation": "submit_application"},
+                    )
 
                 # Termination type found - check if voluntary
                 if termination_result == "Voluntary":
@@ -418,33 +533,36 @@ def submit_application(**kwargs):
                     frappe.logger().warning(
                         f"Reapplication blocked for {member_name} - involuntary termination: {termination_result}"
                     )
-                    return {
-                        "success": False,
-                        "error": "Cannot reapply automatically",
-                        "message": (
+                    return OperationResult.fail(
+                        _(
                             "Your previous membership was terminated for reasons that require direct contact with our organization. "
                             "Please email us to discuss rejoining."
                         ),
-                        "requires_contact": True,
-                        "termination_type": termination_result,
-                    }
+                        errors=["involuntary_termination"],
+                        context={
+                            "requires_contact": True,
+                            "termination_type": termination_result,
+                            "operation": "submit_application",
+                        },
+                    )
 
             # Scenario 4: Active member - cannot reapply
             elif status == "Active":
-                return {
-                    "success": False,
-                    "error": "Already an active member",
-                    "message": "You are already an active member. Please login to manage your membership.",
-                    "member_exists": True,
-                }
+                return OperationResult.fail(
+                    _("You are already an active member. Please login to manage your membership."),
+                    errors=["already_active_member"],
+                    context={"member_exists": True, "operation": "submit_application"},
+                )
 
             else:
                 # Unknown status - default to blocking with contact message
-                return {
-                    "success": False,
-                    "error": "Membership record exists",
-                    "message": "A membership record with this email already exists. Please contact us for assistance.",
-                }
+                return OperationResult.fail(
+                    _(
+                        "A membership record with this email already exists. Please contact us for assistance."
+                    ),
+                    errors=["membership_record_exists"],
+                    context={"operation": "submit_application"},
+                )
 
         # Validate membership amount if custom amount is provided
         if data.get("membership_amount") or data.get("uses_custom_amount"):
@@ -460,12 +578,11 @@ def submit_application(**kwargs):
                         f"Custom amount validation failed for application: {amount_validation['message']}",
                         "Custom Amount Validation Failed",
                     )
-                    return {
-                        "success": False,
-                        "error": "Invalid membership amount",
-                        "message": amount_validation["message"],
-                        "type": "validation_error",
-                    }
+                    return OperationResult.fail(
+                        _(amount_validation["message"]),
+                        errors=["invalid_custom_amount"],
+                        context={"type": "validation_error", "operation": "submit_application"},
+                    )
 
                 # Also validate using the membership amount selection validator
                 selection_validation = validate_membership_amount_selection(
@@ -476,12 +593,11 @@ def submit_application(**kwargs):
                         f"Membership amount selection validation failed for application: {selection_validation['message']}",
                         "Amount Selection Validation Failed",
                     )
-                    return {
-                        "success": False,
-                        "error": "Invalid membership amount selection",
-                        "message": selection_validation["message"],
-                        "type": "validation_error",
-                    }
+                    return OperationResult.fail(
+                        _(selection_validation["message"]),
+                        errors=["invalid_amount_selection"],
+                        context={"type": "validation_error", "operation": "submit_application"},
+                    )
 
         # Generate application ID
         application_id = generate_application_id()
@@ -492,7 +608,7 @@ def submit_application(**kwargs):
             address = create_address_from_application(data)
         except Exception as e:
             frappe.log_error(
-                f"Failed to create address for application {application_id}: {str(e)}",
+                f"Failed to create address for application {application_id}: {str(e)}\n{traceback.format_exc()}",
                 "Address Creation Error",
             )
             # Continue without address - not critical for member creation
@@ -507,7 +623,7 @@ def submit_application(**kwargs):
                 member = create_member_from_application(data, application_id, address)
         except Exception as e:
             frappe.log_error(
-                f"Failed to create/update member record for application {application_id}: {str(e)}\nData: {json.dumps(data, default=str)}",
+                f"Failed to create/update member record for application {application_id}: {str(e)}\n{traceback.format_exc()}\nData: {json.dumps(data, default=str)}",
                 "Member Creation Error",
             )
             raise  # Re-raise since this is critical
@@ -579,23 +695,27 @@ def submit_application(**kwargs):
             send_application_confirmation_email(member, application_id)
             notify_reviewers_of_new_application(member, application_id)
         except Exception as e:
-            frappe.log_error(f"Error sending notifications: {str(e)}", "Notification Error")
+            frappe.log_error(
+                f"Error sending notifications: {str(e)}\n{traceback.format_exc()}",
+                "Notification Error",
+            )
 
-        return {
-            "success": True,
-            "message": "Application submitted successfully! You will receive an email with your application ID.",
-            "application_id": application_id,
-            "applicant_id": getattr(member, "application_id", None),
-            "member_record": member.name,
-            "status": "pending_review",
-        }
+        return OperationResult.ok(
+            {
+                "application_id": application_id,
+                "applicant_id": getattr(member, "application_id", None),
+                "member_record": member.name,
+                "status": "pending_review",
+            },
+            message=_(
+                "Application submitted successfully! You will receive an email with your application ID."
+            ),
+        )
 
     except Exception as e:
         frappe.db.rollback()
 
         # Get full error details
-        import traceback
-
         error_msg = str(e)
         full_traceback = traceback.format_exc()
 
@@ -604,13 +724,15 @@ def submit_application(**kwargs):
             "Application Submission Error",
         )
 
-        return {
-            "success": False,
-            "error": error_msg,
-            "message": f"Application submission failed: {error_msg}",
-            "type": "server_error",
-            "timestamp": frappe.utils.now(),
-        }
+        return OperationResult.fail(
+            _("Application submission failed: {0}").format(error_msg),
+            errors=[error_msg],
+            context={
+                "type": "server_error",
+                "timestamp": frappe.utils.now(),
+                "operation": "submit_application",
+            },
+        )
 
 
 @frappe.whitelist()
@@ -618,7 +740,7 @@ def submit_application(**kwargs):
 @handle_api_error
 @performance_monitor(threshold_ms=2000)
 @require_roles(["System Manager", "Verenigingen Administrator", "Verenigingen Staff"])
-def approve_membership_application(member_name, notes=None):
+def approve_membership_application(member_name, notes=None) -> OperationResult[Dict[str, Any]]:
     """
     DEPRECATED: Use verenigingen.api.membership_application_review.approve_membership_application instead.
 
@@ -643,18 +765,45 @@ def approve_membership_application(member_name, notes=None):
     # Note: This doesn't pass membership_type or chapter, assuming defaults
     result = canonical_approve(member_name=member_name, notes=notes, create_invoice=True)
 
-    return result
+    # If result is already OperationResult, return it directly
+    # If it's a dict (legacy format), wrap it
+    if isinstance(result, OperationResult):
+        return result
+    elif isinstance(result, dict):
+        if result.get("success"):
+            return OperationResult.ok(
+                result, message=_(result.get("message", "Application approved successfully"))
+            )
+        else:
+            return OperationResult.fail(
+                _(result.get("message", "Application approval failed")),
+                errors=[result.get("error", "approval_failed")],
+                context=result,
+            )
+    else:
+        return OperationResult.fail(
+            _("Unexpected response from approval function"),
+            errors=["unexpected_response"],
+            context={"operation": "approve_membership_application"},
+        )
 
 
 @frappe.whitelist()
 @high_security_api()  # Member application rejection
-def reject_membership_application(member_name, reason):
+def reject_membership_application(member_name, reason) -> OperationResult[Dict[str, Any]]:
     """Reject a membership application"""
     try:
         member = frappe.get_doc("Member", member_name)
 
         if member.application_status not in ["Pending", "Under Review"]:
-            return {"success": False, "error": "This application cannot be rejected in its current state"}
+            return OperationResult.fail(
+                _("This application cannot be rejected in its current state"),
+                errors=["invalid_application_status"],
+                context={
+                    "current_status": member.application_status,
+                    "operation": "reject_membership_application",
+                },
+            )
 
         # Use the new reject_application method which handles chapter membership cleanup
         member.reject_application(reason)
@@ -662,19 +811,31 @@ def reject_membership_application(member_name, reason):
         # Send rejection email
         send_rejection_email(member, reason)
 
-        return {
-            "success": True,
-            "message": "Application rejected, pending chapter membership removed, and notification sent",
-        }
+        return OperationResult.ok(
+            {
+                "member_id": member_name,
+                "status": "Rejected",
+            },
+            message=_("Application rejected, pending chapter membership removed, and notification sent"),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Error rejecting application: {str(e)}")
-        return {"success": False, "error": str(e), "message": "Error rejecting application"}
+        frappe.log_error(
+            f"Error rejecting application: {str(e)}\n{traceback.format_exc()}",
+            "Application Rejection Error",
+        )
+        return OperationResult.fail(
+            _("Error rejecting application"),
+            errors=[str(e)],
+            context={"operation": "reject_membership_application"},
+        )
 
 
 @frappe.whitelist()
 @high_security_api()  # Payment processing
-def process_application_payment_endpoint(member_name, payment_method, payment_reference=None):
+def process_application_payment_endpoint(
+    member_name, payment_method, payment_reference=None
+) -> OperationResult[Dict[str, Any]]:
     """Process payment for approved application"""
     try:
         payment_entry = process_application_payment(member_name, payment_method, payment_reference)
@@ -699,109 +860,257 @@ def process_application_payment_endpoint(member_name, payment_method, payment_re
             invoice = frappe.get_doc("Sales Invoice", application_invoice_name)
             send_payment_confirmation_email(member, invoice)
         else:
-            frappe.log_error(f"No application invoice found for member {member_name}", "Payment Confirmation")
+            frappe.log_error(
+                f"No application invoice found for member {member_name}",
+                "Payment Confirmation",
+            )
 
-        return {
-            "success": True,
-            "message": "Payment processed successfully",
-            "payment_entry": payment_entry.name,
-        }
+        return OperationResult.ok(
+            {
+                "payment_entry": payment_entry.name,
+                "member_id": member_name,
+            },
+            message=_("Payment processed successfully"),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Error processing payment: {str(e)}")
-        return {"success": False, "error": str(e), "message": "Error processing payment"}
+        frappe.log_error(
+            f"Error processing payment: {str(e)}\n{traceback.format_exc()}",
+            "Payment Processing Error",
+        )
+        return OperationResult.fail(
+            _("Error processing payment"),
+            errors=[str(e)],
+            context={"operation": "process_application_payment"},
+        )
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
-def get_membership_fee_info_endpoint(membership_type):
+def get_membership_fee_info_endpoint(membership_type) -> OperationResult[Dict[str, Any]]:
     """Get membership fee information"""
     try:
-        return get_membership_fee_info_util(membership_type)
+        result = get_membership_fee_info_util(membership_type)
+        return OperationResult.ok(result, message=_("Membership fee information retrieved"))
     except Exception as e:
-        return handle_api_error(e, "Membership Fee Info")
+        frappe.log_error(
+            f"Error getting membership fee info: {str(e)}\n{traceback.format_exc()}",
+            "Membership Fee Info Error",
+        )
+        return OperationResult.fail(
+            _("Error retrieving membership fee information"),
+            errors=[str(e)],
+            context={"operation": "get_membership_fee_info"},
+        )
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.UTILITY)
-def get_membership_type_details_endpoint(membership_type):
+def get_membership_type_details_endpoint(membership_type) -> OperationResult[Dict[str, Any]]:
     """Get detailed membership type information"""
     try:
-        return get_membership_type_details_util(membership_type)
+        result = get_membership_type_details_util(membership_type)
+        return OperationResult.ok(result, message=_("Membership type details retrieved"))
     except Exception as e:
-        return handle_api_error(e, "Membership Type Details")
+        frappe.log_error(
+            f"Error getting membership type details: {str(e)}\n{traceback.format_exc()}",
+            "Membership Type Details Error",
+        )
+        return OperationResult.fail(
+            _("Error retrieving membership type details"),
+            errors=[str(e)],
+            context={"operation": "get_membership_type_details"},
+        )
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
-def suggest_membership_amounts_endpoint(membership_type_name):
+def suggest_membership_amounts_endpoint(membership_type_name) -> OperationResult[Dict[str, Any]]:
     """Suggest membership amounts based on type"""
     try:
-        return suggest_membership_amounts_util(membership_type_name)
+        result = suggest_membership_amounts_util(membership_type_name)
+        return OperationResult.ok(result, message=_("Membership amount suggestions retrieved"))
     except Exception as e:
-        return handle_api_error(e, "Suggest Membership Amounts")
+        frappe.log_error(
+            f"Error suggesting membership amounts: {str(e)}\n{traceback.format_exc()}",
+            "Suggest Amounts Error",
+        )
+        return OperationResult.fail(
+            _("Error suggesting membership amounts"),
+            errors=[str(e)],
+            context={"operation": "suggest_membership_amounts"},
+        )
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
-def validate_membership_amount_selection_endpoint(membership_type, amount, uses_custom):
+def validate_membership_amount_selection_endpoint(
+    membership_type, amount, uses_custom
+) -> OperationResult[Dict[str, Any]]:
     """Validate membership amount selection"""
-    return validate_membership_amount_selection(membership_type, amount, uses_custom)
+    try:
+        result = validate_membership_amount_selection(membership_type, amount, uses_custom)
+        if result.get("valid"):
+            return OperationResult.ok(result, message=_("Membership amount selection is valid"))
+        else:
+            return OperationResult.fail(
+                _(result.get("message", "Membership amount selection is invalid")),
+                errors=[result.get("type", "validation_error")],
+                context=result,
+            )
+    except Exception as e:
+        frappe.log_error(
+            f"Error validating membership amount selection: {str(e)}\n{traceback.format_exc()}",
+            "Amount Selection Validation Error",
+        )
+        return OperationResult.fail(
+            _("Error validating membership amount selection"),
+            errors=[str(e)],
+            context={"operation": "validate_membership_amount_selection"},
+        )
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
-def validate_custom_amount_endpoint(membership_type, amount):
+def validate_custom_amount_endpoint(membership_type, amount) -> OperationResult[Dict[str, Any]]:
     """Validate custom membership amount"""
-    return validate_custom_amount_util(membership_type, amount)
+    try:
+        result = validate_custom_amount_util(membership_type, amount)
+        if result.get("valid"):
+            return OperationResult.ok(result, message=_("Custom amount is valid"))
+        else:
+            return OperationResult.fail(
+                _(result.get("message", "Custom amount is invalid")),
+                errors=[result.get("type", "validation_error")],
+                context=result,
+            )
+    except Exception as e:
+        frappe.log_error(
+            f"Error validating custom amount: {str(e)}\n{traceback.format_exc()}",
+            "Custom Amount Validation Error",
+        )
+        return OperationResult.fail(
+            _("Error validating custom amount"),
+            errors=[str(e)],
+            context={"operation": "validate_custom_amount"},
+        )
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
-def get_payment_methods_endpoint():
+def get_payment_methods_endpoint() -> OperationResult[Dict[str, Any]]:
     """Get available payment methods"""
     try:
-        return get_payment_methods_util()
+        result = get_payment_methods_util()
+        return OperationResult.ok(result, message=_("Payment methods retrieved"))
     except Exception as e:
-        return handle_api_error(e, "Payment Methods")
+        frappe.log_error(
+            f"Error getting payment methods: {str(e)}\n{traceback.format_exc()}",
+            "Payment Methods Error",
+        )
+        return OperationResult.fail(
+            _("Error retrieving payment methods"),
+            errors=[str(e)],
+            context={"operation": "get_payment_methods"},
+        )
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.MEMBER_DATA)
-def save_draft_application_endpoint(data):
+def save_draft_application_endpoint(data) -> OperationResult[Dict[str, Any]]:
     """Save application as draft"""
     try:
         parsed_data = parse_application_data(data)
-        return save_draft_application_util(parsed_data)
+        result = save_draft_application_util(parsed_data)
+        if result.get("success"):
+            return OperationResult.ok(result, message=_("Draft application saved successfully"))
+        else:
+            return OperationResult.fail(
+                _(result.get("message", "Failed to save draft application")),
+                errors=[result.get("error", "save_failed")],
+                context=result,
+            )
     except Exception as e:
-        return handle_api_error(e, "Save Draft")
+        frappe.log_error(
+            f"Error saving draft application: {str(e)}\n{traceback.format_exc()}",
+            "Save Draft Error",
+        )
+        return OperationResult.fail(
+            _("Error saving draft application"),
+            errors=[str(e)],
+            context={"operation": "save_draft_application"},
+        )
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.MEMBER_DATA)
-def load_draft_application_endpoint(draft_id):
+def load_draft_application_endpoint(draft_id) -> OperationResult[Dict[str, Any]]:
     """Load application draft"""
     try:
-        return load_draft_application_util(draft_id)
+        result = load_draft_application_util(draft_id)
+        if result.get("success"):
+            return OperationResult.ok(result, message=_("Draft application loaded successfully"))
+        else:
+            return OperationResult.fail(
+                _(result.get("message", "Failed to load draft application")),
+                errors=[result.get("error", "load_failed")],
+                context=result,
+            )
     except Exception as e:
-        return handle_api_error(e, "Load Draft")
+        frappe.log_error(
+            f"Error loading draft application: {str(e)}\n{traceback.format_exc()}",
+            "Load Draft Error",
+        )
+        return OperationResult.fail(
+            _("Error loading draft application"),
+            errors=[str(e)],
+            context={"operation": "load_draft_application"},
+        )
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.MEMBER_DATA)
-def get_member_field_info_endpoint():
+def get_member_field_info_endpoint() -> OperationResult[Dict[str, Any]]:
     """Get information about member fields for form generation"""
-    return get_member_field_info()
+    try:
+        result = get_member_field_info()
+        return OperationResult.ok(result, message=_("Member field information retrieved"))
+    except Exception as e:
+        frappe.log_error(
+            f"Error getting member field info: {str(e)}\n{traceback.format_exc()}",
+            "Member Field Info Error",
+        )
+        return OperationResult.fail(
+            _("Error retrieving member field information"),
+            errors=[str(e)],
+            context={"operation": "get_member_field_info"},
+        )
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.MEMBER_DATA)
-def check_application_status_endpoint(application_id):
+def check_application_status_endpoint(application_id) -> OperationResult[Dict[str, Any]]:
     """Check the status of an application by ID"""
     try:
-        return check_application_status_util(application_id)
+        result = check_application_status_util(application_id)
+        if result.get("success"):
+            return OperationResult.ok(result, message=_("Application status retrieved"))
+        else:
+            return OperationResult.fail(
+                _(result.get("message", "Failed to retrieve application status")),
+                errors=[result.get("error", "status_check_failed")],
+                context=result,
+            )
     except Exception as e:
-        return handle_api_error(e, "Check Application Status")
+        frappe.log_error(
+            f"Error checking application status: {str(e)}\n{traceback.format_exc()}",
+            "Application Status Error",
+        )
+        return OperationResult.fail(
+            _("Error checking application status"),
+            errors=[str(e)],
+            context={"operation": "check_application_status"},
+        )
 
 
 # Scheduled tasks
@@ -817,17 +1126,17 @@ def check_overdue_applications_task():
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.UTILITY)
-def test_submit():
+def test_submit() -> OperationResult[Dict[str, Any]]:
     """Simple test submission function"""
-    try:
-        return {"success": True, "message": "Test submission working", "timestamp": frappe.utils.now()}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    return OperationResult.ok(
+        {"timestamp": frappe.utils.now()},
+        message=_("Test submission working"),
+    )
 
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def debug_member_issue(member_name="Assoc-Member-2025-06-0091"):
+def debug_member_issue(member_name="Assoc-Member-2025-06-0091") -> OperationResult[Dict[str, Any]]:
     """Debug the chapter membership issue for a specific member"""
     try:
         # Get member details
@@ -872,17 +1181,23 @@ def debug_member_issue(member_name="Assoc-Member-2025-06-0091"):
                 "action_needed": "Create Chapter Member record",
             }
 
-        return result
+        return OperationResult.ok(result, message=_("Member debug information retrieved"))
 
     except Exception as e:
-        import traceback
-
-        return {"error": str(e), "traceback": traceback.format_exc()}
+        frappe.log_error(
+            f"Error debugging member issue: {str(e)}\n{traceback.format_exc()}",
+            "Member Debug Error",
+        )
+        return OperationResult.fail(
+            _("Error debugging member issue"),
+            errors=[str(e)],
+            context={"operation": "debug_member_issue"},
+        )
 
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def fix_specific_member(member_name, chapter_name=None, dry_run=True):
+def fix_specific_member(member_name, chapter_name=None, dry_run=True) -> OperationResult[Dict[str, Any]]:
     """
     Fix chapter membership for a specific member
 
@@ -892,15 +1207,18 @@ def fix_specific_member(member_name, chapter_name=None, dry_run=True):
         dry_run (bool): If True, only analyze without fixing
 
     Returns:
-        dict: Results of the operation
+        OperationResult: Results of the operation
     """
-    results = {"member": member_name, "fixed": False, "error": None, "dry_run": dry_run}
+    results = {"member": member_name, "fixed": False, "dry_run": dry_run}
 
     try:
         # Get member
         if not frappe.db.exists("Member", member_name):
-            results["error"] = f"Member {member_name} does not exist"
-            return results
+            return OperationResult.fail(
+                _("Member {0} does not exist").format(member_name),
+                errors=["member_not_found"],
+                context={"operation": "fix_specific_member"},
+            )
 
         member = frappe.get_doc("Member", member_name)
 
@@ -910,10 +1228,13 @@ def fix_specific_member(member_name, chapter_name=None, dry_run=True):
         )
 
         if existing_chapters:
-            results["error"] = (
-                f"Member {member_name} already has chapter memberships: {[ch['parent'] for ch in existing_chapters]}"
+            return OperationResult.fail(
+                _("Member {0} already has chapter memberships: {1}").format(
+                    member_name, [ch["parent"] for ch in existing_chapters]
+                ),
+                errors=["chapter_membership_exists"],
+                context={"existing_chapters": existing_chapters, "operation": "fix_specific_member"},
             )
-            return results
 
         # Determine chapter if not provided
         if not chapter_name:
@@ -935,13 +1256,19 @@ def fix_specific_member(member_name, chapter_name=None, dry_run=True):
                     pass
 
         if not chapter_name:
-            results["error"] = f"No chapter could be determined for member {member_name}"
-            return results
+            return OperationResult.fail(
+                _("No chapter could be determined for member {0}").format(member_name),
+                errors=["chapter_not_determined"],
+                context={"operation": "fix_specific_member"},
+            )
 
         # Verify chapter exists
         if not frappe.db.exists("Chapter", chapter_name):
-            results["error"] = f"Chapter '{chapter_name}' does not exist"
-            return results
+            return OperationResult.fail(
+                _("Chapter '{0}' does not exist").format(chapter_name),
+                errors=["chapter_not_found"],
+                context={"operation": "fix_specific_member"},
+            )
 
         results["proposed_chapter"] = chapter_name
 
@@ -954,24 +1281,32 @@ def fix_specific_member(member_name, chapter_name=None, dry_run=True):
             if chapter_member:
                 results["fixed"] = True
                 results["action"] = f"Created active chapter membership for {member_name} in {chapter_name}"
+                return OperationResult.ok(results, message=_("Chapter membership created successfully"))
             else:
-                results["error"] = f"Failed to create chapter membership for {member_name} in {chapter_name}"
+                return OperationResult.fail(
+                    _("Failed to create chapter membership for {0} in {1}").format(member_name, chapter_name),
+                    errors=["chapter_membership_creation_failed"],
+                    context=results,
+                )
         else:
             results["action"] = f"Would create active chapter membership for {member_name} in {chapter_name}"
-
-        return results
+            return OperationResult.ok(results, message=_("Dry run completed - no changes made"))
 
     except Exception as e:
-        results["error"] = str(e)
-        import traceback
-
-        results["traceback"] = traceback.format_exc()
-        return results
+        frappe.log_error(
+            f"Error fixing specific member: {str(e)}\n{traceback.format_exc()}",
+            "Fix Member Error",
+        )
+        return OperationResult.fail(
+            _("Error fixing member chapter membership"),
+            errors=[str(e)],
+            context={"operation": "fix_specific_member"},
+        )
 
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def test_chapter_membership_workflow():
+def test_chapter_membership_workflow() -> OperationResult[Dict[str, Any]]:
     """Test the complete chapter membership workflow"""
     test_email = f"test-workflow-{int(now_datetime().timestamp())}@example.com"
     test_chapter = None
@@ -1006,8 +1341,10 @@ def test_chapter_membership_workflow():
                     if all_chapters:
                         test_chapter = all_chapters[0]["name"]
                     else:
-                        raise Exception(
-                            f"No chapters available for testing and cannot create test chapter: {str(e)}"
+                        return OperationResult.fail(
+                            _("No chapters available for testing and cannot create test chapter"),
+                            errors=[str(e)],
+                            context={"operation": "test_chapter_membership_workflow"},
                         )
 
         results["test_chapter"] = test_chapter
@@ -1017,7 +1354,11 @@ def test_chapter_membership_workflow():
         # Get an existing membership type
         membership_types = frappe.get_all("Membership Type", limit=1)
         if not membership_types:
-            raise Exception("No membership types available for testing")
+            return OperationResult.fail(
+                _("No membership types available for testing"),
+                errors=["no_membership_types"],
+                context={"operation": "test_chapter_membership_workflow"},
+            )
 
         test_membership_type = membership_types[0]["name"]
 
@@ -1037,10 +1378,16 @@ def test_chapter_membership_workflow():
         }
 
         application_result = submit_application(data=application_data)
-        if not application_result.get("success"):
-            raise Exception(f"Application submission failed: {application_result.get('error')}")
 
-        member_name = application_result.get("member_record")
+        # Handle OperationResult
+        if isinstance(application_result, OperationResult):
+            if not application_result.success:
+                raise Exception(f"Application submission failed: {application_result.error}")
+            application_result_data = application_result.data
+        else:
+            application_result_data = application_result
+
+        member_name = application_result_data.get("member_record")
         results["member_name"] = member_name
         results["steps"].append("✓ Application submitted successfully")
 
@@ -1064,12 +1411,18 @@ def test_chapter_membership_workflow():
 
         # Step 4: Approve the application
         approval_result = approve_membership_application(member_name, "Test approval")
-        if not approval_result.get("success"):
-            raise Exception(f"Application approval failed: {approval_result.get('error')}")
+
+        # Handle OperationResult
+        if isinstance(approval_result, OperationResult):
+            if not approval_result.success:
+                raise Exception(f"Application approval failed: {approval_result.error}")
+            approval_result_data = approval_result.data
+        else:
+            approval_result_data = approval_result
 
         results["approval_result"] = {
-            "member_id": approval_result.get("member_id"),
-            "invoice": approval_result.get("invoice"),
+            "member_id": approval_result_data.get("member_id"),
+            "invoice": approval_result_data.get("invoice"),
         }
         results["steps"].append("✓ Application approved successfully")
 
@@ -1130,8 +1483,12 @@ def test_chapter_membership_workflow():
 
         # Success!
         results["success"] = True
-        results["summary"] = (
-            f"All {len([s for s in results['steps'] if s.startswith('✓')])} critical steps passed"
+        results[
+            "summary"
+        ] = f"All {len([s for s in results['steps'] if s.startswith('✓')])} critical steps passed"
+
+        return OperationResult.ok(
+            results, message=_("Chapter membership workflow test completed successfully")
         )
 
     except Exception as e:
@@ -1140,20 +1497,27 @@ def test_chapter_membership_workflow():
         results["summary"] = f"Test failed: {str(e)}"
 
         # Attempt cleanup on failure
-        if "member_name" in locals():
+        if "member_name" in results:
             try:
-                frappe.delete_doc("Member", member_name, force=True)
+                frappe.delete_doc("Member", results["member_name"], force=True)
                 results["steps"].append("✓ Cleanup completed after failure")
             except Exception:
                 results["steps"].append("✗ Cleanup failed")
 
-    results["test_end"] = str(now_datetime())
-    return results
+        frappe.log_error(
+            f"Chapter membership workflow test failed: {str(e)}\n{traceback.format_exc()}",
+            "Workflow Test Error",
+        )
+        return OperationResult.fail(
+            _("Test failed: {0}").format(str(e)),
+            errors=[str(e)],
+            context=results,
+        )
 
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def test_status_field_integration():
+def test_status_field_integration() -> OperationResult[Dict[str, Any]]:
     """Test status field integration without complex chapter operations"""
 
     results = {"tests_run": 0, "tests_passed": 0, "tests_failed": 0, "details": []}
@@ -1287,18 +1651,22 @@ def test_status_field_integration():
 
     # Summary
     results["success"] = results["tests_failed"] == 0
-    results["summary"] = (
-        f"Integration Test Results: {results['tests_passed']}/{results['tests_run']} tests passed"
-    )
+    results[
+        "summary"
+    ] = f"Integration Test Results: {results['tests_passed']}/{results['tests_run']} tests passed"
 
     if results["success"]:
         results["details"].append(
             "\n🎉 ALL INTEGRATION TESTS PASSED! The chapter membership workflow is properly implemented."
         )
+        return OperationResult.ok(results, message=_("All integration tests passed"))
     else:
         results["details"].append(f"\n⚠️  {results['tests_failed']} tests failed. Check implementation.")
-
-    return results
+        return OperationResult.fail(
+            _("{0} tests failed").format(results["tests_failed"]),
+            errors=[d for d in results["details"] if "❌" in d],
+            context=results,
+        )
 
 
 # Legacy endpoints for backward compatibility
@@ -1308,97 +1676,113 @@ def test_status_field_integration():
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.MEMBER_DATA)
-def validate_custom_amount(membership_type, amount):
+def validate_custom_amount(membership_type, amount) -> OperationResult[Dict[str, Any]]:
     """Legacy endpoint - validate custom membership amount"""
-    return validate_custom_amount_util(membership_type, amount)
+    return validate_custom_amount_endpoint(membership_type, amount)
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.MEMBER_DATA)
-def save_draft_application(data):
+def save_draft_application(data) -> OperationResult[Dict[str, Any]]:
     """Legacy endpoint - save application as draft"""
     return save_draft_application_endpoint(data)
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.MEMBER_DATA)
-def load_draft_application(draft_id):
+def load_draft_application(draft_id) -> OperationResult[Dict[str, Any]]:
     """Legacy endpoint - load application draft"""
     return load_draft_application_endpoint(draft_id)
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.UTILITY)
-def get_membership_type_details(membership_type):
+def get_membership_type_details(membership_type) -> OperationResult[Dict[str, Any]]:
     """Legacy endpoint - get detailed membership type information"""
     return get_membership_type_details_endpoint(membership_type)
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.MEMBER_DATA)
-def get_membership_fee_info(membership_type):
+def get_membership_fee_info(membership_type) -> OperationResult[Dict[str, Any]]:
     """Legacy endpoint - get membership fee information"""
     return get_membership_fee_info_endpoint(membership_type)
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.MEMBER_DATA)
-def suggest_membership_amounts(membership_type_name):
+def suggest_membership_amounts(membership_type_name) -> OperationResult[Dict[str, Any]]:
     """Legacy endpoint - suggest membership amounts based on type"""
     return suggest_membership_amounts_endpoint(membership_type_name)
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.MEMBER_DATA)
-def get_payment_methods():
+def get_payment_methods() -> OperationResult[Dict[str, Any]]:
     """Legacy endpoint - get available payment methods"""
     return get_payment_methods_endpoint()
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.MEMBER_DATA)
-def check_application_status(application_id):
+def check_application_status(application_id) -> OperationResult[Dict[str, Any]]:
     """Legacy endpoint - check the status of an application by ID"""
     return check_application_status_endpoint(application_id)
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.MEMBER_DATA)
-def submit_application_with_tracking(**kwargs):
+def submit_application_with_tracking(**kwargs) -> OperationResult[Dict[str, Any]]:
     """Legacy endpoint - same as submit_application"""
     return submit_application(**kwargs)
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.MEMBER_DATA)
-def check_application_eligibility(data):
+def check_application_eligibility(data) -> OperationResult[Dict[str, Any]]:
     """Legacy endpoint - check if applicant is eligible for membership"""
     return check_application_eligibility_endpoint(data)
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.MEMBER_DATA)
-def get_application_form_data_legacy():
+def get_application_form_data_legacy() -> OperationResult[Dict[str, Any]]:
     """Legacy endpoint - use get_application_form_data instead"""
     return get_application_form_data()
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
-def validate_address_endpoint(data):
+def validate_address_endpoint(data) -> OperationResult[Dict[str, Any]]:
     """Validate address data"""
     try:
         parsed_data = parse_application_data(data)
-        return validate_address_util(parsed_data)
+        result = validate_address_util(parsed_data)
+        if result.get("valid"):
+            return OperationResult.ok(result, message=_("Address is valid"))
+        else:
+            return OperationResult.fail(
+                _("Address validation failed"),
+                errors=result.get("errors", ["validation_failed"]),
+                context=result,
+            )
     except Exception as e:
-        return {"valid": False, "errors": [str(e)]}
+        frappe.log_error(
+            f"Address validation error: {str(e)}\n{traceback.format_exc()}",
+            "Address Validation Error",
+        )
+        return OperationResult.fail(
+            _("Address validation failed"),
+            errors=[str(e)],
+            context={"operation": "validate_address"},
+        )
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
 @handle_api_error
 @performance_monitor(threshold_ms=1000)
-def suggest_chapters_for_postal_code(postal_code):
+def suggest_chapters_for_postal_code(postal_code) -> OperationResult[Dict[str, Any]]:
     """
     Suggest chapters based on postal code.
 
@@ -1406,11 +1790,15 @@ def suggest_chapters_for_postal_code(postal_code):
         postal_code (str): Postal code to search for
 
     Returns:
-        dict: List of suggested chapters with relevance scores
+        OperationResult: List of suggested chapters with relevance scores
     """
     # Validate input
     if not postal_code:
-        return {"success": False, "error": "Postal code is required", "suggestions": []}
+        return OperationResult.fail(
+            _("Postal code is required"),
+            errors=["postal_code_required"],
+            context={"operation": "suggest_chapters_for_postal_code"},
+        )
 
     # Clean and normalize postal code
     postal_code = str(postal_code).strip().upper()
@@ -1419,11 +1807,11 @@ def suggest_chapters_for_postal_code(postal_code):
     import re
 
     if not re.match(r"^\d{4}[A-Z]{2}$", postal_code):
-        return {
-            "success": False,
-            "error": "Invalid postal code format. Expected format: 1234AB",
-            "suggestions": [],
-        }
+        return OperationResult.fail(
+            _("Invalid postal code format. Expected format: 1234AB"),
+            errors=["invalid_postal_code_format"],
+            context={"postal_code": postal_code, "operation": "suggest_chapters_for_postal_code"},
+        )
 
     try:
         # Extract numeric part for range matching
@@ -1515,13 +1903,22 @@ def suggest_chapters_for_postal_code(postal_code):
         # Limit to top 5 suggestions
         suggestions = suggestions[:5]
 
-        return {
-            "success": True,
-            "postal_code": postal_code,
-            "suggestions": suggestions,
-            "total_suggestions": len(suggestions),
-        }
+        return OperationResult.ok(
+            {
+                "postal_code": postal_code,
+                "suggestions": suggestions,
+                "total_suggestions": len(suggestions),
+            },
+            message=_("Found {0} chapter suggestions").format(len(suggestions)),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Error suggesting chapters for postal code {postal_code}: {str(e)}")
-        return {"success": False, "error": f"Error processing postal code: {str(e)}", "suggestions": []}
+        frappe.log_error(
+            f"Error suggesting chapters for postal code {postal_code}: {str(e)}\n{traceback.format_exc()}",
+            "Chapter Suggestion Error",
+        )
+        return OperationResult.fail(
+            _("Error processing postal code"),
+            errors=[str(e)],
+            context={"postal_code": postal_code, "operation": "suggest_chapters_for_postal_code"},
+        )
