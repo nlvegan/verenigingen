@@ -21,8 +21,13 @@ Author: Verenigingen Development Team
 Last Updated: 2025-08-02
 """
 
+import traceback
+from typing import Any, Dict
+
 import frappe
 from frappe import _
+
+from verenigingen.utils.operation_result import OperationResult
 
 # Import security decorators
 from verenigingen.utils.security.api_security_framework import (
@@ -33,9 +38,9 @@ from verenigingen.utils.security.api_security_framework import (
 )
 
 
+@standard_api(operation_type=OperationType.READ)
 @frappe.whitelist()
-@standard_api()  # Chapter join context - read-only
-def get_chapter_join_context(chapter_name):
+def get_chapter_join_context(chapter_name) -> OperationResult[Dict[str, Any]]:
     """Get context for chapter join page.
 
     Retrieves information needed for the chapter join page, including
@@ -45,13 +50,11 @@ def get_chapter_join_context(chapter_name):
         chapter_name (str): Name/ID of the chapter
 
     Returns:
-        dict: Context information with structure:
-            - success (bool): Operation status
+        OperationResult[Dict[str, Any]]: Context information with structure:
             - chapter (dict): Chapter information (name, route, title)
             - already_member (bool): Whether user is already a member
             - user_logged_in (bool): Whether user is authenticated
             - member (str, optional): Member ID (for authenticated users)
-            - error (str, optional): Error message (on failure)
 
     Business Logic:
         - Supports both guest and authenticated access
@@ -62,7 +65,6 @@ def get_chapter_join_context(chapter_name):
     Examples:
         >>> # Guest user response
         {
-            "success": True,
             "chapter": {"name": "amsterdam", "route": "/chapter/amsterdam", "title": "Amsterdam"},
             "already_member": False,
             "user_logged_in": False
@@ -70,7 +72,6 @@ def get_chapter_join_context(chapter_name):
 
         >>> # Authenticated user, not a member
         {
-            "success": True,
             "chapter": {"name": "amsterdam", "route": "/chapter/amsterdam", "title": "Amsterdam"},
             "already_member": False,
             "user_logged_in": True,
@@ -83,8 +84,7 @@ def get_chapter_join_context(chapter_name):
 
         # Handle guest users - provide public chapter information only
         if frappe.session.user == "Guest":
-            return {
-                "success": True,
+            data = {
                 "chapter": {
                     "name": chapter.name,
                     "route": chapter.route,
@@ -93,6 +93,7 @@ def get_chapter_join_context(chapter_name):
                 "already_member": False,
                 "user_logged_in": False,
             }
+            return OperationResult.ok(data, message=_("Chapter information retrieved"))
 
         # For authenticated users, check existing chapter membership
         member = frappe.db.get_value("Member", {"email": frappe.session.user})
@@ -107,26 +108,41 @@ def get_chapter_join_context(chapter_name):
             if chapter_membership:
                 already_member = True
 
-        return {
-            "success": True,
+        data = {
             "chapter": {"name": chapter.name, "route": chapter.route, "title": chapter.name},
             "already_member": already_member,
             "user_logged_in": True,
             "member": member,
         }
+        return OperationResult.ok(data, message=_("Chapter join context retrieved"))
 
-    except frappe.DoesNotExistError:
+    except frappe.DoesNotExistError as e:
         # Handle non-existent chapters gracefully
-        return {"success": False, "error": _("Chapter {0} not found").format(chapter_name)}
+        frappe.log_error(
+            f"Chapter not found: {chapter_name}\n{traceback.format_exc()}",
+            "Chapter Join Context - Chapter Not Found",
+        )
+        return OperationResult.fail(
+            _("Chapter {0} not found").format(chapter_name),
+            errors=[str(e)],
+            context={"operation": "get_chapter_join_context", "chapter_name": chapter_name},
+        )
     except Exception as e:
         # Log unexpected errors while returning user-friendly message
-        frappe.log_error(f"Error getting chapter join context: {str(e)}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error getting chapter join context: {str(e)}\n{traceback.format_exc()}",
+            "Chapter Join Context Error",
+        )
+        return OperationResult.fail(
+            _("Unable to retrieve chapter information. Please try again later."),
+            errors=[str(e)],
+            context={"operation": "get_chapter_join_context", "chapter_name": chapter_name},
+        )
 
 
+@standard_api(operation_type=OperationType.WRITE)
 @frappe.whitelist(allow_guest=False)
-@standard_api(operation_type=OperationType.MEMBER_DATA)  # Chapter membership operations
-def join_chapter(chapter_name, introduction):
+def join_chapter(chapter_name, introduction) -> OperationResult[Dict[str, Any]]:
     """Create a chapter join request.
 
     Creates a new Chapter Join Request document that will be reviewed and
@@ -137,11 +153,9 @@ def join_chapter(chapter_name, introduction):
         introduction (str): Member's introduction message
 
     Returns:
-        dict: Success status and message or error details
-            - success (bool): Operation status
-            - message (str): Success/error message
-            - request_id (str): ID of created request (on success)
-            - error (str, optional): Error description (on failure)
+        OperationResult[Dict[str, Any]]: Success status with data:
+            - message (str): Success message
+            - request_id (str): ID of created request
 
     Security:
         - Requires authenticated user session
@@ -178,49 +192,86 @@ def join_chapter(chapter_name, introduction):
         join_request.insert()
         join_request.submit()
 
-        return {
-            "success": True,
+        data = {
             "message": _(
                 "Your request to join {0} has been submitted for approval. You will be notified once reviewed."
             ).format(chapter_name),
             "request_id": join_request.name,
         }
+        return OperationResult.ok(data, message=_("Chapter join request submitted successfully"))
 
     except Exception as e:
         # Log join request errors for debugging
-        frappe.log_error(f"Error creating chapter join request: {str(e)}")
-        return {"success": False, "error": str(e)}
-
-
-@frappe.whitelist()
-@standard_api()  # User chapter request query
-def get_user_chapter_requests():
-    """Get chapter join requests for chapters where the current user is a board member"""
-    user = frappe.session.user
-
-    # Get member record for current user
-    member = frappe.db.get_value("Member", {"email": user})
-    if not member:
-        return {"chapters": []}
-
-    # Get chapters where user is a board member
-    # First get volunteer record for the member
-    volunteer_records = frappe.get_all("Volunteer", filters={"member": member}, fields=["name"])
-
-    board_memberships = []
-    if volunteer_records:
-        volunteer_name = volunteer_records[0].name
-        board_memberships = frappe.get_all(
-            "Chapter Board Member", filters={"volunteer": volunteer_name, "is_active": 1}, fields=["parent"]
+        frappe.log_error(
+            f"Error creating chapter join request: {str(e)}\n{traceback.format_exc()}",
+            "Chapter Join Request Error",
+        )
+        return OperationResult.fail(
+            _("Unable to submit chapter join request. Please try again later."),
+            errors=[str(e)],
+            context={
+                "operation": "join_chapter",
+                "chapter_name": chapter_name,
+                "member": frappe.session.user,
+            },
         )
 
-    chapter_names = [bm.parent for bm in board_memberships]
 
-    # For administrators and managers, include all chapters
-    user_roles = frappe.get_roles(user)
-    if "Verenigingen Administrator" in user_roles or "Verenigingen Staff" in user_roles:
-        all_chapters = frappe.get_all("Chapter", fields=["name"])
-        chapter_names.extend([ch.name for ch in all_chapters])
-        chapter_names = list(set(chapter_names))  # Remove duplicates
+@standard_api(operation_type=OperationType.READ)
+@frappe.whitelist()
+def get_user_chapter_requests() -> OperationResult[Dict[str, Any]]:
+    """Get chapter join requests for chapters where the current user is a board member.
 
-    return {"chapters": chapter_names}
+    Retrieves a list of chapters where the current user has permissions to
+    view and manage chapter join requests. This includes:
+    - Chapters where the user is an active board member
+    - All chapters if the user is an administrator or staff member
+
+    Returns:
+        OperationResult[Dict[str, Any]]: Result with data:
+            - chapters (list): List of chapter names
+    """
+    try:
+        user = frappe.session.user
+
+        # Get member record for current user
+        member = frappe.db.get_value("Member", {"email": user})
+        if not member:
+            data = {"chapters": []}
+            return OperationResult.ok(data, message=_("No member record found"))
+
+        # Get chapters where user is a board member
+        # First get volunteer record for the member
+        volunteer_records = frappe.get_all("Volunteer", filters={"member": member}, fields=["name"])
+
+        board_memberships = []
+        if volunteer_records:
+            volunteer_name = volunteer_records[0].name
+            board_memberships = frappe.get_all(
+                "Chapter Board Member",
+                filters={"volunteer": volunteer_name, "is_active": 1},
+                fields=["parent"],
+            )
+
+        chapter_names = [bm.parent for bm in board_memberships]
+
+        # For administrators and managers, include all chapters
+        user_roles = frappe.get_roles(user)
+        if "Verenigingen Administrator" in user_roles or "Verenigingen Staff" in user_roles:
+            all_chapters = frappe.get_all("Chapter", fields=["name"])
+            chapter_names.extend([ch.name for ch in all_chapters])
+            chapter_names = list(set(chapter_names))  # Remove duplicates
+
+        data = {"chapters": chapter_names}
+        return OperationResult.ok(data, message=_("Chapter requests retrieved successfully"))
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error getting user chapter requests: {str(e)}\n{traceback.format_exc()}",
+            "Get User Chapter Requests Error",
+        )
+        return OperationResult.fail(
+            _("Unable to retrieve chapter requests. Please try again later."),
+            errors=[str(e)],
+            context={"operation": "get_user_chapter_requests", "user": frappe.session.user},
+        )

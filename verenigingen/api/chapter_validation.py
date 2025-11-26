@@ -6,15 +6,19 @@ These methods provide server-side validation that complements
 the frontend controller handlers.
 """
 
+import traceback
+from typing import Any, Dict
+
 import frappe
 from frappe import _
 
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
-@frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def validate_chapter_head(chapter_name, chapter_head):
+@frappe.whitelist()
+def validate_chapter_head(chapter_name, chapter_head) -> OperationResult[Dict[str, Any]]:
     """
     Validate chapter head assignment
 
@@ -23,36 +27,54 @@ def validate_chapter_head(chapter_name, chapter_head):
         chapter_head: Member ID being assigned as chapter head
 
     Returns:
-        dict: Validation result with status and messages
+        OperationResult[Dict[str, Any]]: Validation result with status and messages
     """
     try:
         if not chapter_head:
-            return {"valid": True, "message": "No chapter head assigned"}
+            return OperationResult.ok(
+                {"valid": True, "message": "No chapter head assigned"}, message=_("No chapter head assigned")
+            )
 
         # Check if member exists and is active
         member = frappe.get_doc("Member", chapter_head)
         if member.status != "Active":
-            return {"valid": False, "message": _("Selected member is not active"), "warning": True}
+            return OperationResult.ok(
+                {"valid": False, "message": _("Selected member is not active"), "warning": True},
+                message=_("Selected member is not active"),
+            )
 
         # Check if member is a volunteer (required for chapter head)
         volunteer = frappe.db.get_value("Volunteer", {"member": chapter_head}, "name")
         if not volunteer:
-            return {
-                "valid": False,
-                "message": _("Chapter head must be a registered volunteer"),
-                "error": True,
-            }
+            return OperationResult.ok(
+                {
+                    "valid": False,
+                    "message": _("Chapter head must be a registered volunteer"),
+                    "error": True,
+                },
+                message=_("Chapter head must be a registered volunteer"),
+            )
 
-        return {"valid": True, "message": _("Chapter head assignment is valid"), "volunteer": volunteer}
+        return OperationResult.ok(
+            {"valid": True, "message": _("Chapter head assignment is valid"), "volunteer": volunteer},
+            message=_("Chapter head assignment is valid"),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Chapter head validation error: {str(e)}")
-        return {"valid": False, "message": _("Error validating chapter head assignment"), "error": True}
+        frappe.log_error(
+            f"Chapter head validation error: {str(e)}\n{traceback.format_exc()}",
+            "Chapter Head Validation Error",
+        )
+        return OperationResult.fail(
+            _("Error validating chapter head assignment"),
+            errors=[str(e)],
+            context={"operation": "validate_chapter_head", "chapter_name": chapter_name},
+        )
 
 
-@frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def validate_region(chapter_name, region):
+@frappe.whitelist()
+def validate_region(chapter_name, region) -> OperationResult[Dict[str, Any]]:
     """
     Validate region assignment and suggest postal codes
 
@@ -61,11 +83,13 @@ def validate_region(chapter_name, region):
         region: Region being assigned
 
     Returns:
-        dict: Validation result with suggestions
+        OperationResult[Dict[str, Any]]: Validation result with suggestions
     """
     try:
         if not region:
-            return {"valid": True, "message": "No region assigned"}
+            return OperationResult.ok(
+                {"valid": True, "message": "No region assigned"}, message=_("No region assigned")
+            )
 
         # Get other chapters in the same region for postal code suggestions
         other_chapters = frappe.get_all(
@@ -81,21 +105,30 @@ def validate_region(chapter_name, region):
                 if chapter.postal_codes:
                     suggestions.append({"chapter": chapter.name, "postal_codes": chapter.postal_codes})
 
-        return {
-            "valid": True,
-            "message": _("Region assignment is valid"),
-            "suggestions": suggestions,
-            "region": region,
-        }
+        return OperationResult.ok(
+            {
+                "valid": True,
+                "message": _("Region assignment is valid"),
+                "suggestions": suggestions,
+                "region": region,
+            },
+            message=_("Region assignment is valid"),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Region validation error: {str(e)}")
-        return {"valid": False, "message": _("Error validating region assignment"), "error": True}
+        frappe.log_error(
+            f"Region validation error: {str(e)}\n{traceback.format_exc()}", "Region Validation Error"
+        )
+        return OperationResult.fail(
+            _("Error validating region assignment"),
+            errors=[str(e)],
+            context={"operation": "validate_region", "chapter_name": chapter_name},
+        )
 
 
-@frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def update_publication_status(chapter_name, published):
+@frappe.whitelist()
+def update_publication_status(chapter_name, published) -> OperationResult[Dict[str, Any]]:
     """
     Update chapter publication status with validation
 
@@ -104,25 +137,31 @@ def update_publication_status(chapter_name, published):
         published: Publication status (0 or 1)
 
     Returns:
-        dict: Update result with status
+        OperationResult[Dict[str, Any]]: Update result with status
     """
     try:
         chapter = frappe.get_doc("Chapter", chapter_name)
 
         # Validate chapter can be published
         if published and not chapter.postal_codes:
-            return {
-                "valid": False,
-                "message": _("Chapter must have postal codes defined before publishing"),
-                "warning": True,
-            }
+            return OperationResult.ok(
+                {
+                    "valid": False,
+                    "message": _("Chapter must have postal codes defined before publishing"),
+                    "warning": True,
+                },
+                message=_("Chapter must have postal codes defined before publishing"),
+            )
 
         if published and not chapter.introduction:
-            return {
-                "valid": False,
-                "message": _("Chapter should have an introduction before publishing"),
-                "warning": True,
-            }
+            return OperationResult.ok(
+                {
+                    "valid": False,
+                    "message": _("Chapter should have an introduction before publishing"),
+                    "warning": True,
+                },
+                message=_("Chapter should have an introduction before publishing"),
+            )
 
         # Update publication status
         chapter.published = int(published)
@@ -130,21 +169,31 @@ def update_publication_status(chapter_name, published):
 
         status_text = _("published") if published else _("unpublished")
 
-        return {
-            "valid": True,
-            "message": _("Chapter has been {0}").format(status_text),
-            "published": bool(published),
-            "chapter": chapter_name,
-        }
+        return OperationResult.ok(
+            {
+                "valid": True,
+                "message": _("Chapter has been {0}").format(status_text),
+                "published": bool(published),
+                "chapter": chapter_name,
+            },
+            message=_("Chapter has been {0}").format(status_text),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Publication status update error: {str(e)}")
-        return {"valid": False, "message": _("Error updating publication status"), "error": True}
+        frappe.log_error(
+            f"Publication status update error: {str(e)}\n{traceback.format_exc()}",
+            "Publication Status Update Error",
+        )
+        return OperationResult.fail(
+            _("Error updating publication status"),
+            errors=[str(e)],
+            context={"operation": "update_publication_status", "chapter_name": chapter_name},
+        )
 
 
-@frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def validate_board_member(chapter_name, volunteer, role):
+@frappe.whitelist()
+def validate_board_member(chapter_name, volunteer, role) -> OperationResult[Dict[str, Any]]:
     """
     Validate board member assignment
 
@@ -154,16 +203,21 @@ def validate_board_member(chapter_name, volunteer, role):
         role: Chapter role being assigned
 
     Returns:
-        dict: Validation result
+        OperationResult[Dict[str, Any]]: Validation result
     """
     try:
         if not volunteer:
-            return {"valid": True, "message": "No volunteer specified"}
+            return OperationResult.ok(
+                {"valid": True, "message": "No volunteer specified"}, message=_("No volunteer specified")
+            )
 
         # Check if volunteer exists and is active
         volunteer_doc = frappe.get_doc("Volunteer", volunteer)
         if volunteer_doc.status != "Active":
-            return {"valid": False, "message": _("Selected volunteer is not active"), "warning": True}
+            return OperationResult.ok(
+                {"valid": False, "message": _("Selected volunteer is not active"), "warning": True},
+                message=_("Selected volunteer is not active"),
+            )
 
         # Check if volunteer is already on the board
         existing = frappe.db.exists(
@@ -171,27 +225,40 @@ def validate_board_member(chapter_name, volunteer, role):
         )
 
         if existing:
-            return {
-                "valid": False,
-                "message": _("Volunteer is already on the chapter board"),
-                "warning": True,
-            }
+            return OperationResult.ok(
+                {
+                    "valid": False,
+                    "message": _("Volunteer is already on the chapter board"),
+                    "warning": True,
+                },
+                message=_("Volunteer is already on the chapter board"),
+            )
 
-        return {
-            "valid": True,
-            "message": _("Board member assignment is valid"),
-            "volunteer": volunteer,
-            "role": role,
-        }
+        return OperationResult.ok(
+            {
+                "valid": True,
+                "message": _("Board member assignment is valid"),
+                "volunteer": volunteer,
+                "role": role,
+            },
+            message=_("Board member assignment is valid"),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Board member validation error: {str(e)}")
-        return {"valid": False, "message": _("Error validating board member assignment"), "error": True}
+        frappe.log_error(
+            f"Board member validation error: {str(e)}\n{traceback.format_exc()}",
+            "Board Member Validation Error",
+        )
+        return OperationResult.fail(
+            _("Error validating board member assignment"),
+            errors=[str(e)],
+            context={"operation": "validate_board_member", "chapter_name": chapter_name},
+        )
 
 
-@frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def validate_board_removal(chapter_name):
+@frappe.whitelist()
+def validate_board_removal(chapter_name) -> OperationResult[Dict[str, Any]]:
     """
     Validate board member removal
 
@@ -199,25 +266,38 @@ def validate_board_removal(chapter_name):
         chapter_name: Name of the chapter
 
     Returns:
-        dict: Validation result
+        OperationResult[Dict[str, Any]]: Validation result
     """
     try:
         # Get current board size
         board_count = frappe.db.count("Chapter Board Member", {"parent": chapter_name, "status": "Active"})
 
         if board_count <= 1:
-            return {
-                "valid": False,
-                "message": _("Chapter must have at least one board member"),
-                "warning": True,
-            }
+            return OperationResult.ok(
+                {
+                    "valid": False,
+                    "message": _("Chapter must have at least one board member"),
+                    "warning": True,
+                },
+                message=_("Chapter must have at least one board member"),
+            )
 
-        return {
-            "valid": True,
-            "message": _("Board member removal is valid"),
-            "current_board_size": board_count,
-        }
+        return OperationResult.ok(
+            {
+                "valid": True,
+                "message": _("Board member removal is valid"),
+                "current_board_size": board_count,
+            },
+            message=_("Board member removal is valid"),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Board removal validation error: {str(e)}")
-        return {"valid": False, "message": _("Error validating board member removal"), "error": True}
+        frappe.log_error(
+            f"Board removal validation error: {str(e)}\n{traceback.format_exc()}",
+            "Board Removal Validation Error",
+        )
+        return OperationResult.fail(
+            _("Error validating board member removal"),
+            errors=[str(e)],
+            context={"operation": "validate_board_removal", "chapter_name": chapter_name},
+        )

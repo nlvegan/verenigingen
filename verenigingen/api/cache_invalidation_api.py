@@ -6,11 +6,14 @@ Provides API endpoints for managing and monitoring the intelligent cache
 invalidation system in Phase 5A performance optimization.
 """
 
+import traceback
 from typing import Any, Dict, List, Optional
 
 import frappe
+from frappe import _
 from frappe.utils import now_datetime
 
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.performance.cache_invalidation_strategy import (
     CacheInvalidationManager,
     get_cache_invalidation_manager,
@@ -23,11 +26,11 @@ from verenigingen.utils.security.api_security_framework import (
 )
 
 
-@frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
+@frappe.whitelist()
 def trigger_cache_invalidation(
     doctype: str, doc_name: str, change_type: str = "update", changed_fields: List[str] = None
-):
+) -> OperationResult[Dict[str, Any]]:
     """
     Manually trigger cache invalidation for a document
 
@@ -38,7 +41,7 @@ def trigger_cache_invalidation(
         changed_fields: List of changed fields (for updates)
 
     Returns:
-        Dict with invalidation results
+        OperationResult[Dict[str, Any]]: Result containing invalidation details
     """
     try:
         # Validate inputs
@@ -58,20 +61,27 @@ def trigger_cache_invalidation(
             user=frappe.session.user,
         )
 
-        return {
-            "success": True,
-            "data": result,
-            "message": f"Cache invalidation triggered for {doctype}/{doc_name}",
-        }
+        return OperationResult.ok(
+            result, message=_("Cache invalidation triggered for {0}/{1}").format(doctype, doc_name)
+        )
 
     except Exception as e:
-        frappe.log_error(f"Error triggering cache invalidation: {e}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error triggering cache invalidation: {str(e)}\n{traceback.format_exc()}",
+            "Cache Invalidation Trigger Failed",
+        )
+        return OperationResult.fail(
+            _("Failed to trigger cache invalidation"),
+            errors=[str(e)],
+            context={"operation": "trigger_cache_invalidation", "doctype": doctype, "doc_name": doc_name},
+        )
 
 
-@frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def schedule_batch_invalidation(invalidation_jobs: List[Dict], delay_seconds: int = 0):
+@frappe.whitelist()
+def schedule_batch_invalidation(
+    invalidation_jobs: List[Dict], delay_seconds: int = 0
+) -> OperationResult[Dict[str, Any]]:
     """
     Schedule batch cache invalidation for multiple documents
 
@@ -80,7 +90,7 @@ def schedule_batch_invalidation(invalidation_jobs: List[Dict], delay_seconds: in
         delay_seconds: Delay before executing invalidation
 
     Returns:
-        Dict with batch job ID and status
+        OperationResult[Dict[str, Any]]: Result containing batch job ID and status
     """
     try:
         # Validate invalidation jobs
@@ -100,47 +110,67 @@ def schedule_batch_invalidation(invalidation_jobs: List[Dict], delay_seconds: in
         batch_id = invalidation_manager.schedule_batch_invalidation(invalidation_jobs, delay_seconds)
 
         if batch_id:
-            return {
-                "success": True,
-                "data": {
-                    "batch_id": batch_id,
-                    "jobs_scheduled": len(invalidation_jobs),
-                    "delay_seconds": delay_seconds,
-                    "scheduled_at": now_datetime(),
-                },
-                "message": f"Batch invalidation scheduled with {len(invalidation_jobs)} jobs",
+            data = {
+                "batch_id": batch_id,
+                "jobs_scheduled": len(invalidation_jobs),
+                "delay_seconds": delay_seconds,
+                "scheduled_at": now_datetime(),
             }
+            return OperationResult.ok(
+                data, message=_("Batch invalidation scheduled with {0} jobs").format(len(invalidation_jobs))
+            )
         else:
-            return {"success": False, "error": "Failed to schedule batch invalidation"}
+            return OperationResult.fail(
+                _("Failed to schedule batch invalidation"),
+                errors=["Batch ID was not generated"],
+                context={"operation": "schedule_batch_invalidation", "jobs_count": len(invalidation_jobs)},
+            )
 
     except Exception as e:
-        frappe.log_error(f"Error scheduling batch invalidation: {e}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error scheduling batch invalidation: {str(e)}\n{traceback.format_exc()}",
+            "Batch Invalidation Scheduling Failed",
+        )
+        return OperationResult.fail(
+            _("Failed to schedule batch invalidation"),
+            errors=[str(e)],
+            context={
+                "operation": "schedule_batch_invalidation",
+                "jobs_count": len(invalidation_jobs) if invalidation_jobs else 0,
+            },
+        )
 
 
+@standard_api(operation_type=OperationType.READ)
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.UTILITY)
-def get_invalidation_statistics():
+def get_invalidation_statistics() -> OperationResult[Dict[str, Any]]:
     """
     Get cache invalidation statistics and performance metrics
 
     Returns:
-        Dict with comprehensive invalidation statistics
+        OperationResult[Dict[str, Any]]: Result containing comprehensive invalidation statistics
     """
     try:
         invalidation_manager = get_cache_invalidation_manager()
         stats = invalidation_manager.get_invalidation_statistics()
 
-        return {"success": True, "data": stats, "message": "Invalidation statistics retrieved successfully"}
+        return OperationResult.ok(stats, message=_("Invalidation statistics retrieved successfully"))
 
     except Exception as e:
-        frappe.log_error(f"Error getting invalidation statistics: {e}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error getting invalidation statistics: {str(e)}\n{traceback.format_exc()}",
+            "Invalidation Statistics Retrieval Failed",
+        )
+        return OperationResult.fail(
+            _("Failed to retrieve invalidation statistics"),
+            errors=[str(e)],
+            context={"operation": "get_invalidation_statistics"},
+        )
 
 
+@standard_api(operation_type=OperationType.READ)
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.UTILITY)
-def validate_cache_consistency(doctype: str = None, doc_name: str = None):
+def validate_cache_consistency(doctype: str = None, doc_name: str = None) -> OperationResult[Dict[str, Any]]:
     """
     Validate cache consistency for specific documents or doctypes
 
@@ -149,31 +179,34 @@ def validate_cache_consistency(doctype: str = None, doc_name: str = None):
         doc_name: Specific document to validate (optional)
 
     Returns:
-        Dict with consistency validation results
+        OperationResult[Dict[str, Any]]: Result containing consistency validation results
     """
     try:
         invalidation_manager = get_cache_invalidation_manager()
         validation_result = invalidation_manager.validate_cache_consistency(doctype, doc_name)
 
-        return {
-            "success": True,
-            "data": validation_result,
-            "message": "Cache consistency validation completed",
-        }
+        return OperationResult.ok(validation_result, message=_("Cache consistency validation completed"))
 
     except Exception as e:
-        frappe.log_error(f"Error validating cache consistency: {e}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error validating cache consistency: {str(e)}\n{traceback.format_exc()}",
+            "Cache Consistency Validation Failed",
+        )
+        return OperationResult.fail(
+            _("Failed to validate cache consistency"),
+            errors=[str(e)],
+            context={"operation": "validate_cache_consistency", "doctype": doctype, "doc_name": doc_name},
+        )
 
 
-@frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def test_cache_invalidation_system():
+@frappe.whitelist()
+def test_cache_invalidation_system() -> OperationResult[Dict[str, Any]]:
     """
     Test the cache invalidation system with sample operations
 
     Returns:
-        Dict with test results
+        OperationResult[Dict[str, Any]]: Result containing comprehensive test results
     """
     try:
         invalidation_manager = get_cache_invalidation_manager()
@@ -270,25 +303,33 @@ def test_cache_invalidation_system():
         test_results["tests_passed"] = passed_tests
         test_results["total_tests"] = total_tests
 
-        return {
-            "success": True,
-            "data": test_results,
-            "message": f"Cache invalidation system test completed - {success_rate:.0f}% success rate",
-        }
+        return OperationResult.ok(
+            test_results,
+            message=_("Cache invalidation system test completed - {0}% success rate").format(
+                int(success_rate)
+            ),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Error testing cache invalidation system: {e}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error testing cache invalidation system: {str(e)}\n{traceback.format_exc()}",
+            "Cache Invalidation System Test Failed",
+        )
+        return OperationResult.fail(
+            _("Failed to test cache invalidation system"),
+            errors=[str(e)],
+            context={"operation": "test_cache_invalidation_system"},
+        )
 
 
+@standard_api(operation_type=OperationType.READ)
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.UTILITY)
-def get_invalidation_patterns():
+def get_invalidation_patterns() -> OperationResult[Dict[str, Any]]:
     """
     Get configured invalidation patterns for all document types
 
     Returns:
-        Dict with invalidation pattern configurations
+        OperationResult[Dict[str, Any]]: Result containing invalidation pattern configurations
     """
     try:
         invalidation_manager = get_cache_invalidation_manager()
@@ -307,25 +348,33 @@ def get_invalidation_patterns():
             ),
         }
 
-        return {
-            "success": True,
-            "data": patterns_info,
-            "message": f"Retrieved invalidation patterns for {len(patterns_info['supported_doctypes'])} document types",
-        }
+        return OperationResult.ok(
+            patterns_info,
+            message=_("Retrieved invalidation patterns for {0} document types").format(
+                len(patterns_info["supported_doctypes"])
+            ),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Error getting invalidation patterns: {e}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error getting invalidation patterns: {str(e)}\n{traceback.format_exc()}",
+            "Invalidation Patterns Retrieval Failed",
+        )
+        return OperationResult.fail(
+            _("Failed to retrieve invalidation patterns"),
+            errors=[str(e)],
+            context={"operation": "get_invalidation_patterns"},
+        )
 
 
-@frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def clear_all_caches():
+@frappe.whitelist()
+def clear_all_caches() -> OperationResult[Dict[str, Any]]:
     """
     Clear all application caches (emergency operation)
 
     Returns:
-        Dict with cache clearing results
+        OperationResult[Dict[str, Any]]: Result containing cache clearing results
     """
     try:
         # This is an emergency operation - use with caution
@@ -342,21 +391,23 @@ def clear_all_caches():
 
         end_time = frappe.utils.now()
 
-        return {
-            "success": True,
-            "data": {
-                "operation": "clear_all_caches",
-                "executed_at": end_time,
-                "execution_time": "< 1 second",
-                "cache_types_cleared": ["frappe_cache", "security_aware_cache"],
-                "warning": "All cached data has been cleared - performance may be temporarily impacted",
-            },
-            "message": "All caches cleared successfully",
+        data = {
+            "operation": "clear_all_caches",
+            "executed_at": end_time,
+            "execution_time": "< 1 second",
+            "cache_types_cleared": ["frappe_cache", "security_aware_cache"],
+            "warning": "All cached data has been cleared - performance may be temporarily impacted",
         }
 
+        return OperationResult.ok(data, message=_("All caches cleared successfully"))
+
     except Exception as e:
-        frappe.log_error(f"Error clearing all caches: {e}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error clearing all caches: {str(e)}\n{traceback.format_exc()}", "Cache Clearing Failed"
+        )
+        return OperationResult.fail(
+            _("Failed to clear all caches"), errors=[str(e)], context={"operation": "clear_all_caches"}
+        )
 
 
 if __name__ == "__main__":

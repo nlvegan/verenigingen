@@ -52,18 +52,23 @@ Security and Compliance:
     All corrections are logged and reversible for audit requirements.
 """
 
+import traceback
+from typing import Any, Dict
+
 import frappe
+from frappe import _
 from frappe.utils import flt
 
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.secure_operations import secure_document_operation
 
 # Security framework imports
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 
 
-@frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
-def review_account_types(company):
+@frappe.whitelist()
+def review_account_types(company) -> OperationResult[Dict[str, Any]]:
     """
     Comprehensive analysis of account types for eBoekhouden imported accounts.
 
@@ -95,8 +100,7 @@ def review_account_types(company):
         * Tax accounts (154x/157x): Tax-specific classifications
 
     Returns:
-        dict: Comprehensive analysis results containing:
-            - success (bool): Whether analysis completed successfully
+        OperationResult[Dict[str, Any]]: Comprehensive analysis results containing:
             - issues (list): Detailed list of account type mismatches including:
               * account: Account document name
               * account_name: Human-readable account name
@@ -108,7 +112,6 @@ def review_account_types(company):
               * reason: Detailed explanation for the suggestion
             - total_accounts: Total number of eBoekhouden accounts analyzed
             - issues_found: Number of account type mismatches identified
-            - error: Error details if analysis fails
 
     Business Value:
         Ensures accurate financial reporting by identifying and suggesting corrections
@@ -162,21 +165,33 @@ def review_account_types(company):
                     }
                 )
 
-        return {
-            "success": True,
+        data = {
             "issues": issues,
             "total_accounts": len(accounts),
             "issues_found": len(issues),
         }
 
+        return OperationResult.ok(
+            data,
+            message=_("Successfully analyzed {0} accounts and found {1} issues").format(
+                len(accounts), len(issues)
+            ),
+        )
+
     except Exception as e:
-        frappe.log_error(f"Error reviewing account types: {str(e)}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error reviewing account types: {str(e)}\n{traceback.format_exc()}", "Account Type Review Error"
+        )
+        return OperationResult.fail(
+            _("Failed to review account types"),
+            errors=[str(e)],
+            context={"operation": "review_account_types", "company": company},
+        )
 
 
-@frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def fix_account_type_issues(issues):
+@frappe.whitelist()
+def fix_account_type_issues(issues) -> OperationResult[Dict[str, Any]]:
     """
     Automated correction of multiple account type issues with administrative oversight.
 
@@ -208,11 +223,9 @@ def fix_account_type_issues(issues):
         6. Commits all changes as a single transaction
 
     Returns:
-        dict: Batch correction results containing:
-            - success (bool): Whether the batch operation completed successfully
+        OperationResult[Dict[str, Any]]: Batch correction results containing:
             - fixed_count (int): Number of accounts successfully corrected
             - errors (list): Detailed error messages for any failed corrections
-            - error: General error message if the entire operation fails
 
     Error Handling:
         * Individual account correction failures don't stop the entire batch
@@ -240,7 +253,7 @@ def fix_account_type_issues(issues):
     """
     try:
         if not issues:
-            return {"success": True, "fixed_count": 0}
+            return OperationResult.ok({"fixed_count": 0, "errors": []}, message=_("No issues to fix"))
 
         # Parse issues if it's a string
         if isinstance(issues, str):
@@ -276,11 +289,24 @@ def fix_account_type_issues(issues):
 
         frappe.db.commit()
 
-        return {"success": True, "fixed_count": fixed_count, "errors": errors}
+        data = {"fixed_count": fixed_count, "errors": errors}
+
+        if errors:
+            return OperationResult.ok(
+                data, message=_("Fixed {0} accounts with {1} errors").format(fixed_count, len(errors))
+            )
+        else:
+            return OperationResult.ok(data, message=_("Successfully fixed {0} accounts").format(fixed_count))
 
     except Exception as e:
-        frappe.log_error(f"Error fixing account type issues: {str(e)}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error fixing account type issues: {str(e)}\n{traceback.format_exc()}", "Account Type Fix Error"
+        )
+        return OperationResult.fail(
+            _("Failed to fix account type issues"),
+            errors=[str(e)],
+            context={"operation": "fix_account_type_issues"},
+        )
 
 
 def _analyze_account_code(account_code, account_name):
