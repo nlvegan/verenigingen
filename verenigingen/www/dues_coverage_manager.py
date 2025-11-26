@@ -3,9 +3,15 @@ Dues Coverage Manager - Interactive Coverage Gap Analysis
 Professional interface for analyzing coverage gaps and generating catch-up invoices
 """
 
+import traceback
+from typing import Any, Dict
+
 import frappe
 from frappe import _
 from frappe.utils import getdate, today
+
+from verenigingen.utils.operation_result import OperationResult
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
 def get_context(context):
@@ -36,8 +42,16 @@ def get_context(context):
 
 
 @frappe.whitelist()
-def get_coverage_data(filters):
-    """Get coverage analysis data for members"""
+@standard_api(operation_type=OperationType.READ)  # Financial data read access
+def get_coverage_data(filters) -> OperationResult[Dict[str, Any]]:
+    """Get coverage analysis data for members
+
+    Args:
+        filters: Filter criteria for coverage analysis (dict or JSON string)
+
+    Returns:
+        OperationResult[Dict[str, Any]]: Coverage data with summary statistics
+    """
     import json
 
     from verenigingen.verenigingen.report.membership_dues_coverage_analysis.membership_dues_coverage_analysis import (
@@ -46,26 +60,43 @@ def get_coverage_data(filters):
 
     # Check permissions
     if not frappe.has_permission("Member", "read"):
-        frappe.throw(_("Insufficient permissions to view member data"))
+        return OperationResult.fail(
+            _("Insufficient permissions to view member data"),
+            errors=["Permission denied: Member read access required"],
+            context={"operation": "get_coverage_data"},
+        )
 
-    # Parse filters if string or None
-    if not filters:
-        filters = {}
-    elif isinstance(filters, str):
-        try:
-            filters = json.loads(filters)
-        except (json.JSONDecodeError, ValueError):
+    try:
+        # Parse filters if string or None
+        if not filters:
             filters = {}
+        elif isinstance(filters, str):
+            try:
+                filters = json.loads(filters)
+            except (json.JSONDecodeError, ValueError):
+                filters = {}
 
-    # Execute the report
-    columns, data = execute(filters)
+        # Execute the report
+        columns, data = execute(filters)
 
-    # Calculate summary statistics
-    summary = {
-        "total_members": len(data),
-        "members_with_gaps": sum(1 for row in data if row.get("gap_days", 0) > 0),
-        "catchup_required": sum(1 for row in data if row.get("catchup_required")),
-        "total_catchup_amount": sum(row.get("catchup_amount", 0) for row in data),
-    }
+        # Calculate summary statistics
+        summary = {
+            "total_members": len(data),
+            "members_with_gaps": sum(1 for row in data if row.get("gap_days", 0) > 0),
+            "catchup_required": sum(1 for row in data if row.get("catchup_required")),
+            "total_catchup_amount": sum(row.get("catchup_amount", 0) for row in data),
+        }
 
-    return {"success": True, "data": data, "summary": summary}
+        result = {"data": data, "summary": summary}
+        return OperationResult.ok(result, message=_("Coverage data retrieved successfully"))
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error retrieving coverage data: {str(e)}\n{traceback.format_exc()}",
+            "Dues Coverage Manager Error",
+        )
+        return OperationResult.fail(
+            _("Unable to retrieve coverage data. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "get_coverage_data", "filters": str(filters)},
+        )

@@ -5,10 +5,14 @@ Provides UI for running subscription audit without report timeout constraints.
 """
 
 import json
+import traceback
+from typing import Any, Dict
 
 import frappe
+from frappe import _
 
 from verenigingen.utils.admin_utilities.subscription_audit import SubscriptionAudit
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import critical_api
 
 
@@ -36,12 +40,15 @@ def get_context(context):
 
 @frappe.whitelist()
 @critical_api()  # Handles financial data and Mollie API access
-def run_audit():
+def run_audit() -> OperationResult[Dict[str, Any]]:
     """
     Run subscription audit and return results.
     This is called via AJAX so we can handle longer processing times.
 
     Security: Requires Member read, Mollie Settings read, and Payment Entry read permissions.
+
+    Returns:
+        OperationResult[Dict[str, Any]]: Audit results with summary and categorized issues
     """
     try:
         frappe.publish_realtime(
@@ -56,8 +63,7 @@ def run_audit():
         )
 
         # Format for display
-        return {
-            "success": True,
+        result = {
             "summary": report["summary"],
             "issues": {
                 # Mollie-side issues
@@ -73,6 +79,14 @@ def run_audit():
             "timestamp": report["audit_timestamp"],
         }
 
+        return OperationResult.ok(result, message=_("Subscription audit completed successfully"))
+
     except Exception as e:
-        frappe.log_error(f"Subscription audit failed: {str(e)}", "Subscription Audit")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Subscription audit failed: {str(e)}\n{traceback.format_exc()}", "Subscription Audit Error"
+        )
+        return OperationResult.fail(
+            _("Unable to complete subscription audit. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "run_audit"},
+        )

@@ -228,7 +228,7 @@ def _build_member_reconciliation(members, mollie_subscriptions):
         suggested_subscription_id = None
         suggested_status = None
 
-        if len(active_subs) == 0 and member.subscription_status in ["active", "pending"]:
+        if not active_subs and member.subscription_status in ["active", "pending"]:
             discrepancies.append("Member claims active subscription but no active subscription in Mollie")
             suggested_status = "canceled"
         elif len(active_subs) == 1:
