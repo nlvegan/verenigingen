@@ -4,7 +4,9 @@ Handles creation, management, and reporting of 5-year periodic donation agreemen
 """
 
 import json
+import traceback
 from datetime import datetime
+from typing import Any, Dict
 
 import frappe
 from frappe import _
@@ -13,7 +15,8 @@ from frappe.utils import add_years, flt, getdate, today
 # Import email service
 from verenigingen.services.communication.email_service import get_email_service
 
-# Import security decorators
+# Import security decorators and OperationResult
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -33,7 +36,7 @@ def create_periodic_agreement(
     start_date=None,
     agreement_type="Private Written",
     sepa_mandate=None,
-):
+) -> OperationResult[Dict[str, Any]]:
     """
     Create a new periodic donation agreement
 
@@ -47,7 +50,7 @@ def create_periodic_agreement(
         sepa_mandate: SEPA mandate if applicable
 
     Returns:
-        dict: Success status and agreement details
+        OperationResult: Success status and agreement details
     """
     try:
         # Validate donor has ANBI consent
@@ -82,23 +85,25 @@ def create_periodic_agreement(
 
         frappe.db.commit()
 
-        return {
-            "success": True,
-            "message": _("Periodic donation agreement created successfully"),
-            "agreement": agreement.name,
-            "agreement_number": agreement.agreement_number,
-        }
+        return OperationResult.ok(
+            {
+                "agreement": agreement.name,
+                "agreement_number": agreement.agreement_number,
+            },
+            message=_("Periodic donation agreement created successfully"),
+        )
 
     except Exception as e:
         frappe.log_error(
-            f"Failed to create periodic agreement: {str(e)}", "Periodic Agreement Creation Error"
+            f"Failed to create periodic agreement: {str(e)}\n{traceback.format_exc()}",
+            "Periodic Agreement Creation Error",
         )
-        return {"success": False, "message": str(e)}
+        return OperationResult.fail(error=str(e), message=_("Failed to create periodic donation agreement"))
 
 
-@standard_api(operation_type=OperationType.FINANCIAL)
+@standard_api(operation_type=OperationType.READ)
 @frappe.whitelist()
-def get_donor_agreements(donor, status=None):
+def get_donor_agreements(donor, status=None) -> OperationResult[Dict[str, Any]]:
     """
     Get all periodic donation agreements for a donor
 
@@ -107,7 +112,7 @@ def get_donor_agreements(donor, status=None):
         status: Optional status filter
 
     Returns:
-        dict: List of agreements
+        OperationResult: List of agreements
     """
     try:
         filters = {"donor": donor}
@@ -133,16 +138,22 @@ def get_donor_agreements(donor, status=None):
             order_by="creation desc",
         )
 
-        return {"success": True, "agreements": agreements, "count": len(agreements)}
+        return OperationResult.ok(
+            {"agreements": agreements, "count": len(agreements)},
+            message=_("Successfully retrieved donor agreements"),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Failed to get donor agreements: {str(e)}", "Periodic Agreement Retrieval Error")
-        return {"success": False, "message": str(e)}
+        frappe.log_error(
+            f"Failed to get donor agreements: {str(e)}\n{traceback.format_exc()}",
+            "Periodic Agreement Retrieval Error",
+        )
+        return OperationResult.fail(error=str(e), message=_("Failed to retrieve donor agreements"))
 
 
-@high_security_api(operation_type=OperationType.FINANCIAL)
+@critical_api(operation_type=OperationType.WRITE)
 @frappe.whitelist()
-def link_donation_to_agreement(donation, agreement):
+def link_donation_to_agreement(donation, agreement) -> OperationResult[Dict[str, Any]]:
     """
     Link an existing donation to a periodic agreement
 
@@ -151,7 +162,7 @@ def link_donation_to_agreement(donation, agreement):
         agreement: Periodic Donation Agreement name
 
     Returns:
-        dict: Success status
+        OperationResult: Success status
     """
     try:
         # Validate donation and agreement
@@ -190,16 +201,18 @@ def link_donation_to_agreement(donation, agreement):
 
         frappe.db.commit()
 
-        return {"success": True, "message": _("Donation linked to agreement successfully")}
+        return OperationResult.ok({}, message=_("Donation linked to agreement successfully"))
 
     except Exception as e:
-        frappe.log_error(f"Failed to link donation: {str(e)}", "Donation Linking Error")
-        return {"success": False, "message": str(e)}
+        frappe.log_error(
+            f"Failed to link donation: {str(e)}\n{traceback.format_exc()}", "Donation Linking Error"
+        )
+        return OperationResult.fail(error=str(e), message=_("Failed to link donation to agreement"))
 
 
 @standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
-def generate_periodic_donation_report(from_date=None, to_date=None):
+def generate_periodic_donation_report(from_date=None, to_date=None) -> OperationResult[Dict[str, Any]]:
     """
     Generate report of all periodic donation agreements
 
@@ -208,7 +221,7 @@ def generate_periodic_donation_report(from_date=None, to_date=None):
         to_date: Optional end date filter
 
     Returns:
-        dict: Report data
+        OperationResult: Report data
     """
     try:
         # Base filters
@@ -263,29 +276,34 @@ def generate_periodic_donation_report(from_date=None, to_date=None):
             if agreement.rsin_organization_tax_number:
                 agreement.rsin_organization_tax_number = "***" + agreement.rsin_organization_tax_number[-4:]
 
-        return {
-            "success": True,
-            "report_date": frappe.utils.now(),
-            "period": {"from": from_date, "to": to_date} if from_date and to_date else None,
-            "summary": {
-                "total_agreements": len(agreements),
-                "total_expected_5_years": total_expected,
-                "total_received": total_received,
-                "completion_percentage": (total_received / total_expected * 100) if total_expected > 0 else 0,
+        return OperationResult.ok(
+            {
+                "report_date": frappe.utils.now(),
+                "period": {"from": from_date, "to": to_date} if from_date and to_date else None,
+                "summary": {
+                    "total_agreements": len(agreements),
+                    "total_expected_5_years": total_expected,
+                    "total_received": total_received,
+                    "completion_percentage": (total_received / total_expected * 100)
+                    if total_expected > 0
+                    else 0,
+                },
+                "agreements": agreements,
             },
-            "agreements": agreements,
-        }
+            message=_("Periodic donation report generated successfully"),
+        )
 
     except Exception as e:
         frappe.log_error(
-            f"Failed to generate periodic donation report: {str(e)}", "Periodic Donation Report Error"
+            f"Failed to generate periodic donation report: {str(e)}\n{traceback.format_exc()}",
+            "Periodic Donation Report Error",
         )
-        return {"success": False, "message": str(e)}
+        return OperationResult.fail(error=str(e), message=_("Failed to generate periodic donation report"))
 
 
-@standard_api(operation_type=OperationType.UTILITY)
+@standard_api(operation_type=OperationType.READ)
 @frappe.whitelist()
-def check_expiring_agreements(days_ahead=90):
+def check_expiring_agreements(days_ahead=90) -> OperationResult[Dict[str, Any]]:
     """
     Check for agreements expiring within specified days
 
@@ -293,7 +311,7 @@ def check_expiring_agreements(days_ahead=90):
         days_ahead: Number of days to look ahead
 
     Returns:
-        dict: List of expiring agreements
+        OperationResult: List of expiring agreements
     """
     try:
         expiry_date = add_years(today(), -5)
@@ -322,16 +340,22 @@ def check_expiring_agreements(days_ahead=90):
                 agreement_doc = frappe.get_doc("Periodic Donation Agreement", agreement.name)
                 agreement_doc.check_expiry_notification()
 
-        return {"success": True, "expiring_count": len(expiring), "agreements": expiring}
+        return OperationResult.ok(
+            {"expiring_count": len(expiring), "agreements": expiring},
+            message=_("Successfully checked expiring agreements"),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Failed to check expiring agreements: {str(e)}", "Agreement Expiry Check Error")
-        return {"success": False, "message": str(e)}
+        frappe.log_error(
+            f"Failed to check expiring agreements: {str(e)}\n{traceback.format_exc()}",
+            "Agreement Expiry Check Error",
+        )
+        return OperationResult.fail(error=str(e), message=_("Failed to check expiring agreements"))
 
 
-@high_security_api(operation_type=OperationType.FINANCIAL)
+@critical_api(operation_type=OperationType.WRITE)
 @frappe.whitelist()
-def create_donation_from_agreement(agreement_name):
+def create_donation_from_agreement(agreement_name) -> OperationResult[Dict[str, Any]]:
     """
     Create a donation based on periodic agreement settings
 
@@ -339,7 +363,7 @@ def create_donation_from_agreement(agreement_name):
         agreement_name: Periodic Donation Agreement name
 
     Returns:
-        dict: Created donation details
+        OperationResult: Created donation details
     """
     try:
         agreement = frappe.get_doc("Periodic Donation Agreement", agreement_name)
@@ -374,28 +398,30 @@ def create_donation_from_agreement(agreement_name):
 
         frappe.db.commit()
 
-        return {
-            "success": True,
-            "message": _("Donation created successfully"),
-            "donation": donation.name,
-            "amount": donation.amount,
-        }
+        return OperationResult.ok(
+            {
+                "donation": donation.name,
+                "amount": donation.amount,
+            },
+            message=_("Donation created successfully"),
+        )
 
     except Exception as e:
         frappe.log_error(
-            f"Failed to create donation from agreement: {str(e)}", "Agreement Donation Creation Error"
+            f"Failed to create donation from agreement: {str(e)}\n{traceback.format_exc()}",
+            "Agreement Donation Creation Error",
         )
-        return {"success": False, "message": str(e)}
+        return OperationResult.fail(error=str(e), message=_("Failed to create donation from agreement"))
 
 
 @standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
-def get_agreement_statistics():
+def get_agreement_statistics() -> OperationResult[Dict[str, Any]]:
     """
     Get overall statistics for periodic donation agreements
 
     Returns:
-        dict: Statistics data
+        OperationResult: Statistics data
     """
     try:
         # Total agreements by status
@@ -443,25 +469,30 @@ def get_agreement_statistics():
             as_dict=True,
         )
 
-        return {
-            "success": True,
-            "statistics": {
-                "status_distribution": {s.status: s.count for s in status_counts},
-                "financial": financial_stats,
-                "agreement_types": {t.agreement_type: t.count for t in type_counts},
-                "payment_frequencies": {f.payment_frequency: f.count for f in frequency_counts},
-                "generated_at": frappe.utils.now(),
+        return OperationResult.ok(
+            {
+                "statistics": {
+                    "status_distribution": {s.status: s.count for s in status_counts},
+                    "financial": financial_stats,
+                    "agreement_types": {t.agreement_type: t.count for t in type_counts},
+                    "payment_frequencies": {f.payment_frequency: f.count for f in frequency_counts},
+                    "generated_at": frappe.utils.now(),
+                },
             },
-        }
+            message=_("Successfully retrieved agreement statistics"),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Failed to get agreement statistics: {str(e)}", "Agreement Statistics Error")
-        return {"success": False, "message": str(e)}
+        frappe.log_error(
+            f"Failed to get agreement statistics: {str(e)}\n{traceback.format_exc()}",
+            "Agreement Statistics Error",
+        )
+        return OperationResult.fail(error=str(e), message=_("Failed to retrieve agreement statistics"))
 
 
-@high_security_api(operation_type=OperationType.ADMIN)
+@critical_api(operation_type=OperationType.WRITE)
 @frappe.whitelist()
-def send_renewal_reminders(days_before_expiry=90):
+def send_renewal_reminders(days_before_expiry=90) -> OperationResult[Dict[str, Any]]:
     """
     Send renewal reminders for expiring agreements
 
@@ -469,7 +500,7 @@ def send_renewal_reminders(days_before_expiry=90):
         days_before_expiry: Days before expiry to send reminders
 
     Returns:
-        dict: Number of reminders sent
+        OperationResult: Number of reminders sent
     """
     try:
         expiry_date = frappe.utils.add_days(today(), days_before_expiry)
@@ -521,21 +552,24 @@ def send_renewal_reminders(days_before_expiry=90):
 
             except Exception as e:
                 frappe.log_error(
-                    f"Failed to send renewal reminder for {agreement.agreement_number}: {str(e)}",
+                    f"Failed to send renewal reminder for {agreement.agreement_number}: {str(e)}\n{traceback.format_exc()}",
                     "Agreement Renewal Reminder Error",
                 )
 
         frappe.db.commit()
 
-        return {
-            "success": True,
-            "sent_count": sent_count,
-            "message": _("{0} renewal reminders sent").format(sent_count),
-        }
+        return OperationResult.ok(
+            {
+                "sent_count": sent_count,
+            },
+            message=_("{0} renewal reminders sent").format(sent_count),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Failed to send renewal reminders: {str(e)}", "Renewal Reminder Error")
-        return {"success": False, "message": str(e)}
+        frappe.log_error(
+            f"Failed to send renewal reminders: {str(e)}\n{traceback.format_exc()}", "Renewal Reminder Error"
+        )
+        return OperationResult.fail(error=str(e), message=_("Failed to send renewal reminders"))
 
 
 def get_renewal_reminder_email(agreement, days_remaining):
@@ -579,9 +613,9 @@ def get_renewal_reminder_email(agreement, days_remaining):
     """
 
 
-@high_security_api(operation_type=OperationType.FINANCIAL)
+@critical_api(operation_type=OperationType.WRITE)
 @frappe.whitelist()
-def generate_tax_receipts(filters):
+def generate_tax_receipts(filters) -> OperationResult[Dict[str, Any]]:
     """
     Generate tax receipts for periodic donations
 
@@ -589,7 +623,7 @@ def generate_tax_receipts(filters):
         filters: Report filters dict
 
     Returns:
-        dict: Number of receipts generated
+        OperationResult: Number of receipts generated
     """
     try:
         # Parse filters
@@ -622,19 +656,22 @@ def generate_tax_receipts(filters):
 
             except Exception as e:
                 frappe.log_error(
-                    f"Failed to generate tax receipt for {agreement.agreement_number}: {str(e)}",
+                    f"Failed to generate tax receipt for {agreement.agreement_number}: {str(e)}\n{traceback.format_exc()}",
                     "Tax Receipt Generation Error",
                 )
 
-        return {
-            "success": True,
-            "generated_count": generated_count,
-            "message": _("{0} tax receipts generated").format(generated_count),
-        }
+        return OperationResult.ok(
+            {
+                "generated_count": generated_count,
+            },
+            message=_("{0} tax receipts generated").format(generated_count),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Failed to generate tax receipts: {str(e)}", "Tax Receipt Error")
-        return {"success": False, "message": str(e)}
+        frappe.log_error(
+            f"Failed to generate tax receipts: {str(e)}\n{traceback.format_exc()}", "Tax Receipt Error"
+        )
+        return OperationResult.fail(error=str(e), message=_("Failed to generate tax receipts"))
 
 
 def generate_tax_receipt_content(agreement):
@@ -654,7 +691,7 @@ def generate_tax_receipt_content(agreement):
 
 @standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
-def export_agreements(filters):
+def export_agreements(filters) -> OperationResult[Dict[str, Any]]:
     """
     Export periodic agreements to CSV
 
@@ -662,7 +699,7 @@ def export_agreements(filters):
         filters: Report filters dict
 
     Returns:
-        dict: File URL for download
+        OperationResult: File URL for download
     """
     try:
         import csv
@@ -739,41 +776,59 @@ def export_agreements(filters):
         filename = f"Periodic_Agreements_{frappe.utils.now_datetime().strftime('%Y%m%d_%H%M%S')}.csv"
         file_doc = save_file(filename, csv_data, "", "", is_private=1)
 
-        return {"success": True, "file_url": file_doc.file_url, "file_name": filename}
+        return OperationResult.ok(
+            {"file_url": file_doc.file_url, "file_name": filename},
+            message=_("Agreements exported successfully"),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Failed to export agreements: {str(e)}", "Agreement Export Error")
-        return {"success": False, "message": str(e)}
+        frappe.log_error(
+            f"Failed to export agreements: {str(e)}\n{traceback.format_exc()}", "Agreement Export Error"
+        )
+        return OperationResult.fail(error=str(e), message=_("Failed to export agreements"))
 
 
 @utility_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
-def test_periodic_donation_system():
+def test_periodic_donation_system() -> OperationResult[Dict[str, Any]]:
     """Test that the periodic donation agreement system is working"""
     try:
         # Check doctypes exist
         if not frappe.db.exists("DocType", "Periodic Donation Agreement"):
-            return {"success": False, "message": "Periodic Donation Agreement doctype not found"}
+            return OperationResult.fail(
+                error="Periodic Donation Agreement doctype not found",
+                message=_("Periodic Donation Agreement doctype not found"),
+            )
 
         if not frappe.db.exists("DocType", "Periodic Donation Agreement Item"):
-            return {"success": False, "message": "Periodic Donation Agreement Item doctype not found"}
+            return OperationResult.fail(
+                error="Periodic Donation Agreement Item doctype not found",
+                message=_("Periodic Donation Agreement Item doctype not found"),
+            )
 
         # Check Donation field
         donation_meta = frappe.get_meta("Donation")
         has_field = any(field.fieldname == "periodic_donation_agreement" for field in donation_meta.fields)
 
         if not has_field:
-            return {"success": False, "message": "Donation doctype missing periodic_donation_agreement field"}
+            return OperationResult.fail(
+                error="Donation doctype missing periodic_donation_agreement field",
+                message=_("Donation doctype missing periodic_donation_agreement field"),
+            )
 
-        return {
-            "success": True,
-            "message": "Periodic Donation Agreement system is properly installed",
-            "details": {
-                "doctypes_exist": True,
-                "donation_field_exists": True,
-                "api_endpoints_available": True,
+        return OperationResult.ok(
+            {
+                "details": {
+                    "doctypes_exist": True,
+                    "donation_field_exists": True,
+                    "api_endpoints_available": True,
+                },
             },
-        }
+            message=_("Periodic Donation Agreement system is properly installed"),
+        )
 
     except Exception as e:
-        return {"success": False, "message": f"System check failed: {str(e)}"}
+        frappe.log_error(
+            f"System check failed: {str(e)}\n{traceback.format_exc()}", "Periodic Donation System Check Error"
+        )
+        return OperationResult.fail(error=str(e), message=_("System check failed: {0}").format(str(e)))
