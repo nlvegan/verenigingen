@@ -51,9 +51,14 @@ Author: Verenigingen Development Team
 License: MIT
 """
 
+import traceback
+from typing import Any, Dict
+
 import frappe
 from frappe import _
 from frappe.utils import flt
+
+from verenigingen.utils.operation_result import OperationResult
 
 # Import security framework
 from verenigingen.utils.security.api_security_framework import (
@@ -67,12 +72,12 @@ from verenigingen.utils.security.api_security_framework import (
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
-def get_auto_creation_dashboard():
+def get_auto_creation_dashboard() -> OperationResult[Dict[str, Any]]:
     """
     Get comprehensive dashboard data for donor auto-creation management
 
     Returns:
-        dict: Dashboard data including settings, stats, and recent activity
+        OperationResult: Dashboard data including settings, stats, and recent activity
     """
     try:
         # Get current settings
@@ -121,7 +126,7 @@ def get_auto_creation_dashboard():
             total_customers = frappe.db.count("Customer")
             eligible_groups = [{"name": "All Customer Groups", "customer_count": total_customers}]
 
-        return {
+        data = {
             "settings": {
                 "enabled": bool(settings.auto_create_donors),
                 "donations_gl_account": settings.donations_gl_account,
@@ -138,16 +143,25 @@ def get_auto_creation_dashboard():
             "eligible_groups": eligible_groups,
         }
 
+        return OperationResult.ok(data, message=_("Auto-creation dashboard data retrieved successfully"))
+
     except Exception as e:
-        frappe.log_error(f"Error getting auto-creation dashboard: {str(e)}", "Auto-Creation Dashboard Error")
-        return {"error": str(e)}
+        frappe.log_error(
+            f"Error getting auto-creation dashboard: {str(e)}\n{traceback.format_exc()}",
+            "Auto-Creation Dashboard Error",
+        )
+        return OperationResult.fail(
+            _("Failed to retrieve auto-creation dashboard data"),
+            errors=[str(e)],
+            context={"operation": "get_auto_creation_dashboard"},
+        )
 
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def update_auto_creation_settings(
     enabled, donations_gl_account=None, eligible_customer_groups=None, minimum_amount=0
-):
+) -> OperationResult[Dict[str, Any]]:
     """
     Update donor auto-creation settings
 
@@ -158,7 +172,7 @@ def update_auto_creation_settings(
         minimum_amount: Minimum donation amount threshold
 
     Returns:
-        dict: Updated settings
+        OperationResult: Updated settings
     """
     try:
         settings = frappe.get_single("Verenigingen Settings")
@@ -174,25 +188,30 @@ def update_auto_creation_settings(
 
         settings.save()
 
-        return {
-            "success": True,
-            "message": _("Auto-creation settings updated successfully"),
-            "settings": {
-                "enabled": bool(settings.auto_create_donors),
-                "donations_gl_account": settings.donations_gl_account,
-                "eligible_customer_groups": settings.donor_customer_groups,
-                "minimum_amount": settings.minimum_donation_amount,
-            },
+        data = {
+            "enabled": bool(settings.auto_create_donors),
+            "donations_gl_account": settings.donations_gl_account,
+            "eligible_customer_groups": settings.donor_customer_groups,
+            "minimum_amount": settings.minimum_donation_amount,
         }
 
+        return OperationResult.ok(data, message=_("Auto-creation settings updated successfully"))
+
     except Exception as e:
-        frappe.log_error(f"Error updating auto-creation settings: {str(e)}", "Auto-Creation Settings Error")
-        return {"error": str(e)}
+        frappe.log_error(
+            f"Error updating auto-creation settings: {str(e)}\n{traceback.format_exc()}",
+            "Auto-Creation Settings Error",
+        )
+        return OperationResult.fail(
+            _("Failed to update auto-creation settings"),
+            errors=[str(e)],
+            context={"operation": "update_auto_creation_settings"},
+        )
 
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def test_customer_eligibility(customer_name, amount):
+def test_customer_eligibility(customer_name, amount) -> OperationResult[Dict[str, Any]]:
     """
     Test if a customer would be eligible for donor auto-creation
 
@@ -201,24 +220,34 @@ def test_customer_eligibility(customer_name, amount):
         amount: Donation amount to test
 
     Returns:
-        dict: Eligibility test results
+        OperationResult: Eligibility test results
     """
     from verenigingen.utils.donor_auto_creation import test_auto_creation_conditions
 
     try:
-        return test_auto_creation_conditions(customer_name, flt(amount))
+        result = test_auto_creation_conditions(customer_name, flt(amount))
+        return OperationResult.ok(result, message=_("Customer eligibility test completed"))
+
     except Exception as e:
-        return {"error": str(e)}
+        frappe.log_error(
+            f"Error testing customer eligibility: {str(e)}\n{traceback.format_exc()}",
+            "Customer Eligibility Test Error",
+        )
+        return OperationResult.fail(
+            _("Failed to test customer eligibility"),
+            errors=[str(e)],
+            context={"operation": "test_customer_eligibility", "customer_name": customer_name},
+        )
 
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
-def get_donations_gl_accounts():
+def get_donations_gl_accounts() -> OperationResult[Dict[str, Any]]:
     """
     Get available GL accounts suitable for donations
 
     Returns:
-        list: Available donation GL accounts
+        OperationResult: Available donation GL accounts
     """
     try:
         # Get income accounts that could be used for donations
@@ -229,21 +258,27 @@ def get_donations_gl_accounts():
             order_by="account_name",
         )
 
-        return accounts
+        return OperationResult.ok({"accounts": accounts}, message=_("GL accounts retrieved successfully"))
 
     except Exception as e:
-        frappe.log_error(f"Error getting donations GL accounts: {str(e)}", "GL Accounts Error")
-        return {"error": str(e)}
+        frappe.log_error(
+            f"Error getting donations GL accounts: {str(e)}\n{traceback.format_exc()}", "GL Accounts Error"
+        )
+        return OperationResult.fail(
+            _("Failed to retrieve GL accounts"),
+            errors=[str(e)],
+            context={"operation": "get_donations_gl_accounts"},
+        )
 
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
-def get_customer_groups():
+def get_customer_groups() -> OperationResult[Dict[str, Any]]:
     """
     Get available customer groups for eligibility configuration
 
     Returns:
-        list: Available customer groups
+        OperationResult: Available customer groups
     """
     try:
         groups = frappe.db.get_all(
@@ -257,16 +292,22 @@ def get_customer_groups():
         for group in groups:
             group["customer_count"] = frappe.db.count("Customer", {"customer_group": group.name})
 
-        return groups
+        return OperationResult.ok({"groups": groups}, message=_("Customer groups retrieved successfully"))
 
     except Exception as e:
-        frappe.log_error(f"Error getting customer groups: {str(e)}", "Customer Groups Error")
-        return {"error": str(e)}
+        frappe.log_error(
+            f"Error getting customer groups: {str(e)}\n{traceback.format_exc()}", "Customer Groups Error"
+        )
+        return OperationResult.fail(
+            _("Failed to retrieve customer groups"),
+            errors=[str(e)],
+            context={"operation": "get_customer_groups"},
+        )
 
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def simulate_auto_creation(customer_name, amount, donations_account=None):
+def simulate_auto_creation(customer_name, amount, donations_account=None) -> OperationResult[Dict[str, Any]]:
     """
     Simulate donor auto-creation without actually creating records
 
@@ -276,7 +317,7 @@ def simulate_auto_creation(customer_name, amount, donations_account=None):
         donations_account: GL account to use (optional)
 
     Returns:
-        dict: Simulation results
+        OperationResult: Simulation results
     """
     from verenigingen.utils.donor_auto_creation import has_existing_donor, is_customer_group_eligible
 
@@ -298,7 +339,7 @@ def simulate_auto_creation(customer_name, amount, donations_account=None):
         if not frappe.db.exists("Customer", customer_name):
             simulation["conditions"]["customer_exists"] = False
             simulation["messages"].append(f"Customer '{customer_name}' does not exist")
-            return simulation
+            return OperationResult.ok(simulation, message=_("Simulation completed - customer not found"))
 
         customer_doc = frappe.get_doc("Customer", customer_name)
         simulation["customer_data"] = {
@@ -312,29 +353,33 @@ def simulate_auto_creation(customer_name, amount, donations_account=None):
         simulation["conditions"]["auto_creation_enabled"] = bool(settings.auto_create_donors)
         if not settings.auto_create_donors:
             simulation["messages"].append("Auto-creation is disabled")
-            return simulation
+            return OperationResult.ok(simulation, message=_("Simulation completed - auto-creation disabled"))
 
         simulation["conditions"]["donations_account_configured"] = bool(account)
         if not account:
             simulation["messages"].append("No donations GL account configured")
-            return simulation
+            return OperationResult.ok(
+                simulation, message=_("Simulation completed - no donations account configured")
+            )
 
         simulation["conditions"]["customer_group_eligible"] = is_customer_group_eligible(
             customer_doc.customer_group, settings
         )
         if not simulation["conditions"]["customer_group_eligible"]:
             simulation["messages"].append(f"Customer group '{customer_doc.customer_group}' not eligible")
-            return simulation
+            return OperationResult.ok(
+                simulation, message=_("Simulation completed - customer group not eligible")
+            )
 
         simulation["conditions"]["amount_sufficient"] = flt(amount) >= flt(settings.minimum_donation_amount)
         if not simulation["conditions"]["amount_sufficient"]:
             simulation["messages"].append(f"Amount {amount} below minimum {settings.minimum_donation_amount}")
-            return simulation
+            return OperationResult.ok(simulation, message=_("Simulation completed - amount below minimum"))
 
         simulation["conditions"]["donor_already_exists"] = has_existing_donor(customer_name)
         if simulation["conditions"]["donor_already_exists"]:
             simulation["messages"].append("Donor already exists for this customer")
-            return simulation
+            return OperationResult.ok(simulation, message=_("Simulation completed - donor already exists"))
 
         # All conditions met - simulate donor creation
         simulation["would_create"] = True
@@ -348,17 +393,29 @@ def simulate_auto_creation(customer_name, amount, donations_account=None):
         }
         simulation["messages"].append("All conditions met - donor would be created")
 
-        return simulation
+        return OperationResult.ok(simulation, message=_("Simulation completed - donor would be created"))
 
     except Exception as e:
-        frappe.log_error(f"Error in donor creation simulation: {str(e)}", "Auto-Creation Simulation Error")
-        return {"error": str(e)}
+        frappe.log_error(
+            f"Error in donor creation simulation: {str(e)}\n{traceback.format_exc()}",
+            "Auto-Creation Simulation Error",
+        )
+        return OperationResult.fail(
+            _("Failed to simulate donor creation"),
+            errors=[str(e)],
+            context={"operation": "simulate_auto_creation", "customer_name": customer_name},
+        )
 
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def get_recent_error_logs():
-    """Get recent error logs for debugging"""
+def get_recent_error_logs() -> OperationResult[Dict[str, Any]]:
+    """
+    Get recent error logs for debugging
+
+    Returns:
+        OperationResult: Recent error logs
+    """
     try:
         recent_errors = frappe.db.get_all(
             "Error Log",
@@ -375,15 +432,31 @@ def get_recent_error_logs():
                 {"name": error_info.name, "creation": error_info.creation, "error": error_doc.error}
             )
 
-        return detailed_errors
+        return OperationResult.ok(
+            {"errors": detailed_errors}, message=_("Recent error logs retrieved successfully")
+        )
+
     except Exception as e:
-        return {"error": str(e)}
+        frappe.log_error(
+            f"Error getting recent error logs: {str(e)}\n{traceback.format_exc()}",
+            "Error Logs Retrieval Error",
+        )
+        return OperationResult.fail(
+            _("Failed to retrieve error logs"),
+            errors=[str(e)],
+            context={"operation": "get_recent_error_logs"},
+        )
 
 
 @frappe.whitelist()
 @utility_api(operation_type=OperationType.UTILITY)
-def check_test_accounts():
-    """Check available accounts for testing purposes"""
+def check_test_accounts() -> OperationResult[Dict[str, Any]]:
+    """
+    Check available accounts for testing purposes
+
+    Returns:
+        OperationResult: Available test accounts information
+    """
     try:
         # Check income accounts
         income_accounts = frappe.db.get_all(
@@ -418,19 +491,31 @@ def check_test_accounts():
             as_dict=True,
         )
 
-        return {
+        data = {
             "income_accounts": income_accounts,
             "receivable_accounts": receivable_accounts,
             "customer_groups": customer_groups,
             "all_account_types": all_account_types,
         }
+
+        return OperationResult.ok(data, message=_("Test accounts information retrieved successfully"))
+
     except Exception as e:
-        return {"error": str(e)}
+        frappe.log_error(
+            f"Error checking test accounts: {str(e)}\n{traceback.format_exc()}", "Test Accounts Check Error"
+        )
+        return OperationResult.fail(
+            _("Failed to check test accounts"),
+            errors=[str(e)],
+            context={"operation": "check_test_accounts"},
+        )
 
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def bulk_process_pending_payments(donations_account=None, date_from=None, date_to=None):
+def bulk_process_pending_payments(
+    donations_account=None, date_from=None, date_to=None
+) -> OperationResult[Dict[str, Any]]:
     """
     Process existing payments retroactively for donor creation
 
@@ -440,14 +525,18 @@ def bulk_process_pending_payments(donations_account=None, date_from=None, date_t
         date_to: End date for processing (optional)
 
     Returns:
-        dict: Processing results
+        OperationResult: Processing results
     """
     try:
         settings = frappe.get_single("Verenigingen Settings")
         account = donations_account or settings.donations_gl_account
 
         if not account:
-            return {"error": "No donations GL account specified"}
+            return OperationResult.fail(
+                _("No donations GL account specified"),
+                errors=["Missing donations account"],
+                context={"operation": "bulk_process_pending_payments"},
+            )
 
         # Build filters for Payment Entries
         filters = {"payment_type": "Receive", "party_type": "Customer", "docstatus": 1}  # Submitted only
@@ -552,8 +641,21 @@ def bulk_process_pending_payments(donations_account=None, date_from=None, date_t
                 results["errors"] += 1
                 results["details"].append({"payment": payment.name, "status": "error", "reason": str(e)})
 
-        return results
+        return OperationResult.ok(
+            results,
+            message=_(
+                "Bulk processing completed: {0} created, {1} skipped, {2} errors".format(
+                    results["created"], results["skipped"], results["errors"]
+                )
+            ),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Error in bulk processing: {str(e)}", "Bulk Processing Error")
-        return {"error": str(e)}
+        frappe.log_error(
+            f"Error in bulk processing: {str(e)}\n{traceback.format_exc()}", "Bulk Processing Error"
+        )
+        return OperationResult.fail(
+            _("Failed to process pending payments"),
+            errors=[str(e)],
+            context={"operation": "bulk_process_pending_payments"},
+        )

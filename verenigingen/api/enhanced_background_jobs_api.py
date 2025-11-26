@@ -6,11 +6,14 @@ Provides API endpoints for managing and monitoring the enhanced background job
 coordination system in Phase 5A performance optimization.
 """
 
+import traceback
 from typing import Any, Dict, List, Optional
 
 import frappe
+from frappe import _
 from frappe.utils import now_datetime
 
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.performance.enhanced_background_jobs import (
     JobPriority,
     JobStatus,
@@ -33,7 +36,7 @@ def enqueue_performance_job(
     priority: str = "normal",
     operation_type: str = "UTILITY",
     estimated_duration: int = None,
-):
+) -> OperationResult[Dict[str, Any]]:
     """
     Enqueue a performance-related background job
 
@@ -45,20 +48,28 @@ def enqueue_performance_job(
         estimated_duration: Estimated execution time in seconds
 
     Returns:
-        Dict with job ID and enqueue status
+        OperationResult: Job ID and enqueue status
     """
     try:
         # Parse priority
         try:
             job_priority = JobPriority(priority.lower())
         except ValueError:
-            frappe.throw(f"Invalid priority: {priority}. Use: critical, high, normal, low, bulk")
+            return OperationResult.fail(
+                _("Invalid priority specified"),
+                errors=[f"Invalid priority: {priority}. Use: critical, high, normal, low, bulk"],
+                context={"operation": "enqueue_performance_job", "priority": priority},
+            )
 
         # Parse operation type
         try:
             op_type = OperationType(operation_type.upper())
         except ValueError:
-            frappe.throw(f"Invalid operation type: {operation_type}")
+            return OperationResult.fail(
+                _("Invalid operation type specified"),
+                errors=[f"Invalid operation type: {operation_type}"],
+                context={"operation": "enqueue_performance_job", "operation_type": operation_type},
+            )
 
         # Get job coordinator
         coordinator = get_performance_job_coordinator()
@@ -72,26 +83,33 @@ def enqueue_performance_job(
             estimated_duration=estimated_duration,
         )
 
-        return {
-            "success": True,
-            "data": {
-                "job_id": job_id,
-                "job_function": job_function,
-                "priority": priority,
-                "operation_type": operation_type,
-                "enqueued_at": now_datetime(),
-            },
-            "message": f"Job {job_id} enqueued successfully with priority {priority}",
+        data = {
+            "job_id": job_id,
+            "job_function": job_function,
+            "priority": priority,
+            "operation_type": operation_type,
+            "enqueued_at": now_datetime(),
         }
 
+        return OperationResult.ok(
+            data, message=_("Job {0} enqueued successfully with priority {1}").format(job_id, priority)
+        )
+
     except Exception as e:
-        frappe.log_error(f"Error enqueueing performance job: {e}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error enqueueing performance job: {str(e)}\n{traceback.format_exc()}",
+            "Performance Job Enqueue Error",
+        )
+        return OperationResult.fail(
+            _("Failed to enqueue performance job"),
+            errors=[str(e)],
+            context={"operation": "enqueue_performance_job", "job_function": job_function},
+        )
 
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def get_job_status(job_id: str):
+def get_job_status(job_id: str) -> OperationResult[Dict[str, Any]]:
     """
     Get current status of a background job
 
@@ -99,30 +117,40 @@ def get_job_status(job_id: str):
         job_id: Job ID to check
 
     Returns:
-        Dict with job status and performance metrics
+        OperationResult: Job status and performance metrics
     """
     try:
         coordinator = get_performance_job_coordinator()
         job_status = coordinator.get_job_status(job_id)
 
         if "error" in job_status:
-            return {"success": False, "error": job_status["error"]}
+            return OperationResult.fail(
+                _("Job not found"),
+                errors=[job_status["error"]],
+                context={"operation": "get_job_status", "job_id": job_id},
+            )
 
-        return {"success": True, "data": job_status, "message": f"Job status retrieved for {job_id}"}
+        return OperationResult.ok(job_status, message=_("Job status retrieved for {0}").format(job_id))
 
     except Exception as e:
-        frappe.log_error(f"Error getting job status: {e}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error getting job status: {str(e)}\n{traceback.format_exc()}", "Job Status Retrieval Error"
+        )
+        return OperationResult.fail(
+            _("Failed to retrieve job status"),
+            errors=[str(e)],
+            context={"operation": "get_job_status", "job_id": job_id},
+        )
 
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def get_queue_status():
+def get_queue_status() -> OperationResult[Dict[str, Any]]:
     """
     Get overall queue status and performance metrics
 
     Returns:
-        Dict with comprehensive queue statistics
+        OperationResult: Comprehensive queue statistics
     """
     try:
         coordinator = get_performance_job_coordinator()
@@ -135,16 +163,20 @@ def get_queue_status():
             "optimization_opportunities": _identify_optimization_opportunities(queue_status),
         }
 
-        return {"success": True, "data": queue_status, "message": "Queue status retrieved successfully"}
+        return OperationResult.ok(queue_status, message=_("Queue status retrieved successfully"))
 
     except Exception as e:
-        frappe.log_error(f"Error getting queue status: {e}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error getting queue status: {str(e)}\n{traceback.format_exc()}", "Queue Status Retrieval Error"
+        )
+        return OperationResult.fail(
+            _("Failed to retrieve queue status"), errors=[str(e)], context={"operation": "get_queue_status"}
+        )
 
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def cancel_job(job_id: str):
+def cancel_job(job_id: str) -> OperationResult[Dict[str, Any]]:
     """
     Cancel a queued or running job
 
@@ -152,53 +184,63 @@ def cancel_job(job_id: str):
         job_id: Job ID to cancel
 
     Returns:
-        Dict with cancellation status
+        OperationResult: Cancellation status
     """
     try:
         coordinator = get_performance_job_coordinator()
         cancelled = coordinator.cancel_job(job_id)
 
         if cancelled:
-            return {
-                "success": True,
-                "data": {"job_id": job_id, "cancelled_at": now_datetime()},
-                "message": f"Job {job_id} cancelled successfully",
-            }
+            data = {"job_id": job_id, "cancelled_at": now_datetime()}
+            return OperationResult.ok(data, message=_("Job {0} cancelled successfully").format(job_id))
         else:
-            return {"success": False, "error": f"Job {job_id} not found or cannot be cancelled"}
+            return OperationResult.fail(
+                _("Job cannot be cancelled"),
+                errors=[f"Job {job_id} not found or cannot be cancelled"],
+                context={"operation": "cancel_job", "job_id": job_id},
+            )
 
     except Exception as e:
-        frappe.log_error(f"Error cancelling job: {e}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error cancelling job: {str(e)}\n{traceback.format_exc()}", "Job Cancellation Error"
+        )
+        return OperationResult.fail(
+            _("Failed to cancel job"), errors=[str(e)], context={"operation": "cancel_job", "job_id": job_id}
+        )
 
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def optimize_job_scheduling():
+def optimize_job_scheduling() -> OperationResult[Dict[str, Any]]:
     """
     Optimize job scheduling based on current system performance
 
     Returns:
-        Dict with optimization results and recommendations
+        OperationResult: Optimization results and recommendations
     """
     try:
         coordinator = get_performance_job_coordinator()
         optimization_results = coordinator.optimize_job_scheduling()
 
-        return {
-            "success": True,
-            "data": optimization_results,
-            "message": "Job scheduling optimization completed",
-        }
+        return OperationResult.ok(optimization_results, message=_("Job scheduling optimization completed"))
 
     except Exception as e:
-        frappe.log_error(f"Error optimizing job scheduling: {e}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error optimizing job scheduling: {str(e)}\n{traceback.format_exc()}",
+            "Job Scheduling Optimization Error",
+        )
+        return OperationResult.fail(
+            _("Failed to optimize job scheduling"),
+            errors=[str(e)],
+            context={"operation": "optimize_job_scheduling"},
+        )
 
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def enqueue_member_payment_history_job(member_name: str, priority: str = "normal"):
+def enqueue_member_payment_history_job(
+    member_name: str, priority: str = "normal"
+) -> OperationResult[Dict[str, Any]]:
     """
     Enqueue a member payment history refresh job
 
@@ -207,14 +249,18 @@ def enqueue_member_payment_history_job(member_name: str, priority: str = "normal
         priority: Job priority level
 
     Returns:
-        Dict with job enqueue status
+        OperationResult: Job enqueue status
     """
     try:
         # Validate member exists
         if not frappe.db.exists("Member", member_name):
-            frappe.throw(f"Member {member_name} not found")
+            return OperationResult.fail(
+                _("Member not found"),
+                errors=[f"Member {member_name} not found"],
+                context={"operation": "enqueue_member_payment_history_job", "member_name": member_name},
+            )
 
-        job_id = enqueue_performance_job(
+        job_result = enqueue_performance_job(
             job_function="refresh_member_financial_history_optimized",
             job_args={"member_name": member_name},
             priority=priority,
@@ -222,16 +268,25 @@ def enqueue_member_payment_history_job(member_name: str, priority: str = "normal
             estimated_duration=120,  # 2 minutes estimated
         )
 
-        return job_id
+        return job_result
 
     except Exception as e:
-        frappe.log_error(f"Error enqueueing member payment history job: {e}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error enqueueing member payment history job: {str(e)}\n{traceback.format_exc()}",
+            "Member Payment History Job Enqueue Error",
+        )
+        return OperationResult.fail(
+            _("Failed to enqueue member payment history job"),
+            errors=[str(e)],
+            context={"operation": "enqueue_member_payment_history_job", "member_name": member_name},
+        )
 
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def enqueue_performance_analysis_job(sample_size: int = 10, priority: str = "low"):
+def enqueue_performance_analysis_job(
+    sample_size: int = 10, priority: str = "low"
+) -> OperationResult[Dict[str, Any]]:
     """
     Enqueue a comprehensive performance analysis job
 
@@ -240,13 +295,13 @@ def enqueue_performance_analysis_job(sample_size: int = 10, priority: str = "low
         priority: Job priority level
 
     Returns:
-        Dict with job enqueue status
+        OperationResult: Job enqueue status
     """
     try:
         # Validate sample size
         sample_size = max(1, min(int(sample_size), 50))
 
-        job_id = enqueue_performance_job(
+        job_result = enqueue_performance_job(
             job_function="run_comprehensive_performance_analysis",
             job_args={"sample_size": sample_size},
             priority=priority,
@@ -254,21 +309,28 @@ def enqueue_performance_analysis_job(sample_size: int = 10, priority: str = "low
             estimated_duration=300,  # 5 minutes estimated
         )
 
-        return job_id
+        return job_result
 
     except Exception as e:
-        frappe.log_error(f"Error enqueueing performance analysis job: {e}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error enqueueing performance analysis job: {str(e)}\n{traceback.format_exc()}",
+            "Performance Analysis Job Enqueue Error",
+        )
+        return OperationResult.fail(
+            _("Failed to enqueue performance analysis job"),
+            errors=[str(e)],
+            context={"operation": "enqueue_performance_analysis_job", "sample_size": sample_size},
+        )
 
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def get_job_queue_dashboard():
+def get_job_queue_dashboard() -> OperationResult[Dict[str, Any]]:
     """
     Get comprehensive job queue dashboard data
 
     Returns:
-        Dict with dashboard data for monitoring job queues
+        OperationResult: Dashboard data for monitoring job queues
     """
     try:
         coordinator = get_performance_job_coordinator()
@@ -295,25 +357,30 @@ def get_job_queue_dashboard():
             },
         }
 
-        return {
-            "success": True,
-            "data": dashboard_data,
-            "message": "Job queue dashboard data retrieved successfully",
-        }
+        return OperationResult.ok(
+            dashboard_data, message=_("Job queue dashboard data retrieved successfully")
+        )
 
     except Exception as e:
-        frappe.log_error(f"Error getting job queue dashboard: {e}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error getting job queue dashboard: {str(e)}\n{traceback.format_exc()}",
+            "Job Queue Dashboard Error",
+        )
+        return OperationResult.fail(
+            _("Failed to retrieve job queue dashboard"),
+            errors=[str(e)],
+            context={"operation": "get_job_queue_dashboard"},
+        )
 
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def test_job_coordination():
+def test_job_coordination() -> OperationResult[Dict[str, Any]]:
     """
     Test the job coordination system with sample jobs
 
     Returns:
-        Dict with test results
+        OperationResult: Test results
     """
     try:
         coordinator = get_performance_job_coordinator()
@@ -354,20 +421,28 @@ def test_job_coordination():
         # Get queue status after enqueueing
         queue_status = coordinator.get_queue_status()
 
-        return {
-            "success": True,
-            "data": {
-                "test_jobs": test_jobs,
-                "queue_status_after_enqueue": queue_status,
-                "coordination_working": len(test_jobs) == 3,
-                "priority_distribution": queue_status.get("priority_distribution", {}),
-            },
-            "message": f"Job coordination test completed - {len(test_jobs)} test jobs enqueued",
+        data = {
+            "test_jobs": test_jobs,
+            "queue_status_after_enqueue": queue_status,
+            "coordination_working": len(test_jobs) == 3,
+            "priority_distribution": queue_status.get("priority_distribution", {}),
         }
 
+        return OperationResult.ok(
+            data,
+            message=_("Job coordination test completed - {0} test jobs enqueued").format(len(test_jobs)),
+        )
+
     except Exception as e:
-        frappe.log_error(f"Error testing job coordination: {e}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            f"Error testing job coordination: {str(e)}\n{traceback.format_exc()}",
+            "Job Coordination Test Error",
+        )
+        return OperationResult.fail(
+            _("Failed to test job coordination"),
+            errors=[str(e)],
+            context={"operation": "test_job_coordination"},
+        )
 
 
 def _assess_queue_health(queue_status: Dict) -> str:
