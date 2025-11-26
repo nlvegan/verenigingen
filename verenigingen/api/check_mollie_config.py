@@ -2,13 +2,20 @@
 Check Mollie configuration and webhook secret
 """
 
+import traceback
+from typing import Any, Dict
+
 import frappe
+from frappe import _
+
+from verenigingen.utils.operation_result import OperationResult
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
 @frappe.whitelist()
-def check_mollie_config():
+@standard_api(operation_type=OperationType.UTILITY)
+def check_mollie_config() -> OperationResult[Dict[str, Any]]:
     """Check Mollie Settings configuration"""
-
     try:
         settings = frappe.get_single("Mollie Settings")
 
@@ -26,7 +33,15 @@ def check_mollie_config():
             "has_live_secret_key": bool(settings.get("live_webhook_secret_key")),
         }
 
-        return config_info
+        return OperationResult.ok(config_info, message=_("Mollie configuration retrieved successfully"))
 
     except Exception as e:
-        return {"error": str(e)}
+        frappe.log_error(
+            title=_("Mollie Config Check Failed"),
+            message=traceback.format_exc(),
+        )
+        return OperationResult.fail(
+            _("Failed to retrieve Mollie configuration"),
+            errors=[str(e)],
+            context={"traceback": traceback.format_exc()},
+        )

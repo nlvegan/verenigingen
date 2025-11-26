@@ -2,13 +2,20 @@
 Check webhook processing logs
 """
 
+import traceback
+from typing import Any, Dict
+
 import frappe
+from frappe import _
+
+from verenigingen.utils.operation_result import OperationResult
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
 @frappe.whitelist()
-def check_webhook_logs(payment_id="tr_RguKBdskXAwRhRYACAfEJ"):
+@standard_api(operation_type=OperationType.UTILITY)
+def check_webhook_logs(payment_id="tr_RguKBdskXAwRhRYACAfEJ") -> OperationResult[Dict[str, Any]]:
     """Check webhook logs for specific payment"""
-
     try:
         # Check for specific payment logs
         logs = frappe.get_all(
@@ -62,15 +69,29 @@ def check_webhook_logs(payment_id="tr_RguKBdskXAwRhRYACAfEJ"):
                 "amount": donation.amount,
                 "status": donation.docstatus,
             }
-        except:
-            donation_status = {"error": "Donation not found"}
+        except Exception:
+            donation_status = {"error": _("Donation not found")}
 
-        return {
+        data = {
             "payment_id": payment_id,
             "specific_logs": specific_logs,
             "recent_logs": recent_summary,
             "donation_status": donation_status,
         }
 
+        message = _("Webhook logs retrieved for payment {0}").format(payment_id)
+        if specific_logs:
+            message = _("Found {0} webhook logs for payment {1}").format(len(specific_logs), payment_id)
+
+        return OperationResult.ok(data, message=message)
+
     except Exception as e:
-        return {"error": str(e)}
+        frappe.log_error(
+            title=_("Webhook Logs Check Failed"),
+            message=traceback.format_exc(),
+        )
+        return OperationResult.fail(
+            _("Failed to retrieve webhook logs"),
+            errors=[str(e)],
+            context={"payment_id": payment_id, "traceback": traceback.format_exc()},
+        )

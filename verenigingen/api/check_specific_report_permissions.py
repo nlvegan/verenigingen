@@ -1,64 +1,83 @@
-import frappe
+import traceback
+from typing import Any, Dict
 
+import frappe
+from frappe import _
+
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def check_sensitive_report_permissions():
+def check_sensitive_report_permissions() -> OperationResult[Dict[str, Any]]:
     """Check permissions for specific sensitive reports"""
+    try:
+        # Define sensitive reports to check
+        sensitive_reports = [
+            "Chapter Members",
+            "New Members",
+            "Overdue Member Payments",
+            "ANBI Donation Summary",
+            "Membership Dues Coverage Analysis",
+            "Pending Membership Applications",
+            "Team Members",
+        ]
 
-    # Define sensitive reports to check
-    sensitive_reports = [
-        "Chapter Members",
-        "New Members",
-        "Overdue Member Payments",
-        "ANBI Donation Summary",
-        "Membership Dues Coverage Analysis",
-        "Pending Membership Applications",
-        "Team Members",
-    ]
+        results = {}
 
-    results = {}
+        for report_name in sensitive_reports:
+            try:
+                # Check if report exists
+                if not frappe.db.exists("Report", report_name):
+                    results[report_name] = {"error": _("Report does not exist")}
+                    continue
 
-    for report_name in sensitive_reports:
-        try:
-            # Check if report exists
-            if not frappe.db.exists("Report", report_name):
-                results[report_name] = {"error": "Report does not exist"}
-                continue
+                # Get report details
+                report_doc = frappe.get_doc("Report", report_name)
 
-            # Get report details
-            report_doc = frappe.get_doc("Report", report_name)
+                # Get roles that have access to this report
+                report_roles = frappe.db.sql(
+                    """
+                    SELECT role
+                    FROM `tabHas Role`
+                    WHERE parent = %s AND parenttype = 'Report'
+                    ORDER BY role
+                """,
+                    report_name,
+                    as_dict=True,
+                )
 
-            # Get roles that have access to this report
-            report_roles = frappe.db.sql(
-                """
-                SELECT role
-                FROM `tabHas Role`
-                WHERE parent = %s AND parenttype = 'Report'
-                ORDER BY role
-            """,
-                report_name,
-                as_dict=True,
-            )
+                roles = [r["role"] for r in report_roles]
 
-            roles = [r["role"] for r in report_roles]
+                results[report_name] = {
+                    "ref_doctype": report_doc.ref_doctype,
+                    "report_type": report_doc.report_type,
+                    "roles": roles,
+                    "role_count": len(roles),
+                    "has_public_access": "All" in roles or "Guest" in roles,
+                    "has_member_role": "Verenigingen Member" in roles,
+                    "analysis": analyze_report_security(report_name, roles, report_doc.ref_doctype),
+                }
 
-            results[report_name] = {
-                "ref_doctype": report_doc.ref_doctype,
-                "report_type": report_doc.report_type,
-                "roles": roles,
-                "role_count": len(roles),
-                "has_public_access": "All" in roles or "Guest" in roles,
-                "has_member_role": "Verenigingen Member" in roles,
-                "analysis": analyze_report_security(report_name, roles, report_doc.ref_doctype),
-            }
+            except Exception as e:
+                results[report_name] = {"error": str(e)}
 
-        except Exception as e:
-            results[report_name] = {"error": str(e)}
+        return OperationResult.ok(
+            results,
+            message=_("Sensitive report permissions checked for {0} reports").format(len(sensitive_reports)),
+        )
 
-    return results
+    except Exception as e:
+        frappe.log_error(
+            title=_("Report Permission Check Failed"),
+            message=traceback.format_exc(),
+        )
+        return OperationResult.fail(
+            _("Failed to check sensitive report permissions"),
+            errors=[str(e)],
+            context={"traceback": traceback.format_exc()},
+        )
 
 
 def analyze_report_security(report_name, roles, ref_doctype):
@@ -69,18 +88,18 @@ def analyze_report_security(report_name, roles, ref_doctype):
     # Security level assessment
     if not roles:
         analysis["security_level"] = "NO_ACCESS"
-        analysis["concerns"].append("Report has no assigned roles")
-        analysis["recommendations"].append("Assign appropriate roles to make report accessible")
+        analysis["concerns"].append(_("Report has no assigned roles"))
+        analysis["recommendations"].append(_("Assign appropriate roles to make report accessible"))
     elif "All" in roles or "Guest" in roles:
         analysis["security_level"] = "PUBLIC"
-        analysis["concerns"].append("Report has public access")
+        analysis["concerns"].append(_("Report has public access"))
         if ref_doctype in ["Member", "Volunteer", "Donation", "Payment Entry"]:
-            analysis["concerns"].append("Public access to sensitive data")
-            analysis["recommendations"].append("Remove public access and restrict to admin roles only")
+            analysis["concerns"].append(_("Public access to sensitive data"))
+            analysis["recommendations"].append(_("Remove public access and restrict to admin roles only"))
     elif len(roles) > 6:
         analysis["security_level"] = "BROAD"
-        analysis["concerns"].append(f"Report accessible to {len(roles)} roles")
-        analysis["recommendations"].append("Consider reducing number of roles with access")
+        analysis["concerns"].append(_("Report accessible to {0} roles").format(len(roles)))
+        analysis["recommendations"].append(_("Consider reducing number of roles with access"))
     elif any(role in roles for role in ["System Manager", "Verenigingen Administrator"]):
         if len(roles) <= 4:
             analysis["security_level"] = "SECURE"
@@ -91,8 +110,8 @@ def analyze_report_security(report_name, roles, ref_doctype):
 
     # Specific concerns for member data
     if ref_doctype in ["Member", "Volunteer"] and "Verenigingen Member" in roles:
-        analysis["concerns"].append("Members can access reports about other members")
-        analysis["recommendations"].append("Restrict member access or ensure report shows only own data")
+        analysis["concerns"].append(_("Members can access reports about other members"))
+        analysis["recommendations"].append(_("Restrict member access or ensure report shows only own data"))
 
     # Financial data concerns
     financial_keywords = ["payment", "donation", "dues", "financial"]
@@ -109,50 +128,64 @@ def analyze_report_security(report_name, roles, ref_doctype):
             ]
         ]
         if non_financial_roles:
-            analysis["concerns"].append("Financial report accessible to non-financial roles")
-            analysis["recommendations"].append("Restrict to financial and admin roles only")
+            analysis["concerns"].append(_("Financial report accessible to non-financial roles"))
+            analysis["recommendations"].append(_("Restrict to financial and admin roles only"))
 
     return analysis
 
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def get_all_report_permissions():
+def get_all_report_permissions() -> OperationResult[Dict[str, Any]]:
     """Get permissions for all Verenigingen reports"""
-
-    # Get all Verenigingen reports
-    reports = frappe.db.sql(
-        """
-        SELECT name, ref_doctype, report_type, module
-        FROM `tabReport`
-        WHERE module IN (
-            SELECT name FROM `tabModule Def` WHERE app_name = 'verenigingen'
-        )
-        ORDER BY name
-    """,
-        as_dict=True,
-    )
-
-    results = {}
-
-    for report in reports:
-        # Get roles for this report
-        roles = frappe.db.sql(
+    try:
+        # Get all Verenigingen reports
+        reports = frappe.db.sql(
             """
-            SELECT role
-            FROM `tabHas Role`
-            WHERE parent = %s AND parenttype = 'Report'
-            ORDER BY role
+            SELECT name, ref_doctype, report_type, module
+            FROM `tabReport`
+            WHERE module IN (
+                SELECT name FROM `tabModule Def` WHERE app_name = 'verenigingen'
+            )
+            ORDER BY name
         """,
-            report["name"],
             as_dict=True,
         )
 
-        results[report["name"]] = {
-            "module": report["module"],
-            "ref_doctype": report["ref_doctype"],
-            "report_type": report["report_type"],
-            "roles": [r["role"] for r in roles],
-        }
+        results = {}
 
-    return results
+        for report in reports:
+            # Get roles for this report
+            roles = frappe.db.sql(
+                """
+                SELECT role
+                FROM `tabHas Role`
+                WHERE parent = %s AND parenttype = 'Report'
+                ORDER BY role
+            """,
+                report["name"],
+                as_dict=True,
+            )
+
+            results[report["name"]] = {
+                "module": report["module"],
+                "ref_doctype": report["ref_doctype"],
+                "report_type": report["report_type"],
+                "roles": [r["role"] for r in roles],
+            }
+
+        return OperationResult.ok(
+            results,
+            message=_("Report permissions retrieved for {0} Verenigingen reports").format(len(reports)),
+        )
+
+    except Exception as e:
+        frappe.log_error(
+            title=_("Get All Report Permissions Failed"),
+            message=traceback.format_exc(),
+        )
+        return OperationResult.fail(
+            _("Failed to retrieve all report permissions"),
+            errors=[str(e)],
+            context={"traceback": traceback.format_exc()},
+        )
