@@ -3,13 +3,15 @@ SEPA Period-Based Duplicate Prevention
 Prevents double invoicing for the same dues schedule period
 """
 
+import traceback
 from datetime import datetime, timedelta
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import frappe
 from frappe import _
 from frappe.utils import add_months, flt, get_first_day, get_last_day, getdate
 
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 # =============================================================================
@@ -488,7 +490,7 @@ def validate_invoice_period_fields(invoice_doc) -> None:
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def generate_period_duplicate_report(date_range: str = "Last 3 Months") -> Dict:
+def generate_period_duplicate_report(date_range: str = "Last 3 Months") -> OperationResult[Dict[str, Any]]:
     """
     Generate comprehensive report on period duplicates
 
@@ -496,103 +498,122 @@ def generate_period_duplicate_report(date_range: str = "Last 3 Months") -> Dict:
         date_range: "Last Month", "Last 3 Months", "Last Year"
 
     Returns:
-        Report with duplicate analysis
+        OperationResult with duplicate analysis report
     """
-    # Determine date range
-    if date_range == "Last Month":
-        start_date = add_months(getdate(), -1)
-    elif date_range == "Last 3 Months":
-        start_date = add_months(getdate(), -3)
-    elif date_range == "Last Year":
-        start_date = add_months(getdate(), -12)
-    else:
-        start_date = add_months(getdate(), -3)
+    try:
+        # Determine date range
+        if date_range == "Last Month":
+            start_date = add_months(getdate(), -1)
+        elif date_range == "Last 3 Months":
+            start_date = add_months(getdate(), -3)
+        elif date_range == "Last Year":
+            start_date = add_months(getdate(), -12)
+        else:
+            start_date = add_months(getdate(), -3)
 
-    end_date = getdate()
+        end_date = getdate()
 
-    # Get all membership invoices in date range
-    membership_invoices = frappe.get_all(
-        "Sales Invoice",
-        filters={"posting_date": ["between", [start_date, end_date]], "docstatus": ["!=", 2]},
-        fields=[
-            "name",
-            "customer",
-            "posting_date",
-            "grand_total",
-            "remarks",
-        ],
-    )
-
-    # Filter for membership invoices
-    filtered_invoices = []
-    for invoice in membership_invoices:
-        invoice_items = frappe.get_all(
-            "Sales Invoice Item",
-            filters={"parent": invoice.name},
-            fields=["item_code", "item_name", "description"],
+        # Get all membership invoices in date range
+        membership_invoices = frappe.get_all(
+            "Sales Invoice",
+            filters={"posting_date": ["between", [start_date, end_date]], "docstatus": ["!=", 2]},
+            fields=[
+                "name",
+                "customer",
+                "posting_date",
+                "grand_total",
+                "remarks",
+            ],
         )
 
-        if any(_is_membership_item(item) for item in invoice_items):
-            filtered_invoices.append(invoice)
+        # Filter for membership invoices
+        filtered_invoices = []
+        for invoice in membership_invoices:
+            invoice_items = frappe.get_all(
+                "Sales Invoice Item",
+                filters={"parent": invoice.name},
+                fields=["item_code", "item_name", "description"],
+            )
 
-    # Group by customer and analyze periods
-    customer_analysis = {}
-    total_duplicates = 0
+            if any(_is_membership_item(item) for item in invoice_items):
+                filtered_invoices.append(invoice)
 
-    for invoice in filtered_invoices:
-        customer = invoice.customer
-        if customer not in customer_analysis:
-            customer_analysis[customer] = {"invoices": [], "periods": [], "duplicates": []}
+        # Group by customer and analyze periods
+        customer_analysis = {}
+        total_duplicates = 0
 
-        customer_analysis[customer]["invoices"].append(invoice)
+        for invoice in filtered_invoices:
+            customer = invoice.customer
+            if customer not in customer_analysis:
+                customer_analysis[customer] = {"invoices": [], "periods": [], "duplicates": []}
 
-        # Check for period overlaps with other invoices
-        period_start, period_end = _calculate_monthly_period_from_posting_date(invoice.posting_date)
+            customer_analysis[customer]["invoices"].append(invoice)
 
-        for other_invoice in customer_analysis[customer]["invoices"][:-1]:
-            other_start, other_end = _calculate_monthly_period_from_posting_date(other_invoice.posting_date)
+            # Check for period overlaps with other invoices
+            period_start, period_end = _calculate_monthly_period_from_posting_date(invoice.posting_date)
 
-            if _periods_overlap(period_start, period_end, other_start, other_end):
-                duplicate_entry = {
-                    "invoice1": invoice.name,
-                    "invoice2": other_invoice.name,
-                    "period_start": period_start,
-                    "period_end": period_end,
-                    "overlap_type": _get_overlap_type(period_start, period_end, other_start, other_end),
-                    "amount1": invoice.grand_total,
-                    "amount2": other_invoice.grand_total,
-                }
-                customer_analysis[customer]["duplicates"].append(duplicate_entry)
-                total_duplicates += 1
+            for other_invoice in customer_analysis[customer]["invoices"][:-1]:
+                other_start, other_end = _calculate_monthly_period_from_posting_date(
+                    other_invoice.posting_date
+                )
 
-    # Generate summary
-    summary = {
-        "date_range": f"{start_date} to {end_date}",
-        "total_membership_invoices": len(filtered_invoices),
-        "customers_analyzed": len(customer_analysis),
-        "customers_with_duplicates": sum(1 for c in customer_analysis.values() if c["duplicates"]),
-        "total_duplicate_pairs": total_duplicates,
-        "potential_overcharged_amount": sum(
-            min(dup["amount1"], dup["amount2"])
-            for customer_data in customer_analysis.values()
-            for dup in customer_data["duplicates"]
-        ),
-    }
+                if _periods_overlap(period_start, period_end, other_start, other_end):
+                    duplicate_entry = {
+                        "invoice1": invoice.name,
+                        "invoice2": other_invoice.name,
+                        "period_start": period_start,
+                        "period_end": period_end,
+                        "overlap_type": _get_overlap_type(period_start, period_end, other_start, other_end),
+                        "amount1": invoice.grand_total,
+                        "amount2": other_invoice.grand_total,
+                    }
+                    customer_analysis[customer]["duplicates"].append(duplicate_entry)
+                    total_duplicates += 1
 
-    # Top 10 customers with most duplicates
-    top_duplicates = sorted(
-        [
-            (customer, len(data["duplicates"]))
-            for customer, data in customer_analysis.items()
-            if data["duplicates"]
-        ],
-        key=lambda x: x[1],
-        reverse=True,
-    )[:10]
+        # Generate summary
+        summary = {
+            "date_range": f"{start_date} to {end_date}",
+            "total_membership_invoices": len(filtered_invoices),
+            "customers_analyzed": len(customer_analysis),
+            "customers_with_duplicates": sum(1 for c in customer_analysis.values() if c["duplicates"]),
+            "total_duplicate_pairs": total_duplicates,
+            "potential_overcharged_amount": sum(
+                min(dup["amount1"], dup["amount2"])
+                for customer_data in customer_analysis.values()
+                for dup in customer_data["duplicates"]
+            ),
+        }
 
-    return {
-        "summary": summary,
-        "top_duplicate_customers": top_duplicates,
-        "detailed_analysis": {k: v for k, v in customer_analysis.items() if v["duplicates"]},
-        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    }
+        # Top 10 customers with most duplicates
+        top_duplicates = sorted(
+            [
+                (customer, len(data["duplicates"]))
+                for customer, data in customer_analysis.items()
+                if data["duplicates"]
+            ],
+            key=lambda x: x[1],
+            reverse=True,
+        )[:10]
+
+        report_data = {
+            "summary": summary,
+            "top_duplicate_customers": top_duplicates,
+            "detailed_analysis": {k: v for k, v in customer_analysis.items() if v["duplicates"]},
+            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+
+        return OperationResult.ok(
+            report_data,
+            message=_("Period duplicate report generated successfully for {0}").format(date_range),
+        )
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error generating period duplicate report: {str(e)}\n{traceback.format_exc()}",
+            "Period Duplicate Report Generation Failed",
+        )
+        return OperationResult.fail(
+            _("Failed to generate period duplicate report"),
+            errors=[str(e)],
+            context={"operation": "generate_period_duplicate_report", "date_range": date_range},
+        )
