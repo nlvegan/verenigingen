@@ -7,12 +7,14 @@ This API provides user-facing endpoints for tracking background job status
 and receiving notifications about job completion.
 """
 
+import traceback
 from typing import Any, Dict, List
 
 import frappe
 from frappe import _
 
 from verenigingen.utils.background_jobs import BackgroundJobManager
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -21,9 +23,9 @@ from verenigingen.utils.security.api_security_framework import (
 )
 
 
-@frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def get_job_status(job_name: str) -> Dict[str, Any]:
+@frappe.whitelist()
+def get_job_status(job_name: str) -> OperationResult[Dict[str, Any]]:
     """
     Get status of a background job
 
@@ -35,32 +37,41 @@ def get_job_status(job_name: str) -> Dict[str, Any]:
     """
     try:
         if not job_name:
-            return {"error": "Job name is required"}
+            return OperationResult.fail(message=_("Job name is required"), error_code="MISSING_JOB_NAME")
 
         job_status = BackgroundJobManager.get_job_status(job_name)
 
         # Add user-friendly status descriptions
         status_descriptions = {
-            "Queued": "Job is waiting to be processed",
-            "Running": "Job is currently being executed",
-            "Completed": "Job completed successfully",
-            "Failed": "Job failed to complete",
-            "Retrying": "Job is scheduled for retry",
-            "Unknown": "Job status could not be determined",
+            "Queued": _("Job is waiting to be processed"),
+            "Running": _("Job is currently being executed"),
+            "Completed": _("Job completed successfully"),
+            "Failed": _("Job failed to complete"),
+            "Retrying": _("Job is scheduled for retry"),
+            "Unknown": _("Job status could not be determined"),
         }
 
-        job_status["status_description"] = status_descriptions.get(job_status.get("status"), "Unknown status")
+        job_status["status_description"] = status_descriptions.get(
+            job_status.get("status"), _("Unknown status")
+        )
 
-        return job_status
+        return OperationResult.ok(data=job_status, message=_("Job status retrieved successfully"))
 
     except Exception as e:
-        frappe.log_error(f"Failed to get job status for {job_name}: {e}")
-        return {"error": str(e), "job_name": job_name, "status": "Error"}
+        frappe.log_error(
+            title=_("Failed to get job status"),
+            message=f"Job: {job_name}\nError: {str(e)}\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(
+            message=_("Failed to retrieve job status: {0}").format(str(e)),
+            error_code="JOB_STATUS_ERROR",
+            data={"job_name": job_name},
+        )
 
 
-@frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def get_user_jobs(limit: int = 20) -> List[Dict[str, Any]]:
+@frappe.whitelist()
+def get_user_jobs(limit: int = 20) -> OperationResult[List[Dict[str, Any]]]:
     """
     Get recent background jobs for current user
 
@@ -82,16 +93,21 @@ def get_user_jobs(limit: int = 20) -> List[Dict[str, Any]]:
         # This is a simplified implementation - in production you'd want to
         # store job records in a database table and query them here
 
-        return user_jobs
+        return OperationResult.ok(data=user_jobs, message=_("User jobs retrieved successfully"))
 
     except Exception as e:
-        frappe.log_error(f"Failed to get user jobs: {e}")
-        return []
+        frappe.log_error(
+            title=_("Failed to get user jobs"),
+            message=f"User: {frappe.session.user}\nError: {str(e)}\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(
+            message=_("Failed to retrieve user jobs: {0}").format(str(e)), error_code="USER_JOBS_ERROR"
+        )
 
 
-@frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def retry_failed_job(job_name: str) -> Dict[str, Any]:
+@frappe.whitelist()
+def retry_failed_job(job_name: str) -> OperationResult[Dict[str, Any]]:
     """
     Manually retry a failed job
 
@@ -103,36 +119,44 @@ def retry_failed_job(job_name: str) -> Dict[str, Any]:
     """
     try:
         if not job_name:
-            return {"success": False, "error": "Job name is required"}
+            return OperationResult.fail(message=_("Job name is required"), error_code="MISSING_JOB_NAME")
 
         # Check permissions - user should only be able to retry their own jobs
         job_status = BackgroundJobManager.get_job_status(job_name)
         if job_status.get("user") != frappe.session.user:
-            return {"success": False, "error": "You can only retry your own jobs"}
+            return OperationResult.fail(
+                message=_("You can only retry your own jobs"), error_code="PERMISSION_DENIED"
+            )
 
         success = BackgroundJobManager.retry_failed_job(job_name)
 
         if success:
-            return {
-                "success": True,
-                "message": f"Job {job_name} has been scheduled for retry",
-                "job_name": job_name,
-            }
+            return OperationResult.ok(
+                data={"job_name": job_name},
+                message=_("Job {0} has been scheduled for retry").format(job_name),
+            )
         else:
-            return {
-                "success": False,
-                "error": "Job could not be retried (may have exceeded max retries or not in failed state)",
-                "job_name": job_name,
-            }
+            return OperationResult.fail(
+                message=_("Job could not be retried (may have exceeded max retries or not in failed state)"),
+                error_code="RETRY_FAILED",
+                data={"job_name": job_name},
+            )
 
     except Exception as e:
-        frappe.log_error(f"Failed to retry job {job_name}: {e}")
-        return {"success": False, "error": str(e), "job_name": job_name}
+        frappe.log_error(
+            title=_("Failed to retry job"),
+            message=f"Job: {job_name}\nError: {str(e)}\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(
+            message=_("Failed to retry job: {0}").format(str(e)),
+            error_code="JOB_RETRY_ERROR",
+            data={"job_name": job_name},
+        )
 
 
-@frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def get_job_queue_status() -> Dict[str, Any]:
+@frappe.whitelist()
+def get_job_queue_status() -> OperationResult[Dict[str, Any]]:
     """
     Get overall job queue status (for administrators)
 
@@ -142,7 +166,9 @@ def get_job_queue_status() -> Dict[str, Any]:
     try:
         # Check admin permissions
         if not frappe.has_permission("System Settings", "read"):
-            frappe.throw(_("Insufficient permissions to view queue status"))
+            return OperationResult.fail(
+                message=_("Insufficient permissions to view queue status"), error_code="PERMISSION_DENIED"
+            )
 
         from frappe.utils.background_jobs import get_jobs
 
@@ -166,16 +192,24 @@ def get_job_queue_status() -> Dict[str, Any]:
         queue_status["total_jobs"] = total_jobs
         queue_status["timestamp"] = frappe.utils.now()
 
-        return queue_status
+        return OperationResult.ok(data=queue_status, message=_("Queue status retrieved successfully"))
 
     except Exception as e:
-        frappe.log_error(f"Failed to get queue status: {e}")
-        return {"error": str(e), "timestamp": frappe.utils.now()}
+        frappe.log_error(
+            title=_("Failed to get queue status"), message=f"Error: {str(e)}\n{traceback.format_exc()}"
+        )
+        return OperationResult.fail(
+            message=_("Failed to retrieve queue status: {0}").format(str(e)),
+            error_code="QUEUE_STATUS_ERROR",
+            data={"timestamp": frappe.utils.now()},
+        )
 
 
-@frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def get_recent_payment_history_jobs(member: str = None, limit: int = 10) -> List[Dict[str, Any]]:
+@frappe.whitelist()
+def get_recent_payment_history_jobs(
+    member: str = None, limit: int = 10
+) -> OperationResult[List[Dict[str, Any]]]:
     """
     Get recent payment history update jobs
 
@@ -191,7 +225,10 @@ def get_recent_payment_history_jobs(member: str = None, limit: int = 10) -> List
         # or be administrators
         if member:
             if not frappe.has_permission("Member", "read", member):
-                frappe.throw(_("Insufficient permissions to view this member's jobs"))
+                return OperationResult.fail(
+                    message=_("Insufficient permissions to view this member's jobs"),
+                    error_code="PERMISSION_DENIED",
+                )
 
         # This is a simplified implementation
         # In production, you'd query actual job records from database
@@ -212,16 +249,22 @@ def get_recent_payment_history_jobs(member: str = None, limit: int = 10) -> List
         if member:
             recent_jobs.append(example_job)
 
-        return recent_jobs
+        return OperationResult.ok(data=recent_jobs, message=_("Payment history jobs retrieved successfully"))
 
     except Exception as e:
-        frappe.log_error(f"Failed to get payment history jobs: {e}")
-        return []
+        frappe.log_error(
+            title=_("Failed to get payment history jobs"),
+            message=f"Member: {member}\nError: {str(e)}\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(
+            message=_("Failed to retrieve payment history jobs: {0}").format(str(e)),
+            error_code="PAYMENT_HISTORY_JOBS_ERROR",
+        )
 
 
-@frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def clear_completed_jobs(older_than_hours: int = 24) -> Dict[str, Any]:
+@frappe.whitelist()
+def clear_completed_jobs(older_than_hours: int = 24) -> OperationResult[Dict[str, Any]]:
     """
     Clear completed job records older than specified hours
 
@@ -234,7 +277,9 @@ def clear_completed_jobs(older_than_hours: int = 24) -> Dict[str, Any]:
     try:
         # Check admin permissions
         if not frappe.has_permission("System Settings", "write"):
-            frappe.throw(_("Insufficient permissions to clear jobs"))
+            return OperationResult.fail(
+                message=_("Insufficient permissions to clear jobs"), error_code="PERMISSION_DENIED"
+            )
 
         from datetime import datetime, timedelta
 
@@ -244,21 +289,29 @@ def clear_completed_jobs(older_than_hours: int = 24) -> Dict[str, Any]:
         # This would implement actual cleanup logic in production
         # For now, just return success
 
-        return {
-            "success": True,
-            "cleared_count": cleared_count,
-            "cutoff_time": cutoff_time.isoformat(),
-            "message": f"Cleared {cleared_count} completed jobs older than {older_than_hours} hours",
-        }
+        return OperationResult.ok(
+            data={
+                "cleared_count": cleared_count,
+                "cutoff_time": cutoff_time.isoformat(),
+            },
+            message=_("Cleared {0} completed jobs older than {1} hours").format(
+                cleared_count, older_than_hours
+            ),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Failed to clear completed jobs: {e}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            title=_("Failed to clear completed jobs"),
+            message=f"Older than: {older_than_hours} hours\nError: {str(e)}\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(
+            message=_("Failed to clear completed jobs: {0}").format(str(e)), error_code="CLEAR_JOBS_ERROR"
+        )
 
 
-@frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def test_background_job_system() -> Dict[str, Any]:
+@frappe.whitelist()
+def test_background_job_system() -> OperationResult[Dict[str, Any]]:
     """
     Test the background job system by creating a test job
 
@@ -268,13 +321,15 @@ def test_background_job_system() -> Dict[str, Any]:
     try:
         # Check admin permissions
         if not frappe.has_permission("System Settings", "write"):
-            frappe.throw(_("Insufficient permissions to test job system"))
+            return OperationResult.fail(
+                message=_("Insufficient permissions to test job system"), error_code="PERMISSION_DENIED"
+            )
 
         # Create a test member payment history update job
         test_members = frappe.get_all("Member", limit=1, fields=["name"])
 
         if not test_members:
-            return {"success": False, "error": "No members found to test with"}
+            return OperationResult.fail(message=_("No members found to test with"), error_code="NO_TEST_DATA")
 
         test_member = test_members[0].name
 
@@ -282,22 +337,28 @@ def test_background_job_system() -> Dict[str, Any]:
             member_name=test_member, payment_entry=None, priority="short"
         )
 
-        return {
-            "success": True,
-            "message": "Test job created successfully",
-            "job_id": job_id,
-            "test_member": test_member,
-            "instructions": f'Check job status with: get_job_status("{job_id}")',
-        }
+        return OperationResult.ok(
+            data={
+                "job_id": job_id,
+                "test_member": test_member,
+                "instructions": f'Check job status with: get_job_status("{job_id}")',
+            },
+            message=_("Test job created successfully"),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Failed to test background job system: {e}")
-        return {"success": False, "error": str(e)}
+        frappe.log_error(
+            title=_("Failed to test background job system"),
+            message=f"Error: {str(e)}\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(
+            message=_("Failed to test background job system: {0}").format(str(e)), error_code="TEST_JOB_ERROR"
+        )
 
 
-@frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def get_system_performance_metrics() -> Dict[str, Any]:
+@frappe.whitelist()
+def get_system_performance_metrics() -> OperationResult[Dict[str, Any]]:
     """
     Get system performance metrics related to background jobs
 
@@ -307,7 +368,10 @@ def get_system_performance_metrics() -> Dict[str, Any]:
     try:
         # Check admin permissions
         if not frappe.has_permission("System Settings", "read"):
-            frappe.throw(_("Insufficient permissions to view performance metrics"))
+            return OperationResult.fail(
+                message=_("Insufficient permissions to view performance metrics"),
+                error_code="PERMISSION_DENIED",
+            )
 
         import psutil
 
@@ -315,8 +379,9 @@ def get_system_performance_metrics() -> Dict[str, Any]:
         memory = psutil.virtual_memory()
         cpu_percent = psutil.cpu_percent(interval=1)
 
-        # Get job queue metrics
-        queue_status = get_job_queue_status()
+        # Get job queue metrics - extract data from OperationResult
+        queue_result = get_job_queue_status()
+        queue_status = queue_result.data if queue_result.success else {}
 
         metrics = {
             "timestamp": frappe.utils.now(),
@@ -332,19 +397,25 @@ def get_system_performance_metrics() -> Dict[str, Any]:
         # Add performance recommendations
         if memory.percent > 80:
             metrics["performance_tips"].append(
-                "High memory usage detected - consider optimizing job batch sizes"
+                _("High memory usage detected - consider optimizing job batch sizes")
             )
 
         if queue_status.get("total_jobs", 0) > 100:
-            metrics["performance_tips"].append("High job queue length - consider adding more workers")
+            metrics["performance_tips"].append(_("High job queue length - consider adding more workers"))
 
         if cpu_percent > 90:
             metrics["performance_tips"].append(
-                "High CPU usage - consider distributing jobs across multiple servers"
+                _("High CPU usage - consider distributing jobs across multiple servers")
             )
 
-        return metrics
+        return OperationResult.ok(data=metrics, message=_("Performance metrics retrieved successfully"))
 
     except Exception as e:
-        frappe.log_error(f"Failed to get performance metrics: {e}")
-        return {"error": str(e), "timestamp": frappe.utils.now()}
+        frappe.log_error(
+            title=_("Failed to get performance metrics"), message=f"Error: {str(e)}\n{traceback.format_exc()}"
+        )
+        return OperationResult.fail(
+            message=_("Failed to retrieve performance metrics: {0}").format(str(e)),
+            error_code="PERFORMANCE_METRICS_ERROR",
+            data={"timestamp": frappe.utils.now()},
+        )

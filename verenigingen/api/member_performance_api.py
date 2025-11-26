@@ -14,12 +14,14 @@ Key Features:
 """
 
 import json
+import traceback
 from typing import Any, Dict, List, Optional
 
 import frappe
 from frappe import _
 from frappe.utils import cint, flt
 
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     development_only_api,
@@ -28,9 +30,9 @@ from verenigingen.utils.security.api_security_framework import (
 )
 
 
-@frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def create_member_optimized(member_data: str) -> Dict[str, Any]:
+@frappe.whitelist()
+def create_member_optimized(member_data: str) -> OperationResult[Dict[str, Any]]:
     """
     Create member using performance optimizations
 
@@ -38,7 +40,7 @@ def create_member_optimized(member_data: str) -> Dict[str, Any]:
         member_data: JSON string containing member information
 
     Returns:
-        Dictionary with member creation result
+        OperationResult with member creation result
     """
     try:
         # Parse and validate input
@@ -53,21 +55,28 @@ def create_member_optimized(member_data: str) -> Dict[str, Any]:
         member_name = member_optimizer.create_member_optimized(data)
         member = frappe.get_doc("Member", member_name)
 
-        return {
-            "success": True,
-            "member_name": member_name,
-            "full_name": member.full_name,
-            "message": _("Member created successfully with performance optimizations"),
-        }
+        return OperationResult.ok(
+            {
+                "member_name": member_name,
+                "full_name": member.full_name,
+            },
+            message=_("Member created successfully with performance optimizations"),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Optimized member creation failed: {str(e)}")
-        return {"success": False, "error": str(e), "message": _("Member creation failed")}
+        frappe.log_error(
+            title=_("Optimized member creation failed"),
+            message=f"Error: {str(e)}\n\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(
+            error=str(e),
+            message=_("Member creation failed"),
+        )
 
 
-@frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
-def search_members_fast(filters: str = None, limit: int = 20) -> Dict[str, Any]:
+@frappe.whitelist()
+def search_members_fast(filters: str = None, limit: int = 20) -> OperationResult[Dict[str, Any]]:
     """
     Fast member search with comprehensive related data
 
@@ -76,7 +85,7 @@ def search_members_fast(filters: str = None, limit: int = 20) -> Dict[str, Any]:
         limit: Maximum number of results to return
 
     Returns:
-        Dictionary with search results and metadata
+        OperationResult with search results and metadata
     """
     try:
         # Parse filters
@@ -93,21 +102,29 @@ def search_members_fast(filters: str = None, limit: int = 20) -> Dict[str, Any]:
         # Perform optimized search
         results = member_optimizer.bulk_load_members_optimized(filters=filter_dict, limit=cint(limit))
 
-        return {
-            "success": True,
-            "results": results,
-            "count": len(results),
-            "message": _("Search completed successfully"),
-        }
+        return OperationResult.ok(
+            {
+                "results": results,
+                "count": len(results),
+            },
+            message=_("Search completed successfully"),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Fast member search failed: {str(e)}")
-        return {"success": False, "error": str(e), "results": [], "count": 0, "message": _("Search failed")}
+        frappe.log_error(
+            title=_("Fast member search failed"),
+            message=f"Error: {str(e)}\n\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(
+            error=str(e),
+            message=_("Search failed"),
+            data={"results": [], "count": 0},
+        )
 
 
-@frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
-def get_member_dashboard_fast(member_name: str) -> Dict[str, Any]:
+@frappe.whitelist()
+def get_member_dashboard_fast(member_name: str) -> OperationResult[Dict[str, Any]]:
     """
     Get member dashboard data with caching
 
@@ -115,7 +132,7 @@ def get_member_dashboard_fast(member_name: str) -> Dict[str, Any]:
         member_name: Name of the member
 
     Returns:
-        Dictionary with comprehensive member dashboard data
+        OperationResult with comprehensive member dashboard data
     """
     try:
         from verenigingen.utils.member_performance_optimizer import member_optimizer
@@ -124,18 +141,31 @@ def get_member_dashboard_fast(member_name: str) -> Dict[str, Any]:
         dashboard_data = member_optimizer.get_member_dashboard_cached(member_name)
 
         if not dashboard_data:
-            return {"success": False, "message": _("Member not found"), "data": {}}
+            return OperationResult.fail(
+                message=_("Member not found"),
+                data={"data": {}},
+            )
 
-        return {"success": True, "data": dashboard_data, "message": _("Dashboard data loaded successfully")}
+        return OperationResult.ok(
+            {"data": dashboard_data},
+            message=_("Dashboard data loaded successfully"),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Fast dashboard load failed for {member_name}: {str(e)}")
-        return {"success": False, "error": str(e), "data": {}, "message": _("Dashboard load failed")}
+        frappe.log_error(
+            title=_("Fast dashboard load failed for {0}").format(member_name),
+            message=f"Error: {str(e)}\n\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(
+            error=str(e),
+            message=_("Dashboard load failed"),
+            data={"data": {}},
+        )
 
 
-@frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def clear_member_cache(member_name: str = None) -> Dict[str, Any]:
+@frappe.whitelist()
+def clear_member_cache(member_name: str = None) -> OperationResult[Dict[str, Any]]:
     """
     Clear member-related caches
 
@@ -143,7 +173,7 @@ def clear_member_cache(member_name: str = None) -> Dict[str, Any]:
         member_name: Specific member to clear cache for, or None for all
 
     Returns:
-        Dictionary with operation result
+        OperationResult with operation result
     """
     try:
         from verenigingen.utils.member_performance_optimizer import member_optimizer
@@ -155,21 +185,27 @@ def clear_member_cache(member_name: str = None) -> Dict[str, Any]:
             member_optimizer.clear_all_member_caches()
             message = _("All member caches cleared")
 
-        return {"success": True, "message": message}
+        return OperationResult.ok({}, message=message)
 
     except Exception as e:
-        frappe.log_error(f"Cache clearing failed: {str(e)}")
-        return {"success": False, "error": str(e), "message": _("Cache clearing failed")}
+        frappe.log_error(
+            title=_("Cache clearing failed"),
+            message=f"Error: {str(e)}\n\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(
+            error=str(e),
+            message=_("Cache clearing failed"),
+        )
 
 
-@frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
-def get_performance_stats() -> Dict[str, Any]:
+@frappe.whitelist()
+def get_performance_stats() -> OperationResult[Dict[str, Any]]:
     """
     Get current performance statistics and cache status
 
     Returns:
-        Dictionary with performance metrics
+        OperationResult with performance metrics
     """
     try:
         from verenigingen.utils.member_performance_optimizer import member_optimizer
@@ -185,46 +221,49 @@ def get_performance_stats() -> Dict[str, Any]:
         # Get DocType metadata cache info
         metadata_cache_info = member_optimizer.get_doctype_meta_cached.cache_info()
 
-        return {
-            "success": True,
-            "stats": {
-                "total_members": total_members,
-                "active_members": active_members,
-                "cached_dashboards": len(member_cache_keys),
-                "metadata_cache_hits": (
-                    metadata_cache_info.hits if hasattr(metadata_cache_info, "hits") else 0
-                ),
-                "metadata_cache_misses": (
-                    metadata_cache_info.misses if hasattr(metadata_cache_info, "misses") else 0
-                ),
-                "cache_hit_rate": (
-                    round(
-                        metadata_cache_info.hits
-                        / (metadata_cache_info.hits + metadata_cache_info.misses)
-                        * 100,
-                        1,
-                    )
-                    if hasattr(metadata_cache_info, "hits")
-                    and (metadata_cache_info.hits + metadata_cache_info.misses) > 0
-                    else 0
-                ),
+        return OperationResult.ok(
+            {
+                "stats": {
+                    "total_members": total_members,
+                    "active_members": active_members,
+                    "cached_dashboards": len(member_cache_keys),
+                    "metadata_cache_hits": (
+                        metadata_cache_info.hits if hasattr(metadata_cache_info, "hits") else 0
+                    ),
+                    "metadata_cache_misses": (
+                        metadata_cache_info.misses if hasattr(metadata_cache_info, "misses") else 0
+                    ),
+                    "cache_hit_rate": (
+                        round(
+                            metadata_cache_info.hits
+                            / (metadata_cache_info.hits + metadata_cache_info.misses)
+                            * 100,
+                            1,
+                        )
+                        if hasattr(metadata_cache_info, "hits")
+                        and (metadata_cache_info.hits + metadata_cache_info.misses) > 0
+                        else 0
+                    ),
+                },
             },
-            "message": _("Performance statistics retrieved"),
-        }
+            message=_("Performance statistics retrieved"),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Performance stats retrieval failed: {str(e)}")
-        return {
-            "success": False,
-            "error": str(e),
-            "stats": {},
-            "message": _("Performance stats retrieval failed"),
-        }
+        frappe.log_error(
+            title=_("Performance stats retrieval failed"),
+            message=f"Error: {str(e)}\n\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(
+            error=str(e),
+            message=_("Performance stats retrieval failed"),
+            data={"stats": {}},
+        )
 
 
-@frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def bulk_create_members(members_data: str) -> Dict[str, Any]:
+@frappe.whitelist()
+def bulk_create_members(members_data: str) -> OperationResult[Dict[str, Any]]:
     """
     Create multiple members using optimizations
 
@@ -232,7 +271,7 @@ def bulk_create_members(members_data: str) -> Dict[str, Any]:
         members_data: JSON string containing array of member data
 
     Returns:
-        Dictionary with bulk creation results
+        OperationResult with bulk creation results
     """
     try:
         # Parse input
@@ -266,33 +305,36 @@ def bulk_create_members(members_data: str) -> Dict[str, Any]:
 
         success_rate = len(results["created"]) / results["total"] * 100 if results["total"] > 0 else 0
 
-        return {
-            "success": True,
-            "results": results,
-            "success_rate": round(success_rate, 1),
-            "message": _("Bulk creation completed: {0}/{1} successful").format(
+        return OperationResult.ok(
+            {
+                "results": results,
+                "success_rate": round(success_rate, 1),
+            },
+            message=_("Bulk creation completed: {0}/{1} successful").format(
                 len(results["created"]), results["total"]
             ),
-        }
+        )
 
     except Exception as e:
-        frappe.log_error(f"Bulk member creation failed: {str(e)}")
-        return {
-            "success": False,
-            "error": str(e),
-            "results": {"created": [], "failed": [], "total": 0},
-            "message": _("Bulk creation failed"),
-        }
+        frappe.log_error(
+            title=_("Bulk member creation failed"),
+            message=f"Error: {str(e)}\n\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(
+            error=str(e),
+            message=_("Bulk creation failed"),
+            data={"results": {"created": [], "failed": [], "total": 0}},
+        )
 
 
-@frappe.whitelist()
 @development_only_api(operation_type=OperationType.UTILITY)
-def test_performance_optimization() -> Dict[str, Any]:
+@frappe.whitelist()
+def test_performance_optimization() -> OperationResult[Dict[str, Any]]:
     """
     Run performance optimization validation tests
 
     Returns:
-        Dictionary with test results and performance metrics
+        OperationResult with test results and performance metrics
     """
     try:
         import time
@@ -338,20 +380,23 @@ def test_performance_optimization() -> Dict[str, Any]:
             else 0
         )
 
-        return {
-            "success": True,
-            "test_results": test_results,
-            "success_rate": round(success_rate, 1),
-            "message": _("Performance tests completed: {0}/{1} passed").format(
+        return OperationResult.ok(
+            {
+                "test_results": test_results,
+                "success_rate": round(success_rate, 1),
+            },
+            message=_("Performance tests completed: {0}/{1} passed").format(
                 test_results["tests_passed"], test_results["tests_run"]
             ),
-        }
+        )
 
     except Exception as e:
-        frappe.log_error(f"Performance optimization test failed: {str(e)}")
-        return {
-            "success": False,
-            "error": str(e),
-            "test_results": {},
-            "message": _("Performance tests failed"),
-        }
+        frappe.log_error(
+            title=_("Performance optimization test failed"),
+            message=f"Error: {str(e)}\n\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(
+            error=str(e),
+            message=_("Performance tests failed"),
+            data={"test_results": {}},
+        )
