@@ -1544,6 +1544,9 @@ def api_security_framework(
                     headers = framework.create_security_response_headers(profile, operation_key)
                     frappe.local.response.setdefault("headers", {}).update(headers)
 
+                # Convert OperationResult to dict for JSON serialization
+                if hasattr(result, "to_dict"):
+                    return result.to_dict()
                 return result
 
             except Exception as e:

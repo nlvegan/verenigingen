@@ -91,4 +91,4 @@ def get_user_chapter_data() -> OperationResult[Dict[str, Any]]:
             title=_("Get User Chapters Failed"),
             message=f"Error retrieving chapter data for user {frappe.session.user}: {str(e)}\n{traceback.format_exc()}",
         )
-        return OperationResult.fail(error=str(e), message=_("Failed to retrieve user chapter data"))
+        return OperationResult.fail(_("Failed to retrieve user chapter data"), errors=[str(e)])

@@ -375,7 +375,7 @@ def export_overdue_payments(filters=None, format="CSV") -> OperationResult[Dict[
 
         except Exception as e:
             log_error(e, {"operation": "export_overdue_payments", "context": "Payment Export Error"})
-            return OperationResult.fail(error=_("Export failed: {0}").format(str(e)), http_status_code=500)
+            return OperationResult.fail(_("Export failed: {0}").format(str(e)), http_status_code=500)
 
     except Exception as e:
         frappe.log_error(
@@ -383,7 +383,7 @@ def export_overdue_payments(filters=None, format="CSV") -> OperationResult[Dict[
             title="Payment Processing - Export Failed",
         )
         return OperationResult.fail(
-            error=_("Failed to export overdue payments: {0}").format(str(e)), http_status_code=500
+            _("Failed to export overdue payments: {0}").format(str(e)), http_status_code=500
         )
 
 

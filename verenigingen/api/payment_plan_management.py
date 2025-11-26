@@ -89,7 +89,7 @@ def request_payment_plan(
         return OperationResult.fail(message=_("Failed to request payment plan"), error=str(e))
 
 
-@standard_api(operation_type=OperationType.READ)
+@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def get_member_payment_plans(member=None) -> OperationResult[Dict[str, Any]]:
     """
@@ -200,7 +200,7 @@ def make_payment_plan_payment(
         return OperationResult.fail(message=_("Failed to record payment"), error=str(e))
 
 
-@standard_api(operation_type=OperationType.READ)
+@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def get_payment_plan_summary(payment_plan_id) -> OperationResult[Dict[str, Any]]:
     """
@@ -255,7 +255,7 @@ def get_payment_plan_summary(payment_plan_id) -> OperationResult[Dict[str, Any]]
         return OperationResult.fail(message=_("Failed to retrieve payment plan summary"), error=str(e))
 
 
-@critical_api(operation_type=OperationType.WRITE)
+@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def approve_payment_plan_request(payment_plan_id, approval_notes=None) -> OperationResult[Dict[str, Any]]:
     """
@@ -294,7 +294,7 @@ def approve_payment_plan_request(payment_plan_id, approval_notes=None) -> Operat
         return OperationResult.fail(message=_("Failed to approve payment plan"), error=str(e))
 
 
-@critical_api(operation_type=OperationType.WRITE)
+@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def reject_payment_plan_request(payment_plan_id, rejection_reason=None) -> OperationResult[Dict[str, Any]]:
     """
@@ -330,7 +330,7 @@ def reject_payment_plan_request(payment_plan_id, rejection_reason=None) -> Opera
         return OperationResult.fail(message=_("Failed to reject payment plan"), error=str(e))
 
 
-@standard_api(operation_type=OperationType.READ)
+@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def get_pending_payment_plan_requests() -> OperationResult[Dict[str, Any]]:
     """
@@ -491,7 +491,7 @@ def send_payment_plan_approval_notification(payment_plan, approved=True, reason=
         frappe.log_error(f"Error sending payment plan approval notification: {str(e)}")
 
 
-@standard_api(operation_type=OperationType.READ)
+@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def calculate_payment_plan_preview(total_amount, installments, frequency) -> OperationResult[Dict[str, Any]]:
     """

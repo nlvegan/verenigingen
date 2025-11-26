@@ -55,7 +55,7 @@ def get_security_dashboard_data(hours_back: int = 24) -> OperationResult[Dict[st
     except Exception as e:
         error_msg = f"Error generating security dashboard: {str(e)}"
         frappe.log_error(title="Security Dashboard Error", message=f"{error_msg}\n\n{traceback.format_exc()}")
-        return OperationResult.fail(error=error_msg, message=_("Failed to generate security dashboard data"))
+        return OperationResult.fail(_("Failed to generate security dashboard data"), errors=[error_msg])
 
 
 def _get_security_summary(cutoff_time):
@@ -411,7 +411,7 @@ def get_security_metrics_summary() -> OperationResult[Dict[str, Any]]:
     except Exception as e:
         error_msg = f"Error getting security metrics summary: {str(e)}"
         frappe.log_error(title="Security Metrics Error", message=f"{error_msg}\n\n{traceback.format_exc()}")
-        return OperationResult.fail(error=error_msg, message=_("Failed to retrieve security metrics summary"))
+        return OperationResult.fail(_("Failed to retrieve security metrics summary"), errors=[error_msg])
 
 
 if __name__ == "__main__":

@@ -141,7 +141,7 @@ def schedule_batch_invalidation(
         )
 
 
-@standard_api(operation_type=OperationType.READ)
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def get_invalidation_statistics() -> OperationResult[Dict[str, Any]]:
     """
@@ -168,7 +168,7 @@ def get_invalidation_statistics() -> OperationResult[Dict[str, Any]]:
         )
 
 
-@standard_api(operation_type=OperationType.READ)
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def validate_cache_consistency(doctype: str = None, doc_name: str = None) -> OperationResult[Dict[str, Any]]:
     """
@@ -322,7 +322,7 @@ def test_cache_invalidation_system() -> OperationResult[Dict[str, Any]]:
         )
 
 
-@standard_api(operation_type=OperationType.READ)
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def get_invalidation_patterns() -> OperationResult[Dict[str, Any]]:
     """

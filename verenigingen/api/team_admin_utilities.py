@@ -75,7 +75,7 @@ def fix_all_missing_assignment_history():
 
 
 @frappe.whitelist()
-@critical_api(operation_type=OperationType.ADMINISTRATIVE)
+@critical_api(operation_type=OperationType.ADMIN)
 @handle_api_error
 @require_roles(["System Manager", "Verenigingen Administrator"])
 def fix_missing_assignment_history(team_name=None, volunteer_name=None):
@@ -130,7 +130,7 @@ def fix_missing_assignment_history(team_name=None, volunteer_name=None):
 
 
 @frappe.whitelist()
-@critical_api(operation_type=OperationType.DIAGNOSTIC)
+@critical_api(operation_type=OperationType.UTILITY)
 @handle_api_error
 @require_roles(["System Manager", "Verenigingen Administrator"])
 def debug_team_assignments():
@@ -192,7 +192,7 @@ def debug_team_assignments():
 
 
 @frappe.whitelist()
-@critical_api(operation_type=OperationType.DIAGNOSTIC)
+@critical_api(operation_type=OperationType.UTILITY)
 @handle_api_error
 @require_roles(["System Manager", "Verenigingen Administrator"])
 def validate_team_data_integrity():

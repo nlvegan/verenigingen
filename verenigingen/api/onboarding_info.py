@@ -12,7 +12,7 @@ from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
-@standard_api(operation_type=OperationType.READ)
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def get_onboarding_info() -> OperationResult[Dict[str, Any]]:
     """Get detailed onboarding information"""
@@ -79,7 +79,7 @@ def get_onboarding_info() -> OperationResult[Dict[str, Any]]:
         )
 
 
-@standard_api(operation_type=OperationType.READ)
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def get_direct_onboarding_link() -> OperationResult[Dict[str, Any]]:
     """Get the direct link to access Verenigingen onboarding"""

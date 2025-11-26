@@ -41,7 +41,7 @@ def has_donor_permlevel_access(permission_type="read"):
     return frappe.has_permission("Donor", ptype=permission_type)
 
 
-@critical_api(operation_type=OperationType.WRITE)
+@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def update_donor_tax_identifiers(
     donor, bsn=None, rsin=None, verification_method=None
@@ -130,7 +130,7 @@ def update_donor_tax_identifiers(
         )
 
 
-@critical_api(operation_type=OperationType.READ)
+@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def get_donor_anbi_data(donor) -> OperationResult[Dict[str, Any]]:
     """
@@ -207,7 +207,7 @@ def get_donor_anbi_data(donor) -> OperationResult[Dict[str, Any]]:
         )
 
 
-@critical_api(operation_type=OperationType.READ)
+@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def generate_anbi_report(from_date, to_date, include_bsn=False) -> OperationResult[Dict[str, Any]]:
     """
@@ -318,7 +318,7 @@ def generate_anbi_report(from_date, to_date, include_bsn=False) -> OperationResu
         )
 
 
-@critical_api(operation_type=OperationType.WRITE)
+@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def update_anbi_consent(donor, consent, reason=None) -> OperationResult[Dict[str, Any]]:
     """
@@ -375,7 +375,7 @@ def update_anbi_consent(donor, consent, reason=None) -> OperationResult[Dict[str
         )
 
 
-@standard_api(operation_type=OperationType.READ)
+@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def validate_bsn(bsn) -> OperationResult[Dict[str, Any]]:
     """
@@ -420,7 +420,7 @@ def validate_bsn(bsn) -> OperationResult[Dict[str, Any]]:
         )
 
 
-@standard_api(operation_type=OperationType.READ)
+@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def get_anbi_statistics(from_date=None, to_date=None) -> OperationResult[Dict[str, Any]]:
     """
@@ -496,7 +496,7 @@ def get_anbi_statistics(from_date=None, to_date=None) -> OperationResult[Dict[st
         )
 
 
-@critical_api(operation_type=OperationType.READ)
+@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def export_belastingdienst_report(filters) -> OperationResult[Dict[str, Any]]:
     """
@@ -609,7 +609,7 @@ def export_belastingdienst_report(filters) -> OperationResult[Dict[str, Any]]:
         )
 
 
-@standard_api(operation_type=OperationType.WRITE)
+@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def send_consent_requests(filters=None) -> OperationResult[Dict[str, Any]]:
     """

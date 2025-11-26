@@ -73,7 +73,7 @@ from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 
 
-@standard_api(operation_type=OperationType.READ)
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def get_user_background_jobs(
     user: Optional[str] = None,
@@ -182,7 +182,7 @@ def get_user_background_jobs(
         )
 
 
-@standard_api(operation_type=OperationType.READ)
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def get_job_details(job_id: str) -> OperationResult[Dict[str, Any]]:
     """
@@ -254,7 +254,7 @@ def get_job_details(job_id: str) -> OperationResult[Dict[str, Any]]:
         )
 
 
-@standard_api(operation_type=OperationType.WRITE)
+@standard_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
 def retry_failed_job(job_id: str) -> OperationResult[Dict[str, Any]]:
     """
@@ -349,7 +349,7 @@ def retry_failed_job(job_id: str) -> OperationResult[Dict[str, Any]]:
         )
 
 
-@standard_api(operation_type=OperationType.WRITE)
+@standard_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
 def cancel_job(job_id: str) -> OperationResult[Dict[str, Any]]:
     """
@@ -428,7 +428,7 @@ def cancel_job(job_id: str) -> OperationResult[Dict[str, Any]]:
         )
 
 
-@standard_api(operation_type=OperationType.READ)
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def get_background_job_statistics() -> OperationResult[Dict[str, Any]]:
     """
@@ -525,7 +525,7 @@ def get_background_job_statistics() -> OperationResult[Dict[str, Any]]:
         )
 
 
-@high_security_api(operation_type=OperationType.WRITE)
+@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
 def cleanup_old_job_records(days_to_keep: int = 7) -> OperationResult[Dict[str, Any]]:
     """

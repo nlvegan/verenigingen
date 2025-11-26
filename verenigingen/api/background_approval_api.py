@@ -24,7 +24,7 @@ from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 
 
-@standard_api(operation_type=OperationType.WRITE)
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 @frappe.whitelist()
 @high_security_api()  # Member application approval workflow
 def approve_membership_application_background(
@@ -295,7 +295,7 @@ def approve_membership_application_background(
         )
 
 
-@standard_api(operation_type=OperationType.READ)
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 @frappe.whitelist()
 def get_approval_progress(member_name) -> OperationResult[Dict[str, Any]]:
     """

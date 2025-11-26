@@ -42,7 +42,7 @@ def get_context(context):
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.READ)  # Financial data read access
+@standard_api(operation_type=OperationType.FINANCIAL)  # Financial data read access
 def get_coverage_data(filters) -> OperationResult[Dict[str, Any]]:
     """Get coverage analysis data for members
 

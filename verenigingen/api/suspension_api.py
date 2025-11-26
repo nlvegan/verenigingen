@@ -22,8 +22,8 @@ from verenigingen.utils.security.api_security_framework import (
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
-@critical_api(operation_type=OperationType.WRITE)
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.MEMBER_DATA)
 def suspend_member(
     member_name, suspension_reason, suspend_user=True, suspend_teams=True
 ) -> OperationResult[Dict[str, Any]]:
@@ -37,14 +37,14 @@ def suspend_member(
                 f"suspend_member called with empty member_name by {frappe.session.user}",
                 "Suspension API Validation Error",
             )
-            return OperationResult.fail(error=_("Member name is required"), error_code="INVALID_INPUT")
+            return OperationResult.fail(_("Member name is required"), error_code="INVALID_INPUT")
 
         if not suspension_reason or not suspension_reason.strip():
             frappe.log_error(
                 f"suspend_member called with empty suspension_reason for {member_name} by {frappe.session.user}",
                 "Suspension API Validation Error",
             )
-            return OperationResult.fail(error=_("Suspension reason is required"), error_code="INVALID_INPUT")
+            return OperationResult.fail(_("Suspension reason is required"), error_code="INVALID_INPUT")
 
         # Validate member exists
         if not DocumentExistenceValidator.check_document_exists("Member", member_name):
@@ -53,7 +53,7 @@ def suspend_member(
                 "Suspension API Validation Error",
             )
             return OperationResult.fail(
-                error=_("Member {0} does not exist").format(member_name), error_code="DOES_NOT_EXIST"
+                _("Member {0} does not exist").format(member_name), error_code="DOES_NOT_EXIST"
             )
 
         # Check permissions first
@@ -65,7 +65,7 @@ def suspend_member(
                 "Suspension API Permission Error",
             )
             return OperationResult.fail(
-                error=_("You don't have permission to suspend this member"), error_code="PERMISSION_DENIED"
+                _("You don't have permission to suspend this member"), error_code="PERMISSION_DENIED"
             )
 
         # Convert string booleans to actual booleans
@@ -99,7 +99,7 @@ def suspend_member(
                 "Suspension API Error",
             )
             return OperationResult.fail(
-                error=_("Failed to suspend member: {0}").format(error_msg), error_code="SUSPENSION_FAILED"
+                _("Failed to suspend member: {0}").format(error_msg), error_code="SUSPENSION_FAILED"
             )
     except Exception as e:
         frappe.log_error(
@@ -107,12 +107,12 @@ def suspend_member(
             "Suspension API Exception",
         )
         return OperationResult.fail(
-            error=_("An unexpected error occurred while suspending the member"), error_code="INTERNAL_ERROR"
+            _("An unexpected error occurred while suspending the member"), error_code="INTERNAL_ERROR"
         )
 
 
-@critical_api(operation_type=OperationType.WRITE)
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.MEMBER_DATA)
 def unsuspend_member(member_name, unsuspension_reason) -> OperationResult[Dict[str, Any]]:
     """
     Unsuspend a member
@@ -124,16 +124,14 @@ def unsuspend_member(member_name, unsuspension_reason) -> OperationResult[Dict[s
                 f"unsuspend_member called with empty member_name by {frappe.session.user}",
                 "Suspension API Validation Error",
             )
-            return OperationResult.fail(error=_("Member name is required"), error_code="INVALID_INPUT")
+            return OperationResult.fail(_("Member name is required"), error_code="INVALID_INPUT")
 
         if not unsuspension_reason or not unsuspension_reason.strip():
             frappe.log_error(
                 f"unsuspend_member called with empty unsuspension_reason for {member_name} by {frappe.session.user}",
                 "Suspension API Validation Error",
             )
-            return OperationResult.fail(
-                error=_("Unsuspension reason is required"), error_code="INVALID_INPUT"
-            )
+            return OperationResult.fail(_("Unsuspension reason is required"), error_code="INVALID_INPUT")
 
         # Validate member exists
         if not DocumentExistenceValidator.check_document_exists("Member", member_name):
@@ -142,7 +140,7 @@ def unsuspend_member(member_name, unsuspension_reason) -> OperationResult[Dict[s
                 "Suspension API Validation Error",
             )
             return OperationResult.fail(
-                error=_("Member {0} does not exist").format(member_name), error_code="DOES_NOT_EXIST"
+                _("Member {0} does not exist").format(member_name), error_code="DOES_NOT_EXIST"
             )
 
         # Check permissions first
@@ -154,7 +152,7 @@ def unsuspend_member(member_name, unsuspension_reason) -> OperationResult[Dict[s
                 "Suspension API Permission Error",
             )
             return OperationResult.fail(
-                error=_("You don't have permission to unsuspend this member"), error_code="PERMISSION_DENIED"
+                _("You don't have permission to unsuspend this member"), error_code="PERMISSION_DENIED"
             )
 
         from verenigingen.utils.termination_integration import unsuspend_member_safe
@@ -185,7 +183,7 @@ def unsuspend_member(member_name, unsuspension_reason) -> OperationResult[Dict[s
                     "Suspension API Error",
                 )
                 return OperationResult.fail(
-                    error=_("Failed to unsuspend member: {0}").format(error_msg),
+                    _("Failed to unsuspend member: {0}").format(error_msg),
                     error_code="UNSUSPENSION_FAILED",
                 )
     except Exception as e:
@@ -194,12 +192,12 @@ def unsuspend_member(member_name, unsuspension_reason) -> OperationResult[Dict[s
             "Suspension API Exception",
         )
         return OperationResult.fail(
-            error=_("An unexpected error occurred while unsuspending the member"), error_code="INTERNAL_ERROR"
+            _("An unexpected error occurred while unsuspending the member"), error_code="INTERNAL_ERROR"
         )
 
 
-@standard_api(operation_type=OperationType.READ)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_my_suspension_status() -> OperationResult[Dict[str, Any]]:
     """
     Get suspension status for the current logged-in member
@@ -210,7 +208,7 @@ def get_my_suspension_status() -> OperationResult[Dict[str, Any]]:
         user_email = frappe.session.user
         if user_email == "Guest":
             return OperationResult.fail(
-                error=_("Authentication required"),
+                _("Authentication required"),
                 error_code="NOT_AUTHENTICATED",
                 data={"authenticated": False},
             )
@@ -219,7 +217,7 @@ def get_my_suspension_status() -> OperationResult[Dict[str, Any]]:
         member_name = frappe.db.get_value("Member", {"user": user_email}, "name")
         if not member_name:
             return OperationResult.fail(
-                error=_("No member record found for current user"),
+                _("No member record found for current user"),
                 error_code="NO_MEMBER_RECORD",
                 data={"has_member_record": False},
             )
@@ -235,13 +233,11 @@ def get_my_suspension_status() -> OperationResult[Dict[str, Any]]:
             f"Error getting suspension status for user {frappe.session.user}: {str(e)}\n{traceback.format_exc()}",
             "Member Suspension Status Error",
         )
-        return OperationResult.fail(
-            error=_("Unable to retrieve suspension status"), error_code="INTERNAL_ERROR"
-        )
+        return OperationResult.fail(_("Unable to retrieve suspension status"), error_code="INTERNAL_ERROR")
 
 
-@standard_api(operation_type=OperationType.READ)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_suspension_status(member_name) -> OperationResult[Dict[str, Any]]:
     """
     Get suspension status for a member (admin/staff use only)
@@ -258,7 +254,7 @@ def get_suspension_status(member_name) -> OperationResult[Dict[str, Any]]:
             "Suspension API Permission Error",
         )
         return OperationResult.fail(
-            error=_("Access denied. This function requires administrative privileges."),
+            _("Access denied. This function requires administrative privileges."),
             error_code="PERMISSION_DENIED",
             data={
                 "required_action": _(
@@ -271,13 +267,11 @@ def get_suspension_status(member_name) -> OperationResult[Dict[str, Any]]:
             f"Error getting suspension status for member {member_name}: {str(e)}\n{traceback.format_exc()}",
             "Admin Suspension Status Error",
         )
-        return OperationResult.fail(
-            error=_("Unable to retrieve suspension status"), error_code="INTERNAL_ERROR"
-        )
+        return OperationResult.fail(_("Unable to retrieve suspension status"), error_code="INTERNAL_ERROR")
 
 
-@utility_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
+@utility_api(operation_type=OperationType.UTILITY)
 def can_suspend_member(member_name=None) -> OperationResult[Dict[str, Any]]:
     """
     Check if current user can suspend/unsuspend a member
@@ -326,7 +320,7 @@ def can_suspend_member(member_name=None) -> OperationResult[Dict[str, Any]]:
             "Suspension Permission Error",
         )
         return OperationResult.fail(
-            error=_("Unable to check suspension permissions"),
+            _("Unable to check suspension permissions"),
             error_code="INTERNAL_ERROR",
             data={"can_suspend": False},
         )
@@ -368,8 +362,8 @@ def _can_suspend_member_fallback(member_name):
     return False
 
 
-@high_security_api(operation_type=OperationType.READ)
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 @handle_api_error
 @performance_monitor()
 def get_suspension_preview(member_name) -> OperationResult[Dict[str, Any]]:
@@ -378,7 +372,7 @@ def get_suspension_preview(member_name) -> OperationResult[Dict[str, Any]]:
     """
     try:
         if not member_name:
-            return OperationResult.fail(error=_("member_name is required"), error_code="INVALID_INPUT")
+            return OperationResult.fail(_("member_name is required"), error_code="INVALID_INPUT")
 
         member = frappe.get_doc("Member", member_name)
 
@@ -444,13 +438,11 @@ def get_suspension_preview(member_name) -> OperationResult[Dict[str, Any]]:
             f"Error getting suspension preview for {member_name}: {str(e)}\n{traceback.format_exc()}",
             "Suspension API Exception",
         )
-        return OperationResult.fail(
-            error=_("Unable to retrieve suspension preview"), error_code="INTERNAL_ERROR"
-        )
+        return OperationResult.fail(_("Unable to retrieve suspension preview"), error_code="INTERNAL_ERROR")
 
 
-@critical_api(operation_type=OperationType.WRITE)
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.MEMBER_DATA)
 @handle_api_error
 @performance_monitor()
 def bulk_suspend_members(
@@ -476,7 +468,7 @@ def bulk_suspend_members(
             return OperationResult.ok(data, message=_("No members to process"))
 
         if not suspension_reason:
-            return OperationResult.fail(error=_("suspension_reason is required"), error_code="INVALID_INPUT")
+            return OperationResult.fail(_("suspension_reason is required"), error_code="INVALID_INPUT")
 
         # Use BatchProcessor for optimized processing
         batch_processor = BatchProcessor(batch_size=50, parallel_workers=2)
@@ -556,7 +548,7 @@ def bulk_suspend_members(
         else:
             frappe.msgprint(_("Bulk suspension failed: No members were suspended"), indicator="red")
             return OperationResult.fail(
-                error=_("Bulk suspension failed: No members were suspended"),
+                _("Bulk suspension failed: No members were suspended"),
                 error_code="BULK_SUSPENSION_FAILED",
                 data=results,
             )
@@ -566,11 +558,11 @@ def bulk_suspend_members(
             "Suspension API Exception",
         )
         return OperationResult.fail(
-            error=_("An unexpected error occurred during bulk suspension"), error_code="INTERNAL_ERROR"
+            _("An unexpected error occurred during bulk suspension"), error_code="INTERNAL_ERROR"
         )
 
 
-@standard_api(operation_type=OperationType.READ)
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 @frappe.whitelist()
 @handle_api_error
 @performance_monitor()
@@ -652,13 +644,11 @@ def get_suspension_list(limit=100, offset=0, status=None, chapter=None) -> Opera
         frappe.log_error(
             f"Error getting suspension list: {str(e)}\n{traceback.format_exc()}", "Suspension API Exception"
         )
-        return OperationResult.fail(
-            error=_("Unable to retrieve suspension list"), error_code="INTERNAL_ERROR"
-        )
+        return OperationResult.fail(_("Unable to retrieve suspension list"), error_code="INTERNAL_ERROR")
 
 
-@standard_api(operation_type=OperationType.READ)
 @frappe.whitelist(allow_guest=True)
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_suspension_status_safe(member_name=None) -> OperationResult[Dict[str, Any]]:
     """
     Safe wrapper for getting suspension status that handles permission errors gracefully
@@ -670,7 +660,7 @@ def get_suspension_status_safe(member_name=None) -> OperationResult[Dict[str, An
             user_email = frappe.session.user
             if user_email == "Guest":
                 return OperationResult.fail(
-                    error=_("Please log in to view suspension status"),
+                    _("Please log in to view suspension status"),
                     error_code="NOT_AUTHENTICATED",
                     data={"authenticated": False},
                 )
@@ -678,7 +668,7 @@ def get_suspension_status_safe(member_name=None) -> OperationResult[Dict[str, An
             member_name = frappe.db.get_value("Member", {"user": user_email}, "name")
             if not member_name:
                 return OperationResult.fail(
-                    error=_("No member record found for your account"),
+                    _("No member record found for your account"),
                     error_code="NO_MEMBER_RECORD",
                     data={"has_member_record": False},
                 )
@@ -711,7 +701,7 @@ def get_suspension_status_safe(member_name=None) -> OperationResult[Dict[str, An
             return OperationResult.ok(result, message=_("Suspension status retrieved successfully"))
         else:
             return OperationResult.fail(
-                error=_("You can only view your own suspension status"),
+                _("You can only view your own suspension status"),
                 error_code="PERMISSION_DENIED",
                 data={
                     "access_denied": True,
@@ -725,7 +715,7 @@ def get_suspension_status_safe(member_name=None) -> OperationResult[Dict[str, An
             "Safe Suspension Status Error",
         )
         return OperationResult.fail(
-            error=_("Unable to retrieve suspension status at this time"),
+            _("Unable to retrieve suspension status at this time"),
             error_code="INTERNAL_ERROR",
             data={"help": _("Please try again later or contact support if the problem persists")},
         )
@@ -747,6 +737,4 @@ def test_bank_details_debug() -> OperationResult[Dict[str, Any]]:
             f"Error in test_bank_details_debug: {str(e)}\n{traceback.format_exc()}",
             "Suspension API Exception",
         )
-        return OperationResult.fail(
-            error=_("Unable to retrieve debug information"), error_code="INTERNAL_ERROR"
-        )
+        return OperationResult.fail(_("Unable to retrieve debug information"), error_code="INTERNAL_ERROR")

@@ -10,7 +10,7 @@ from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
-@standard_api(operation_type=OperationType.READ)
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def check_eboekhouden_fields() -> OperationResult[Dict[str, Any]]:
     """Check if E-Boekhouden custom fields exist"""

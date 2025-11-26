@@ -57,8 +57,8 @@ from verenigingen.utils.security.api_security_framework import (
 )
 
 
-@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def generate_manual_invoice(member_name) -> OperationResult[Dict[str, Any]]:
     """
     Generate a manual invoice for a member's current active dues schedule.
@@ -187,8 +187,8 @@ def generate_manual_invoice(member_name) -> OperationResult[Dict[str, Any]]:
         return OperationResult.fail(_("Unexpected error: {0}").format(str(e)), error_code="UNEXPECTED_ERROR")
 
 
-@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.FINANCIAL)
 def get_member_invoice_info(member_name) -> OperationResult[Dict[str, Any]]:
     """
     Get information about member's dues schedule and recent invoices for UI display
@@ -256,8 +256,8 @@ def get_member_invoice_info(member_name) -> OperationResult[Dict[str, Any]]:
         )
 
 
-@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.FINANCIAL)
 def test_settings_creation_user() -> OperationResult[Dict[str, Any]]:
     """Test if the creation_user field from Verenigingen Settings is accessible"""
     try:
@@ -296,8 +296,8 @@ def test_settings_creation_user() -> OperationResult[Dict[str, Any]]:
         return OperationResult.fail(_("Error: {0}").format(str(e)), error_code="TEST_ERROR")
 
 
-@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.FINANCIAL)
 def test_email_template_variables() -> OperationResult[Dict[str, Any]]:
     """Test email template variable parsing for common issues"""
     try:
@@ -382,8 +382,8 @@ def test_email_template_variables() -> OperationResult[Dict[str, Any]]:
         )
 
 
-@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.FINANCIAL)
 def scan_email_template_issues() -> OperationResult[Dict[str, Any]]:
     """Scan the codebase for potential email template variable parsing issues"""
     try:
@@ -469,8 +469,8 @@ def scan_email_template_issues() -> OperationResult[Dict[str, Any]]:
         )
 
 
-@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.FINANCIAL)
 def test_sepa_mandate_pattern() -> OperationResult[Dict[str, Any]]:
     """Test the configurable SEPA mandate_id generation pattern"""
 
@@ -616,8 +616,8 @@ def check_dues_schedules() -> OperationResult[Dict[str, Any]]:
         )
 
 
-@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.FINANCIAL)
 def test_hybrid_payment_history_implementation() -> OperationResult[Dict[str, Any]]:
     """
     Test the hybrid payment history implementation to verify:
@@ -744,8 +744,8 @@ def test_hybrid_payment_history_implementation() -> OperationResult[Dict[str, An
             delattr(frappe.flags, "bulk_invoice_generation")
 
 
-@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.FINANCIAL)
 def diagnose_auto_submit_setting() -> OperationResult[Dict[str, Any]]:
     """
     Diagnose the auto-submit setting for membership invoices to understand

@@ -8,7 +8,7 @@ from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
-@standard_api(operation_type=OperationType.READ)
+@standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
 def audit_verenigingen_reports_and_dashboards() -> OperationResult[Dict[str, Any]]:
     """Comprehensive audit of Verenigingen Reports and Dashboards permissions.

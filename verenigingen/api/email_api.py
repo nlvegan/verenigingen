@@ -22,7 +22,7 @@ from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
-@standard_api(operation_type=OperationType.COMMUNICATION)
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def send_templated_email(
     template_name: str,
@@ -88,7 +88,7 @@ def send_templated_email(
         )
 
 
-@standard_api(operation_type=OperationType.COMMUNICATION)
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def send_notification(
     notification_type: str,
@@ -150,7 +150,7 @@ def send_notification(
         )
 
 
-@standard_api(operation_type=OperationType.COMMUNICATION)
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def send_member_email(
     member_name: str, notification_type: str, context: Dict[str, Any] = None
@@ -191,7 +191,7 @@ def send_member_email(
         )
 
 
-@standard_api(operation_type=OperationType.COMMUNICATION)
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def send_chapter_email_api(
     chapter_name: str,
@@ -254,7 +254,7 @@ def send_chapter_email_api(
         )
 
 
-@standard_api(operation_type=OperationType.READ)
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def get_available_templates() -> OperationResult[Dict[str, Any]]:
     """
@@ -283,7 +283,7 @@ def get_available_templates() -> OperationResult[Dict[str, Any]]:
         )
 
 
-@standard_api(operation_type=OperationType.READ)
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def get_supported_notification_types() -> OperationResult[Dict[str, Any]]:
     """
@@ -312,7 +312,7 @@ def get_supported_notification_types() -> OperationResult[Dict[str, Any]]:
         )
 
 
-@standard_api(operation_type=OperationType.READ)
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def validate_template(template_name: str) -> OperationResult[Dict[str, Any]]:
     """

@@ -38,7 +38,7 @@ from verenigingen.utils.security.api_security_framework import (
 )
 
 
-@standard_api(operation_type=OperationType.READ)
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 @frappe.whitelist()
 def get_chapter_join_context(chapter_name) -> OperationResult[Dict[str, Any]]:
     """Get context for chapter join page.
@@ -140,7 +140,7 @@ def get_chapter_join_context(chapter_name) -> OperationResult[Dict[str, Any]]:
         )
 
 
-@standard_api(operation_type=OperationType.WRITE)
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 @frappe.whitelist(allow_guest=False)
 def join_chapter(chapter_name, introduction) -> OperationResult[Dict[str, Any]]:
     """Create a chapter join request.
@@ -217,7 +217,7 @@ def join_chapter(chapter_name, introduction) -> OperationResult[Dict[str, Any]]:
         )
 
 
-@standard_api(operation_type=OperationType.READ)
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 @frappe.whitelist()
 def get_user_chapter_requests() -> OperationResult[Dict[str, Any]]:
     """Get chapter join requests for chapters where the current user is a board member.

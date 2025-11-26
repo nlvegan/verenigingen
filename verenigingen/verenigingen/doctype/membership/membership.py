@@ -848,15 +848,18 @@ class Membership(Document):
             member_doc._system_update = True
 
             # Also update current_dues_schedule to match the member's dues schedule
-            repo = DuesScheduleRepository()
-            dues_schedule_info = repo.get_active_schedule(self.member, fields=["name"])
-            if dues_schedule_info:
-                member_doc.current_dues_schedule = dues_schedule_info.name
+            dues_schedule_name = frappe.db.get_value(
+                "Membership Dues Schedule",
+                {"member": self.member, "status": "Active", "is_template": 0},
+                "name",
+            )
+            if dues_schedule_name:
+                member_doc.current_dues_schedule = dues_schedule_name
 
             member_doc.save()
             frappe.logger().info(
                 f"Updated current_membership_plan for member {self.member} to {self.name}"
-                + (f" and current_dues_schedule to {dues_schedule}" if dues_schedule else "")
+                + (f" and current_dues_schedule to {dues_schedule_name}" if dues_schedule_name else "")
             )
         except Exception as e:
             frappe.logger().error(f"Failed to update member fields for {self.member}: {str(e)}")

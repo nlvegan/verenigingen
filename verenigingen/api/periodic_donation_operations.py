@@ -98,10 +98,10 @@ def create_periodic_agreement(
             f"Failed to create periodic agreement: {str(e)}\n{traceback.format_exc()}",
             "Periodic Agreement Creation Error",
         )
-        return OperationResult.fail(error=str(e), message=_("Failed to create periodic donation agreement"))
+        return OperationResult.fail(_("Failed to create periodic donation agreement"), errors=[str(e)])
 
 
-@standard_api(operation_type=OperationType.READ)
+@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def get_donor_agreements(donor, status=None) -> OperationResult[Dict[str, Any]]:
     """
@@ -148,10 +148,10 @@ def get_donor_agreements(donor, status=None) -> OperationResult[Dict[str, Any]]:
             f"Failed to get donor agreements: {str(e)}\n{traceback.format_exc()}",
             "Periodic Agreement Retrieval Error",
         )
-        return OperationResult.fail(error=str(e), message=_("Failed to retrieve donor agreements"))
+        return OperationResult.fail(_("Failed to retrieve donor agreements"), errors=[str(e)])
 
 
-@critical_api(operation_type=OperationType.WRITE)
+@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def link_donation_to_agreement(donation, agreement) -> OperationResult[Dict[str, Any]]:
     """
@@ -207,7 +207,7 @@ def link_donation_to_agreement(donation, agreement) -> OperationResult[Dict[str,
         frappe.log_error(
             f"Failed to link donation: {str(e)}\n{traceback.format_exc()}", "Donation Linking Error"
         )
-        return OperationResult.fail(error=str(e), message=_("Failed to link donation to agreement"))
+        return OperationResult.fail(_("Failed to link donation to agreement"), errors=[str(e)])
 
 
 @standard_api(operation_type=OperationType.REPORTING)
@@ -298,10 +298,10 @@ def generate_periodic_donation_report(from_date=None, to_date=None) -> Operation
             f"Failed to generate periodic donation report: {str(e)}\n{traceback.format_exc()}",
             "Periodic Donation Report Error",
         )
-        return OperationResult.fail(error=str(e), message=_("Failed to generate periodic donation report"))
+        return OperationResult.fail(_("Failed to generate periodic donation report"), errors=[str(e)])
 
 
-@standard_api(operation_type=OperationType.READ)
+@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def check_expiring_agreements(days_ahead=90) -> OperationResult[Dict[str, Any]]:
     """
@@ -350,10 +350,10 @@ def check_expiring_agreements(days_ahead=90) -> OperationResult[Dict[str, Any]]:
             f"Failed to check expiring agreements: {str(e)}\n{traceback.format_exc()}",
             "Agreement Expiry Check Error",
         )
-        return OperationResult.fail(error=str(e), message=_("Failed to check expiring agreements"))
+        return OperationResult.fail(_("Failed to check expiring agreements"), errors=[str(e)])
 
 
-@critical_api(operation_type=OperationType.WRITE)
+@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def create_donation_from_agreement(agreement_name) -> OperationResult[Dict[str, Any]]:
     """
@@ -411,7 +411,7 @@ def create_donation_from_agreement(agreement_name) -> OperationResult[Dict[str, 
             f"Failed to create donation from agreement: {str(e)}\n{traceback.format_exc()}",
             "Agreement Donation Creation Error",
         )
-        return OperationResult.fail(error=str(e), message=_("Failed to create donation from agreement"))
+        return OperationResult.fail(_("Failed to create donation from agreement"), errors=[str(e)])
 
 
 @standard_api(operation_type=OperationType.REPORTING)
@@ -487,10 +487,10 @@ def get_agreement_statistics() -> OperationResult[Dict[str, Any]]:
             f"Failed to get agreement statistics: {str(e)}\n{traceback.format_exc()}",
             "Agreement Statistics Error",
         )
-        return OperationResult.fail(error=str(e), message=_("Failed to retrieve agreement statistics"))
+        return OperationResult.fail(_("Failed to retrieve agreement statistics"), errors=[str(e)])
 
 
-@critical_api(operation_type=OperationType.WRITE)
+@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def send_renewal_reminders(days_before_expiry=90) -> OperationResult[Dict[str, Any]]:
     """
@@ -569,7 +569,7 @@ def send_renewal_reminders(days_before_expiry=90) -> OperationResult[Dict[str, A
         frappe.log_error(
             f"Failed to send renewal reminders: {str(e)}\n{traceback.format_exc()}", "Renewal Reminder Error"
         )
-        return OperationResult.fail(error=str(e), message=_("Failed to send renewal reminders"))
+        return OperationResult.fail(_("Failed to send renewal reminders"), errors=[str(e)])
 
 
 def get_renewal_reminder_email(agreement, days_remaining):
@@ -613,7 +613,7 @@ def get_renewal_reminder_email(agreement, days_remaining):
     """
 
 
-@critical_api(operation_type=OperationType.WRITE)
+@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def generate_tax_receipts(filters) -> OperationResult[Dict[str, Any]]:
     """
@@ -671,7 +671,7 @@ def generate_tax_receipts(filters) -> OperationResult[Dict[str, Any]]:
         frappe.log_error(
             f"Failed to generate tax receipts: {str(e)}\n{traceback.format_exc()}", "Tax Receipt Error"
         )
-        return OperationResult.fail(error=str(e), message=_("Failed to generate tax receipts"))
+        return OperationResult.fail(_("Failed to generate tax receipts"), errors=[str(e)])
 
 
 def generate_tax_receipt_content(agreement):
@@ -785,7 +785,7 @@ def export_agreements(filters) -> OperationResult[Dict[str, Any]]:
         frappe.log_error(
             f"Failed to export agreements: {str(e)}\n{traceback.format_exc()}", "Agreement Export Error"
         )
-        return OperationResult.fail(error=str(e), message=_("Failed to export agreements"))
+        return OperationResult.fail(_("Failed to export agreements"), errors=[str(e)])
 
 
 @utility_api(operation_type=OperationType.UTILITY)
@@ -831,4 +831,4 @@ def test_periodic_donation_system() -> OperationResult[Dict[str, Any]]:
         frappe.log_error(
             f"System check failed: {str(e)}\n{traceback.format_exc()}", "Periodic Donation System Check Error"
         )
-        return OperationResult.fail(error=str(e), message=_("System check failed: {0}").format(str(e)))
+        return OperationResult.fail(_("System check failed: {0}").format(str(e)), errors=[str(e)])

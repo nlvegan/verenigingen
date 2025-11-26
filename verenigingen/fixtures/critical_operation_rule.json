@@ -41016,5 +41016,53 @@
     "rate_limit_scope": "per_user",
     "audit_level": "detailed",
     "alert_on_execution": 1
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "get_suspension_status_safe",
+    "operation_name": "get_suspension_status_safe",
+    "operation_type": "member_data",
+    "description": "Safe wrapper for getting own suspension status (handles permissions gracefully)",
+    "enabled": 1,
+    "security_level": "low",
+    "business_context": "Allow members to check their own suspension status via portal",
+    "required_roles": "",
+    "rate_limit_calls": 60,
+    "rate_limit_period_seconds": 60,
+    "rate_limit_scope": "per_ip",
+    "audit_level": "minimal",
+    "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "suspension_api_get_suspension_status_safe",
+    "operation_name": "suspension_api_get_suspension_status_safe",
+    "operation_type": "member_data",
+    "description": "Module-prefixed version - Safe suspension status check",
+    "enabled": 1,
+    "security_level": "low",
+    "business_context": "Allow members to check their own suspension status via portal",
+    "required_roles": "",
+    "rate_limit_calls": 60,
+    "rate_limit_period_seconds": 60,
+    "rate_limit_scope": "per_ip",
+    "audit_level": "minimal",
+    "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "api_get_suspension_status_safe",
+    "operation_name": "api_get_suspension_status_safe",
+    "operation_type": "member_data",
+    "description": "API prefix version - Safe suspension status check",
+    "enabled": 1,
+    "security_level": "low",
+    "business_context": "Allow members to check their own suspension status via portal",
+    "required_roles": "",
+    "rate_limit_calls": 60,
+    "rate_limit_period_seconds": 60,
+    "rate_limit_scope": "per_ip",
+    "audit_level": "minimal",
+    "alert_on_execution": 0
   }
 ]

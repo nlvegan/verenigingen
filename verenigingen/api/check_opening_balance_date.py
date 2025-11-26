@@ -67,7 +67,7 @@ def check_opening_balance_mutation_date() -> OperationResult[Dict[str, Any]]:
             title=_("Opening Balance Mutation Date Check Failed"),
             message=f"{str(e)}\n\n{traceback.format_exc()}",
         )
-        return OperationResult.fail(error=str(e), message=_("Failed to check opening balance mutation dates"))
+        return OperationResult.fail(_("Failed to check opening balance mutation dates"), errors=[str(e)])
 
 
 @standard_api(operation_type=OperationType.REPORTING)
@@ -138,7 +138,7 @@ def check_earliest_mutation_date() -> OperationResult[Dict[str, Any]]:
         frappe.log_error(
             title=_("Earliest Mutation Date Check Failed"), message=f"{str(e)}\n\n{traceback.format_exc()}"
         )
-        return OperationResult.fail(error=str(e), message=_("Failed to check earliest mutation dates"))
+        return OperationResult.fail(_("Failed to check earliest mutation dates"), errors=[str(e)])
 
 
 @standard_api(operation_type=OperationType.UTILITY)
@@ -187,4 +187,4 @@ def get_opening_balance_date_for_js() -> OperationResult[Dict[str, Any]]:
         frappe.log_error(
             title=_("Opening Balance Date Retrieval Failed"), message=f"{str(e)}\n\n{traceback.format_exc()}"
         )
-        return OperationResult.fail(error=str(e), message=_("Failed to retrieve opening balance date"))
+        return OperationResult.fail(_("Failed to retrieve opening balance date"), errors=[str(e)])

@@ -64,13 +64,17 @@ class ScheduleStatus(Enum):
 
 @dataclass
 class ScheduleInfo:
-    """Type-safe schedule information container"""
+    """Type-safe schedule information container.
 
-    name: str
-    member: str
-    status: str
-    dues_rate: float
-    billing_frequency: str
+    All fields have defaults to allow partial data from queries that only
+    fetch specific fields.
+    """
+
+    name: str = ""
+    member: str = ""
+    status: str = ""
+    dues_rate: float = 0.0
+    billing_frequency: str = ""
     next_invoice_date: Optional[str] = None
     last_invoice_date: Optional[str] = None
     membership_type: Optional[str] = None
@@ -80,7 +84,9 @@ class ScheduleInfo:
 
     @classmethod
     def from_dict(cls, data: Dict) -> "ScheduleInfo":
-        """Create from database dict"""
+        """Create from database dict - handles partial data gracefully"""
+        if not data:
+            return cls()
         return cls(**{k: v for k, v in data.items() if k in cls.__annotations__})
 
 

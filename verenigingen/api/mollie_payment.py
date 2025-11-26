@@ -15,7 +15,7 @@ from verenigingen.utils.payment_services.mollie_payment_service import MolliePay
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
-@critical_api(operation_type=OperationType.WRITE)
+@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def create_payment(donation_data: Dict[str, Any] = None) -> OperationResult[Dict[str, Any]]:
     """
@@ -54,7 +54,7 @@ def create_payment(donation_data: Dict[str, Any] = None) -> OperationResult[Dict
         )
 
 
-@critical_api(operation_type=OperationType.READ)
+@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def get_payment_status(payment_id: str) -> OperationResult[Dict[str, Any]]:
     """
@@ -71,7 +71,7 @@ def get_payment_status(payment_id: str) -> OperationResult[Dict[str, Any]]:
             payment_id = frappe.local.form_dict.get("payment_id")
 
         if not payment_id:
-            return OperationResult.fail(error=_("Payment ID is required"), http_status=400)
+            return OperationResult.fail(_("Payment ID is required"), http_status=400)
 
         # Initialize Mollie payment service
         service = MolliePaymentService()

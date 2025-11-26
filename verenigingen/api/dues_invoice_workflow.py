@@ -21,7 +21,7 @@ from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, standard_api
 
 
-@standard_api(operation_type=OperationType.READ)
+@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist(allow_guest=False, methods=["GET", "POST"])
 def check_member_dues_status(
     period_start: str = None, period_end: str = None
@@ -203,7 +203,7 @@ def check_member_dues_status(
         )
 
 
-@critical_api(operation_type=OperationType.WRITE)
+@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def generate_missing_invoices(
     member_list: List[str] = None, force: bool = False
@@ -264,7 +264,7 @@ def generate_missing_invoices(
         )
 
 
-@critical_api(operation_type=OperationType.READ)
+@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist(allow_guest=False, methods=["GET", "POST"])
 def validate_sepa_eligibility(invoice_list: List[str] = None) -> OperationResult[Dict[str, Any]]:
     """
@@ -406,7 +406,7 @@ def validate_sepa_eligibility(invoice_list: List[str] = None) -> OperationResult
         )
 
 
-@critical_api(operation_type=OperationType.WRITE)
+@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def prepare_sepa_batch(
     eligible_invoices: List[Dict] = None, batch_description: str = None
@@ -458,7 +458,7 @@ def prepare_sepa_batch(
         )
 
 
-@standard_api(operation_type=OperationType.READ)
+@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def get_workflow_status() -> OperationResult[Dict[str, Any]]:
     """
@@ -540,7 +540,7 @@ def get_workflow_status() -> OperationResult[Dict[str, Any]]:
         )
 
 
-@standard_api(operation_type=OperationType.READ)
+@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def check_coverage_scheduling_mismatches() -> OperationResult[Dict[str, Any]]:
     """

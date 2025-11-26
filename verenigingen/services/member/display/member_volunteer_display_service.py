@@ -29,8 +29,8 @@ Performance:
 - Typical execution time: <100ms for volunteers with <50 assignments
 """
 
-from typing import TYPE_CHECKING
 import urllib.parse
+from typing import TYPE_CHECKING
 
 import frappe
 from frappe.utils import escape_html
@@ -71,18 +71,18 @@ class MemberVolunteerDisplayService:
             from verenigingen.utils.member_utils import get_volunteer_for_member
 
             # Get volunteer for this member using utility
-            volunteer_data = get_volunteer_for_member(member_doc.name)
+            volunteer_name = get_volunteer_for_member(member_doc.name)
 
-            if not volunteer_data:
+            if not volunteer_name:
                 return '<div class="text-muted"><em>This member does not have a volunteer profile</em></div>'
 
             # Get full volunteer document with all fields
             try:
-                volunteer = frappe.get_doc("Volunteer", volunteer_data.get("name"))
+                volunteer = frappe.get_doc("Volunteer", volunteer_name)
             except frappe.DoesNotExistError:
                 frappe.log_error(
-                    f"Volunteer record not found for member {member_doc.name}: {volunteer_data.get('name')}",
-                    "Volunteer Display Error"
+                    f"Volunteer record not found for member {member_doc.name}: {volunteer_name}",
+                    "Volunteer Display Error",
                 )
                 return '<div class="text-danger"><em>Error: Volunteer record not found</em></div>'
 
@@ -167,12 +167,14 @@ class MemberVolunteerDisplayService:
                 """
 
                 for assignment in assignments:
-                    # Escape all text content
+                    # Escape all text content - use correct field names from VolunteerAssignment
                     role_safe = escape_html(assignment.role or "")
-                    org_type_safe = escape_html(assignment.organization_type or "")
-                    org_name_safe = escape_html(assignment.organization_name or "")
+                    org_type_safe = escape_html(assignment.reference_doctype or "")
+                    org_name_safe = escape_html(assignment.reference_name or "")
                     assignment_type_safe = escape_html(assignment.assignment_type or "")
-                    start_date_safe = escape_html(str(assignment.start_date) if assignment.start_date else "-")
+                    start_date_safe = escape_html(
+                        str(assignment.start_date) if assignment.start_date else "-"
+                    )
                     end_date_safe = escape_html(str(assignment.end_date) if assignment.end_date else "-")
                     status_safe = escape_html(assignment.status or "Active")
 
@@ -184,12 +186,12 @@ class MemberVolunteerDisplayService:
                         "Terminated": "danger",
                     }.get(assignment.status, "secondary")
 
-                    # Create organization link (if organization type is a valid DocType)
-                    if assignment.organization_type and assignment.organization_name:
-                        # Validate that organization_type is a real DocType
+                    # Create organization link (if reference doctype is a valid DocType)
+                    if assignment.reference_doctype and assignment.reference_name:
+                        # Validate that reference_doctype is a real DocType
                         try:
-                            if frappe.db.exists("DocType", assignment.organization_type):
-                                org_link = f"""<a href="/app/{urllib.parse.quote(assignment.organization_type.lower().replace(' ', '-'))}/{urllib.parse.quote(assignment.organization_name)}"
+                            if frappe.db.exists("DocType", assignment.reference_doctype):
+                                org_link = f"""<a href="/app/{urllib.parse.quote(assignment.reference_doctype.lower().replace(' ', '-'))}/{urllib.parse.quote(assignment.reference_name)}"
                                               target="_blank" rel="noopener noreferrer"
                                               title="{org_type_safe}: {org_name_safe}">
                                               {org_name_safe}
@@ -230,7 +232,7 @@ class MemberVolunteerDisplayService:
             frappe.log_error(
                 f"Error generating volunteer details for member {member_doc.name}: {str(e)}\n\n"
                 f"Traceback: {frappe.get_traceback()}",
-                "Volunteer Details Generation Error"
+                "Volunteer Details Generation Error",
             )
 
             # Return user-friendly error message (no internal details)
