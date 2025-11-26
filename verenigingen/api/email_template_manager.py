@@ -59,9 +59,14 @@ Author: Verenigingen Development Team
 License: MIT
 """
 
+import traceback
+from typing import Any, Dict
+
 import frappe
+from frappe import _
 from frappe.utils import get_url
 
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
@@ -73,7 +78,7 @@ from verenigingen.utils.security.api_security_framework import (
 
 @critical_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
-def create_comprehensive_email_templates():
+def create_comprehensive_email_templates() -> OperationResult[Dict[str, Any]]:
     """
     Create and deploy all email templates used throughout the Verenigingen application.
 
@@ -166,13 +171,13 @@ def create_comprehensive_email_templates():
         - Workflow systems for automated notifications
         - User permission system for access control
     """
-
-    templates = [
-        # Expense notification templates
-        {
-            "name": "expense_approval_request",
-            "subject": "💰 Expense Approval Required - {{ doc.name }}",
-            "response": """
+    try:
+        templates = [
+            # Expense notification templates
+            {
+                "name": "expense_approval_request",
+                "subject": "💰 Expense Approval Required - {{ doc.name }}",
+                "response": """
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                 <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
                     <h2 style="color: #2c3e50; margin: 0;">💰 Expense Approval Required</h2>
@@ -214,11 +219,11 @@ def create_comprehensive_email_templates():
                 </div>
             </div>
             """,
-        },
-        {
-            "name": "expense_approved",
-            "subject": "✅ Expense Approved - {{ doc.name }}",
-            "response": """
+            },
+            {
+                "name": "expense_approved",
+                "subject": "✅ Expense Approved - {{ doc.name }}",
+                "response": """
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                 <div style="background-color: #d4edda; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
                     <h2 style="color: #155724; margin: 0;">✅ Expense Approved</h2>
@@ -248,11 +253,11 @@ def create_comprehensive_email_templates():
                 </div>
             </div>
             """,
-        },
-        {
-            "name": "expense_rejected",
-            "subject": "❌ Expense Rejected - {{ doc.name }}",
-            "response": """
+            },
+            {
+                "name": "expense_rejected",
+                "subject": "❌ Expense Rejected - {{ doc.name }}",
+                "response": """
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                 <div style="background-color: #f8d7da; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
                     <h2 style="color: #721c24; margin: 0;">❌ Expense Rejected</h2>
@@ -286,12 +291,12 @@ def create_comprehensive_email_templates():
                 </div>
             </div>
             """,
-        },
-        # Donation templates
-        {
-            "name": "donation_confirmation",
-            "subject": "Thank you for your donation - {{ doc.name }}",
-            "response": """
+            },
+            # Donation templates
+            {
+                "name": "donation_confirmation",
+                "subject": "Thank you for your donation - {{ doc.name }}",
+                "response": """
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                 <h2>Dear {{ donor_name }},</h2>
 
@@ -336,11 +341,11 @@ def create_comprehensive_email_templates():
                 {{ organization_name }}</p>
             </div>
             """,
-        },
-        {
-            "name": "donation_payment_confirmation",
-            "subject": "Payment Received - Donation {{ doc.name }}",
-            "response": """
+            },
+            {
+                "name": "donation_payment_confirmation",
+                "subject": "Payment Received - Donation {{ doc.name }}",
+                "response": """
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                 <h2>Dear {{ donor_name }},</h2>
 
@@ -378,11 +383,11 @@ def create_comprehensive_email_templates():
                 {{ organization_name }}</p>
             </div>
             """,
-        },
-        {
-            "name": "anbi_tax_receipt",
-            "subject": "Tax Deduction Receipt - {{ receipt_number }}",
-            "response": """
+            },
+            {
+                "name": "anbi_tax_receipt",
+                "subject": "Tax Deduction Receipt - {{ receipt_number }}",
+                "response": """
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                 <h2>Tax Deduction Receipt (ANBI)</h2>
 
@@ -424,12 +429,12 @@ def create_comprehensive_email_templates():
                 {{ organization_name }}</p>
             </div>
             """,
-        },
-        # Termination templates
-        {
-            "name": "termination_overdue_notification",
-            "subject": "Overdue Termination Requests - {{ count }} items",
-            "response": """
+            },
+            # Termination templates
+            {
+                "name": "termination_overdue_notification",
+                "subject": "Overdue Termination Requests - {{ count }} items",
+                "response": """
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                 <h2 style="color: #dc3545;">⚠️ Overdue Termination Requests</h2>
 
@@ -459,11 +464,11 @@ def create_comprehensive_email_templates():
                 System Administrator</p>
             </div>
             """,
-        },
-        {
-            "name": "member_contact_request_received",
-            "subject": "Contact Request Received - {{ doc.name }}",
-            "response": """
+            },
+            {
+                "name": "member_contact_request_received",
+                "subject": "Contact Request Received - {{ doc.name }}",
+                "response": """
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                 <h2>Contact Request Received</h2>
 
@@ -508,68 +513,80 @@ def create_comprehensive_email_templates():
                 {{ organization_name }}</p>
             </div>
             """,
-        },
-    ]
+            },
+        ]
 
-    created_count = 0
-    updated_count = 0
+        created_count = 0
+        updated_count = 0
 
-    for template_data in templates:
-        template_name = template_data["name"]
+        for template_data in templates:
+            template_name = template_data["name"]
 
-        try:
-            # Check if template already exists
-            if frappe.db.exists("Email Template", template_name):
-                # Update existing template
-                template_doc = frappe.get_doc("Email Template", template_name)
-                template_doc.subject = template_data["subject"]
-                template_doc.response = template_data["response"]
-                template_doc.use_html = 1
-                template_doc.save()
-                updated_count += 1
-                frappe.logger().info(f"Updated email template: {template_name}")
-            else:
-                # Create new template
-                template_doc = frappe.get_doc(
-                    {
-                        "doctype": "Email Template",
-                        "name": template_name,
-                        "subject": template_data["subject"],
-                        "use_html": 1,
-                        "response": template_data["response"],
-                        "enabled": 1,
-                    }
-                )
-                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-                result = secure_document_operation(
-                    operation="insert",
-                    doc=template_doc,
-                    justification=f"Create email template {template_name} for system communications - template management",
-                    required_permissions=["Email Template:create"],
-                )
-
-                if result.success:
-                    created_count += 1
-                    frappe.logger().info(f"Created email template: {template_name}")
+            try:
+                # Check if template already exists
+                if frappe.db.exists("Email Template", template_name):
+                    # Update existing template
+                    template_doc = frappe.get_doc("Email Template", template_name)
+                    template_doc.subject = template_data["subject"]
+                    template_doc.response = template_data["response"]
+                    template_doc.use_html = 1
+                    template_doc.save()
+                    updated_count += 1
+                    frappe.logger().info(f"Updated email template: {template_name}")
                 else:
-                    frappe.log_error(
-                        f"Failed to create email template {template_name}: {'; '.join(result.errors)}"
+                    # Create new template
+                    template_doc = frappe.get_doc(
+                        {
+                            "doctype": "Email Template",
+                            "name": template_name,
+                            "subject": template_data["subject"],
+                            "use_html": 1,
+                            "response": template_data["response"],
+                            "enabled": 1,
+                        }
+                    )
+                    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                    result = secure_document_operation(
+                        operation="insert",
+                        doc=template_doc,
+                        justification=f"Create email template {template_name} for system communications - template management",
+                        required_permissions=["Email Template:create"],
                     )
 
-        except Exception as e:
-            frappe.log_error(
-                f"Failed to create/update template '{template_name}': {str(e)}", "Email Template Error"
-            )
+                    if result.success:
+                        created_count += 1
+                        frappe.logger().info(f"Created email template: {template_name}")
+                    else:
+                        frappe.log_error(
+                            f"Failed to create email template {template_name}: {'; '.join(result.errors)}"
+                        )
 
-    frappe.db.commit()
+            except Exception as e:
+                frappe.log_error(
+                    f"Failed to create/update template '{template_name}': {str(e)}", "Email Template Error"
+                )
 
-    return {
-        "success": True,
-        "created": created_count,
-        "updated": updated_count,
-        "total": created_count + updated_count,
-        "message": f"Email template setup completed. Created: {created_count}, Updated: {updated_count}",
-    }
+        frappe.db.commit()
+
+        data = {
+            "created": created_count,
+            "updated": updated_count,
+            "total": created_count + updated_count,
+        }
+
+        return OperationResult.ok(
+            data=data,
+            message=_("Email template setup completed. Created: {0}, Updated: {1}").format(
+                created_count, updated_count
+            ),
+        )
+
+    except Exception as e:
+        frappe.log_error(
+            title=_("Email Template Creation Failed"),
+            message=f"Error creating email templates: {str(e)}\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(message=_("Failed to create email templates"), errors=[str(e)])
 
 
 def get_email_template(template_name, context=None, fallback_subject="", fallback_message=""):
@@ -661,48 +678,56 @@ def send_template_email(template_name, recipients, context=None, **kwargs):
 
 @standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
-def test_email_template(template_name, test_context=None):
+def test_email_template(template_name, test_context=None) -> OperationResult[Dict[str, Any]]:
     """Test email template rendering with sample context"""
-
-    if test_context is None:
-        # Create sample context for testing
-        test_context = {
-            "doc": frappe._dict(
-                {
-                    "name": "TEST-001",
-                    "description": "Test expense description",
-                    "amount": 125.50,
-                    "organization_type": "Chapter",
-                }
-            ),
-            "volunteer_name": "Test Volunteer",
-            "company": "Test Organization",
-            "approver_name": "Test Approver",
-            "required_level": "admin",
-            "formatted_amount": "€125.50",
-            "formatted_date": "2025-01-15",
-            "category_name": "Travel",
-            "organization_name": "Test Chapter",
-            "approval_url": f"{get_url()}/app/volunteer-expense/TEST-001",
-            "dashboard_url": f"{get_url()}/app/expense-approval-dashboard",
-        }
-
     try:
+        if test_context is None:
+            # Create sample context for testing
+            test_context = {
+                "doc": frappe._dict(
+                    {
+                        "name": "TEST-001",
+                        "description": "Test expense description",
+                        "amount": 125.50,
+                        "organization_type": "Chapter",
+                    }
+                ),
+                "volunteer_name": "Test Volunteer",
+                "company": "Test Organization",
+                "approver_name": "Test Approver",
+                "required_level": "admin",
+                "formatted_amount": "€125.50",
+                "formatted_date": "2025-01-15",
+                "category_name": "Travel",
+                "organization_name": "Test Chapter",
+                "approval_url": f"{get_url()}/app/volunteer-expense/TEST-001",
+                "dashboard_url": f"{get_url()}/app/expense-approval-dashboard",
+            }
+
         template = get_email_template(template_name, test_context)
-        return {
-            "success": True,
+
+        data = {
             "template_name": template_name,
             "subject": template["subject"],
             "message": template["message"],
             "context_used": test_context,
         }
+
+        return OperationResult.ok(data=data, message=_("Email template rendered successfully"))
+
     except Exception as e:
-        return {"success": False, "error": str(e), "template_name": template_name}
+        frappe.log_error(
+            title=_("Email Template Test Failed"),
+            message=f"Error testing template '{template_name}': {str(e)}\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(
+            message=_("Failed to test email template: {0}").format(template_name), errors=[str(e)]
+        )
 
 
 @critical_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
-def create_all_email_templates():
+def create_all_email_templates() -> OperationResult[Dict[str, Any]]:
     """
     Legacy function name for backward compatibility with documentation.
     Calls the actual create_comprehensive_email_templates() function.
@@ -711,7 +736,7 @@ def create_all_email_templates():
     while providing the same functionality as create_comprehensive_email_templates.
 
     Returns:
-        dict: Template creation results (same as create_comprehensive_email_templates)
+        OperationResult: Template creation results (same as create_comprehensive_email_templates)
     """
     return create_comprehensive_email_templates()
 
@@ -863,40 +888,50 @@ def create_email_templates_cli():
 
 @standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
-def list_all_email_templates():
+def list_all_email_templates() -> OperationResult[Dict[str, Any]]:
     """List all email templates in the system"""
+    try:
+        templates = frappe.get_all("Email Template", fields=["name", "subject", "modified"], order_by="name")
 
-    templates = frappe.get_all("Email Template", fields=["name", "subject", "modified"], order_by="name")
+        # Separate verenigingen templates from others
+        verenigingen_templates = []
+        other_templates = []
 
-    # Separate verenigingen templates from others
-    verenigingen_templates = []
-    other_templates = []
+        verenigingen_template_names = [
+            "expense_approval_request",
+            "expense_approved",
+            "expense_rejected",
+            "donation_confirmation",
+            "donation_payment_confirmation",
+            "anbi_tax_receipt",
+            "termination_overdue_notification",
+            "member_contact_request_received",
+            "membership_application_rejected",
+            "membership_rejection_incomplete",
+            "membership_rejection_ineligible",
+            "membership_rejection_duplicate",
+            "membership_application_approved",
+        ]
 
-    verenigingen_template_names = [
-        "expense_approval_request",
-        "expense_approved",
-        "expense_rejected",
-        "donation_confirmation",
-        "donation_payment_confirmation",
-        "anbi_tax_receipt",
-        "termination_overdue_notification",
-        "member_contact_request_received",
-        "membership_application_rejected",
-        "membership_rejection_incomplete",
-        "membership_rejection_ineligible",
-        "membership_rejection_duplicate",
-        "membership_application_approved",
-    ]
+        for template in templates:
+            if template.name in verenigingen_template_names:
+                verenigingen_templates.append(template)
+            else:
+                other_templates.append(template)
 
-    for template in templates:
-        if template.name in verenigingen_template_names:
-            verenigingen_templates.append(template)
-        else:
-            other_templates.append(template)
+        data = {
+            "verenigingen_templates": verenigingen_templates,
+            "other_templates": other_templates,
+            "total_count": len(templates),
+        }
 
-    return {
-        "success": True,
-        "verenigingen_templates": verenigingen_templates,
-        "other_templates": other_templates,
-        "total_count": len(templates),
-    }
+        return OperationResult.ok(
+            data=data, message=_("Retrieved {0} email templates").format(len(templates))
+        )
+
+    except Exception as e:
+        frappe.log_error(
+            title=_("Email Template List Failed"),
+            message=f"Error listing email templates: {str(e)}\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(message=_("Failed to list email templates"), errors=[str(e)])

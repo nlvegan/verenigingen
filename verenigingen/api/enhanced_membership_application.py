@@ -25,6 +25,8 @@ Last Updated: 2025-08-02
 """
 
 import json
+import traceback
+from typing import Any, Dict
 
 import frappe
 from frappe import _
@@ -33,13 +35,14 @@ from frappe.utils import cstr, flt, getdate, today
 # Import extracted services
 from verenigingen.utils.dutch_name_service import is_valid_dutch_tussenvoegsel
 
-# Import security framework
+# Import OperationResult and security framework
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, public_api, standard_api
 
 
-@frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
-def submit_enhanced_application():
+@frappe.whitelist(allow_guest=True)
+def submit_enhanced_application() -> OperationResult[Dict[str, Any]]:
     """Submit enhanced membership application with flexible contribution.
 
     This endpoint handles the complete membership application workflow including:
@@ -67,12 +70,10 @@ def submit_enhanced_application():
             interested_in_volunteering (bool, optional): Volunteer interest flag
 
     Returns:
-        dict: Success/error response with following structure:
-            - success (bool): Operation status
+        OperationResult[Dict[str, Any]]: Result containing:
             - application_id (str): Created application ID (on success)
-            - message (str): Localized success message
             - next_steps (list): Array of next action descriptions
-            - error (str): Error message (on failure)
+            - invoice_id (str, optional): Created invoice ID
 
     Raises:
         ValidationError: For invalid or missing required data
@@ -81,22 +82,13 @@ def submit_enhanced_application():
 
     Examples:
         >>> # Successful application
-        {
-            "success": True,
+        OperationResult.ok({
             "application_id": "MEM-APP-2025-001",
-            "message": "Application submitted successfully",
-            "next_steps": [
-                "Check your email for confirmation and payment instructions",
-                "Complete your first payment to activate membership",
-                "You will receive a welcome package once payment is confirmed"
-            ]
-        }
+            "next_steps": [...]
+        }, message="Application submitted successfully")
 
         >>> # Validation error
-        {
-            "success": False,
-            "error": "A member with this email already exists"
-        }
+        OperationResult.fail("A member with this email already exists")
     """
     try:
         # Get form data from the request
@@ -105,30 +97,44 @@ def submit_enhanced_application():
         # Validate all required fields and business rules
         validation_result = validate_application_data(data)
         if not validation_result["valid"]:
-            return {"success": False, "error": validation_result["error"]}
+            frappe.log_error(
+                title=_("Membership Application Validation Failed"),
+                message=f"Validation error: {validation_result['error']}\nData: {json.dumps(data, indent=2)}",
+            )
+            return OperationResult.fail(message=validation_result["error"], error_code="VALIDATION_ERROR")
 
         # Process the complete application workflow
         application_result = process_enhanced_application(data)
 
         if application_result["success"]:
-            return {
-                "success": True,
+            result_data = {
                 "application_id": application_result["application_id"],
-                "message": _("Application submitted successfully"),
                 "next_steps": application_result.get("next_steps", []),
             }
+            if application_result.get("invoice_id"):
+                result_data["invoice_id"] = application_result["invoice_id"]
+
+            return OperationResult.ok(data=result_data, message=_("Application submitted successfully"))
         else:
-            return {"success": False, "error": application_result.get("error", "Unknown error occurred")}
+            error_msg = application_result.get("error", _("Unknown error occurred"))
+            frappe.log_error(
+                title=_("Membership Application Processing Failed"),
+                message=f"Processing error: {error_msg}\nData: {json.dumps(data, indent=2)}",
+            )
+            return OperationResult.fail(message=error_msg, error_code="PROCESSING_ERROR")
 
     except Exception as e:
         # Log the full error for debugging while returning user-friendly message
         from verenigingen.utils.safe_error_logging import safe_log_error
 
-        safe_log_error("Enhanced Membership Application", f"Enhanced membership application error: {str(e)}")
-        return {
-            "success": False,
-            "error": _("An error occurred while processing your application. Please try again."),
-        }
+        safe_log_error(
+            "Enhanced Membership Application",
+            f"Enhanced membership application error: {str(e)}\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(
+            message=_("An error occurred while processing your application. Please try again."),
+            error_code="SYSTEM_ERROR",
+        )
 
 
 def validate_application_data(data):
@@ -813,22 +819,23 @@ def send_application_confirmation(application, invoice):
         frappe.log_error(f"Error sending confirmation email: {str(e)}")
 
 
-@frappe.whitelist()
 @standard_api(operation_type=OperationType.PUBLIC)
-def get_membership_types_for_application():
+@frappe.whitelist()
+def get_membership_types_for_application() -> OperationResult[Dict[str, Any]]:
     """Get membership types with contribution options for application form.
 
     Retrieves available membership types with their contribution configuration
     for use in the membership application form.
 
     Returns:
-        list: Array of membership type dictionaries with structure:
-            - name (str): Membership type ID
-            - membership_type_name (str): Display name
-            - description (str): Type description
-            - amount (float): Base amount
-            - billing_frequency (str): Default billing frequency
-            - contribution_options (dict): Contribution calculation options
+        OperationResult[Dict[str, Any]]: Result containing:
+            - membership_types (list): Array of membership type dictionaries with structure:
+                - name (str): Membership type ID
+                - membership_type_name (str): Display name
+                - description (str): Type description
+                - amount (float): Base amount
+                - billing_frequency (str): Default billing frequency
+                - contribution_options (dict): Contribution calculation options
 
     Contribution Options Structure:
         - mode (str): Default contribution mode
@@ -839,7 +846,7 @@ def get_membership_types_for_application():
         - quick_amounts (list): Predefined quick-select amounts
 
     Error Handling:
-        - Returns empty array on database errors
+        - Returns OperationResult with empty array on database errors
         - Gracefully handles missing contribution options
         - Falls back to legacy configuration for older types
     """
@@ -916,16 +923,23 @@ def get_membership_types_for_application():
                 }
                 enhanced_types.append(enhanced_mt)
 
-        return enhanced_types
+        return OperationResult.ok(
+            data={"membership_types": enhanced_types}, message=_("Membership types retrieved successfully")
+        )
 
     except Exception as e:
-        frappe.log_error(f"Error getting membership types for application: {str(e)}")
-        return []
+        frappe.log_error(
+            title=_("Error Getting Membership Types"),
+            message=f"Error getting membership types for application: {str(e)}\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(
+            message=_("Failed to retrieve membership types. Please try again."), error_code="RETRIEVAL_ERROR"
+        )
 
 
-@frappe.whitelist()
 @public_api(operation_type=OperationType.PUBLIC)
-def get_contribution_calculator_config(membership_type=None):
+@frappe.whitelist()
+def get_contribution_calculator_config(membership_type=None) -> OperationResult[Dict[str, Any]]:
     """Get contribution calculator configuration for membership type.
 
     Provides calculator configuration including tiers, quick amounts,
@@ -935,7 +949,7 @@ def get_contribution_calculator_config(membership_type=None):
         membership_type (str, optional): Membership type name
 
     Returns:
-        dict: Calculator configuration with structure:
+        OperationResult[Dict[str, Any]]: Result containing calculator configuration:
             - enabled (bool): Whether calculator is enabled
             - percentage (float): Base calculation percentage
             - description (str): Calculator description
@@ -947,22 +961,31 @@ def get_contribution_calculator_config(membership_type=None):
     try:
         if not membership_type:
             # Return default configuration
-            return {
+            default_config = {
                 "enabled": True,
                 "percentage": 0.5,
-                "description": "Standard contribution calculation",
+                "description": _("Standard contribution calculation"),
                 "quick_amounts": [25, 35, 50, 75],
                 "tiers": [
-                    {"name": "Basic", "amount": 25, "description": "Basic support"},
-                    {"name": "Supporter", "amount": 50, "description": "Enhanced support"},
+                    {"name": "Basic", "amount": 25, "description": _("Basic support")},
+                    {"name": "Supporter", "amount": 50, "description": _("Enhanced support")},
                 ],
                 "minimum": 15.0,
                 "maximum": 150.0,
             }
+            return OperationResult.ok(
+                data=default_config, message=_("Default calculator configuration retrieved")
+            )
 
         # Get membership type specific configuration
         if not frappe.db.exists("Membership Type", membership_type):
-            return {"enabled": False, "error": "Invalid membership type"}
+            frappe.log_error(
+                title=_("Invalid Membership Type"),
+                message=f"Membership type '{membership_type}' does not exist",
+            )
+            return OperationResult.fail(
+                message=_("Invalid membership type"), error_code="INVALID_MEMBERSHIP_TYPE"
+            )
 
         mt_doc = frappe.get_doc("Membership Type", membership_type)
 
@@ -988,16 +1011,23 @@ def get_contribution_calculator_config(membership_type=None):
 
         # Add tiers
         config["tiers"] = [
-            {"name": "Basic", "amount": base_amount, "description": f"Basic {membership_type} membership"},
-            {"name": "Supporter", "amount": base_amount * 2, "description": "Support our mission"},
-            {"name": "Champion", "amount": base_amount * 3, "description": "Champion level support"},
+            {
+                "name": "Basic",
+                "amount": base_amount,
+                "description": _("Basic {0} membership").format(membership_type),
+            },
+            {"name": "Supporter", "amount": base_amount * 2, "description": _("Support our mission")},
+            {"name": "Champion", "amount": base_amount * 3, "description": _("Champion level support")},
         ]
 
-        return config
+        return OperationResult.ok(data=config, message=_("Calculator configuration retrieved successfully"))
 
     except Exception as e:
-        frappe.log_error(f"Error getting contribution calculator config: {str(e)}")
-        return {"enabled": False, "error": "Configuration unavailable"}
+        frappe.log_error(
+            title=_("Error Getting Calculator Config"),
+            message=f"Error getting contribution calculator config: {str(e)}\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(message=_("Configuration unavailable"), error_code="CONFIG_ERROR")
 
 
 def validate_dutch_business_rules(data):

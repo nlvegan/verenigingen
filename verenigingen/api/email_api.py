@@ -6,6 +6,7 @@ These endpoints allow frontend applications to send emails through the
 consolidated email infrastructure.
 """
 
+import traceback
 from typing import Any, Dict, List, Union
 
 import frappe
@@ -17,11 +18,12 @@ from verenigingen.services.communication.compatibility import (
     send_sepa_email,
 )
 from verenigingen.services.communication.email_service import get_email_service
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
-@frappe.whitelist()
 @standard_api(operation_type=OperationType.COMMUNICATION)
+@frappe.whitelist()
 def send_templated_email(
     template_name: str,
     recipients: Union[str, List[str]],
@@ -29,7 +31,7 @@ def send_templated_email(
     subject_override: str = None,
     reference_doctype: str = None,
     reference_name: str = None,
-) -> Dict[str, Any]:
+) -> OperationResult[Dict[str, Any]]:
     """
     Send templated email via unified EmailService.
 
@@ -42,7 +44,7 @@ def send_templated_email(
         reference_name: Link to specific document
 
     Returns:
-        Dict with success status and details
+        OperationResult with email sending status and details
     """
     try:
         # Parse recipients if it's a JSON string
@@ -75,22 +77,26 @@ def send_templated_email(
             reference_name=reference_name,
         )
 
-        return result
+        return OperationResult.ok(result, message=_("Templated email sent successfully"))
 
     except Exception as e:
-        frappe.log_error(f"Email API error: {str(e)}", "Email API")
-        return {"success": False, "errors": [str(e)], "operation": "send_templated_email"}
+        frappe.log_error(f"Email API error: {str(e)}\n{traceback.format_exc()}", "Email API")
+        return OperationResult.fail(
+            error=str(e),
+            message=_("Failed to send templated email"),
+            details={"operation": "send_templated_email", "traceback": traceback.format_exc()},
+        )
 
 
-@frappe.whitelist()
 @standard_api(operation_type=OperationType.COMMUNICATION)
+@frappe.whitelist()
 def send_notification(
     notification_type: str,
     recipients: Union[str, List[str]],
     data: Dict[str, Any],
     reference_doctype: str = None,
     reference_name: str = None,
-) -> Dict[str, Any]:
+) -> OperationResult[Dict[str, Any]]:
     """
     Send system notification via unified EmailService.
 
@@ -102,7 +108,7 @@ def send_notification(
         reference_name: Link to specific document
 
     Returns:
-        Dict with success status and details
+        OperationResult with notification sending status and details
     """
     try:
         # Parse recipients if it's a JSON string
@@ -133,18 +139,22 @@ def send_notification(
             reference_name=reference_name,
         )
 
-        return result
+        return OperationResult.ok(result, message=_("Notification sent successfully"))
 
     except Exception as e:
-        frappe.log_error(f"Notification API error: {str(e)}", "Email API")
-        return {"success": False, "errors": [str(e)], "operation": "send_notification"}
+        frappe.log_error(f"Notification API error: {str(e)}\n{traceback.format_exc()}", "Email API")
+        return OperationResult.fail(
+            error=str(e),
+            message=_("Failed to send notification"),
+            details={"operation": "send_notification", "traceback": traceback.format_exc()},
+        )
 
 
-@frappe.whitelist()
 @standard_api(operation_type=OperationType.COMMUNICATION)
+@frappe.whitelist()
 def send_member_email(
     member_name: str, notification_type: str, context: Dict[str, Any] = None
-) -> Dict[str, Any]:
+) -> OperationResult[Dict[str, Any]]:
     """
     Send email to member via compatibility layer.
 
@@ -154,7 +164,7 @@ def send_member_email(
         context: Email context variables
 
     Returns:
-        Dict with success status and details
+        OperationResult with member email sending status and details
     """
     try:
         # Parse context if it's a JSON string
@@ -170,15 +180,19 @@ def send_member_email(
             member_name=member_name, notification_type=notification_type, context=context or {}
         )
 
-        return result
+        return OperationResult.ok(result, message=_("Member email sent successfully"))
 
     except Exception as e:
-        frappe.log_error(f"Member email API error: {str(e)}", "Email API")
-        return {"success": False, "errors": [str(e)], "operation": "send_member_email"}
+        frappe.log_error(f"Member email API error: {str(e)}\n{traceback.format_exc()}", "Email API")
+        return OperationResult.fail(
+            error=str(e),
+            message=_("Failed to send member email"),
+            details={"operation": "send_member_email", "traceback": traceback.format_exc()},
+        )
 
 
-@frappe.whitelist()
 @standard_api(operation_type=OperationType.COMMUNICATION)
+@frappe.whitelist()
 def send_chapter_email_api(
     chapter_name: str,
     recipients: Union[str, List[str]],
@@ -186,7 +200,7 @@ def send_chapter_email_api(
     content: str = None,
     template: str = None,
     context: Dict[str, Any] = None,
-) -> Dict[str, Any]:
+) -> OperationResult[Dict[str, Any]]:
     """
     Send email via chapter communication system.
 
@@ -199,7 +213,7 @@ def send_chapter_email_api(
         context: Template context variables
 
     Returns:
-        Dict with success status and details
+        OperationResult with chapter email sending status and details
     """
     try:
         # Parse recipients if it's a JSON string
@@ -229,21 +243,25 @@ def send_chapter_email_api(
             context=context or {},
         )
 
-        return result
+        return OperationResult.ok(result, message=_("Chapter email sent successfully"))
 
     except Exception as e:
-        frappe.log_error(f"Chapter email API error: {str(e)}", "Email API")
-        return {"success": False, "errors": [str(e)], "operation": "send_chapter_email"}
+        frappe.log_error(f"Chapter email API error: {str(e)}\n{traceback.format_exc()}", "Email API")
+        return OperationResult.fail(
+            error=str(e),
+            message=_("Failed to send chapter email"),
+            details={"operation": "send_chapter_email", "traceback": traceback.format_exc()},
+        )
 
 
-@frappe.whitelist()
 @standard_api(operation_type=OperationType.READ)
-def get_available_templates() -> Dict[str, Any]:
+@frappe.whitelist()
+def get_available_templates() -> OperationResult[Dict[str, Any]]:
     """
     Get list of available email templates.
 
     Returns:
-        Dict with template names and details
+        OperationResult with template names and details
     """
     try:
         from verenigingen.services.communication.template_manager import TemplateManager
@@ -251,21 +269,28 @@ def get_available_templates() -> Dict[str, Any]:
         template_manager = TemplateManager()
         templates = template_manager.get_available_templates()
 
-        return {"success": True, "templates": templates, "count": len(templates)}
+        return OperationResult.ok(
+            {"templates": templates, "count": len(templates)},
+            message=_("Retrieved available templates successfully"),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Template list API error: {str(e)}", "Email API")
-        return {"success": False, "errors": [str(e)], "operation": "get_available_templates"}
+        frappe.log_error(f"Template list API error: {str(e)}\n{traceback.format_exc()}", "Email API")
+        return OperationResult.fail(
+            error=str(e),
+            message=_("Failed to retrieve available templates"),
+            details={"operation": "get_available_templates", "traceback": traceback.format_exc()},
+        )
 
 
-@frappe.whitelist()
 @standard_api(operation_type=OperationType.READ)
-def get_supported_notification_types() -> Dict[str, Any]:
+@frappe.whitelist()
+def get_supported_notification_types() -> OperationResult[Dict[str, Any]]:
     """
     Get list of supported notification types.
 
     Returns:
-        Dict with notification types
+        OperationResult with notification types
     """
     try:
         from verenigingen.services.communication.notification_dispatcher import NotificationDispatcher
@@ -273,16 +298,23 @@ def get_supported_notification_types() -> Dict[str, Any]:
         dispatcher = NotificationDispatcher()
         types = dispatcher.get_supported_notification_types()
 
-        return {"success": True, "notification_types": types, "count": len(types)}
+        return OperationResult.ok(
+            {"notification_types": types, "count": len(types)},
+            message=_("Retrieved supported notification types successfully"),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Notification types API error: {str(e)}", "Email API")
-        return {"success": False, "errors": [str(e)], "operation": "get_supported_notification_types"}
+        frappe.log_error(f"Notification types API error: {str(e)}\n{traceback.format_exc()}", "Email API")
+        return OperationResult.fail(
+            error=str(e),
+            message=_("Failed to retrieve supported notification types"),
+            details={"operation": "get_supported_notification_types", "traceback": traceback.format_exc()},
+        )
 
 
-@frappe.whitelist()
 @standard_api(operation_type=OperationType.READ)
-def validate_template(template_name: str) -> Dict[str, Any]:
+@frappe.whitelist()
+def validate_template(template_name: str) -> OperationResult[Dict[str, Any]]:
     """
     Validate email template exists and is properly configured.
 
@@ -290,7 +322,7 @@ def validate_template(template_name: str) -> Dict[str, Any]:
         template_name: Name of template to validate
 
     Returns:
-        Dict with validation results
+        OperationResult with validation results
     """
     try:
         from verenigingen.services.communication.template_manager import TemplateManager
@@ -298,8 +330,15 @@ def validate_template(template_name: str) -> Dict[str, Any]:
         template_manager = TemplateManager()
         validation_result = template_manager.validate_template(template_name)
 
-        return {"success": True, "template": template_name, "validation": validation_result}
+        return OperationResult.ok(
+            {"template": template_name, "validation": validation_result},
+            message=_("Template validated successfully"),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Template validation API error: {str(e)}", "Email API")
-        return {"success": False, "errors": [str(e)], "operation": "validate_template"}
+        frappe.log_error(f"Template validation API error: {str(e)}\n{traceback.format_exc()}", "Email API")
+        return OperationResult.fail(
+            error=str(e),
+            message=_("Failed to validate template"),
+            details={"operation": "validate_template", "traceback": traceback.format_exc()},
+        )
