@@ -3,16 +3,20 @@ Volunteer Application API
 Handles submissions from the volunteer application form
 """
 
+import traceback
+from typing import Any, Dict
+
 import frappe
 from frappe import _
 from frappe.utils import getdate, now_datetime, today
 
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
-def submit_volunteer_application(**data):
+def submit_volunteer_application(**data) -> OperationResult[Dict[str, Any]]:
     """
     Handle volunteer application submission.
 
@@ -22,7 +26,7 @@ def submit_volunteer_application(**data):
         **data: Form data from volunteer application
 
     Returns:
-        dict: Success status and volunteer details
+        OperationResult[Dict[str, Any]]: Success status and volunteer details
     """
     try:
         # Validate required fields
@@ -30,17 +34,19 @@ def submit_volunteer_application(**data):
         missing_fields = [field for field in required_fields if not data.get(field)]
 
         if missing_fields:
-            return {
-                "success": False,
-                "error": _("Missing required fields: {0}").format(", ".join(missing_fields)),
-            }
+            return OperationResult.fail(
+                _("Missing required fields: {0}").format(", ".join(missing_fields)),
+                error_code="MISSING_REQUIRED_FIELDS",
+            )
 
         # Validate age (must be at least 16)
         birth_date = getdate(data.get("birth_date"))
         age = (getdate(today()) - birth_date).days / 365.25
 
         if age < 16:
-            return {"success": False, "error": _("You must be at least 16 years old to volunteer")}
+            return OperationResult.fail(
+                _("You must be at least 16 years old to volunteer"), error_code="AGE_REQUIREMENT_NOT_MET"
+            )
 
         # Check for existing volunteer with same email
         existing_volunteer = frappe.db.get_value(
@@ -49,17 +55,15 @@ def submit_volunteer_application(**data):
 
         if existing_volunteer:
             if existing_volunteer.status in ["Active", "Onboarding"]:
-                return {
-                    "success": False,
-                    "error": _(
-                        "You already have an active volunteer profile. Please log in to access your account."
-                    ),
-                }
+                return OperationResult.fail(
+                    _("You already have an active volunteer profile. Please log in to access your account."),
+                    error_code="VOLUNTEER_ALREADY_EXISTS",
+                )
             elif existing_volunteer.status == "New":
-                return {
-                    "success": False,
-                    "error": _("We already have your volunteer application. We'll contact you soon!"),
-                }
+                return OperationResult.fail(
+                    _("We already have your volunteer application. We'll contact you soon!"),
+                    error_code="APPLICATION_ALREADY_SUBMITTED",
+                )
 
         # Check if they're already a member (link volunteer to existing member)
         member_link = None
@@ -74,14 +78,11 @@ def submit_volunteer_application(**data):
                 member_link = existing_member
 
         # Create volunteer record using secure user context (same pattern as membership application)
-        from verenigingen.utils.secure_operations import (
-            get_system_user_for_operation,
-            secure_user_context,
-        )
+        from verenigingen.utils.secure_operations import get_system_user_for_operation, secure_user_context
 
         system_user = get_system_user_for_operation("volunteer_application_submission")
 
-        with secure_user_context(system_user, f"Create volunteer record from public application form"):
+        with secure_user_context(system_user, "Create volunteer record from public application form"):
             volunteer = frappe.get_doc(
                 {
                     "doctype": "Volunteer",
@@ -113,21 +114,25 @@ def submit_volunteer_application(**data):
         # Log volunteer application for analytics
         frappe.logger().info(f"Volunteer application submitted: {volunteer.name} - {data.get('email')}")
 
-        return {
-            "success": True,
-            "message": _("Volunteer application submitted successfully"),
-            "application_id": volunteer.name,
-            "volunteer_name": volunteer.name,
-            "member_name": member_name,
-        }
+        return OperationResult.ok(
+            {
+                "application_id": volunteer.name,
+                "volunteer_name": volunteer.name,
+                "member_name": member_name,
+            },
+            message=_("Volunteer application submitted successfully"),
+        )
 
     except Exception as e:
         frappe.db.rollback()
+        error_msg = _("An error occurred while processing your application")
         frappe.log_error(
-            f"Volunteer application submission error: {str(e)}\n{frappe.get_traceback()}",
+            f"Volunteer application submission error: {str(e)}\n{traceback.format_exc()}",
             "Volunteer Application Error",
         )
-        return {"success": False, "error": _("An error occurred while processing your application")}
+        return OperationResult.fail(
+            error_msg, error_code="APPLICATION_SUBMISSION_ERROR", technical_details=str(e)
+        )
 
 
 def _map_time_commitment(time_commitment_str):

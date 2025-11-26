@@ -2,16 +2,24 @@
 API endpoints for volunteer skills management and search
 """
 
+import traceback
+from typing import Any, Dict
+
 import frappe
 from frappe import _
 
-# Import security decorators
-from verenigingen.utils.security.api_security_framework import critical_api, high_security_api, standard_api
+from verenigingen.utils.operation_result import OperationResult
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
 
 
-@frappe.whitelist()
 @standard_api  # Skills overview - read-only aggregated data
-def get_skills_overview():
+@frappe.whitelist()
+def get_skills_overview() -> OperationResult[Dict[str, Any]]:
     """Get comprehensive skills overview for dashboards and reports"""
     try:
         # Get skills by category with counts
@@ -74,27 +82,29 @@ def get_skills_overview():
             as_dict=True,
         )
 
-        return {
-            "success": True,
-            "skills_by_category": skills_by_category,
-            "top_skills": top_skills,
-            "development_skills": development_skills,
-        }
+        return OperationResult.ok(
+            data={
+                "skills_by_category": skills_by_category,
+                "top_skills": top_skills,
+                "development_skills": development_skills,
+            },
+            message=_("Skills overview retrieved successfully"),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Error getting skills overview: {str(e)}")
-        return {
-            "success": False,
-            "error": str(e),
-            "skills_by_category": [],
-            "top_skills": [],
-            "development_skills": [],
-        }
+        frappe.log_error(
+            title=_("Error getting skills overview"),
+            message=f"{str(e)}\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(
+            error_message=_("Failed to retrieve skills overview"),
+            error_details=str(e),
+        )
 
 
-@frappe.whitelist()
 @high_security_api  # Volunteer search - personal data access
-def search_volunteers_advanced(filters=None):
+@frappe.whitelist()
+def search_volunteers_advanced(filters=None) -> OperationResult[Dict[str, Any]]:
     """Advanced volunteer search with multiple skill filters
 
     Args:
@@ -207,21 +217,29 @@ def search_volunteers_advanced(filters=None):
 
         volunteers = frappe.db.sql(query, params, as_dict=True)
 
-        return {
-            "success": True,
-            "volunteers": volunteers,
-            "count": len(volunteers),
-            "filters_applied": filters,
-        }
+        return OperationResult.ok(
+            data={
+                "volunteers": volunteers,
+                "count": len(volunteers),
+                "filters_applied": filters,
+            },
+            message=_("Volunteer search completed successfully"),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Error in advanced volunteer search: {str(e)}")
-        return {"success": False, "error": str(e), "volunteers": [], "count": 0}
+        frappe.log_error(
+            title=_("Error in advanced volunteer search"),
+            message=f"{str(e)}\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(
+            error_message=_("Failed to search volunteers"),
+            error_details=str(e),
+        )
 
 
-@frappe.whitelist()
 @standard_api  # Skill recommendations - algorithmic suggestions
-def get_skill_recommendations(volunteer_name, limit=10):
+@frappe.whitelist()
+def get_skill_recommendations(volunteer_name, limit=10) -> OperationResult[Dict[str, Any]]:
     """Get skill recommendations for a volunteer based on similar volunteers
 
     Args:
@@ -237,11 +255,14 @@ def get_skill_recommendations(volunteer_name, limit=10):
         )
 
         if not current_skills:
-            return {
-                "success": True,
-                "recommendations": [],
-                "message": "No current skills found to base recommendations on",
-            }
+            return OperationResult.ok(
+                data={
+                    "recommendations": [],
+                    "similar_volunteers_count": 0,
+                    "current_skills_count": 0,
+                },
+                message=_("No current skills found to base recommendations on"),
+            )
 
         current_skill_names = [s.volunteer_skill for s in current_skills]
         current_categories = list(set([s.skill_category for s in current_skills]))
@@ -261,7 +282,14 @@ def get_skill_recommendations(volunteer_name, limit=10):
         )
 
         if not similar_volunteers:
-            return {"success": True, "recommendations": [], "message": "No similar volunteers found"}
+            return OperationResult.ok(
+                data={
+                    "recommendations": [],
+                    "similar_volunteers_count": 0,
+                    "current_skills_count": len(current_skills),
+                },
+                message=_("No similar volunteers found"),
+            )
 
         similar_volunteer_names = [v.volunteer_name for v in similar_volunteers]
 
@@ -292,21 +320,29 @@ def get_skill_recommendations(volunteer_name, limit=10):
             as_dict=True,
         )
 
-        return {
-            "success": True,
-            "recommendations": recommendations,
-            "similar_volunteers_count": len(similar_volunteers),
-            "current_skills_count": len(current_skills),
-        }
+        return OperationResult.ok(
+            data={
+                "recommendations": recommendations,
+                "similar_volunteers_count": len(similar_volunteers),
+                "current_skills_count": len(current_skills),
+            },
+            message=_("Skill recommendations retrieved successfully"),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Error getting skill recommendations: {str(e)}")
-        return {"success": False, "error": str(e), "recommendations": []}
+        frappe.log_error(
+            title=_("Error getting skill recommendations"),
+            message=f"{str(e)}\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(
+            error_message=_("Failed to retrieve skill recommendations"),
+            error_details=str(e),
+        )
 
 
-@frappe.whitelist()
 @standard_api  # Skill gaps analysis - organizational metrics
-def get_skill_gaps_analysis():
+@frappe.whitelist()
+def get_skill_gaps_analysis() -> OperationResult[Dict[str, Any]]:
     """Analyze skill gaps in the organization"""
     try:
         # Get skills that are in development but have few current practitioners
@@ -358,16 +394,28 @@ def get_skill_gaps_analysis():
             as_dict=True,
         )
 
-        return {"success": True, "skill_gaps": skill_gaps or [], "category_gaps": category_gaps or []}
+        return OperationResult.ok(
+            data={
+                "skill_gaps": skill_gaps or [],
+                "category_gaps": category_gaps or [],
+            },
+            message=_("Skill gaps analysis completed successfully"),
+        )
 
     except Exception as e:
-        frappe.log_error(f"Error in skill gaps analysis: {str(e)}")
-        return {"success": False, "error": str(e), "skill_gaps": [], "category_gaps": []}
+        frappe.log_error(
+            title=_("Error in skill gaps analysis"),
+            message=f"{str(e)}\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(
+            error_message=_("Failed to analyze skill gaps"),
+            error_details=str(e),
+        )
 
 
-@frappe.whitelist()
 @high_security_api  # Data export - personal information
-def export_skills_data(format_type="json"):
+@frappe.whitelist()
+def export_skills_data(format_type="json") -> OperationResult[Dict[str, Any]]:
     """Export skills data for external analysis
 
     Args:
@@ -408,15 +456,30 @@ def export_skills_data(format_type="json"):
                 writer.writeheader()
                 writer.writerows(skills_data)
 
-            return {
-                "success": True,
-                "format": "csv",
-                "data": output.getvalue(),
-                "filename": f'volunteer_skills_export_{frappe.utils.now_datetime().strftime("%Y%m%d_%H%M%S")}.csv',
-            }
+            return OperationResult.ok(
+                data={
+                    "format": "csv",
+                    "data": output.getvalue(),
+                    "filename": f'volunteer_skills_export_{frappe.utils.now_datetime().strftime("%Y%m%d_%H%M%S")}.csv',
+                },
+                message=_("Skills data exported successfully as CSV"),
+            )
         else:
-            return {"success": True, "format": "json", "data": skills_data, "count": len(skills_data)}
+            return OperationResult.ok(
+                data={
+                    "format": "json",
+                    "data": skills_data,
+                    "count": len(skills_data),
+                },
+                message=_("Skills data exported successfully as JSON"),
+            )
 
     except Exception as e:
-        frappe.log_error(f"Error exporting skills data: {str(e)}")
-        return {"success": False, "error": str(e), "data": []}
+        frappe.log_error(
+            title=_("Error exporting skills data"),
+            message=f"{str(e)}\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(
+            error_message=_("Failed to export skills data"),
+            error_details=str(e),
+        )

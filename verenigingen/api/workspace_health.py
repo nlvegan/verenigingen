@@ -12,12 +12,14 @@ Usage:
 import json
 import os
 import tempfile
+import traceback
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import frappe
 from frappe import _
 
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 
@@ -412,7 +414,9 @@ class WorkspaceHealthManager:
         if not self.issues and not self.fixes_applied:
             return f"✅ {self.workspace_name} workspace is healthy"
         elif self.issues and not self.fixes_applied:
-            return f"⚠️  Found {len(self.issues)} issues in {self.workspace_name} workspace (no fixes applied)"
+            return (
+                f"⚠️  Found {len(self.issues)} issues in {self.workspace_name} workspace (no fixes applied)"
+            )
         elif self.fixes_applied:
             remaining = len(self.issues) - len(self.fixes_applied)
             if remaining <= 0:
@@ -426,9 +430,11 @@ class WorkspaceHealthManager:
 # Public API Functions
 
 
-@frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def diagnose_and_fix(workspace_name: str, auto_fix: bool = True, create_backup: bool = True) -> Dict:
+@frappe.whitelist()
+def diagnose_and_fix(
+    workspace_name: str, auto_fix: bool = True, create_backup: bool = True
+) -> OperationResult[Dict[str, Any]]:
     """
     Complete workspace health check and repair
 
@@ -438,15 +444,48 @@ def diagnose_and_fix(workspace_name: str, auto_fix: bool = True, create_backup: 
         create_backup: Whether to create backup before fixes (default: True)
 
     Returns:
-        Dict with diagnosis results and fixes applied
+        OperationResult with diagnosis results and fixes applied
     """
-    manager = WorkspaceHealthManager(workspace_name)
-    return manager.diagnose_and_fix(auto_fix=auto_fix, create_backup=create_backup)
+    try:
+        manager = WorkspaceHealthManager(workspace_name)
+        result = manager.diagnose_and_fix(auto_fix=auto_fix, create_backup=create_backup)
+
+        if result.get("success"):
+            status = result.get("status", "unknown")
+            issues_found = result.get("issues_found", 0)
+            fixes_applied = result.get("fixes_applied", 0)
+
+            if status == "healthy":
+                message = _("Workspace {0} is healthy").format(workspace_name)
+            elif fixes_applied > 0:
+                message = _("Workspace {0}: Applied {1} fixes, found {2} issues").format(
+                    workspace_name, fixes_applied, issues_found
+                )
+            else:
+                message = _("Workspace {0}: Found {1} issues (no fixes applied)").format(
+                    workspace_name, issues_found
+                )
+
+            return OperationResult.ok(result, message=message)
+        else:
+            error_msg = result.get("error", _("Unknown error during workspace health check"))
+            frappe.log_error(
+                title=_("Workspace Health Check Failed"),
+                message=f"Workspace: {workspace_name}\nError: {error_msg}",
+            )
+            return OperationResult.fail(error_msg)
+
+    except Exception as e:
+        error_msg = _("Failed to diagnose and fix workspace {0}: {1}").format(workspace_name, str(e))
+        frappe.log_error(
+            title=_("Workspace Health Check Error"), message=f"{error_msg}\n\n{traceback.format_exc()}"
+        )
+        return OperationResult.fail(error_msg)
 
 
-@frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def health_check(workspace_name: str) -> Dict:
+@frappe.whitelist()
+def health_check(workspace_name: str) -> OperationResult[Dict[str, Any]]:
     """
     Run diagnostics only without applying fixes
 
@@ -454,15 +493,43 @@ def health_check(workspace_name: str) -> Dict:
         workspace_name: Name of workspace to check
 
     Returns:
-        Dict with diagnosis results
+        OperationResult with diagnosis results
     """
-    manager = WorkspaceHealthManager(workspace_name)
-    return manager.diagnose_and_fix(auto_fix=False, create_backup=False)
+    try:
+        manager = WorkspaceHealthManager(workspace_name)
+        result = manager.diagnose_and_fix(auto_fix=False, create_backup=False)
+
+        if result.get("success"):
+            issues_found = result.get("issues_found", 0)
+            status = result.get("status", "unknown")
+
+            if status == "healthy":
+                message = _("Workspace {0} health check: No issues found").format(workspace_name)
+            else:
+                message = _("Workspace {0} health check: Found {1} issues").format(
+                    workspace_name, issues_found
+                )
+
+            return OperationResult.ok(result, message=message)
+        else:
+            error_msg = result.get("error", _("Unknown error during health check"))
+            frappe.log_error(
+                title=_("Workspace Health Check Failed"),
+                message=f"Workspace: {workspace_name}\nError: {error_msg}",
+            )
+            return OperationResult.fail(error_msg)
+
+    except Exception as e:
+        error_msg = _("Failed to run health check on workspace {0}: {1}").format(workspace_name, str(e))
+        frappe.log_error(
+            title=_("Workspace Health Check Error"), message=f"{error_msg}\n\n{traceback.format_exc()}"
+        )
+        return OperationResult.fail(error_msg)
 
 
-@frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def quick_fix(workspace_name: str) -> Dict:
+@frappe.whitelist()
+def quick_fix(workspace_name: str) -> OperationResult[Dict[str, Any]]:
     """
     Quick fix for the most common workspace issue (content sync)
 
@@ -470,7 +537,7 @@ def quick_fix(workspace_name: str) -> Dict:
         workspace_name: Name of workspace to fix
 
     Returns:
-        Dict with fix results
+        OperationResult with fix results
     """
     try:
         workspace = frappe.get_doc("Workspace", workspace_name)
@@ -479,7 +546,12 @@ def quick_fix(workspace_name: str) -> Dict:
         card_breaks = [link.label for link in workspace.links if link.type == "Card Break"]
 
         if not card_breaks:
-            return {"success": False, "error": "No Card Breaks found to sync"}
+            error_msg = _("No Card Breaks found to sync in workspace {0}").format(workspace_name)
+            frappe.log_error(
+                title=_("Workspace Quick Fix Failed"),
+                message=f"Workspace: {workspace_name}\nError: {error_msg}",
+            )
+            return OperationResult.fail(error_msg)
 
         # Generate simple content structure
         new_content = []
@@ -497,11 +569,21 @@ def quick_fix(workspace_name: str) -> Dict:
         frappe.db.commit()
         frappe.clear_cache()
 
-        return {
-            "success": True,
-            "message": f"Quick fix applied: synchronized {len(card_breaks)} Card Breaks",
-            "cards_synced": card_breaks,
-        }
+        data = {"workspace": workspace_name, "cards_synced": card_breaks, "cards_count": len(card_breaks)}
+        message = _("Quick fix applied: synchronized {0} Card Breaks in workspace {1}").format(
+            len(card_breaks), workspace_name
+        )
+
+        return OperationResult.ok(data, message=message)
+
+    except frappe.DoesNotExistError:
+        error_msg = _("Workspace {0} does not exist").format(workspace_name)
+        frappe.log_error(title=_("Workspace Quick Fix Failed"), message=f"Error: {error_msg}")
+        return OperationResult.fail(error_msg)
 
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        error_msg = _("Failed to apply quick fix to workspace {0}: {1}").format(workspace_name, str(e))
+        frappe.log_error(
+            title=_("Workspace Quick Fix Error"), message=f"{error_msg}\n\n{traceback.format_exc()}"
+        )
+        return OperationResult.fail(error_msg)

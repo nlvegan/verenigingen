@@ -8,6 +8,7 @@ standalone security monitoring and the comprehensive monitoring ecosystem.
 """
 
 import json
+import traceback
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -16,6 +17,7 @@ from frappe import _
 from frappe.utils import add_days, now_datetime
 
 from verenigingen.api.security_monitoring_dashboard import get_security_dashboard_data
+from verenigingen.utils.operation_result import OperationResult
 
 # Import security framework
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
@@ -30,7 +32,7 @@ from verenigingen.www.monitoring_dashboard import get_unified_security_summary
 
 @standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
-def get_unified_monitoring_overview():
+def get_unified_monitoring_overview() -> OperationResult[Dict[str, Any]]:
     """Get comprehensive overview of all monitoring systems"""
     try:
         # Get data from all monitoring systems
@@ -54,8 +56,7 @@ def get_unified_monitoring_overview():
         # Unified security summary
         unified_security = get_unified_security_summary()
 
-        return {
-            "success": True,
+        data = {
             "overview": {
                 "security_monitoring": {
                     "status": "operational",
@@ -101,18 +102,19 @@ def get_unified_monitoring_overview():
             "generated_at": now_datetime().isoformat(),
         }
 
+        return OperationResult.ok(data, message=_("Unified monitoring overview retrieved successfully"))
+
     except Exception as e:
-        frappe.log_error(f"Error getting unified monitoring overview: {str(e)}")
-        return {
-            "success": False,
-            "error": str(e),
-            "message": "Failed to generate unified monitoring overview",
-        }
+        error_msg = _("Failed to generate unified monitoring overview")
+        frappe.log_error(
+            title=error_msg, message=f"{error_msg}\n\nError: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+        )
+        return OperationResult.fail(error_msg, error=str(e))
 
 
 @high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
-def get_integrated_security_metrics(hours_back: int = 24):
+def get_integrated_security_metrics(hours_back: int = 24) -> OperationResult[Dict[str, Any]]:
     """Get security metrics integrated across all monitoring systems"""
     try:
         hours_back = min(int(hours_back), 168)  # Limit to 1 week
@@ -138,8 +140,7 @@ def get_integrated_security_metrics(hours_back: int = 24):
         # Get unified security summary
         unified_summary = get_unified_security_summary()
 
-        return {
-            "success": True,
+        data = {
             "integrated_metrics": {
                 "security_monitoring": {
                     "data": security_data.get("data", {}),
@@ -169,14 +170,19 @@ def get_integrated_security_metrics(hours_back: int = 24):
             "generated_at": now_datetime().isoformat(),
         }
 
+        return OperationResult.ok(data, message=_("Integrated security metrics retrieved successfully"))
+
     except Exception as e:
-        frappe.log_error(f"Error getting integrated security metrics: {str(e)}")
-        return {"success": False, "error": str(e), "message": "Failed to get integrated security metrics"}
+        error_msg = _("Failed to get integrated security metrics")
+        frappe.log_error(
+            title=error_msg, message=f"{error_msg}\n\nError: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+        )
+        return OperationResult.fail(error_msg, error=str(e))
 
 
 @standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
-def get_monitoring_system_health():
+def get_monitoring_system_health() -> OperationResult[Dict[str, Any]]:
     """Get health status of all monitoring system components"""
     try:
         health_status = {
@@ -266,16 +272,21 @@ def get_monitoring_system_health():
         if health_status["overall_health"] == "HEALTHY":
             health_status["recommendations"].append("All monitoring systems operational")
 
-        return {"success": True, "health_status": health_status, "generated_at": now_datetime().isoformat()}
+        data = {"health_status": health_status, "generated_at": now_datetime().isoformat()}
+
+        return OperationResult.ok(data, message=_("Monitoring system health retrieved successfully"))
 
     except Exception as e:
-        frappe.log_error(f"Error getting monitoring system health: {str(e)}")
-        return {"success": False, "error": str(e), "message": "Failed to get monitoring system health"}
+        error_msg = _("Failed to get monitoring system health")
+        frappe.log_error(
+            title=error_msg, message=f"{error_msg}\n\nError: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+        )
+        return OperationResult.fail(error_msg, error=str(e))
 
 
 @high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
-def trigger_unified_security_test():
+def trigger_unified_security_test() -> OperationResult[Dict[str, Any]]:
     """Trigger comprehensive security test across all monitoring systems"""
     if "System Manager" not in frappe.get_roles():
         frappe.throw(_("Access denied"), frappe.PermissionError)
@@ -354,8 +365,7 @@ def trigger_unified_security_test():
             else 0
         )
 
-        return {
-            "success": True,
+        data = {
             "test_results": test_results,
             "overall_score": round(overall_score, 1),
             "overall_status": "PASS" if overall_score >= 80 else "FAIL",
@@ -368,9 +378,14 @@ def trigger_unified_security_test():
             "generated_at": now_datetime().isoformat(),
         }
 
+        return OperationResult.ok(data, message=_("Unified security test completed successfully"))
+
     except Exception as e:
-        frappe.log_error(f"Error running unified security test: {str(e)}")
-        return {"success": False, "error": str(e), "message": "Failed to run unified security test"}
+        error_msg = _("Failed to run unified security test")
+        frappe.log_error(
+            title=error_msg, message=f"{error_msg}\n\nError: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+        )
+        return OperationResult.fail(error_msg, error=str(e))
 
 
 # Helper functions

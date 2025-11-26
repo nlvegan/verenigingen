@@ -7,21 +7,24 @@ Provides comprehensive visibility into security events, violations, and system h
 """
 
 import json
+import traceback
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import frappe
 from frappe import _
 from frappe.utils import add_days, now_datetime
+
+from verenigingen.utils.operation_result import OperationResult
 
 # Security framework imports
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 from verenigingen.utils.security.audit_logging import AuditEventType, AuditSeverity
 
 
-@frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def get_security_dashboard_data(hours_back: int = 24):
+@frappe.whitelist()
+def get_security_dashboard_data(hours_back: int = 24) -> OperationResult[Dict[str, Any]]:
     """Get comprehensive security dashboard data"""
 
     try:
@@ -41,16 +44,18 @@ def get_security_dashboard_data(hours_back: int = 24):
             "framework_health": _get_framework_health_status(),
         }
 
-        return {
-            "success": True,
+        result = {
             "data": dashboard_data,
             "generated_at": now_datetime().isoformat(),
             "time_range_hours": hours_back,
         }
 
+        return OperationResult.ok(result, message=_("Security dashboard data retrieved successfully"))
+
     except Exception as e:
-        frappe.log_error(f"Error generating security dashboard: {str(e)}", "Security Dashboard Error")
-        return {"success": False, "error": str(e)}
+        error_msg = f"Error generating security dashboard: {str(e)}"
+        frappe.log_error(title="Security Dashboard Error", message=f"{error_msg}\n\n{traceback.format_exc()}")
+        return OperationResult.fail(error=error_msg, message=_("Failed to generate security dashboard data"))
 
 
 def _get_security_summary(cutoff_time):
@@ -379,9 +384,9 @@ def _get_framework_health_status():
         return {"overall_status": "ERROR", "components": {}, "error": str(e)}
 
 
-@frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
-def get_security_metrics_summary():
+@frappe.whitelist()
+def get_security_metrics_summary() -> OperationResult[Dict[str, Any]]:
     """Get quick security metrics for overview"""
 
     try:
@@ -392,8 +397,7 @@ def get_security_metrics_summary():
         auth_failures = _get_authentication_failures(cutoff_time)
         api_usage = _get_api_usage_statistics(cutoff_time)
 
-        return {
-            "success": True,
+        result = {
             "security_score": summary.get("security_score", 85),
             "total_events_24h": summary.get("total_security_events", 0),
             "rate_violations_24h": rate_violations.get("total_violations", 0),
@@ -402,9 +406,12 @@ def get_security_metrics_summary():
             "framework_status": _get_framework_health_status().get("overall_status", "UNKNOWN"),
         }
 
+        return OperationResult.ok(result, message=_("Security metrics summary retrieved successfully"))
+
     except Exception as e:
-        frappe.log_error(f"Error getting security metrics summary: {str(e)}")
-        return {"success": False, "error": str(e)}
+        error_msg = f"Error getting security metrics summary: {str(e)}"
+        frappe.log_error(title="Security Metrics Error", message=f"{error_msg}\n\n{traceback.format_exc()}")
+        return OperationResult.fail(error=error_msg, message=_("Failed to retrieve security metrics summary"))
 
 
 if __name__ == "__main__":
