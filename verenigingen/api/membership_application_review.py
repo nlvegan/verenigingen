@@ -388,9 +388,9 @@ def approve_membership_application(
     # Send approval email with payment link
     try:
         email_result = send_approval_notification(member, invoice, membership_type_doc)
-        if not email_result or not email_result.get("success"):
+        if not email_result or not email_result.success:
             frappe.log_error(
-                f"Approval email failed for {member.name} ({member.email}): {email_result.get('errors') if email_result else 'No result returned'}",
+                f"Approval email failed for {member.name} ({member.email}): {'; '.join(email_result.errors or []) if email_result else 'No result returned'}",
                 "Approval Email Failed",
             )
             frappe.msgprint(
@@ -691,13 +691,11 @@ def activate_volunteer_record(member):
                     from verenigingen.utils.account_creation_manager import upgrade_member_to_volunteer_user
 
                     upgrade_result = upgrade_member_to_volunteer_user(member.name)
-                    if upgrade_result.get("success"):
-                        frappe.logger().info(
-                            f"User account upgrade for volunteer: {upgrade_result.get('message')}"
-                        )
+                    if upgrade_result.success:
+                        frappe.logger().info(f"User account upgrade for volunteer: {upgrade_result.message}")
                     else:
                         frappe.logger().warning(
-                            f"Could not upgrade user account for volunteer: {upgrade_result.get('error')}"
+                            f"Could not upgrade user account for volunteer: {'; '.join(upgrade_result.errors or [])}"
                         )
                 except Exception as e:
                     frappe.logger().error(f"Error upgrading user account to System User: {str(e)}")
@@ -729,13 +727,13 @@ def activate_volunteer_record(member):
                         )
 
                         upgrade_result = upgrade_member_to_volunteer_user(member.name)
-                        if upgrade_result.get("success"):
+                        if upgrade_result.success:
                             frappe.logger().info(
-                                f"User account upgrade for new volunteer: {upgrade_result.get('message')}"
+                                f"User account upgrade for new volunteer: {upgrade_result.message}"
                             )
                         else:
                             frappe.logger().warning(
-                                f"Could not upgrade user account for new volunteer: {upgrade_result.get('error')}"
+                                f"Could not upgrade user account for new volunteer: {'; '.join(upgrade_result.errors or [])}"
                             )
                     except Exception as e:
                         frappe.logger().error(f"Error upgrading user account to System User: {str(e)}")
@@ -1056,9 +1054,9 @@ def send_approval_notification(member, invoice, membership_type):
         context=context,
     )
 
-    if not result.get("success"):
+    if not result.success:
         frappe.logger("membership_review").warning(
-            f"Failed to send approval notification to {member.email}: {'; '.join(result.get('errors', []))}"
+            f"Failed to send approval notification to {member.email}: {'; '.join(result.errors or [])}"
         )
 
     return result

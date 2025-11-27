@@ -195,6 +195,29 @@ class MollieClient:
             frappe.log_error(error_msg, "Mollie Client")
             raise MolliePaymentError(error_msg, original_error=e)
 
+    def get_subscription(self, customer_id: str, subscription_id: str) -> Any:
+        """
+        Get subscription details from Mollie.
+
+        Args:
+            customer_id: The Mollie customer ID
+            subscription_id: The subscription ID
+
+        Returns:
+            Mollie subscription object
+
+        Raises:
+            MolliePaymentError: When subscription cannot be retrieved
+        """
+        try:
+            client = self._get_mollie_client()
+            customer = client.customers.get(customer_id)
+            return customer.subscriptions.get(subscription_id)
+        except Exception as e:
+            error_msg = f"Failed to get subscription {subscription_id} for customer {customer_id}: {e}"
+            frappe.log_error(error_msg, "Mollie Client")
+            raise MolliePaymentError(error_msg, original_error=e)
+
     def cancel_subscription(self, customer_id: str, subscription_id: str) -> Any:
         """
         Cancel a subscription.

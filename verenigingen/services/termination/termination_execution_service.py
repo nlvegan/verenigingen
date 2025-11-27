@@ -132,8 +132,9 @@ class TerminationExecutionService:
             # STEP 3: Execute system updates using declarative operations
             results = TerminationExecutionService.execute_system_updates(termination_request)
 
-            # STEP 4: Update execution tracking fields
+            # STEP 4: Update execution tracking fields and status
             TerminationExecutionService._update_tracking(termination_request, results)
+            termination_request.status = "Executed"
 
             # STEP 5: Save changes (use flags to avoid validation issues)
             termination_request.flags.ignore_validate_update_after_submit = True
@@ -291,10 +292,7 @@ class TerminationExecutionService:
         if termination_request.status != "Approved":
             frappe.throw(_("Only approved requests can be executed"))
 
-        # Update status to executed
-        termination_request.status = "Executed"
-
-        # Call the main execution method
+        # Call the main execution method (status updated after success)
         success = TerminationExecutionService.execute(termination_request)
 
         if success:
