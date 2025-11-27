@@ -131,8 +131,10 @@ function validate_link_fields(frm) {
 
 // Note: escapeHtml, unwrapOperationResult, getErrorMessage, isFailureResult are provided by
 // /assets/verenigingen/js/utils/operation-result-helpers.js (loaded via app_include_js)
-// isOperationResultFailed is an alias for vereiningen.utils.isFailureResult
-const isOperationResultFailed = (msg) => verenigingen.utils.isFailureResult(msg);
+// isOperationResultFailed is an alias for verenigingen.utils.isFailureResult
+// Using var (not const) to be safe for form re-renders (const causes redeclaration error)
+// eslint-disable-next-line no-var
+var isOperationResultFailed = (msg) => verenigingen.utils.isFailureResult(msg);
 
 /**
  * Main Member DocType Form Controller
@@ -3537,34 +3539,36 @@ function incremental_update_history_tables(frm) {
 				freeze: true,
 				freeze_message: __('Rebuilding payment history...'),
 				callback(r) {
-					if (r.message && r.message.overall_success) {
+					// Unwrap OperationResult format
+					const data = unwrapOperationResult(r.message);
+					if (data && data.overall_success) {
 						const message_parts = [];
 
 						// Add volunteer expenses results
-						if (r.message.volunteer_expenses.success) {
+						if (data.volunteer_expenses && data.volunteer_expenses.success) {
 							message_parts.push(
 								__('Volunteer Expenses: Updated {0} entries', [
-									r.message.volunteer_expenses.count
+									data.volunteer_expenses.count
 								])
 							);
-						} else if (r.message.volunteer_expenses.error) {
+						} else if (data.volunteer_expenses && data.volunteer_expenses.error) {
 							message_parts.push(
 								__('Volunteer Expenses: {0}', [
-									r.message.volunteer_expenses.error
+									data.volunteer_expenses.error
 								])
 							);
 						}
 
 						// Add donations results
-						if (r.message.donations.success) {
+						if (data.donations && data.donations.success) {
 							message_parts.push(
 								__('Donations: Updated {0} entries', [
-									r.message.donations.count
+									data.donations.count
 								])
 							);
-						} else if (r.message.donations.error) {
+						} else if (data.donations && data.donations.error) {
 							message_parts.push(
-								__('Donations: {0}', [r.message.donations.error])
+								__('Donations: {0}', [data.donations.error])
 							);
 						}
 
@@ -3581,21 +3585,19 @@ function incremental_update_history_tables(frm) {
 						// Refresh the form to show updated tables
 						frm.reload_doc();
 					} else {
-						const error_message = r.message
-							? r.message.error
-							: __('Unknown error occurred');
+						const error_message = getErrorMessage(r.message, __('Unknown error occurred'));
 						const error_parts = [];
 
-						if (r.message && r.message.volunteer_expenses.error) {
+						if (data && data.volunteer_expenses && data.volunteer_expenses.error) {
 							error_parts.push(
 								__('Volunteer Expenses: {0}', [
-									r.message.volunteer_expenses.error
+									data.volunteer_expenses.error
 								])
 							);
 						}
-						if (r.message && r.message.donations.error) {
+						if (data && data.donations && data.donations.error) {
 							error_parts.push(
-								__('Donations: {0}', [r.message.donations.error])
+								__('Donations: {0}', [data.donations.error])
 							);
 						}
 
