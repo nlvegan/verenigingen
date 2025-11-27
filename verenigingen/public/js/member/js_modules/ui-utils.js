@@ -140,22 +140,24 @@ function show_debug_postal_code_info(frm) {
 				pincode: frm.doc.pincode
 			},
 			callback(r) {
-				if (r.message) {
-					let message = `<div><strong>Postal Code Debug Results for ${r.message.pincode}</strong><br><br>`;
+				// Unwrap OperationResult format
+				const data = unwrapOperationResult(r.message);
+				if (data) {
+					let message = `<div><strong>Postal Code Debug Results for ${data.pincode}</strong><br><br>`;
 
-					if (r.message.chapters && r.message.chapters.length > 0) {
+					if (data.chapters && data.chapters.length > 0) {
 						message += '<strong>Matching Chapters:</strong><br>';
-						r.message.chapters.forEach((chapter) => {
+						data.chapters.forEach((chapter) => {
 							message += `• ${chapter.name} (Score: ${chapter.score}%, Distance: ${chapter.distance}km)<br>`;
 						});
 					} else {
 						message += 'No matching chapters found.<br>';
 					}
 
-					if (r.message.debug_info) {
+					if (data.debug_info) {
 						message += '<br><strong>Debug Info:</strong><br>';
-						Object.keys(r.message.debug_info).forEach((key) => {
-							message += `${key}: ${r.message.debug_info[key]}<br>`;
+						Object.keys(data.debug_info).forEach((key) => {
+							message += `${key}: ${data.debug_info[key]}<br>`;
 						});
 					}
 
@@ -190,11 +192,13 @@ function show_board_memberships(frm) {
 			member_name: frm.doc.name
 		},
 		callback(r) {
+			// Unwrap OperationResult format
+			const data = unwrapOperationResult(r.message);
 			// Only show board memberships if we actually have results
-			if (r.message && Array.isArray(r.message) && r.message.length > 0) {
+			if (data && Array.isArray(data) && data.length > 0) {
 				let html
           = '<div class="board-memberships"><h4>Board Positions</h4><ul>';
-				r.message.forEach((membership) => {
+				data.forEach((membership) => {
 					html += `<li><strong>${membership.chapter}:</strong> ${
 						membership.role
 					} (${frappe.datetime.str_to_user(membership.start_date)} - ${
@@ -228,9 +232,11 @@ function create_organization_user(frm) {
 		method:
       'verenigingen.verenigingen.doctype.verenigingen_settings.verenigingen_settings.get_organization_email_domain',
 		callback(r) {
+			// Unwrap OperationResult format
+			const data = unwrapOperationResult(r.message);
 			const domain
-        = r.message && r.message.organization_email_domain
-        	? r.message.organization_email_domain
+        = data && data.organization_email_domain
+        	? data.organization_email_domain
         	: 'example.org';
 
 			const nameForEmail = frm.doc.full_name

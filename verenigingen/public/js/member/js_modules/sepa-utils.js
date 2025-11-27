@@ -286,8 +286,10 @@ function create_sepa_mandate_with_dialog(frm, message = null) {
 						method: 'verenigingen.services.payment.validation_service.validate_bank_details_api',
 						args: { iban },
 						callback(r) {
-							if (r.message && r.message.valid && r.message.data && r.message.data.bic) {
-								d.set_value('bic', r.message.data.bic);
+							// Unwrap OperationResult format
+							const data = unwrapOperationResult(r.message);
+							if (data && data.valid && data.data && data.data.bic) {
+								d.set_value('bic', data.data.bic);
 							}
 						}
 					});

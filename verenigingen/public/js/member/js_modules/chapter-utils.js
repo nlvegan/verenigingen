@@ -102,7 +102,9 @@ function assign_chapter_to_member(frm, chapter_name, note) {
 			note
 		},
 		callback(r) {
-			if (r.message && r.message.success) {
+			// Unwrap OperationResult format
+			const data = unwrapOperationResult(r.message);
+			if (data && data.success) {
 				// Refresh the form to get the updated values
 				frm.reload_doc();
 				frappe.show_alert(
@@ -114,7 +116,7 @@ function assign_chapter_to_member(frm, chapter_name, note) {
 				);
 
 				// Show additional info if previous memberships were cleaned up
-				if (r.message.cleanup_performed) {
+				if (data.cleanup_performed) {
 					frappe.show_alert(
 						{
 							message: __(
@@ -128,7 +130,7 @@ function assign_chapter_to_member(frm, chapter_name, note) {
 			} else {
 				frappe.msgprint({
 					title: __('Assignment Failed'),
-					message: r.message.message || __('Failed to assign chapter'),
+					message: getErrorMessage(r.message, __('Failed to assign chapter')),
 					indicator: 'red'
 				});
 			}

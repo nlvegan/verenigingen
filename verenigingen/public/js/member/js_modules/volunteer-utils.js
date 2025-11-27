@@ -251,12 +251,14 @@ function create_volunteer_from_member(frm) {
 				freeze: true,
 				freeze_message: __('Creating volunteer profile...'),
 				callback(r) {
-					if (r.message && r.message.success) {
+					// Unwrap OperationResult format
+					const data = unwrapOperationResult(r.message);
+					if (data && data.success) {
 						let message = __('Volunteer profile created successfully');
 
 						// Add account creation info if queued
-						if (r.message.account_creation_queued) {
-							message += `<br><small>${__('User account creation queued')}: ${r.message.account_request}</small>`;
+						if (data.account_creation_queued) {
+							message += `<br><small>${__('User account creation queued')}: ${data.account_request}</small>`;
 						}
 
 						frappe.show_alert(
@@ -276,7 +278,7 @@ function create_volunteer_from_member(frm) {
 					} else {
 						frappe.msgprint({
 							title: __('Error'),
-							message: r.message?.error || __('Failed to create volunteer profile'),
+							message: getErrorMessage(r.message, __('Failed to create volunteer profile')),
 							indicator: 'red'
 						});
 					}

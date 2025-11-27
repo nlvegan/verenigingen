@@ -75,10 +75,12 @@ function refresh_membership_dues_info(frm) {
 					member: frm.doc.name
 				},
 				callback(r) {
-					if (r.message && r.message.has_schedule && r.message.schedule_name) {
-						frm.set_value('current_dues_schedule', r.message.schedule_name);
-						if (r.message.dues_rate !== undefined) {
-							frm.set_value('dues_rate', r.message.dues_rate);
+					// Unwrap OperationResult format
+					const data = unwrapOperationResult(r.message);
+					if (data && data.has_schedule && data.schedule_name) {
+						frm.set_value('current_dues_schedule', data.schedule_name);
+						if (data.dues_rate !== undefined) {
+							frm.set_value('dues_rate', data.dues_rate);
 						}
 					}
 				}
@@ -92,7 +94,9 @@ function refresh_membership_dues_info(frm) {
 					member_name: frm.doc.name
 				},
 				callback(r) {
-					if (r.message && r.message.success) {
+					// Unwrap OperationResult format
+					const data = unwrapOperationResult(r.message);
+					if (data && data.success) {
 						frm.refresh_field('fee_change_history');
 					}
 				}
