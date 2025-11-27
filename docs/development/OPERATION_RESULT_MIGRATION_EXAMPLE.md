@@ -265,6 +265,115 @@ After migration:
   - `approve_application()` - Lines 510-525 (caller updated)
   - `reject_application()` - Lines 556-571 (caller updated)
 
+## JavaScript Callers
+
+When calling OperationResult-returning APIs from JavaScript, use the `unwrapOperationResult()` helper to extract the data from the standardized response format.
+
+### The Helper Function
+
+The helper is available globally via `web_include_js` in DocType controllers. For standalone HTML pages, include it inline:
+
+```javascript
+// Helper to unwrap OperationResult format from security-decorated APIs
+function unwrapOperationResult(response) {
+    if (!response) return null;
+    // Check if this is an OperationResult wrapper (has success, data, and timestamp/operation)
+    if (response.success !== undefined && response.data !== undefined &&
+        (response.timestamp !== undefined || response.operation !== undefined)) {
+        return response.data;
+    }
+    // Return as-is if not wrapped
+    return response;
+}
+```
+
+### Updating JavaScript Callbacks
+
+**Before (direct property access - BROKEN with OperationResult):**
+```javascript
+frappe.call({
+    method: 'verenigingen.api.some_module.some_function',
+    args: { ... },
+    callback: function(r) {
+        if (r.message && r.message.some_property) {
+            // This breaks because r.message is now OperationResult format
+            doSomething(r.message.some_property);
+        }
+    }
+});
+```
+
+**After (using unwrapOperationResult):**
+```javascript
+frappe.call({
+    method: 'verenigingen.api.some_module.some_function',
+    args: { ... },
+    callback: function(r) {
+        // Unwrap OperationResult format
+        const data = unwrapOperationResult(r.message);
+        if (data && data.some_property) {
+            doSomething(data.some_property);
+        }
+    }
+});
+```
+
+### Common Patterns
+
+**1. Simple data extraction:**
+```javascript
+callback: function(r) {
+    const data = unwrapOperationResult(r.message);
+    if (data) {
+        frappe.model.set_value(cdt, cdn, 'field', data.value);
+    }
+}
+```
+
+**2. Success/failure checking (when API returns success flag in data):**
+```javascript
+callback: function(r) {
+    const data = unwrapOperationResult(r.message);
+    if (data && data.success) {
+        frappe.show_alert({ message: data.message, indicator: 'green' });
+    } else {
+        frappe.show_alert({ message: data ? data.error : 'Unknown error', indicator: 'red' });
+    }
+}
+```
+
+**3. Array data:**
+```javascript
+callback: function(r) {
+    const data = unwrapOperationResult(r.message);
+    if (data && data.length > 0) {
+        data.forEach(item => {
+            // Process each item
+        });
+    }
+}
+```
+
+### Files with JavaScript Callers Updated
+
+The following files have been updated to use `unwrapOperationResult()`:
+
+**DocType Controllers:**
+- `direct_debit_batch.js` - 4 callbacks (SEPA mandate, invoice loading, validation, returns)
+- `mollie_settings.js` - 1 callback (connection test)
+- `member.js` - Multiple callbacks (member operations)
+
+**Member Module Utils:**
+- `chapter-utils.js`, `payment-utils.js`, `ui-utils.js`, `sepa-utils.js`, `volunteer-utils.js`
+
+**Web Pages:**
+- `batch-optimizer.html` - 3 callbacks (preview, create batches, load invoices)
+- `mollie_dashboard.html` - 1 callback (dashboard data)
+
+### Note on Core Frappe Methods
+
+Core Frappe methods like `frappe.db.get_value`, `frappe.client.get_list`, etc. do NOT use OperationResult - they return data directly. Only custom `verenigingen.api.*` endpoints with security decorators use this pattern.
+
 ## Next Steps
 
 Continue migrating other service methods following this pattern:
@@ -272,5 +381,6 @@ Continue migrating other service methods following this pattern:
 1. Start with services (cleanest separation)
 2. Then migrate API endpoints
 3. Finally update helper functions
+4. **Update JavaScript callers to use `unwrapOperationResult()`**
 
 See `docs/development/ERROR_HANDLING_CONVENTIONS.md` for complete guide.
