@@ -268,7 +268,20 @@ class APIService {
 					clearTimeout(timeoutId);
 
 					if (response.message !== undefined) {
-						resolve(response.message);
+						// Handle OperationResult wrapper pattern
+						// OperationResult has: { success, data, message, timestamp }
+						const msg = response.message;
+						if (msg && typeof msg === 'object' && 'success' in msg && 'data' in msg) {
+							// This is an OperationResult - unwrap it
+							if (msg.success) {
+								resolve(msg.data);
+							} else {
+								reject(new Error(msg.message || 'Operation failed'));
+							}
+						} else {
+							// Legacy response format - return as-is
+							resolve(response.message);
+						}
 					} else if (response.exc) {
 						reject(new Error(response.exc));
 					} else {

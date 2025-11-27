@@ -364,6 +364,13 @@ class MemberHistoryUpdateService:
 
         # Process each current payment
         for payment in current_payments:
+            # Build notes with reference_no if available (e.g., Mollie transaction ID)
+            notes_parts = []
+            if payment.remarks:
+                notes_parts.append(payment.remarks)
+            if payment.reference_no:
+                notes_parts.append(f"Ref: {payment.reference_no}")
+
             expected_row = {
                 "payment_entry": payment.name,
                 "payment_entry_doctype": "Payment Entry",
@@ -374,9 +381,13 @@ class MemberHistoryUpdateService:
                 "paid_amount": payment.received_amount or payment.paid_amount,
                 "payment_status": "Paid",
                 "payment_method": payment.mode_of_payment,
-                "reference_name": payment.reference_no,
+                # NOTE: reference_name is a Dynamic Link field requiring reference_doctype.
+                # For dues payments, reference should link to Payment Entry (already in payment_entry field)
+                # or be empty. Do NOT store arbitrary strings like Mollie transaction IDs here.
+                "reference_doctype": None,
+                "reference_name": None,
                 "reconciled": 0,  # Unallocated payments are not reconciled
-                "notes": payment.remarks or "",
+                "notes": " | ".join(notes_parts) if notes_parts else "",
             }
 
             if payment.name in existing_payments:

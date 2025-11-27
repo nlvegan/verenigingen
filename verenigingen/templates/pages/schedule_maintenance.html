@@ -112,6 +112,9 @@
 let currentIssueType = '';
 
 // Load health report on page load
+// Note: escapeHtml, unwrapOperationResult, getErrorMessage are provided by
+// /assets/verenigingen/js/utils/operation-result-helpers.js (loaded via web_include_js)
+
 $(document).ready(function() {
     loadHealthReport();
 });
@@ -127,15 +130,17 @@ function loadHealthReport() {
     frappe.call({
         method: 'verenigingen.api.schedule_maintenance.get_schedule_health_report',
         callback: function(r) {
-            if (r.message) {
-                displayHealthReport(r.message);
+            const report = unwrapOperationResult(r.message);
+            if (report) {
+                displayHealthReport(report);
             }
         },
         error: function(r) {
+            const errorMsg = escapeHtml(getErrorMessage(r.message, '{{ _("Unknown error") }}'));
             $('#health-report').html(`
                 <div class="alert alert-danger">
                     <i class="fa fa-exclamation-circle"></i>
-                    {{ _("Error loading health report:") }} ${r.message}
+                    {{ _("Error loading health report:") }} ${errorMsg}
                 </div>
             `);
         }
@@ -272,14 +277,15 @@ function performCleanup(dryRun) {
             dry_run: dryRun
         },
         callback: function(r) {
-            if (r.message) {
-                displayCleanupResults(r.message);
+            const result = unwrapOperationResult(r.message);
+            if (result) {
+                displayCleanupResults(result);
             }
         },
         error: function(r) {
             displayCleanupResults({
                 success: false,
-                message: `{{ _("Error:") }} ${r.message}`
+                message: getErrorMessage(r.message, '{{ _("Unknown error") }}')
             });
         }
     });
@@ -293,7 +299,7 @@ function displayCleanupResults(result) {
             <div class="alert alert-${result.dry_run ? 'info' : 'success'}">
                 <i class="fa fa-${result.dry_run ? 'eye' : 'check'}"></i>
                 <strong>${result.dry_run ? __("Preview:") : __("Success:")}</strong>
-                ${result.message}
+                ${escapeHtml(result.message)}
             </div>
         `;
 
@@ -315,9 +321,9 @@ function displayCleanupResults(result) {
             result.actions.slice(0, 10).forEach(action => {
                 resultHtml += `
                     <tr>
-                        <td><small>${action.schedule_name || action.schedule}</small></td>
-                        <td><span class="badge badge-${result.dry_run ? 'info' : 'success'}">${action.action}</span></td>
-                        <td><small>${action.reason}</small></td>
+                        <td><small>${escapeHtml(action.schedule_name || action.schedule)}</small></td>
+                        <td><span class="badge badge-${result.dry_run ? 'info' : 'success'}">${escapeHtml(action.action)}</span></td>
+                        <td><small>${escapeHtml(action.reason)}</small></td>
                     </tr>
                 `;
             });
@@ -325,14 +331,14 @@ function displayCleanupResults(result) {
             resultHtml += '</tbody></table></div>';
 
             if (result.total_found > result.actions.length) {
-                resultHtml += `<p class="text-muted">{{ _("Showing first 10 of") }} ${result.total_found} {{ _("actions") }}</p>`;
+                resultHtml += `<p class="text-muted">{{ _("Showing first 10 of") }} ${escapeHtml(result.total_found)} {{ _("actions") }}</p>`;
             }
         }
     } else {
         resultHtml = `
             <div class="alert alert-danger">
                 <i class="fa fa-exclamation-circle"></i>
-                <strong>{{ _("Error:") }}</strong> ${result.message}
+                <strong>{{ _("Error:") }}</strong> ${escapeHtml(result.message)}
             </div>
         `;
     }
@@ -352,14 +358,16 @@ function runPreventionCheck() {
     frappe.call({
         method: 'verenigingen.api.schedule_maintenance.prevent_orphaned_schedules',
         callback: function(r) {
-            if (r.message) {
-                displayPreventionResults(r.message);
+            const results = unwrapOperationResult(r.message);
+            if (results) {
+                displayPreventionResults(results);
             }
         },
         error: function(r) {
+            const errorMsg = escapeHtml(getErrorMessage(r.message, '{{ _("Unknown error") }}'));
             $('#prevention-results').html(`
                 <div class="alert alert-danger">
-                    {{ _("Error running prevention check:") }} ${r.message}
+                    {{ _("Error running prevention check:") }} ${errorMsg}
                 </div>
             `);
         }
@@ -377,7 +385,7 @@ function displayPreventionResults(results) {
             </div>
         `;
     } else {
-        html = `<div class="alert alert-info"><strong>${results.total_warnings} {{ _("potential issues detected") }}</strong></div>`;
+        html = `<div class="alert alert-info"><strong>${escapeHtml(results.total_warnings)} {{ _("potential issues detected") }}</strong></div>`;
 
         results.warnings.forEach(warning => {
             let alertType = 'warning';
@@ -387,15 +395,15 @@ function displayPreventionResults(results) {
 
             html += `
                 <div class="alert alert-${alertType}">
-                    <h6>${warning.message}</h6>
-                    <p class="mb-1">${warning.count} {{ _("schedules affected") }}</p>
-                    <small class="text-muted">{{ _("Type:") }} ${warning.type}</small>
+                    <h6>${escapeHtml(warning.message)}</h6>
+                    <p class="mb-1">${escapeHtml(warning.count)} {{ _("schedules affected") }}</p>
+                    <small class="text-muted">{{ _("Type:") }} ${escapeHtml(warning.type)}</small>
                 </div>
             `;
         });
     }
 
-    html += `<small class="text-muted">{{ _("Check performed:") }} ${new Date(results.check_date).toLocaleString()}</small>`;
+    html += `<small class="text-muted">{{ _("Check performed:") }} ${escapeHtml(new Date(results.check_date).toLocaleString())}</small>`;
 
     $('#prevention-results').html(html);
 }

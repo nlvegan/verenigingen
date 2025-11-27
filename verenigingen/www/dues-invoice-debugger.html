@@ -55,6 +55,9 @@
 </div>
 
 <script>
+// Note: escapeHtml, unwrapOperationResult, getErrorMessage are provided by
+// /assets/verenigingen/js/utils/operation-result-helpers.js (loaded via web_include_js)
+
 function getCSRFToken() {
     // Try multiple sources for CSRF token
     if (typeof frappe !== 'undefined' && frappe.csrf_token) {

@@ -565,6 +565,9 @@ let itemsPerPage = 10;
 let scheduleView = 'list';
 let memberParam = null;
 
+// Note: escapeHtml, unwrapOperationResult, getErrorMessage are provided by
+// /assets/verenigingen/js/utils/operation-result-helpers.js (loaded via web_include_js)
+
 // Initialize page
 document.addEventListener('DOMContentLoaded', function() {
     // Get member from context or use current user
@@ -615,7 +618,8 @@ async function loadDashboardData(member) {
             }
         });
 
-        const data = response.message;
+        // Handle OperationResult format
+        const data = unwrapOperationResult(response.message);
 
         // Update status cards
         document.getElementById('next-payment-date').textContent =
@@ -653,7 +657,8 @@ async function loadPaymentMethod(member) {
             }
         });
 
-        const data = response.message;
+        // Handle OperationResult format
+        const data = unwrapOperationResult(response.message);
 
         if (data.has_active_mandate) {
             document.getElementById('sepa-status-text').textContent = __('Active');
@@ -683,7 +688,8 @@ async function loadPaymentHistory(member) {
             }
         });
 
-        paymentHistory = response.message;
+        // Handle OperationResult format - data should be an array
+        paymentHistory = unwrapOperationResult(response.message) || [];
 
         // Populate year filter
         const years = [...new Set(paymentHistory.map(p => new Date(p.date).getFullYear()))];
@@ -874,7 +880,8 @@ async function loadMandates(member) {
             args: { member: member }
         });
 
-        const mandates = response.message;
+        // Handle OperationResult format - data should be an array
+        const mandates = unwrapOperationResult(response.message) || [];
         if (mandates && mandates.length > 0) {
             renderMandateTimeline(mandates);
         }
@@ -890,7 +897,8 @@ async function loadPaymentSchedule(member) {
             args: { member: member }
         });
 
-        const schedule = response.message;
+        // Handle OperationResult format - data should be an array
+        const schedule = unwrapOperationResult(response.message) || [];
         if (schedule && schedule.length > 0) {
             renderPaymentSchedule(schedule);
         }

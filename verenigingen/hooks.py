@@ -291,10 +291,17 @@ app_include_css = [
     # Note: brand_colors.css loaded per-template to avoid 404 errors
 ]
 app_include_js = [
+    # OperationResult helpers - must load first for API response handling
+    "/assets/verenigingen/js/utils/operation-result-helpers.js",
     # Removed termination_dashboard.js as it's a React component and causes import errors
     "/assets/verenigingen/js/member_portal_redirect.js",
     "/assets/verenigingen/js/utils/iban-validator.js",
     "/assets/verenigingen/js/member_age_chart.js",
+]
+
+# Web pages (www/ and templates/pages/) need helpers too
+web_include_js = [
+    "/assets/verenigingen/js/utils/operation-result-helpers.js",
 ]
 
 # include js in doctype views

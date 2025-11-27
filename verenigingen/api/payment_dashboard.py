@@ -97,8 +97,12 @@ def get_dashboard_data(member=None) -> OperationResult[Dict[str, Any]]:
                 has_failed_payments = failed_count > 0
 
         # Get next payment info
+        # Note: get_next_payment returns dict (from security decorator to_dict()) for internal calls
         next_payment_result = get_next_payment(member)
-        next_payment = next_payment_result.data if next_payment_result.success else None
+        if isinstance(next_payment_result, dict):
+            next_payment = next_payment_result.get("data") if next_payment_result.get("success") else None
+        else:
+            next_payment = next_payment_result.data if next_payment_result.success else None
 
         # Check if mandate is expiring soon
         mandate_expiring_soon = False

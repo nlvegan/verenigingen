@@ -1,3 +1,6 @@
+// Note: escapeHtml, unwrapOperationResult, getErrorMessage are provided by
+// /assets/verenigingen/js/utils/operation-result-helpers.js (loaded via app_include_js)
+
 frappe.listview_settings['Chapter Join Request'] = {
 	get_indicator(doc) {
 		if (doc.status === 'Pending') {
@@ -16,9 +19,10 @@ frappe.listview_settings['Chapter Join Request'] = {
 			frappe.call({
 				method: 'verenigingen.api.chapter_join.get_user_chapter_requests',
 				callback(r) {
-					if (r.message && r.message.chapters) {
+					const data = unwrapOperationResult(r.message);
+					if (data && data.chapters) {
 						listview.filter_area.add([
-							['Chapter Join Request', 'chapter', 'in', r.message.chapters]
+							['Chapter Join Request', 'chapter', 'in', data.chapters]
 						]);
 					}
 				}

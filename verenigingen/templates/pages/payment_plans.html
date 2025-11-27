@@ -258,15 +258,26 @@ function setupFormHandlers() {
     document.getElementById('installments').addEventListener('change', updateInstallmentPreview);
 }
 
+// Note: escapeHtml, unwrapOperationResult, getErrorMessage are provided by
+// /assets/verenigingen/js/utils/operation-result-helpers.js (loaded via web_include_js)
+// isOperationResultFailed is available as verenigingen.utils.isFailureResult()
+
+function isOperationResultFailed(message) {
+    // Delegate to centralized helper
+    return verenigingen.utils.isFailureResult ? verenigingen.utils.isFailureResult(message) : false;
+}
+
 function loadPaymentPlans() {
     frappe.call({
         method: 'verenigingen.api.payment_plan_management.get_member_payment_plans',
         callback: function(response) {
-            if (response.message && response.message.success) {
-                memberPaymentPlans = response.message.payment_plans;
+            const data = unwrapOperationResult(response.message);
+            if (data) {
+                memberPaymentPlans = data.payment_plans || [];
                 renderPaymentPlans();
             } else {
-                showAlert('error', response.message?.error || 'Failed to load payment plans');
+                const errorMsg = (response.message && response.message.message) || 'Failed to load payment plans';
+                showAlert('error', errorMsg);
                 document.getElementById('payment-plans-container').innerHTML =
                     '<div class="alert alert-danger">Failed to load payment plans</div>';
             }
@@ -295,41 +306,41 @@ function renderPaymentPlans() {
 
 function renderPaymentPlan(plan) {
     const progress = plan.total_amount > 0 ? (plan.total_paid / plan.total_amount) * 100 : 0;
-    const statusClass = `status-${plan.status.toLowerCase().replace(' ', '-')}`;
+    const statusClass = `status-${escapeHtml(plan.status.toLowerCase().replace(' ', '-'))}`;
 
     return `
         <div class="payment-plan-card">
             <div class="payment-plan-header">
                 <div>
-                    <h4 style="margin: 0;">${plan.name}</h4>
-                    <small style="color: #666;">Created: ${formatDate(plan.start_date)}</small>
+                    <h4 style="margin: 0;">${escapeHtml(plan.name)}</h4>
+                    <small style="color: #666;">Created: ${escapeHtml(formatDate(plan.start_date))}</small>
                 </div>
-                <span class="status-badge ${statusClass}">${plan.status}</span>
+                <span class="status-badge ${statusClass}">${escapeHtml(plan.status)}</span>
             </div>
 
             <div class="row">
                 <div class="col-md-6">
-                    <p><strong>Total Amount:</strong> €${plan.total_amount.toFixed(2)}</p>
-                    <p><strong>Paid:</strong> €${plan.total_paid.toFixed(2)}</p>
-                    <p><strong>Remaining:</strong> €${plan.remaining_balance.toFixed(2)}</p>
+                    <p><strong>Total Amount:</strong> €${escapeHtml(plan.total_amount.toFixed(2))}</p>
+                    <p><strong>Paid:</strong> €${escapeHtml(plan.total_paid.toFixed(2))}</p>
+                    <p><strong>Remaining:</strong> €${escapeHtml(plan.remaining_balance.toFixed(2))}</p>
                 </div>
                 <div class="col-md-6">
-                    <p><strong>Installment:</strong> €${plan.installment_amount.toFixed(2)} ${plan.frequency.toLowerCase()}</p>
-                    <p><strong>Next Payment Request:</strong> ${plan.next_payment_date ? formatDate(plan.next_payment_date) : 'N/A'}</p>
+                    <p><strong>Installment:</strong> €${escapeHtml(plan.installment_amount.toFixed(2))} ${escapeHtml(plan.frequency.toLowerCase())}</p>
+                    <p><strong>Next Payment Request:</strong> ${plan.next_payment_date ? escapeHtml(formatDate(plan.next_payment_date)) : 'N/A'}</p>
                     ${plan.consecutive_missed_payments > 0 ?
-                        `<p style="color: #d63031;"><strong>Missed Payments:</strong> ${plan.consecutive_missed_payments}</p>` : ''}
+                        `<p style="color: #d63031;"><strong>Missed Payments:</strong> ${escapeHtml(plan.consecutive_missed_payments)}</p>` : ''}
                 </div>
             </div>
 
             <div class="progress-bar">
-                <div class="progress-bar-fill" style="width: ${progress}%"></div>
+                <div class="progress-bar-fill" style="width: ${escapeHtml(progress)}%"></div>
             </div>
-            <small style="color: #666;">${progress.toFixed(1)}% complete</small>
+            <small style="color: #666;">${escapeHtml(progress.toFixed(1))}% complete</small>
 
             ${renderInstallmentsTable(plan)}
 
             ${plan.status === 'Active' && plan.next_payment_date ?
-                `<button class="btn btn-primary" onclick="showPaymentForm('${plan.name}')">Make Payment</button>` : ''}
+                `<button class="btn btn-primary" onclick="showPaymentForm('${escapeHtml(plan.name)}')">Make Payment</button>` : ''}
         </div>
     `;
 }
@@ -353,11 +364,11 @@ function renderInstallmentsTable(plan) {
             <tbody>
                 ${plan.installments.map(inst => `
                     <tr>
-                        <td>${inst.installment_number}</td>
-                        <td>${formatDate(inst.due_date)}</td>
-                        <td>€${inst.amount.toFixed(2)}</td>
-                        <td><span class="status-badge status-${inst.status.toLowerCase()}">${inst.status}</span></td>
-                        <td>${inst.payment_date ? formatDate(inst.payment_date) : '-'}</td>
+                        <td>${escapeHtml(inst.installment_number)}</td>
+                        <td>${escapeHtml(formatDate(inst.due_date))}</td>
+                        <td>€${escapeHtml(inst.amount.toFixed(2))}</td>
+                        <td><span class="status-badge status-${escapeHtml(inst.status.toLowerCase())}">${escapeHtml(inst.status)}</span></td>
+                        <td>${inst.payment_date ? escapeHtml(formatDate(inst.payment_date)) : '-'}</td>
                     </tr>
                 `).join('')}
             </tbody>
@@ -407,12 +418,14 @@ function handlePaymentPlanRequest(event) {
             reason: data.reason
         },
         callback: function(response) {
-            if (response.message && response.message.success) {
-                showAlert('success', response.message.message);
+            if (!isOperationResultFailed(response.message)) {
+                const resultData = unwrapOperationResult(response.message);
+                showAlert('success', (resultData && resultData.message) || 'Payment plan request submitted');
                 hidePaymentPlanRequestForm();
                 loadPaymentPlans(); // Reload to show new request
             } else {
-                showAlert('error', response.message?.error || 'Failed to submit payment plan request');
+                const errorMsg = (response.message && response.message.message) || 'Failed to submit payment plan request';
+                showAlert('error', errorMsg);
             }
         },
         error: function() {
@@ -432,7 +445,7 @@ function showAlert(type, message) {
 
     alertContainer.innerHTML = `
         <div class="alert ${alertClass}">
-            ${message}
+            ${escapeHtml(message)}
             <button type="button" style="float: right; background: none; border: none; font-size: 16px;" onclick="this.parentElement.remove()">×</button>
         </div>
     `;

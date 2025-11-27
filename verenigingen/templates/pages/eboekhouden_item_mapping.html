@@ -88,6 +88,9 @@
 </style>
 
 <script>
+// Note: escapeHtml, unwrapOperationResult, getErrorMessage are provided by
+// /assets/verenigingen/js/utils/operation-result-helpers.js (loaded via web_include_js)
+
 frappe.ready(function() {
     const defaultCompany = '{{ default_company }}';
     const availableItems = {{ items | tojson }};

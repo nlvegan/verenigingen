@@ -129,6 +129,11 @@ function validate_link_fields(frm) {
 	});
 }
 
+// Note: escapeHtml, unwrapOperationResult, getErrorMessage, isFailureResult are provided by
+// /assets/verenigingen/js/utils/operation-result-helpers.js (loaded via app_include_js)
+// isOperationResultFailed is an alias for vereiningen.utils.isFailureResult
+const isOperationResultFailed = (msg) => verenigingen.utils.isFailureResult(msg);
+
 /**
  * Main Member DocType Form Controller
  *
@@ -1374,7 +1379,8 @@ function add_member_status_actions(frm) {
 			member_name: frm.doc.name
 		},
 		callback(perm_result) {
-			if (perm_result.message) {
+			const data = unwrapOperationResult(perm_result.message);
+			if (data && data.can_suspend) {
 				add_suspension_action_button(frm);
 			}
 		}
@@ -1421,21 +1427,21 @@ function add_suspension_action_button(frm) {
 			member_name: frm.doc.name
 		},
 		callback(status_result) {
-			// Handle error responses gracefully
-			if (status_result.message && status_result.message.error) {
-				// If user doesn't have permission, just don't show suspension buttons
-				if (status_result.message.access_denied) {
+			// Handle OperationResult format - check for failure
+			if (isOperationResultFailed(status_result.message)) {
+				// Check for access denied in error data
+				const errorData = status_result.message.data || {};
+				if (errorData.access_denied) {
 					return; // Silent fail for permission errors
 				}
 				console.warn(
 					'Suspension status check failed:',
-					status_result.message.error
+					status_result.message.message
 				);
 				return;
 			}
-			if (status_result.message && !status_result.message.error) {
-				const status = status_result.message;
-
+			const status = unwrapOperationResult(status_result.message);
+			if (status) {
 				if (status.is_suspended) {
 					const btn = frm.add_custom_button(
 						__('Unsuspend Member'),
@@ -2185,7 +2191,8 @@ function add_suspension_buttons(_frm) {
 			member_name: frm.doc.name
 		},
 		callback(perm_result) {
-			const can_suspend = perm_result.message;
+			const permData = unwrapOperationResult(perm_result.message);
+			const can_suspend = permData && permData.can_suspend;
 
 			if (!can_suspend) {
 				return; // No permission, don't show buttons
@@ -2198,20 +2205,20 @@ function add_suspension_buttons(_frm) {
 					member_name: frm.doc.name
 				},
 				callback(status_result) {
-					// Handle error responses gracefully
-					if (status_result.message && status_result.message.error) {
-						if (status_result.message.access_denied) {
+					// Handle OperationResult format - check for failure
+					if (isOperationResultFailed(status_result.message)) {
+						const errorData = status_result.message.data || {};
+						if (errorData.access_denied) {
 							return; // Silent fail for permission errors
 						}
 						console.warn(
 							'Suspension status check failed:',
-							status_result.message.error
+							status_result.message.message
 						);
 						return;
 					}
-					if (status_result.message && !status_result.message.error) {
-						const status = status_result.message;
-
+					const status = unwrapOperationResult(status_result.message);
+					if (status) {
 						if (status.is_suspended) {
 							// Member is suspended - show unsuspend button
 							const btn = frm.add_custom_button(
@@ -2254,8 +2261,8 @@ function show_suspension_dialog(frm) {
 			member_name: frm.doc.name
 		},
 		callback(r) {
-			if (r.message) {
-				const preview = r.message;
+			const preview = unwrapOperationResult(r.message);
+			if (preview) {
 
 				let preview_html = `
                     <div class="suspension-preview">
@@ -2337,9 +2344,18 @@ function show_suspension_dialog(frm) {
 										suspend_teams: values.suspend_teams
 									},
 									callback(r) {
-										if (r.message && r.message.success) {
+										if (!isOperationResultFailed(r.message)) {
 											dialog.hide();
 											frm.reload_doc();
+											frappe.show_alert({
+												message: __('Member suspended successfully'),
+												indicator: 'green'
+											});
+										} else {
+											frappe.show_alert({
+												message: r.message.message || __('Suspension failed'),
+												indicator: 'red'
+											});
 										}
 									}
 								});
@@ -2391,9 +2407,18 @@ function show_unsuspension_dialog(frm) {
 							unsuspension_reason: values.unsuspension_reason
 						},
 						callback(r) {
-							if (r.message && r.message.success) {
+							if (!isOperationResultFailed(r.message)) {
 								dialog.hide();
 								frm.reload_doc();
+								frappe.show_alert({
+									message: __('Member unsuspended successfully'),
+									indicator: 'green'
+								});
+							} else {
+								frappe.show_alert({
+									message: r.message.message || __('Unsuspension failed'),
+									indicator: 'red'
+								});
 							}
 						}
 					});
@@ -2416,17 +2441,17 @@ function display_suspension_status(frm) {
 			member_name: frm.doc.name
 		},
 		callback(r) {
-			// Handle error responses gracefully
-			if (r.message && r.message.error) {
-				if (r.message.access_denied) {
+			// Handle OperationResult format - check for failure
+			if (isOperationResultFailed(r.message)) {
+				const errorData = r.message.data || {};
+				if (errorData.access_denied) {
 					return; // Silent fail for permission errors
 				}
-				console.warn('Suspension status display failed:', r.message.error);
+				console.warn('Suspension status display failed:', r.message.message);
 				return;
 			}
-			if (r.message && !r.message.error) {
-				const status = r.message;
-
+			const status = unwrapOperationResult(r.message);
+			if (status) {
 				if (status.is_suspended) {
 					// Add dashboard indicator for suspended member
 					frm.dashboard.add_indicator(__('Member Suspended'), 'orange');

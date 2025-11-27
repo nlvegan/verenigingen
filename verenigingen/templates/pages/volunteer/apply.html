@@ -354,6 +354,9 @@
 </div>
 
 <script>
+// Note: escapeHtml, unwrapOperationResult, getErrorMessage are provided by
+// /assets/verenigingen/js/utils/operation-result-helpers.js (loaded via web_include_js)
+
 document.getElementById('volunteer-application-form').addEventListener('submit', async function(e) {
     e.preventDefault();
 
@@ -389,24 +392,25 @@ document.getElementById('volunteer-application-form').addEventListener('submit',
         });
 
         const result = await response.json();
+        const responseData = unwrapOperationResult(result.message);
 
-        if (result.message && result.message.success) {
+        if (responseData) {
             messageContainer.innerHTML = `
                 <div class="alert alert-success">
                     <h4 class="font-bold mb-2">{{ _("Application Submitted Successfully!") }}</h4>
                     <p>{{ _("Thank you for your interest in volunteering. We'll review your application and contact you soon.") }}</p>
-                    <p class="mt-2"><strong>{{ _("Application ID:") }}</strong> ${result.message.application_id}</p>
+                    <p class="mt-2"><strong>{{ _("Application ID:") }}</strong> ${escapeHtml(responseData.application_id || 'Submitted')}</p>
                 </div>
             `;
             e.target.reset();
         } else {
-            throw new Error(result.message?.error || '{{ _("Submission failed") }}');
+            throw new Error((result.message && result.message.message) || '{{ _("Submission failed") }}');
         }
     } catch (error) {
         messageContainer.innerHTML = `
             <div class="alert alert-error">
                 <h4 class="font-bold mb-2">{{ _("Submission Error") }}</h4>
-                <p>${error.message || '{{ _("An error occurred. Please try again.") }}'}</p>
+                <p>${escapeHtml(error.message || '{{ _("An error occurred. Please try again.") }}')}</p>
             </div>
         `;
     } finally {

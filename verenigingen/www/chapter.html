@@ -121,6 +121,9 @@
         let currentUser = '';
         let memberInfo = null;
 
+        // Note: escapeHtml, unwrapOperationResult, getErrorMessage are provided by
+        // /assets/verenigingen/js/utils/operation-result-helpers.js (loaded via web_include_js)
+
         // Load chapters on page load
         window.addEventListener('DOMContentLoaded', function() {
             loadChapters();
@@ -151,11 +154,12 @@
                     return response.json();
                 })
                 .then(data => {
-                    if (data.message && data.message.success) {
-                        allChapters = data.message.chapters;
-                        myChapters = data.message.user_chapters;
-                        currentUser = data.message.user;
-                        memberInfo = data.message.member;
+                    const responseData = unwrapOperationResult(data.message);
+                    if (responseData) {
+                        allChapters = responseData.chapters || [];
+                        myChapters = responseData.user_chapters || [];
+                        currentUser = responseData.user || '';
+                        memberInfo = responseData.member;
 
                         displayChapters();
 
@@ -167,7 +171,8 @@
                         document.getElementById('loading').classList.add('hidden');
                         document.getElementById('content').classList.remove('hidden');
                     } else {
-                        showError('Failed to load chapters: ' + (data.exc || data.message || 'Unknown error'));
+                        const errorMsg = (data.message && data.message.message) || data.exc || 'Unknown error';
+                        showError('Failed to load chapters: ' + errorMsg);
                     }
                 })
                 .catch(error => {
@@ -254,8 +259,10 @@
                 } else {
                     statusBadge = `<span class="px-3 py-1 rounded-full text-sm font-medium badge-available">Available</span>`;
                     if (isLoggedIn) {
+                        // Use encodeURIComponent for safe JS string interpolation
+                        const safeName = encodeURIComponent(chapter.name);
                         actionButton = `
-                            <button onclick="joinChapter('${chapter.name}')" class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors text-sm font-medium">
+                            <button onclick="joinChapter(decodeURIComponent('${safeName}'))" class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors text-sm font-medium">
                                 Request to Join
                             </button>
                         `;
@@ -266,10 +273,10 @@
                     <div class="flex justify-between items-start">
                         <div class="flex-1">
                             <a href="/chapter_dashboard?chapter=${encodeURIComponent(chapter.name)}" class="text-xl font-semibold text-gray-900 transition-colors chapter-link">
-                                ${chapter.name}
+                                ${escapeHtml(chapter.name)}
                             </a>
-                            ${chapter.introduction ? `<p class="text-gray-600 mt-2">${chapter.introduction}</p>` : ''}
-                            ${chapter.region ? `<p class="text-sm text-gray-500 mt-2"><span class="font-medium">Region:</span> ${chapter.region}</p>` : ''}
+                            ${chapter.introduction ? `<p class="text-gray-600 mt-2">${escapeHtml(chapter.introduction)}</p>` : ''}
+                            ${chapter.region ? `<p class="text-sm text-gray-500 mt-2"><span class="font-medium">Region:</span> ${escapeHtml(chapter.region)}</p>` : ''}
                         </div>
                         <div class="flex flex-col items-end gap-2">
                             ${statusBadge}
@@ -310,7 +317,7 @@
             document.getElementById('error-container').innerHTML =
                 '<div class="error-alert px-4 py-3 rounded-lg border" role="alert">' +
                 '<strong class="font-bold">Error: </strong>' +
-                '<span class="block sm:inline">' + message + '</span>' +
+                '<span class="block sm:inline">' + escapeHtml(message) + '</span>' +
                 '</div>';
         }
 
@@ -353,15 +360,16 @@
             })
             .then(data => {
                 console.log('API Response:', data);
-                if (data.message && data.message.success) {
+                const responseData = unwrapOperationResult(data.message);
+                if (responseData) {
                     // Show success message from API
-                    alert(data.message.message || 'Your request to join ' + chapterName + ' has been submitted for approval.');
+                    alert((responseData.message || 'Your request to join ' + chapterName + ' has been submitted for approval.'));
                     // Reload the page to refresh the chapter list
                     loadChapters();
                 } else {
                     // Handle error response - check both Frappe wrapped format and direct format
                     console.log('Error response data:', data);
-                    const errorMsg = (data.message && data.message.error) || data.error || data.exc || 'Failed to submit request';
+                    const errorMsg = (data.message && data.message.message) || data.error || data.exc || 'Failed to submit request';
                     throw new Error(errorMsg);
                 }
             })

@@ -447,7 +447,7 @@ class APISecurityFramework:
             allowed_envs = [env.value for env in profile.allowed_environments]
             raise VPermissionError(
                 _(
-                    f"Function not available in {current_env.value} environment. "
+                    f"Function not available in {current_env.value} environment. "  # noqa: E713
                     f"Allowed environments: {', '.join(allowed_envs)}"
                 )
             )
@@ -1013,8 +1013,6 @@ class APISecurityFramework:
                 is_json_payload = False
                 if decoded_value.strip().startswith(("[", "{")):
                     try:
-                        import json
-
                         json.loads(decoded_value)
                         is_json_payload = True
                     except (json.JSONDecodeError, ValueError):
@@ -1625,6 +1623,56 @@ def api_security_framework(
         for attr in ["allow_guest", "_original_func_name"]:
             if hasattr(func, attr):
                 setattr(wrapper, attr, getattr(func, attr))
+
+        # CRITICAL FIX: Add wrapper to Frappe's whitelist collections
+        # Frappe's is_whitelisted() checks `if method not in whitelisted`,
+        # NOT function attributes. When our decorator wraps a whitelisted function,
+        # the NEW wrapper function is not in the collection - causing "not whitelisted" errors.
+        # We must explicitly add our wrapper to the collection.
+        # Note: frappe.whitelisted can be a set OR list depending on Frappe version
+        if hasattr(frappe, "whitelisted"):
+            # Check if inner function was whitelisted
+            inner_was_whitelisted = (
+                func in frappe.whitelisted
+                or getattr(func, "__func_is_whitelisted__", False)
+                or (hasattr(func, "__wrapped__") and func.__wrapped__ in frappe.whitelisted)
+            )
+            if inner_was_whitelisted:
+                # Handle both set and list types
+                if isinstance(frappe.whitelisted, set):
+                    frappe.whitelisted.add(wrapper)
+                elif isinstance(frappe.whitelisted, list):
+                    if wrapper not in frappe.whitelisted:
+                        frappe.whitelisted.append(wrapper)
+                frappe.logger("verenigingen.security").debug(
+                    f"Added wrapper to frappe.whitelisted for {func.__name__}"
+                )
+
+        # CRITICAL FIX 2: Add wrapper to allowed_http_methods_for_whitelisted_func
+        # Frappe also has a dict mapping function objects to allowed HTTP methods.
+        # When our decorator wraps a function, the wrapper isn't in this dict,
+        # causing KeyError in is_valid_http_method().
+        if hasattr(frappe, "allowed_http_methods_for_whitelisted_func"):
+            http_methods_dict = frappe.allowed_http_methods_for_whitelisted_func
+            # Try to find the allowed methods from the inner function
+            allowed_methods = None
+            if func in http_methods_dict:
+                allowed_methods = http_methods_dict[func]
+            elif hasattr(func, "__wrapped__") and func.__wrapped__ in http_methods_dict:
+                allowed_methods = http_methods_dict[func.__wrapped__]
+
+            # If we found allowed methods (or if inner was whitelisted), register wrapper
+            if allowed_methods is not None:
+                http_methods_dict[wrapper] = allowed_methods
+                frappe.logger("verenigingen.security").debug(
+                    f"Added wrapper to allowed_http_methods_for_whitelisted_func for {func.__name__}: {allowed_methods}"
+                )
+            elif "inner_was_whitelisted" in locals() and inner_was_whitelisted:
+                # Default to GET and POST if inner was whitelisted but not in http_methods dict
+                http_methods_dict[wrapper] = ["GET", "POST"]
+                frappe.logger("verenigingen.security").debug(
+                    f"Added wrapper to allowed_http_methods_for_whitelisted_func with default methods for {func.__name__}"
+                )
 
         return wrapper
 

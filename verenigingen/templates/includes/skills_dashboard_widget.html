@@ -146,6 +146,9 @@
 // Skills Dashboard Widget JavaScript
 let skillsWidgetData = null;
 
+// Note: escapeHtml, unwrapOperationResult, getErrorMessage are provided by
+// /assets/verenigingen/js/utils/operation-result-helpers.js (loaded via web_include_js)
+
 function initSkillsWidget() {
     loadSkillsData();
 }
@@ -157,12 +160,13 @@ async function loadSkillsData() {
         const response = await frappe.call({
             method: 'verenigingen.api.volunteer_skills.get_skills_overview',
             callback: function(r) {
-                if (r.message && r.message.success) {
-                    skillsWidgetData = r.message;
+                const data = unwrapOperationResult(r.message);
+                if (data) {
+                    skillsWidgetData = data;
                     renderSkillsWidget(skillsWidgetData);
                     showWidgetState('content');
                 } else {
-                    console.error('Skills widget error:', r.message?.error);
+                    console.error('Skills widget error:', r.message?.message);
                     showWidgetState('error');
                 }
             },
@@ -206,8 +210,8 @@ function renderTopSkills(topSkills) {
 
     container.innerHTML = topSkills.slice(0, 5).map(skill => `
         <div class="skill-item">
-            <span class="skill-name">${skill.volunteer_skill}</span>
-            <span class="skill-count">${skill.volunteer_count}</span>
+            <span class="skill-name">${escapeHtml(skill.volunteer_skill)}</span>
+            <span class="skill-count">${escapeHtml(skill.volunteer_count)}</span>
         </div>
     `).join('');
 }
@@ -226,11 +230,11 @@ function renderCategoryChart(categories) {
         const percentage = maxCount > 0 ? (category.volunteer_count / maxCount) * 100 : 0;
         return `
             <div class="category-bar">
-                <span class="category-name">${category.skill_category || 'Other'}</span>
+                <span class="category-name">${escapeHtml(category.skill_category || 'Other')}</span>
                 <div class="category-progress">
-                    <div class="category-progress-bar" style="width: ${percentage}%"></div>
+                    <div class="category-progress-bar" style="width: ${escapeHtml(percentage)}%"></div>
                 </div>
-                <span class="category-count">${category.volunteer_count}</span>
+                <span class="category-count">${escapeHtml(category.volunteer_count)}</span>
             </div>
         `;
     }).join('');
@@ -271,10 +275,11 @@ function exportSkillsData() {
         method: 'verenigingen.api.volunteer_skills.export_skills_data',
         args: { format_type: 'json' },
         callback: function(r) {
-            if (r.message && r.message.success) {
+            const exportData = unwrapOperationResult(r.message);
+            if (exportData) {
                 // Create downloadable file
-                const data = JSON.stringify(r.message.data, null, 2);
-                const blob = new Blob([data], { type: 'application/json' });
+                const jsonData = JSON.stringify(exportData.data || exportData, null, 2);
+                const blob = new Blob([jsonData], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
@@ -290,7 +295,7 @@ function exportSkillsData() {
                 });
             } else {
                 frappe.show_alert({
-                    message: __('Export failed: {0}', [r.message?.error || 'Unknown error']),
+                    message: __('Export failed: {0}', [escapeHtml(getErrorMessage(r.message, 'Unknown error'))]),
                     indicator: 'red'
                 });
             }

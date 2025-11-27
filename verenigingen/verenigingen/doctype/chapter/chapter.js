@@ -48,6 +48,9 @@
 // Copyright (c) 2025, Verenigingen Development Team and contributors
 // For license information, please see license.txt
 
+// Note: escapeHtml, unwrapOperationResult, getErrorMessage are provided by
+// /assets/verenigingen/js/utils/operation-result-helpers.js (loaded via app_include_js)
+
 /**
  * Main Chapter DocType Form Controller
  *
@@ -178,10 +181,11 @@ frappe.ui.form.on('Chapter', {
 					chapter_head: frm.doc.chapter_head
 				},
 				callback: function(r) {
-					if (r.message && !r.message.valid && r.message.error) {
+					const data = unwrapOperationResult(r.message);
+					if (data && !data.valid && data.error) {
 						frappe.msgprint({
 							title: __('Validation Error'),
-							message: r.message.message,
+							message: data.message,
 							indicator: 'red'
 						});
 					}
@@ -210,9 +214,10 @@ frappe.ui.form.on('Chapter', {
 					region: frm.doc.region
 				},
 				callback: function(r) {
-					if (r.message && r.message.suggestions && r.message.suggestions.length > 0) {
+					const data = unwrapOperationResult(r.message);
+					if (data && data.suggestions && data.suggestions.length > 0) {
 						// Handle postal code suggestions from backend
-						console.log('Region validation suggestions:', r.message.suggestions);
+						console.log('Region validation suggestions:', data.suggestions);
 					}
 				}
 			});
@@ -238,10 +243,11 @@ frappe.ui.form.on('Chapter', {
 				published: frm.doc.published ? 1 : 0
 			},
 			callback: function(r) {
-				if (r.message && !r.message.valid && r.message.warning) {
+				const data = unwrapOperationResult(r.message);
+				if (data && !data.valid && data.warning) {
 					frappe.msgprint({
 						title: __('Publication Warning'),
-						message: r.message.message,
+						message: data.message,
 						indicator: 'orange'
 					});
 				}

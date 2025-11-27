@@ -36,6 +36,9 @@
  * @module CustomerMemberLink
  * @requires frappe.ui.form, frappe.call
  */
+// Note: escapeHtml, unwrapOperationResult, getErrorMessage are provided by
+// /assets/verenigingen/js/utils/operation-result-helpers.js (loaded via app_include_js)
+
 frappe.ui.form.on('Customer', {
 	refresh(frm) {
 		if (!frm.is_new()) {
@@ -47,28 +50,29 @@ frappe.ui.form.on('Customer', {
 					customer: frm.doc.name
 				},
 				callback(r) {
-					if (r.message) {
+					const member = unwrapOperationResult(r.message);
+					if (member) {
 						// Add button to navigate to Member
 						frm.add_custom_button(
 							__('View Member'),
 							() => {
-								frappe.set_route('Form', 'Member', r.message.name);
+								frappe.set_route('Form', 'Member', member.name);
 							},
 							__('Links')
 						);
 
 						// Show member info in dashboard
 						const status_color
-              = r.message.status === 'Active'
+              = member.status === 'Active'
               	? 'green'
-              	: r.message.status === 'Terminated'
+              	: member.status === 'Terminated'
               		? 'red'
               		: 'orange';
 
 						frm.dashboard.add_indicator(
 							__('Member: {0} ({1})', [
-								r.message.full_name,
-								__(r.message.status)
+								member.full_name,
+								__(member.status)
 							]),
 							status_color
 						);
@@ -79,8 +83,8 @@ frappe.ui.form.on('Customer', {
 							items: [
 								{
 									label: __('Member'),
-									value: r.message.full_name,
-									route: ['Form', 'Member', r.message.name]
+									value: member.full_name,
+									route: ['Form', 'Member', member.name]
 								}
 							]
 						});
