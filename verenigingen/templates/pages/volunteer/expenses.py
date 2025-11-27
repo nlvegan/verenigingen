@@ -2,16 +2,14 @@ import frappe
 from frappe import _
 from frappe.utils import flt, formatdate, today
 
-from verenigingen.utils.employee_user_link import create_employee_for_approved_volunteer
+from verenigingen.services.volunteer.expense_submission_service import get_expense_submission_service
 from verenigingen.utils.member_utils import get_current_user_member_name, get_volunteer_for_current_user
-from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import high_security_api, standard_api
 from verenigingen.utils.security.types import OperationType
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from verenigingen.utils.volunteer_expense_setup import (
     create_default_cost_center,
     get_fallback_cost_center,
-    get_or_create_expense_type,
     setup_expense_claim_types,
 )
 
@@ -485,406 +483,41 @@ def submit_expense(expense_data=None, additional_expenses=None):
     Returns:
         dict: Result with success status and expense claim details
     """
-    try:
-        # Handle JSON request body
-        if expense_data is None:
-            import json
+    # Handle JSON request body
+    if expense_data is None:
+        import json
 
-            request_data = json.loads(frappe.request.data.decode("utf-8"))
-            expense_data = request_data.get("expense_data")
+        request_data = json.loads(frappe.request.data.decode("utf-8"))
+        expense_data = request_data.get("expense_data")
+        additional_expenses = request_data.get("additional_expenses")
 
-        # Parse JSON string if needed (fallback for form submissions)
-        if isinstance(expense_data, str):
-            import html
-            import json
+    # Parse JSON string if needed (fallback for form submissions)
+    if isinstance(expense_data, str):
+        import html
+        import json
 
-            # Decode HTML entities (handles cases where JSON gets HTML encoded)
-            decoded_data = html.unescape(expense_data)
-            expense_data = json.loads(decoded_data)
-        # Get current user's volunteer record
-        volunteer_name = get_volunteer_for_current_user()
-        if not volunteer_name:
-            return {"success": False, "message": _("No volunteer record found")}
-        volunteer = frappe.get_doc("Volunteer", volunteer_name)
-        if not volunteer:
-            # Provide more helpful error message using member_utils
-            from verenigingen.utils.member_utils import get_member_name_for_user
+        # Decode HTML entities (handles cases where JSON gets HTML encoded)
+        decoded_data = html.unescape(expense_data)
+        expense_data = json.loads(decoded_data)
 
-            user_email = frappe.session.user
-            member = get_member_name_for_user(user_email)
+    # Delegate to consolidated service
+    service = get_expense_submission_service()
+    result = service.submit_expense(expense_data, additional_expenses)
 
-            if member:
-                error_msg = _(
-                    "No volunteer record found for your account. You have a member record ({0}) but no linked volunteer record. Please contact your chapter administrator to create a volunteer profile."
-                ).format(member)
-            else:
-                error_msg = _(
-                    "No volunteer record found for your account. Your email ({0}) is not associated with any member or volunteer record. Please contact your chapter administrator."
-                ).format(user_email)
-
-            frappe.throw(error_msg)
-
-        # Immediate validation: Check if expense data contains correct volunteer reference
-        if expense_data.get("volunteer") and expense_data.get("volunteer") != volunteer_name:
-            from verenigingen.utils.security.audit_logging import AuditLogger
-            from verenigingen.utils.security.types import AuditEventType, AuditSeverity
-
-            # Log parameter tampering attempt
-            audit_logger = AuditLogger()
-            audit_logger.log_security_event(
-                event_type=AuditEventType.PARAMETER_TAMPERING,
-                severity=AuditSeverity.ERROR,
-                details={
-                    "submitted_volunteer": expense_data.get("volunteer"),
-                    "actual_volunteer": volunteer_name,
-                    "endpoint": "submit_expense",
-                    "user": frappe.session.user,
-                },
-            )
-
-            frappe.throw(
-                _("Security violation: volunteer parameter tampering detected"), frappe.PermissionError
-            )
-
-        # Validate required fields
-        required_fields = ["description", "amount", "expense_date", "organization_type", "category"]
-        for field in required_fields:
-            if not expense_data.get(field):
-                frappe.throw(_(f"Field {field} is required"))
-
-        # Validate organization selection
-        if expense_data.get("organization_type") == "Chapter" and not expense_data.get("chapter"):
-            frappe.throw(_("Please select a chapter"))
-        elif expense_data.get("organization_type") == "Team" and not expense_data.get("team"):
-            frappe.throw(_("Please select a team"))
-        # National expenses don't require specific organization selection
-
-        # Enhanced access validation with policy-based national expenses
-        if expense_data.get("organization_type") == "Chapter":
-            organization_name = expense_data.get("chapter")
-            # For chapter expenses, check chapter membership through member record
-            if volunteer.member:
-                direct_membership = frappe.db.exists(
-                    "Chapter Member", {"parent": organization_name, "member": volunteer.member}
-                )
-            else:
-                direct_membership = None
-
-            if not direct_membership:
-                frappe.throw(_("Chapter membership required for {0}").format(organization_name))
-
-        elif expense_data.get("organization_type") == "Team":
-            organization_name = expense_data.get("team")
-            # For team expenses, only check team membership (no chapter validation needed)
-            team_membership = frappe.db.exists(
-                "Team Member", {"parent": organization_name, "volunteer": volunteer.name}
-            )
-            if not team_membership:
-                frappe.throw(_("Team membership required for {0}").format(organization_name))
-
-        elif expense_data.get("organization_type") == "National":
-            # Check if this is a policy-covered expense type
-            category = expense_data.get("category")
-            if category and is_policy_covered_expense(category):
-                # Policy-covered expenses (materials, travel) are allowed for all volunteers
-                frappe.logger().info(
-                    f"Policy-covered national expense allowed for volunteer {volunteer.name}: {category}"
-                )
-            else:
-                # Other national expenses require board membership
-                settings = frappe.get_single("Verenigingen Settings")
-                if settings.national_board_chapter:
-                    board_membership = frappe.db.exists(
-                        "Chapter Member",
-                        {"parent": settings.national_board_chapter, "member": volunteer.member},
-                    )
-                    if not board_membership:
-                        frappe.throw(_("National board membership required for non-policy national expenses"))
-
-        # Determine chapter/team based on organization type
-        chapter = None
-        team = None
-
-        if expense_data.get("organization_type") == "Chapter":
-            chapter = expense_data.get("chapter")
-        elif expense_data.get("organization_type") == "Team":
-            team = expense_data.get("team")
-        elif expense_data.get("organization_type") == "National":
-            # Set to national chapter from settings
-            settings = frappe.get_single("Verenigingen Settings")
-            if settings.national_board_chapter:
-                chapter = settings.national_board_chapter
-            else:
-                frappe.throw(_("National chapter not configured in settings"))
-
-        # Get company from Verenigingen Settings
-        settings = frappe.get_single("Verenigingen Settings")
-        default_company = settings.company
-        if not default_company:
-            frappe.throw(_("Company not configured in Verenigingen Settings"))
-
-        if not default_company:
-            frappe.throw(_("No company configured in the system. Please contact the administrator."))
-
-        # Get volunteer document for employee_id
-        volunteer_doc = frappe.get_doc("Volunteer", volunteer.name)
-
-        # Ensure volunteer has employee_id - create if missing
-        employee_created = False
-        if not volunteer_doc.employee_id:
-            try:
-                frappe.logger().info(
-                    f"Creating employee record for volunteer {volunteer_doc.name} during expense submission"
-                )
-                employee_id = create_employee_for_approved_volunteer(volunteer_doc)
-                if employee_id:
-                    frappe.logger().info(
-                        f"Successfully created employee {employee_id} for volunteer {volunteer_doc.name}"
-                    )
-                    # Reload volunteer document to get the updated employee_id
-                    volunteer_doc.reload()
-                    employee_created = True
-                else:
-                    frappe.log_error(
-                        f"Employee creation returned None for volunteer {volunteer_doc.name}",
-                        "Employee Creation Warning",
-                    )
-                    frappe.throw(
-                        _(
-                            "Unable to create employee record automatically. Please contact your administrator to set up your employee profile before submitting expenses."
-                        )
-                    )
-            except Exception as e:
-                error_msg = str(e)[:50]  # Short error message for logging
-                frappe.log_error(f"Employee creation failed: {error_msg}", "Employee Creation")
-                frappe.throw(
-                    _(
-                        "Unable to create employee record automatically. Please contact your administrator to set up your employee profile before submitting expenses."
-                    )
-                )
-
-        # Get cost center based on organization
-        cost_center = get_organization_cost_center(expense_data)
-
-        # Get expense type from category (validates Expense Category exists)
-        expense_type = get_or_create_expense_type(expense_data.get("category"))
-
-        # Get expense account from Expense Category
-        expense_account = frappe.db.get_value(
-            "Expense Category", expense_data.get("category"), "expense_account"
-        )
-        if not expense_account:
-            frappe.throw(
-                _(
-                    "Expense Category '{0}' does not have an expense account configured. Please contact your administrator."
-                ).format(expense_data.get("category"))
-            )
-
-        # Get payable account from company settings
-        payable_account = frappe.db.get_value("Company", default_company, "default_payable_account")
-        if not payable_account:
-            # Fallback to default payable account
-            payable_account = frappe.db.get_value("Company", default_company, "default_payable_account")
-
-        if not payable_account:
-            frappe.throw(
-                _(
-                    "No payable account configured for company {0}. Please set default_payable_account in Company settings."
-                ).format(default_company)
-            )
-
-        # Create ERPNext Expense Claim with custom volunteer fields
-        expense_claim = frappe.get_doc(
-            {
-                "doctype": "Expense Claim",
-                "employee": volunteer_doc.employee_id,
-                "posting_date": expense_data.get("expense_date"),
-                "company": default_company,
-                "cost_center": cost_center,
-                "payable_account": payable_account,
-                "approval_status": "Draft",  # Leave approval to appropriate user roles
-                "remark": expense_data.get("notes"),
-                "status": "Draft",
-                # Custom volunteer fields
-                "custom_volunteer": volunteer.name,
-                "custom_organization_type": expense_data.get("organization_type"),
-                "custom_chapter": chapter,
-                "custom_team": team,
-                "custom_expense_category": expense_data.get("category"),
-            }
-        )
-
-        # Add primary expense detail with account from Expense Category
-        expense_claim.append(
-            "expenses",
-            {
-                "expense_date": expense_data.get("expense_date"),
-                "expense_type": expense_type,
-                "description": expense_data.get("description"),
-                "amount": flt(expense_data.get("amount")),
-                "sanctioned_amount": flt(expense_data.get("amount")),
-                "cost_center": cost_center,
-                "default_account": expense_account,  # Use account from Expense Category
-            },
-        )
-
-        # Add any additional expense lines to the same claim
-        if additional_expenses:
-            for add_expense in additional_expenses:
-                # Get expense type and account for this additional expense
-                add_expense_type = get_or_create_expense_type(add_expense.get("category"))
-                add_expense_account = frappe.db.get_value(
-                    "Expense Category", add_expense.get("category"), "expense_account"
-                )
-
-                expense_claim.append(
-                    "expenses",
-                    {
-                        "expense_date": add_expense.get("expense_date"),
-                        "expense_type": add_expense_type,
-                        "description": add_expense.get("description"),
-                        "amount": flt(add_expense.get("amount")),
-                        "sanctioned_amount": flt(add_expense.get("amount")),
-                        "cost_center": cost_center,
-                        "default_account": add_expense_account,
-                    },
-                )
-
-        # Insert the expense claim as draft (don't submit automatically)
-        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-        expense_result = secure_document_operation(
-            operation="insert",
-            doc=expense_claim,
-            justification=f"Create volunteer expense claim for {volunteer.name} - Amount: {flt(expense_data.get('amount'))}",
-            required_permissions=["Expense Claim:create"],
-        )
-
-        if not expense_result.success:
-            frappe.log_error(
-                f"Failed to create expense claim: {'; '.join(expense_result.errors)}",
-                "Expense Claim Security",
-            )
-            return {
-                "success": False,
-                "error": f"Failed to create expense claim: {'; '.join(expense_result.errors)}",
-            }
-
-        expense_claim = frappe.get_doc("Expense Claim", expense_result.doc_name)
-        frappe.logger().info(f"Successfully created expense claim draft: {expense_claim.name}")
-
-        # Add receipt attachment if provided - attach to the ERPNext Expense Claim
-        receipt_data = expense_data.get("receipt_attachment")
-        if receipt_data and isinstance(receipt_data, dict):
-            try:
-                if receipt_data.get("file_url") and receipt_data.get("frappe_file_name"):
-                    # Handle Frappe's built-in upload format
-                    frappe.logger().info(
-                        f"Using Frappe built-in file: {receipt_data.get('frappe_file_name')}"
-                    )
-
-                    # Get the existing file document and re-attach it to the expense claim
-                    file_doc = frappe.get_doc("File", receipt_data.get("frappe_file_name"))
-                    file_doc.attached_to_doctype = expense_claim.doctype
-                    file_doc.attached_to_name = expense_claim.name
-                    file_doc.folder = "Home/Attachments"
-                    file_doc.is_private = 0
-
-                    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-                    file_result = secure_document_operation(
-                        operation="save",
-                        doc=file_doc,
-                        justification=f"Attach receipt file {file_doc.name} to expense claim {expense_claim.name} for volunteer {volunteer.name}",
-                        required_permissions=["File:write"],
-                    )
-
-                    if not file_result.success:
-                        frappe.logger().error(
-                            f"Failed to attach Frappe file to expense claim: {'; '.join(file_result.errors)}"
-                        )
-                        raise frappe.ValidationError(
-                            f"File attachment failed: {file_result.errors[0] if file_result.errors else 'Unknown error'}"
-                        )
-
-                    frappe.logger().info(
-                        f"Successfully re-attached Frappe file {file_doc.name} to expense claim {expense_claim.name}"
-                    )
-
-                elif receipt_data.get("file_content"):
-                    # Handle our custom base64 format
-                    frappe.logger().info(f"Using custom base64 file: {receipt_data.get('file_name')}")
-
-                    # Decode file content
-                    import base64
-
-                    file_content = base64.b64decode(receipt_data.get("file_content", ""))
-
-                    # Create file with proper attachment using official Frappe API
-                    file_doc = frappe.get_doc(
-                        {
-                            "doctype": "File",
-                            "file_name": receipt_data.get("file_name"),
-                            "content": file_content,
-                            "attached_to_doctype": expense_claim.doctype,
-                            "attached_to_name": expense_claim.name,
-                            "folder": "Home/Attachments",
-                            "is_private": 0,
-                        }
-                    )
-
-                    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-                    file_result = secure_document_operation(
-                        operation="insert",
-                        doc=file_doc,
-                        justification=f"Create receipt file {receipt_data.get('file_name')} for expense claim {expense_claim.name} - volunteer {volunteer.name}",
-                        required_permissions=["File:create"],
-                    )
-
-                    if not file_result.success:
-                        frappe.logger().error(
-                            f"Failed to create custom receipt file: {'; '.join(file_result.errors)}"
-                        )
-                        raise frappe.ValidationError(
-                            f"Receipt upload failed: {file_result.errors[0] if file_result.errors else 'Unknown error'}"
-                        )
-
-                    frappe.logger().info(
-                        f"Successfully attached custom receipt {receipt_data.get('file_name')} to expense claim {expense_claim.name}"
-                    )
-                else:
-                    frappe.logger().warning(
-                        f"Receipt data provided but no valid file format found: {receipt_data}"
-                    )
-
-            except Exception as attachment_error:
-                # Log error but don't fail the entire expense submission
-                frappe.log_error(
-                    f"Failed to attach receipt to expense claim {expense_claim.name}: {str(attachment_error)}",
-                    "Expense Receipt Attachment Error",
-                )
-                frappe.logger().warning(
-                    f"Receipt attachment failed for {expense_claim.name}: {attachment_error}"
-                )
-
-        # Don't submit automatically - leave for approval workflow
-        # The expense claim will remain in Draft status until approved and submitted by authorized users
-
-        # No longer creating redundant Volunteer Expense record - all data is stored in Expense Claim custom fields
-
-        # Prepare success message
-        success_message = _("Expense claim saved successfully and awaiting approval")
-        if employee_created:
-            success_message += _(" (Employee record created for your account)")
-
+    # Convert OperationResult to dict for API response
+    if result.success:
         return {
             "success": True,
-            "message": success_message,
-            "expense_claim_name": expense_claim.name,
-            "employee_created": employee_created,
+            "message": result.metadata.get("message", "Expense claim saved successfully"),
+            "expense_claim_name": result.metadata.get("expense_claim_name"),
+            "employee_created": result.metadata.get("employee_created", False),
         }
-
-    except Exception as e:
-        frappe.log_error(f"Error submitting expense: {str(e)}", "Volunteer Expense Submission Error")
-        return {"success": False, "message": str(e)}
+    else:
+        return {
+            "success": False,
+            "message": result.error_message,
+            "errors": result.errors,
+        }
 
 
 @frappe.whitelist()
@@ -1031,67 +664,14 @@ def get_expense_details(expense_name):
 
 
 def get_organization_cost_center(expense_data):
-    """Get cost center based on organization with enhanced fallback logic"""
-    try:
-        cost_center = None
+    """Get cost center based on organization with enhanced fallback logic.
 
-        if expense_data.get("organization_type") == "Chapter" and expense_data.get("chapter"):
-            chapter_doc = frappe.get_doc("Chapter", expense_data.get("chapter"))
-            cost_center = getattr(chapter_doc, "cost_center", None)
+    Note: This is a wrapper for backward compatibility. The actual implementation
+    has been moved to verenigingen.utils.cost_center_resolver.
+    """
+    from verenigingen.utils.cost_center_resolver import get_organization_cost_center_from_dict
 
-        elif expense_data.get("organization_type") == "Team" and expense_data.get("team"):
-            team_doc = frappe.get_doc("Team", expense_data.get("team"))
-            cost_center = getattr(team_doc, "cost_center", None)
-
-            # If team doesn't have cost center, try to get from chapter
-            if not cost_center and hasattr(team_doc, "chapter") and team_doc.chapter:
-                try:
-                    chapter_doc = frappe.get_doc("Chapter", team_doc.chapter)
-                    cost_center = getattr(chapter_doc, "cost_center", None)
-                    frappe.logger().info(f"Using chapter cost center for team {team_doc.name}: {cost_center}")
-                except Exception as e:
-                    frappe.logger().error(f"Error getting chapter cost center: {str(e)}")
-
-        elif expense_data.get("organization_type") == "National":
-            # Get national cost center from settings
-            settings = frappe.get_single("Verenigingen Settings")
-            if hasattr(settings, "national_cost_center") and settings.national_cost_center:
-                cost_center = settings.national_cost_center
-
-        # Enhanced fallback logic
-        if not cost_center:
-            frappe.logger().warning(
-                f"No cost center found for organization type: {expense_data.get('organization_type')}"
-            )
-
-            # Try to get company cost center from settings
-            settings = frappe.get_single("Verenigingen Settings")
-            default_company = settings.company
-            if not default_company:
-                frappe.throw(_("Company not configured in Verenigingen Settings"))
-
-            if default_company:
-                # Get main cost center for the company
-                main_cost_centers = frappe.get_all(
-                    "Cost Center",
-                    filters={"company": default_company, "is_group": 0},
-                    fields=["name"],
-                    limit=1,
-                )
-
-                if main_cost_centers:
-                    cost_center = main_cost_centers[0].name
-                    frappe.logger().info(f"Using fallback cost center: {cost_center}")
-                else:
-                    # Create a default cost center if none exists
-                    cost_center = create_default_cost_center(default_company)
-
-        return cost_center
-
-    except Exception as e:
-        frappe.log_error(f"Error getting cost center: {str(e)}", "Cost Center Error")
-        # Return a default cost center as last resort
-        return get_fallback_cost_center()
+    return get_organization_cost_center_from_dict(expense_data)
 
 
 # create_default_cost_center function moved to verenigingen.utils.volunteer_expense_setup
