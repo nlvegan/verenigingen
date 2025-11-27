@@ -566,5 +566,115 @@ class TestMollieCoreIntegration(EnhancedTestCase):
                 raise e
 
 
+class TestMollieClientContractValidation(unittest.TestCase):
+    """
+    Contract tests to ensure MollieClient has all methods required by services.
+
+    These tests catch missing methods (like get_subscription) early in CI
+    rather than at runtime when a user triggers the functionality.
+    """
+
+    def test_mollie_client_has_subscription_service_required_methods(self):
+        """
+        Verify MollieClient has all methods required by SubscriptionService.
+
+        This test was added after a bug where MollieClient was missing
+        get_subscription() method, causing runtime errors.
+        """
+        from verenigingen.integrations.mollie.core.client import MollieClient
+
+        # Methods required by SubscriptionService
+        required_methods = [
+            "get_subscription",
+            "create_subscription",
+            "cancel_subscription",
+            "get_customer",
+            "create_customer",
+        ]
+
+        for method_name in required_methods:
+            self.assertTrue(
+                hasattr(MollieClient, method_name),
+                f"MollieClient missing required method: {method_name}. "
+                f"SubscriptionService depends on this method.",
+            )
+            self.assertTrue(
+                callable(getattr(MollieClient, method_name)),
+                f"MollieClient.{method_name} must be callable",
+            )
+
+        print("✅ MollieClient has all SubscriptionService required methods")
+
+    def test_mollie_client_has_payment_webhook_required_methods(self):
+        """
+        Verify MollieClient has all methods required by payment webhook handler.
+        """
+        from verenigingen.integrations.mollie.core.client import MollieClient
+
+        # Methods required by payment webhook processing
+        required_methods = [
+            "get_payment",
+            "get_customer",
+            "get_subscription",
+            "get_refund",
+            "get_chargeback",
+        ]
+
+        for method_name in required_methods:
+            self.assertTrue(
+                hasattr(MollieClient, method_name),
+                f"MollieClient missing required method: {method_name}. "
+                f"Payment webhook handler depends on this method.",
+            )
+
+        print("✅ MollieClient has all payment webhook required methods")
+
+    def test_subscription_service_integration_with_client(self):
+        """
+        Verify SubscriptionService can be instantiated with MollieClient.
+
+        This catches type/interface mismatches between service and client.
+        """
+        from unittest.mock import Mock, patch
+
+        from verenigingen.integrations.mollie.core.client import MollieClient
+        from verenigingen.integrations.mollie.services.subscription_service import SubscriptionService
+
+        # Create a mock client that mimics MollieClient interface
+        mock_client = Mock(spec=MollieClient)
+
+        # SubscriptionService should accept MollieClient
+        try:
+            service = SubscriptionService(mock_client)
+            self.assertIsNotNone(service)
+            self.assertEqual(service.client, mock_client)
+            print("✅ SubscriptionService integrates correctly with MollieClient")
+        except Exception as e:
+            self.fail(f"SubscriptionService failed to integrate with MollieClient: {e}")
+
+    def test_subscription_sync_service_integration_with_client(self):
+        """
+        Verify MollieSubscriptionSyncService can be instantiated with MollieClient.
+
+        This catches integration issues between sync service and client.
+        """
+        from unittest.mock import Mock
+
+        from verenigingen.integrations.mollie.core.client import MollieClient
+        from verenigingen.integrations.mollie.services.mollie_subscription_sync_service import (
+            MollieSubscriptionSyncService,
+        )
+
+        mock_client = Mock(spec=MollieClient)
+
+        try:
+            service = MollieSubscriptionSyncService(mock_client)
+            self.assertIsNotNone(service)
+            self.assertEqual(service.client, mock_client)
+            print("✅ MollieSubscriptionSyncService integrates correctly with MollieClient")
+        except Exception as e:
+            self.fail(f"MollieSubscriptionSyncService failed to integrate with MollieClient: {e}")
+
+
 if __name__ == "__main__":
     unittest.main()
