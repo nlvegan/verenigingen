@@ -3057,9 +3057,13 @@ window.update_other_members_at_address = function (frm, force_refresh = false) {
 			if (r.message) {
 				// console.log('API response structure:', Object.keys(r.message));
 
-				// Handle both possible response formats
+				// Handle OperationResult response format
+				// Now returns: { success: true, data: { html: "..." }, timestamp: "..." }
 				let html_content = null;
-				if (r.message.success && r.message.html) {
+				if (r.message.success && r.message.data && r.message.data.html) {
+					html_content = r.message.data.html;
+				} else if (r.message.success && r.message.html) {
+					// Legacy format fallback
 					html_content = r.message.html;
 				} else if (r.message.html) {
 					html_content = r.message.html;

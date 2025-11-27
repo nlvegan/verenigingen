@@ -463,8 +463,10 @@ function emailAllMembers() {
 			chapter_name: selectedChapter
 		},
 		callback(r) {
-			if (r.message && r.message.length > 0) {
-				const emails = r.message.join(';');
+			// Handle OperationResult response format
+			const result = r.message;
+			if (result && result.success && result.data && result.data.emails && result.data.emails.length > 0) {
+				const emails = result.data.emails.join(';');
 				window.location.href = `mailto:${emails}`;
 			} else {
 				frappe.msgprint(__('No member emails found for this chapter.'));

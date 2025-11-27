@@ -2,6 +2,8 @@
 Member management API endpoints with optimized performance and error handling
 """
 
+from typing import Any, Dict, List, Optional
+
 import frappe
 
 from verenigingen.utils.error_handling import (
@@ -12,6 +14,7 @@ from verenigingen.utils.error_handling import (
     validate_required_fields,
 )
 from verenigingen.utils.migration.migration_performance import BatchProcessor
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.performance_utils import QueryOptimizer, performance_monitor
 
 # Import comprehensive security framework
@@ -32,7 +35,7 @@ from verenigingen.utils.security.enhanced_validation import validate_with_schema
 @validate_with_schema("member_data")
 @handle_api_error
 @performance_monitor(threshold_ms=500)
-def assign_member_to_chapter(member_name, chapter_name):
+def assign_member_to_chapter(member_name, chapter_name) -> OperationResult[Dict[str, Any]]:
     """Assign a member to a specific chapter using centralized manager"""
     # Validate inputs using standardized validation
     validate_required_fields(
@@ -55,11 +58,10 @@ def assign_member_to_chapter(member_name, chapter_name):
 
     # Adapt result format for backward compatibility
     if result.get("success"):
-        return {
-            "success": True,
-            "message": f"Member {member_name} has been assigned to {chapter_name}",
-            "new_chapter": chapter_name,
-        }
+        return OperationResult.ok(
+            {"new_chapter": chapter_name},
+            message=f"Member {member_name} has been assigned to {chapter_name}",
+        )
     else:
         # Convert any error result to ValidationError
         error_msg = result.get("error", "Unknown error occurred")
@@ -139,12 +141,12 @@ def can_assign_member_to_chapter(member_name, chapter_name):
 @handle_api_error
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def get_members_without_chapter(**kwargs):
+def get_members_without_chapter(**kwargs) -> OperationResult[Dict[str, Any]]:
     """Get list of members without chapter assignment"""
     try:
         # Check permissions
         if not can_view_members_without_chapter():
-            return {"success": False, "error": "You don't have permission to view this data"}
+            return OperationResult.fail("You don't have permission to view this data")
 
         # Get members who are not in any Chapter Member records
         members_with_chapters = frappe.get_all(
@@ -173,11 +175,11 @@ def get_members_without_chapter(**kwargs):
             start=offset,
         )
 
-        return {"success": True, "members": members, "count": len(members)}
+        return OperationResult.ok({"members": members, "count": len(members)})
 
     except Exception as e:
         frappe.log_error(f"Error getting members without chapter: {str(e)}", "Members Without Chapter Error")
-        return {"success": False, "error": f"Failed to get members: {str(e)}"}
+        return OperationResult.fail(f"Failed to get members: {str(e)}")
 
 
 def can_view_members_without_chapter():
@@ -219,7 +221,7 @@ def can_view_members_without_chapter():
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def bulk_assign_members_to_chapters(assignments):
+def bulk_assign_members_to_chapters(assignments) -> OperationResult[Dict[str, Any]]:
     """Bulk assign multiple members to chapters
 
     Args:
@@ -227,7 +229,7 @@ def bulk_assign_members_to_chapters(assignments):
     """
     try:
         if not assignments:
-            return {"success": False, "error": "No assignments provided"}
+            return OperationResult.fail("No assignments provided")
 
         results = []
         success_count = 0
@@ -238,30 +240,38 @@ def bulk_assign_members_to_chapters(assignments):
             chapter_name = assignment.get("chapter_name")
 
             result = assign_member_to_chapter(member_name, chapter_name)
-            results.append({"member_name": member_name, "chapter_name": chapter_name, "result": result})
+            # Handle OperationResult from assign_member_to_chapter
+            result_dict = result.to_dict() if isinstance(result, OperationResult) else result
+            results.append({"member_name": member_name, "chapter_name": chapter_name, "result": result_dict})
 
-            if result.get("success"):
+            if isinstance(result, OperationResult):
+                if result.success:
+                    success_count += 1
+                else:
+                    error_count += 1
+            elif result.get("success"):
                 success_count += 1
             else:
                 error_count += 1
 
-        return {
-            "success": True,
-            "message": f"Processed {len(assignments)} assignments: {success_count} successful, {error_count} failed",
-            "results": results,
-            "success_count": success_count,
-            "error_count": error_count,
-        }
+        return OperationResult.ok(
+            {
+                "results": results,
+                "success_count": success_count,
+                "error_count": error_count,
+            },
+            message=f"Processed {len(assignments)} assignments: {success_count} successful, {error_count} failed",
+        )
 
     except Exception as e:
         frappe.log_error(f"Error in bulk assignment: {str(e)}", "Bulk Assignment Error")
-        return {"success": False, "error": f"Failed to process bulk assignments: {str(e)}"}
+        return OperationResult.fail(f"Failed to process bulk assignments: {str(e)}")
 
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
 @performance_monitor(threshold_ms=1000)
-def get_members_with_chapter_info(filters=None, limit=50):
+def get_members_with_chapter_info(filters=None, limit=50) -> OperationResult[Dict[str, Any]]:
     """
     Get member list with chapter relationships using optimized queries (N+1 prevention)
 
@@ -272,7 +282,7 @@ def get_members_with_chapter_info(filters=None, limit=50):
         limit: Maximum members to return (default 50)
 
     Returns:
-        Dict with members list and metadata
+        OperationResult with members list and metadata
     """
     # Input validation
     if limit is None or limit > 500:
@@ -307,7 +317,7 @@ def get_members_with_chapter_info(filters=None, limit=50):
     )
 
     if not members:
-        return {"success": True, "members": [], "total_count": 0}
+        return OperationResult.ok({"members": [], "total_count": 0})
 
     member_names = [m["name"] for m in members]
 
@@ -359,16 +369,17 @@ def get_members_with_chapter_info(filters=None, limit=50):
         member["primary_chapter"] = member_chapters[0] if member_chapters else None
         enriched_members.append(member)
 
-    return {
-        "success": True,
-        "members": enriched_members,
-        "total_count": len(enriched_members),
-        "query_optimization": {
-            "queries_used": 3,  # Instead of 1 + N*2 queries
-            "n_plus_1_prevented": True,
-            "members_processed": len(members),
-        },
-    }
+    return OperationResult.ok(
+        {
+            "members": enriched_members,
+            "total_count": len(enriched_members),
+            "query_optimization": {
+                "queries_used": 3,  # Instead of 1 + N*2 queries
+                "n_plus_1_prevented": True,
+                "members_processed": len(members),
+            },
+        }
+    )
 
 
 def add_member_to_chapter_roster(member_name, new_chapter):
@@ -397,12 +408,12 @@ def add_member_to_chapter_roster(member_name, new_chapter):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def debug_address_members(member_id):
+def debug_address_members(member_id) -> OperationResult[Dict[str, Any]]:
     """Debug method to test address members functionality"""
     try:
         member = frappe.get_doc("Member", member_id)
 
-        result = {
+        result_data = {
             "member_id": member.name,
             "member_name": f"{member.first_name} {member.last_name}",
             "primary_address": member.primary_address,
@@ -415,23 +426,23 @@ def debug_address_members(member_id):
 
         # Test the HTML generation
         html_result = member.get_address_members_html()
-        result["address_members_html"] = html_result
-        result["address_members_html_length"] = len(html_result) if html_result else 0
+        result_data["address_members_html"] = html_result
+        result_data["address_members_html_length"] = len(html_result) if html_result else 0
 
         # Test the underlying method
         other_members = member.get_other_members_at_address()
-        result["other_members_count"] = len(other_members) if other_members else 0
-        result["other_members_list"] = other_members if other_members else []
+        result_data["other_members_count"] = len(other_members) if other_members else 0
+        result_data["other_members_list"] = other_members if other_members else []
 
-        return result
+        return OperationResult.ok(result_data)
 
     except Exception as e:
-        return {"error": str(e), "traceback": frappe.get_traceback()}
+        return OperationResult.fail(str(e), errors=[frappe.get_traceback()])
 
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def manually_populate_address_members(member_id):
+def manually_populate_address_members(member_id) -> OperationResult[Dict[str, Any]]:
     """Manually populate the address members field to test UI"""
     try:
         member = frappe.get_doc("Member", member_id)
@@ -455,22 +466,26 @@ def manually_populate_address_members(member_id):
 
         if not member_result.success:
             frappe.logger().error(f"Failed to update member {member_id}: {'; '.join(member_result.errors)}")
-            return {"success": False, "error": f"Failed to update member: {'; '.join(member_result.errors)}"}
+            return OperationResult.fail(
+                f"Failed to update member: {'; '.join(member_result.errors)}",
+                errors=member_result.errors,
+            )
 
-        return {
-            "success": True,
-            "message": f"Field populated for {member_id}",
-            "html_length": len(html_content) if html_content else 0,
-            "field_value": member.other_members_at_address,
-        }
+        return OperationResult.ok(
+            {
+                "html_length": len(html_content) if html_content else 0,
+                "field_value": member.other_members_at_address,
+            },
+            message=f"Field populated for {member_id}",
+        )
 
     except Exception as e:
-        return {"success": False, "error": str(e), "traceback": frappe.get_traceback()}
+        return OperationResult.fail(str(e), errors=[frappe.get_traceback()])
 
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def clear_address_members_field(member_id):
+def clear_address_members_field(member_id) -> OperationResult[Dict[str, Any]]:
     """Clear the address members field to test automatic population"""
     try:
         member = frappe.get_doc("Member", member_id)
@@ -491,20 +506,20 @@ def clear_address_members_field(member_id):
             frappe.logger().error(
                 f"Failed to clear member field {member_id}: {'; '.join(member_result.errors)}"
             )
-            return {
-                "success": False,
-                "error": f"Failed to clear member field: {'; '.join(member_result.errors)}",
-            }
+            return OperationResult.fail(
+                f"Failed to clear member field: {'; '.join(member_result.errors)}",
+                errors=member_result.errors,
+            )
 
-        return {"success": True, "message": f"Field cleared for {member_id}"}
+        return OperationResult.ok({}, message=f"Field cleared for {member_id}")
 
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return OperationResult.fail(str(e))
 
 
 @frappe.whitelist()
 @utility_api(operation_type=OperationType.UTILITY)
-def test_simple_field_population(member_id):
+def test_simple_field_population(member_id) -> OperationResult[Dict[str, Any]]:
     """Test setting a simple value to verify field visibility"""
     try:
         member = frappe.get_doc("Member", member_id)
@@ -528,46 +543,50 @@ def test_simple_field_population(member_id):
             frappe.logger().error(
                 f"Failed to set test content for member {member_id}: {'; '.join(member_result.errors)}"
             )
-            return {
-                "success": False,
-                "error": f"Failed to set test content: {'; '.join(member_result.errors)}",
-            }
+            return OperationResult.fail(
+                f"Failed to set test content: {'; '.join(member_result.errors)}",
+                errors=member_result.errors,
+            )
 
-        return {"success": True, "message": f"Test content set for {member_id}", "test_html": test_html}
+        return OperationResult.ok(
+            {"test_html": test_html},
+            message=f"Test content set for {member_id}",
+        )
 
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return OperationResult.fail(str(e))
 
 
 @frappe.whitelist()
 @utility_api(operation_type=OperationType.UTILITY)
 @handle_api_error
-def get_address_members_html_api(member_id):
+def get_address_members_html_api(member_id) -> OperationResult[Dict[str, Any]]:
     """Dedicated API method to get address members HTML - completely separate from document methods"""
     try:
         member = frappe.get_doc("Member", member_id)
 
         if not member.primary_address:
-            return {
-                "success": True,
-                "html": '<div class="text-muted"><i class="fa fa-home"></i> No address selected</div>',
-            }
+            return OperationResult.ok(
+                {"html": '<div class="text-muted"><i class="fa fa-home"></i> No address selected</div>'}
+            )
 
         # Get the address document
         try:
             address_doc = frappe.get_doc("Address", member.primary_address)
         except Exception:
-            return {
-                "success": True,
-                "html": '<div class="text-muted"><i class="fa fa-exclamation-triangle"></i> Address not found</div>',
-            }
+            return OperationResult.ok(
+                {
+                    "html": '<div class="text-muted"><i class="fa fa-exclamation-triangle"></i> Address not found</div>'
+                }
+            )
 
         # Find other members at the same physical address
         if not address_doc.address_line1 or not address_doc.city:
-            return {
-                "success": True,
-                "html": '<div class="text-muted"><i class="fa fa-info-circle"></i> Incomplete address information</div>',
-            }
+            return OperationResult.ok(
+                {
+                    "html": '<div class="text-muted"><i class="fa fa-info-circle"></i> Incomplete address information</div>'
+                }
+            )
 
         # Normalize the address components for matching
         normalized_address_line = address_doc.address_line1.lower().strip()
@@ -597,10 +616,11 @@ def get_address_members_html_api(member_id):
                     same_location_addresses.append(addr.name)
 
         if not same_location_addresses:
-            return {
-                "success": True,
-                "html": '<div class="text-muted"><i class="fa fa-info-circle"></i> No other members found at this address</div>',
-            }
+            return OperationResult.ok(
+                {
+                    "html": '<div class="text-muted"><i class="fa fa-info-circle"></i> No other members found at this address</div>'
+                }
+            )
 
         # Find members using any of the matching addresses, excluding current member
         other_members = frappe.get_all(
@@ -614,10 +634,11 @@ def get_address_members_html_api(member_id):
         )
 
         if not other_members:
-            return {
-                "success": True,
-                "html": '<div class="text-muted"><i class="fa fa-info-circle"></i> No other members found at this address</div>',
-            }
+            return OperationResult.ok(
+                {
+                    "html": '<div class="text-muted"><i class="fa fa-info-circle"></i> No other members found at this address</div>'
+                }
+            )
 
         # Generate HTML with cleaner styling to match backend
         html_content = '<div class="other-members-container">'
@@ -686,14 +707,16 @@ def get_address_members_html_api(member_id):
             """
         html_content += "</div>"
 
-        return {"success": True, "html": html_content}
+        return OperationResult.ok({"html": html_content})
 
     except Exception as e:
         frappe.log_error(f"Error in get_address_members_html_api for {member_id}: {str(e)}")
-        return {
-            "success": False,
-            "html": f'<div class="text-danger"><i class="fa fa-exclamation-triangle"></i> Error loading member information: {str(e)}</div>',
-        }
+        return OperationResult.fail(
+            f"Error loading member information: {str(e)}",
+            errors=[
+                f'<div class="text-danger"><i class="fa fa-exclamation-triangle"></i> Error loading member information: {str(e)}</div>'
+            ],
+        )
 
 
 def guess_relationship_simple(member1, member2_data):
@@ -747,14 +770,14 @@ def get_status_color_simple(status):
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def get_mt940_import_url():
+def get_mt940_import_url() -> OperationResult[str]:
     """Get URL for MT940 import page"""
-    return "/mt940_import"
+    return OperationResult.ok("/mt940_import")
 
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def test_mt940_extraction(file_content, bank_account=None):
+def test_mt940_extraction(file_content, bank_account=None) -> OperationResult[Dict[str, Any]]:
     """Test the extraction function on first transaction"""
     try:
         import base64
@@ -767,7 +790,7 @@ def test_mt940_extraction(file_content, bank_account=None):
         try:
             import mt940
         except ImportError:
-            return {"success": False, "error": "MT940 library not available"}
+            return OperationResult.fail("MT940 library not available")
 
         # Parse without calling the extraction function first to isolate the issue
         with tempfile.NamedTemporaryFile(mode="w", suffix=".sta", delete=False) as temp_file:
@@ -779,11 +802,11 @@ def test_mt940_extraction(file_content, bank_account=None):
             transaction_list = list(transactions)
 
             if not transaction_list:
-                return {"success": False, "error": "No statements found"}
+                return OperationResult.fail("No statements found")
 
             first_statement = transaction_list[0]
             if not hasattr(first_statement, "transactions") or not first_statement.transactions:
-                return {"success": False, "error": "No transactions in first statement"}
+                return OperationResult.fail("No transactions in first statement")
 
             first_transaction = first_statement.transactions[0]
 
@@ -797,14 +820,15 @@ def test_mt940_extraction(file_content, bank_account=None):
             # Now test extraction
             try:
                 extracted = extract_transaction_data_improved(first_transaction)
-                return {"success": True, "raw_data": raw_data, "extracted": extracted}
+                return OperationResult.ok({"raw_data": raw_data, "extracted": extracted})
             except Exception as extract_error:
-                return {
-                    "success": True,
-                    "raw_data": raw_data,
-                    "extracted": None,
-                    "extraction_error": str(extract_error),
-                }
+                return OperationResult.ok(
+                    {
+                        "raw_data": raw_data,
+                        "extracted": None,
+                        "extraction_error": str(extract_error),
+                    }
+                )
 
         finally:
             import os
@@ -815,12 +839,12 @@ def test_mt940_extraction(file_content, bank_account=None):
                 pass
 
     except Exception as e:
-        return {"success": False, "error": str(e), "traceback": frappe.get_traceback()}
+        return OperationResult.fail(str(e), errors=[frappe.get_traceback()])
 
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def debug_mt940_import_improved(file_content, bank_account=None):
+def debug_mt940_import_improved(file_content, bank_account=None) -> OperationResult[Dict[str, Any]]:
     """Debug version of MT940 import with improved transaction parsing"""
     try:
         import base64
@@ -842,7 +866,7 @@ def debug_mt940_import_improved(file_content, bank_account=None):
             debug_info["step"] = "2_mt940_library_found"
         except ImportError:
             debug_info["error"] = "MT940 library not installed"
-            return debug_info
+            return OperationResult.fail("MT940 library not installed", errors=[debug_info])
 
         # Write to temp file
         with tempfile.NamedTemporaryFile(mode="w", suffix=".sta", delete=False) as temp_file:
@@ -906,15 +930,15 @@ def debug_mt940_import_improved(file_content, bank_account=None):
         except Exception:
             pass
 
-        return debug_info
+        return OperationResult.ok(debug_info)
 
     except Exception as e:
-        return {"error": str(e), "traceback": frappe.get_traceback()}
+        return OperationResult.fail(str(e), errors=[frappe.get_traceback()])
 
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def debug_mt940_import(file_content, bank_account=None):
+def debug_mt940_import(file_content, bank_account=None) -> OperationResult[Dict[str, Any]]:
     """Debug version of MT940 import to see what's happening"""
     try:
         import base64
@@ -936,7 +960,7 @@ def debug_mt940_import(file_content, bank_account=None):
             debug_info["step"] = "2_mt940_library_found"
         except ImportError:
             debug_info["error"] = "MT940 library not installed"
-            return debug_info
+            return OperationResult.fail("MT940 library not installed", errors=[debug_info])
 
         # Write to temp file
         with tempfile.NamedTemporaryFile(mode="w", suffix=".sta", delete=False) as temp_file:
@@ -996,15 +1020,15 @@ def debug_mt940_import(file_content, bank_account=None):
         except Exception:
             pass
 
-        return debug_info
+        return OperationResult.ok(debug_info)
 
     except Exception as e:
-        return {"error": str(e), "traceback": frappe.get_traceback()}
+        return OperationResult.fail(str(e), errors=[frappe.get_traceback()])
 
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def debug_bank_account_search(iban):
+def debug_bank_account_search(iban) -> OperationResult[Dict[str, Any]]:
     """Debug bank account search by IBAN"""
     try:
         # Get all bank accounts
@@ -1028,21 +1052,25 @@ def debug_bank_account_search(iban):
             fields=["name", "account_name", "bank_account_no", "iban", "company"],
         )
 
-        return {
-            "search_iban": iban,
-            "total_accounts": len(all_accounts),
-            "all_accounts": all_accounts,
-            "found_by_bank_account_no": accounts_by_no,
-            "found_by_iban_field": accounts_by_iban,
-        }
+        return OperationResult.ok(
+            {
+                "search_iban": iban,
+                "total_accounts": len(all_accounts),
+                "all_accounts": all_accounts,
+                "found_by_bank_account_no": accounts_by_no,
+                "found_by_iban_field": accounts_by_iban,
+            }
+        )
 
     except Exception as e:
-        return {"error": str(e)}
+        return OperationResult.fail(str(e))
 
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def debug_duplicate_detection(file_content_b64, bank_account, company=None):
+def debug_duplicate_detection(
+    file_content_b64, bank_account, company=None
+) -> OperationResult[Dict[str, Any]]:
     """Debug the duplicate detection logic specifically"""
     try:
         import base64
@@ -1210,15 +1238,17 @@ def debug_duplicate_detection(file_content_b64, bank_account, company=None):
         debug_info["collision_summary"] = collision_summary
         debug_info["total_collisions"] = len(collision_summary)
 
-        return debug_info
+        return OperationResult.ok(debug_info)
 
     except Exception as e:
-        return {"error": str(e), "traceback": frappe.get_traceback()}
+        return OperationResult.fail(str(e), errors=[frappe.get_traceback()])
 
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def debug_mt940_import_detailed(file_content, bank_account=None, company=None):
+def debug_mt940_import_detailed(
+    file_content, bank_account=None, company=None
+) -> OperationResult[Dict[str, Any]]:
     """Debug version that shows exactly what's happening during import"""
     try:
         import base64
@@ -1251,18 +1281,21 @@ def debug_mt940_import_detailed(file_content, bank_account=None, company=None):
                 bank_account = find_bank_account_by_iban_improved(statement_iban, company)
                 debug_results["found_bank_account"] = bank_account
 
-                # Add detailed search debug
-                debug_search = debug_bank_account_search(statement_iban)
-                debug_results["iban_search_debug"] = debug_search
+                # Add detailed search debug - handle OperationResult
+                debug_search_result = debug_bank_account_search(statement_iban)
+                if isinstance(debug_search_result, OperationResult):
+                    debug_results["iban_search_debug"] = debug_search_result.data
+                else:
+                    debug_results["iban_search_debug"] = debug_search_result
 
                 if not bank_account:
                     debug_results["error"] = f"No Bank Account found with IBAN {statement_iban}"
-                    return debug_results
+                    return OperationResult.fail(debug_results["error"], errors=[debug_results])
             else:
-                debug_results["error"] = (
-                    "Could not extract IBAN from MT940 file and no bank account specified"
-                )
-                return debug_results
+                debug_results[
+                    "error"
+                ] = "Could not extract IBAN from MT940 file and no bank account specified"
+                return OperationResult.fail(debug_results["error"], errors=[debug_results])
 
         debug_results["final_bank_account"] = bank_account
         debug_results["final_company"] = company
@@ -1270,7 +1303,7 @@ def debug_mt940_import_detailed(file_content, bank_account=None, company=None):
         # Validate bank account exists
         if not frappe.db.exists("Bank Account", bank_account):
             debug_results["error"] = f"Bank Account {bank_account} does not exist"
-            return debug_results
+            return OperationResult.fail(debug_results["error"], errors=[debug_results])
 
         # Import mt940 library
         try:
@@ -1279,7 +1312,7 @@ def debug_mt940_import_detailed(file_content, bank_account=None, company=None):
             debug_results["step"] = "2_library_imported"
         except ImportError:
             debug_results["error"] = "MT940 library not available"
-            return debug_results
+            return OperationResult.fail(debug_results["error"], errors=[debug_results])
 
         # Write to temp file and parse
         with tempfile.NamedTemporaryFile(mode="w", suffix=".sta", delete=False) as temp_file:
@@ -1295,7 +1328,7 @@ def debug_mt940_import_detailed(file_content, bank_account=None, company=None):
 
             if not transaction_list:
                 debug_results["error"] = "No statements found in MT940 file"
-                return debug_results
+                return OperationResult.fail(debug_results["error"], errors=[debug_results])
 
             # Test first transaction only
             first_statement = transaction_list[0]
@@ -1315,7 +1348,7 @@ def debug_mt940_import_detailed(file_content, bank_account=None, company=None):
                     debug_results["creation_result"] = "extraction_failed"
 
             debug_results["step"] = "4_complete"
-            return debug_results
+            return OperationResult.ok(debug_results)
 
         finally:
             # Clean up temp file
@@ -1327,7 +1360,7 @@ def debug_mt940_import_detailed(file_content, bank_account=None, company=None):
                 pass
 
     except Exception as e:
-        return {"error": str(e), "traceback": frappe.get_traceback()}
+        return OperationResult.fail(str(e), errors=[frappe.get_traceback()])
 
 
 def debug_payment_history_refresh_simple(member_id="Assoc-Member-2025-07-0030"):
@@ -1456,7 +1489,7 @@ def debug_payment_history_refresh_simple(member_id="Assoc-Member-2025-07-0030"):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def import_mt940_improved(file_content, bank_account=None, company=None):
+def import_mt940_improved(file_content, bank_account=None, company=None) -> OperationResult[Dict[str, Any]]:
     """Improved MT940 import with better transaction handling"""
     try:
         import base64
@@ -1482,29 +1515,26 @@ def import_mt940_improved(file_content, bank_account=None, company=None):
             if statement_iban:
                 bank_account = find_bank_account_by_iban_improved(statement_iban, company)
                 if not bank_account:
-                    return {
-                        "success": False,
-                        "message": f"No Bank Account found with IBAN {statement_iban}",
-                        "extracted_iban": statement_iban,
-                    }
+                    return OperationResult.fail(
+                        f"No Bank Account found with IBAN {statement_iban}",
+                        extracted_iban=statement_iban,
+                    )
             else:
-                return {
-                    "success": False,
-                    "message": "Could not extract IBAN from MT940 file and no bank account specified",
-                }
+                return OperationResult.fail(
+                    "Could not extract IBAN from MT940 file and no bank account specified"
+                )
 
         # Validate bank account exists
         if not frappe.db.exists("Bank Account", bank_account):
-            return {"success": False, "message": f"Bank Account {bank_account} does not exist"}
+            return OperationResult.fail(f"Bank Account {bank_account} does not exist")
 
         # Import mt940 library
         try:
             import mt940
         except ImportError:
-            return {
-                "success": False,
-                "message": "MT940 library not available. Please install with: pip install mt-940",
-            }
+            return OperationResult.fail(
+                "MT940 library not available. Please install with: pip install mt-940"
+            )
 
         # Write to temp file and parse
         with tempfile.NamedTemporaryFile(mode="w", suffix=".sta", delete=False) as temp_file:
@@ -1516,7 +1546,7 @@ def import_mt940_improved(file_content, bank_account=None, company=None):
             transaction_list = list(transactions)
 
             if not transaction_list:
-                return {"success": False, "message": "No statements found in MT940 file"}
+                return OperationResult.fail("No statements found in MT940 file")
 
             transactions_created = 0
             transactions_skipped = 0
@@ -1584,25 +1614,26 @@ def import_mt940_improved(file_content, bank_account=None, company=None):
             except Exception:
                 pass
 
-            return {
-                "success": True,
-                "message": f"Import completed: {transactions_created} transactions created, {transactions_skipped} skipped",
-                "transactions_created": transactions_created,
-                "transactions_skipped": transactions_skipped,
-                "bank_account": bank_account,
-                "errors": errors[:5],  # Only show first 5 errors
-                "debug_info": {
-                    "total_statements": len(transaction_list),
-                    "total_transactions_processed": transactions_created + transactions_skipped,
-                    "first_few_errors": errors[:3],
+            return OperationResult.ok(
+                {
+                    "transactions_created": transactions_created,
+                    "transactions_skipped": transactions_skipped,
+                    "bank_account": bank_account,
+                    "errors": errors[:5],  # Only show first 5 errors
+                    "debug_info": {
+                        "total_statements": len(transaction_list),
+                        "total_transactions_processed": transactions_created + transactions_skipped,
+                        "first_few_errors": errors[:3],
+                    },
                 },
-            }
+                message=f"Import completed: {transactions_created} transactions created, {transactions_skipped} skipped",
+            )
 
         except Exception as e:
-            return {"success": False, "message": f"Failed to parse MT940 file: {str(e)}"}
+            return OperationResult.fail(f"Failed to parse MT940 file: {str(e)}")
 
     except Exception as e:
-        return {"success": False, "message": f"Import failed: {str(e)}"}
+        return OperationResult.fail(f"Import failed: {str(e)}")
 
 
 def extract_iban_from_mt940_content(mt940_content):
@@ -1810,7 +1841,7 @@ def create_bank_transaction_improved(transaction_data, bank_account, company):
 @standard_api(operation_type=OperationType.MEMBER_DATA)
 @handle_api_error
 @performance_monitor(threshold_ms=1000)
-def get_chapter_member_emails(chapter_name):
+def get_chapter_member_emails(chapter_name) -> OperationResult[Dict[str, Any]]:
     """
     Get email addresses of all members in a specific chapter.
 
@@ -1818,7 +1849,7 @@ def get_chapter_member_emails(chapter_name):
         chapter_name (str): Name of the chapter
 
     Returns:
-        dict: List of member emails and metadata
+        OperationResult: List of member emails and metadata
     """
     # Validate input
     validate_required_fields({"chapter_name": chapter_name}, ["chapter_name"])
@@ -1875,14 +1906,15 @@ def get_chapter_member_emails(chapter_name):
     # Get chapter information
     chapter = frappe.get_doc("Chapter", chapter_name)
 
-    return {
-        "success": True,
-        "chapter": {"name": chapter_name, "chapter_name": chapter.name, "region": chapter.region},
-        "emails": valid_emails,
-        "members": member_details,
-        "total_members": len(member_details),
-        "email_list": ", ".join(valid_emails),  # Convenient for copy-paste
-    }
+    return OperationResult.ok(
+        {
+            "chapter": {"name": chapter_name, "chapter_name": chapter.name, "region": chapter.region},
+            "emails": valid_emails,
+            "members": member_details,
+            "total_members": len(member_details),
+            "email_list": ", ".join(valid_emails),  # Convenient for copy-paste
+        }
+    )
 
 
 def can_approve_members():
@@ -1895,30 +1927,30 @@ def can_approve_members():
 
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.UTILITY)
-def test_member_incremental_update_debug():
+def test_member_incremental_update_debug() -> OperationResult[Dict[str, Any]]:
     """Test the incremental update functionality with the specific member"""
     try:
         member_name = "Assoc-Member-2025-07-0030"
-        result = {"member_name": member_name, "status": "testing", "details": []}
+        result_data = {"member_name": member_name, "status": "testing", "details": []}
 
         # Get the member document
         member_doc = frappe.get_doc("Member", member_name)
-        result["details"].append(f"Member found: {member_doc.name}")
-        result["details"].append(f"Member employee: {getattr(member_doc, 'employee', 'None')}")
-        result["details"].append(f"Member donor: {getattr(member_doc, 'donor', 'None')}")
+        result_data["details"].append(f"Member found: {member_doc.name}")
+        result_data["details"].append(f"Member employee: {getattr(member_doc, 'employee', 'None')}")
+        result_data["details"].append(f"Member donor: {getattr(member_doc, 'donor', 'None')}")
 
         # Check current volunteer expenses
         current_expenses = getattr(member_doc, "volunteer_expenses", [])
-        result["details"].append(f"Current volunteer expense entries: {len(current_expenses)}")
+        result_data["details"].append(f"Current volunteer expense entries: {len(current_expenses)}")
 
         for idx, expense in enumerate(current_expenses):
-            result["details"].append(
+            result_data["details"].append(
                 f"  {idx + 1}. {expense.expense_claim} - {expense.status} - {expense.total_sanctioned_amount}"
             )
 
         # Check if member has employee and what expense claims exist
         if hasattr(member_doc, "employee") and member_doc.employee:
-            result["details"].append(f"Checking expense claims for employee: {member_doc.employee}")
+            result_data["details"].append(f"Checking expense claims for employee: {member_doc.employee}")
 
             # Get expense claims from database
             expense_claims = frappe.get_all(
@@ -1937,44 +1969,42 @@ def test_member_incremental_update_debug():
                 limit=25,
             )
 
-            result["details"].append(f"Found {len(expense_claims)} expense claims in database:")
+            result_data["details"].append(f"Found {len(expense_claims)} expense claims in database:")
             for claim in expense_claims:
-                result["details"].append(
+                result_data["details"].append(
                     f"  - {claim.name}: {claim.status} (docstatus: {claim.docstatus}) - {claim.total_sanctioned_amount}"
                 )
 
         # Test the incremental update method
-        result["details"].append("Testing incremental_update_history_tables method...")
+        result_data["details"].append("Testing incremental_update_history_tables method...")
 
         # Check if method exists
         if hasattr(member_doc, "incremental_update_history_tables"):
-            result["details"].append("Method exists on member document")
+            result_data["details"].append("Method exists on member document")
 
             # Call the method
             method_result = member_doc.incremental_update_history_tables()
-            result["details"].append(f"Method result: {method_result}")
-            result["method_result"] = method_result
+            result_data["details"].append(f"Method result: {method_result}")
+            result_data["method_result"] = method_result
 
             # Check the updated expenses after the call
             member_doc.reload()
             updated_expenses = getattr(member_doc, "volunteer_expenses", [])
-            result["details"].append(f"Volunteer expense entries after update: {len(updated_expenses)}")
+            result_data["details"].append(f"Volunteer expense entries after update: {len(updated_expenses)}")
             for idx, expense in enumerate(updated_expenses):
-                result["details"].append(
+                result_data["details"].append(
                     f"  {idx + 1}. {expense.expense_claim} - {expense.status} - {expense.total_sanctioned_amount}"
                 )
 
         else:
-            result["details"].append(
+            result_data["details"].append(
                 "ERROR: incremental_update_history_tables method not found on member document"
             )
 
-        result["status"] = "success"
-        return result
+        result_data["status"] = "success"
+        return OperationResult.ok(result_data)
 
     except Exception as e:
-        result = {"status": "error", "error": str(e)}
         import traceback
 
-        result["traceback"] = traceback.format_exc()
-        return result
+        return OperationResult.fail(str(e), errors=[traceback.format_exc()])

@@ -468,7 +468,21 @@ document.addEventListener('DOMContentLoaded', function() {
                     progressSection.style.display = 'none';
 
                     if (r.message) {
-                        showResults(r.message);
+                        // Handle OperationResult response format
+                        // OperationResult returns: { success, data: {...}, timestamp, message }
+                        let result;
+                        if (r.message.success !== undefined && r.message.data !== undefined) {
+                            // OperationResult format - unwrap to match showResults expectations
+                            result = {
+                                success: r.message.success,
+                                ...r.message.data,
+                                message: r.message.message || r.message.data.message
+                            };
+                        } else {
+                            // Legacy format
+                            result = r.message;
+                        }
+                        showResults(result);
                     } else {
                         showError('No response from server');
                     }
