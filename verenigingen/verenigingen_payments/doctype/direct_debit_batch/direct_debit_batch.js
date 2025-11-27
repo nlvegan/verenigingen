@@ -286,20 +286,22 @@ frappe.ui.form.on('Direct Debit Invoice', {
           'verenigingen.verenigingen_payments.api.sepa_batch_ui.get_invoice_mandate_info',
 				args: { invoice: row.invoice },
 				callback(r) {
-					if (r.message) {
-						frappe.model.set_value(cdt, cdn, 'iban', r.message.iban);
-						frappe.model.set_value(cdt, cdn, 'bic', r.message.bic);
+					// Unwrap OperationResult format
+					const data = unwrapOperationResult(r.message);
+					if (data) {
+						frappe.model.set_value(cdt, cdn, 'iban', data.iban);
+						frappe.model.set_value(cdt, cdn, 'bic', data.bic);
 						frappe.model.set_value(
 							cdt,
 							cdn,
 							'mandate_reference',
-							r.message.mandate_reference
+							data.mandate_reference
 						);
 						frappe.model.set_value(
 							cdt,
 							cdn,
 							'mandate_date',
-							r.message.mandate_date
+							data.mandate_date
 						);
 					}
 				}
@@ -516,7 +518,9 @@ function load_unpaid_invoices(frm) {
 				method: 'verenigingen.api.sepa_batch_ui.load_unpaid_invoices',
 				args: values,
 				callback(r) {
-					if (r.message && r.message.length > 0) {
+					// Unwrap OperationResult format
+					const data = unwrapOperationResult(r.message);
+					if (data && data.length > 0) {
 						// Set defaults if new batch
 						if (!frm.doc.batch_description) {
 							frm.set_value(
@@ -532,7 +536,7 @@ function load_unpaid_invoices(frm) {
 						}
 
 						// Add invoices to batch
-						r.message.forEach((inv) => {
+						data.forEach((inv) => {
 							const exists = frm.doc.invoices.find(
 								(i) => i.invoice === inv.invoice
 							);
@@ -553,7 +557,7 @@ function load_unpaid_invoices(frm) {
 						frm.dirty();
 
 						frappe.show_alert({
-							message: __('Loaded {0} invoices', [r.message.length]),
+							message: __('Loaded {0} invoices', [data.length]),
 							indicator: 'green'
 						});
 
@@ -625,10 +629,12 @@ function validate_mandates(frm) {
 					frm.doc.invoices.length
 				);
 
-				if (r.message) {
-					if (r.message.valid) {
+				// Unwrap OperationResult format
+				const data = unwrapOperationResult(r.message);
+				if (data) {
+					if (data.valid) {
 						// Format IBAN if validator is available
-						let iban = r.message.iban;
+						let iban = data.iban;
 						if (window.IBANValidator && iban) {
 							const validation = window.IBANValidator.validate(iban);
 							if (validation.valid) {
@@ -637,18 +643,18 @@ function validate_mandates(frm) {
 						}
 
 						frappe.model.set_value(inv.doctype, inv.name, 'iban', iban);
-						frappe.model.set_value(inv.doctype, inv.name, 'bic', r.message.bic);
+						frappe.model.set_value(inv.doctype, inv.name, 'bic', data.bic);
 						frappe.model.set_value(
 							inv.doctype,
 							inv.name,
 							'mandate_reference',
-							r.message.mandate_reference
+							data.mandate_reference
 						);
 						frappe.model.set_value(
 							inv.doctype,
 							inv.name,
 							'mandate_date',
-							r.message.mandate_date
+							data.mandate_date
 						);
 					} else {
 						frappe.model.set_value(inv.doctype, inv.name, 'status', 'Invalid');
@@ -656,7 +662,7 @@ function validate_mandates(frm) {
 							inv.doctype,
 							inv.name,
 							'result_message',
-							r.message.error
+							data.error
 						);
 					}
 				}
@@ -761,11 +767,13 @@ function process_returns_dialog(frm) {
 					file_type: 'pain.002'
 				},
 				callback(r) {
-					if (r.message) {
+					// Unwrap OperationResult format
+					const data = unwrapOperationResult(r.message);
+					if (data) {
 						frappe.msgprint(
 							__('Processed {0} of {1} returns', [
-								r.message.processed,
-								r.message.total
+								data.processed,
+								data.total
 							])
 						);
 						frm.reload_doc();

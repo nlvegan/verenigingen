@@ -138,6 +138,18 @@ title: Mollie Financial Dashboard
 </div>
 
 <script>
+// Helper to unwrap OperationResult format from security-decorated APIs
+function unwrapOperationResult(response) {
+    if (!response) return null;
+    // Check if this is an OperationResult wrapper (has success, data, and timestamp/operation)
+    if (response.success !== undefined && response.data !== undefined &&
+        (response.timestamp !== undefined || response.operation !== undefined)) {
+        return response.data;
+    }
+    // Return as-is if not wrapped
+    return response;
+}
+
 frappe.ready(function() {
     loadDashboard();
 
@@ -149,10 +161,12 @@ function loadDashboard() {
     frappe.call({
         method: 'verenigingen.verenigingen_payments.dashboards.financial_dashboard.get_dashboard_data',
         callback: function(r) {
-            if (r.message && r.message.success) {
-                displayDashboard(r.message.data);
+            // Unwrap OperationResult format
+            var data = unwrapOperationResult(r.message);
+            if (data && data.success) {
+                displayDashboard(data.data);
             } else {
-                showError(r.message ? r.message.error : 'Unknown error');
+                showError(data ? data.error : 'Unknown error');
             }
         },
         error: function(err) {

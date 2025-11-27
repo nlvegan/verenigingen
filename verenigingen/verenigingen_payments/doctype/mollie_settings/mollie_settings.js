@@ -141,14 +141,16 @@ function test_mollie_connection(_frm) {
 			// For singleton, no args needed - method will use frappe.get_single()
 		},
 		callback(r) {
-			if (r.message && r.message.success) {
+			// Unwrap OperationResult format
+			const data = unwrapOperationResult(r.message);
+			if (data && data.success) {
 				frappe.show_alert({
-					message: r.message.message,
+					message: data.message,
 					indicator: 'green'
 				});
 			} else {
 				frappe.show_alert({
-					message: r.message ? r.message.message : __('Connection test failed'),
+					message: data ? data.message : __('Connection test failed'),
 					indicator: 'red'
 				});
 			}

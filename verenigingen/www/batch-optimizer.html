@@ -200,10 +200,12 @@ function loadEligibleInvoices() {
         },
         callback: function(r) {
             hideLoading();
-            if (r.message && r.message.success) {
-                document.getElementById('eligible-count').textContent = r.message.eligible_invoices;
+            // Unwrap OperationResult format
+            var data = unwrapOperationResult(r.message);
+            if (data && data.success) {
+                document.getElementById('eligible-count').textContent = data.eligible_invoices;
                 document.getElementById('total-amount').textContent = '€' +
-                    new Intl.NumberFormat('nl-NL').format(r.message.total_amount);
+                    new Intl.NumberFormat('nl-NL').format(data.total_amount);
             } else {
                 document.getElementById('eligible-count').textContent = '0';
                 document.getElementById('total-amount').textContent = '€0';
@@ -226,8 +228,10 @@ function previewBatches() {
         },
         callback: function(r) {
             hideLoading();
-            if (r.message && r.message.success) {
-                displayPreview(r.message);
+            // Unwrap OperationResult format
+            var data = unwrapOperationResult(r.message);
+            if (data && data.success) {
+                displayPreview(data);
             } else {
                 frappe.msgprint(__("Error generating preview"));
             }
@@ -313,11 +317,13 @@ function createOptimalBatches() {
         },
         callback: function(r) {
             hideLoading();
-            if (r.message && r.message.success) {
-                displayCreationResults(r.message);
+            // Unwrap OperationResult format
+            var data = unwrapOperationResult(r.message);
+            if (data && data.success) {
+                displayCreationResults(data);
                 loadEligibleInvoices(); // Refresh eligible count
             } else {
-                frappe.msgprint(__("Error creating batches:") + " " + (r.message.error || 'Unknown error'));
+                frappe.msgprint(__("Error creating batches:") + " " + (data ? data.error : 'Unknown error'));
             }
         },
         error: function() {
