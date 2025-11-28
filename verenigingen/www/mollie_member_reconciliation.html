@@ -226,11 +226,13 @@ function runReconciliation() {
     frappe.call({
         method: 'verenigingen.www.mollie_member_reconciliation.get_member_reconciliation_data',
         callback: function(r) {
+            // OperationResult wraps data in r.message.data
             if (r.message && r.message.success) {
-                allMemberData = r.message.members;
-                testMode = r.message.test_mode;
+                const data = r.message.data;
+                allMemberData = data.members;
+                testMode = data.test_mode;
 
-                displaySummary(r.message);
+                displaySummary(data);
                 displayMembers(allMemberData);
 
                 document.getElementById('filter-section').style.display = 'block';
@@ -238,13 +240,13 @@ function runReconciliation() {
 
                 statusDiv.innerHTML = `
                     <div class="alert alert-success">
-                        Reconciliation complete! Found ${r.message.total_members} members with Mollie data.
+                        Reconciliation complete! Found ${data.total_members} members with Mollie data.
                         ${testMode ? '<strong>Using TEST mode data</strong>' : ''}
                     </div>`;
             } else {
                 statusDiv.innerHTML = `
                     <div class="alert alert-danger">
-                        Error: ${r.message ? r.message.error : 'Unknown error occurred'}
+                        Error: ${r.message ? (r.message.error_message || r.message.error) : 'Unknown error occurred'}
                     </div>`;
             }
 
@@ -472,12 +474,14 @@ function applyQuickFix(memberId, subscriptionId, status, nextInvoiceDate) {
             mollie_subscription_next_invoice_date: nextInvoiceDate || null
         },
         callback: function(r) {
+            // OperationResult wraps data in r.message.data
             if (r.message && r.message.success) {
-                frappe.show_alert({message: r.message.message, indicator: 'green'});
+                const data = r.message.data;
+                frappe.show_alert({message: data.message, indicator: 'green'});
                 // Update just this member's data in place (no full reload/API call needed)
-                updateMemberInPlace(r.message.updated_member);
+                updateMemberInPlace(data.updated_member);
             } else {
-                frappe.show_alert({message: 'Update failed: ' + (r.message ? r.message.error : 'Unknown error'), indicator: 'red'});
+                frappe.show_alert({message: 'Update failed: ' + (r.message ? (r.message.error_message || r.message.error) : 'Unknown error'), indicator: 'red'});
             }
         }
     });
@@ -614,10 +618,11 @@ function applyQuickFixAsync(memberId, subscriptionId, status, nextInvoiceDate) {
                 mollie_subscription_next_invoice_date: nextInvoiceDate || null
             },
             callback: function(r) {
+                // OperationResult wraps data in r.message.data
                 if (r.message && r.message.success) {
-                    resolve(r.message);
+                    resolve({success: true, updated_member: r.message.data.updated_member});
                 } else {
-                    reject(new Error(r.message ? r.message.error : 'Unknown error'));
+                    reject(new Error(r.message ? (r.message.error_message || r.message.error) : 'Unknown error'));
                 }
             },
             error: function(err) {

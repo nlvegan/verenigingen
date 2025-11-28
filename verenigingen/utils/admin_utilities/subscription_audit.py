@@ -44,11 +44,8 @@ class SubscriptionAudit:
         Returns:
             Audit report with all findings and statistics
         """
-        frappe.msgprint(_("Starting subscription audit..."))
-
         # Step 1: Fetch all subscriptions from Mollie
         mollie_subscriptions = self._fetch_all_mollie_subscriptions()
-        frappe.msgprint(_("Found {0} total subscriptions in Mollie").format(len(mollie_subscriptions)))
 
         # Step 2: Cross-reference with Member records
         self._cross_reference_with_members(mollie_subscriptions)
@@ -107,10 +104,6 @@ class SubscriptionAudit:
                     next_url = next_link["href"]
                 else:
                     break
-
-            frappe.msgprint(
-                _("Retrieved {0} total subscriptions from Mollie API").format(len(all_subscriptions))
-            )
 
         except Exception as e:
             frappe.log_error(f"Failed to fetch Mollie subscriptions: {str(e)}", "Subscription Audit")
@@ -379,28 +372,6 @@ class SubscriptionAudit:
             "audit_timestamp": frappe.utils.now(),
             "test_mode": self.client.test_mode,
         }
-
-        # Print summary
-        frappe.msgprint(
-            f"""
-            <h3>Subscription Audit Summary</h3>
-            <p><strong>Total Mollie Subscriptions:</strong> {total_mollie} (Active: {active_mollie})</p>
-
-            <h4>Mollie-Side Issues (Subscriptions in Mollie we need to address):</h4>
-            <ul>
-                <li><strong>No Member Match:</strong> {report['summary']['subscription_no_member_match']} - Subscription exists but no Member found by subscription ID or customer ID</li>
-                <li><strong>Customer but Wrong Subscription:</strong> {report['summary']['subscription_customer_no_member']} - Customer ID matches a Member but subscription ID doesn't</li>
-                <li><strong>Deleted Members:</strong> {report['summary']['subscription_for_deleted_member']} - Active subscriptions for deleted Members</li>
-                <li><strong>Status Mismatches:</strong> {report['summary']['subscription_status_mismatch']} - Member exists but status conflicts with Mollie</li>
-            </ul>
-
-            <h4>Database-Side Issues (Members with invalid subscription claims):</h4>
-            <ul>
-                <li><strong>Subscription Not in Mollie:</strong> {report['summary']['member_subscription_not_in_mollie']} - Members claiming active subscriptions that don't exist in Mollie</li>
-                <li><strong>Incomplete Mollie Data:</strong> {report['summary']['member_incomplete_mollie_data']} - Members with active status but missing customer/subscription IDs</li>
-            </ul>
-        """
-        )
 
         return report
 

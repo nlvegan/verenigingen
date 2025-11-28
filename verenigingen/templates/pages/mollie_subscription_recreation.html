@@ -4,6 +4,25 @@
 
 {% block head_include %}
 <style>
+/* Wide layout wrapper - breaks out of Frappe container */
+.wide-layout-wrapper {
+    width: 90vw;
+    max-width: 1600px;
+    margin-left: calc(-45vw + 50% - 2.5vw);
+    margin-right: calc(-45vw + 50% + 2.5vw);
+    padding: 0 2rem;
+    box-sizing: border-box;
+}
+
+@media (max-width: 1200px) {
+    .wide-layout-wrapper {
+        width: 95vw;
+        margin-left: calc(-47.5vw + 50% - 2.5vw);
+        margin-right: calc(-47.5vw + 50% + 2.5vw);
+        padding: 0 1rem;
+    }
+}
+
 .recreation-card {
     background: white;
     border: 1px solid #e2e8f0;
@@ -253,7 +272,7 @@
 {% endblock %}
 
 {% block page_content %}
-<div class="container">
+<div class="wide-layout-wrapper py-8">
     <h1 style="margin-bottom: 2rem;">{{ _("Mollie Subscription Recreation Tool") }}</h1>
 
     {% if not mollie_configured %}

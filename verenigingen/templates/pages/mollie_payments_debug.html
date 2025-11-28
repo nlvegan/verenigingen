@@ -2,11 +2,31 @@
 
 {% block title %}{{ _("Mollie Payments Debug") }}{% endblock %}
 
-{% block style %}
+{% block head_include %}
+{{ super() }}
 <link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
 {% from "templates/macros/brand_css.html" import brand_css %}
 {{ brand_css() }}
 <style>
+/* Wide layout wrapper - breaks out of Frappe container */
+.wide-layout-wrapper {
+    width: 90vw;
+    max-width: 1600px;
+    margin-left: calc(-45vw + 50% - 2.5vw);
+    margin-right: calc(-45vw + 50% + 2.5vw);
+    padding: 0 2rem;
+    box-sizing: border-box;
+}
+
+@media (max-width: 1200px) {
+    .wide-layout-wrapper {
+        width: 95vw;
+        margin-left: calc(-47.5vw + 50% - 2.5vw);
+        margin-right: calc(-47.5vw + 50% + 2.5vw);
+        padding: 0 1rem;
+    }
+}
+
 /* Debug page specific styles - regular CSS since @apply doesn't work in inline style tags */
 .debug-card {
     background-color: white;
@@ -88,8 +108,7 @@
 {% endblock %}
 
 {% block page_content %}
-<div class="container mx-auto px-4 py-8">
-    <div class="max-w-6xl mx-auto">
+<div class="wide-layout-wrapper py-8">
         <div class="mb-6">
             <h1 class="text-3xl font-bold text-gray-900 mb-2">{{ _("Mollie Payments Debug") }}</h1>
             <p class="text-gray-600">{{ _("Administrative debugging interface for Mollie API operations") }}</p>
@@ -674,7 +693,7 @@
             </div>
 
             <!-- Include Membership Dues Payment Processor -->
-            {% include "verenigingen/templates/pages/mollie_dues_payment_processor.html" %}
+            {% include "verenigingen/templates/pages/includes/mollie_dues_payment_processor.html" %}
 
             <!-- Bulk Member Payment Processor Section -->
             <div class="bg-white border border-gray-300 rounded-lg p-4 mb-6">

@@ -314,6 +314,566 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
         self.assertEqual(member.application_status, "Approved", "Member should be approved")
         self.assertEqual(member.status, "Active", "Member should be active")
 
+    def test_lifecycle_service_activates_chapter_membership(self):
+        """
+        Test that MemberLifecycleService.approve_application() correctly activates
+        pending chapter memberships.
+
+        This specifically tests the SQL query in _perform_post_approval_setup()
+        that finds pending chapter memberships. The bug was using non-existent
+        'chapter' column instead of 'parent' (standard Frappe child table field).
+
+        Regression test for: Chapter Member status staying "Pending" after approval
+        """
+        from verenigingen.services.member.core.member_lifecycle_service import MemberLifecycleService
+
+        # 1. Create pending member application
+        member = self.create_test_member(
+            first_name="Test",
+            last_name="LifecycleServiceUser",
+            email=f"test_lifecycle_{now_datetime().timestamp()}@example.com",
+            birth_date="1990-01-01",
+            status="Pending",
+            application_status="Pending",
+            application_id=f"TEST-{int(now_datetime().timestamp())}",
+            selected_membership_type="Standard Member"
+        )
+
+        # 2. Create pending chapter membership (simulates application form submission)
+        from verenigingen.utils.application_helpers import create_pending_chapter_membership
+
+        chapter_member = create_pending_chapter_membership(member, self.test_chapter.name)
+        self.assertIsNotNone(chapter_member, "Should create pending chapter membership")
+
+        # 3. Verify initial state - Chapter Member should be Pending
+        chapter_doc = frappe.get_doc("Chapter", self.test_chapter.name)
+        pending_members = [m for m in chapter_doc.members if m.member == member.name]
+        self.assertEqual(len(pending_members), 1, "Should have 1 Chapter Member record")
+        self.assertEqual(pending_members[0].status, "Pending", "Initial status should be Pending")
+
+        # 4. Verify the SQL query that was buggy now works correctly
+        pending_chapters = frappe.db.sql(
+            """
+            SELECT parent as chapter, name
+            FROM `tabChapter Member`
+            WHERE member = %s AND status = 'Pending'
+            """,
+            (member.name,),
+            as_dict=True,
+        )
+        self.assertEqual(
+            len(pending_chapters), 1,
+            f"SQL query should find 1 pending chapter membership. "
+            f"This tests the fix for the 'unknown column chapter' bug."
+        )
+        self.assertEqual(
+            pending_chapters[0].chapter, self.test_chapter.name,
+            "Query should correctly return chapter name via 'parent as chapter'"
+        )
+
+        # 5. Now approve via MemberLifecycleService (exercises the actual code path)
+        member.reload()
+        lifecycle_service = MemberLifecycleService()
+        result = lifecycle_service.approve_application(member)
+
+        # 6. Verify approval succeeded
+        self.assertTrue(
+            result.success,
+            f"Approval should succeed. Errors: {result.errors if hasattr(result, 'errors') else 'N/A'}"
+        )
+
+        # 7. Verify chapter membership status changed to Active
+        chapter_doc.reload()
+        active_members = [m for m in chapter_doc.members if m.member == member.name]
+        self.assertEqual(len(active_members), 1, "Should still have 1 Chapter Member record")
+        self.assertEqual(
+            active_members[0].status, "Active",
+            "Chapter Member status should be 'Active' after approval via MemberLifecycleService. "
+            "If this is 'Pending', the SQL query fix in _perform_post_approval_setup() didn't work."
+        )
+
+        # 8. Verify member is now approved
+        member.reload()
+        self.assertEqual(member.application_status, "Approved", "Member should be approved")
+        self.assertEqual(member.status, "Active", "Member should be active")
+
+    def test_lifecycle_service_handles_multiple_pending_chapters(self):
+        """
+        Test that approval activates ALL pending chapter memberships, not just one.
+
+        Verifies the loop in _perform_post_approval_setup() correctly processes
+        multiple pending chapter memberships for a single member.
+        """
+        from verenigingen.services.member.core.member_lifecycle_service import MemberLifecycleService
+
+        # Create a second test chapter
+        second_chapter_name = f"Test Chapter 2 {int(now_datetime().timestamp())}"
+        second_chapter = frappe.get_doc({
+            "doctype": "Chapter",
+            "name": second_chapter_name
+        })
+        second_chapter.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        # 1. Create pending member
+        member = self.create_test_member(
+            first_name="Test",
+            last_name="MultiChapterUser",
+            email=f"test_multi_{now_datetime().timestamp()}@example.com",
+            birth_date="1990-01-01",
+            status="Pending",
+            application_status="Pending",
+            application_id=f"TEST-{int(now_datetime().timestamp())}",
+            selected_membership_type="Standard Member"
+        )
+
+        # 2. Create pending chapter memberships in BOTH chapters
+        from verenigingen.utils.application_helpers import create_pending_chapter_membership
+
+        cm1 = create_pending_chapter_membership(member, self.test_chapter.name)
+        cm2 = create_pending_chapter_membership(member, second_chapter_name)
+        self.assertIsNotNone(cm1, "Should create first pending chapter membership")
+        self.assertIsNotNone(cm2, "Should create second pending chapter membership")
+
+        # 3. Verify both are Pending
+        pending_count = frappe.db.count(
+            "Chapter Member",
+            {"member": member.name, "status": "Pending"}
+        )
+        self.assertEqual(pending_count, 2, "Should have 2 pending chapter memberships")
+
+        # 4. Approve via lifecycle service
+        member.reload()
+        lifecycle_service = MemberLifecycleService()
+        result = lifecycle_service.approve_application(member)
+        self.assertTrue(result.success, f"Approval should succeed: {getattr(result, 'errors', [])}")
+
+        # 5. Verify BOTH chapter memberships are now Active
+        active_count = frappe.db.count(
+            "Chapter Member",
+            {"member": member.name, "status": "Active"}
+        )
+        pending_count = frappe.db.count(
+            "Chapter Member",
+            {"member": member.name, "status": "Pending"}
+        )
+
+        self.assertEqual(
+            active_count, 2,
+            f"Both chapter memberships should be Active. Found {active_count} active, {pending_count} pending."
+        )
+        self.assertEqual(
+            pending_count, 0,
+            "No chapter memberships should remain Pending after approval."
+        )
+
+    def test_termination_sets_active_chapter_membership_to_inactive(self):
+        """
+        Test that termination sets Active chapter membership status to 'Inactive'.
+
+        Verifies that disable_chapter_memberships_safe() sets both:
+        - enabled = 0
+        - status = 'Inactive'
+
+        Regression test for: Chapter Member status staying 'Active' after termination
+        (only enabled flag was being set to 0, not status)
+        """
+        from verenigingen.utils.termination_integration import disable_chapter_memberships_safe
+
+        # 1. Create active member with Active chapter membership
+        member = self.create_test_member(
+            first_name="Test",
+            last_name="TerminationActiveUser",
+            email=f"test_term_active_{now_datetime().timestamp()}@example.com",
+            birth_date="1990-01-01",
+            status="Active",
+            application_status="Approved"
+        )
+
+        # 2. Create Active chapter membership
+        from verenigingen.utils.application_helpers import create_active_chapter_membership
+
+        chapter_member = create_active_chapter_membership(member, self.test_chapter.name)
+        self.assertIsNotNone(chapter_member, "Should create active chapter membership")
+
+        # 3. Verify initial state - Chapter Member should be Active with enabled=1
+        chapter_doc = frappe.get_doc("Chapter", self.test_chapter.name)
+        active_members = [m for m in chapter_doc.members if m.member == member.name]
+        self.assertEqual(len(active_members), 1, "Should have 1 Chapter Member record")
+        self.assertEqual(active_members[0].status, "Active", "Initial status should be Active")
+        self.assertEqual(active_members[0].enabled, 1, "Initial enabled should be 1")
+
+        # 4. Disable chapter membership (simulates termination)
+        disabled_count = disable_chapter_memberships_safe(
+            member.name,
+            today(),
+            "Member terminated - Test"
+        )
+
+        self.assertEqual(disabled_count, 1, "Should disable 1 chapter membership")
+
+        # 5. Verify final state - Chapter Member should be Inactive with enabled=0
+        chapter_doc.reload()
+        disabled_members = [m for m in chapter_doc.members if m.member == member.name]
+        self.assertEqual(len(disabled_members), 1, "Should still have 1 Chapter Member record")
+        self.assertEqual(
+            disabled_members[0].enabled, 0,
+            "enabled flag should be 0 after termination"
+        )
+        self.assertEqual(
+            disabled_members[0].status, "Inactive",
+            "status should be 'Inactive' after termination, not 'Active'. "
+            "The termination code should set both enabled=0 AND status='Inactive'."
+        )
+        self.assertIsNotNone(
+            disabled_members[0].leave_reason,
+            "leave_reason should be set"
+        )
+
+    def test_termination_sets_pending_chapter_membership_to_inactive(self):
+        """
+        Test that termination sets Pending chapter membership status to 'Inactive'.
+
+        When a member with a Pending chapter membership is terminated (e.g., application
+        rejected but using termination flow, or admin action), the chapter membership
+        should be set to Inactive, not left as Pending.
+
+        Regression test for: Pending chapter memberships not being properly handled during termination
+        """
+        from verenigingen.utils.termination_integration import disable_chapter_memberships_safe
+
+        # 1. Create pending member
+        member = self.create_test_member(
+            first_name="Test",
+            last_name="TerminationPendingUser",
+            email=f"test_term_pending_{now_datetime().timestamp()}@example.com",
+            birth_date="1990-01-01",
+            status="Pending",
+            application_status="Pending"
+        )
+
+        # 2. Create Pending chapter membership
+        from verenigingen.utils.application_helpers import create_pending_chapter_membership
+
+        chapter_member = create_pending_chapter_membership(member, self.test_chapter.name)
+        self.assertIsNotNone(chapter_member, "Should create pending chapter membership")
+
+        # 3. Verify initial state - Chapter Member should be Pending with enabled=1
+        chapter_doc = frappe.get_doc("Chapter", self.test_chapter.name)
+        pending_members = [m for m in chapter_doc.members if m.member == member.name]
+        self.assertEqual(len(pending_members), 1, "Should have 1 Chapter Member record")
+        self.assertEqual(pending_members[0].status, "Pending", "Initial status should be Pending")
+        self.assertEqual(pending_members[0].enabled, 1, "Initial enabled should be 1")
+
+        # 4. Disable chapter membership (simulates termination/rejection)
+        disabled_count = disable_chapter_memberships_safe(
+            member.name,
+            today(),
+            "Application rejected - Test"
+        )
+
+        self.assertEqual(disabled_count, 1, "Should disable 1 chapter membership")
+
+        # 5. Verify final state - Chapter Member should be Inactive with enabled=0
+        chapter_doc.reload()
+        disabled_members = [m for m in chapter_doc.members if m.member == member.name]
+        self.assertEqual(len(disabled_members), 1, "Should still have 1 Chapter Member record")
+        self.assertEqual(
+            disabled_members[0].enabled, 0,
+            "enabled flag should be 0 after termination"
+        )
+        self.assertEqual(
+            disabled_members[0].status, "Inactive",
+            "status should be 'Inactive' after termination, not 'Pending'. "
+            "Pending members should also be set to Inactive when disabled."
+        )
+
+    def test_termination_operation_sets_chapter_status_inactive(self):
+        """
+        Test the full DisableChapterMembershipsOperation sets status to Inactive.
+
+        Tests the complete operation path used during actual termination workflow.
+        """
+        from verenigingen.utils.termination_operations import DisableChapterMembershipsOperation
+        from verenigingen.utils.termination_operations import TerminationResults
+
+        # 1. Create active member with chapter membership
+        member = self.create_test_member(
+            first_name="Test",
+            last_name="OperationUser",
+            email=f"test_operation_{now_datetime().timestamp()}@example.com",
+            birth_date="1990-01-01",
+            status="Active",
+            application_status="Approved"
+        )
+
+        # 2. Create Active chapter membership
+        from verenigingen.utils.application_helpers import create_active_chapter_membership
+
+        chapter_member = create_active_chapter_membership(member, self.test_chapter.name)
+        self.assertIsNotNone(chapter_member, "Should create active chapter membership")
+
+        # 3. Create termination request
+        termination_request = frappe.get_doc({
+            "doctype": "Membership Termination Request",
+            "member": member.name,
+            "termination_type": "Voluntary",
+            "termination_reason": "Test termination",
+            "member_request_date": today(),
+            "termination_date": today()
+        })
+        termination_request.insert()
+
+        # 4. Execute the DisableChapterMembershipsOperation
+        operation = DisableChapterMembershipsOperation(member.name, termination_request)
+        results = TerminationResults()
+        operation.execute(results)
+
+        # 5. Verify Chapter Member is now Inactive
+        chapter_doc = frappe.get_doc("Chapter", self.test_chapter.name)
+        disabled_members = [m for m in chapter_doc.members if m.member == member.name]
+        self.assertEqual(len(disabled_members), 1, "Should have 1 Chapter Member record")
+        self.assertEqual(
+            disabled_members[0].status, "Inactive",
+            "DisableChapterMembershipsOperation should set status to 'Inactive'"
+        )
+        self.assertEqual(
+            disabled_members[0].enabled, 0,
+            "DisableChapterMembershipsOperation should set enabled to 0"
+        )
+
+        # 6. Verify the action was recorded
+        self.assertTrue(
+            any("chapter membership" in action.lower() for action in results.actions_taken),
+            f"Should record chapter membership action. Actions: {results.actions_taken}"
+        )
+
+    def test_termination_updates_member_chapter_history(self):
+        """
+        Test that termination updates the Member's chapter_membership_history via
+        the centralized ChapterMembershipHistoryManager.
+
+        Verifies that disable_chapter_memberships_safe() updates both:
+        1. Chapter Member child table (on Chapter doc)
+        2. Member.chapter_membership_history (end_date and status='Terminated')
+        """
+        from verenigingen.utils.termination_integration import disable_chapter_memberships_safe
+        from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
+
+        # 1. Create active member
+        member = self.create_test_member(
+            first_name="Test",
+            last_name="HistoryUpdateUser",
+            email=f"test_history_update_{now_datetime().timestamp()}@example.com",
+            birth_date="1990-01-01",
+            status="Active",
+            application_status="Approved"
+        )
+
+        # 2. Create Active chapter membership AND add history entry
+        from verenigingen.utils.application_helpers import create_active_chapter_membership
+
+        chapter_member = create_active_chapter_membership(member, self.test_chapter.name)
+        self.assertIsNotNone(chapter_member, "Should create active chapter membership")
+
+        # Ensure history entry exists (create_active_chapter_membership should do this, but verify)
+        member.reload()
+        initial_history = [
+            h for h in (member.chapter_membership_history or [])
+            if h.chapter_name == self.test_chapter.name and h.assignment_type == "Member"
+        ]
+
+        # If no history exists, add one manually for the test
+        if not initial_history:
+            ChapterMembershipHistoryManager.add_membership_history(
+                member_id=member.name,
+                chapter_name=self.test_chapter.name,
+                assignment_type="Member",
+                start_date=today(),
+                status="Active",
+                reason="Test membership"
+            )
+            member.reload()
+            initial_history = [
+                h for h in (member.chapter_membership_history or [])
+                if h.chapter_name == self.test_chapter.name and h.assignment_type == "Member"
+            ]
+
+        self.assertEqual(len(initial_history), 1, "Should have 1 history entry before termination")
+        self.assertEqual(initial_history[0].status, "Active", "Initial history status should be Active")
+        self.assertIsNone(initial_history[0].end_date, "Initial history should have no end_date")
+
+        # 3. Disable chapter membership (simulates termination)
+        disabled_count = disable_chapter_memberships_safe(
+            member.name,
+            today(),
+            "Member terminated - Integration test"
+        )
+
+        self.assertEqual(disabled_count, 1, "Should disable 1 chapter membership")
+
+        # 4. Verify Member's chapter_membership_history was updated
+        member.reload()
+        final_history = [
+            h for h in (member.chapter_membership_history or [])
+            if h.chapter_name == self.test_chapter.name and h.assignment_type == "Member"
+        ]
+
+        self.assertEqual(len(final_history), 1, "Should still have 1 history entry (updated, not duplicated)")
+        self.assertEqual(
+            final_history[0].status, "Terminated",
+            "History status should be 'Terminated' after termination. "
+            "The termination code should use ChapterMembershipHistoryManager.terminate_chapter_membership()."
+        )
+        self.assertIsNotNone(
+            final_history[0].end_date,
+            "History end_date should be set after termination"
+        )
+        self.assertEqual(
+            str(final_history[0].end_date), str(today()),
+            "History end_date should match termination date"
+        )
+
+    def test_termination_handles_pending_history_status(self):
+        """
+        Test that termination also terminates Pending history entries, not just Active.
+
+        When a member with a Pending chapter membership is terminated (e.g., application
+        rejected via termination flow), the history should also be set to Terminated.
+        """
+        from verenigingen.utils.termination_integration import disable_chapter_memberships_safe
+        from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
+
+        # 1. Create pending member
+        member = self.create_test_member(
+            first_name="Test",
+            last_name="PendingHistoryUser",
+            email=f"test_pending_history_{now_datetime().timestamp()}@example.com",
+            birth_date="1990-01-01",
+            status="Pending",
+            application_status="Pending"
+        )
+
+        # 2. Create Pending chapter membership
+        from verenigingen.utils.application_helpers import create_pending_chapter_membership
+
+        chapter_member = create_pending_chapter_membership(member, self.test_chapter.name)
+        self.assertIsNotNone(chapter_member, "Should create pending chapter membership")
+
+        # 3. Verify history entry is Pending
+        member.reload()
+        initial_history = [
+            h for h in (member.chapter_membership_history or [])
+            if h.chapter_name == self.test_chapter.name and h.assignment_type == "Member"
+        ]
+        self.assertEqual(len(initial_history), 1, "Should have 1 history entry")
+        self.assertEqual(initial_history[0].status, "Pending", "Initial history should be Pending")
+
+        # 4. Disable chapter membership (simulates termination)
+        disabled_count = disable_chapter_memberships_safe(
+            member.name,
+            today(),
+            "Application rejected - Test"
+        )
+        self.assertEqual(disabled_count, 1, "Should disable 1 chapter membership")
+
+        # 5. Verify history was updated from Pending to Terminated
+        member.reload()
+        final_history = [
+            h for h in (member.chapter_membership_history or [])
+            if h.chapter_name == self.test_chapter.name and h.assignment_type == "Member"
+        ]
+        self.assertEqual(len(final_history), 1, "Should still have 1 history entry")
+        self.assertEqual(
+            final_history[0].status, "Terminated",
+            "Pending history should be set to 'Terminated', not left as 'Pending'. "
+            "terminate_chapter_membership() should handle both Active and Pending statuses."
+        )
+
+    def test_termination_is_idempotent(self):
+        """
+        Test that calling termination twice is safe and idempotent.
+
+        Second call should return True (already terminated) without creating duplicates.
+        """
+        from verenigingen.utils.termination_integration import disable_chapter_memberships_safe
+        from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
+
+        # 1. Create active member with chapter membership and history
+        member = self.create_test_member(
+            first_name="Test",
+            last_name="IdempotentUser",
+            email=f"test_idempotent_{now_datetime().timestamp()}@example.com",
+            birth_date="1990-01-01",
+            status="Active",
+            application_status="Approved"
+        )
+
+        from verenigingen.utils.application_helpers import create_active_chapter_membership
+
+        chapter_member = create_active_chapter_membership(member, self.test_chapter.name)
+        self.assertIsNotNone(chapter_member, "Should create active chapter membership")
+
+        # Ensure history exists
+        member.reload()
+        if not any(
+            h.chapter_name == self.test_chapter.name and h.assignment_type == "Member"
+            for h in (member.chapter_membership_history or [])
+        ):
+            ChapterMembershipHistoryManager.add_membership_history(
+                member_id=member.name,
+                chapter_name=self.test_chapter.name,
+                assignment_type="Member",
+                start_date=today(),
+                status="Active"
+            )
+
+        # 2. First termination call
+        disabled_count_1 = disable_chapter_memberships_safe(
+            member.name,
+            today(),
+            "First termination"
+        )
+        self.assertEqual(disabled_count_1, 1, "First call should disable 1 membership")
+
+        # 3. Second call to disable_chapter_memberships_safe() - should be idempotent
+        member.reload()
+        history_count_after_first = len([
+            h for h in (member.chapter_membership_history or [])
+            if h.chapter_name == self.test_chapter.name
+        ])
+
+        disabled_count_2 = disable_chapter_memberships_safe(
+            member.name,
+            today(),
+            "Second termination attempt"
+        )
+        self.assertEqual(
+            disabled_count_2, 0,
+            "Second call should find no enabled memberships to disable"
+        )
+
+        # 4. Also test the history manager directly for idempotency
+        result = ChapterMembershipHistoryManager.terminate_chapter_membership(
+            member_id=member.name,
+            chapter_name=self.test_chapter.name,
+            assignment_type="Member",
+            end_date=today(),
+            reason="Third termination attempt via history manager"
+        )
+        self.assertTrue(result, "History manager should return True (already terminated)")
+
+        # 5. Verify no duplicate history entries
+        member.reload()
+        final_history = [
+            h for h in (member.chapter_membership_history or [])
+            if h.chapter_name == self.test_chapter.name
+        ]
+        self.assertEqual(
+            len(final_history), history_count_after_first,
+            "Should not create duplicate history entries on second termination call"
+        )
+
 
 def run_tests():
     """Helper to run these tests standalone"""

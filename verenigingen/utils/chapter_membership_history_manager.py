@@ -144,7 +144,10 @@ class ChapterMembershipHistoryManager:
         reason: str = None,
     ) -> bool:
         """
-        End member chapter membership history when ending a relationship normally
+        End member chapter membership history when ending a relationship normally.
+
+        Handles both Active and Pending memberships - both should be ended when
+        a member leaves or is disabled.
 
         Args:
             member_id: Member ID
@@ -167,52 +170,67 @@ class ChapterMembershipHistoryManager:
 
             member = frappe.get_doc("Member", member_id)
 
-            # Look for the specific membership that matches all criteria
+            # Look for the specific membership that matches all criteria (Active or Pending)
             target_membership = None
             for membership in member.chapter_membership_history or []:
                 if (
                     membership.chapter_name == chapter_name
                     and membership.assignment_type == assignment_type
                     and str(membership.start_date) == str(start_date)
-                    and membership.status == "Active"
+                    and membership.status in ("Active", "Pending")
                 ):
                     target_membership = membership
                     break
 
             if target_membership:
-                # Update the specific membership to completed
+                # Update the specific membership to terminated
+                original_status = target_membership.status
                 target_membership.end_date = end_date
-                target_membership.status = "Terminated"  # End membership by marking as terminated
+                target_membership.status = "Terminated"
                 if reason:
                     target_membership.reason = reason
 
-                # Success: Log as info, not error
                 frappe.logger().info(
-                    f"Updated membership history for member {member_id}: {assignment_type} at {chapter_name}"
+                    f"Updated membership history for member {member_id}: {assignment_type} at {chapter_name} "
+                    f"(was {original_status})"
                 )
             else:
-                # If we can't find the exact membership, look for any active one
+                # If we can't find the exact membership, look for any Active or Pending one
                 fallback_membership = None
                 for membership in member.chapter_membership_history or []:
                     if (
                         membership.chapter_name == chapter_name
                         and membership.assignment_type == assignment_type
-                        and membership.status == "Active"
+                        and membership.status in ("Active", "Pending")
                     ):
                         fallback_membership = membership
                         break
 
                 if fallback_membership:
+                    original_status = fallback_membership.status
                     fallback_membership.end_date = end_date
-                    fallback_membership.status = "Terminated"  # End fallback membership
+                    fallback_membership.status = "Terminated"
                     if reason:
                         fallback_membership.reason = reason
 
-                    # Success: Log as info, not error
                     frappe.logger().info(
-                        f"Updated fallback membership history for member {member_id}: {assignment_type} at {chapter_name}"
+                        f"Updated fallback membership history for member {member_id}: {assignment_type} at {chapter_name} "
+                        f"(was {original_status})"
                     )
                 else:
+                    # Check if already terminated/completed (idempotency)
+                    for membership in member.chapter_membership_history or []:
+                        if (
+                            membership.chapter_name == chapter_name
+                            and membership.assignment_type == assignment_type
+                            and membership.status in ("Terminated", "Completed")
+                        ):
+                            frappe.logger().info(
+                                f"Membership already ended for member {member_id}: {assignment_type} at {chapter_name} "
+                                f"(status={membership.status})"
+                            )
+                            return True  # Already in desired state
+
                     # Create a new completed membership if nothing exists
                     member.append(
                         "chapter_membership_history",
@@ -226,7 +244,6 @@ class ChapterMembershipHistoryManager:
                         },
                     )
 
-                    # Success: Log as info, not error
                     frappe.logger().info(
                         f"Created new completed membership history for member {member_id}: {assignment_type} at {chapter_name}"
                     )
@@ -376,6 +393,9 @@ class ChapterMembershipHistoryManager:
         """
         Terminate chapter membership (different from normal end - implies involuntary end)
 
+        Handles both Active and Pending memberships - both should be terminated when
+        a member is terminated.
+
         Args:
             member_id: Member ID
             chapter_name: Chapter name
@@ -396,18 +416,19 @@ class ChapterMembershipHistoryManager:
 
             member = frappe.get_doc("Member", member_id)
 
-            # Find the active membership to terminate
+            # Find membership to terminate (Active or Pending - both should be terminated)
             target_membership = None
             for membership in member.chapter_membership_history or []:
                 if (
                     membership.chapter_name == chapter_name
                     and membership.assignment_type == assignment_type
-                    and membership.status == "Active"
+                    and membership.status in ("Active", "Pending")
                 ):
                     target_membership = membership
                     break
 
             if target_membership:
+                original_status = target_membership.status
                 target_membership.end_date = end_date
                 target_membership.status = "Terminated"
                 target_membership.reason = reason
@@ -428,12 +449,25 @@ class ChapterMembershipHistoryManager:
                     return False
 
                 frappe.logger().info(
-                    f"Terminated membership history for member {member_id}: {assignment_type} at {chapter_name}"
+                    f"Terminated membership history for member {member_id}: {assignment_type} at {chapter_name} "
+                    f"(was {original_status})"
                 )
                 return True
             else:
+                # Check if already terminated (idempotency)
+                for membership in member.chapter_membership_history or []:
+                    if (
+                        membership.chapter_name == chapter_name
+                        and membership.assignment_type == assignment_type
+                        and membership.status == "Terminated"
+                    ):
+                        frappe.logger().info(
+                            f"Membership already terminated for member {member_id}: {assignment_type} at {chapter_name}"
+                        )
+                        return True  # Already in desired state
+
                 frappe.logger().info(
-                    f"No active membership found to terminate for member {member_id}: {assignment_type} at {chapter_name}"
+                    f"No active/pending membership found to terminate for member {member_id}: {assignment_type} at {chapter_name}"
                 )
                 return False
 

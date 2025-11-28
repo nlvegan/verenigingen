@@ -7,6 +7,25 @@
 {% from "templates/macros/brand_css.html" import brand_css %}
 {{ brand_css() }}
 <style>
+    /* Wide layout wrapper - breaks out of Frappe container */
+    .wide-layout-wrapper {
+        width: 90vw;
+        max-width: 1600px;
+        margin-left: calc(-45vw + 50% - 2.5vw);
+        margin-right: calc(-45vw + 50% + 2.5vw);
+        padding: 0 2rem;
+        box-sizing: border-box;
+    }
+
+    @media (max-width: 1200px) {
+        .wide-layout-wrapper {
+            width: 95vw;
+            margin-left: calc(-47.5vw + 50% - 2.5vw);
+            margin-right: calc(-47.5vw + 50% + 2.5vw);
+            padding: 0 1rem;
+        }
+    }
+
     [v-cloak] {
         display: none;
     }
@@ -14,7 +33,7 @@
 {% endblock %}
 
 {% block page_content %}
-<div class="max-w-7xl mx-auto p-8">
+<div class="wide-layout-wrapper py-8">
     {% if error_message %}
         <div class="p-4 rounded-lg mb-6" style="background-color: var(--brand-error-light); border: 1px solid var(--brand-error); color: var(--brand-error);">
             <div class="flex items-center">

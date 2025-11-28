@@ -44,14 +44,14 @@
                 </div>
                 <div class="col-md-3">
                     <div class="text-center">
-                        <h3 id="orphaned-subs" class="mb-0 text-danger">-</h3>
-                        <small class="text-muted">Orphaned</small>
+                        <h3 id="mollie-issues" class="mb-0 text-danger">-</h3>
+                        <small class="text-muted">Mollie-Side Issues</small>
                     </div>
                 </div>
                 <div class="col-md-3">
                     <div class="text-center">
-                        <h3 id="total-issues" class="mb-0 text-warning">-</h3>
-                        <small class="text-muted">Total Issues</small>
+                        <h3 id="db-issues" class="mb-0 text-warning">-</h3>
+                        <small class="text-muted">Database-Side Issues</small>
                     </div>
                 </div>
             </div>
@@ -62,44 +62,82 @@
         </div>
     </div>
 
-    <!-- Orphaned Subscriptions -->
-    <div id="orphaned-section" style="display:none;" class="card mb-4">
+    <!-- Mollie-Side Issues Header -->
+    <div id="mollie-issues-header" style="display:none;" class="mb-3">
+        <h4 class="text-danger"><i class="fa fa-cloud"></i> Mollie-Side Issues</h4>
+        <p class="text-muted">Subscriptions in Mollie that need to be addressed</p>
+    </div>
+
+    <!-- No Member Match (Orphaned Subscriptions) -->
+    <div id="no-member-match-section" style="display:none;" class="card mb-3">
         <div class="card-header bg-danger text-white">
-            <h5 class="mb-0"><i class="fa fa-exclamation-triangle"></i> Orphaned Subscriptions</h5>
+            <h5 class="mb-0"><i class="fa fa-exclamation-triangle"></i> No Member Match
+                <span class="badge badge-light" id="no-member-match-count">0</span>
+            </h5>
+            <small>Subscription exists in Mollie but no Member found by subscription ID or customer ID</small>
         </div>
-        <div class="card-body">
-            <div id="orphaned-list"></div>
+        <div class="card-body" id="no-member-match-list"></div>
+    </div>
+
+    <!-- Customer but Wrong Subscription -->
+    <div id="customer-wrong-sub-section" style="display:none;" class="card mb-3">
+        <div class="card-header bg-warning text-dark">
+            <h5 class="mb-0"><i class="fa fa-user-times"></i> Customer but Wrong Subscription
+                <span class="badge badge-dark" id="customer-wrong-sub-count">0</span>
+            </h5>
+            <small>Customer ID matches a Member but subscription ID doesn't match</small>
         </div>
+        <div class="card-body" id="customer-wrong-sub-list"></div>
     </div>
 
     <!-- Deleted Member Subscriptions -->
-    <div id="deleted-section" style="display:none;" class="card mb-4">
-        <div class="card-header bg-warning text-dark">
-            <h5 class="mb-0"><i class="fa fa-trash"></i> Deleted Member Subscriptions</h5>
+    <div id="deleted-member-section" style="display:none;" class="card mb-3">
+        <div class="card-header bg-secondary text-white">
+            <h5 class="mb-0"><i class="fa fa-trash"></i> Deleted Member Subscriptions
+                <span class="badge badge-light" id="deleted-member-count">0</span>
+            </h5>
+            <small>Active Mollie subscriptions for Members that were deleted from database</small>
         </div>
-        <div class="card-body">
-            <div id="deleted-list"></div>
-        </div>
+        <div class="card-body" id="deleted-member-list"></div>
     </div>
 
     <!-- Status Mismatches -->
-    <div id="mismatch-section" style="display:none;" class="card mb-4">
+    <div id="status-mismatch-section" style="display:none;" class="card mb-3">
         <div class="card-header bg-info text-white">
-            <h5 class="mb-0"><i class="fa fa-exclamation-circle"></i> Status Mismatches</h5>
+            <h5 class="mb-0"><i class="fa fa-sync-alt"></i> Status Mismatches
+                <span class="badge badge-light" id="status-mismatch-count">0</span>
+            </h5>
+            <small>Member exists but status conflicts with Mollie</small>
         </div>
-        <div class="card-body">
-            <div id="mismatch-list"></div>
-        </div>
+        <div class="card-body" id="status-mismatch-list"></div>
     </div>
 
-    <!-- Missing Mollie Data -->
-    <div id="missing-section" style="display:none;" class="card mb-4">
+    <!-- Database-Side Issues Header -->
+    <div id="db-issues-header" style="display:none;" class="mb-3 mt-4">
+        <h4 class="text-warning"><i class="fa fa-database"></i> Database-Side Issues</h4>
+        <p class="text-muted">Members with invalid subscription claims</p>
+    </div>
+
+    <!-- Subscription Not in Mollie -->
+    <div id="sub-not-in-mollie-section" style="display:none;" class="card mb-3">
+        <div class="card-header bg-warning text-dark">
+            <h5 class="mb-0"><i class="fa fa-unlink"></i> Subscription Not in Mollie
+                <span class="badge badge-dark" id="sub-not-in-mollie-count">0</span>
+            </h5>
+            <small>Members claiming active subscriptions that don't exist in Mollie</small>
+        </div>
+        <div class="card-body" id="sub-not-in-mollie-list"></div>
+    </div>
+
+    <!-- Incomplete Mollie Data -->
+    <div id="incomplete-data-section" style="display:none;" class="card mb-3">
         <div class="card-header bg-secondary text-white">
-            <h5 class="mb-0"><i class="fa fa-question-circle"></i> Missing Mollie Data</h5>
+            <h5 class="mb-0"><i class="fa fa-question-circle"></i> Incomplete Mollie Data
+                <span class="badge badge-light" id="incomplete-data-count">0</span>
+            </h5>
+            <small>Members with active subscription status but missing customer/subscription IDs</small>
         </div>
-        <div class="card-body">
-            <div id="missing-list"></div>
-        </div>
+        <div class="card-body" id="incomplete-data-list"></div>
     </div>
 </div>
 
@@ -115,8 +153,8 @@ function runAudit() {
     progressText.textContent = 'Connecting to Mollie API...';
     progressBar.style.width = '10%';
 
-    // Hide previous results
-    document.querySelectorAll('[id$="-section"]').forEach(el => el.style.display = 'none');
+    // Hide previous results and headers
+    document.querySelectorAll('[id$="-section"], [id$="-header"]').forEach(el => el.style.display = 'none');
 
     // Listen for progress updates
     frappe.realtime.on('audit_progress', (data) => {
@@ -130,13 +168,14 @@ function runAudit() {
             btn.disabled = false;
             progress.style.display = 'none';
 
+            // OperationResult wraps data in r.message.data
             if (r.message && r.message.success) {
-                displayResults(r.message);
+                displayResults(r.message.data);
             } else {
                 frappe.msgprint({
                     title: 'Error',
                     indicator: 'red',
-                    message: r.message?.error || 'Audit failed'
+                    message: r.message?.error_message || r.message?.error || 'Audit failed'
                 });
             }
         }
@@ -147,95 +186,205 @@ function displayResults(data) {
     const summary = data.summary;
     const issues = data.issues;
 
+    // Calculate totals for Mollie-side and database-side issues
+    const mollieIssueCount =
+        summary.subscription_no_member_match +
+        summary.subscription_customer_no_member +
+        summary.subscription_for_deleted_member +
+        summary.subscription_status_mismatch;
+
+    const dbIssueCount =
+        summary.member_subscription_not_in_mollie +
+        summary.member_incomplete_mollie_data;
+
     // Update summary
     document.getElementById('total-subs').textContent = summary.total_mollie_subscriptions;
     document.getElementById('active-subs').textContent = summary.active_mollie_subscriptions;
-    document.getElementById('orphaned-subs').textContent = summary.orphaned_subscriptions;
-    document.getElementById('total-issues').textContent =
-        summary.orphaned_subscriptions + summary.deleted_member_subscriptions +
-        summary.status_mismatches + summary.missing_mollie_data;
+    document.getElementById('mollie-issues').textContent = mollieIssueCount;
+    document.getElementById('db-issues').textContent = dbIssueCount;
     document.getElementById('test-mode-badge').textContent = data.test_mode ? 'Test Mode' : 'Live Mode';
+    document.getElementById('test-mode-badge').className = data.test_mode ? 'badge badge-info' : 'badge badge-success';
     document.getElementById('timestamp').textContent = 'Last run: ' + data.timestamp;
     document.getElementById('summary-section').style.display = 'block';
 
-    // Display orphaned subscriptions
-    if (issues.orphaned && issues.orphaned.length > 0) {
-        displayOrphanedSubscriptions(issues.orphaned);
+    // Show headers if there are issues
+    if (mollieIssueCount > 0) {
+        document.getElementById('mollie-issues-header').style.display = 'block';
+    }
+    if (dbIssueCount > 0) {
+        document.getElementById('db-issues-header').style.display = 'block';
     }
 
-    // Display deleted member subscriptions
-    if (issues.deleted_members && issues.deleted_members.length > 0) {
-        displayDeletedMemberSubscriptions(issues.deleted_members);
+    // Display Mollie-side issues
+    displayIssueSection(
+        issues.subscription_no_member_match,
+        'no-member-match',
+        renderMollieSubscription
+    );
+    displayIssueSection(
+        issues.subscription_customer_no_member,
+        'customer-wrong-sub',
+        renderMollieSubscriptionWithMember
+    );
+    displayIssueSection(
+        issues.subscription_for_deleted_member,
+        'deleted-member',
+        renderDeletedMemberSubscription
+    );
+    displayIssueSection(
+        issues.subscription_status_mismatch,
+        'status-mismatch',
+        renderStatusMismatch
+    );
+
+    // Display database-side issues
+    displayIssueSection(
+        issues.member_subscription_not_in_mollie,
+        'sub-not-in-mollie',
+        renderMemberWithInvalidSub
+    );
+    displayIssueSection(
+        issues.member_incomplete_mollie_data,
+        'incomplete-data',
+        renderMemberWithIncompleteData
+    );
+}
+
+function displayIssueSection(items, sectionId, renderFn) {
+    if (!items || items.length === 0) return;
+
+    const container = document.getElementById(sectionId + '-list');
+    const countBadge = document.getElementById(sectionId + '-count');
+
+    if (countBadge) {
+        countBadge.textContent = items.length;
     }
 
-    // Display mismatches
-    if (issues.mismatches && issues.mismatches.length > 0) {
-        displayMismatches(issues.mismatches);
-    }
-
-    // Display missing data
-    if (issues.missing_data && issues.missing_data.length > 0) {
-        displayMissingData(issues.missing_data);
-    }
+    container.innerHTML = items.map(renderFn).join('');
+    document.getElementById(sectionId + '-section').style.display = 'block';
 }
 
-function displayOrphanedSubscriptions(subscriptions) {
-    const container = document.getElementById('orphaned-list');
-    container.innerHTML = subscriptions.map(sub => `
+function renderMollieSubscription(sub) {
+    return `
         <div class="card mb-2">
-            <div class="card-body">
-                <h6>${sub.subscription_id}</h6>
-                <p class="mb-1"><strong>Customer ID:</strong> ${sub.customer_id}</p>
-                <p class="mb-1"><strong>Amount:</strong> €${sub.amount} every ${sub.interval}</p>
-                <p class="mb-1"><strong>Next Payment:</strong> ${sub.next_payment_date || 'N/A'}</p>
-                <p class="mb-0"><small class="text-muted">${sub.description || ''}</small></p>
+            <div class="card-body py-2">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <h6 class="mb-1"><code>${escapeHtml(sub.subscription_id)}</code></h6>
+                        <p class="mb-1 small"><strong>Customer ID:</strong> <code>${escapeHtml(sub.customer_id)}</code></p>
+                        <p class="mb-1 small"><strong>Customer Name (Mollie):</strong> ${escapeHtml(sub.customer_name_mollie || 'Unknown')}</p>
+                    </div>
+                    <div class="text-right">
+                        <span class="badge badge-${sub.status === 'active' ? 'success' : 'secondary'}">${escapeHtml(sub.status)}</span>
+                    </div>
+                </div>
+                <p class="mb-1 small"><strong>Amount:</strong> €${escapeHtml(sub.amount)} every ${escapeHtml(sub.interval)}</p>
+                <p class="mb-1 small"><strong>Next Payment:</strong> ${escapeHtml(sub.next_payment_date || 'N/A')}</p>
+                ${sub.description ? `<p class="mb-0 small text-muted">${escapeHtml(sub.description)}</p>` : ''}
+                ${sub.note ? `<p class="mb-0 small text-info"><em>${escapeHtml(sub.note)}</em></p>` : ''}
             </div>
         </div>
-    `).join('');
-    document.getElementById('orphaned-section').style.display = 'block';
+    `;
 }
 
-function displayDeletedMemberSubscriptions(subscriptions) {
-    const container = document.getElementById('deleted-list');
-    container.innerHTML = subscriptions.map(sub => `
+function renderMollieSubscriptionWithMember(sub) {
+    return `
         <div class="card mb-2">
-            <div class="card-body">
-                <h6>${sub.subscription_id}</h6>
-                <p class="mb-1"><strong>Deleted Member:</strong> ${sub.deleted_member}</p>
-                <p class="mb-1"><strong>Amount:</strong> €${sub.amount} every ${sub.interval}</p>
-                <p class="mb-0"><small class="text-muted">${sub.description || ''}</small></p>
+            <div class="card-body py-2">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <h6 class="mb-1"><code>${escapeHtml(sub.subscription_id)}</code></h6>
+                        <p class="mb-1 small"><strong>Customer ID:</strong> <code>${escapeHtml(sub.customer_id)}</code></p>
+                    </div>
+                    <div class="text-right">
+                        <span class="badge badge-${sub.status === 'active' ? 'success' : 'secondary'}">${escapeHtml(sub.status)}</span>
+                    </div>
+                </div>
+                <p class="mb-1 small"><strong>Matched Member:</strong> <a href="/app/member/${escapeHtml(sub.member_id)}">${escapeHtml(sub.member_name_db || sub.member_id)}</a></p>
+                <p class="mb-1 small"><strong>Member's Subscription ID:</strong> <code>${escapeHtml(sub.member_subscription_id || 'None')}</code></p>
+                <p class="mb-1 small"><strong>Amount:</strong> €${escapeHtml(sub.amount)} every ${escapeHtml(sub.interval)}</p>
+                ${sub.note ? `<p class="mb-0 small text-warning"><em>${escapeHtml(sub.note)}</em></p>` : ''}
             </div>
         </div>
-    `).join('');
-    document.getElementById('deleted-section').style.display = 'block';
+    `;
 }
 
-function displayMismatches(mismatches) {
-    const container = document.getElementById('mismatch-list');
-    container.innerHTML = mismatches.map(m => `
+function renderDeletedMemberSubscription(sub) {
+    return `
         <div class="card mb-2">
-            <div class="card-body">
-                <h6>${m.member_name} (${m.member_id})</h6>
-                <p class="mb-1"><strong>Issue:</strong> ${m.issue || 'Status mismatch'}</p>
-                ${m.mollie_status ? `<p class="mb-0">Mollie: ${m.mollie_status} | Member: ${m.member_status}</p>` : ''}
+            <div class="card-body py-2">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <h6 class="mb-1"><code>${escapeHtml(sub.subscription_id)}</code></h6>
+                        <p class="mb-1 small"><strong>Deleted Member:</strong> ${escapeHtml(sub.deleted_member_id)}</p>
+                    </div>
+                    <div class="text-right">
+                        <span class="badge badge-danger">Deleted</span>
+                    </div>
+                </div>
+                <p class="mb-1 small"><strong>Amount:</strong> €${escapeHtml(sub.amount)} every ${escapeHtml(sub.interval)}</p>
+                <p class="mb-1 small"><strong>Next Payment:</strong> ${escapeHtml(sub.next_payment_date || 'N/A')}</p>
+                ${sub.note ? `<p class="mb-0 small text-danger"><em>${escapeHtml(sub.note)}</em></p>` : ''}
             </div>
         </div>
-    `).join('');
-    document.getElementById('mismatch-section').style.display = 'block';
+    `;
 }
 
-function displayMissingData(missing) {
-    const container = document.getElementById('missing-list');
-    container.innerHTML = missing.map(m => `
+function renderStatusMismatch(item) {
+    return `
         <div class="card mb-2">
-            <div class="card-body">
-                <h6>${m.member_name} (${m.member_id})</h6>
-                <p class="mb-0"><strong>Issue:</strong> ${m.issue}</p>
+            <div class="card-body py-2">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <h6 class="mb-1"><a href="/app/member/${escapeHtml(item.member_id)}">${escapeHtml(item.member_name_db || item.member_id)}</a></h6>
+                        <p class="mb-1 small"><strong>Subscription ID:</strong> <code>${escapeHtml(item.subscription_id)}</code></p>
+                    </div>
+                </div>
+                ${item.issue === 'customer_id_mismatch' ? `
+                    <p class="mb-1 small text-warning"><strong>Issue:</strong> Customer ID mismatch</p>
+                    <p class="mb-1 small">Member: <code>${escapeHtml(item.member_customer_id || 'None')}</code> | Mollie: <code>${escapeHtml(item.customer_id)}</code></p>
+                ` : `
+                    <p class="mb-1 small"><strong>Mollie Status:</strong> <span class="badge badge-info">${escapeHtml(item.mollie_status)}</span></p>
+                    <p class="mb-1 small"><strong>Member Status:</strong> <span class="badge badge-secondary">${escapeHtml(item.member_subscription_status)}</span></p>
+                `}
             </div>
         </div>
-    `).join('');
-    document.getElementById('missing-section').style.display = 'block';
+    `;
 }
 
+function renderMemberWithInvalidSub(item) {
+    return `
+        <div class="card mb-2">
+            <div class="card-body py-2">
+                <h6 class="mb-1"><a href="/app/member/${escapeHtml(item.member_id)}">${escapeHtml(item.member_name_db || item.member_id)}</a></h6>
+                <p class="mb-1 small"><strong>Claimed Subscription ID:</strong> <code>${escapeHtml(item.mollie_subscription_id)}</code></p>
+                <p class="mb-1 small"><strong>Customer ID:</strong> <code>${escapeHtml(item.mollie_customer_id || 'None')}</code></p>
+                <p class="mb-1 small"><strong>Member Subscription Status:</strong> <span class="badge badge-warning">${escapeHtml(item.subscription_status)}</span></p>
+                ${item.note ? `<p class="mb-0 small text-muted"><em>${escapeHtml(item.note)}</em></p>` : ''}
+            </div>
+        </div>
+    `;
+}
+
+function renderMemberWithIncompleteData(item) {
+    return `
+        <div class="card mb-2">
+            <div class="card-body py-2">
+                <h6 class="mb-1"><a href="/app/member/${escapeHtml(item.member_id)}">${escapeHtml(item.member_name_db || item.member_id)}</a></h6>
+                <p class="mb-1 small"><strong>Customer ID:</strong> ${item.mollie_customer_id === 'Missing' ? '<span class="text-danger">Missing</span>' : `<code>${escapeHtml(item.mollie_customer_id)}</code>`}</p>
+                <p class="mb-1 small"><strong>Subscription ID:</strong> ${item.mollie_subscription_id === 'Missing' ? '<span class="text-danger">Missing</span>' : `<code>${escapeHtml(item.mollie_subscription_id)}</code>`}</p>
+                <p class="mb-1 small"><strong>Member Subscription Status:</strong> <span class="badge badge-warning">${escapeHtml(item.subscription_status)}</span></p>
+                ${item.note ? `<p class="mb-0 small text-muted"><em>${escapeHtml(item.note)}</em></p>` : ''}
+            </div>
+        </div>
+    `;
+}
+
+function escapeHtml(text) {
+    if (text === null || text === undefined) return '';
+    const div = document.createElement('div');
+    div.textContent = String(text);
+    return div.innerHTML;
+}
 </script>
 {% endblock %}

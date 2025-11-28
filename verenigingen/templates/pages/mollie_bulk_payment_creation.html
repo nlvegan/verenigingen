@@ -1,0 +1,765 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Mollie Bulk Payment Creation") }}{% endblock %}
+
+{% block head_include %}
+<style>
+/* Wide layout wrapper - breaks out of Frappe container */
+.wide-layout-wrapper {
+    width: 90vw;
+    max-width: 1600px;
+    margin-left: calc(-45vw + 50%);
+    margin-right: calc(-45vw + 50%);
+    padding: 0 2rem;
+    box-sizing: border-box;
+}
+
+@media (max-width: 1200px) {
+    .wide-layout-wrapper {
+        width: 95vw;
+        margin-left: calc(-47.5vw + 50%);
+        margin-right: calc(-47.5vw + 50%);
+        padding: 0 1rem;
+    }
+}
+
+.bulk-payment-card {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.card-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+    color: #1e293b;
+}
+
+.form-group {
+    margin-bottom: 1rem;
+}
+
+.form-label {
+    display: block;
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+    color: #475569;
+}
+
+.form-input {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    font-size: 0.875rem;
+}
+
+.form-input:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.file-upload-area {
+    border: 2px dashed #cbd5e1;
+    border-radius: 8px;
+    padding: 2rem;
+    text-align: center;
+    background: #f8fafc;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.file-upload-area:hover {
+    border-color: #3b82f6;
+    background: #eff6ff;
+}
+
+.file-upload-area.dragover {
+    border-color: #2563eb;
+    background: #dbeafe;
+}
+
+.btn {
+    padding: 0.625rem 1.25rem;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+    font-size: 0.875rem;
+    transition: all 0.2s;
+}
+
+.btn-primary {
+    background: #3b82f6;
+    color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+    background: #2563eb;
+}
+
+.btn-success {
+    background: #059669;
+    color: white;
+}
+
+.btn-success:hover:not(:disabled) {
+    background: #047857;
+}
+
+.btn-danger {
+    background: #dc2626;
+    color: white;
+}
+
+.btn-danger:hover:not(:disabled) {
+    background: #b91c1c;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.validation-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+    font-size: 0.875rem;
+}
+
+.validation-table th {
+    background: #f1f5f9;
+    padding: 0.75rem;
+    text-align: left;
+    font-weight: 600;
+    color: #475569;
+    border-bottom: 2px solid #e2e8f0;
+}
+
+.validation-table td {
+    padding: 0.75rem;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.validation-table tbody tr:hover {
+    background: #f8fafc;
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.status-valid {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.status-warning {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.status-error {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.status-pending {
+    background: #e0e7ff;
+    color: #3730a3;
+}
+
+.member-active {
+    color: #059669;
+}
+
+.member-inactive {
+    color: #dc2626;
+}
+
+.mandate-valid {
+    color: #059669;
+}
+
+.mandate-invalid {
+    color: #dc2626;
+}
+
+.result-summary {
+    background: #f0f9ff;
+    border: 1px solid #bae6fd;
+    border-radius: 6px;
+    padding: 1rem;
+    margin-top: 1rem;
+}
+
+.result-summary h4 {
+    margin: 0 0 0.5rem 0;
+    color: #0c4a6e;
+}
+
+.loading-spinner {
+    display: inline-block;
+    width: 1rem;
+    height: 1rem;
+    border: 2px solid #f3f4f6;
+    border-top-color: #3b82f6;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-right: 0.5rem;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.hidden {
+    display: none;
+}
+
+.warning-message {
+    background: #fef3c7;
+    border: 1px solid #fde68a;
+    border-radius: 6px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    color: #92400e;
+}
+
+.error-message {
+    background: #fee2e2;
+    border: 1px solid #fecaca;
+    border-radius: 6px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    color: #991b1b;
+}
+
+.info-box {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 6px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    font-size: 0.875rem;
+    color: #1e40af;
+    max-width: 800px;
+}
+
+.amount-cell {
+    font-family: monospace;
+    font-weight: 600;
+}
+
+.date-cell {
+    font-family: monospace;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    color: #475569;
+}
+
+.checkbox-label input[type="checkbox"] {
+    width: 1rem;
+    height: 1rem;
+    cursor: pointer;
+}
+
+.summary-stats {
+    display: flex;
+    gap: 2rem;
+    margin-top: 0.5rem;
+}
+
+.stat-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.stat-value {
+    font-weight: 700;
+    font-size: 1.25rem;
+}
+
+.stat-label {
+    font-size: 0.875rem;
+    color: #64748b;
+}
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div class="container">
+<div class="wide-layout-wrapper">
+    <h1 style="margin-bottom: 2rem;">{{ _("Mollie Bulk Payment Creation Tool") }}</h1>
+
+    {% if not mollie_configured %}
+    <div class="error-message">
+        <strong>Mollie not configured</strong><br>
+        Please configure Mollie Settings before using this tool.
+    </div>
+    {% endif %}
+
+    <div class="info-box">
+        <strong>Instructions:</strong>
+        <ol style="margin: 0.5rem 0 0 1.5rem; padding: 0;">
+            <li>Upload a CSV file with column: <code>customer_id</code> (required)</li>
+            <li>Optional columns: <code>amount</code>, <code>charge_date</code>, <code>description</code></li>
+            <li>The tool will verify member status and mandate validity</li>
+            <li>If charge date is missing, you can set a global date for all payments</li>
+            <li>Review and confirm before creating payments</li>
+        </ol>
+        <p style="margin-top: 0.5rem; margin-bottom: 0;"><strong>Environment:</strong> {{ api_key_type|upper }} mode</p>
+    </div>
+
+    <!-- Step 1: Upload & Validate -->
+    <div class="bulk-payment-card">
+        <h2 class="card-title">Step 1: Upload CSV & Validate Members</h2>
+
+        <div class="form-group">
+            <label class="form-label">CSV File</label>
+            <div class="file-upload-area" id="dropzone">
+                <input type="file" id="csv_file" accept=".csv" style="display: none;">
+                <div id="drop-text">
+                    <p style="margin: 0 0 0.5rem 0; font-weight: 500;">Drop CSV file here or click to browse</p>
+                    <p style="margin: 0; font-size: 0.75rem; color: #64748b;">Required: customer_id</p>
+                    <p style="margin: 0; font-size: 0.7rem; color: #94a3b8;">Optional: amount, charge_date (YYYY-MM-DD), description</p>
+                </div>
+                <div id="file-name" class="hidden" style="color: #059669; font-weight: 500;"></div>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="global_charge_date">Global Charge Date (for rows without charge_date)</label>
+            <input type="date" id="global_charge_date" class="form-input" style="max-width: 200px;">
+            <small style="color: #64748b; font-size: 0.75rem;">Applied to all rows without a specific charge_date</small>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="global_amount">Global Amount (for rows without amount)</label>
+            <input type="number" id="global_amount" class="form-input" style="max-width: 150px;" step="0.01" min="0.01" placeholder="0.00">
+            <small style="color: #64748b; font-size: 0.75rem;">Applied to all rows without a specific amount</small>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="global_description">Payment Description</label>
+            <input type="text" id="global_description" class="form-input" style="max-width: 400px;" placeholder="e.g., Membership dues January 2025" maxlength="140">
+            <small style="color: #64748b; font-size: 0.75rem;">Description will appear on bank statements</small>
+        </div>
+
+        <button id="validate_btn" class="btn btn-primary" disabled>
+            <span id="validate_spinner" class="loading-spinner hidden"></span>
+            Validate Members
+        </button>
+    </div>
+
+    <!-- Step 2: Review Validation Results -->
+    <div id="validation_results_card" class="bulk-payment-card hidden">
+        <h2 class="card-title">Step 2: Review Validation Results</h2>
+
+        <div id="validation_summary" class="result-summary"></div>
+
+        <div style="overflow-x: auto; margin-top: 1rem;">
+            <table class="validation-table">
+                <thead>
+                    <tr>
+                        <th><input type="checkbox" id="select_all"> Select</th>
+                        <th>Customer ID</th>
+                        <th>Member</th>
+                        <th>Member Status</th>
+                        <th>Mandate Status</th>
+                        <th>Amount</th>
+                        <th>Charge Date</th>
+                        <th>Description</th>
+                        <th>Issues</th>
+                    </tr>
+                </thead>
+                <tbody id="validation_table_body">
+                </tbody>
+            </table>
+        </div>
+
+        <div style="margin-top: 1.5rem;">
+            <button id="create_payments_btn" class="btn btn-success" disabled>
+                <span id="create_spinner" class="loading-spinner hidden"></span>
+                Create Selected Payments
+            </button>
+        </div>
+    </div>
+
+    <!-- Step 3: Payment Results -->
+    <div id="payment_results_card" class="bulk-payment-card hidden">
+        <h2 class="card-title">Step 3: Payment Results</h2>
+
+        <div id="payment_summary" class="result-summary"></div>
+
+        <div style="overflow-x: auto; margin-top: 1rem;">
+            <table class="validation-table">
+                <thead>
+                    <tr>
+                        <th>Status</th>
+                        <th>Customer ID</th>
+                        <th>Member</th>
+                        <th>Payment ID</th>
+                        <th>Amount</th>
+                        <th>Charge Date</th>
+                        <th>Error</th>
+                    </tr>
+                </thead>
+                <tbody id="payment_table_body">
+                </tbody>
+            </table>
+        </div>
+
+        <div style="margin-top: 1rem;">
+            <button class="btn btn-primary" onclick="location.reload()">Start New Batch</button>
+        </div>
+    </div>
+</div><!-- wide-layout-wrapper -->
+</div><!-- container -->
+
+<script>
+// CSRF token handled automatically by frappe.call()
+let csvContent = null;
+let validationResults = [];
+
+// File upload handling
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('csv_file');
+const dropText = document.getElementById('drop-text');
+const fileName = document.getElementById('file-name');
+const validateBtn = document.getElementById('validate_btn');
+
+dropzone.addEventListener('click', () => fileInput.click());
+
+dropzone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropzone.classList.add('dragover');
+});
+
+dropzone.addEventListener('dragleave', () => {
+    dropzone.classList.remove('dragover');
+});
+
+dropzone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropzone.classList.remove('dragover');
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+        handleFile(files[0]);
+    }
+});
+
+fileInput.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+        handleFile(e.target.files[0]);
+    }
+});
+
+function handleFile(file) {
+    if (!file.name.endsWith('.csv')) {
+        frappe.msgprint({
+            title: 'Invalid File',
+            message: 'Please upload a CSV file',
+            indicator: 'red'
+        });
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        csvContent = e.target.result;
+        dropText.classList.add('hidden');
+        fileName.classList.remove('hidden');
+        fileName.textContent = `${file.name}`;
+        validateBtn.disabled = false;
+    };
+    reader.readAsText(file);
+}
+
+// Validate members
+validateBtn.addEventListener('click', async () => {
+    if (!csvContent) return;
+
+    const globalChargeDate = document.getElementById('global_charge_date').value;
+    const globalAmount = document.getElementById('global_amount').value;
+    const globalDescription = document.getElementById('global_description').value;
+
+    validateBtn.disabled = true;
+    document.getElementById('validate_spinner').classList.remove('hidden');
+
+    try {
+        const response = await frappe.call({
+            method: 'verenigingen.templates.pages.mollie_bulk_payment_creation.validate_csv_members',
+            args: {
+                csv_content: csvContent,
+                global_charge_date: globalChargeDate,
+                global_amount: globalAmount,
+                global_description: globalDescription
+            }
+        });
+
+        console.log('Validation response:', response.message);
+
+        if (response.message.status === 'error') {
+            frappe.msgprint({
+                title: 'Validation Error',
+                message: response.message.error,
+                indicator: 'red'
+            });
+            return;
+        }
+
+        validationResults = response.message.results;
+        displayValidationResults(response.message);
+
+    } catch (error) {
+        frappe.msgprint({
+            title: 'Error',
+            message: error.message || 'Failed to validate CSV',
+            indicator: 'red'
+        });
+    } finally {
+        validateBtn.disabled = false;
+        document.getElementById('validate_spinner').classList.add('hidden');
+    }
+});
+
+function displayValidationResults(data) {
+    const card = document.getElementById('validation_results_card');
+    const summary = document.getElementById('validation_summary');
+    const tbody = document.getElementById('validation_table_body');
+
+    // Calculate summary stats
+    const validCount = data.results.filter(r => r.status === 'valid').length;
+    const warningCount = data.results.filter(r => r.status === 'warning').length;
+    const errorCount = data.results.filter(r => r.status === 'error').length;
+    const totalAmount = data.results
+        .filter(r => r.status !== 'error' && r.amount)
+        .reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
+
+    summary.innerHTML = `
+        <h4>Validation Summary</h4>
+        <div class="summary-stats">
+            <div class="stat-item">
+                <span class="stat-value" style="color: #059669;">${validCount}</span>
+                <span class="stat-label">Valid</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-value" style="color: #d97706;">${warningCount}</span>
+                <span class="stat-label">Warnings</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-value" style="color: #dc2626;">${errorCount}</span>
+                <span class="stat-label">Errors</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-value" style="color: #3b82f6;">${totalAmount.toFixed(2)}</span>
+                <span class="stat-label">Total Amount</span>
+            </div>
+        </div>
+    `;
+
+    // Populate table
+    tbody.innerHTML = '';
+    data.results.forEach((result, index) => {
+        const row = document.createElement('tr');
+
+        // Checkbox cell
+        const checkboxCell = document.createElement('td');
+        if (result.status !== 'error') {
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = 'payment-checkbox';
+            checkbox.setAttribute('data-index', index);
+            if (result.status === 'valid') {
+                checkbox.checked = true;
+            }
+            checkboxCell.appendChild(checkbox);
+        }
+        row.appendChild(checkboxCell);
+
+        // Member status class
+        const memberStatusClass = result.member_status === 'Active' ? 'member-active' : 'member-inactive';
+        const mandateStatusClass = result.mandate_valid ? 'mandate-valid' : 'mandate-invalid';
+
+        // Build row HTML
+        row.innerHTML += `
+            <td><code style="font-size: 0.75rem;">${result.customer_id}</code></td>
+            <td>${result.member_name || '<span style="color: #94a3b8;">Not found</span>'}</td>
+            <td class="${memberStatusClass}">${result.member_status || 'N/A'}</td>
+            <td class="${mandateStatusClass}">
+                ${result.mandate_valid ? 'Valid' : (result.mandate_id ? 'Invalid' : 'Missing')}
+            </td>
+            <td class="amount-cell">${result.amount ? '€' + parseFloat(result.amount).toFixed(2) : '<span style="color: #dc2626;">Missing</span>'}</td>
+            <td class="date-cell">${result.charge_date || '<span style="color: #dc2626;">Missing</span>'}</td>
+            <td style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${frappe.utils.escape_html(result.description || '')}">${frappe.utils.escape_html(result.description || '')}</td>
+            <td style="color: #dc2626; font-size: 0.75rem;">${frappe.utils.escape_html(result.issues ? result.issues.join('; ') : '')}</td>
+        `;
+
+        tbody.appendChild(row);
+    });
+
+    card.classList.remove('hidden');
+
+    // Setup select all checkbox
+    document.getElementById('select_all').addEventListener('change', function() {
+        document.querySelectorAll('.payment-checkbox').forEach(cb => {
+            cb.checked = this.checked;
+        });
+        updateCreateButton();
+    });
+
+    // Setup individual checkboxes
+    document.querySelectorAll('.payment-checkbox').forEach(cb => {
+        cb.addEventListener('change', updateCreateButton);
+    });
+
+    updateCreateButton();
+}
+
+function updateCreateButton() {
+    const checked = document.querySelectorAll('.payment-checkbox:checked').length;
+    document.getElementById('create_payments_btn').disabled = checked === 0;
+}
+
+// Create payments
+document.getElementById('create_payments_btn').addEventListener('click', async () => {
+    const selectedIndexes = Array.from(document.querySelectorAll('.payment-checkbox:checked'))
+        .map(cb => parseInt(cb.dataset.index));
+
+    const selectedPayments = selectedIndexes
+        .map(i => validationResults[i])
+        .filter(p => p !== undefined && p !== null);
+
+    if (selectedPayments.length === 0) {
+        frappe.msgprint({
+            title: 'No Payments Selected',
+            message: 'Please select at least one payment to create',
+            indicator: 'red'
+        });
+        return;
+    }
+
+    // Calculate total amount for confirmation
+    const totalAmount = selectedPayments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+
+    frappe.confirm(
+        `You are about to create ${selectedPayments.length} payment(s) totaling €${totalAmount.toFixed(2)}. These will be charged to the members' bank accounts via SEPA Direct Debit. Continue?`,
+        () => executePayments(selectedPayments)
+    );
+});
+
+async function executePayments(payments) {
+    const btn = document.getElementById('create_payments_btn');
+    btn.disabled = true;
+    document.getElementById('create_spinner').classList.remove('hidden');
+
+    try {
+        const response = await frappe.call({
+            method: 'verenigingen.templates.pages.mollie_bulk_payment_creation.create_bulk_payments',
+            args: {
+                payments_json: JSON.stringify(payments)
+            }
+        });
+
+        if (response.message.status === 'error') {
+            frappe.msgprint({
+                title: 'Payment Error',
+                message: response.message.error,
+                indicator: 'red'
+            });
+            return;
+        }
+
+        displayPaymentResults(response.message);
+
+    } catch (error) {
+        frappe.msgprint({
+            title: 'Error',
+            message: error.message || 'Failed to create payments',
+            indicator: 'red'
+        });
+    } finally {
+        btn.disabled = false;
+        document.getElementById('create_spinner').classList.add('hidden');
+    }
+}
+
+function displayPaymentResults(data) {
+    const card = document.getElementById('payment_results_card');
+    const summary = document.getElementById('payment_summary');
+    const tbody = document.getElementById('payment_table_body');
+
+    summary.innerHTML = `
+        <h4>Payment Creation Complete</h4>
+        <div class="summary-stats">
+            <div class="stat-item">
+                <span class="stat-value">${data.summary.total}</span>
+                <span class="stat-label">Total</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-value" style="color: #059669;">${data.summary.success}</span>
+                <span class="stat-label">Success</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-value" style="color: #dc2626;">${data.summary.errors}</span>
+                <span class="stat-label">Errors</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-value" style="color: #d97706;">${data.summary.skipped || 0}</span>
+                <span class="stat-label">Skipped (duplicates)</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-value" style="color: #3b82f6;">€${data.summary.total_amount.toFixed(2)}</span>
+                <span class="stat-label">Total Amount</span>
+            </div>
+        </div>
+    `;
+
+    tbody.innerHTML = '';
+    data.results.forEach(result => {
+        const row = document.createElement('tr');
+        let statusClass = 'status-error';
+        if (result.status === 'success') statusClass = 'status-valid';
+        else if (result.status === 'skipped') statusClass = 'status-warning';
+
+        row.innerHTML = `
+            <td><span class="status-badge ${statusClass}">${result.status}</span></td>
+            <td><code style="font-size: 0.75rem;">${result.customer_id}</code></td>
+            <td>${result.member_name || 'N/A'}</td>
+            <td><code style="font-size: 0.75rem;">${result.payment_id || 'N/A'}</code></td>
+            <td class="amount-cell">${result.amount ? '€' + parseFloat(result.amount).toFixed(2) : 'N/A'}</td>
+            <td class="date-cell">${result.charge_date || 'N/A'}</td>
+            <td style="color: #dc2626; font-size: 0.75rem;">${frappe.utils.escape_html(result.error || '')}</td>
+        `;
+        tbody.appendChild(row);
+    });
+
+    card.classList.remove('hidden');
+    card.scrollIntoView({ behavior: 'smooth' });
+
+    if (data.summary.success > 0) {
+        frappe.show_alert({
+            message: `Successfully created ${data.summary.success} payment(s)`,
+            indicator: 'green'
+        });
+    }
+}
+</script>
+{% endblock %}

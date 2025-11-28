@@ -445,9 +445,10 @@ class MemberLifecycleService:
                 from verenigingen.utils.application_helpers import activate_pending_chapter_membership
 
                 # Find pending chapter memberships for this member
+                # Note: Chapter Member is a child table, so the chapter is in 'parent' field
                 pending_chapters = frappe.db.sql(
                     """
-                    SELECT chapter, name
+                    SELECT parent as chapter, name
                     FROM `tabChapter Member`
                     WHERE member = %s AND status = 'Pending'
                     """,

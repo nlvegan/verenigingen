@@ -58,3 +58,22 @@ cypress.env.json
 
 # Ignore large security analysis files
 scripts/security_migration_inventory.json
+
+# GitHub Actions Runner (self-hosted)
+actions-runner/
+.credentials
+.credentials_rsaparams
+.path
+.runner
+.env
+run.sh
+run-helper.sh.template
+svc.sh
+config.sh
+env.sh
+bin/
+externals/
+_work/
+_diag/
+run-helper.cmd.template
+safe_sleep.sh

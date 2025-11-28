@@ -27,7 +27,7 @@ from verenigingen.utils.employee_user_link import create_employee_for_approved_v
 from verenigingen.utils.member_utils import get_volunteer_for_current_user
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.secure_operations import secure_document_operation
-from verenigingen.utils.security.audit_logging import AuditLogger
+from verenigingen.utils.security.audit_logging import get_audit_logger
 from verenigingen.utils.security.types import AuditEventType, AuditSeverity
 from verenigingen.utils.volunteer_expense_setup import get_or_create_expense_type
 
@@ -653,8 +653,8 @@ class VolunteerExpenseSubmissionService:
 
     def _log_tampering_attempt(self, submitted_volunteer: str) -> None:
         """Log parameter tampering attempt"""
-        audit_logger = AuditLogger()
-        audit_logger.log_security_event(
+        audit_logger = get_audit_logger()
+        audit_logger.log_event(
             event_type=AuditEventType.PARAMETER_TAMPERING,
             severity=AuditSeverity.ERROR,
             details={

@@ -30,11 +30,30 @@
 <link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
 {% from "templates/macros/brand_css.html" import brand_css %}
 {{ brand_css() }}
+<style>
+/* Wide layout wrapper - breaks out of Frappe container */
+.wide-layout-wrapper {
+    width: 90vw;
+    max-width: 1600px;
+    margin-left: calc(-45vw + 50% - 2.5vw);
+    margin-right: calc(-45vw + 50% + 2.5vw);
+    padding: 0 2rem;
+    box-sizing: border-box;
+}
+
+@media (max-width: 1200px) {
+    .wide-layout-wrapper {
+        width: 95vw;
+        margin-left: calc(-47.5vw + 50% - 2.5vw);
+        margin-right: calc(-47.5vw + 50% + 2.5vw);
+        padding: 0 1rem;
+    }
+}
+</style>
 {% endblock %}
 
 {% block page_content %}
-<div class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 py-8">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+<div class="wide-layout-wrapper min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 py-8">
     {% if error_message %}
         <div class="bg-danger-100 border-2 border-danger-300 rounded-lg p-8 text-center max-w-2xl mx-auto">
             <h4 class="text-2xl font-semibold text-danger-800 mb-4">Access Denied</h4>
@@ -554,7 +573,6 @@
             <p class="text-lg text-warning-700">Unable to load dashboard data at this time. Please try again later.</p>
         </div>
     {% endif %}
-    </div>
 </div>
 
 <!-- Loading overlay -->

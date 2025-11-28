@@ -590,9 +590,25 @@ def end_board_positions_safe(member_name, end_date, reason):
 
 def disable_chapter_memberships_safe(member_name, leave_date, reason):
     """
-    Disable all chapter memberships for terminated member
-    Must update through parent Chapter documents (child tables can't be saved directly)
+    Disable all chapter memberships for terminated member.
+
+    Updates both:
+    1. Chapter Member child table (on Chapter doc) - sets enabled=0, status='Inactive'
+    2. Member.chapter_membership_history (via ChapterMembershipHistoryManager) - sets end_date, status='Terminated'
+
+    Note: Chapter Member doesn't have a chapter_leave_date field - leave tracking is handled
+    via Member.chapter_membership_history.end_date instead.
+
+    Transaction Safety:
+    - Uses savepoint for atomicity - if any chapter save fails, all changes are rolled back
+    - History updates happen after chapter saves succeed, but Chapter.handle_member_changes()
+      hook also updates history during save, providing redundant protection
+
+    Idempotency:
+    - Safe to call multiple times - both Chapter Member and history updates are idempotent
     """
+    from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
+
     try:
         # Get all active chapter memberships for this member
         chapter_memberships = frappe.get_all(
@@ -607,6 +623,7 @@ def disable_chapter_memberships_safe(member_name, leave_date, reason):
 
         memberships_disabled = 0
         chapters_to_save = {}  # Track chapters that need saving
+        history_updates = []  # Track history updates for explicit backup call
 
         for membership in chapter_memberships:
             try:
@@ -621,28 +638,76 @@ def disable_chapter_memberships_safe(member_name, leave_date, reason):
                 # Find the member in the chapter's members child table
                 for chapter_member in chapter_doc.members:
                     if chapter_member.name == membership.name:
+                        # Validate field exists before setting (defensive coding)
+                        if not hasattr(chapter_member, "status"):
+                            frappe.logger().warning(
+                                f"Chapter Member {chapter_member.name} missing status field - skipping status update"
+                            )
+                        else:
+                            chapter_member.status = "Inactive"
+
                         chapter_member.enabled = 0
-                        chapter_member.chapter_leave_date = leave_date
                         chapter_member.leave_reason = reason
+
+                        # Queue history update as backup (Chapter.handle_member_changes hook
+                        # will also update history during save, but this provides redundancy)
+                        history_updates.append(
+                            {
+                                "chapter_name": chapter_name,
+                                "assignment_type": "Member",
+                            }
+                        )
 
                         memberships_disabled += 1
                         frappe.logger().info(
-                            f"Marked chapter membership at {chapter_name} for {member_name} as disabled"
+                            f"Marked chapter membership at {chapter_name} for {member_name} as disabled (status=Inactive)"
                         )
                         break
 
             except Exception as e:
                 frappe.logger().error(f"Failed to disable chapter membership {membership.name}: {str(e)}")
 
-        # Save all modified chapters
-        for chapter_name, chapter_doc in chapters_to_save.items():
-            try:
+        # Use savepoint for transaction safety - rollback all on failure
+        try:
+            frappe.db.savepoint("disable_chapter_memberships")
+
+            # Save all modified chapters within savepoint
+            for chapter_name, chapter_doc in chapters_to_save.items():
                 chapter_doc.save()
                 frappe.logger().info(f"Saved Chapter {chapter_name} with disabled memberships")
-            except frappe.PermissionError as pe:
-                frappe.logger().error(f"Permission denied saving Chapter {chapter_name}: {str(pe)}")
+
+            frappe.db.release_savepoint("disable_chapter_memberships")
+
+        except frappe.PermissionError as pe:
+            frappe.db.rollback_to_savepoint("disable_chapter_memberships")
+            frappe.logger().error(f"Permission denied saving chapters, rolled back: {str(pe)}")
+            return 0
+        except Exception as e:
+            frappe.db.rollback_to_savepoint("disable_chapter_memberships")
+            frappe.logger().error(f"Failed to save chapters, rolled back: {str(e)}")
+            return 0
+
+        # Explicit history update as backup - Chapter.handle_member_changes() hook should have
+        # already updated history during save, but this call is idempotent and provides redundancy
+        # in case the hook was bypassed or failed silently
+        for update in history_updates:
+            try:
+                success = ChapterMembershipHistoryManager.terminate_chapter_membership(
+                    member_id=member_name,
+                    chapter_name=update["chapter_name"],
+                    assignment_type=update["assignment_type"],
+                    end_date=leave_date,
+                    reason=reason,
+                )
+                if success:
+                    frappe.logger().debug(
+                        f"Verified/updated chapter membership history for {member_name} in {update['chapter_name']}"
+                    )
+                # Note: success=False is expected if hook already terminated it - not an error
             except Exception as e:
-                frappe.logger().error(f"Failed to save Chapter {chapter_name}: {str(e)}")
+                frappe.logger().error(
+                    f"Failed to update chapter membership history for {member_name} in {update['chapter_name']}: {str(e)}"
+                )
 
         return memberships_disabled
 

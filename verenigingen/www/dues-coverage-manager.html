@@ -259,15 +259,17 @@ function loadCoverageData() {
         callback: function(r) {
             hideSpinner();
 
+            // OperationResult wraps data in r.message.data
             if (r.message && r.message.success) {
-                coverageData = r.message.data;
-                updateSummaryCards(r.message.summary);
+                const result = r.message.data;
+                coverageData = result.data;
+                updateSummaryCards(result.summary);
                 renderMembersTable(coverageData);
                 document.getElementById('action-buttons').style.display = 'flex';
             } else {
                 frappe.msgprint({
                     title: 'Error',
-                    message: r.message?.message || 'Failed to load coverage data',
+                    message: r.message?.error_message || r.message?.message || 'Failed to load coverage data',
                     indicator: 'red'
                 });
             }
