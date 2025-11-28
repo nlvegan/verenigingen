@@ -1,0 +1,101 @@
+# Lightweight Pre-commit Config (Frappe-style)
+#
+# Philosophy: Fast local hooks, thorough CI
+# Target: <10 seconds for pre-commit
+#
+# To use: cp .pre-commit-config-light.yaml .pre-commit-config.yaml
+# Or rename current config to .pre-commit-config-full.yaml
+
+repos:
+  # =============================================================================
+  # TIER 1: Formatting Only (~3 seconds)
+  # These run on every commit - must be fast
+  # =============================================================================
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: check-merge-conflict
+
+  - repo: https://github.com/psf/black
+    rev: 23.3.0
+    hooks:
+      - id: black
+        language_version: python3
+        args: ['--line-length=110']
+
+  - repo: https://github.com/PyCQA/isort
+    rev: 5.12.0
+    hooks:
+      - id: isort
+        args: ['--profile', 'black', '--line-length', '110']
+
+  # =============================================================================
+  # TIER 2: Quick Validation (~5 seconds)
+  # Critical checks that catch obvious errors
+  # =============================================================================
+  - repo: local
+    hooks:
+      - id: syntax-check
+        name: Python Syntax Check
+        entry: python -m py_compile
+        language: system
+        files: '\.py$'
+        exclude: '^(archived_|node_modules/)'
+
+      - id: debug-statements
+        name: Debug Statement Check
+        entry: python -c "import sys; sys.exit(1 if 'breakpoint()' in open(sys.argv[1]).read() or 'pdb.set_trace' in open(sys.argv[1]).read() else 0)"
+        language: system
+        files: '\.py$'
+        exclude: '^(tests/|scripts/debug/)'
+
+  # =============================================================================
+  # TIER 3: Pre-push Only (moved from pre-commit)
+  # These run before push - can be slower
+  # =============================================================================
+  - repo: local
+    hooks:
+      - id: flake8-critical
+        name: Flake8 (Critical Only)
+        entry: flake8 --select=E9,F63,F7,F82 --show-source
+        language: system
+        files: '\.py$'
+        stages: [pre-push]
+        exclude: '^(archived_|node_modules/|tests/)'
+
+      - id: ast-field-analyzer
+        name: AST Field Analyzer
+        entry: python scripts/validation/ast_field_analyzer.py
+        language: system
+        files: '\.py$'
+        stages: [pre-push]
+        pass_filenames: true
+        exclude: '^(archived_|tests/|scripts/)'
+
+      - id: tier1-tests
+        name: Tier 1 Tests (Direct Unit Tests)
+        entry: python scripts/testing/test_impact_analyzer_v2.py --tier tier1 --run
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+        always_run: true
+
+# =============================================================================
+# WHAT MOVED TO CI:
+# =============================================================================
+# - pylint (full linting)
+# - bandit security scan
+# - test quality enforcer
+# - mock blocking validators
+# - enhanced field validators
+# - template validators
+# - validation orchestrator
+# - comprehensive test runs
+# - coverage reporting
+#
+# See .github/workflows/tests.yml for CI configuration
+# =============================================================================

@@ -2,6 +2,41 @@
 
 Automatically detect and run tests affected by code changes.
 
+## Architecture Overview (Updated)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      LOCAL DEVELOPMENT                          │
+├─────────────────────────────────────────────────────────────────┤
+│  Pre-commit (~5s)        │  Pre-push (~30s)                     │
+│  ─────────────────       │  ──────────────────                  │
+│  • black formatting      │  • Tier 1 tests (direct unit tests)  │
+│  • isort imports         │  • AST field analyzer                │
+│  • syntax check          │  • Flake8 critical only              │
+│  • merge conflict        │                                      │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                         CI (GitHub Actions)                     │
+├─────────────────────────────────────────────────────────────────┤
+│  Critical Tests (fail-fast)  │  Parallel Test Matrix            │
+│  ────────────────────────    │  ─────────────────────           │
+│  • Contract tests            │  • services                       │
+│  • Core service tests        │  • integration                    │
+│                              │  • security                       │
+│                              │  • backend-unit                   │
+│                              │  • backend-components             │
+│                              │                                   │
+│  Mollie Tests                │  Coverage Report                  │
+│  ────────────                │  ───────────────                  │
+│  • Contract validation       │  • Full coverage run              │
+│  • Core integration          │  • Codecov upload                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Tiered Test Selection (v2)
+
 ## How It Works
 
 The test impact analyzer:
