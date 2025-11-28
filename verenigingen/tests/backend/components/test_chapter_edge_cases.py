@@ -345,8 +345,15 @@ class TestChapterEdgeCases(EnhancedTestCase):
         chapter1.introduction = "Update from instance 1"
         chapter2.meetup_embed_html = "<div>Meetup embed</div>"
 
-        # Save both (second save might overwrite first)
+        # Save chapter1 first
         chapter1.save()
+
+        # Reload chapter2 to get the latest modified timestamp before saving
+        # (Frappe's optimistic locking prevents saving stale documents)
+        # Preserve the field we want to update
+        meetup_embed = chapter2.meetup_embed_html
+        chapter2.reload()
+        chapter2.meetup_embed_html = meetup_embed
         chapter2.save()
 
         # Reload and verify final state

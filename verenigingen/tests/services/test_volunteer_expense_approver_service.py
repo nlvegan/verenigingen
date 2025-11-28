@@ -47,7 +47,9 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
             create_member_user_account(treasurer_member, send_welcome_email=False)
             treasurer_member.reload()
 
-        treasurer_volunteer = self.create_test_volunteer(treasurer_member.name)
+        treasurer_volunteer = self.create_test_volunteer(
+            treasurer_member.name, email=treasurer_member.email, _exact_email=True
+        )
         frappe.db.commit()  # Ensure volunteer is committed
 
         # Create the volunteer who needs an approver
@@ -58,7 +60,7 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
         )
         frappe.db.commit()  # Ensure member is committed before creating volunteer
 
-        volunteer = self.create_test_volunteer(member.name)
+        volunteer = self.create_test_volunteer(member.name, email=member.email, _exact_email=True)
         frappe.db.commit()  # Ensure volunteer is committed
 
         # Add both to national board
@@ -81,7 +83,7 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
             "from_date": today()
         })
 
-        national_chapter.save(ignore_links=True)  # Skip link validation for test chapter_head
+        national_chapter.save()  # Save chapter with board members
 
         # Test: Board member's approver should be the treasurer
         service = VolunteerExpenseApproverService(volunteer.name)
@@ -107,7 +109,9 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
             create_member_user_account(treasurer_member, send_welcome_email=False)
             treasurer_member.reload()
 
-        treasurer_volunteer = self.create_test_volunteer(treasurer_member.name)
+        treasurer_volunteer = self.create_test_volunteer(
+            treasurer_member.name, email=treasurer_member.email, _exact_email=True
+        )
         frappe.db.commit()  # Ensure volunteer is committed
 
         # Add treasurer to chapter
@@ -127,7 +131,7 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
         )
         frappe.db.commit()  # Ensure member is committed
 
-        volunteer = self.create_test_volunteer(member.name)
+        volunteer = self.create_test_volunteer(member.name, email=member.email, _exact_email=True)
         frappe.db.commit()  # Ensure volunteer is committed
 
         # Add member to chapter
@@ -162,7 +166,9 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
             create_member_user_account(treasurer_member, send_welcome_email=False)
             treasurer_member.reload()
 
-        treasurer_volunteer = self.create_test_volunteer(treasurer_member.name)
+        treasurer_volunteer = self.create_test_volunteer(
+            treasurer_member.name, email=treasurer_member.email, _exact_email=True
+        )
         frappe.db.commit()  # Ensure volunteer is committed
 
         # Add treasurer to chapter
@@ -192,7 +198,7 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
         )
         frappe.db.commit()  # Ensure member is committed
 
-        volunteer = self.create_test_volunteer(member.name)
+        volunteer = self.create_test_volunteer(member.name, email=member.email, _exact_email=True)
         frappe.db.commit()  # Ensure volunteer is committed
 
         # Create or get a Team Role
@@ -256,7 +262,9 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
             create_member_user_account(treasurer_member, send_welcome_email=False)
             treasurer_member.reload()
 
-        treasurer_volunteer = self.create_test_volunteer(treasurer_member.name)
+        treasurer_volunteer = self.create_test_volunteer(
+            treasurer_member.name, email=treasurer_member.email, _exact_email=True
+        )
         frappe.db.commit()  # Ensure volunteer is committed
 
         secretary_member = self.create_test_member(
@@ -272,7 +280,9 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
             create_member_user_account(secretary_member, send_welcome_email=False)
             secretary_member.reload()
 
-        secretary_volunteer = self.create_test_volunteer(secretary_member.name)
+        secretary_volunteer = self.create_test_volunteer(
+            secretary_member.name, email=secretary_member.email, _exact_email=True
+        )
         frappe.db.commit()  # Ensure volunteer is committed
 
         # Add both to chapter (secretary first to test priority)

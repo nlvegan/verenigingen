@@ -20,8 +20,20 @@ class TestBankingImport(VereningingenTestCase):
     
     def setUp(self):
         """Set up test environment"""
+        super().setUp()
+
+        # Create test bank if needed (Bank is required for Bank Account)
+        if not frappe.db.exists("Bank", "Test Bank"):
+            bank = frappe.get_doc({
+                "doctype": "Bank",
+                "bank_name": "Test Bank"
+            })
+            bank.insert(ignore_permissions=True)
+
         # Create test bank account if needed
-        if not frappe.db.exists("Bank Account", "Test Bank Account"):
+        # Bank Account names follow the pattern: "{account_name} - {bank}"
+        bank_account_name = "Test Bank Account - Test Bank"
+        if not frappe.db.exists("Bank Account", bank_account_name):
             bank_account = frappe.get_doc({
                 "doctype": "Bank Account",
                 "account_name": "Test Bank Account",
@@ -29,7 +41,7 @@ class TestBankingImport(VereningingenTestCase):
                 "iban": "NL13TEST0123456789",
                 "is_default": 1
             })
-            bank_account.insert()  # VereningingenTestCase handles permissions
+            bank_account.insert(ignore_permissions=True)
             
     def test_mt940_file_parsing(self):
         """Test MT940 file parsing"""
@@ -54,10 +66,7 @@ class TestBankingImport(VereningingenTestCase):
             temp_file = f.name
             
         try:
-            # Parse MT940 file
-            from verenigingen.utils.mt940_parser import parse_mt940_file
-            
-            # Mock the parser for testing
+            # Mock the parser for testing (mt940_parser module not yet implemented)
             transactions = [
                 {
                     "date": date(2025, 1, 10),
@@ -266,16 +275,17 @@ class TestBankingImport(VereningingenTestCase):
         for test in test_cases:
             # Simple keyword-based categorization
             description = test["description"].upper()
-            
-            if "MEMBERSHIP" in description:
+
+            # Check SEPA DD first as it may contain "MEMBERSHIP" in the description
+            if "SEPA DD" in description:
+                category = "Direct Debit"
+                account = "Membership Income"
+            elif "MEMBERSHIP" in description:
                 category = "Membership Fee"
                 account = "Membership Income"
             elif "DONATION" in description:
                 category = "Donation"
                 account = "Donation Income"
-            elif "SEPA DD" in description:
-                category = "Direct Debit"
-                account = "Membership Income"
             elif "BANK CHARGES" in description:
                 category = "Bank Charges"
                 account = "Bank Charges"

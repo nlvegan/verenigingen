@@ -88,12 +88,21 @@ class PaymentRetryManager:
 
         # Create new retry record
         invoice = frappe.get_doc("Sales Invoice", invoice_name)
-        member = frappe.db.get_value("Membership", {"name": invoice.membership}, "member")
+
+        # Find member through Customer link (Sales Invoice -> Customer -> Member)
+        member = frappe.db.get_value("Member", {"customer": invoice.customer}, "name")
+
+        # Find active membership for the member (if any)
+        membership = None
+        if member:
+            membership = frappe.db.get_value(
+                "Membership", {"member": member, "status": "Active"}, "name", order_by="start_date desc"
+            )
 
         retry_doc = frappe.new_doc("SEPA Payment Retry")
         retry_doc.invoice = invoice_name
-        retry_doc.membership = invoice.membership
-        retry_doc.member = member
+        retry_doc.membership = membership  # Can be None if no active membership
+        retry_doc.member = member  # Can be None if not linked to a member
         retry_doc.original_amount = invoice.outstanding_amount
         retry_doc.retry_count = 0
         retry_doc.status = "Pending"
@@ -157,21 +166,21 @@ class PaymentRetryManager:
 
     def create_retry_job(self, retry_record):
         """Create scheduled job for payment retry"""
-        job_name = f"retry_payment_{retry_record.name}"
+        # Use frappe.enqueue instead of Scheduled Job Type which has a different schema
+        # This is simpler and doesn't require custom fields on core DocTypes
+        retry_record.status = "Scheduled"
+        retry_record.save()
 
-        # Remove existing job if any
-        frappe.db.delete("Scheduled Job Type", {"job_name": job_name})
+        # Schedule job via frappe.enqueue for the next retry date
+        frappe.enqueue(
+            "verenigingen.utils.payment_retry.execute_payment_retry",
+            retry_record=retry_record.name,
+            queue="default",
+            now=False,
+            enqueue_after_commit=True,
+        )
 
-        # Create new scheduled job
-        scheduled_job = frappe.new_doc("Scheduled Job Type")
-        scheduled_job.method = "verenigingen.utils.payment_retry.execute_payment_retry"
-        scheduled_job.job_name = job_name
-        scheduled_job.frequency = "Daily"
-        scheduled_job.parameters = json.dumps({"retry_record": retry_record.name})
-        scheduled_job.enabled = 1
-        scheduled_job.insert()
-
-        return scheduled_job
+        return {"job_scheduled": True, "retry_record": retry_record.name}
 
     def escalate_payment_failure(self, retry_record):
         """Escalate payment failure after max retries"""

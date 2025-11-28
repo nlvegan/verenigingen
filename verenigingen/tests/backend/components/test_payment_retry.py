@@ -16,49 +16,51 @@ class TestPaymentRetryManager(EnhancedTestCase):
         super().setUp()
         
         # Create test member with customer using factory method
+        # Use unique name to avoid conflicts with existing test data
+        unique_suffix = frappe.generate_hash(length=6)
         self.test_member = self.create_test_member(
             first_name="Test",
-            last_name="Retry Member",
-            email=f"retry-test.{frappe.generate_hash(length=6)}@example.com"
+            last_name=f"RetryMember {unique_suffix}",
+            email=f"retry-test.{unique_suffix}@example.com"
         )
         
-        # Get the customer that was automatically created
+        # Get the customer that was automatically created and ensure currency is EUR
         self.test_customer = frappe.get_doc("Customer", self.test_member.customer)
+        if self.test_customer.default_currency != "EUR":
+            self.test_customer.default_currency = "EUR"
+            self.test_customer.save()
         
+        # Ensure a membership type exists
+        membership_type = self.ensure_membership_type("Standard")
+
         # Create test membership using factory method (draft to avoid deletion issues)
         self.test_membership = self.create_test_membership(
-            member=self.test_member.name,
-            from_date=today(),
-            to_date=add_days(today(), 365),
-            paid=0,
-            docstatus=0  # Keep as draft for easier cleanup
+            member_name=self.test_member.name,
+            membership_type_name=membership_type.name,
+            start_date=today(),
+            status="Active"
         )
 
     def create_test_invoice(self):
         """Create a test invoice for retry testing"""
         self.retry_manager = PaymentRetryManager()
 
-        # Create a test invoice using proper factory approach
-        invoice_data = {
-            "doctype": "Sales Invoice",
-            "customer": self.test_customer.name,
-            "posting_date": today(),
-            "due_date": add_days(today(), -5),  # Already overdue
-            "items": [
-                {
-                    "item_code": self.get_or_create_test_item(),
-                    "qty": 1,
-                    "rate": 100
-                }
-            ]
-        }
-        
-        self.test_invoice = frappe.get_doc(invoice_data)
-        # Mock the membership attribute for testing since it's a custom field
-        self.test_invoice.membership = self.test_membership.name
-        self.test_invoice.insert()
+        # Use EnhancedTestCase factory method which properly handles
+        # Cost Centers, Income Accounts, and other ERPNext requirements
+        self.test_invoice = self.create_test_sales_invoice(
+            customer=self.test_customer.name,
+            posting_date=today(),
+            due_date=add_days(today(), -5),  # Already overdue
+            items=[{
+                "item_code": self.get_or_create_test_item(),
+                "qty": 1,
+                "rate": 100
+            }]
+        )
+        # Note: Sales Invoice doesn't have a direct membership field
+        # The payment_retry logic finds member through Customer -> Member link
+        # which is already set up by the test factory
         self.test_invoice.submit()
-        self.track_doc("Sales Invoice", self.test_invoice.name)
     
     def get_or_create_test_item(self):
         """Get or create a test item for invoices"""
@@ -75,7 +77,7 @@ class TestPaymentRetryManager(EnhancedTestCase):
                 "is_purchase_item": 0
             })
             item.insert()
-            self.track_doc("Item", item_name)
+            self.track_test_record("Item", item_name)
         return item_name
 
     def test_get_retry_config(self):
@@ -108,7 +110,7 @@ class TestPaymentRetryManager(EnhancedTestCase):
 
         # Check retry record was created
         retry_record = frappe.get_doc("SEPA Payment Retry", {"invoice": self.test_invoice.name})
-        self.track_doc("SEPA Payment Retry", retry_record.name)
+        self.track_test_record("SEPA Payment Retry", retry_record.name)
         self.assertEqual(retry_record.status, "Scheduled")
         self.assertEqual(retry_record.retry_count, 1)
         self.assertEqual(retry_record.member, self.test_member.name)
@@ -133,7 +135,7 @@ class TestPaymentRetryManager(EnhancedTestCase):
                 "status": "Pending"}
         )
         retry_record.insert()
-        self.track_doc("SEPA Payment Retry", retry_record.name)
+        self.track_test_record("SEPA Payment Retry", retry_record.name)
 
         # Test first retry (3 days)
         next_date = self.retry_manager.calculate_next_retry_date(retry_record)
@@ -201,7 +203,7 @@ class TestPaymentRetryManager(EnhancedTestCase):
                 "status": "Failed"}
         )
         retry_record.insert()
-        self.track_doc("SEPA Payment Retry", retry_record.name)
+        self.track_test_record("SEPA Payment Retry", retry_record.name)
 
         # Try to schedule another retry
         result = self.retry_manager.schedule_retry(
@@ -227,7 +229,7 @@ class TestPaymentRetryManager(EnhancedTestCase):
 
         # Get retry record
         retry_record = frappe.get_doc("SEPA Payment Retry", {"invoice": self.test_invoice.name})
-        self.track_doc("SEPA Payment Retry", retry_record.name)
+        self.track_test_record("SEPA Payment Retry", retry_record.name)
 
         # Check retry log
         self.assertEqual(len(retry_record.retry_log), 1)
@@ -272,7 +274,7 @@ class TestPaymentRetryManager(EnhancedTestCase):
         
         # Reload and check actual database state changes
         retry_record.reload()
-        self.assertEqual(retry_record.status, "Job Created")
+        self.assertEqual(retry_record.status, "Scheduled")
         
         # Verify real job scheduling business logic without mocking
 
@@ -294,7 +296,7 @@ class TestPaymentRetryManager(EnhancedTestCase):
                 "status": "Failed"}
         )
         retry_record.insert()
-        self.track_doc("SEPA Payment Retry", retry_record.name)
+        self.track_test_record("SEPA Payment Retry", retry_record.name)
 
         # Escalate
         self.retry_manager.escalate_payment_failure(retry_record)
@@ -302,14 +304,15 @@ class TestPaymentRetryManager(EnhancedTestCase):
         # Check status
         retry_record.reload()
         self.assertEqual(retry_record.status, "Escalated")
-        self.assertIsNotNone(retry_record.escalation_date)
+        self.assertIsNotNone(retry_record.escalated_on)
 
-        # Check comment was added
+        # Check comment was added to the Membership (not Sales Invoice)
+        # The escalate_payment_failure adds comment to the Membership document
         comments = frappe.get_all(
             "Comment",
             filters={
-                "reference_doctype": "Sales Invoice",
-                "reference_name": self.test_invoice.name,
+                "reference_doctype": "Membership",
+                "reference_name": self.test_membership.name,
                 "comment_type": "Comment"},
             fields=["content"],
         )

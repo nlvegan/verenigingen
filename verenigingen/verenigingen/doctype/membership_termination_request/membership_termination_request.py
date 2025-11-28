@@ -82,6 +82,10 @@ class MembershipTerminationRequest(Document):
         # Log status change to audit trail
         TerminationAuditService.log_status_change(self)
 
+        # Skip if already being executed by the service (prevents recursive execution)
+        if getattr(self.flags, "skip_status_change_hook", False):
+            return
+
         # Handle specific status transitions
         old_status = self.get_doc_before_save().status if self.get_doc_before_save() else None
         new_status = self.status

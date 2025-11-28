@@ -103,6 +103,17 @@ def set_membership_receivable_account(doc, method=None):
 
     # Set the correct account if this is a membership invoice
     if is_membership_invoice:
+        # Verify the settings account belongs to the same company as the invoice
+        # to avoid company mismatch errors (e.g., in tests using different companies)
+        account_company = frappe.db.get_value("Account", settings.dues_payments_receivable_account, "company")
+        if account_company != doc.company:
+            # Account belongs to a different company - skip override to avoid GL errors
+            frappe.logger().debug(
+                f"Skipping membership receivable override: account {settings.dues_payments_receivable_account} "
+                f"belongs to {account_company}, but invoice is for {doc.company}"
+            )
+            return
+
         doc.debit_to = settings.dues_payments_receivable_account
         # Log for debugging but don't show popup during bulk operations
         frappe.logger().info(

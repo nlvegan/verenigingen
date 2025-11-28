@@ -136,8 +136,9 @@ class TerminationExecutionService:
             TerminationExecutionService._update_tracking(termination_request, results)
             termination_request.status = "Executed"
 
-            # STEP 5: Save changes (use flags to avoid validation issues)
+            # STEP 5: Save changes (use flags to avoid validation issues and recursion)
             termination_request.flags.ignore_validate_update_after_submit = True
+            termination_request.flags.skip_status_change_hook = True  # Prevent recursive execution
             termination_request.save()
 
             # Add audit trail entry

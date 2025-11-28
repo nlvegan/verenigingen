@@ -16,9 +16,7 @@ class TestVolunteerEdgeCases(EnhancedTestCase):
             contact_number="+31612345678",
             payment_method="Bank Transfer",
             pronouns="They/them",
-            interested_in_volunteering=1,
-            volunteer_availability="Weekly",
-            volunteer_skills="Programming, Event Planning"
+            interested_in_volunteering=1
         )
 
         # Create test interest categories if needed
@@ -40,8 +38,9 @@ class TestVolunteerEdgeCases(EnhancedTestCase):
 
     def create_test_volunteer(self, **kwargs):
         """Create a test volunteer with default values"""
-        return self.create_test_volunteer_for_member(
-            self.test_member.name,
+        # Use EnhancedTestCase's create_test_volunteer method
+        return super().create_test_volunteer(
+            member_name=self.test_member.name,
             **kwargs
         )
 
@@ -50,7 +49,7 @@ class TestVolunteerEdgeCases(EnhancedTestCase):
         print("\n🧪 Testing volunteer name edge cases...")
 
         # Test very long name
-        long_name = f"Very Long Volunteer Name That Exceeds Normal Limits {self.test_id} " + "X" * 100
+        long_name = f"Very Long Volunteer Name That Exceeds Normal Limits {self.test_run_id} " + "X" * 100
         try:
             volunteer = self.create_test_volunteer(volunteer_name=long_name[:140])
             self.assertTrue(volunteer.name, "Long name should be handled gracefully")
@@ -59,22 +58,23 @@ class TestVolunteerEdgeCases(EnhancedTestCase):
             print(f"✅ Long name properly rejected: {str(e)}")
 
         # Test name with special characters
-        special_name = f"José-María Ñoël-O'Connor {self.test_id}"
-        volunteer = self.create_test_volunteer(volunteer_name=special_name)
-        self.assertEqual(volunteer.volunteer_name, special_name, "Special characters should be preserved")
+        # Note: The factory may prepend "TEST " to names, so check that special chars are preserved
+        special_chars = "José-María Ñoël-O'Connor"
+        volunteer = self.create_test_volunteer(volunteer_name=f"{special_chars} {self.test_run_id}")
+        self.assertIn(special_chars, volunteer.volunteer_name, "Special characters should be preserved")
         print("✅ Special characters in name handled")
 
         # Test name with numbers and symbols
-        numeric_name = f"Volunteer 123 & Co. {self.test_id}"
-        volunteer = self.create_test_volunteer(volunteer_name=numeric_name)
-        self.assertEqual(volunteer.volunteer_name, numeric_name, "Numbers and symbols should be allowed")
+        numeric_chars = "Volunteer 123 & Co."
+        volunteer = self.create_test_volunteer(volunteer_name=f"{numeric_chars} {self.test_run_id}")
+        self.assertIn(numeric_chars, volunteer.volunteer_name, "Numbers and symbols should be allowed")
         print("✅ Numbers and symbols in name handled")
 
         # Test name with emoji
-        emoji_name = f"Test Volunteer 🌟📝 {self.test_id}"
+        emoji_chars = "Test Volunteer 🌟📝"
         try:
-            volunteer = self.create_test_volunteer(volunteer_name=emoji_name)
-            self.assertEqual(volunteer.volunteer_name, emoji_name, "Emoji in name should be preserved")
+            volunteer = self.create_test_volunteer(volunteer_name=f"{emoji_chars} {self.test_run_id}")
+            self.assertIn("🌟", volunteer.volunteer_name, "Emoji in name should be preserved")
             print("✅ Emoji in name handled")
         except Exception as e:
             print(f"⚠️ Emoji in name caused issues: {str(e)}")
@@ -101,10 +101,10 @@ class TestVolunteerEdgeCases(EnhancedTestCase):
             ("user name@example.com", False, "Space in email"),
         ]
 
-        for email, should_be_valid, description in email_test_cases:
+        for idx, (email, should_be_valid, description) in enumerate(email_test_cases):
             try:
                 volunteer = self.create_test_volunteer(
-                    volunteer_name=f"Email Test {self.test_id} {len(self.docs_to_cleanup)}", email=email
+                    volunteer_name=f"Email Test {self.test_run_id} {idx}", email=email
                 )
                 if should_be_valid:
                     self.assertEqual(volunteer.email, email, f"{description}: {email} should be preserved")
@@ -251,8 +251,8 @@ class TestVolunteerEdgeCases(EnhancedTestCase):
                 "assignment_history",
                 {
                     "assignment_type": assignment_type,
-                    "reference_doctype": "Volunteer Activity",
-                    "reference_name": f"TEST-ACTIVITY-{i}",
+                    # Note: reference_doctype and reference_name omitted to avoid
+                    # Dynamic Link validation requiring actual documents to exist
                     "role": f"Role {i + 1} - {assignment_type}",
                     "start_date": start_date,
                     "end_date": end_date,
@@ -355,17 +355,12 @@ class TestVolunteerEdgeCases(EnhancedTestCase):
         ]
 
         for i, skill in enumerate(skills_to_develop):
-            current_level = (
-                str((i % 5) + 1) + " - " + ["Beginner", "Basic", "Intermediate", "Advanced", "Expert"][i % 5]
-            )
-            target_level = (
-                str(((i + 2) % 5) + 1)
-                + " - "
-                + ["Beginner", "Basic", "Intermediate", "Advanced", "Expert"][(i + 2) % 5]
-            )
+            # Volunteer Development Goal uses simple numeric levels: 1-5
+            current_level = str((i % 5) + 1)
+            target_level = str(min(((i % 5) + 3), 5))  # Target should be higher, max 5
 
             volunteer.append(
-                "development_goals",
+                "desired_skill_development",  # Correct field name per Volunteer DocType
                 {
                     "skill": skill,
                     "current_level": current_level,
@@ -378,33 +373,34 @@ class TestVolunteerEdgeCases(EnhancedTestCase):
 
         # Verify large goals set handling
         self.assertEqual(
-            len(volunteer.development_goals), len(skills_to_develop), "Should handle many development goals"
+            len(volunteer.desired_skill_development), len(skills_to_develop), "Should handle many development goals"
         )
         print(f"✅ Large development goals set ({len(skills_to_develop)} goals) handled")
 
         # Test development goals with edge case data
+        # Note: current_level and target_level are Select fields with options "1" through "5"
         edge_case_goals = [
             {
                 "skill": "S" * 500,  # Very long skill name
-                "current_level": "1 - Beginner",
-                "target_level": "5 - Expert",
+                "current_level": "1",
+                "target_level": "5",
                 "notes": "N" * 2000,  # Very long notes
             },
             {
                 "skill": "日本語習得 (Japanese Learning) 🇯🇵",  # Unicode and emoji
-                "current_level": "2 - Basic",
-                "target_level": "4 - Advanced",
+                "current_level": "2",
+                "target_level": "4",
                 "notes": "Learning Japanese for international outreach"},
             {
                 "skill": "",  # Empty skill
-                "current_level": "3 - Intermediate",
-                "target_level": "3 - Intermediate",  # Same level
+                "current_level": "3",
+                "target_level": "3",  # Same level
                 "notes": ""},
         ]
 
         for goal_data in edge_case_goals:
             try:
-                volunteer.append("development_goals", goal_data)
+                volunteer.append("desired_skill_development", goal_data)  # Correct field name
                 volunteer.save()
                 print(f"✅ Edge case goal handled: {goal_data['skill'][:30]}...")
             except Exception as e:
@@ -424,14 +420,14 @@ class TestVolunteerEdgeCases(EnhancedTestCase):
             invalid_volunteer = frappe.get_doc(
                 {
                     "doctype": "Volunteer",
-                    "volunteer_name": f"Invalid Member Test {self.test_id}",
-                    "email": f"invalid{self.test_id.lower()}@organization.org",
+                    "volunteer_name": f"Invalid Member Test {self.test_run_id}",
+                    "email": f"invalid{self.test_run_id.lower()}@organization.org",
                     "member": "NON-EXISTENT-MEMBER",
                     "status": "Active",
                     "start_date": today()}
             )
             invalid_volunteer.insert()
-            self.docs_to_cleanup.append(("Verenigingen Volunteer", invalid_volunteer.name))
+            self.track_test_record("Volunteer", invalid_volunteer.name)
             print("⚠️ Non-existent member was accepted")
         except Exception as e:
             print(f"✅ Non-existent member properly rejected: {str(e)}")
@@ -456,13 +452,13 @@ class TestVolunteerEdgeCases(EnhancedTestCase):
             volunteer_no_member = frappe.get_doc(
                 {
                     "doctype": "Volunteer",
-                    "volunteer_name": f"No Member Test {self.test_id}",
-                    "email": f"nomember{self.test_id.lower()}@organization.org",
+                    "volunteer_name": f"No Member Test {self.test_run_id}",
+                    "email": f"nomember{self.test_run_id.lower()}@organization.org",
                     "status": "Active",
                     "start_date": today()}
             )
             volunteer_no_member.insert()
-            self.docs_to_cleanup.append(("Verenigingen Volunteer", volunteer_no_member.name))
+            self.track_test_record("Volunteer", volunteer_no_member.name)
             print("✅ Volunteer without member link allowed")
         except Exception as e:
             print(f"ℹ️ Volunteer without member link rejected: {str(e)}")
@@ -532,16 +528,24 @@ class TestVolunteerEdgeCases(EnhancedTestCase):
         volunteer1.experience_level = "Expert"
         volunteer2.commitment_level = "Intensive"
 
-        # Save both (second save might overwrite first)
+        # Save first - should succeed
         volunteer1.save()
-        volunteer2.save()
 
-        # Reload and verify final state
+        # Second save should fail with TimestampMismatchError because
+        # the document was modified after volunteer2 was loaded
+        try:
+            volunteer2.save()
+            # If we got here, the save succeeded (unexpected but OK)
+            print("⚠️ Second concurrent save succeeded (no conflict detected)")
+        except frappe.TimestampMismatchError:
+            # This is the expected behavior - Frappe detected the conflict
+            print("✅ Concurrent update conflict properly detected")
+
+        # Reload and verify final state - first save should be preserved
         final_volunteer = frappe.get_doc("Volunteer", volunteer.name)
-        # One of the updates should be preserved
-        self.assertTrue(
-            final_volunteer.experience_level == "Expert" or final_volunteer.commitment_level == "Intensive",
-            "At least one update should be preserved",
+        self.assertEqual(
+            final_volunteer.experience_level, "Expert",
+            "First update should be preserved",
         )
         print("✅ Concurrent-like updates handled")
 
@@ -558,17 +562,19 @@ class TestVolunteerEdgeCases(EnhancedTestCase):
         large_note = "Lorem ipsum dolor sit amet. " * 200  # ~5400 characters
 
         volunteer = self.create_test_volunteer(
-            volunteer_name=f"Large Data Volunteer {self.test_id}", note=large_note
+            volunteer_name=f"Large Data Volunteer {self.test_run_id}", note=large_note
         )
 
         # Add many skills, interests, and assignments
+        # Valid proficiency_level options: "1 - Beginner", "2 - Basic", "3 - Intermediate", "4 - Advanced", "5 - Expert"
+        proficiency_levels = ["1 - Beginner", "2 - Basic", "3 - Intermediate", "4 - Advanced", "5 - Expert"]
         for i in range(50):
             volunteer.append(
                 "skills_and_qualifications",
                 {
                     "skill_category": ["Technical", "Communication", "Leadership"][i % 3],
                     "volunteer_skill": f"Skill {i + 1}",
-                    "proficiency_level": f"{(i % 5) + 1} - Level {i + 1}",
+                    "proficiency_level": proficiency_levels[i % 5],
                     "experience_years": i % 20,
                     "certifications": f"Cert-{i + 1}, Advanced-{i + 1}" if i % 5 == 0 else ""},
             )
@@ -589,11 +595,11 @@ class TestVolunteerEdgeCases(EnhancedTestCase):
             )
 
             volunteer.append(
-                "development_goals",
+                "desired_skill_development",  # Correct field name per Volunteer DocType
                 {
                     "skill": f"Goal Skill {i + 1}",
-                    "current_level": f"{(i % 3) + 1} - Current",
-                    "target_level": f"{((i % 3) + 2)} - Target",
+                    "current_level": str((i % 5) + 1),  # Valid Select values: 1-5
+                    "target_level": str(min((i % 5) + 3, 5)),  # Valid Select values: 1-5
                     "notes": f"Development notes {i + 1} " * 3},
             )
 
@@ -633,15 +639,15 @@ class TestVolunteerEdgeCases(EnhancedTestCase):
             minimal_volunteer = frappe.get_doc(
                 {
                     "doctype": "Volunteer",
-                    "volunteer_name": f"Minimal Volunteer {self.test_id}",
-                    "email": f"minimal{self.test_id.lower()}@organization.org"
+                    "volunteer_name": f"Minimal Volunteer {self.test_run_id}",
+                    "email": f"minimal{self.test_run_id.lower()}@organization.org"
                     # Only required fields
                 }
             )
             minimal_volunteer.insert()
-            self.docs_to_cleanup.append(("Verenigingen Volunteer", minimal_volunteer.name))
+            self.track_test_record("Volunteer", minimal_volunteer.name)
 
-            self.assertEqual(minimal_volunteer.volunteer_name, f"Minimal Volunteer {self.test_id}")
+            self.assertEqual(minimal_volunteer.volunteer_name, f"Minimal Volunteer {self.test_run_id}")
             print("✅ Minimal volunteer creation handled")
         except Exception as e:
             print(f"⚠️ Minimal volunteer creation failed: {str(e)}")
@@ -657,16 +663,16 @@ class TestVolunteerEdgeCases(EnhancedTestCase):
             {"field": "status", "value": "Zombie", "description": "Invalid status"},
         ]
 
-        for scenario in invalid_scenarios:
+        for idx, scenario in enumerate(invalid_scenarios):
             try:
                 test_data = {
                     "doctype": "Volunteer",
-                    "volunteer_name": f"Invalid {scenario['description']} {self.test_id}",
-                    "email": f"invalid{len(self.docs_to_cleanup)}{self.test_id.lower()}@organization.org",
+                    "volunteer_name": f"Invalid {scenario['description']} {self.test_run_id}",
+                    "email": f"invalid{idx}{self.test_run_id.lower()}@organization.org",
                     scenario["field"]: scenario["value"]}
                 invalid_volunteer = frappe.get_doc(test_data)
                 invalid_volunteer.insert()
-                self.docs_to_cleanup.append(("Verenigingen Volunteer", invalid_volunteer.name))
+                self.track_test_record("Volunteer", invalid_volunteer.name)
                 print(f"⚠️ {scenario['description']} was accepted (might be valid)")
             except Exception as e:
                 print(f"✅ {scenario['description']} properly rejected: {str(e)}")
@@ -711,10 +717,10 @@ class TestVolunteerEdgeCases(EnhancedTestCase):
             "<iframe src='data:text/html,<script>alert(1)</script>'></iframe>",
         ]
 
-        for dangerous_input in dangerous_inputs:
+        for idx, dangerous_input in enumerate(dangerous_inputs):
             try:
                 volunteer = self.create_test_volunteer(
-                    volunteer_name=f"Security Test {self.test_id} {len(self.docs_to_cleanup)}",
+                    volunteer_name=f"Security Test {self.test_run_id} {idx}",
                     note=dangerous_input,
                 )
 

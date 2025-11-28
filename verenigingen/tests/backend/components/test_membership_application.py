@@ -46,8 +46,13 @@ class TestMembershipApplication(VereningingenTestCase):
             item_group.insert()
 
         # Create required Region for chapters
-        if not frappe.db.exists("Region", "Test Region"):
-            region = frappe.get_doc({"doctype": "Region", "region": "Test Region"})
+        # Note: Region autoname is field:region_name which converts "Test Region" to "test-region"
+        if not frappe.db.exists("Region", "test-region"):
+            region = frappe.get_doc({
+                "doctype": "Region",
+                "region_name": "Test Region",
+                "region_code": "TST"
+            })
             region.insert()
 
         # Create test membership type
@@ -75,11 +80,14 @@ class TestMembershipApplication(VereningingenTestCase):
             )
             chapter.insert()
 
-        # Create volunteer interest areas
-        interest_areas = ["Event Planning", "Technical Support", "Community Outreach"]
-        for area in interest_areas:
-            if not frappe.db.exists("Volunteer Interest Area", area):
-                frappe.get_doc({"doctype": "Volunteer Interest Area", "name": area}).insert()
+        # Create volunteer interest categories (Volunteer Interest Area is a child table)
+        interest_categories = ["Event Planning", "Technical Support", "Community Outreach"]
+        for category in interest_categories:
+            if not frappe.db.exists("Volunteer Interest Category", category):
+                frappe.get_doc({
+                    "doctype": "Volunteer Interest Category",
+                    "category_name": category
+                }).insert()
 
     def setUp(self):
         """Set up for each test using factory methods"""

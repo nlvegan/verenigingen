@@ -128,7 +128,9 @@ class TestChapterMatching(VereningingenTestCase):
         address.insert()
         self.track_doc("Address", address.name)
 
-        # Link to test member
+        # Link to test member - reload first to get latest modified timestamp
+        # (hooks may have modified the member during address creation)
+        self.test_member.reload()
         self.test_member.primary_address = address.name
         self.test_member.save()
 
@@ -170,7 +172,9 @@ class TestChapterMatching(VereningingenTestCase):
         address.insert()
         self.track_doc("Address", address.name)
 
-        # Link to test member
+        # Link to test member - reload first to get latest modified timestamp
+        # (hooks may have modified the member during address creation)
+        self.test_member.reload()
         self.test_member.primary_address = address.name
         self.test_member.save()
 
@@ -213,7 +217,9 @@ class TestChapterMatching(VereningingenTestCase):
 
     def test_suggest_chapter_for_member(self):
         """Test suggesting chapters based on member address"""
-        # Link the test address to the member
+        # Link the test address to the member - reload first to get latest modified timestamp
+        # (hooks may have modified the member during setUp or previous tests)
+        self.test_member.reload()
         self.test_member.primary_address = self.test_address.name
         self.test_member.save()
 

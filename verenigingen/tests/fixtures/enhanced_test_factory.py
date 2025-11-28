@@ -495,7 +495,11 @@ class EnhancedTestDataFactory:
             # Address fields - not on Member, handled via Address DocType
             'address_line1', 'city', 'pincode', 'postal_code', 'country',
             # Student fields - might not exist in all configurations
-            'is_student', 'student_id'
+            'is_student', 'student_id',
+            # Volunteer fields - stored in application data, not on Member DocType
+            'volunteer_availability', 'volunteer_skills', 'volunteer_availability_time',
+            'volunteer_experience_level', 'volunteer_areas', 'volunteer_skill_level',
+            'volunteer_comments'
         }
 
         # Validate fields exist in Member doctype
@@ -673,15 +677,20 @@ class EnhancedTestDataFactory:
                 data["volunteer_name"] = self.force_unique_name(kwargs["volunteer_name"], "Volunteer")
             
         # QCE FIX: Apply unique email generation if email provided to prevent test conflicts
+        # Unless _exact_email=True is specified (needed when email must match User account)
         if "email" in kwargs:
-            # Extract purpose from provided email and make it unique
-            purpose = "volunteer"
-            if "@" in kwargs["email"]:
-                local_part = kwargs["email"].split("@")[0]
-                purpose = local_part.replace(".", "_").replace("-", "_")
-            seq = self.get_next_sequence(f'email_{purpose}')
-            deterministic_id = hash(f"{self.test_run_id}_{purpose}_{seq}") % 1000000
-            data["email"] = f"{purpose}_{seq}_{deterministic_id}@example.com"
+            if kwargs.get("_exact_email", False):
+                # Allow exact email for specific test requirements (e.g., matching User accounts)
+                data["email"] = kwargs["email"]
+            else:
+                # Extract purpose from provided email and make it unique
+                purpose = "volunteer"
+                if "@" in kwargs["email"]:
+                    local_part = kwargs["email"].split("@")[0]
+                    purpose = local_part.replace(".", "_").replace("-", "_")
+                seq = self.get_next_sequence(f'email_{purpose}')
+                deterministic_id = hash(f"{self.test_run_id}_{purpose}_{seq}") % 1000000
+                data["email"] = f"{purpose}_{seq}_{deterministic_id}@example.com"
         
         # Remove control parameters before validation
         clean_data = {k: v for k, v in data.items() if not k.startswith('_')}
