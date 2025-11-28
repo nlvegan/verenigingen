@@ -10,11 +10,13 @@ import frappe
 from frappe.exceptions import ValidationError
 
 from verenigingen.templates.pages.volunteer.expenses import (
-    get_or_create_expense_type,
     get_organization_cost_center,
     get_user_volunteer_record,
-    setup_expense_claim_types,
     submit_expense,
+)
+from verenigingen.utils.volunteer_expense_setup import (
+    get_or_create_expense_type,
+    setup_expense_claim_types,
 )
 from verenigingen.tests.utils.base import VereningingenTestCase
 
