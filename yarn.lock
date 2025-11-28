@@ -20,18 +20,6 @@
   resolved "https://registry.yarnpkg.com/@antfu/utils/-/utils-9.3.0.tgz#e05e277f788ac3bec771f57a49fb64546bb32374"
   integrity sha512-9hFT4RauhcUzqOE4f1+frMKLZrgNog5b06I7VmZQV1BkvwvqrbC8EBZf3L1eEL2AKb6rNKjER0sEvJiSP1FXEA==
 
-"@anthropic-ai/claude-code@^1.0.128":
-  version "1.0.128"
-  resolved "https://registry.yarnpkg.com/@anthropic-ai/claude-code/-/claude-code-1.0.128.tgz#5562c759e5a1a2b7bd2865df7c1ecf5fb71dc6fd"
-  integrity sha512-uUg5cFMJfeQetQzFw76Vpbro6DAXst2Lpu8aoZWRFSoQVYu5ZSAnbBoxaWmW/IgnHSqIIvtMwzCoqmcA9j9rNQ==
-  optionalDependencies:
-    "@img/sharp-darwin-arm64" "^0.33.5"
-    "@img/sharp-darwin-x64" "^0.33.5"
-    "@img/sharp-linux-arm" "^0.33.5"
-    "@img/sharp-linux-arm64" "^0.33.5"
-    "@img/sharp-linux-x64" "^0.33.5"
-    "@img/sharp-win32-x64" "^0.33.5"
-
 "@babel/code-frame@^7.0.0", "@babel/code-frame@^7.10.4", "@babel/code-frame@^7.12.13", "@babel/code-frame@^7.27.1":
   version "7.27.1"
   resolved "https://registry.yarnpkg.com/@babel/code-frame/-/code-frame-7.27.1.tgz#200f715e66d52a23b221a9435534a91cc13ad5be"
