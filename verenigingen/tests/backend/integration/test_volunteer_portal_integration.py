@@ -209,43 +209,6 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
                 role.insert()
             self.chapter_roles[role_data["permissions_level"].lower()] = role_data["name"]
 
-    # Legacy methods - kept for reference but not used (factory methods are used instead)
-    def _create_member_legacy(self, email, name):
-        """Legacy method - not used, see setup_test_data for factory usage"""
-        member_id = f"INT-{name.replace(' ', '-').upper()}"
-        if not frappe.db.exists("Member", member_id):
-            member = frappe.get_doc(
-                {
-                    "doctype": "Member",
-                    "member_id": member_id,
-                    "first_name": name.split()[0],
-                    "last_name": name.split()[-1],
-                    "full_name": name,
-                    "email": email,
-                    "user": email,
-                    "status": "Active"}
-            )
-            member.insert()
-            return member.name
-        return member_id
-
-    def _create_volunteer_legacy(self, member_id, email):
-        """Legacy method - not used, see setup_test_data for factory usage"""
-        volunteer_name = f"INT-VOL-{member_id.split('-')[-1]}"
-        if not frappe.db.exists("Volunteer", volunteer_name):
-            volunteer = frappe.get_doc(
-                {
-                    "doctype": "Volunteer",
-                    "name": volunteer_name,
-                    "volunteer_name": frappe.db.get_value("Member", member_id, "full_name"),
-                    "member": member_id,
-                    "email": email,
-                    "status": "Active"}
-            )
-            volunteer.insert()
-            return volunteer.name
-        return volunteer_name
-
     def setup_chapter_memberships(self):
         """Set up chapter memberships"""
         # Get document name (factory methods return doc objects)
@@ -409,20 +372,22 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
     def tearDown(self):
         """Clean up after each test"""
         # EnhancedTestCase tearDown handles user restoration
-        # Clean up test expenses - guard against setUp failure
-        volunteer_names = []
-        if hasattr(self, 'test_volunteer') and self.test_volunteer:
-            volunteer_names.append(self.test_volunteer.name if hasattr(self.test_volunteer, 'name') else self.test_volunteer)
-        if hasattr(self, 'board_volunteer') and self.board_volunteer:
-            volunteer_names.append(self.board_volunteer.name if hasattr(self.board_volunteer, 'name') else self.board_volunteer)
+        # Clean up test expense claims - guard against setUp failure
+        employee_names = []
+        if hasattr(self, 'test_employee') and self.test_employee:
+            employee_names.append(self.test_employee)
+        if hasattr(self, 'board_employee') and self.board_employee:
+            employee_names.append(self.board_employee)
 
-        if volunteer_names:
-            expenses = frappe.get_all(
-                "Volunteer Expense", filters={"volunteer": ["in", volunteer_names]}
+        if employee_names:
+            # Clean up Expense Claims created during tests (ERPNext native DocType)
+            expense_claims = frappe.get_all(
+                "Expense Claim",
+                filters={"employee": ["in", employee_names], "docstatus": ["!=", 1]}
             )
-            for expense in expenses:
+            for claim in expense_claims:
                 try:
-                    frappe.delete_doc("Volunteer Expense", expense.name, force=1)
+                    frappe.delete_doc("Expense Claim", claim.name, force=1)
                 except Exception:
                     pass
 
