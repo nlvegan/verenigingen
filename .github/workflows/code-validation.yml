@@ -30,7 +30,6 @@ jobs:
     - name: Run Database Field Validation
       id: field-validation
       run: |
-        cd apps/verenigingen
         python scripts/validation/comprehensive_validator.py --field-only --quiet
       continue-on-error: true
 
@@ -38,14 +37,12 @@ jobs:
       id: template-validation
       if: success() || failure()
       run: |
-        cd apps/verenigingen
         python scripts/validation/template_variable_validator.py
       continue-on-error: true
 
     - name: Run Comprehensive Validation
       if: success() || failure()
       run: |
-        cd apps/verenigingen
         python scripts/validation/comprehensive_validator.py --quiet
       continue-on-error: true
 
@@ -94,7 +91,6 @@ jobs:
 
     - name: Fast Field Validation (PR Check)
       run: |
-        cd apps/verenigingen
         python scripts/validation/comprehensive_validator.py --field-only --quiet
 
     - name: Comment PR Results
@@ -131,7 +127,6 @@ jobs:
 
     - name: Run Integration Tests with Validation
       run: |
-        cd apps/verenigingen
         python scripts/testing/runners/validation_test_runner.py --fast --no-frappe-tests
 
     - name: Test Summary

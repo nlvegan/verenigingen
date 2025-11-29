@@ -24,7 +24,6 @@ jobs:
     - name: Check Controller Sizes
       id: size-check
       run: |
-        cd apps/verenigingen
         python scripts/check_controller_size.py
 
     - name: Add PR Comment (if violation)
