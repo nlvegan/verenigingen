@@ -242,7 +242,8 @@ class TestQualityEnforcer:
                         context.startswith('ensure_test') or  # test setup utilities
                         '_ensure_' in context or  # utility methods
                         '_create_' in context or  # factory methods
-                        (is_test_factory and context.startswith('_'))  # private factory methods
+                        (is_test_factory and context.startswith('_')) or  # private factory methods
+                        (is_test_factory and context.startswith('create_'))  # public factory methods
                     )
 
                     if not is_allowed:

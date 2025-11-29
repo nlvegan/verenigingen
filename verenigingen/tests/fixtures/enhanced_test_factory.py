@@ -752,7 +752,12 @@ class EnhancedTestDataFactory:
             region_name = f"TestRegion-{self.get_next_sequence('region')}"
         
         # Ensure region exists - only create if missing to avoid duplicate infrastructure
-        if not frappe.db.exists("Region", region_name):
+        # Region uses autoname field:region_name which converts "Test Region" to "test-region"
+        # WHY dual-check: Region autoname converts display name to URL-friendly format.
+        # We check both the autoname result (test-region) and original name (Test Region)
+        # because callers may use either format. This prevents duplicate entry errors.
+        region_autoname = region_name.lower().replace(" ", "-")
+        if not frappe.db.exists("Region", region_autoname) and not frappe.db.exists("Region", region_name):
             try:
                 # Generate unique region code - keep trying until we find one that doesn't exist
                 import time
@@ -805,7 +810,7 @@ class EnhancedTestDataFactory:
         
         defaults = {
             "name": f"TEST-Chapter-{unique_suffix}",
-            "region": region_name,
+            "region": region_autoname,  # Use autoname version (test-region not Test Region)
             "postal_codes": f"{1000 + self.get_next_sequence('postal'):04d}",
             "contact_email": f"chapter{unique_suffix}@test.invalid",
             "introduction": f"Test chapter created by EnhancedTestDataFactory - {self.test_run_id}"

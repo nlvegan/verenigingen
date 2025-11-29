@@ -56,6 +56,14 @@ class TestMemberLifecycleBasic(EnhancedTestCase):
         
         # Stage 2: Create User Account
         print("\n👤 Stage 2: Create User Account")
+
+        # Clean up any existing user with this email from previous failed runs
+        # WHY: EnhancedTestCase tearDown may not execute if test crashes mid-execution.
+        # Using force=True is acceptable here because this is test cleanup of test data only.
+        # TODO: Consider using create_test_user() factory method for automatic cleanup tracking
+        if frappe.db.exists("User", member.email):
+            frappe.delete_doc("User", member.email, force=True)
+
         user = frappe.get_doc({
             "doctype": "User",
             "email": member.email,
