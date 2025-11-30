@@ -287,7 +287,7 @@ def get_membership_config() -> Dict[str, Any]:
 def get_volunteer_config() -> Dict[str, Any]:
     """Get volunteer-related configuration"""
     return {
-        "min_age": ConfigManager.get("min_volunteer_age", 12),
+        "min_age": ConfigManager.get("min_volunteer_age", 16),
         "max_team_assignments": ConfigManager.get("max_team_assignments", 5),
         "inactive_months": ConfigManager.get("volunteer_inactive_months", 12),
         "expense_approval_threshold": ConfigManager.get("expense_approval_threshold", 100.00),

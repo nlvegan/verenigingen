@@ -155,7 +155,7 @@ class Volunteer(Document):
 
             # Get minimum volunteer age from Verenigingen Settings
             settings = frappe.get_single("Verenigingen Settings")
-            min_volunteer_age = settings.get("minimum_volunteer_age") or 12
+            min_volunteer_age = settings.get("minimum_volunteer_age") or 16
 
             if age < min_volunteer_age:
                 frappe.throw(
@@ -560,17 +560,14 @@ def create_volunteer_from_member(
             volunteer_name = member.email or f"Volunteer-{member.name}"
 
         # Create volunteer record
+        # Note: organization email is NOT set here - it will be assigned later
+        # when the volunteer is given a system account
         volunteer_data = {
             "doctype": "Volunteer",
             "volunteer_name": volunteer_name,
             "member": member.name,
-            "email": member.email,
-            "first_name": member.first_name,
-            "last_name": member.last_name,
             "status": status,
-            "available": 1,
-            "date_joined": frappe.utils.today(),
-            "start_date": frappe.utils.today(),
+            "start_date": member.member_since or frappe.utils.today(),
         }
 
         # Copy the user field from member if it exists
@@ -580,11 +577,9 @@ def create_volunteer_from_member(
                 f"Copying existing user {member.user} from member {member.name} to volunteer"
             )
 
-        # Add optional fields if available
+        # Add optional fields if available on Volunteer DocType
         if hasattr(member, "personal_email") and member.personal_email:
             volunteer_data["personal_email"] = member.personal_email
-        if hasattr(member, "contact_number") and member.contact_number:
-            volunteer_data["contact_number"] = member.contact_number
 
         volunteer = frappe.get_doc(volunteer_data)
 

@@ -1596,49 +1596,54 @@ class MijnroodCSVImport(Document):
             # Don't fail the entire import for termination record issues
 
     def _create_volunteer_for_member(self, member_doc: Document):
-        """Create a volunteer record for a single member during import."""
+        """Create a volunteer record for a single member during import.
+
+        Uses the centralized volunteer creation service from volunteer.py.
+        Adds CSV-specific age validation before calling the service.
+        """
         try:
             # Check if volunteer already exists
             if frappe.db.exists("Volunteer", {"member": member_doc.name}):
                 frappe.logger().info(f"Volunteer already exists for {member_doc.name}, skipping")
                 return
 
-            # Validate age requirement (must be 16+)
+            # Validate age requirement using settings
             if member_doc.birth_date:
                 from dateutil.relativedelta import relativedelta
 
+                settings = frappe.get_single("Verenigingen Settings")
+                min_volunteer_age = settings.get("minimum_volunteer_age") or 16
+
                 age = relativedelta(getdate(today()), getdate(member_doc.birth_date)).years
-                if age < 16:
-                    frappe.logger().info(f"Member {member_doc.name} too young for volunteer (age {age})")
+                if age < min_volunteer_age:
+                    frappe.logger().info(
+                        f"Member {member_doc.name} too young for volunteer (age {age}, minimum {min_volunteer_age})"
+                    )
                     return
 
-            # Create volunteer record
-            volunteer_name = member_doc.full_name or f"{member_doc.first_name} {member_doc.last_name}".strip()
-            if not volunteer_name:
-                volunteer_name = member_doc.email
+            # Use centralized volunteer creation service
+            from verenigingen.verenigingen.doctype.volunteer.volunteer import create_volunteer_from_member
 
-            volunteer = frappe.get_doc(
-                {
-                    "doctype": "Volunteer",
-                    "volunteer_name": volunteer_name,
-                    "member": member_doc.name,
-                    "email": member_doc.email,
-                    "status": "New",
-                    "start_date": today(),
-                }
+            result = create_volunteer_from_member(
+                member_name=member_doc.name,
+                status="New",
+                create_user_account=False,
             )
 
-            volunteer.flags.ignore_workflow = True
-            volunteer.insert()
+            if result and result.get("success"):
+                volunteer_name = result.get("volunteer_name")
 
-            # Update member's volunteer_record reference
-            frappe.db.set_value(
-                "Member", member_doc.name, "volunteer_record", volunteer.name, update_modified=False
-            )
-            frappe.db.commit()
-            member_doc.volunteer_record = volunteer.name  # Update in-memory too
+                # Update member's volunteer_record reference
+                frappe.db.set_value(
+                    "Member", member_doc.name, "volunteer_record", volunteer_name, update_modified=False
+                )
+                frappe.db.commit()
+                member_doc.volunteer_record = volunteer_name  # Update in-memory too
 
-            frappe.logger().info(f"Created volunteer {volunteer.name} for {member_doc.name}")
+                frappe.logger().info(f"Created volunteer {volunteer_name} for {member_doc.name}")
+            else:
+                error_msg = result.get("error", "Unknown error") if result else "No result returned"
+                frappe.logger().error(f"Failed to create volunteer for {member_doc.name}: {error_msg}")
 
         except Exception as e:
             # Don't fail member creation for volunteer issues

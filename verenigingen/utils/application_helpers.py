@@ -688,32 +688,33 @@ def update_member_from_reapplication(member_name, data, application_id, address=
 
 
 def create_volunteer_record(member):
-    """Create volunteer record if member is interested - relinks existing volunteer if found"""
+    """Create volunteer record if member is interested - relinks existing volunteer if found.
+
+    Uses the centralized volunteer creation service from volunteer.py for new volunteers.
+    Handles reapplication case (existing volunteer) separately.
+    """
     if not member.interested_in_volunteering:
         return None
 
     try:
-        # Check if a volunteer with this email already exists (handles reapplication case)
-        existing_volunteer = frappe.db.get_value("Volunteer", {"email": member.email}, "name")
+        from verenigingen.utils.secure_operations import (
+            get_system_user_for_operation,
+            secure_user_context,
+        )
+
+        # Check if a volunteer linked to this member already exists (handles reapplication case)
+        existing_volunteer = frappe.db.get_value("Volunteer", {"member": member.name}, "name")
 
         if existing_volunteer:
             # Relink existing volunteer to new member record
             frappe.logger().info(
-                f"Found existing volunteer {existing_volunteer} with email {member.email}, relinking to member {member.name}"
+                f"Found existing volunteer {existing_volunteer} linked to member {member.name}, updating"
             )
             volunteer = frappe.get_doc("Volunteer", existing_volunteer)
             volunteer.member = member.name
             volunteer.volunteer_name = member.full_name or f"{member.first_name} {member.last_name}".strip()
-            volunteer.first_name = member.first_name
-            volunteer.last_name = member.last_name
             # Reset to New status for reapplication
             volunteer.status = "New"
-            volunteer.date_joined = today()
-
-            from verenigingen.utils.secure_operations import (
-                get_system_user_for_operation,
-                secure_user_context,
-            )
 
             system_user = get_system_user_for_operation("volunteer_creation_during_application")
             with secure_user_context(system_user, f"Volunteer relink for member {member.name}"):
@@ -729,112 +730,39 @@ def create_volunteer_record(member):
             )
             return volunteer
 
-        # No existing volunteer - create new one
-        # Create volunteer name using Dutch naming conventions if applicable
-        if member.full_name:
-            # Use the member's properly formatted full_name (which includes Dutch naming if applicable)
-            volunteer_name = member.full_name
-        elif is_dutch_installation() and hasattr(member, "tussenvoegsel") and member.tussenvoegsel:
-            # For Dutch installations, format name with tussenvoegsel
-            volunteer_name = format_dutch_full_name(
-                member.first_name,
-                None,  # Don't use middle_name when tussenvoegsel is available
-                member.tussenvoegsel,
-                member.last_name,
-            )
-        else:
-            # Standard name formatting for non-Dutch installations
-            volunteer_name = f"{member.first_name} {member.last_name}".strip()
+        # No existing volunteer - use the centralized volunteer creation service
+        from verenigingen.verenigingen.doctype.volunteer.volunteer import create_volunteer_from_member
 
-        if not volunteer_name:
-            volunteer_name = member.email  # Fallback to email if no name available
-
-        volunteer = frappe.get_doc(
-            {
-                "doctype": "Volunteer",
-                "volunteer_name": volunteer_name,
-                "member": member.name,
-                "email": member.email,
-                "first_name": member.first_name,
-                "last_name": member.last_name,
-                "status": "New",  # Changed from "Pending" to "New" - valid status for new volunteers
-                "available": 1,
-                "date_joined": today(),
-            }
-        )
-
-        # Add volunteer skills if provided
+        # Get volunteer skills from member if available
         volunteer_skills = getattr(member, "volunteer_skills", None)
-        if volunteer_skills and isinstance(volunteer_skills, (list, str)):
-            # Parse skills if it's a JSON string
-            if isinstance(volunteer_skills, str):
-                try:
-                    import json
-
-                    volunteer_skills = json.loads(volunteer_skills)
-                except Exception:
-                    volunteer_skills = []
-
-            # Add each skill to the volunteer record
-            for skill_data in volunteer_skills:
-                if isinstance(skill_data, dict) and skill_data.get("skill_name"):
-                    # Map the application skill level to doctype proficiency level
-                    proficiency_mapping = {
-                        "Beginner": "1 - Beginner",
-                        "Intermediate": "3 - Intermediate",
-                        "Advanced": "4 - Advanced",
-                        "Expert": "5 - Expert",
-                    }
-
-                    proficiency = proficiency_mapping.get(
-                        skill_data.get("skill_level", ""), "3 - Intermediate"
-                    )
-
-                    # Try to categorize the skill
-                    skill_name = skill_data.get("skill_name", "").lower()
-                    skill_category = "Other"  # Default
-
-                    if any(
-                        word in skill_name
-                        for word in ["programming", "coding", "website", "tech", "it", "computer"]
-                    ):
-                        skill_category = "Technical"
-                    elif any(word in skill_name for word in ["event", "planning", "organize"]):
-                        skill_category = "Event Planning"
-                    elif any(
-                        word in skill_name for word in ["communicate", "writing", "speaking", "presentation"]
-                    ):
-                        skill_category = "Communication"
-                    elif any(word in skill_name for word in ["lead", "manage", "supervise"]):
-                        skill_category = "Leadership"
-                    elif any(word in skill_name for word in ["accounting", "finance", "budget"]):
-                        skill_category = "Financial"
-                    elif any(word in skill_name for word in ["admin", "organization", "coordination"]):
-                        skill_category = "Organizational"
-
-                    volunteer.append(
-                        "skills_and_qualifications",
-                        {
-                            "volunteer_skill": skill_data.get("skill_name"),
-                            "skill_category": skill_category,
-                            "proficiency_level": proficiency,
-                        },
-                    )
-
-        # Use secure operations framework for volunteer creation during application processing
-        from verenigingen.utils.secure_operations import get_system_user_for_operation, secure_user_context
 
         system_user = get_system_user_for_operation("volunteer_creation_during_application")
         with secure_user_context(system_user, f"Volunteer creation for member {member.name}"):
-            # Insert with proper permissions using secure operations framework
-            volunteer.insert()
+            result = create_volunteer_from_member(
+                member_name=member.name,
+                status="New",
+                interested_skills=volunteer_skills,
+                create_user_account=False,
+            )
 
-            # Also update member's volunteer_record field if it exists
-            if hasattr(member, "volunteer_record"):
-                member.volunteer_record = volunteer.name
-                member.save()
+            if result and result.get("success"):
+                volunteer_name = result.get("volunteer_name")
+                volunteer = frappe.get_doc("Volunteer", volunteer_name)
 
-            return volunteer
+                # Update member's volunteer_record field if it exists
+                if hasattr(member, "volunteer_record"):
+                    member.volunteer_record = volunteer_name
+                    member.save()
+
+                frappe.logger().info(
+                    f"Successfully created volunteer {volunteer_name} for member {member.name}"
+                )
+                return volunteer
+            else:
+                error_msg = result.get("error", "Unknown error") if result else "No result returned"
+                frappe.logger().error(f"Failed to create volunteer for member {member.name}: {error_msg}")
+                return None
+
     except Exception as e:
         safe_log_error(f"Error creating volunteer record: {str(e)}")
         return None
