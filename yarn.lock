@@ -20,8 +20,8 @@
   resolved "https://registry.npmjs.org/@antfu/utils/-/utils-9.3.0.tgz"
   integrity sha512-9hFT4RauhcUzqOE4f1+frMKLZrgNog5b06I7VmZQV1BkvwvqrbC8EBZf3L1eEL2AKb6rNKjER0sEvJiSP1FXEA==
 
-"@anthropic-ai/claude-code@^1.0.128":
-  version "1.0.128"
+"@anthropic-ai/claude-code@^2.0.55":
+  version "2.0.55"
   optionalDependencies:
     "@img/sharp-darwin-arm64" "^0.33.5"
     "@img/sharp-darwin-x64" "^0.33.5"
