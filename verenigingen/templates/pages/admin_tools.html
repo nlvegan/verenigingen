@@ -10,9 +10,10 @@ if (typeof frappe !== 'undefined' && frappe.ready) {
         frappe.call({
             method: 'verenigingen.verenigingen.doctype.brand_settings.brand_settings.get_brand_css_inline',
             callback: function(r) {
-                if (r.message && r.message.success) {
+                var data = unwrapOperationResult(r.message);
+                if (data && (data.success !== false) && data.css) {
                     var style = document.createElement('style');
-                    style.innerHTML = r.message.css;
+                    style.innerHTML = data.css;
                     document.head.appendChild(style);
                 }
             }
@@ -1154,12 +1155,13 @@ function initializeAdminTools() {
                     button.disabled = false;
                     button.innerHTML = '<i class="fa fa-play"></i> Execute';
 
-                    if (r.message && r.message.success) {
+                    var data = unwrapOperationResult(r.message);
+                    if (data && (data.success !== false)) {
                         // Show results in modal
                         var modalTitle = document.querySelector('#resultsModal .modal-title');
                         if (modalTitle) modalTitle.textContent = title + ' - Results';
 
-                        var resultHtml = formatToolResult(r.message.result, title, formatter);
+                        var resultHtml = formatToolResult(data.result, title, formatter);
 
                         var toolResults = document.getElementById('tool-results');
                         if (toolResults) toolResults.innerHTML = resultHtml;
@@ -1192,14 +1194,15 @@ function initializeAdminTools() {
                             // Fallback - just show an alert with results
                             var resultText;
                             try {
-                                resultText = JSON.stringify(r.message.result, null, 2);
+                                resultText = JSON.stringify(data.result, null, 2);
                             } catch (e) {
-                                resultText = String(r.message.result);
+                                resultText = String(data.result);
                             }
                             alert('Tool executed successfully!\n\nResult: ' + resultText);
                         }
                     } else {
-                        alert('Error: ' + (r.message ? r.message.error : 'Failed to execute tool'));
+                        var errorMsg = verenigingen.utils.getErrorMessage(r.message, 'Failed to execute tool');
+                        alert('Error: ' + errorMsg);
                     }
                 },
                 error: function(r) {

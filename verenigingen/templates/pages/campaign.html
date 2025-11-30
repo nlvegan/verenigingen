@@ -283,10 +283,11 @@ frappe.ready(function() {
             method: 'verenigingen.api.donation_api.process_campaign_donation',
             args: formData,
             callback: function(r) {
-                if (r.message && r.message.success) {
+                const data = unwrapOperationResult(r.message);
+                if (data && (data.success !== false)) {
                     // Redirect to payment page or success page
-                    if (r.message.payment_url) {
-                        window.location.href = r.message.payment_url;
+                    if (data.payment_url) {
+                        window.location.href = data.payment_url;
                     } else {
                         frappe.msgprint({
                             title: __('Thank You!'),
@@ -298,6 +299,9 @@ frappe.ready(function() {
                             window.location.reload();
                         }, 2000);
                     }
+                } else {
+                    const errorMsg = verenigingen.utils.getErrorMessage(r.message, __('An error occurred'));
+                    frappe.msgprint(errorMsg);
                 }
             }
         });

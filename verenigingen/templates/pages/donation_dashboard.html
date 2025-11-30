@@ -326,8 +326,9 @@ function exportBelastingdienstReport() {
             }
         },
         callback: function(r) {
-            if (r.message && r.message.file_url) {
-                window.open(r.message.file_url);
+            const data = unwrapOperationResult(r.message);
+            if (data && data.file_url) {
+                window.open(data.file_url);
             }
         }
     });
@@ -341,8 +342,9 @@ function sendConsentRequests() {
                 method: "verenigingen.api.anbi_operations.send_consent_requests",
                 args: {},
                 callback: function(r) {
-                    if (r.message) {
-                        frappe.msgprint(__("{0} consent request emails sent", [r.message.sent_count]));
+                    const data = unwrapOperationResult(r.message);
+                    if (data) {
+                        frappe.msgprint(__("{0} consent request emails sent", [data.sent_count || 0]));
                     }
                 }
             });

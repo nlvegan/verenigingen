@@ -803,17 +803,20 @@ document.addEventListener('DOMContentLoaded', function() {
                 member_id: memberName
             },
             callback: function(r) {
-                if (!r.message || r.message.status !== 'success') {
+                // Handle OperationResult format
+                const data = unwrapOperationResult(r.message);
+                if (!data || data.status !== 'success') {
                     if (loadingIndicator) {
                         loadingIndicator.classList.add('hidden');
                     }
-                    alert('{{ _("Error calculating start date") }}: ' + (r.message?.error || '{{ _("Unknown error") }}'));
+                    const errorMsg = verenigingen.utils.getErrorMessage(r.message, '{{ _("Unknown error") }}');
+                    alert('{{ _("Error calculating start date") }}: ' + errorMsg);
                     return;
                 }
 
-                const startDate = r.message.start_date;
-                const reason = r.message.reason;
-                const hasOverdue = r.message.has_overdue;
+                const startDate = data.start_date;
+                const reason = data.reason;
+                const hasOverdue = data.has_overdue;
 
                 // Show confirmation with calculated start date
                 const statusMsg = hasOverdue ?
@@ -858,22 +861,25 @@ document.addEventListener('DOMContentLoaded', function() {
                             loadingIndicator.classList.add('hidden');
                         }
 
-                        if (r2.message && r2.message.status === 'success') {
+                        // Handle OperationResult format
+                        const data2 = unwrapOperationResult(r2.message);
+                        if (data2 && data2.status === 'success') {
                             alert('{{ _("Subscription created successfully!") }}\n' +
                                   `{{ _("First payment scheduled for") }}: ${startDate}\n\n` +
-                                  (r2.message.message || '{{ _("Your automatic payment has been set up.") }}'));
+                                  (data2.message || '{{ _("Your automatic payment has been set up.") }}'));
                             // Reload subscription data
                             loadSubscriptionDetails();
                         } else {
-                            alert('{{ _("Error creating subscription") }}: ' +
-                                  (r2.message?.message || r2.message?.error || '{{ _("Unknown error occurred") }}'));
+                            const errorMsg = verenigingen.utils.getErrorMessage(r2.message, '{{ _("Unknown error occurred") }}');
+                            alert('{{ _("Error creating subscription") }}: ' + errorMsg);
                         }
                     },
                     error: function(r2) {
                         if (loadingIndicator) {
                             loadingIndicator.classList.add('hidden');
                         }
-                        alert('{{ _("Error creating subscription") }}: ' + (r2.message || '{{ _("Network error") }}'));
+                        const errorMsg = verenigingen.utils.getErrorMessage(r2.message, '{{ _("Network error") }}');
+                        alert('{{ _("Error creating subscription") }}: ' + errorMsg);
                     }
                 });
             },
@@ -881,7 +887,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (loadingIndicator) {
                     loadingIndicator.classList.add('hidden');
                 }
-                alert('{{ _("Error calculating start date") }}: ' + (r.message || '{{ _("Network error") }}'));
+                const errorMsg = verenigingen.utils.getErrorMessage(r.message, '{{ _("Network error") }}');
+                alert('{{ _("Error calculating start date") }}: ' + errorMsg);
             }
         });
     };

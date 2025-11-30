@@ -174,9 +174,10 @@ function load_counter_statistics(frm) {
 		method:
       'verenigingen.verenigingen.doctype.member.member_id_manager.get_member_id_statistics',
 		callback(r) {
-			if (r.message) {
+			const data = unwrapOperationResult(r.message);
+			if (data) {
 				// Statistics loaded successfully - can be used for dashboard/reports
-				console.log('Member ID statistics loaded:', r.message);
+				console.log('Member ID statistics loaded:', data);
 			}
 		}
 	});
@@ -188,11 +189,12 @@ function show_member_id_preview(frm) {
 		method:
       'verenigingen.verenigingen.doctype.member.member_id_manager.get_next_member_id_preview',
 		callback(r) {
-			if (r.message) {
+			const data = unwrapOperationResult(r.message);
+			if (data && data.next_id) {
 				frm.set_df_property(
 					'member_id',
 					'description',
-					`Will be assigned: ${r.message.next_id}`
+					`Will be assigned: ${data.next_id}`
 				);
 			}
 		}
@@ -221,10 +223,11 @@ function handle_counter_reset(frm) {
 				freeze: true,
 				freeze_message: __('Resetting counter...'),
 				callback(r) {
-					if (r.message && r.message.success) {
+					const data = unwrapOperationResult(r.message);
+					if (data && (data.success !== false)) {
 						frappe.show_alert(
 							{
-								message: r.message.message,
+								message: data.message || __('Counter reset successfully'),
 								indicator: 'green'
 							},
 							5
@@ -235,6 +238,9 @@ function handle_counter_reset(frm) {
 
 						// Reload statistics
 						load_counter_statistics(frm);
+					} else {
+						const errorMsg = verenigingen.utils.getErrorMessage(r.message, __('Failed to reset counter'));
+						frappe.msgprint(errorMsg);
 					}
 				}
 			});
@@ -248,8 +254,8 @@ function _show_counter_statistics_dialog() {
 		method:
       'verenigingen.verenigingen.doctype.member.member_id_manager.get_member_id_statistics',
 		callback(r) {
-			if (r.message) {
-				const stats = r.message;
+			const stats = unwrapOperationResult(r.message);
+			if (stats) {
 
 				let dialog_content = `
                     <div class="counter-stats">
@@ -321,10 +327,11 @@ function show_counter_reset_dialog(frm) {
 				freeze: true,
 				freeze_message: __('Resetting counter...'),
 				callback(r) {
-					if (r.message && r.message.success) {
+					const data = unwrapOperationResult(r.message);
+					if (data && (data.success !== false)) {
 						frappe.show_alert(
 							{
-								message: r.message.message,
+								message: data.message || __('Counter reset successfully'),
 								indicator: 'green'
 							},
 							5
@@ -332,6 +339,9 @@ function show_counter_reset_dialog(frm) {
 
 						d.hide();
 						load_counter_statistics(frm);
+					} else {
+						const errorMsg = verenigingen.utils.getErrorMessage(r.message, __('Failed to reset counter'));
+						frappe.msgprint(errorMsg);
 					}
 				}
 			});
@@ -371,20 +381,18 @@ function show_migration_tools_dialog() {
 						freeze: true,
 						freeze_message: __('Running migration...'),
 						callback(r) {
-							if (r.message) {
-								if (r.message.success) {
-									frappe.show_alert(
-										{
-											message: r.message.message,
-											indicator: 'green'
-										},
-										8
-									);
-								} else {
-									frappe.msgprint(
-										__('Migration failed: {0}', [r.message.error])
-									);
-								}
+							const data = unwrapOperationResult(r.message);
+							if (data && (data.success !== false)) {
+								frappe.show_alert(
+									{
+										message: data.message || __('Migration completed successfully'),
+										indicator: 'green'
+									},
+									8
+								);
+							} else {
+								const errorMsg = verenigingen.utils.getErrorMessage(r.message, __('Migration failed'));
+								frappe.msgprint(__('Migration failed: {0}', [errorMsg]));
 							}
 							d.hide();
 						}
@@ -452,9 +460,8 @@ function setup_settings_counter_section(frm) {
 				method:
           'verenigingen.verenigingen.doctype.member.member_id_manager.get_member_id_statistics',
 				callback(r) {
-					if (r.message) {
-						const stats = r.message;
-
+					const stats = unwrapOperationResult(r.message);
+					if (stats) {
 						frappe.msgprint({
 							title: __('Current Member ID Status'),
 							message: `
@@ -468,6 +475,9 @@ function setup_settings_counter_section(frm) {
                         `,
 							wide: true
 						});
+					} else {
+						const errorMsg = verenigingen.utils.getErrorMessage(r.message, __('Failed to load statistics'));
+						frappe.msgprint(errorMsg);
 					}
 				}
 			});
@@ -489,20 +499,20 @@ function migrate_member_id_system() {
 		method:
       'verenigingen.verenigingen.doctype.member.member.migrate_member_id_counter',
 		callback(r) {
-			if (r.message) {
-				if (r.message.success) {
-					console.log('✓ Migration successful:', r.message.message);
-					frappe.show_alert(
-						{
-							message: 'Member ID system migration completed successfully',
-							indicator: 'green'
-						},
-						8
-					);
-				} else {
-					console.error('✗ Migration failed:', r.message.error);
-					frappe.msgprint(`Migration failed: ${r.message.error}`);
-				}
+			const data = unwrapOperationResult(r.message);
+			if (data && (data.success !== false)) {
+				console.log('✓ Migration successful:', data.message);
+				frappe.show_alert(
+					{
+						message: 'Member ID system migration completed successfully',
+						indicator: 'green'
+					},
+					8
+				);
+			} else {
+				const errorMsg = verenigingen.utils.getErrorMessage(r.message, 'Unknown error');
+				console.error('✗ Migration failed:', errorMsg);
+				frappe.msgprint(`Migration failed: ${errorMsg}`);
 			}
 		},
 		error(r) {

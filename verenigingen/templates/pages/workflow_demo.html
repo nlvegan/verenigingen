@@ -193,14 +193,15 @@ function showWorkflowActions(memberName, memberFullName) {
         method: 'verenigingen.templates.pages.workflow_demo.get_workflow_actions',
         args: { member_name: memberName },
         callback: function(r) {
-            if (r.message && r.message.success) {
-                $('#modal-current-state').text(r.message.current_state);
+            const data = unwrapOperationResult(r.message);
+            if (data && (data.success !== false)) {
+                $('#modal-current-state').text(data.current_state);
 
                 let actionsHtml = '';
-                if (r.message.available_actions.length === 0) {
+                if (!data.available_actions || data.available_actions.length === 0) {
                     actionsHtml = '<p class="text-muted">No actions available for current user.</p>';
                 } else {
-                    r.message.available_actions.forEach(function(action) {
+                    data.available_actions.forEach(function(action) {
                         actionsHtml += `
                             <button class="btn btn-primary btn-block mb-2"
                                     onclick="executeAction('${memberName}', '${action.action}', '${action.next_state}')">
@@ -211,7 +212,8 @@ function showWorkflowActions(memberName, memberFullName) {
                 }
                 $('#modal-actions-list').html(actionsHtml);
             } else {
-                $('#modal-actions-list').html('<p class="text-danger">Error loading actions: ' + (r.message ? r.message.error : 'Unknown error') + '</p>');
+                const errorMsg = verenigingen.utils.getErrorMessage(r.message, 'Unknown error');
+                $('#modal-actions-list').html('<p class="text-danger">Error loading actions: ' + errorMsg + '</p>');
             }
         }
     });
@@ -227,13 +229,16 @@ function executeAction(memberName, action, nextState) {
                 next_state: nextState
             },
             callback: function(r) {
-                if (r.message && r.message.success) {
-                    frappe.msgprint(r.message.message);
+                const data = unwrapOperationResult(r.message);
+                if (data && (data.success !== false)) {
+                    const msg = data.message || 'Action executed successfully';
+                    frappe.msgprint(msg);
                     $('#workflowActionsModal').modal('hide');
                     // Reload page to show updated status
                     location.reload();
                 } else {
-                    frappe.msgprint('Error: ' + (r.message ? r.message.error : 'Unknown error'));
+                    const errorMsg = verenigingen.utils.getErrorMessage(r.message, 'Unknown error');
+                    frappe.msgprint('Error: ' + errorMsg);
                 }
             }
         });

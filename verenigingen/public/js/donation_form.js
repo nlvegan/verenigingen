@@ -589,13 +589,13 @@ function submitDonation() {
 			submitText.style.display = 'inline-block';
 			submitLoading.style.display = 'none';
 
-			if (response.message.success) {
-				showSuccessStep(response.message);
+			// Handle OperationResult format
+			const data = unwrapOperationResult(response.message);
+			if (data && (data.success !== false)) {
+				showSuccessStep(data);
 			} else {
-				showAlert(
-					response.message.message || __('An error occurred'),
-					'danger'
-				);
+				const errorMsg = verenigingen.utils.getErrorMessage(response.message, __('An error occurred'));
+				showAlert(errorMsg, 'danger');
 			}
 		},
 		error(error) {

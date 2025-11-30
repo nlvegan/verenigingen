@@ -179,11 +179,13 @@ frappe.ready(function() {
                 method: 'verenigingen.www.onboarding_member_setup.generate_test_members_from_onboarding',
                 callback: function(r) {
                     console.log('Response received:', r);
-                    if (r.message && r.message.success) {
+                    const data = unwrapOperationResult(r.message);
+                    if (data && (data.success !== false)) {
+                        const message = data.message || __('Test members generated successfully');
                         testResultDiv.innerHTML =
                             '<div class="alert alert-success">' +
                             '<h4>✅ ' + __('Test Members Generated!') + '</h4>' +
-                            '<p>' + r.message.message + '</p>' +
+                            '<p>' + message + '</p>' +
                             '<hr>' +
                             '<a href="/app/member" class="btn btn-primary">' + __('View Members') + '</a> ' +
                             '<a href="/app/membership" class="btn btn-default">' + __('View Memberships') + '</a>' +
@@ -194,10 +196,11 @@ frappe.ready(function() {
                             window.location.reload();
                         }, 3000);
                     } else {
+                        const errorMsg = verenigingen.utils.getErrorMessage(r.message, __('Unknown error occurred'));
                         testResultDiv.innerHTML =
                             '<div class="alert alert-danger">' +
                             '<h4>❌ ' + __('Generation Failed') + '</h4>' +
-                            '<p>' + (r.message && r.message.message ? r.message.message : __('Unknown error occurred')) + '</p>' +
+                            '<p>' + errorMsg + '</p>' +
                             '</div>';
                         btn.disabled = false;
                         btn.innerHTML = originalText;
@@ -234,11 +237,13 @@ frappe.ready(function() {
             frappe.call({
                 method: 'verenigingen.utils.create_test_pending_members.force_pending_status',
                 callback: function(r) {
-                    if (r.message && r.message.success) {
+                    const data = unwrapOperationResult(r.message);
+                    if (data && (data.success !== false)) {
+                        const message = data.message || __('Status updated successfully');
                         testResultDiv.innerHTML =
                             '<div class="alert alert-info">' +
                             '<h4>⏰ ' + __('Status Updated') + '</h4>' +
-                            '<p>' + r.message.message + '</p>' +
+                            '<p>' + message + '</p>' +
                             '</div>';
 
                         // Refresh page after 2 seconds
@@ -246,10 +251,11 @@ frappe.ready(function() {
                             window.location.reload();
                         }, 2000);
                     } else {
+                        const errorMsg = verenigingen.utils.getErrorMessage(r.message, __('Unknown error occurred'));
                         testResultDiv.innerHTML =
                             '<div class="alert alert-danger">' +
                             '<h4>❌ ' + __('Update Failed') + '</h4>' +
-                            '<p>' + (r.message && r.message.message ? r.message.message : __('Unknown error occurred')) + '</p>' +
+                            '<p>' + errorMsg + '</p>' +
                             '</div>';
                     }
                     btn.disabled = false;
@@ -280,11 +286,13 @@ frappe.ready(function() {
             frappe.call({
                 method: 'verenigingen.www.onboarding_member_setup.cleanup_test_data',
                 callback: function(r) {
-                    if (r.message && r.message.success) {
+                    const data = unwrapOperationResult(r.message);
+                    if (data && (data.success !== false)) {
+                        const message = data.message || __('Cleanup completed successfully');
                         testResultDiv.innerHTML =
                             '<div class="alert alert-warning">' +
                             '<h4>🗑️ ' + __('Cleanup Complete') + '</h4>' +
-                            '<p>' + r.message.message + '</p>' +
+                            '<p>' + message + '</p>' +
                             '</div>';
 
                         // Refresh page after 2 seconds
@@ -292,10 +300,11 @@ frappe.ready(function() {
                             window.location.reload();
                         }, 2000);
                     } else {
+                        const errorMsg = verenigingen.utils.getErrorMessage(r.message, __('Unknown error occurred'));
                         testResultDiv.innerHTML =
                             '<div class="alert alert-danger">' +
                             '<h4>❌ ' + __('Cleanup Failed') + '</h4>' +
-                            '<p>' + (r.message ? r.message.message : __('Unknown error occurred')) + '</p>' +
+                            '<p>' + errorMsg + '</p>' +
                             '</div>';
                     }
                     btn.disabled = false;

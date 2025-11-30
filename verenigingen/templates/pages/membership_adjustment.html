@@ -555,16 +555,18 @@ $(document).ready(function() {
             callback: function(r) {
                 console.log('Fee adjustment API response:', r);
 
-                if (r.message && r.message.success) {
-                    showMessage(r.message.message, 'success');
+                const data = unwrapOperationResult(r.message);
+                if (data && data.success) {
+                    const msg = data.message || '{{ _("Request submitted successfully") }}';
+                    showMessage(msg, 'success');
 
                     // Reload page after 2 seconds
                     setTimeout(function() {
                         window.location.reload();
                     }, 2000);
-                } else if (r.message && (r.message.no_change || r.message.validation_error)) {
+                } else if (data && (data.no_change || data.validation_error)) {
                     // Handle specific validation errors
-                    showMessage(r.message.message, 'warning');
+                    showMessage(data.message, 'warning');
                     submitBtn.prop('disabled', false);
                     submitBtn.text('{{ _("Submit Rate Adjustment") }}');
                 } else if (r.message === null || r.message === undefined) {
@@ -575,7 +577,7 @@ $(document).ready(function() {
                     }, 3000);
                 } else {
                     // Handle other error cases
-                    const errorMsg = (r.message && r.message.message) ? r.message.message : '{{ _("An error occurred. Please try again.") }}';
+                    const errorMsg = verenigingen.utils.getErrorMessage(r.message, '{{ _("An error occurred. Please try again.") }}');
                     showMessage(errorMsg, 'danger');
                     submitBtn.prop('disabled', false);
                     submitBtn.text('{{ _("Submit Rate Adjustment") }}');
@@ -631,9 +633,10 @@ $(document).ready(function() {
             args: {},
             callback: function(r) {
                 console.log('Membership types API response:', r);
-                if (r.message && r.message.membership_types) {
-                    console.log('Showing membership type dialog with types:', r.message.membership_types);
-                    showMembershipTypeDialog(r.message.membership_types, r.message.current_type);
+                const data = unwrapOperationResult(r.message);
+                if (data && data.membership_types) {
+                    console.log('Showing membership type dialog with types:', data.membership_types);
+                    showMembershipTypeDialog(data.membership_types, data.current_type);
                 } else {
                     console.error('No membership types in response:', r);
                     showMessage('{{ _("Unable to load membership types") }}', 'danger');
@@ -819,9 +822,11 @@ $(document).ready(function() {
             args: args,
             callback: function(r) {
                 console.log('Membership type change response:', r);
-                if (r.message && r.message.success) {
+                const data = unwrapOperationResult(r.message);
+                if (data && (data.success !== false)) {
                     console.log('Success response received');
-                    showMessage(r.message.message, 'success');
+                    const msg = data.message || '{{ _("Request submitted successfully") }}';
+                    showMessage(msg, 'success');
 
                     // Reload page after 2 seconds
                     setTimeout(function() {
@@ -829,7 +834,8 @@ $(document).ready(function() {
                     }, 2000);
                 } else {
                     console.log('No success in response:', r);
-                    showMessage('{{ _("An error occurred. Please try again.") }}', 'danger');
+                    const errorMsg = verenigingen.utils.getErrorMessage(r.message, '{{ _("An error occurred. Please try again.") }}');
+                    showMessage(errorMsg, 'danger');
                 }
             },
             error: function(r) {

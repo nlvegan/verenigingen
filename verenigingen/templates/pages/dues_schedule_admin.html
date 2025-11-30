@@ -167,13 +167,15 @@ $(document).ready(function() {
                 btn.prop('disabled', false);
                 btn.html(originalText);
 
-                if (r.message && r.message.success) {
+                const data = unwrapOperationResult(r.message);
+                if (data && (data.success !== false)) {
                     // Show results
+                    const msg = data.message || 'Operation completed successfully';
                     $('#results-section').show();
                     $('#results-content')
                         .removeClass('alert-danger')
                         .addClass('alert-success')
-                        .html('<i class="fa fa-check"></i> ' + r.message.message);
+                        .html('<i class="fa fa-check"></i> ' + msg);
 
                     // Reload page after 3 seconds to update statistics
                     setTimeout(function() {
@@ -181,11 +183,12 @@ $(document).ready(function() {
                     }, 3000);
                 } else {
                     // Show error
+                    const errorMsg = verenigingen.utils.getErrorMessage(r.message, 'An error occurred. Please check the logs.');
                     $('#results-section').show();
                     $('#results-content')
                         .removeClass('alert-success')
                         .addClass('alert-danger')
-                        .html('<i class="fa fa-exclamation-triangle"></i> An error occurred. Please check the logs.');
+                        .html('<i class="fa fa-exclamation-triangle"></i> ' + errorMsg);
                 }
             },
             error: function(r) {

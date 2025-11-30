@@ -86,16 +86,19 @@ $(document).ready(function() {
                 btn.prop('disabled', false);
                 btn.html('<i class="fa fa-plus"></i> Generate Test Members');
 
-                if (r.message && r.message.success) {
+                const data = unwrapOperationResult(r.message);
+                if (data && (data.success !== false)) {
+                    const msg = data.message || 'Test members generated successfully';
                     $('#result-message').html(
                         '<div class="alert alert-success">' +
-                        r.message.message +
+                        msg +
                         '</div>'
                     );
                 } else {
+                    const errorMsg = verenigingen.utils.getErrorMessage(r.message, 'Unknown error');
                     $('#result-message').html(
                         '<div class="alert alert-danger">' +
-                        'Error: ' + (r.message ? r.message.error : 'Unknown error') +
+                        'Error: ' + errorMsg +
                         '</div>'
                     );
                 }
@@ -113,15 +116,16 @@ $(document).ready(function() {
             callback: function(r) {
                 btn.prop('disabled', false);
 
-                if (r.message) {
+                const data = unwrapOperationResult(r.message);
+                if (data) {
                     var html = '<div class="alert alert-info">';
                     html += '<h5>Test Members Status</h5>';
-                    html += '<p>Total test members: <strong>' + r.message.total + '</strong></p>';
+                    html += '<p>Total test members: <strong>' + data.total + '</strong></p>';
 
-                    if (r.message.by_status) {
+                    if (data.by_status) {
                         html += '<p>By status:</p><ul>';
-                        for (var status in r.message.by_status) {
-                            html += '<li>' + status + ': ' + r.message.by_status[status] + '</li>';
+                        for (var status in data.by_status) {
+                            html += '<li>' + status + ': ' + data.by_status[status] + '</li>';
                         }
                         html += '</ul>';
                     }
@@ -149,16 +153,19 @@ $(document).ready(function() {
                 btn.prop('disabled', false);
                 btn.html('<i class="fa fa-trash"></i> Clean Up Test Data');
 
-                if (r.message && r.message.success) {
+                const data = unwrapOperationResult(r.message);
+                if (data && (data.success !== false)) {
+                    const msg = data.message || 'Test data cleaned up successfully';
                     $('#result-message').html(
                         '<div class="alert alert-success">' +
-                        r.message.message +
+                        msg +
                         '</div>'
                     );
                 } else {
+                    const errorMsg = verenigingen.utils.getErrorMessage(r.message, 'Unknown error');
                     $('#result-message').html(
                         '<div class="alert alert-danger">' +
-                        'Error: ' + (r.message ? r.message.error : 'Unknown error') +
+                        'Error: ' + errorMsg +
                         '</div>'
                     );
                 }

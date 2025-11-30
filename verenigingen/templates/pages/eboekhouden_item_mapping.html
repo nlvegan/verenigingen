@@ -107,16 +107,18 @@ frappe.ready(function() {
                 company: defaultCompany
             },
             callback: function(r) {
-                if (r.message && r.message.success) {
-                    displayUnmappedAccounts(r.message.accounts);
+                const data = unwrapOperationResult(r.message);
+                if (data && (data.success !== false)) {
+                    displayUnmappedAccounts(data.accounts || []);
                     $('#unmapped-section').show();
-                    if (r.message.accounts.length > 0) {
+                    if (data.accounts && data.accounts.length > 0) {
                         $('#save-all').show();
                     }
                 } else {
+                    const errorMsg = verenigingen.utils.getErrorMessage(r.message, 'Failed to load accounts');
                     frappe.msgprint({
                         title: 'Error',
-                        message: r.message ? r.message.error : 'Failed to load accounts',
+                        message: errorMsg,
                         indicator: 'red'
                     });
                 }
@@ -136,9 +138,10 @@ frappe.ready(function() {
                         company: defaultCompany
                     },
                     callback: function(r) {
-                        if (r.message && r.message.success) {
+                        const data = unwrapOperationResult(r.message);
+                        if (data && (data.success !== false)) {
                             frappe.show_alert({
-                                message: `Created ${r.message.created} default mappings`,
+                                message: `Created ${data.created || 0} default mappings`,
                                 indicator: 'green'
                             });
                             // Reload unmapped accounts

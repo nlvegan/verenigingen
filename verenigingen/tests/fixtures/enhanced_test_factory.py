@@ -2825,7 +2825,54 @@ class EnhancedTestCase(FrappeTestCase):
     def ensure_membership_type(self, type_name, attributes=None):
         """Convenience method for ensuring membership types exist"""
         return self.factory.ensure_membership_type(type_name, attributes)
-        
+
+    def create_test_membership_type(self, membership_type_name=None, amount=100.0, **kwargs):
+        """
+        Create a test membership type with unique name.
+
+        Args:
+            membership_type_name: Base name for the type (will be made unique)
+            amount: Default membership amount
+            **kwargs: Additional fields to set on the membership type
+
+        Returns:
+            Membership Type document
+        """
+        import time
+
+        # Generate unique name
+        if not membership_type_name:
+            membership_type_name = "Test Type"
+        unique_name = f"{membership_type_name}-{int(time.time() * 1000)}"
+
+        # Get a dues schedule template if available
+        template = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"is_template": 1},
+            "name"
+        )
+
+        membership_type = frappe.new_doc("Membership Type")
+        membership_type.membership_type_name = unique_name
+        membership_type.amount = amount
+        membership_type.is_active = 1
+        membership_type.contribution_mode = kwargs.get("contribution_mode", "Fixed Amount")
+
+        if template:
+            membership_type.dues_schedule_template = template
+
+        # Apply any additional kwargs
+        for key, value in kwargs.items():
+            if hasattr(membership_type, key):
+                setattr(membership_type, key, value)
+
+        membership_type.insert()
+
+        # Track for cleanup
+        self.factory.track_document("Membership Type", membership_type.name, priority=1)
+
+        return membership_type
+
     def ensure_test_chapter(self, chapter_name, attributes=None):
         """Convenience method for ensuring test chapters exist"""
         return self.factory.ensure_test_chapter(chapter_name, attributes)

@@ -224,9 +224,10 @@ function loadDashboardData() {
     frappe.call({
         method: 'verenigingen.api.sepa_reconciliation.get_sepa_reconciliation_dashboard',
         callback: function(r) {
-            if (r.message && r.message.success) {
-                updateDashboardSummary(r.message);
-                updateTabContent(r.message);
+            const data = unwrapOperationResult(r.message);
+            if (data && (data.success !== false)) {
+                updateDashboardSummary(data);
+                updateTabContent(data);
             }
         }
     });
@@ -286,9 +287,10 @@ function identifySepaTransactions() {
     frappe.call({
         method: 'verenigingen.api.sepa_reconciliation.identify_sepa_transactions',
         callback: function(r) {
-            if (r.message && r.message.success) {
-                displayUnmatchedTransactions(r.message.potential_matches);
-                frappe.msgprint(`Found ${r.message.total_found} potential SEPA transactions`);
+            const data = unwrapOperationResult(r.message);
+            if (data && (data.success !== false)) {
+                displayUnmatchedTransactions(data.potential_matches);
+                frappe.msgprint(`Found ${data.total_found} potential SEPA transactions`);
             }
         }
     });
@@ -342,11 +344,13 @@ function processSepaBatch(bankTransaction, batchName) {
             sepa_batch_name: batchName
         },
         callback: function(r) {
-            if (r.message && r.message.success) {
-                frappe.msgprint(`Successfully processed: ${r.message.status}`);
+            const data = unwrapOperationResult(r.message);
+            if (data && (data.success !== false)) {
+                frappe.msgprint(`Successfully processed: ${data.status}`);
                 loadDashboardData(); // Refresh the data
             } else {
-                frappe.msgprint(`Error: ${r.message.error}`);
+                const errorMsg = verenigingen.utils.getErrorMessage(r.message, 'Unknown error');
+                frappe.msgprint(`Error: ${errorMsg}`);
             }
         }
     });
@@ -356,8 +360,9 @@ function correlateReturns() {
     frappe.call({
         method: 'verenigingen.api.sepa_reconciliation.correlate_return_transactions',
         callback: function(r) {
-            if (r.message && r.message.success) {
-                frappe.msgprint(`Found ${r.message.total_found} return transactions`);
+            const data = unwrapOperationResult(r.message);
+            if (data && (data.success !== false)) {
+                frappe.msgprint(`Found ${data.total_found} return transactions`);
                 loadDashboardData();
             }
         }
@@ -393,12 +398,14 @@ function processReturnFile() {
                 file_type: fileType
             },
             callback: function(r) {
-                if (r.message && r.message.success) {
-                    frappe.msgprint(`Processed ${r.message.total_processed} return items`);
+                const data = unwrapOperationResult(r.message);
+                if (data && (data.success !== false)) {
+                    frappe.msgprint(`Processed ${data.total_processed} return items`);
                     closeReturnFileModal();
                     loadDashboardData();
                 } else {
-                    frappe.msgprint(`Error: ${r.message.error}`);
+                    const errorMsg = verenigingen.utils.getErrorMessage(r.message, 'Unknown error');
+                    frappe.msgprint(`Error: ${errorMsg}`);
                 }
             }
         });

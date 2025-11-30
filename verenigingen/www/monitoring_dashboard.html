@@ -367,11 +367,14 @@ function refreshDashboard() {
     frappe.call({
         method: 'verenigingen.www.monitoring_dashboard.refresh_dashboard_data',
         callback: function(r) {
-            if (r.message && !r.message.error) {
-                updateDashboardData(r.message);
+            // Handle OperationResult format
+            const data = unwrapOperationResult(r.message);
+            if (data && !data.error) {
+                updateDashboardData(data);
                 showNotification('Dashboard refreshed successfully', 'success');
             } else {
-                showNotification('Failed to refresh dashboard: ' + (r.message?.error || 'Unknown error'), 'error');
+                const errorMsg = verenigingen.utils.getErrorMessage(r.message, 'Unknown error');
+                showNotification('Failed to refresh dashboard: ' + errorMsg, 'error');
             }
         },
         always: function() {
@@ -403,11 +406,14 @@ function acknowledgeAlert(alertName) {
         method: 'verenigingen.doctype.system_alert.system_alert.acknowledge_alert',
         args: { alert_name: alertName },
         callback: function(r) {
-            if (r.message && r.message.status === 'success') {
+            // Handle OperationResult format
+            const data = unwrapOperationResult(r.message);
+            if (data && data.status === 'success') {
                 showNotification('Alert acknowledged', 'success');
                 refreshDashboard();
             } else {
-                showNotification('Failed to acknowledge alert', 'error');
+                const errorMsg = verenigingen.utils.getErrorMessage(r.message, 'Failed to acknowledge alert');
+                showNotification(errorMsg, 'error');
             }
         }
     });
@@ -418,11 +424,14 @@ function resolveAlert(alertName) {
         method: 'verenigingen.doctype.system_alert.system_alert.resolve_alert',
         args: { alert_name: alertName },
         callback: function(r) {
-            if (r.message && r.message.status === 'success') {
+            // Handle OperationResult format
+            const data = unwrapOperationResult(r.message);
+            if (data && data.status === 'success') {
                 showNotification('Alert resolved', 'success');
                 refreshDashboard();
             } else {
-                showNotification('Failed to resolve alert', 'error');
+                const errorMsg = verenigingen.utils.getErrorMessage(r.message, 'Failed to resolve alert');
+                showNotification(errorMsg, 'error');
             }
         }
     });
@@ -487,11 +496,14 @@ function testMonitoringSystem() {
     frappe.call({
         method: 'verenigingen.www.monitoring_dashboard.test_monitoring_system',
         callback: function(r) {
-            if (r.message && r.message.status === 'success') {
+            // Handle OperationResult format
+            const data = unwrapOperationResult(r.message);
+            if (data && data.status === 'success') {
                 showNotification('Test alert created successfully', 'success');
                 setTimeout(refreshDashboard, 1000);
             } else {
-                showNotification('Failed to create test alert: ' + (r.message?.message || 'Unknown error'), 'error');
+                const errorMsg = verenigingen.utils.getErrorMessage(r.message, 'Unknown error');
+                showNotification('Failed to create test alert: ' + errorMsg, 'error');
             }
         }
     });

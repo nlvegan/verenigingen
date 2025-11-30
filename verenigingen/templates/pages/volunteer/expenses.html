@@ -610,13 +610,15 @@ function initExpenseForm() {
             callback: function(r) {
                 submitBtn.prop('disabled', false).html('<i class="fa fa-paper-plane"></i> Submit Expense');
 
-                if (r.message && r.message.success) {
+                const data = unwrapOperationResult(r.message);
+                if (data && (data.success !== false)) {
+                    const successMsg = data.message || '{{ _("Expense submitted successfully") }}';
                     // Show success message with proper Tailwind styling
                     formAlerts.html(`
                         <div class="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg mb-4">
                             <div class="flex items-center">
                                 <i class="fa fa-check-circle text-green-600 mr-3"></i>
-                                <span class="font-medium">${r.message.message}</span>
+                                <span class="font-medium">${successMsg}</span>
                             </div>
                         </div>
                     `);
@@ -637,7 +639,7 @@ function initExpenseForm() {
                     }, 3000);
                 } else {
                     // Show error message
-                    const errorMsg = r.message ? r.message.message : '{{ _("An error occurred while submitting the expense") }}';
+                    const errorMsg = verenigingen.utils.getErrorMessage(r.message, '{{ _("An error occurred while submitting the expense") }}');
                     formAlerts.html(`
                         <div class="alert alert-danger">
                             <i class="fa fa-exclamation-triangle"></i>

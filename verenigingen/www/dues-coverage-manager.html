@@ -12,9 +12,10 @@ if (typeof frappe !== 'undefined' && frappe.ready) {
         frappe.call({
             method: 'verenigingen.verenigingen.doctype.brand_settings.brand_settings.get_brand_css_inline',
             callback: function(r) {
-                if (r.message && r.message.success) {
+                // Handle OperationResult format - data is in r.message.data
+                if (r.message && r.message.success && r.message.data) {
                     var style = document.createElement('style');
-                    style.innerHTML = r.message.css;
+                    style.innerHTML = r.message.data.css;
                     document.head.appendChild(style);
                 }
             }
@@ -457,10 +458,12 @@ function generateSelectedInvoices() {
         callback: function(r) {
             hideSpinner();
 
-            if (r.message) {
+            // Handle OperationResult format
+            if (r.message && r.message.success) {
+                const data = r.message.data || {};
                 frappe.msgprint({
                     title: 'Success',
-                    message: r.message.message,
+                    message: r.message.message || data.message || 'Invoices generated successfully',
                     indicator: 'green'
                 });
 
@@ -469,13 +472,21 @@ function generateSelectedInvoices() {
                     loadCoverageData();
                     deselectAll();
                 }, 2000);
+            } else {
+                const errorMsg = verenigingen.utils.getErrorMessage(r.message, 'Failed to generate invoices');
+                frappe.msgprint({
+                    title: 'Error',
+                    message: errorMsg,
+                    indicator: 'red'
+                });
             }
         },
         error: function(r) {
             hideSpinner();
+            const errorMsg = verenigingen.utils.getErrorMessage(r.message, 'Failed to generate invoices');
             frappe.msgprint({
                 title: 'Error',
-                message: r.message || 'Failed to generate invoices',
+                message: errorMsg,
                 indicator: 'red'
             });
         }

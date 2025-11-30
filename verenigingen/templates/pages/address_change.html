@@ -399,10 +399,13 @@ $(document).ready(function() {
                 address_data: formData
             },
             callback: function(r) {
-                if (r.message && r.message.success) {
-                    showSuccess(r.message.message);
+                const data = unwrapOperationResult(r.message);
+                if (data && (data.success !== false)) {
+                    const message = data.message || __("Address updated successfully");
+                    showSuccess(message);
                 } else {
-                    showError(__("An unexpected error occurred"));
+                    const errorMsg = verenigingen.utils.getErrorMessage(r.message, __("An unexpected error occurred"));
+                    showError(errorMsg);
                 }
             },
             error: function(r) {

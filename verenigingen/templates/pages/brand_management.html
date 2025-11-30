@@ -491,14 +491,16 @@ function regenerateBrandCSS() {
     frappe.call({
         method: 'verenigingen.utils.brand_css_generator.regenerate_brand_css',
         callback: function(r) {
-            if (r.message && r.message.success) {
+            const data = unwrapOperationResult(r.message);
+            if (data && (data.success !== false)) {
                 frappe.show_alert({
                     message: '{{ _("Brand CSS refreshed successfully!") }}',
                     indicator: 'green'
                 });
             } else {
+                const errorMsg = verenigingen.utils.getErrorMessage(r.message, '{{ _("Error refreshing CSS") }}');
                 frappe.show_alert({
-                    message: r.message ? r.message.message : '{{ _("Error refreshing CSS") }}',
+                    message: errorMsg,
                     indicator: 'red'
                 });
             }
@@ -516,14 +518,17 @@ function syncToOwlTheme() {
     frappe.call({
         method: 'verenigingen.verenigingen.doctype.brand_settings.brand_settings.sync_brand_settings_to_owl_theme',
         callback: function(r) {
-            if (r.message && r.message.success) {
+            const data = unwrapOperationResult(r.message);
+            if (data && (data.success !== false)) {
+                const msg = data.message || '{{ _("Settings synced to Owl Theme") }}';
                 frappe.show_alert({
-                    message: r.message.message,
+                    message: msg,
                     indicator: 'green'
                 });
             } else {
+                const errorMsg = verenigingen.utils.getErrorMessage(r.message, 'Error syncing to Owl Theme');
                 frappe.show_alert({
-                    message: r.message ? r.message.message : 'Error syncing to Owl Theme',
+                    message: errorMsg,
                     indicator: 'red'
                 });
             }

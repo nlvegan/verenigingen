@@ -168,15 +168,21 @@ class CoverageCalculator:
         """
         Determine if invoice generation is needed to cover through cutoff_date.
 
-        Prioritizes actual coverage data from submitted invoices over the next_invoice_date
-        tracking field, which can become stale after invoice cancellations or manual adjustments.
+        The logic is simple and based solely on actual invoice coverage:
+        - Query the latest coverage_end_date from submitted Sales Invoices
+        - If coverage exists and extends to/past cutoff_date: no invoice needed
+        - If coverage exists but ends before cutoff_date: invoice needed
+        - If NO coverage exists (0 invoices): invoice needed (0% of period is covered)
+
+        The next_invoice_date field is NOT used here - it's a scheduling hint that can
+        become stale. The source of truth is actual invoice coverage dates.
 
         Args:
-            cutoff_date: Target date that should be covered by invoices
+            cutoff_date: Target date that should be covered by invoices (e.g., end of Q4)
             latest_coverage_end: Latest coverage end (if already known, avoids re-query)
 
         Returns:
-            bool: True if invoice generation is needed
+            bool: True if invoice generation is needed to cover through cutoff_date
         """
         cutoff_date = getdate(cutoff_date)
 
@@ -184,14 +190,14 @@ class CoverageCalculator:
         if latest_coverage_end is None:
             latest_coverage_end = self.get_latest_coverage_end_date(None)
 
-        # If we have actual coverage data, use it exclusively
-        # This prevents stale next_invoice_date from affecting decisions
+        # If we have coverage, check if it extends to cutoff
         if latest_coverage_end is not None:
+            # Invoice needed if coverage ends before cutoff date
             return latest_coverage_end < cutoff_date
 
-        # No coverage exists yet - use next_invoice_date as signal for first invoice
-        # Generate if no next_invoice_date set, or if it's overdue
-        return not self.next_invoice_date or getdate(self.next_invoice_date) < getdate(today())
+        # No coverage exists (0 invoices) - member ALWAYS needs an invoice
+        # The current period has 0% coverage from existing invoices
+        return True
 
     # ========== Data Access Methods ==========
 

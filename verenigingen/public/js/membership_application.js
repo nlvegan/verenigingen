@@ -1160,13 +1160,15 @@ class _MembershipApplication {
         'verenigingen.api.membership_application.suggest_chapters_for_postal_code',
 			args: { postal_code: postalCode },
 			callback: (r) => {
+				// Handle OperationResult format
+				const data = unwrapOperationResult(r.message);
 				if (
-					r.message
-          && r.message.suggested_chapters
-          && r.message.suggested_chapters.length > 0
+					data
+          && data.suggested_chapters
+          && data.suggested_chapters.length > 0
 				) {
 					// Show chapter suggestions
-					this.showChapterSuggestions(r.message.suggested_chapters);
+					this.showChapterSuggestions(data.suggested_chapters);
 				}
 			}
 		});

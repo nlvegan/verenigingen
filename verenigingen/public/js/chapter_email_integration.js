@@ -66,17 +66,18 @@ frappe.verenigingen.email = {
 				segment
 			},
 			callback(r) {
-				if (!r.message || !r.message.success) {
+				// Handle OperationResult format
+				const data = unwrapOperationResult(r.message);
+				if (!data) {
+					const errorMsg = verenigingen.utils.getErrorMessage(r.message, 'Unknown error');
 					frappe.msgprint(
-						__('Could not get recipient count: {0}', [
-							r.message?.error || 'Unknown error'
-						])
+						__('Could not get recipient count: {0}', [errorMsg])
 					);
 					return;
 				}
 
-				const recipient_count = r.message.recipients_count || 0;
-				const sample_recipients = r.message.sample_recipients || [];
+				const recipient_count = data.recipients_count || 0;
+				const sample_recipients = data.sample_recipients || [];
 
 				// Show the email dialog
 				const dialog = new frappe.ui.Dialog({
@@ -243,11 +244,13 @@ frappe.verenigingen.email = {
 			freeze: true,
 			freeze_message: __('Sending emails...'),
 			callback(r) {
-				if (r.message && r.message.success) {
+				// Handle OperationResult format
+				const data = unwrapOperationResult(r.message);
+				if (data) {
 					frappe.show_alert(
 						{
 							message: __('Email queued for {0} recipients', [
-								r.message.recipients_count
+								data.recipients_count
 							]),
 							indicator: 'green'
 						},
@@ -255,18 +258,17 @@ frappe.verenigingen.email = {
 					);
 
 					// Show link to newsletter
-					if (r.message.newsletter) {
+					if (data.newsletter) {
 						frappe.msgprint(
 							__('Newsletter created: <a href="/app/newsletter/{0}">{0}</a>', [
-								r.message.newsletter
+								data.newsletter
 							])
 						);
 					}
 				} else {
+					const errorMsg = verenigingen.utils.getErrorMessage(r.message, 'Unknown error');
 					frappe.msgprint(
-						__('Error sending email: {0}', [
-							r.message?.error || 'Unknown error'
-						])
+						__('Error sending email: {0}', [errorMsg])
 					);
 				}
 			},
@@ -312,8 +314,9 @@ frappe.verenigingen.email = {
 				callback(r) {
 					loaded++;
 
-					if (r.message && r.message.success) {
-						const data = r.message;
+					// Handle OperationResult format
+					const data = unwrapOperationResult(r.message);
+					if (data) {
 						preview_html += `
                             <div class="segment-preview" style="margin-bottom: 20px;">
                                 <h5>${
@@ -447,11 +450,13 @@ if (
 					freeze: true,
 					freeze_message: __('Sending newsletter...'),
 					callback(r) {
-						if (r.message && r.message.success) {
+						// Handle OperationResult format
+						const data = unwrapOperationResult(r.message);
+						if (data) {
 							frappe.show_alert(
 								{
 									message: __('Newsletter queued for {0} recipients', [
-										r.message.recipients_count
+										data.recipients_count
 									]),
 									indicator: 'green'
 								},
@@ -459,8 +464,9 @@ if (
 							);
 							dialog.hide();
 						} else {
+							const errorMsg = verenigingen.utils.getErrorMessage(r.message, 'Unknown error');
 							frappe.msgprint(
-								__('Error: {0}', [r.message?.error || 'Unknown error'])
+								__('Error: {0}', [errorMsg])
 							);
 						}
 					}

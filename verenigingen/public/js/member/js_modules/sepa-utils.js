@@ -320,7 +320,8 @@ function create_mandate_with_values(frm, values, dialog) {
 			mandate_id: values.mandate_id
 		},
 		callback(validation_response) {
-			const serverData = validation_response.message;
+			// Handle OperationResult format
+			const serverData = unwrapOperationResult(validation_response.message);
 
 			if (serverData && serverData.existing_mandate) {
 				additionalArgs.replace_existing = serverData.existing_mandate;
@@ -352,7 +353,9 @@ function create_mandate_with_values(frm, values, dialog) {
 					...additionalArgs
 				},
 				callback(r) {
-					if (r.message) {
+					// Handle OperationResult format
+					const data = unwrapOperationResult(r.message);
+					if (data) {
 						let alertMessage = __('SEPA Mandate {0} created successfully', [
 							values.mandate_id
 						]);
@@ -391,6 +394,13 @@ function create_mandate_with_values(frm, values, dialog) {
 						setTimeout(() => {
 							frm.reload_doc();
 						}, 1500);
+					} else {
+						const errorMsg = verenigingen.utils.getErrorMessage(r.message, 'Failed to create mandate');
+						frappe.msgprint({
+							title: __('Error'),
+							message: errorMsg,
+							indicator: 'red'
+						});
 					}
 				},
 				error(r) {
@@ -439,8 +449,10 @@ function check_sepa_mandate_status(frm) {
 					return; // Ignore stale responses
 				}
 
-				if (r.message) {
-					currentMandate = r.message;
+				// Handle OperationResult format
+				const mandateData = unwrapOperationResult(r.message);
+				if (mandateData) {
+					currentMandate = mandateData;
 
 					// Add mandate indicator
 					const status_colors = {

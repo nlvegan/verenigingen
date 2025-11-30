@@ -782,6 +782,7 @@ def get_dues_payment_status(chapter_name: str) -> Dict[str, Any]:
         # Categorize members
         up_to_date = 0
         no_active_membership = 0  # Active chapter members without active membership+schedule
+        awaiting_invoice = 0  # Members with active membership/schedule but no invoices yet
         unpaid = 0
         overdue = 0
         lapsed = 0  # Members with expired coverage and no unpaid/overdue invoices
@@ -824,22 +825,22 @@ def get_dues_payment_status(chapter_name: str) -> Dict[str, Any]:
             # 5. Has invoices but coverage expired (lapsed)
             elif member.total_invoices > 0:
                 lapsed += 1
-            # 6. Everything else (terminated, no invoices, etc.) - don't count separately
-            # These fall through and aren't categorized as they're not actionable
+            # 6. Has membership infrastructure but no invoices generated yet
+            elif member.active_memberships > 0 or member.active_schedules > 0:
+                awaiting_invoice += 1
+            # 7. Everything else (terminated, no invoices, no membership, etc.)
+            # These are not actionable from the dues perspective
             else:
-                # DEBUG: Log first 10 uncategorized members
-                if (up_to_date + no_active_membership + unpaid + overdue + lapsed) < 10:
-                    frappe.log_error(
-                        f"Uncategorized member: {member.full_name}\n"
-                        f"Status: {member.member_status}\n"
-                        f"Total invoices: {member.total_invoices}\n"
-                        f"Active memberships: {member.active_memberships}\n"
-                        f"Active schedules: {member.active_schedules}\n"
-                        f"Latest coverage end: {member.latest_coverage_end}\n"
-                        f"Unpaid invoices: {member.unpaid_invoice_count}\n"
-                        f"Overdue invoices: {member.overdue_invoice_count}",
-                        f"Utrecht Uncategorized Member Debug",
-                    )
+                # Debug logging disabled - uncomment if needed for troubleshooting
+                # frappe.log_warning(
+                #     f"Uncategorized member: {member.full_name}, "
+                #     f"Status: {member.member_status}, "
+                #     f"Total invoices: {member.total_invoices}, "
+                #     f"Active memberships: {member.active_memberships}, "
+                #     f"Active schedules: {member.active_schedules}",
+                #     "Chapter Dashboard - Uncategorized Member",
+                # )
+                pass
 
         # Get count of members without payment info
         missing_payment_info_count = get_members_without_payment_info_count(chapter_name)
@@ -848,6 +849,7 @@ def get_dues_payment_status(chapter_name: str) -> Dict[str, Any]:
             "total_members": len(result),
             "up_to_date": up_to_date,
             "no_active_membership": no_active_membership,
+            "awaiting_invoice": awaiting_invoice,
             "unpaid": unpaid,
             "unpaid_amount": total_unpaid_amount,
             "overdue": overdue,
@@ -866,6 +868,7 @@ def get_dues_payment_status(chapter_name: str) -> Dict[str, Any]:
             "total_members": 0,
             "up_to_date": 0,
             "no_active_membership": 0,
+            "awaiting_invoice": 0,
             "unpaid": 0,
             "unpaid_amount": 0,
             "overdue": 0,

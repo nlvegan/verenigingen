@@ -1018,10 +1018,15 @@ function confirmRetryPayment() {
             method: 'verenigingen.api.payment_dashboard.retry_failed_payment',
             args: { invoice_id: window.currentRetryPaymentId },
             callback: function(r) {
-                if (r.message && r.message.success) {
-                    frappe.msgprint(r.message.message);
+                const data = unwrapOperationResult(r.message);
+                if (data && (data.success !== false)) {
+                    const msg = data.message || __("Payment retry initiated");
+                    frappe.msgprint(msg);
                     closeRetryModal();
                     loadPaymentHistory(memberParam);
+                } else {
+                    const errorMsg = verenigingen.utils.getErrorMessage(r.message, __("Failed to retry payment"));
+                    frappe.msgprint(errorMsg);
                 }
             }
         });
@@ -1503,16 +1508,18 @@ window.setupMollieSubscription = function() {
             member_id: memberName
         },
         callback: function(r) {
-            if (!r.message || r.message.status !== 'success') {
+            const data = unwrapOperationResult(r.message);
+            if (!data || data.status !== 'success') {
                 if (loadingIndicator) {
                     loadingIndicator.classList.add('hidden');
                 }
-                alert('{{ _("Error calculating start date") }}: ' + (r.message?.error || '{{ _("Unknown error") }}'));
+                const errorMsg = verenigingen.utils.getErrorMessage(r.message, '{{ _("Unknown error") }}');
+                alert('{{ _("Error calculating start date") }}: ' + errorMsg);
                 return;
             }
 
-            const startDate = r.message.start_date;
-            const hasOverdue = r.message.has_overdue;
+            const startDate = data.start_date;
+            const hasOverdue = data.has_overdue;
 
             // Show confirmation with calculated start date
             const statusMsg = hasOverdue ?

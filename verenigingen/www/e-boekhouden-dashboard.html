@@ -227,14 +227,16 @@ function testConnection() {
 	frappe.call({
 		method: 'verenigingen.e_boekhouden.utils.eboekhouden_api.test_api_connection',
 		callback: function(r) {
-			if (r.message && r.message.success) {
+			const data = unwrapOperationResult(r.message);
+			if (data && (data.success !== false)) {
 				frappe.show_alert({
 					message: 'Connection test successful!',
 					indicator: 'green'
 				});
 			} else {
+				const errorMsg = verenigingen.utils.getErrorMessage(r.message, 'Unknown error');
 				frappe.show_alert({
-					message: 'Connection test failed: ' + (r.message ? r.message.error : 'Unknown error'),
+					message: 'Connection test failed: ' + errorMsg,
 					indicator: 'red'
 				});
 			}

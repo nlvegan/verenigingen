@@ -247,16 +247,21 @@ frappe.ready(() => {
 				freeze_message: __('Staging data from E-Boekhouden...')
 			});
 
-			if (response.message.success) {
-				state.stagedData = response.message.data;
+			// Handle OperationResult format
+			const data = unwrapOperationResult(response.message);
+			if (data && (data.success !== false)) {
+				state.stagedData = data.data || data;
 				state.currentStep = Math.max(2, state.currentStep);
 				updateStepVisibility();
 
-				showStagingResults(response.message);
+				showStagingResults(data);
 				frappe.show_alert({
 					message: __('Data staged successfully'),
 					indicator: 'green'
 				});
+			} else {
+				const errorMsg = verenigingen.utils.getErrorMessage(response.message, 'Staging failed');
+				showError('Failed to stage data', new Error(errorMsg));
 			}
 		} catch (error) {
 			showError('Failed to stage data', error);
@@ -379,8 +384,10 @@ frappe.ready(() => {
 				}
 			});
 
-			if (response.message.success) {
-				state.mappings.push(response.message.mapping);
+			// Handle OperationResult format
+			const data = unwrapOperationResult(response.message);
+			if (data && (data.success !== false)) {
+				state.mappings.push(data.mapping || data);
 				displayMappings();
 
 				// Clear inputs
@@ -395,6 +402,9 @@ frappe.ready(() => {
 
 				state.currentStep = Math.max(3, state.currentStep);
 				updateStepVisibility();
+			} else {
+				const errorMsg = verenigingen.utils.getErrorMessage(response.message, 'Failed to add mapping');
+				showError('Failed to add mapping', new Error(errorMsg));
 			}
 		} catch (error) {
 			showError('Failed to add mapping', error);
@@ -471,13 +481,18 @@ frappe.ready(() => {
 				args: { mapping_id: mapping.id }
 			});
 
-			if (response.message.success) {
+			// Handle OperationResult format
+			const data = unwrapOperationResult(response.message);
+			if (data && (data.success !== false)) {
 				state.mappings.splice(index, 1);
 				displayMappings();
 				frappe.show_alert({
 					message: __('Mapping removed'),
 					indicator: 'orange'
 				});
+			} else {
+				const errorMsg = verenigingen.utils.getErrorMessage(response.message, 'Failed to remove mapping');
+				showError('Failed to remove mapping', new Error(errorMsg));
 			}
 		} catch (error) {
 			showError('Failed to remove mapping', error);
@@ -585,8 +600,10 @@ frappe.ready(() => {
 				}
 			});
 
-			if (response.message.success) {
-				state.migrationId = response.message.migration_id;
+			// Handle OperationResult format
+			const data = unwrapOperationResult(response.message);
+			if (data && (data.success !== false)) {
+				state.migrationId = data.migration_id;
 				frappe.show_alert({
 					message: __('Migration started successfully'),
 					indicator: 'green'
@@ -596,6 +613,9 @@ frappe.ready(() => {
 				setTimeout(() => {
 					window.location.href = `/app/e-boekhouden-migration/${state.migrationId}`;
 				}, 2000);
+			} else {
+				const errorMsg = verenigingen.utils.getErrorMessage(response.message, 'Failed to start migration');
+				showError('Failed to start migration', new Error(errorMsg));
 			}
 		} catch (error) {
 			showError('Failed to start migration', error);
@@ -651,7 +671,9 @@ frappe.ready(() => {
 				args: { config }
 			});
 
-			if (response.message.success) {
+			// Handle OperationResult format
+			const data = unwrapOperationResult(response.message);
+			if (data && (data.success !== false)) {
 				frappe.show_alert({
 					message: __('Configuration imported successfully'),
 					indicator: 'green'
@@ -659,6 +681,9 @@ frappe.ready(() => {
 
 				// Reload page to reflect changes
 				setTimeout(() => location.reload(), 1000);
+			} else {
+				const errorMsg = verenigingen.utils.getErrorMessage(response.message, 'Failed to import configuration');
+				showError('Failed to import configuration', new Error(errorMsg));
 			}
 		} catch (error) {
 			showError('Failed to import configuration', error);
@@ -682,13 +707,18 @@ frappe.ready(() => {
 				method: 'verenigingen.e_boekhouden.api.clear_all_mappings'
 			});
 
-			if (response.message.success) {
+			// Handle OperationResult format
+			const data = unwrapOperationResult(response.message);
+			if (data && (data.success !== false)) {
 				state.mappings = [];
 				displayMappings();
 				frappe.show_alert({
 					message: __('All mappings cleared'),
 					indicator: 'orange'
 				});
+			} else {
+				const errorMsg = verenigingen.utils.getErrorMessage(response.message, 'Failed to clear mappings');
+				showError('Failed to clear mappings', new Error(errorMsg));
 			}
 		} catch (error) {
 			showError('Failed to clear mappings', error);
@@ -809,7 +839,9 @@ frappe.ready(() => {
 						}
 					});
 
-					if (response.message.success) {
+					// Handle OperationResult format
+					const data = unwrapOperationResult(response.message);
+					if (data && (data.success !== false)) {
 						// Update local state
 						state.mappings[index] = {
 							...mapping,
@@ -896,13 +928,18 @@ frappe.ready(() => {
 						args: { updates }
 					});
 
-					if (response.message.success) {
+					// Handle OperationResult format
+					const data = unwrapOperationResult(response.message);
+					if (data && (data.success !== false)) {
 						frappe.show_alert({
 							message: __('Updated {0} mappings', [updates.length]),
 							indicator: 'green'
 						});
 						loadInitialStatus(); // Reload data
 						d.hide();
+					} else {
+						const errorMsg = verenigingen.utils.getErrorMessage(response.message, 'Failed to update mappings');
+						showError('Failed to update mappings', new Error(errorMsg));
 					}
 				} catch (error) {
 					showError('Failed to update mappings', error);
@@ -923,8 +960,10 @@ frappe.ready(() => {
 					freeze_message: __('Analyzing accounts and suggesting mappings...')
 				});
 
-				if (response.message.success) {
-					const suggestions = response.message.suggestions;
+				// Handle OperationResult format
+				const data = unwrapOperationResult(response.message);
+				if (data && (data.success !== false)) {
+					const suggestions = data.suggestions;
 
 					const d = new frappe.ui.Dialog({
 						title: __('Suggested Account Mappings'),
@@ -958,7 +997,9 @@ frappe.ready(() => {
 									args: { suggestions: selected }
 								});
 
-								if (applyResponse.message.success) {
+								// Handle OperationResult format
+								const applyData = unwrapOperationResult(applyResponse.message);
+								if (applyData && (applyData.success !== false)) {
 									frappe.show_alert({
 										message: __('Applied {0} mappings', [selected.length]),
 										indicator: 'green'

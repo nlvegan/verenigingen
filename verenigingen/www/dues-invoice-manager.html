@@ -386,8 +386,19 @@ function checkMemberStatus() {
         callback: function(r) {
             hideSpinner('status-spinner');
 
-            if (r.message && r.message.summary) {
-                updateDashboardCards(r.message.summary);
+            // Handle OperationResult format: data is in r.message.data
+            // Also handle legacy format where data is directly in r.message
+            let responseData = null;
+            if (r.message && r.message.success && r.message.data) {
+                // New OperationResult format
+                responseData = r.message.data;
+            } else if (r.message && r.message.summary) {
+                // Legacy format (direct data)
+                responseData = r.message;
+            }
+
+            if (responseData && responseData.summary) {
+                updateDashboardCards(responseData.summary);
 
                 // Show detailed analysis
                 const analysisDiv = document.getElementById('analysis-results');
@@ -395,7 +406,7 @@ function checkMemberStatus() {
 
                 let html = '<div class="space-y-3">';
 
-                const categories = r.message.member_categories || {};
+                const categories = responseData.member_categories || {};
 
                 // Members with coverage (green)
                 if (categories.already_covered && categories.already_covered.count > 0) {
@@ -460,10 +471,10 @@ function checkMemberStatus() {
                 }
 
                 // Members without membership (red)
-                if (r.message.summary && r.message.summary.members_without_membership > 0) {
+                if (responseData.summary && responseData.summary.members_without_membership > 0) {
                     html += `
                         <div class="border-l-4 border-red-500 bg-red-50 p-4 rounded">
-                            <div class="font-semibold text-red-800">⚠ No Active Membership (${r.message.summary.members_without_membership})</div>
+                            <div class="font-semibold text-red-800">⚠ No Active Membership (${responseData.summary.members_without_membership})</div>
                             <div class="text-sm text-red-700 mt-1">Members without any dues schedule</div>
                         </div>
                     `;
@@ -516,12 +527,21 @@ function checkMemberStatus() {
 
                 showResults('Status Check Complete', 'Member analysis updated successfully.', 'success');
             } else {
-                showResults('Error', 'Failed to retrieve member status data.', 'error');
+                // Check if this is an OperationResult error response
+                let errorMsg = 'Failed to retrieve member status data.';
+                if (r.message && r.message.success === false) {
+                    errorMsg = r.message.error || r.message.message || errorMsg;
+                }
+                showResults('Error', errorMsg, 'error');
             }
         },
         error: function(r) {
             hideSpinner('status-spinner');
-            showResults('Error', r.message || 'Failed to check member status.', 'error');
+            let errorMsg = 'Failed to check member status.';
+            if (r.message) {
+                errorMsg = r.message.error || r.message.message || r.message || errorMsg;
+            }
+            showResults('Error', errorMsg, 'error');
         }
     });
 }
@@ -545,14 +565,18 @@ function generateMissingInvoices() {
             hideSpinner('generation-spinner');
 
             if (r.message && r.message.success) {
-                const jobId = r.message.job_id;
-                const checkUrl = r.message.check_status_at;
+                // Handle OperationResult: data is in r.message.data
+                const data = r.message.data || {};
+                const jobId = data.job_id;
+                const checkUrl = data.check_status_at;
+                const note = data.note || '';
+                const successMsg = r.message.message || 'Job queued successfully';
 
                 let content = `
                     <div class="space-y-3">
-                        <p class="font-medium">${r.message.message}</p>
+                        <p class="font-medium">${successMsg}</p>
                         <div class="bg-blue-50 border border-blue-200 rounded p-3 text-sm">
-                            <p class="text-blue-800 mb-2">${r.message.note}</p>
+                            <p class="text-blue-800 mb-2">${note}</p>
                             <p class="text-gray-700">Job ID: <code class="bg-white px-2 py-1 rounded text-xs">${jobId}</code></p>
                         </div>
                         <div class="flex gap-2">
@@ -593,13 +617,29 @@ function validateSepaEligibility() {
         callback: function(r) {
             hideSpinner('sepa-spinner');
 
-            if (r.message) {
+            // Handle OperationResult format
+            if (r.message && r.message.success) {
+                const data = r.message.data || {};
+                const summary = data.summary || {};
+                showResults(
+                    'SEPA Validation Complete',
+                    `<div class="space-y-2">
+                        <p>Eligible: <span class="font-semibold text-green-600">${summary.sepa_eligible || 0}</span></p>
+                        <p>Ineligible: <span class="font-semibold text-red-600">${summary.missing_mandate + summary.invalid_mandate || 0}</span></p>
+                        <p>Total Checked: ${summary.total_checked || 0}</p>
+                    </div>`,
+                    'success'
+                );
+            } else if (r.message && r.message.success === false) {
+                showResults('Error', r.message.error || 'SEPA validation failed.', 'error');
+            } else if (r.message) {
+                // Legacy format fallback
                 const summary = r.message.summary || {};
                 showResults(
                     'SEPA Validation Complete',
                     `<div class="space-y-2">
-                        <p>Eligible: <span class="font-semibold text-green-600">${summary.eligible || 0}</span></p>
-                        <p>Ineligible: <span class="font-semibold text-red-600">${summary.ineligible || 0}</span></p>
+                        <p>Eligible: <span class="font-semibold text-green-600">${summary.sepa_eligible || 0}</span></p>
+                        <p>Ineligible: <span class="font-semibold text-red-600">${summary.missing_mandate + summary.invalid_mandate || 0}</span></p>
                         <p>Total Checked: ${summary.total_checked || 0}</p>
                     </div>`,
                     'success'
@@ -608,7 +648,11 @@ function validateSepaEligibility() {
         },
         error: function(r) {
             hideSpinner('sepa-spinner');
-            showResults('Error', r.message || 'Failed to validate SEPA eligibility.', 'error');
+            let errorMsg = 'Failed to validate SEPA eligibility.';
+            if (r.message) {
+                errorMsg = r.message.error || r.message.message || r.message || errorMsg;
+            }
+            showResults('Error', errorMsg, 'error');
         }
     });
 }

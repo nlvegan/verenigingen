@@ -516,11 +516,14 @@ class DDBatchManagementDashboard {
 				args: { filters }
 			});
 
-			if (response.message && response.message.success) {
-				this.renderBatchList(response.message.batches);
-				this.updateSecurityAlerts(response.message.security_alerts);
+			// Handle OperationResult format
+			const data = unwrapOperationResult(response.message);
+			if (data && (data.success !== false)) {
+				this.renderBatchList(data.batches);
+				this.updateSecurityAlerts(data.security_alerts);
 			} else {
-				this.showError('Failed to load batch list');
+				const errorMsg = verenigingen.utils.getErrorMessage(response.message, 'Failed to load batch list');
+				this.showError(errorMsg);
 			}
 		} catch (error) {
 			console.error('Error loading batch list:', error);
@@ -692,11 +695,14 @@ class DDBatchManagementDashboard {
 				args: { batch_id: batchId }
 			});
 
-			if (response.message && response.message.success) {
-				this.renderBatchDetails(response.message.batch);
+			// Handle OperationResult format
+			const data = unwrapOperationResult(response.message);
+			if (data && (data.success !== false)) {
+				this.renderBatchDetails(data.batch);
 				$('#batch-details-modal').modal('show');
 			} else {
-				this.showError('Failed to load batch details');
+				const errorMsg = verenigingen.utils.getErrorMessage(response.message, 'Failed to load batch details');
+				this.showError(errorMsg);
 			}
 		} catch (error) {
 			console.error('Error loading batch details:', error);
@@ -881,12 +887,15 @@ class DDBatchManagementDashboard {
 				args: { batch_id: batchId }
 			});
 
-			if (response.message && response.message.success) {
-				this.conflictData = response.message.conflicts;
-				this.renderConflictResolution(response.message.conflicts);
+			// Handle OperationResult format
+			const data = unwrapOperationResult(response.message);
+			if (data && (data.success !== false)) {
+				this.conflictData = data.conflicts;
+				this.renderConflictResolution(data.conflicts);
 				$('#conflict-resolution-modal').modal('show');
 			} else {
-				this.showError('Failed to load conflict data');
+				const errorMsg = verenigingen.utils.getErrorMessage(response.message, 'Failed to load conflict data');
+				this.showError(errorMsg);
 			}
 		} catch (error) {
 			console.error('Error loading conflicts:', error);
@@ -1037,12 +1046,15 @@ class DDBatchManagementDashboard {
 				}
 			});
 
-			if (response.message && response.message.success) {
+			// Handle OperationResult format
+			const data = unwrapOperationResult(response.message);
+			if (data && (data.success !== false)) {
 				$('#conflict-resolution-modal').modal('hide');
 				this.showSuccess('Conflict resolutions applied successfully');
 				this.loadBatchList(); // Refresh the list
 			} else {
-				this.showError('Failed to apply conflict resolutions');
+				const errorMsg = verenigingen.utils.getErrorMessage(response.message, 'Failed to apply conflict resolutions');
+				this.showError(errorMsg);
 			}
 		} catch (error) {
 			console.error('Error applying resolutions:', error);
@@ -1077,11 +1089,14 @@ class DDBatchManagementDashboard {
 				}
 			});
 
-			if (response.message && response.message.success) {
+			// Handle OperationResult format
+			const data = unwrapOperationResult(response.message);
+			if (data && (data.success !== false)) {
 				$('#conflict-resolution-modal').modal('hide');
 				this.showSuccess('Conflicts escalated to administrator');
 			} else {
-				this.showError('Failed to escalate conflicts');
+				const errorMsg = verenigingen.utils.getErrorMessage(response.message, 'Failed to escalate conflicts');
+				this.showError(errorMsg);
 			}
 		} catch (error) {
 			console.error('Error escalating conflicts:', error);
@@ -1392,11 +1407,14 @@ class BatchCreationWizard {
 				args: { filters }
 			});
 
-			if (response.message && response.message.success) {
-				this.renderEligibleInvoices(response.message.invoices);
+			// Handle OperationResult format
+			const data = unwrapOperationResult(response.message);
+			if (data && (data.success !== false)) {
+				this.renderEligibleInvoices(data.invoices);
 			} else {
+				const errorMsg = verenigingen.utils.getErrorMessage(response.message, 'Failed to load invoices');
 				$('#invoice-selection-results').html(
-					'<p class="text-danger">Failed to load invoices</p>'
+					`<p class="text-danger">${errorMsg}</p>`
 				);
 			}
 		} catch (error) {
