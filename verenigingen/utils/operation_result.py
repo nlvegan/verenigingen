@@ -240,7 +240,7 @@ class OperationResult(Generic[T]):
 
         if self.success:
             # For Document objects, convert to dict
-            if hasattr(self.data, "as_dict"):
+            if hasattr(self.data, "as_dict") and callable(getattr(self.data, "as_dict", None)):
                 result_dict["data"] = self.data.as_dict()
             else:
                 result_dict["data"] = self.data

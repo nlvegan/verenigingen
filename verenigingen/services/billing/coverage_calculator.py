@@ -123,10 +123,34 @@ class CoverageCalculator:
                 # Start the day after previous coverage ended
                 coverage_start = add_days(latest_coverage_end, 1)
                 calculation_method = "sequential"
+                # Calculate end date based on billing frequency from this start
+                coverage_end = self._calculate_coverage_end(coverage_start)
             else:
-                # First invoice: Use force date or today
-                coverage_start = getdate(force_date or today())
+                # First invoice: Use the billing period containing the reference date
+                # This ensures we cover the full period (e.g., Q4 = Oct 1 - Dec 31)
+                # rather than starting from today mid-period
+                reference_date = getdate(force_date or today())
+                period_start, coverage_end = self.calculate_billing_period(
+                    self.billing_frequency,
+                    reference_date,
+                    self.custom_frequency_number,
+                    self.custom_frequency_unit,
+                )
+
+                # For members who joined mid-period, start from their membership start date
+                # rather than the period start (they shouldn't pay for time before they joined)
+                membership_start = self._get_membership_start_date()
+                if membership_start and getdate(membership_start) > getdate(period_start):
+                    coverage_start = getdate(membership_start)
+                    metadata["membership_start_used"] = True
+                else:
+                    coverage_start = period_start
+                    metadata["membership_start_used"] = False
+
                 calculation_method = "first_invoice"
+                metadata["reference_date"] = reference_date
+                metadata["period_start"] = period_start
+                metadata["membership_start"] = membership_start
         else:
             # Fallback to date-based calculation
             calculation_method = "date_based"
@@ -137,9 +161,6 @@ class CoverageCalculator:
                 self.custom_frequency_unit,
             )
             return CoveragePeriodResult(coverage_start, coverage_end, calculation_method, **metadata)
-
-        # Calculate end date based on billing frequency
-        coverage_end = self._calculate_coverage_end(coverage_start)
 
         # Validation: Ensure coverage dates are valid
         if not coverage_start or not coverage_end:
@@ -453,3 +474,25 @@ class CoverageCalculator:
         else:
             # Unknown frequency - fallback to monthly
             return add_days(add_months(coverage_start, 1), -1)
+
+    def _get_membership_start_date(self) -> Optional[date]:
+        """
+        Get the start date of the member's active membership.
+
+        Used for first invoice calculation to ensure members who joined mid-period
+        don't pay for time before their membership started.
+
+        Returns:
+            date: Membership start date, or None if not found
+        """
+        if not self.member_name:
+            return None
+
+        # Query the active membership for this member
+        membership_start = frappe.db.get_value(
+            "Membership",
+            {"member": self.member_name, "status": "Active", "docstatus": 1},
+            "start_date"
+        )
+
+        return getdate(membership_start) if membership_start else None

@@ -45,8 +45,12 @@ class TestCoverageCalculator(EnhancedTestCase):
         self.member.reload()
 
         # Create membership (which also creates dues schedule automatically)
+        # Use a start date that results in a future renewal date so status = Active
+        # (Membership with past renewal_date would be "Expired" and skip schedule creation)
         self.membership = self.create_test_membership(
-            member_name=self.member.name, membership_type_name=self.membership_type.name
+            member_name=self.member.name,
+            membership_type_name=self.membership_type.name,
+            start_date="2025-01-01"  # Renewal = 2026-01-01, status = Active
         )
 
         # Get the automatically created dues schedule
@@ -270,18 +274,34 @@ class TestCoverageCalculator(EnhancedTestCase):
     # ========== Validation Tests ==========
 
     def test_force_date_override(self):
-        """Test that force_date overrides default date logic"""
-        # Arrange
-        calculator = CoverageCalculator(self.schedule)
-        force_date = date(2025, 6, 15)
+        """Test that force_date is used as reference for period calculation"""
+        # Arrange - change to Monthly billing to test force_date more precisely
+        original_frequency = self.schedule.billing_frequency
+        self.schedule.billing_frequency = "Monthly"
+        self.schedule.save()
+        frappe.db.commit()
 
-        # Act
-        result = calculator.calculate_next_coverage_period(self.member, force_date=force_date)
+        try:
+            calculator = CoverageCalculator(self.schedule)
+            force_date = date(2025, 6, 15)
 
-        # Assert
-        self.assertTrue(result.is_valid())
-        self.assertEqual(result.start_date, force_date)
-        self.assertEqual(result.metadata["force_date"], force_date)
+            # Act
+            result = calculator.calculate_next_coverage_period(self.member, force_date=force_date)
+
+            # Assert
+            self.assertTrue(result.is_valid())
+            # For Monthly billing, force_date determines the period (June 1-30),
+            # but coverage starts from period_start, not the exact force_date
+            # (unless membership_start is later, in which case it uses that)
+            self.assertEqual(result.start_date, date(2025, 6, 1))  # Period start
+            self.assertEqual(result.end_date, date(2025, 6, 30))  # Period end
+            self.assertEqual(result.metadata["force_date"], force_date)
+            self.assertEqual(result.metadata["reference_date"], force_date)
+        finally:
+            # Restore original frequency
+            self.schedule.billing_frequency = original_frequency
+            self.schedule.save()
+            frappe.db.commit()
 
     def test_custom_frequency_calculation(self):
         """Test coverage calculation with custom frequency"""
@@ -348,8 +368,12 @@ class TestShouldGenerateForCutoff(EnhancedTestCase):
         self.member.reload()
 
         # Create membership (which also creates dues schedule automatically)
+        # Use a start date that results in a future renewal date so status = Active
+        # (Membership with past renewal_date would be "Expired" and skip schedule creation)
         self.membership = self.create_test_membership(
-            member_name=self.member.name, membership_type_name=self.membership_type.name
+            member_name=self.member.name,
+            membership_type_name=self.membership_type.name,
+            start_date="2025-01-01"  # Renewal = 2026-01-01, status = Active
         )
 
         # Get the automatically created dues schedule
@@ -548,8 +572,12 @@ class TestEligibilityFlowIntegration(EnhancedTestCase):
             member.customer = customer.name
             member.save()
 
+            # Use a start date that results in a future renewal date so status = Active
+            # (Membership with past renewal_date would be "Expired" and skip schedule creation)
             membership = self.create_test_membership(
-                member_name=member.name, membership_type_name=self.membership_type.name
+                member_name=member.name,
+                membership_type_name=self.membership_type.name,
+                start_date="2025-01-01"  # Renewal = 2026-01-01, status = Active
             )
 
             schedules = frappe.get_all(
