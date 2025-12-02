@@ -2910,25 +2910,180 @@ class EnhancedTestCase(FrappeTestCase):
         return MockPayment()
     
     def create_test_membership(self, member_name, membership_type_name, **kwargs):
-        """Create a membership record for testing"""
+        """
+        Create a membership record for testing.
+
+        Args:
+            member_name: Name of the Member document
+            membership_type_name: Name of the Membership Type
+            start_date: Membership start date. Defaults to today().
+                        Note: For membership to be Active, start_date + billing_period
+                        must result in a renewal_date in the future.
+            sync_member_since: If True (default), also sets member_since on the
+                               Member document to match the start_date. This ensures
+                               realistic test data where membership start aligns with
+                               when the member joined.
+            **kwargs: Additional fields to set on the membership
+
+        Returns:
+            Submitted Membership document
+
+        Example:
+            # Create membership starting mid-quarter to test coverage logic
+            membership = self.create_test_membership(
+                member_name=member.name,
+                membership_type_name=membership_type.name,
+                start_date="2025-11-15"  # Mid-Q4
+            )
+        """
+        start_date = kwargs.pop("start_date", frappe.utils.today())
+        sync_member_since = kwargs.pop("sync_member_since", True)
+
         membership_data = {
             "doctype": "Membership",
             "member": member_name,
             "membership_type": membership_type_name,
-            "start_date": kwargs.get("start_date", frappe.utils.today()),
+            "start_date": start_date,
             "status": kwargs.get("status", "Active"),
             **kwargs
         }
-        
+
         membership = frappe.get_doc(membership_data)
         membership.insert()
 
         # Track for cleanup in tearDown
         self.factory.track_document("Membership", membership.name, priority=5)
 
+        # Sync member_since on the Member document to match start_date
+        # This ensures realistic test data where the member's join date
+        # aligns with their membership start
+        if sync_member_since:
+            frappe.db.set_value(
+                "Member",
+                member_name,
+                "member_since",
+                start_date,
+                update_modified=False
+            )
+
         membership.submit()
         return membership
-    
+
+    def link_member_to_customer(self, member_doc):
+        """
+        Create and link a Customer document to a Member.
+
+        This is a convenience method that handles the boilerplate of creating
+        a Customer record and linking it to an existing Member.
+
+        Args:
+            member_doc: Member document to link to a new customer
+
+        Returns:
+            Customer document that was created and linked
+
+        Example:
+            member = self.create_test_member(first_name="Test", last_name="User")
+            customer = self.link_member_to_customer(member)
+        """
+        customer = frappe.new_doc("Customer")
+        customer.customer_name = f"{member_doc.first_name} {member_doc.last_name}"
+        customer.customer_type = "Individual"
+        customer.insert()
+
+        member_doc.customer = customer.name
+        member_doc.save()
+        member_doc.reload()
+
+        return customer
+
+    def get_active_schedule_for_member(self, member_name):
+        """
+        Get the active dues schedule for a member.
+
+        Args:
+            member_name: Name of the Member document
+
+        Returns:
+            Membership Dues Schedule document
+
+        Raises:
+            frappe.ValidationError: If no active schedule exists for the member
+
+        Example:
+            schedule = self.get_active_schedule_for_member(member.name)
+        """
+        schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member_name, "status": "Active"},
+            limit=1,
+        )
+        if not schedules:
+            frappe.throw(f"No active schedule found for member {member_name}")
+
+        return frappe.get_doc("Membership Dues Schedule", schedules[0].name)
+
+    def create_test_member_with_schedule(
+        self,
+        first_name,
+        last_name,
+        membership_type_name,
+        start_date,
+        birth_date="1990-01-01",
+        **membership_kwargs
+    ):
+        """
+        Create a complete test member with customer, membership, and dues schedule.
+
+        This is a convenience method that combines several steps commonly needed
+        in integration tests:
+        1. Create a Member document
+        2. Create and link a Customer document
+        3. Create and submit a Membership (which triggers schedule creation)
+        4. Retrieve the created dues schedule
+
+        Args:
+            first_name: Member's first name
+            last_name: Member's last name
+            membership_type_name: Name of the Membership Type to use
+            start_date: Membership start date (also sets member_since)
+            birth_date: Member's birth date (default: "1990-01-01")
+            **membership_kwargs: Additional kwargs passed to create_test_membership
+
+        Returns:
+            tuple: (member_doc, schedule_doc)
+
+        Example:
+            # Create member who joined mid-quarter
+            member, schedule = self.create_test_member_with_schedule(
+                first_name="Test",
+                last_name="Member",
+                membership_type_name=self.membership_type.name,
+                start_date="2025-11-15"  # Mid-Q4
+            )
+        """
+        member = self.create_test_member(
+            first_name=first_name,
+            last_name=last_name,
+            birth_date=birth_date
+        )
+
+        self.link_member_to_customer(member)
+
+        membership = self.create_test_membership(
+            member_name=member.name,
+            membership_type_name=membership_type_name,
+            start_date=start_date,
+            **membership_kwargs
+        )
+
+        schedule = self.get_active_schedule_for_member(member.name)
+
+        # Reload member to pick up member_since set by create_test_membership
+        member.reload()
+
+        return member, schedule
+
     def create_test_sales_invoice(self, customer, **kwargs):
         """Create a sales invoice record for testing"""
         # Ensure test item exists

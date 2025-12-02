@@ -6,6 +6,12 @@ Integration tests for CoverageCalculator service.
 
 Tests the coverage period calculation logic extracted from MembershipDuesSchedule.
 Uses Enhanced Test Factory for real database operations - no mocks.
+
+Key test scenarios:
+- First invoice coverage calculation with varied membership start dates
+- Mid-period membership starts (member joins Nov 15 during Q4)
+- Sequential coverage building on previous invoices
+- Various billing frequencies (Daily, Monthly, Quarterly, Annual)
 """
 
 import unittest
@@ -17,6 +23,29 @@ from verenigingen.services.billing.coverage_calculator import CoverageCalculator
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
+# =============================================================================
+# Test Date Constants
+# =============================================================================
+# These dates are chosen to test specific edge cases in coverage calculation.
+# Using constants makes the test intent explicit and reduces magic strings.
+
+# Period start dates (for testing full period coverage)
+TEST_DATE_YEAR_START = "2025-01-01"      # Start of year for Annual billing tests
+TEST_DATE_Q1_START = "2025-01-01"        # Q1 start for Quarterly billing tests
+
+# Mid-period dates (for testing partial period coverage)
+TEST_DATE_MID_Q1 = "2025-02-15"          # Mid-Q1 to test partial quarter coverage
+TEST_DATE_MID_Q4 = "2025-11-15"          # Mid-Q4, late in year for year-end logic
+TEST_DATE_MID_YEAR = "2025-06-15"        # Mid-year for Semi-Annual testing
+
+# Late in year dates
+TEST_DATE_Q4_START = "2025-10-01"        # Q4 start for late-year join tests
+
+# Force dates for billing period tests (must be after membership start)
+TEST_FORCE_DATE_DEC = date(2025, 12, 1)  # December for mid-Q4 member tests
+TEST_FORCE_DATE_DEC_MID = date(2025, 12, 15)  # Mid-December
+
+
 class TestCoverageCalculator(EnhancedTestCase):
     """Test the CoverageCalculator service with real database operations"""
 
@@ -24,48 +53,19 @@ class TestCoverageCalculator(EnhancedTestCase):
         """Set up test fixtures with real data"""
         super().setUp()
 
-        # Create membership type first
+        # Create membership type
         self.membership_type = self.create_test_membership_type(
             membership_type_name="Coverage Test Type"
         )
 
-        # Create real test member
-        self.member = self.create_test_member(
-            first_name="Coverage", last_name="Test", birth_date="1985-05-15"
-        )
-
-        # Create customer and link to member
-        self.customer_doc = frappe.new_doc("Customer")
-        self.customer_doc.customer_name = f"{self.member.first_name} {self.member.last_name}"
-        self.customer_doc.customer_type = "Individual"
-        self.customer_doc.insert()
-
-        self.member.customer = self.customer_doc.name
-        self.member.save()
-        self.member.reload()
-
-        # Create membership (which also creates dues schedule automatically)
-        # Use a start date that results in a future renewal date so status = Active
-        # (Membership with past renewal_date would be "Expired" and skip schedule creation)
-        self.membership = self.create_test_membership(
-            member_name=self.member.name,
+        # Create member with mid-Q4 start date to test mid-period coverage
+        self.member, self.schedule = self.create_test_member_with_schedule(
+            first_name="Coverage",
+            last_name="Test",
             membership_type_name=self.membership_type.name,
-            start_date="2025-01-01"  # Renewal = 2026-01-01, status = Active
+            start_date=TEST_DATE_MID_Q4,  # Nov 15 - tests mid-period join
+            birth_date="1985-05-15"
         )
-
-        # Get the automatically created dues schedule
-        schedules = frappe.get_all(
-            "Membership Dues Schedule",
-            filters={"member": self.member.name, "status": "Active"},
-            limit=1,
-        )
-        if schedules:
-            self.schedule = frappe.get_doc("Membership Dues Schedule", schedules[0].name)
-        else:
-            frappe.throw("No schedule was created with membership")
-
-        # Reload member to ensure we have latest data
-        self.member.reload()
 
     # ========== Happy Path Tests ==========
 
@@ -84,6 +84,69 @@ class TestCoverageCalculator(EnhancedTestCase):
         self.assertEqual(result.calculation_method, "first_invoice")
         self.assertIn("previous_coverage_end", result.metadata)
         self.assertIsNone(result.metadata["previous_coverage_end"])
+
+    def test_mid_period_membership_start_uses_membership_date(self):
+        """
+        Test that members who join mid-period have coverage starting from
+        their membership start date, not the billing period start.
+
+        Scenario: Member joins Nov 15 (mid-Q4). With Annual billing,
+        the billing period would be Jan 1 - Dec 31, but coverage should
+        start from Nov 15 (not Jan 1) since the member wasn't a member before.
+        """
+        # Arrange - ensure we're using the mid-period membership (Nov 15)
+        # The default setUp already creates this with start_date=TEST_DATE_MID_Q4
+        calculator = CoverageCalculator(self.schedule)
+
+        # Verify member_since was set by the factory
+        expected_start = date(2025, 11, 15)  # TEST_DATE_MID_Q4 as date
+        self.assertEqual(self.member.member_since, expected_start)
+
+        # Act - calculate first invoice coverage
+        result = calculator.calculate_next_coverage_period(self.member)
+
+        # Assert - coverage should start from membership start, not period start
+        self.assertTrue(result.is_valid())
+        self.assertEqual(result.calculation_method, "first_invoice")
+
+        # For Annual billing: period would be Jan 1 - Dec 31
+        # But coverage should start from Nov 15 (membership start)
+        self.assertEqual(result.start_date, expected_start)
+        self.assertEqual(result.end_date, date(2025, 12, 31))
+
+        # Verify metadata shows membership_start was used
+        self.assertTrue(result.metadata.get("membership_start_used"))
+        self.assertEqual(result.metadata.get("membership_start"), expected_start)
+        self.assertEqual(result.metadata.get("period_start"), date(2025, 1, 1))
+
+    def test_period_start_membership_uses_period_start(self):
+        """
+        Test that members who join at period start have coverage starting
+        from the period start (same as their membership start).
+
+        Scenario: Member joins Jan 1 (start of year). With Annual billing,
+        coverage should start from Jan 1.
+        """
+        # Arrange - create a new member who joined at period start
+        member_jan, schedule_jan = self.create_test_member_with_schedule(
+            first_name="JanStart",
+            last_name="Test",
+            membership_type_name=self.membership_type.name,
+            start_date=TEST_DATE_YEAR_START  # Jan 1 - period start for Annual
+        )
+
+        calculator = CoverageCalculator(schedule_jan)
+
+        # Act
+        result = calculator.calculate_next_coverage_period(member_jan)
+
+        # Assert - coverage starts from period start (which equals membership start)
+        self.assertTrue(result.is_valid())
+        self.assertEqual(result.start_date, date(2025, 1, 1))
+        self.assertEqual(result.end_date, date(2025, 12, 31))
+
+        # Verify metadata shows membership_start was NOT used (period_start was)
+        self.assertFalse(result.metadata.get("membership_start_used"))
 
     def test_sequential_coverage_builds_on_previous(self):
         """Test that sequential coverage starts day after previous invoice"""
@@ -114,6 +177,7 @@ class TestCoverageCalculator(EnhancedTestCase):
     def test_daily_billing_same_start_end(self):
         """Test that daily billing allows start==end"""
         # Arrange - change schedule to daily billing
+        # Use force_date AFTER membership start (Nov 15) to test valid scenario
         original_frequency = self.schedule.billing_frequency
         self.schedule.billing_frequency = "Daily"
         self.schedule.save()
@@ -122,13 +186,15 @@ class TestCoverageCalculator(EnhancedTestCase):
         try:
             calculator = CoverageCalculator(self.schedule)
 
-            # Act
-            result = calculator.calculate_next_coverage_period(self.member, force_date=date(2025, 3, 15))
+            # Act - use date after membership start (TEST_DATE_MID_Q4)
+            result = calculator.calculate_next_coverage_period(
+                self.member, force_date=TEST_FORCE_DATE_DEC
+            )
 
             # Assert
             self.assertTrue(result.is_valid())
             self.assertEqual(result.start_date, result.end_date)  # Same day for daily billing
-            self.assertEqual(result.start_date, date(2025, 3, 15))
+            self.assertEqual(result.start_date, TEST_FORCE_DATE_DEC)
 
         finally:
             # Restore original frequency
@@ -137,18 +203,27 @@ class TestCoverageCalculator(EnhancedTestCase):
             frappe.db.commit()
 
     def test_quarterly_billing_coverage_span(self):
-        """Test quarterly billing creates 3-month coverage"""
-        # Arrange
-        original_frequency = self.schedule.billing_frequency
-        self.schedule.billing_frequency = "Quarterly"
-        self.schedule.save()
+        """Test quarterly billing creates 3-month coverage from period start"""
+        # Create member who started at period start (Jan 1) for full quarterly coverage
+        member_q1, schedule_q1 = self.create_test_member_with_schedule(
+            first_name="Quarterly",
+            last_name="Test",
+            membership_type_name=self.membership_type.name,
+            start_date=TEST_DATE_Q1_START
+        )
+
+        # Change to Quarterly billing
+        schedule_q1.billing_frequency = "Quarterly"
+        schedule_q1.save()
         frappe.db.commit()
 
         try:
-            calculator = CoverageCalculator(self.schedule)
+            calculator = CoverageCalculator(schedule_q1)
 
             # Act
-            result = calculator.calculate_next_coverage_period(self.member, force_date=date(2025, 1, 1))
+            result = calculator.calculate_next_coverage_period(
+                member_q1, force_date=date(2025, 1, 1)
+            )
 
             # Assert
             self.assertTrue(result.is_valid())
@@ -156,9 +231,8 @@ class TestCoverageCalculator(EnhancedTestCase):
             self.assertEqual(result.end_date, date(2025, 3, 31))  # 3 months (Q1)
 
         finally:
-            self.schedule.billing_frequency = original_frequency
-            self.schedule.save()
-            frappe.db.commit()
+            # Cleanup handled by test framework
+            pass
 
     # ========== Date-Based Fallback Tests ==========
 
@@ -276,6 +350,7 @@ class TestCoverageCalculator(EnhancedTestCase):
     def test_force_date_override(self):
         """Test that force_date is used as reference for period calculation"""
         # Arrange - change to Monthly billing to test force_date more precisely
+        # Use force_date AFTER membership start (Nov 15) to test valid scenario
         original_frequency = self.schedule.billing_frequency
         self.schedule.billing_frequency = "Monthly"
         self.schedule.save()
@@ -283,20 +358,20 @@ class TestCoverageCalculator(EnhancedTestCase):
 
         try:
             calculator = CoverageCalculator(self.schedule)
-            force_date = date(2025, 6, 15)
 
-            # Act
-            result = calculator.calculate_next_coverage_period(self.member, force_date=force_date)
+            # Act - use TEST_FORCE_DATE_DEC_MID (after membership start)
+            result = calculator.calculate_next_coverage_period(
+                self.member, force_date=TEST_FORCE_DATE_DEC_MID
+            )
 
             # Assert
             self.assertTrue(result.is_valid())
-            # For Monthly billing, force_date determines the period (June 1-30),
-            # but coverage starts from period_start, not the exact force_date
-            # (unless membership_start is later, in which case it uses that)
-            self.assertEqual(result.start_date, date(2025, 6, 1))  # Period start
-            self.assertEqual(result.end_date, date(2025, 6, 30))  # Period end
-            self.assertEqual(result.metadata["force_date"], force_date)
-            self.assertEqual(result.metadata["reference_date"], force_date)
+            # For Monthly billing, force_date determines the period (Dec 1-31),
+            # Since membership_start (Nov 15) < period_start (Dec 1), coverage uses period_start
+            self.assertEqual(result.start_date, date(2025, 12, 1))  # Period start
+            self.assertEqual(result.end_date, date(2025, 12, 31))  # Period end
+            self.assertEqual(result.metadata["force_date"], TEST_FORCE_DATE_DEC_MID)
+            self.assertEqual(result.metadata["reference_date"], TEST_FORCE_DATE_DEC_MID)
         finally:
             # Restore original frequency
             self.schedule.billing_frequency = original_frequency
@@ -304,30 +379,33 @@ class TestCoverageCalculator(EnhancedTestCase):
             frappe.db.commit()
 
     def test_custom_frequency_calculation(self):
-        """Test coverage calculation with custom frequency"""
-        # Arrange - set custom frequency (every 3 months)
-        original_frequency = self.schedule.billing_frequency
-        self.schedule.billing_frequency = "Custom"
-        self.schedule.custom_frequency_number = 3
-        self.schedule.custom_frequency_unit = "Months"
-        self.schedule.save()
+        """Test coverage calculation with custom frequency from period start"""
+        # Create member who started at period start (Jan 1) for full custom coverage
+        member_custom, schedule_custom = self.create_test_member_with_schedule(
+            first_name="CustomFreq",
+            last_name="Test",
+            membership_type_name=self.membership_type.name,
+            start_date=TEST_DATE_YEAR_START
+        )
+
+        # Configure custom frequency (every 3 months)
+        schedule_custom.billing_frequency = "Custom"
+        schedule_custom.custom_frequency_number = 3
+        schedule_custom.custom_frequency_unit = "Months"
+        schedule_custom.save()
         frappe.db.commit()
 
-        try:
-            calculator = CoverageCalculator(self.schedule)
+        calculator = CoverageCalculator(schedule_custom)
 
-            # Act
-            result = calculator.calculate_next_coverage_period(self.member, force_date=date(2025, 1, 1))
+        # Act
+        result = calculator.calculate_next_coverage_period(
+            member_custom, force_date=date(2025, 1, 1)
+        )
 
-            # Assert
-            self.assertTrue(result.is_valid())
-            self.assertEqual(result.start_date, date(2025, 1, 1))
-            self.assertEqual(result.end_date, date(2025, 3, 31))  # 3 months coverage
-
-        finally:
-            self.schedule.billing_frequency = original_frequency
-            self.schedule.save()
-            frappe.db.commit()
+        # Assert
+        self.assertTrue(result.is_valid())
+        self.assertEqual(result.start_date, date(2025, 1, 1))
+        self.assertEqual(result.end_date, date(2025, 3, 31))  # 3 months coverage
 
 
 class TestShouldGenerateForCutoff(EnhancedTestCase):
@@ -347,47 +425,18 @@ class TestShouldGenerateForCutoff(EnhancedTestCase):
         """Set up test fixtures with real data"""
         super().setUp()
 
-        # Create membership type first
+        # Create membership type
         self.membership_type = self.create_test_membership_type(
             membership_type_name="Cutoff Test Type"
         )
 
-        # Create real test member
-        self.member = self.create_test_member(
-            first_name="Cutoff", last_name="TestMember", birth_date="1990-01-01"
-        )
-
-        # Create customer and link to member
-        self.customer_doc = frappe.new_doc("Customer")
-        self.customer_doc.customer_name = f"{self.member.first_name} {self.member.last_name}"
-        self.customer_doc.customer_type = "Individual"
-        self.customer_doc.insert()
-
-        self.member.customer = self.customer_doc.name
-        self.member.save()
-        self.member.reload()
-
-        # Create membership (which also creates dues schedule automatically)
-        # Use a start date that results in a future renewal date so status = Active
-        # (Membership with past renewal_date would be "Expired" and skip schedule creation)
-        self.membership = self.create_test_membership(
-            member_name=self.member.name,
+        # Create member with mid-Q1 start to test varied coverage scenarios
+        self.member, self.schedule = self.create_test_member_with_schedule(
+            first_name="Cutoff",
+            last_name="TestMember",
             membership_type_name=self.membership_type.name,
-            start_date="2025-01-01"  # Renewal = 2026-01-01, status = Active
+            start_date=TEST_DATE_MID_Q1  # Feb 15 - mid-quarter join
         )
-
-        # Get the automatically created dues schedule
-        schedules = frappe.get_all(
-            "Membership Dues Schedule",
-            filters={"member": self.member.name, "status": "Active"},
-            limit=1,
-        )
-        if schedules:
-            self.schedule = frappe.get_doc("Membership Dues Schedule", schedules[0].name)
-        else:
-            frappe.throw("No schedule was created with membership")
-
-        self.member.reload()
 
     # ========== Core Bug Fix Tests ==========
 
@@ -544,52 +593,37 @@ class TestEligibilityFlowIntegration(EnhancedTestCase):
 
     Tests the complete path: check_member_dues_status -> get_eligible_schedules_for_period
     -> should_generate_for_cutoff_period -> should_generate_invoice_for_cutoff
+
+    Uses varied membership start dates to test realistic scenarios.
     """
 
     def setUp(self):
         """Set up test fixtures"""
         super().setUp()
 
-        # Create membership type first
+        # Create membership type
         self.membership_type = self.create_test_membership_type(
             membership_type_name="Eligibility Test Type"
         )
 
-        # Create multiple test members to simulate real scenario
+        # Create multiple test members with varied start dates to simulate real scenarios
+        # - Member 0: Period start (Jan 1)
+        # - Member 1: Mid-quarter (Feb 15)
+        # - Member 2: Late in year (Oct 1)
         self.members = []
         self.schedules = []
+        start_dates = [TEST_DATE_YEAR_START, TEST_DATE_MID_Q1, TEST_DATE_Q4_START]
 
-        for i in range(3):
-            member = self.create_test_member(
-                first_name=f"Eligibility{i}", last_name="TestMember", birth_date="1990-01-01"
-            )
-
-            customer = frappe.new_doc("Customer")
-            customer.customer_name = f"{member.first_name} {member.last_name}"
-            customer.customer_type = "Individual"
-            customer.insert()
-
-            member.customer = customer.name
-            member.save()
-
-            # Use a start date that results in a future renewal date so status = Active
-            # (Membership with past renewal_date would be "Expired" and skip schedule creation)
-            membership = self.create_test_membership(
-                member_name=member.name,
+        for i, start_date in enumerate(start_dates):
+            member, schedule = self.create_test_member_with_schedule(
+                first_name=f"Eligibility{i}",
+                last_name="TestMember",
                 membership_type_name=self.membership_type.name,
-                start_date="2025-01-01"  # Renewal = 2026-01-01, status = Active
+                start_date=start_date
             )
-
-            schedules = frappe.get_all(
-                "Membership Dues Schedule",
-                filters={"member": member.name, "status": "Active"},
-                limit=1,
-            )
-            if schedules:
-                schedule = frappe.get_doc("Membership Dues Schedule", schedules[0].name)
-                self.schedules.append(schedule)
 
             self.members.append(member)
+            self.schedules.append(schedule)
 
         frappe.db.commit()
 
