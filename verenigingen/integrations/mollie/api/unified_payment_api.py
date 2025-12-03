@@ -48,8 +48,8 @@ def handle_payment_webhook(payment_id: Optional[str] = None):
         if not payment_id:
             frappe.throw(_("Payment ID is required"))
 
-        # PHASE 2: Authentication
-        from verenigingen.integrations.mollie.utils.webhook_security import authenticate_mollie_webhook
+        # PHASE 2: Authentication with HMAC signature validation
+        from verenigingen.utils.webhook_security import authenticate_mollie_webhook
 
         authenticate_mollie_webhook()
 
@@ -330,7 +330,7 @@ def handle_refund_webhook():
     """
     try:
         # Set webhook user context for proper permissions
-        from verenigingen.integrations.mollie.utils.webhook_security import authenticate_mollie_webhook
+        from verenigingen.utils.webhook_security import authenticate_mollie_webhook
 
         authenticate_mollie_webhook()
 
@@ -424,7 +424,7 @@ def handle_chargeback_webhook():
     """
     try:
         # Set webhook user context for proper permissions
-        from verenigingen.integrations.mollie.utils.webhook_security import authenticate_mollie_webhook
+        from verenigingen.utils.webhook_security import authenticate_mollie_webhook
 
         authenticate_mollie_webhook()
 

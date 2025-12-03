@@ -3546,6 +3546,8 @@ class EnhancedTestCase(FrappeTestCase):
             # Check if user already exists - reuse existing to avoid duplicate infrastructure
             if frappe.db.exists("User", email):
                 user = frappe.get_doc("User", email)
+                # Update enabled status if provided in kwargs
+                user.enabled = kwargs.get("enabled", 1)
             else:
                 user = frappe.get_doc(user_data)
                 user.insert()
@@ -3556,6 +3558,9 @@ class EnhancedTestCase(FrappeTestCase):
             user.roles = []  # Clear existing roles
             for role in roles:
                 user.append("roles", {"role": role})
+            # Ensure enabled status is set from kwargs if provided
+            if "enabled" in kwargs:
+                user.enabled = kwargs["enabled"]
             user.save()
             # Track again after role changes to ensure cleanup captures final state
             self.factory.track_document("User", user.name, priority=2)

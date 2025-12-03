@@ -580,7 +580,7 @@ class DonationFinancialService:
     @staticmethod
     def _get_company_for_donations() -> str:
         """Get company for donation operations"""
-        company = frappe.db.get_single_value("Verenigingen Settings", "donation_company")
+        company = frappe.db.get_single_value("Verenigingen Settings", "company")
         if not company:
             from verenigingen.utils import get_company
 

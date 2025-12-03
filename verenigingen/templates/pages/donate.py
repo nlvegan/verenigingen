@@ -115,7 +115,7 @@ def get_context(context):
             frappe.ValidationError,
         )
     context.settings = {
-        "company_name": frappe.get_value("Company", settings.donation_company, "company_name"),
+        "company_name": frappe.get_value("Company", settings.company, "company_name"),
         "enable_chapter_management": settings.enable_chapter_management,
         "organization_email_domain": getattr(settings, "organization_email_domain", ""),
         "anbi_minimum_reportable_amount": flt(getattr(settings, "anbi_minimum_reportable_amount", 500)),
@@ -393,7 +393,7 @@ def create_draft_donation_for_payment(donor, form_data):
 
     donation_doc = frappe.new_doc("Donation")
     donation_data = {
-        "company": settings.donation_company,
+        "company": settings.company,
         "donor": donor.name,
         "donation_date": getdate(),
         "amount": flt(form_data.amount),
@@ -453,7 +453,7 @@ def create_donation_record(donor, form_data):
 
     donation_doc = frappe.new_doc("Donation")
     donation_data = {
-        "company": settings.donation_company,
+        "company": settings.company,
         "donor": donor.name,
         "donation_date": getdate(),
         "amount": flt(form_data.amount),
@@ -572,7 +572,7 @@ def process_bank_transfer(donation, form_data):
     settings = get_verenigingen_settings()
     if not settings:
         frappe.throw(_("Unable to load system settings"), frappe.ValidationError)
-    company = frappe.get_doc("Company", settings.donation_company)
+    company = frappe.get_doc("Company", settings.company)
 
     # Generate payment reference
     payment_reference = f"DON-{donation.name}"
@@ -660,7 +660,7 @@ def process_mollie_payment(donation, form_data):
             "amount": str(donation.amount),
             "currency": "EUR",
             "return_url": f"{frappe.utils.get_url()}/donate?donation_id={donation.name}",
-            "description": f"Donation to {frappe.get_value('Company', donation.company, 'company_name')}",
+            "description": f"Donation to {frappe.get_single('Verenigingen Settings').company_name or frappe.get_value('Company', frappe.db.get_single_value('Verenigingen Settings', 'company'), 'company_name') or 'organization'}",
         }
 
         # Add payment method preference if specified
@@ -1195,9 +1195,9 @@ def test_list_view_access():
     try:
         # Check if list view system is working for a known doctype
         user_list = frappe.get_list("User", fields=["name"], limit=1)
-        results["system_check"] = (
-            f"✓ List view system working (User doctype accessible: {len(user_list)} records)"
-        )
+        results[
+            "system_check"
+        ] = f"✓ List view system working (User doctype accessible: {len(user_list)} records)"
     except Exception as e:
         results["system_check"] = f"✗ List view system issue: {str(e)}"
 
@@ -1474,9 +1474,9 @@ def test_workspace_links():
             dt_info = frappe.db.get_value(
                 "DocType", link.link_to, ["has_web_view", "allow_guest_to_view"], as_dict=True
             )
-            test_result["web_view"] = (
-                f"has_web_view: {dt_info.has_web_view}, allow_guest: {dt_info.allow_guest_to_view}"
-            )
+            test_result[
+                "web_view"
+            ] = f"has_web_view: {dt_info.has_web_view}, allow_guest: {dt_info.allow_guest_to_view}"
 
             # Test 4: Check permissions
             has_read = frappe.has_permission(link.link_to, "read")

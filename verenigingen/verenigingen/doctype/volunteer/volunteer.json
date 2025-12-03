@@ -276,6 +276,12 @@
   {
    "read": 1,
    "role": "Verenigingen Member"
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "role": "Verenigingen Webhook User",
+   "write": 1
   }
  ],
  "row_format": "Dynamic",

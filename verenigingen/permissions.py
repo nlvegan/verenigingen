@@ -232,15 +232,57 @@ def test_team_member_access(team_name=None):
     return result
 
 
+def _check_service_account_permission(user, doctype, permission_type="read"):
+    """
+    Check if user is a service account with proper DocPerm for the specified DocType.
+
+    Service accounts (webhooks, background jobs) bypass chapter-based filtering
+    and defer to standard Frappe DocPerm entries instead.
+
+    Args:
+        user: User email
+        doctype: DocType name to check permissions for
+        permission_type: Permission type (read, write, create, delete, submit, cancel)
+
+    Returns:
+        True if service account has permission
+        False if service account lacks permission
+        None if user is not a service account (caller should continue with normal permission logic)
+    """
+    user_roles = frappe.get_roles(user)
+    service_roles = ["Verenigingen Webhook User"]
+
+    if not any(role in user_roles for role in service_roles):
+        return None  # Not a service account, caller should continue with normal logic
+
+    frappe.logger().debug(f"User {user} is a service account, checking DocPerm for {doctype}")
+
+    perm_type = permission_type or "read"
+    docperm_filters = {
+        "parent": doctype,
+        "role": ["in", service_roles],
+        perm_type: 1,
+    }
+    has_docperm = frappe.db.exists("DocPerm", docperm_filters)
+
+    if has_docperm:
+        frappe.logger().debug(f"Service account {user} has DocPerm for {doctype} {perm_type}")
+        return True
+
+    frappe.logger().debug(f"Service account {user} lacks DocPerm for {doctype} {perm_type}")
+    return False
+
+
 def has_member_permission(doc, user=None, permission_type=None):
     """
     Direct permission check for Member doctype with chapter-based access control
 
     Permission Hierarchy:
     1. Admin roles (System Manager, Verenigingen Staff, Verenigingen Administrator) - Full access
-    2. Chapter Board Members - Access to members in their chapters only
-    3. Verenigingen Staff - Read-only access (limited by query conditions)
-    4. Verenigingen Members - Access to own record only
+    2. Service accounts (Webhooks) - Defer to standard DocPerm
+    3. Chapter Board Members - Access to members in their chapters only
+    4. Verenigingen Staff - Read-only access (limited by query conditions)
+    5. Verenigingen Members - Access to own record only
     """
     if not user:
         user = frappe.session.user
@@ -255,6 +297,11 @@ def has_member_permission(doc, user=None, permission_type=None):
     if any(role in user_roles for role in admin_roles):
         frappe.logger().debug(f"User {user} has admin role, granting access")
         return True
+
+    # Service accounts (webhooks, background jobs) defer to standard Frappe DocPerm
+    service_result = _check_service_account_permission(user, "Member", permission_type)
+    if service_result is not None:
+        return service_result
 
     # Get the member record name being accessed
     member_name = doc.name if hasattr(doc, "name") else doc if isinstance(doc, str) else None
@@ -373,6 +420,11 @@ def has_volunteer_permission(doc, user=None, permission_type=None):
     if any(role in user_roles for role in admin_roles):
         frappe.logger().debug(f"User {user} has admin role, granting access")
         return True
+
+    # Service accounts (webhooks, background jobs) defer to standard Frappe DocPerm
+    service_result = _check_service_account_permission(user, "Volunteer", permission_type)
+    if service_result is not None:
+        return service_result
 
     # Get the volunteer record name being accessed
     volunteer_name = doc.name if hasattr(doc, "name") else doc if isinstance(doc, str) else None
@@ -498,6 +550,7 @@ def has_donor_permission(doc, user=None, permission_type=None):
 
     Grants access to:
     - Admins (System Manager, Verenigingen Staff, Verenigingen Administrator)
+    - Service accounts (Webhooks) - Defer to standard DocPerm
     - Chapter Board Members (for donors linked to members in their chapters)
     - Members (for their own donor records)
     """
@@ -514,6 +567,11 @@ def has_donor_permission(doc, user=None, permission_type=None):
     if any(role in user_roles for role in admin_roles):
         frappe.logger().debug(f"User {user} has admin role, granting access to donor")
         return True
+
+    # Service accounts (webhooks, background jobs) defer to standard Frappe DocPerm
+    service_result = _check_service_account_permission(user, "Donor", permission_type)
+    if service_result is not None:
+        return service_result
 
     # Get donor member link
     if isinstance(doc, str):
@@ -666,6 +724,7 @@ def has_donation_permission(doc, user=None, permission_type=None):
 
     Grants access to:
     - Admins (System Manager, Verenigingen Staff, Verenigingen Administrator)
+    - Service accounts (Webhooks) - Defer to standard DocPerm
     - Chapter Board Members (for donations linked to donors/members in their chapters)
     - Members (for their own donation records)
     """
@@ -678,6 +737,11 @@ def has_donation_permission(doc, user=None, permission_type=None):
     admin_roles = ["System Manager", "Verenigingen Staff", "Verenigingen Administrator"]
     if any(role in user_roles for role in admin_roles):
         return True
+
+    # Service accounts (webhooks, background jobs) defer to standard Frappe DocPerm
+    service_result = _check_service_account_permission(user, "Donation", permission_type)
+    if service_result is not None:
+        return service_result
 
     # Get donation's donor and member
     if isinstance(doc, str):
@@ -1807,7 +1871,7 @@ def assign_chapter_board_role(user_email):
                 # NOTE: We use direct insert rather than loading/saving User doc to avoid
                 # triggering validation on ALL existing user roles (which causes issues like
                 # "Could not find Row #7: Role: Bank Reconciliation User")
-                # This matches the pattern used for role removal (line 1831)
+                # validator-skip: child-table-direct-insert (intentional - see comment above)
                 frappe.get_doc(
                     {
                         "doctype": "Has Role",

@@ -145,6 +145,13 @@ class ChapterPermissionService:
         if ChapterPermissionService._is_admin_or_staff(user_roles):
             return True
 
+        # Service accounts (webhooks, background jobs) defer to standard Frappe DocPerm
+        from verenigingen.permissions import _check_service_account_permission
+
+        service_result = _check_service_account_permission(user, "Chapter", ptype)
+        if service_result is not None:
+            return service_result
+
         # Check board member access (full access to their chapters)
         if ChapterPermissionService.BOARD_MEMBER_ROLE in user_roles:
             if ChapterPermissionService._is_user_board_member_of_chapter(user, doc.name):

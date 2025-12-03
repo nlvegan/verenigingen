@@ -563,7 +563,7 @@ class WebhookService:
 
             # Get company
             settings = frappe.get_single("Verenigingen Settings")
-            company = settings.donation_company or frappe.defaults.get_global_default("company")
+            company = settings.company or frappe.defaults.get_global_default("company")
 
             # Validate Mode of Payment exists
             from verenigingen.utils.validation_utilities import DocumentExistenceValidator

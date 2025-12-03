@@ -134,6 +134,9 @@ class VereningingenTestCase(FrappeTestCase):
         for doc_info in reversed(self._test_docs):
             self._cleanup_document_with_retry(doc_info)
 
+        # Report cleanup summary if there were failures
+        self._report_cleanup_summary()
+
         # Clean up test request context
         self._cleanup_test_request_context()
 
@@ -142,8 +145,29 @@ class VereningingenTestCase(FrappeTestCase):
 
         super().tearDown()
 
+    def _report_cleanup_summary(self):
+        """Report summary of cleanup results, highlighting any failures."""
+        if not self._test_docs:
+            return
+
+        failed = [d for d in self._test_docs if d.get("cleanup_status") == "failed"]
+        success = [d for d in self._test_docs if d.get("cleanup_status") == "success"]
+        skipped = [d for d in self._test_docs if d.get("cleanup_status") == "skipped"]
+
+        if failed:
+            print(f"\n⚠️  CLEANUP SUMMARY for {self._testMethodName}:")
+            print(f"   ✓ Success: {len(success)} | ⊘ Skipped: {len(skipped)} | ✗ Failed: {len(failed)}")
+            print("   Failed documents (may need manual cleanup):")
+            for doc in failed:
+                error = doc.get("cleanup_error", "Unknown error")
+                print(f"     - {doc['doctype']}: {doc['name']}")
+                print(f"       Error: {error[:100]}{'...' if len(error) > 100 else ''}")
+
     def _cleanup_document_with_retry(self, doc_info, max_retries=3, retry_delay=0.5):
-        """Clean up document with retry logic for lock timeouts"""
+        """Clean up document with retry logic for lock timeouts.
+
+        Updates doc_info['cleanup_status'] to track cleanup result.
+        """
         import time
 
         for attempt in range(max_retries):
@@ -154,6 +178,9 @@ class VereningingenTestCase(FrappeTestCase):
                     frappe.delete_doc(doc_info["doctype"], doc_info["name"], force=True)
                     # Commit the deletion to release locks
                     frappe.db.commit()
+                    doc_info["cleanup_status"] = "success"
+                else:
+                    doc_info["cleanup_status"] = "skipped"  # Already deleted
                 break  # Success, exit retry loop
             except frappe.exceptions.QueryTimeoutError as e:
                 if attempt < max_retries - 1:
@@ -163,12 +190,15 @@ class VereningingenTestCase(FrappeTestCase):
                     frappe.db.rollback()
                 else:
                     print(f"Failed to clean up {doc_info['doctype']} {doc_info['name']} after {max_retries} attempts: {e}")
-            except Exception as e:
-                # For other exceptions, log and continue
+                    doc_info["cleanup_status"] = "failed"
+                    doc_info["cleanup_error"] = str(e)
+            except (frappe.DoesNotExistError, frappe.ValidationError, frappe.PermissionError) as e:
+                # Document may already be deleted or validation prevents deletion
                 print(f"Error cleaning up {doc_info['doctype']} {doc_info['name']}: {e}")
-                # Rollback to clean up any partial transaction
                 frappe.db.rollback()
-                break  # Don't retry for non-timeout errors
+                doc_info["cleanup_status"] = "failed"
+                doc_info["cleanup_error"] = str(e)
+                break  # Don't retry for these errors
         
     def _check_test_errors(self):
         """Check for errors that occurred during this test"""
@@ -197,8 +227,8 @@ class VereningingenTestCase(FrappeTestCase):
                 # In the future, we can make this configurable or fail on critical errors
                 print(f"WARNING: {error_msg}")
                 
-        except Exception as e:
-            # Don't let error checking itself break tests
+        except (frappe.QueryResolutionError, frappe.db.OperationalError, AttributeError) as e:
+            # Don't let error checking itself break tests (DB or attribute errors possible)
             frappe.logger().error(f"Error during test error checking: {str(e)}")
             print(f"Warning: Could not check for test errors: {str(e)}")
             
@@ -268,7 +298,8 @@ class VereningingenTestCase(FrappeTestCase):
         for mock in getattr(self, '_active_mocks', []):
             try:
                 mock.stop()
-            except Exception:
+            except (RuntimeError, AttributeError):
+                # Mock may already be stopped or improperly initialized
                 pass
         self._active_mocks = []
 
@@ -338,9 +369,23 @@ class VereningingenTestCase(FrappeTestCase):
             )
             chapter.insert(ignore_permissions=True)
 
-    def track_doc(self, doctype, name):
-        """Track a document for cleanup"""
-        self._test_docs.append({"doctype": doctype, "name": name})
+    def track_doc(self, doctype, name, depends_on=None):
+        """Track a document for cleanup with optional dependency tracking.
+
+        Args:
+            doctype: The DocType name
+            name: The document name
+            depends_on: Optional tuple of (doctype, name) that this document depends on.
+                        Dependent documents are cleaned up AFTER their dependencies.
+        """
+        doc_info = {
+            "doctype": doctype,
+            "name": name,
+            "registered_at": frappe.utils.now(),
+            "depends_on": depends_on,
+            "cleanup_status": None  # Will be set during cleanup: 'success', 'failed', 'skipped'
+        }
+        self._test_docs.append(doc_info)
     
     def _cleanup_member_customers(self):
         """Clean up customers created for tracked members"""
@@ -355,8 +400,8 @@ class VereningingenTestCase(FrappeTestCase):
                         customer = frappe.db.get_value("Member", doc_info["name"], "customer")
                         if customer:
                             customers_to_delete.add(customer)
-                except Exception:
-                    pass
+                except frappe.DoesNotExistError:
+                    pass  # Member already deleted
             elif doc_info["doctype"] == "Membership Application":
                 try:
                     if frappe.db.exists("Membership Application", doc_info["name"]):
@@ -365,8 +410,8 @@ class VereningingenTestCase(FrappeTestCase):
                             customer = frappe.db.get_value("Member", member, "customer")
                             if customer:
                                 customers_to_delete.add(customer)
-                except Exception:
-                    pass
+                except frappe.DoesNotExistError:
+                    pass  # Application or member already deleted
         
         # Method 2: Find customers via new Customer.member field (backup method)
         for doc_info in self._test_docs:
@@ -376,8 +421,8 @@ class VereningingenTestCase(FrappeTestCase):
                     customer = frappe.db.get_value("Customer", {"member": doc_info["name"]}, "name")
                     if customer:
                         customers_to_delete.add(customer)
-                except Exception:
-                    pass
+                except frappe.DoesNotExistError:
+                    pass  # Customer or member already deleted
         
         # Clean up customer dependencies and then customers
         for customer in customers_to_delete:
@@ -388,7 +433,7 @@ class VereningingenTestCase(FrappeTestCase):
                     # Delete customer
                     frappe.delete_doc("Customer", customer, force=True, ignore_permissions=True)
                     print(f"✅ Cleaned up customer: {customer}")
-            except Exception as e:
+            except (frappe.DoesNotExistError, frappe.ValidationError, frappe.LinkExistsError) as e:
                 print(f"⚠️ Error cleaning up customer {customer}: {e}")
     
     def _cleanup_customer_dependencies(self, customer_name):
@@ -431,10 +476,10 @@ class VereningingenTestCase(FrappeTestCase):
                 for mandate in frappe.get_all("SEPA Mandate", filters={"member": member}):
                     try:
                         frappe.delete_doc("SEPA Mandate", mandate.name, force=True, ignore_permissions=True)
-                    except:
-                        pass
-        except:
-            pass
+                    except (frappe.DoesNotExistError, frappe.ValidationError):
+                        pass  # Mandate already deleted or cannot be deleted
+        except frappe.DoesNotExistError:
+            pass  # Member doesn't exist
     
     @staticmethod
     def get_test_region_name():
@@ -469,7 +514,7 @@ class VereningingenTestCase(FrappeTestCase):
                     mode_doc.update(mode_data)
                     mode_doc.save()
                     print(f"Created payment mode: {mode_data['mode_of_payment']}")
-                except Exception as e:
+                except (frappe.DuplicateEntryError, frappe.ValidationError, frappe.PermissionError) as e:
                     print(f"Warning: Could not create payment mode {mode_data['mode_of_payment']}: {e}")
     
     @classmethod
@@ -489,7 +534,7 @@ class VereningingenTestCase(FrappeTestCase):
             try:
                 if frappe.db.exists(doc_info["doctype"], doc_info["name"]):
                     frappe.delete_doc(doc_info["doctype"], doc_info["name"], force=True)
-            except Exception as e:
+            except (frappe.DoesNotExistError, frappe.ValidationError, frappe.LinkExistsError) as e:
                 print(f"Error cleaning up {doc_info['doctype']} {doc_info['name']}: {e}")
 
     def reload_doc_with_retries(self, doc, max_retries=3):
@@ -508,7 +553,7 @@ class VereningingenTestCase(FrappeTestCase):
                 # Force reload from database
                 fresh_doc = frappe.get_doc(doc.doctype, doc.name)
                 return fresh_doc
-            except Exception as e:
+            except frappe.DoesNotExistError as e:
                 if attempt == max_retries - 1:
                     frappe.log_error(f"Failed to reload {doc.doctype} {doc.name} after {max_retries} attempts: {str(e)}")
                     return None
@@ -558,7 +603,7 @@ class VereningingenTestCase(FrappeTestCase):
                     print(f"Warning: Timestamp mismatch on {doc.doctype} {doc.name} after {max_retries} attempts")
                     return False
                 continue
-            except Exception as e:
+            except (frappe.ValidationError, frappe.PermissionError, frappe.LinkValidationError) as e:
                 frappe.log_error(f"Error saving {doc.doctype} {doc.name}: {str(e)}")
                 return False
                 
@@ -1255,14 +1300,37 @@ class VereningingenTestCase(FrappeTestCase):
 
     def _get_or_create_income_account(self, company):
         """Get or create a basic income account for testing"""
-        account_name = f"Test Sales Income - {company}"
-        
         # Check if account already exists
         existing = frappe.db.get_value("Account", {"account_name": "Test Sales Income", "company": company})
         if existing:
             return existing
-        
-        # Create new income account
+
+        # First, find an existing Income group account to serve as parent
+        # Prefer root-level accounts (no parent) but accept any valid group account
+        parent_account = frappe.get_all("Account",
+            filters={
+                "root_type": "Income",
+                "company": company,
+                "is_group": 1,
+                "parent_account": ["is", "not set"]  # True root account
+            },
+            limit=1, pluck="name")
+
+        if not parent_account:
+            # Fallback: any Income group account
+            parent_account = frappe.get_all("Account",
+                filters={"root_type": "Income", "company": company, "is_group": 1},
+                limit=1, pluck="name")
+
+        if not parent_account:
+            # No Income accounts exist - this shouldn't happen with a properly set up company
+            raise frappe.ValidationError(
+                f"No Income group accounts found for company {company}. "
+                "ERPNext may not be properly configured. "
+                "Ensure a Chart of Accounts is set up with Income accounts."
+            )
+
+        # Create new income account under existing parent
         account = frappe.new_doc("Account")
         account.account_name = "Test Sales Income"
         account.company = company
@@ -1270,24 +1338,7 @@ class VereningingenTestCase(FrappeTestCase):
         account.root_type = "Income"
         account.report_type = "Profit and Loss"
         account.is_group = 0
-        
-        # Find parent group
-        parent_account = frappe.get_all("Account", 
-            filters={"account_type": "Income Account", "company": company, "is_group": 1}, 
-            limit=1, pluck="name")
-        if parent_account:
-            account.parent_account = parent_account[0]
-        else:
-            # Create basic Income group if it doesn't exist
-            income_group = frappe.new_doc("Account")
-            income_group.account_name = "Income"
-            income_group.company = company
-            income_group.root_type = "Income"
-            income_group.report_type = "Profit and Loss"
-            income_group.is_group = 1
-            income_group.save()
-            self.track_doc("Account", income_group.name)
-            account.parent_account = income_group.name
+        account.parent_account = parent_account[0]
         
         account.save()
         self.track_doc("Account", account.name)
@@ -1326,6 +1377,188 @@ class VereningingenTestCase(FrappeTestCase):
             item_group.save()
             self.track_doc("Item Group", item_group.name)
         
+        item.save()
+        self.track_doc("Item", item.name)
+        return item.name
+
+    def ensure_erpnext_infrastructure(self):
+        """Ensure ERPNext infrastructure exists for payment testing.
+
+        Sets up:
+        - Test company with abbreviation
+        - Required accounts (Debtors, Cash, Income)
+        - Membership Fee item
+
+        Returns dict with company, accounts, and item names.
+
+        Uses Administrator context for infrastructure setup since these
+        are shared setup operations that need elevated permissions.
+        """
+        # Use as_user context manager for consistent user context management
+        with self.as_user("Administrator"):
+            # Get or create test company
+            company_name = frappe.defaults.get_user_default("Company")
+            if not company_name:
+                companies = frappe.get_all("Company", limit=1, pluck="name")
+                company_name = companies[0] if companies else None
+
+            if not company_name:
+                # Create test company
+                company = frappe.new_doc("Company")
+                company.company_name = "Test Company"
+                company.abbr = "TC"
+                company.default_currency = "EUR"
+                company.country = "Netherlands"
+                company.save()
+                company_name = company.name
+                self.track_doc("Company", company_name)
+
+            # Get company abbreviation
+            abbr = frappe.db.get_value("Company", company_name, "abbr") or "TC"
+
+            # Ensure required accounts exist
+            debtors_account = self._ensure_account(
+                f"Debtors - {abbr}", company_name, "Receivable", is_group=0
+            )
+            cash_account = self._ensure_account(
+                f"Cash - {abbr}", company_name, "Cash", is_group=0
+            )
+            income_account = self._get_or_create_income_account(company_name)
+
+            # Get or create Membership Fee item
+            item_code = self._get_or_create_membership_item()
+
+            # Get or create cost center
+            cost_center = self._ensure_cost_center(company_name, abbr)
+
+            return {
+                "company": company_name,
+                "abbr": abbr,
+                "debtors_account": debtors_account,
+                "cash_account": cash_account,
+                "income_account": income_account,
+                "membership_item": item_code,
+                "cost_center": cost_center
+            }
+
+    def _ensure_account(self, account_name, company, account_type, is_group=0):
+        """Ensure an account exists, create if needed."""
+        # Check if account exists
+        base_name = account_name.split(" - ")[0]
+        existing = frappe.db.get_value("Account", {"account_name": base_name, "company": company})
+        if existing:
+            return existing
+
+        # Determine root_type based on account_type
+        if account_type in ("Receivable", "Cash", "Bank"):
+            root_type = "Asset"
+        elif account_type == "Income Account":
+            root_type = "Income"
+        elif account_type in ("Payable",):
+            root_type = "Liability"
+        elif account_type in ("Expense Account",):
+            root_type = "Expense"
+        else:
+            root_type = "Asset"  # Default
+
+        # Find parent account - prefer root-level group accounts (no parent)
+        parent = frappe.get_all("Account",
+            filters={
+                "company": company,
+                "is_group": 1,
+                "root_type": root_type,
+                "parent_account": ["is", "not set"]  # True root account
+            },
+            limit=1, pluck="name")
+
+        if not parent:
+            # Fallback: any group account with matching root_type
+            parent = frappe.get_all("Account",
+                filters={"company": company, "is_group": 1, "root_type": root_type},
+                limit=1, pluck="name")
+
+        if not parent:
+            raise frappe.ValidationError(
+                f"No parent account found for {account_type} (root_type={root_type}) in {company}. "
+                "ERPNext may not be properly configured with a Chart of Accounts."
+            )
+
+        account = frappe.new_doc("Account")
+        account.account_name = base_name
+        account.company = company
+        account.account_type = account_type
+        account.root_type = root_type
+        account.is_group = is_group
+        account.parent_account = parent[0]
+        account.save()
+        self.track_doc("Account", account.name)
+        return account.name
+
+    def _ensure_cost_center(self, company, abbr):
+        """Ensure a cost center exists for the company."""
+        # First try to get existing cost center
+        existing = frappe.db.get_value("Cost Center",
+            {"company": company, "is_group": 0})
+        if existing:
+            return existing
+
+        # Try to get company default cost center
+        default_cc = frappe.db.get_value("Company", company, "cost_center")
+        if default_cc:
+            return default_cc
+
+        # Look for any cost center that's not a group
+        any_cc = frappe.get_all("Cost Center",
+            filters={"company": company},
+            order_by="is_group asc",
+            limit=1, pluck="name")
+        if any_cc:
+            return any_cc[0]
+
+        # Create a new cost center under the main company cost center
+        main_cc = frappe.db.get_value("Cost Center",
+            {"company": company, "is_group": 1})
+
+        if main_cc:
+            cc = frappe.new_doc("Cost Center")
+            cc.cost_center_name = "Main"
+            cc.company = company
+            cc.parent_cost_center = main_cc
+            cc.is_group = 0
+            cc.save()
+            self.track_doc("Cost Center", cc.name)
+            return cc.name
+
+        raise frappe.ValidationError(
+            f"No cost center could be found or created for company {company}. "
+            "ERPNext may not be properly configured."
+        )
+
+    def _get_or_create_membership_item(self):
+        """Get or create Membership Fee item for invoicing."""
+        item_code = "Membership Fee"
+
+        if frappe.db.exists("Item", item_code):
+            return item_code
+
+        # Ensure Services item group exists
+        if not frappe.db.exists("Item Group", "Services"):
+            item_group = frappe.new_doc("Item Group")
+            item_group.item_group_name = "Services"
+            item_group.is_group = 0
+            if frappe.db.exists("Item Group", "All Item Groups"):
+                item_group.parent_item_group = "All Item Groups"
+            item_group.save()
+            self.track_doc("Item Group", item_group.name)
+
+        item = frappe.new_doc("Item")
+        item.item_code = item_code
+        item.item_name = "Membership Fee"
+        item.item_group = "Services"
+        item.is_sales_item = 1
+        item.is_service_item = 1
+        item.is_stock_item = 0
+        item.standard_rate = 100.0
         item.save()
         self.track_doc("Item", item.name)
         return item.name
@@ -1762,7 +1995,7 @@ class VereningingenTestCase(FrappeTestCase):
                     'dues_rate': schedule_info.dues_rate
                 })
                 
-            except Exception as e:
+            except (frappe.DoesNotExistError, frappe.ValidationError, frappe.PermissionError) as e:
                 # Log but continue - some schedules might not be cancellable
                 print(f"Warning: Could not cancel schedule {schedule_info.name}: {str(e)}")
         
@@ -2191,6 +2424,9 @@ class VereningingenWorkflowTestCase(VereningingenIntegrationTestCase):
         super().setUp()
         self._workflow_context = {}
         self._workflow_stages = []
+        # Initialize state manager for tracking state transitions
+        from verenigingen.tests.utils.factories import TestStateManager
+        self.state_manager = TestStateManager()
 
     def define_workflow(self, stages):
         """Define workflow stages for testing"""
@@ -2241,6 +2477,39 @@ class VereningingenWorkflowTestCase(VereningingenIntegrationTestCase):
         try:
             yield
         except Exception:
-            # Clean up any partial data
+            # Intentionally catching all exceptions to ensure database rollback
+            # before re-raising - this is a standard transaction cleanup pattern
             frappe.db.rollback()
             raise
+
+    def create_persona(self, persona_name):
+        """
+        Create a test persona by name.
+
+        Args:
+            persona_name: Name of the persona (e.g., 'happy_path_hannah', 'payment_problem_peter')
+
+        Returns:
+            dict: The created persona data including member, membership, volunteer, etc.
+        """
+        from verenigingen.tests.fixtures.test_personas import TestPersonas
+
+        # Map persona names to their creation methods
+        persona_methods = {
+            "happy_path_hannah": TestPersonas.create_happy_path_hannah,
+            "payment_problem_peter": TestPersonas.create_payment_problem_peter,
+            "sepa_sam": TestPersonas.create_sepa_sam,
+            "fee_adjuster_fiona": TestPersonas.create_fee_adjuster_fiona,
+            "type_changer_thomas": TestPersonas.create_type_changer_thomas,
+            "volunteer_victor": TestPersonas.create_volunteer_victor,
+            "terminated_tom": TestPersonas.create_terminated_tom,
+            "suspended_susan": TestPersonas.create_suspended_susan,
+            "new_member_nancy": TestPersonas.create_new_member_nancy,
+            "board_member_bob": TestPersonas.create_board_member_bob,
+            "multi_chapter_mary": TestPersonas.create_multi_chapter_mary,
+        }
+
+        if persona_name not in persona_methods:
+            raise ValueError(f"Unknown persona: {persona_name}. Available: {list(persona_methods.keys())}")
+
+        return persona_methods[persona_name]()

@@ -200,9 +200,7 @@ class DonationManagementService:
         else:
             # Use default company from settings
             verenigingen_settings = frappe.get_single("Verenigingen Settings")
-            default_company = (
-                verenigingen_settings.get("default_donation_company") if verenigingen_settings else None
-            )
+            default_company = verenigingen_settings.company if verenigingen_settings else None
             donation.company = (
                 default_company
                 or frappe.defaults.get_user_default("Company")
@@ -269,9 +267,7 @@ class DonationManagementService:
                 )
 
         except Exception as e:
-            self.logger.error(
-                f"❌ [{self.debug_context}] Failed to update donation with Mollie IDs: {str(e)}"
-            )
+            self.logger.error(f"❌ [{self.debug_context}] Failed to update donation with Mollie IDs: {str(e)}")
             # Don't raise - this is non-critical
 
     def validate_donation_compatibility(self, flow_type: str) -> Dict[str, Any]:

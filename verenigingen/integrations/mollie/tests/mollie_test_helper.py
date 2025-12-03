@@ -35,7 +35,7 @@ class MollieTestHelper:
 
     def is_test_mode(self) -> bool:
         """Check if using test API key."""
-        api_key = self.mollie_settings.get_password("api_key")
+        api_key = self.mollie_settings.get_api_key()
         return api_key and api_key.startswith("test_")
 
     def create_test_payment(

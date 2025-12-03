@@ -15,7 +15,7 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
     def setUp(self):
         """Set up for each test"""
         super().setUp()
-        self.test_company = frappe.db.get_single_value("Verenigingen Settings", "donation_company") or "Test Company"
+        self.test_company = frappe.db.get_single_value("Verenigingen Settings", "company") or "Test Company"
         self.test_donor = self.create_test_donor()
     
     # Cleanup is now handled automatically by VereningingenTestCase

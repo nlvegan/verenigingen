@@ -338,7 +338,7 @@ class SettlementBankTransactionProcessor:
 
             # Get company
             verenigingen_settings = frappe.get_single("Verenigingen Settings")
-            company = verenigingen_settings.donation_company or frappe.defaults.get_global_default("company")
+            company = verenigingen_settings.company or frappe.defaults.get_global_default("company")
 
             if not company:
                 return {"status": "error", "error": "No company configured for settlement processing"}

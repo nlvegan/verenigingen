@@ -190,7 +190,7 @@ def send_anbi_receipt(donation_id):
 def get_email_context(donation, donor):
     """Get common email context for donation emails"""
     settings = frappe.get_single("Verenigingen Settings")
-    company = frappe.get_doc("Company", settings.donation_company)
+    company = frappe.get_doc("Company", settings.company)
 
     # Get earmarking summary
     earmarking = "General Fund"

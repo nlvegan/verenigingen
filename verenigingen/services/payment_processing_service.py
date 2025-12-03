@@ -236,7 +236,7 @@ class PaymentProcessingService:
 
             # Get company and accounts (following working implementation)
             settings = frappe.get_single("Verenigingen Settings")
-            company = settings.donation_company or frappe.defaults.get_global_default("company")
+            company = settings.company or frappe.defaults.get_global_default("company")
 
             # Get accounts (following working implementation)
             donation_receivable_account = settings.donation_receivable_account
@@ -404,9 +404,7 @@ class PaymentProcessingService:
 
             donation.save()
 
-            self.logger.info(
-                f"✅ [{self.debug_context}] Payment history updated for donation {donation.name}"
-            )
+            self.logger.info(f"✅ [{self.debug_context}] Payment history updated for donation {donation.name}")
 
         except Exception as e:
             self.logger.error(f"❌ [{self.debug_context}] Failed to add payment history: {str(e)}")
@@ -425,7 +423,7 @@ class PaymentProcessingService:
         try:
             # Get company for customer creation
             settings = frappe.get_single("Verenigingen Settings")
-            company = settings.donation_company or frappe.defaults.get_global_default("company")
+            company = settings.company or frappe.defaults.get_global_default("company")
 
             # Create customer with donor information
             customer_doc = frappe.get_doc(

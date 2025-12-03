@@ -373,7 +373,6 @@ def create_default_verenigingen_settings():
                     "support_email": "",
                     "creation_user": frappe.session.user or "Administrator",
                     # Campaign/Donation settings (REQUIRED for campaign donations)
-                    "donation_company": default_company,
                     "default_donation_type": "General",
                     "auto_create_donors": 1,
                     "minimum_donation_amount": 1.00,

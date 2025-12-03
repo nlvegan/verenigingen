@@ -778,7 +778,7 @@ class DuesPaymentProcessor:
 
         # Get company first (needed for currency validation)
         verenigingen_settings = frappe.get_single("Verenigingen Settings")
-        company = verenigingen_settings.donation_company or frappe.defaults.get_global_default("company")
+        company = verenigingen_settings.company or frappe.defaults.get_global_default("company")
 
         # Extract payment data using centralized extractor
         from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config

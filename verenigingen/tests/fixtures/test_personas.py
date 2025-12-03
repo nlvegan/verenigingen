@@ -76,7 +76,7 @@ class TestPersonas:
                 city="Rotterdam",
                 country="Netherlands",
                 payment_method="SEPA Direct Debit",
-                iban="NL18RABO0123456789",
+                iban=generate_test_iban("RABO"),
                 bank_account_name="Peter Payment",
                 status="Active",
             )
@@ -86,6 +86,7 @@ class TestPersonas:
 
         # Simulate payment failures
         member = test_data["member"]
+        member.reload()  # Ensure we have latest version to avoid timestamp mismatch
         member.payment_failure_count = 2
         member.last_payment_failure_date = today()
         member.save()
@@ -337,9 +338,10 @@ class TestPersonas:
 
         # Set termination fields
         member = test_data["member"]
+        member.reload()  # Ensure we have latest version to avoid timestamp mismatch
         member.termination_reason = "Non-payment"
         member.termination_date = today()
-        member.status = "Pending Termination"
+        member.status = "Terminated"  # Valid status option
         member.save()
 
         return test_data
@@ -364,7 +366,7 @@ class TestPersonas:
                 city="Amsterdam",
                 country="Netherlands",
                 payment_method="SEPA Direct Debit",
-                iban="NL02ABNA0123456789",
+                iban=generate_test_iban("ABNA"),
                 bank_account_name="Susan Suspended",
                 status="Suspended",
             )
@@ -374,6 +376,7 @@ class TestPersonas:
 
         # Set suspension details
         member = test_data["member"]
+        member.reload()  # Ensure we have latest version to avoid timestamp mismatch
         member.suspension_date = add_days(today(), -30)
         member.suspension_reason = "Payment failure"
         member.suspension_lifted_date = None

@@ -214,9 +214,10 @@ class PaymentEntryFactory:
         accounts = {"receivable_account": None, "bank_account": None}
 
         try:
+            settings = frappe.get_single("Verenigingen Settings")
+
             # Get receivable account
             if payment_type == "donation":
-                settings = frappe.get_single("Verenigingen Settings")
                 accounts["receivable_account"] = settings.donation_receivable_account or frappe.get_value(
                     "Company", company, "default_receivable_account"
                 )
@@ -226,12 +227,12 @@ class PaymentEntryFactory:
                     "Company", company, "default_receivable_account"
                 )
 
-            # Get Mollie bank account
-            accounts["bank_account"] = frappe.get_value(
-                "Account", {"company": company, "account_name": "Mollie"}, "name"
-            )
-
-            # Fallback to default bank account
+            # Get Mollie bank account - prefer settings, fallback to named account, then default
+            accounts["bank_account"] = settings.mollie_bank_account
+            if not accounts["bank_account"]:
+                accounts["bank_account"] = frappe.get_value(
+                    "Account", {"company": company, "account_name": "Mollie"}, "name"
+                )
             if not accounts["bank_account"]:
                 accounts["bank_account"] = frappe.get_value("Company", company, "default_bank_account")
 

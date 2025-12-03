@@ -182,8 +182,8 @@ def test_payment_creation(**kwargs):
 
             # Get required company
             settings = frappe.get_single("Verenigingen Settings")
-            if hasattr(settings, "donation_company") and settings.donation_company:
-                donation_data["company"] = settings.donation_company
+            if settings.company:
+                donation_data["company"] = settings.company
             else:
                 # Use first available company
                 companies = frappe.get_all("Company", limit=1)

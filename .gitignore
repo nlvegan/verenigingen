@@ -18,6 +18,8 @@ cypress/downloads/
 # Test logs and results
 test-logs/
 .nvmrc
+sessions/
+codemap-linux-amd64/
 logs/
 test-results/
 __pycache__/
@@ -77,3 +79,9 @@ _work/
 _diag/
 run-helper.cmd.template
 safe_sleep.sh
+
+# cc-sessions runtime files
+sessions/sessions-state.json
+sessions/package.json
+sessions/transcripts/
+sessions/.archived/

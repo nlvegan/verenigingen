@@ -282,7 +282,7 @@ def show_configuration():
 
         # Verenigingen Settings
         verenigingen_settings = frappe.get_single("Verenigingen Settings")
-        company = verenigingen_settings.donation_company or frappe.defaults.get_global_default(
+        company = verenigingen_settings.company or frappe.defaults.get_global_default(
             "company"
         )
 

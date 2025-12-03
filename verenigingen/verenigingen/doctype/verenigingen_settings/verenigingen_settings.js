@@ -118,7 +118,7 @@ frappe.ui.form.on('Verenigingen Settings', {
 				filters: {
 					account_type: 'Receivable',
 					is_group: 0,
-					company: frm.doc.donation_company
+					company: frm.doc.company
 				}
 			};
 		});
@@ -140,7 +140,7 @@ frappe.ui.form.on('Verenigingen Settings', {
 				filters: {
 					account_type: ['in', account_types],
 					is_group: 0,
-					company: frm.doc.donation_company
+					company: frm.doc.company
 				}
 			};
 		});

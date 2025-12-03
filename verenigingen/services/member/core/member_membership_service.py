@@ -21,13 +21,14 @@ from typing import TYPE_CHECKING, List, Optional
 
 import frappe
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.member_utils import get_active_membership_for_member
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
 
 
-class MemberMembershipService:
+class MemberMembershipService(StatelessService):
     """
     Service for membership-related queries and operations.
 
@@ -35,8 +36,12 @@ class MemberMembershipService:
     including active membership lookup and status checking.
     """
 
-    @staticmethod
-    def get_active_membership(member_name: str, fields: Optional[List[str]] = None) -> Optional["Document"]:
+    def __init__(self):
+        super().__init__(service_name="MemberMembershipService")
+
+    def get_active_membership(
+        self, member_name: str, fields: Optional[List[str]] = None
+    ) -> Optional["Document"]:
         """
         Get the currently active membership for a member.
 
@@ -51,32 +56,38 @@ class MemberMembershipService:
             Membership document if found, None otherwise
 
         Example:
-            membership = MemberMembershipService.get_active_membership(
+            membership = MemberMembershipService().get_active_membership(
                 "Member-001",
                 fields=["name", "membership_type", "start_date", "renewal_date", "status"]
             )
         """
-        # Use default fields if none specified
-        if fields is None:
-            fields = ["name", "membership_type", "start_date", "renewal_date", "status"]
 
-        # Use the utility function for field-validated lookup
-        membership_data = get_active_membership_for_member(member_name, fields=fields)
+        def _get_active_membership_logic():
+            # Use default fields if none specified
+            if fields is None:
+                _fields = ["name", "membership_type", "start_date", "renewal_date", "status"]
+            else:
+                _fields = fields
 
-        if membership_data:
-            try:
-                return frappe.get_doc("Membership", membership_data["name"])
-            except Exception as e:
-                frappe.logger().error(
-                    f"Error loading Membership document {membership_data.get('name')} "
-                    f"for member {member_name}: {str(e)}"
-                )
-                return None
+            # Use the utility function for field-validated lookup
+            membership_data = get_active_membership_for_member(member_name, fields=_fields)
 
-        return None
+            if membership_data:
+                try:
+                    return frappe.get_doc("Membership", membership_data["name"])
+                except Exception as e:
+                    self.handle_error(
+                        e,
+                        "get_active_membership",
+                        {"member_name": member_name, "membership_data_name": membership_data.get("name")},
+                        raise_error=False,
+                    )
+                    return None
+            return None
 
-    @staticmethod
-    def get_active_membership_for_member_doc(member_doc: "Document") -> Optional["Document"]:
+        return self.execute_operation(_get_active_membership_logic)
+
+    def get_active_membership_for_member_doc(self, member_doc: "Document") -> Optional["Document"]:
         """
         Get the currently active membership for a member document.
 
@@ -88,9 +99,4 @@ class MemberMembershipService:
         Returns:
             Membership document if found, None otherwise
         """
-        return MemberMembershipService.get_active_membership(member_doc.name)
-
-
-def get_member_membership_service() -> MemberMembershipService:
-    """Get singleton instance of MemberMembershipService"""
-    return MemberMembershipService()
+        return self.get_active_membership(member_doc.name)

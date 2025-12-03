@@ -12,6 +12,12 @@ from typing import Any, Dict, Optional
 
 import frappe
 
+# Import services for correct donation processing flow
+from verenigingen.verenigingen_payments.services.bank_transaction_creator import get_bank_transaction_creator
+from verenigingen.verenigingen_payments.services.donation_journal_entry_creator import (
+    get_donation_journal_entry_creator,
+)
+
 # Import payment data extraction utilities
 from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
 
@@ -533,20 +539,33 @@ class UnifiedWebhookWrapperService:
                     "payment_id": payment_id,
                 }
 
-            # Create Payment Entry using unified logic
-            payment_entry = self._create_unified_payment_entry(donation, payment_data)
-            if not payment_entry:
+            # =========================================================================
+            # NEW ARCHITECTURE: Bank Transaction → Journal Entry → Record Updates
+            # =========================================================================
+
+            # Step 1-2: Create Bank Transaction and Journal Entry
+            financial_result = self._create_donation_financial_entries(donation, payment_data)
+            if not financial_result:
                 return {
                     "status": "error",
-                    "message": "Failed to create Payment Entry",
+                    "message": "Failed to create financial entries (Bank Transaction / Journal Entry)",
                     "payment_id": payment_id,
                 }
 
-            # Update donation status and metadata
+            journal_entry_name = financial_result.get("journal_entry_name")
+            bank_transaction_name = financial_result.get("bank_transaction_name")
+
+            # Step 3: Update donation status and metadata
             self._update_donation_status(donation, payment_data)
 
-            # Update payment history
-            self._update_donation_payment_history(donation, payment_data, payment_entry.name)
+            # Step 4: Update donation payment history (atomic)
+            self._update_donation_payment_history_atomic(donation, payment_data, journal_entry_name)
+
+            # Step 5: Update Donor record (subscription IDs, donor_history)
+            self._update_donor_record(donation, payment_data)
+
+            # Step 6: Update Member payment history (for ALL donations)
+            self._update_member_payment_history(donation, payment_data, journal_entry_name)
 
             # Check for pending refunds even during new payment processing
             # Refunds may exist if payment was processed then immediately refunded
@@ -559,7 +578,8 @@ class UnifiedWebhookWrapperService:
                 "status": "success",
                 "message": f"Payment {payment_id} processed successfully",
                 "payment_id": payment_id,
-                "payment_entry": payment_entry.name,
+                "bank_transaction": bank_transaction_name,
+                "journal_entry": journal_entry_name,
                 "donation_id": donation.name,
                 "amount": payment_data.get("amount", {}).get("value"),
             }
@@ -615,9 +635,10 @@ class UnifiedWebhookWrapperService:
         self.logger.info(f"🔄 Payment {payment_id} partially processed, completing missing components")
 
         # Determine what components need completion
+        # NOTE: payment_entry_exists now refers to financial entries (BT + JE)
         missing_components = []
         if not processing_state.payment_entry_exists:
-            missing_components.append("payment_entry")
+            missing_components.append("financial_entries")  # BT + JE
         if not processing_state.payment_history_updated:
             missing_components.append("payment_history")
         if not processing_state.donation_status_updated:
@@ -641,27 +662,45 @@ class UnifiedWebhookWrapperService:
 
             # Process missing components based on unified state
             results = []
-            payment_entry = None
+            journal_entry_name = None
 
-            if "payment_entry" in missing_components:
-                payment_entry = self._create_unified_payment_entry(donation, payment_data)
-                if payment_entry:
-                    results.append(f"Payment Entry created: {payment_entry.name}")
+            if "financial_entries" in missing_components:
+                # Create Bank Transaction + Journal Entry using new architecture
+                financial_result = self._create_donation_financial_entries(donation, payment_data)
+                if financial_result:
+                    results.append(
+                        f"Bank Transaction created: {financial_result.get('bank_transaction_name')}"
+                    )
+                    if financial_result.get("journal_entry_name"):
+                        results.append(f"Journal Entry created: {financial_result.get('journal_entry_name')}")
+                        journal_entry_name = financial_result.get("journal_entry_name")
+                    else:
+                        results.append("Journal Entry creation failed (partial)")
                 else:
-                    results.append("Payment Entry creation failed")
+                    results.append("Financial entries creation failed")
 
             if "donation_status" in missing_components:
                 self._update_donation_status(donation, payment_data)
                 results.append("Donation status updated")
 
             if "payment_history" in missing_components:
-                payment_entry_name = processing_state.payment_entry_name or (
-                    payment_entry.name if payment_entry else None
-                )
-                if self._update_donation_payment_history(donation, payment_data, payment_entry_name):
-                    results.append("Payment history updated")
+                # Try to get existing journal entry name from database if not created above
+                if not journal_entry_name:
+                    journal_entry_name = frappe.db.get_value(
+                        "Journal Entry",
+                        {"reference_no": payment_id, "docstatus": ["!=", 2]},
+                        "name",
+                    )
+                if self._update_donation_payment_history_atomic(donation, payment_data, journal_entry_name):
+                    results.append("Donation payment history updated")
                 else:
-                    results.append("Payment history update failed")
+                    results.append("Donation payment history update failed")
+
+                # Also update Donor and Member records
+                if self._update_donor_record(donation, payment_data):
+                    results.append("Donor record updated")
+                if self._update_member_payment_history(donation, payment_data, journal_entry_name):
+                    results.append("Member payment history updated")
 
             # CRITICAL FIX: Also handle refund payment history backfill during partial processing
             # This ensures that when main payment history is missing, we also check for missing refund history
@@ -1058,7 +1097,7 @@ class UnifiedWebhookWrapperService:
             self.logger.info(f"✅ Updated donation {donation.name} status")
 
         except Exception as e:
-            self.logger.error(f"❌ Error updating donation status: {e}")
+            self.logger.error(f"Error updating donation status", error=e)
 
     def _update_donation_payment_history(self, donation, payment_data, payment_entry_name):
         """Update donation payment history with payment details."""
@@ -1111,8 +1150,446 @@ class UnifiedWebhookWrapperService:
             return True
 
         except Exception as e:
-            self.logger.error(f"❌ Error updating payment history: {e}")
+            self.logger.error(f"Error updating payment history", error=e)
             return False
+
+    # =========================================================================
+    # NEW ARCHITECTURE: Bank Transaction → Journal Entry → Record Updates
+    # =========================================================================
+
+    def _create_donation_financial_entries(self, donation, payment_data):
+        """
+        Create financial entries for donation using correct architecture.
+
+        Flow:
+            1. Bank Transaction (represents bank statement line)
+            2. Journal Entry (Debit: Mollie Clearing, Credit: Donation Income)
+
+        This replaces the incorrect Payment Entry approach.
+
+        Args:
+            donation: Donation document
+            payment_data: Mollie payment data dict
+
+        Returns:
+            dict with bank_transaction_name and journal_entry_name, or None on failure
+        """
+        payment_id = payment_data.get("id")
+        self.logger.info(f"📋 Creating financial entries for donation {donation.name} (payment {payment_id})")
+
+        try:
+            # Step 1: Create Bank Transaction
+            self.logger.info(f"  Step 1: Getting bank transaction creator...")
+            bt_creator = get_bank_transaction_creator()
+
+            # Get Mollie bank account configuration
+            self.logger.info(f"  Step 1a: Getting Mollie bank account config...")
+            config = bt_creator.get_mollie_bank_account_config()
+            if config.get("error"):
+                self.logger.error(f"❌ Mollie config error: {config['error']}")
+                # Log to Mollie Audit Log for visibility
+                self._log_webhook_event(
+                    payment_id,
+                    "financial_entry_error",
+                    f"Mollie bank account config error: {config['error']}",
+                    {"donation": donation.name, "config_error": config.get("error")},
+                )
+                return None
+
+            self.logger.info(
+                f"  Step 1b: Config OK - bank_account={config.get('bank_account')}, company={config.get('company')}"
+            )
+
+            # Fetch full payment object from Mollie for Bank Transaction creation
+            self.logger.info(f"  Step 1c: Fetching payment object from Mollie API...")
+            try:
+                mollie_settings = frappe.get_single("Mollie Settings")
+                from mollie.api.client import Client as MollieClient
+
+                mollie_client = MollieClient()
+                # Use get_api_key() which handles test_mode correctly
+                api_key = mollie_settings.get_api_key()
+                if not api_key:
+                    raise ValueError("Mollie API key not configured in Mollie Settings")
+                mollie_client.set_api_key(api_key)
+                payment_obj = mollie_client.payments.get(payment_id)
+                self.logger.info(
+                    f"  Step 1c: Got payment object, status={getattr(payment_obj, 'status', 'unknown')}"
+                )
+            except Exception as mollie_err:
+                self.logger.error(f"❌ Failed to fetch payment from Mollie API", error=mollie_err)
+                self._log_webhook_event(
+                    payment_id,
+                    "financial_entry_error",
+                    f"Mollie API error: {type(mollie_err).__name__}: {str(mollie_err)}",
+                    {"donation": donation.name},
+                )
+                return None
+
+            # Create Bank Transaction
+            self.logger.info(f"  Step 1d: Creating Bank Transaction...")
+            try:
+                bank_transaction_name = bt_creator.create_from_mollie_payment(
+                    payment=payment_obj,
+                    bank_account=config["bank_account"],
+                    company=config["company"],
+                    additional_description=f"Donation: {donation.name}",
+                )
+            except Exception as bt_err:
+                self.logger.error(f"❌ Exception creating Bank Transaction", error=bt_err)
+                self._log_webhook_event(
+                    payment_id,
+                    "financial_entry_error",
+                    f"Bank Transaction creation exception: {type(bt_err).__name__}: {str(bt_err)}",
+                    {"donation": donation.name},
+                )
+                return None
+
+            if not bank_transaction_name:
+                self.logger.error(
+                    f"❌ Failed to create Bank Transaction for payment {payment_id} (returned None)"
+                )
+                self._log_webhook_event(
+                    payment_id,
+                    "financial_entry_error",
+                    "Bank Transaction creation returned None (check Error Log for details)",
+                    {"donation": donation.name},
+                )
+                return None
+
+            self.logger.info(f"✅ Created Bank Transaction: {bank_transaction_name}")
+
+            # Step 2: Create Journal Entry
+            self.logger.info(f"  Step 2: Creating Journal Entry...")
+            try:
+                je_creator = get_donation_journal_entry_creator()
+                journal_entry_name = je_creator.create_from_mollie_payment(
+                    payment_data=payment_data,
+                    donation_doc=donation,
+                    bank_transaction_name=bank_transaction_name,
+                )
+            except Exception as je_err:
+                self.logger.error(f"❌ Exception creating Journal Entry", error=je_err)
+                self._log_webhook_event(
+                    payment_id,
+                    "financial_entry_error",
+                    f"Journal Entry creation exception: {type(je_err).__name__}: {str(je_err)}",
+                    {"donation": donation.name, "bank_transaction": bank_transaction_name},
+                )
+                return {
+                    "bank_transaction_name": bank_transaction_name,
+                    "journal_entry_name": None,
+                    "partial_success": True,
+                }
+
+            if not journal_entry_name:
+                self.logger.error(
+                    f"❌ Failed to create Journal Entry for donation {donation.name} (returned None)"
+                )
+                self._log_webhook_event(
+                    payment_id,
+                    "financial_entry_error",
+                    "Journal Entry creation returned None (check Error Log for details)",
+                    {"donation": donation.name, "bank_transaction": bank_transaction_name},
+                )
+                # Bank Transaction was created, but Journal Entry failed
+                # Return partial success so we can retry Journal Entry later
+                return {
+                    "bank_transaction_name": bank_transaction_name,
+                    "journal_entry_name": None,
+                    "partial_success": True,
+                }
+
+            self.logger.info(f"✅ Created Journal Entry: {journal_entry_name}")
+            self._log_webhook_event(
+                payment_id,
+                "financial_entries_created",
+                f"Created Bank Transaction {bank_transaction_name} and Journal Entry {journal_entry_name}",
+                {
+                    "donation": donation.name,
+                    "bank_transaction": bank_transaction_name,
+                    "journal_entry": journal_entry_name,
+                },
+            )
+
+            return {
+                "bank_transaction_name": bank_transaction_name,
+                "journal_entry_name": journal_entry_name,
+                "partial_success": False,
+            }
+
+        except Exception as e:
+            import traceback
+
+            tb = traceback.format_exc()
+            self.logger.error(
+                f"Error creating financial entries for donation {donation.name}",
+                error=e,
+            )
+            self._log_webhook_event(
+                payment_id,
+                "financial_entry_error",
+                f"Unexpected exception: {type(e).__name__}: {str(e)}",
+                {"donation": donation.name, "traceback": tb[:2000]},
+            )
+            frappe.log_error(
+                f"Financial entry creation failed for donation {donation.name}\n\n{tb}",
+                "Donation Financial Entry Error",
+            )
+            return None
+
+    def _update_donor_record(self, donation, payment_data):
+        """
+        Update Donor record with payment information and subscription details.
+
+        Updates:
+            - mollie_customer_id, mollie_subscription_id (if subscription payment)
+            - donor_history child table (via MemberFinancialHistoryManager for atomic update)
+
+        Args:
+            donation: Donation document
+            payment_data: Mollie payment data dict
+
+        Returns:
+            bool: Success status
+        """
+        if not donation.donor:
+            self.logger.info(f"No donor linked to donation {donation.name}, skipping donor update")
+            return True
+
+        try:
+            donor = frappe.get_doc("Donor", donation.donor)
+            payment_id = payment_data.get("id")
+            metadata = payment_data.get("metadata", {}) or {}
+
+            # Check for subscription details
+            subscription_id = payment_data.get("subscription_id") or metadata.get("subscription_id")
+            customer_id = payment_data.get("customer_id") or metadata.get("customer_id")
+
+            fields_updated = []
+
+            # Update Mollie IDs if present (requires full save)
+            mollie_fields_changed = False
+            if customer_id and donor.mollie_customer_id != customer_id:
+                donor.mollie_customer_id = customer_id
+                fields_updated.append("mollie_customer_id")
+                mollie_fields_changed = True
+
+            if subscription_id and donor.mollie_subscription_id != subscription_id:
+                donor.mollie_subscription_id = subscription_id
+                fields_updated.append("mollie_subscription_id")
+                mollie_fields_changed = True
+
+            # Save Mollie ID changes if any
+            if mollie_fields_changed:
+                donor.save()
+                self.logger.info(f"✅ Updated Donor {donor.name} Mollie IDs: {', '.join(fields_updated)}")
+
+            # Add to donor_history using MemberFinancialHistoryManager for atomic updates
+            if hasattr(donor, "donor_history"):
+                from verenigingen.utils.member_financial_history_manager import MemberFinancialHistoryManager
+
+                # Use centralized history manager for atomic child table updates
+                history_manager = MemberFinancialHistoryManager(
+                    member_doc=donor,
+                    history_field_name="donor_history",
+                    max_entries=30,
+                )
+
+                # Extract payment details using centralized extractor
+                extractor = get_payment_data_extractor()
+
+                def build_donor_history_entry():
+                    amount = extractor.extract_amount(payment_data, allow_zero=True)
+                    paid_date = extractor.extract_payment_date(payment_data)
+                    return {
+                        "payment_id": payment_id,
+                        "donation": donation.name,
+                        "amount": amount,
+                        "payment_date": paid_date,
+                        "payment_status": "Completed",
+                    }
+
+                success = history_manager.add_or_update_entry(
+                    entry_id=payment_id,
+                    entry_builder=build_donor_history_entry,
+                    id_field_name="payment_id",
+                )
+
+                if success:
+                    fields_updated.append("donor_history")
+                    self.logger.info(f"✅ Updated Donor {donor.name} history for donation {donation.name}")
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error updating Donor record", error=e)
+            return False
+
+    def _update_member_payment_history(self, donation, payment_data, journal_entry_name):
+        """
+        Update Member payment history for ALL donations (not just subscriptions).
+
+        Uses MemberFinancialHistoryManager for atomic child table updates
+        without full document save.
+
+        Args:
+            donation: Donation document
+            payment_data: Mollie payment data dict
+            journal_entry_name: Journal Entry name to link
+
+        Returns:
+            bool: Success status
+        """
+        # Find linked member - either directly or through donor
+        member_name = None
+
+        # Check for direct member link on donation
+        if hasattr(donation, "member") and donation.member:
+            member_name = donation.member
+
+        # Check for member via donor
+        if not member_name and donation.donor:
+            member_name = frappe.db.get_value("Donor", donation.donor, "member")
+
+        if not member_name:
+            self.logger.info(f"No member linked to donation {donation.name}, skipping member update")
+            return True
+
+        try:
+            member = frappe.get_doc("Member", member_name)
+            payment_id = payment_data.get("id")
+
+            # Use MemberFinancialHistoryManager for atomic updates
+            from verenigingen.utils.member_financial_history_manager import get_payment_history_manager
+
+            history_manager = get_payment_history_manager(member)
+
+            # Extract payment details using centralized extractor
+            extractor = get_payment_data_extractor()
+
+            def build_entry():
+                return {
+                    "mollie_payment_id": payment_id,
+                    "invoice": donation.name,  # Use donation as reference
+                    "journal_entry": journal_entry_name,
+                    "amount": extractor.extract_amount(payment_data, allow_zero=True),
+                    "payment_date": extractor.extract_payment_date(payment_data),
+                    "payment_method": "Mollie",
+                    "status": "Completed",
+                    "payment_type": "Donation",
+                }
+
+            success = history_manager.add_or_update_entry(
+                entry_id=donation.name,
+                entry_builder=build_entry,
+                id_field_name="invoice",
+            )
+
+            if success:
+                self.logger.info(
+                    f"✅ Updated Member {member_name} payment history for donation {donation.name}"
+                )
+            else:
+                self.logger.warning(f"⚠️ Member payment history update returned False for {donation.name}")
+
+            return success
+
+        except Exception as e:
+            self.logger.error(f"Error updating Member payment history", error=e)
+            return False
+
+    def _update_donation_payment_history_atomic(self, donation, payment_data, journal_entry_name):
+        """
+        Update donation payment history using atomic child table update.
+
+        This version uses update_child_table() to avoid full document validation.
+
+        Args:
+            donation: Donation document
+            payment_data: Mollie payment data dict
+            journal_entry_name: Journal Entry name to link
+
+        Returns:
+            bool: Success status
+        """
+        try:
+            payment_id = payment_data.get("id")
+
+            # Check if payment history already exists for this payment
+            existing_entry = None
+            for payment_hist in donation.payments or []:
+                if getattr(payment_hist, "mollie_payment_id", None) == payment_id:
+                    existing_entry = payment_hist
+                    break
+
+            if existing_entry:
+                self.logger.info(f"Payment history already exists for {payment_id}")
+                return True
+
+            # Extract payment details using centralized extractor
+            extractor = get_payment_data_extractor()
+
+            # Append payment history entry
+            donation.append(
+                "payments",
+                {
+                    "mollie_payment_id": payment_id,
+                    "journal_entry": journal_entry_name,
+                    "amount": extractor.extract_amount(payment_data, allow_zero=True),
+                    "payment_date": extractor.extract_payment_date(payment_data),
+                    "payment_method": "Mollie",
+                    "payment_status": "Paid",
+                },
+            )
+
+            # Use atomic child table update
+            donation.flags.ignore_version = True
+            donation.update_child_table("payments")
+            frappe.db.commit()
+
+            self.logger.info(f"✅ Added payment history for donation {donation.name} (atomic)")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error updating donation payment history (atomic)", error=e)
+            return False
+
+    def _log_webhook_event(
+        self,
+        payment_id: str,
+        event_type: str,
+        description: str,
+        details: Optional[Dict[str, Any]] = None,
+        severity: str = "info",
+    ):
+        """
+        Log webhook processing event to Mollie Audit Log for visibility.
+
+        Args:
+            payment_id: Mollie payment ID
+            event_type: Type of event (e.g., 'financial_entry_error', 'financial_entries_created')
+            description: Human-readable description
+            details: Additional details dict
+            severity: Log severity ('info', 'warning', 'error', 'critical')
+        """
+        try:
+            from ..utils.audit import MollieAuditLogger
+
+            audit_logger = MollieAuditLogger()
+            audit_logger._create_audit_log(
+                event_type=event_type,
+                event_category="webhook_processing",
+                description=f"[{payment_id}] {description}",
+                data={
+                    "payment_id": payment_id,
+                    **(details or {}),
+                },
+                severity=severity if event_type.endswith("_error") else "info",
+            )
+        except Exception as e:
+            # Don't let audit logging failure break webhook processing
+            self.logger.warning(f"Failed to create audit log entry: {e}")
 
 
 # Utility functions needed for unified processing

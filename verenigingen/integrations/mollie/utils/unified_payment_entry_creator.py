@@ -68,15 +68,17 @@ def create_unified_payment_entry(
 
         # Get company and accounts (reuse logic from main payment processing)
         settings = frappe.get_single("Verenigingen Settings")
-        company = settings.donation_company or frappe.defaults.get_global_default("company")
+        company = settings.company or frappe.defaults.get_global_default("company")
 
         # Get donation receivable account
         donation_account = settings.donation_receivable_account
         if not donation_account:
             donation_account = frappe.get_value("Company", company, "default_receivable_account")
 
-        # Get bank account (Mollie)
-        bank_account = frappe.get_value("Account", {"company": company, "account_name": "Mollie"}, "name")
+        # Get bank account (Mollie) - prefer settings, fallback to named account, then default
+        bank_account = settings.mollie_bank_account
+        if not bank_account:
+            bank_account = frappe.get_value("Account", {"company": company, "account_name": "Mollie"}, "name")
         if not bank_account:
             bank_account = frappe.get_value("Company", company, "default_bank_account")
 

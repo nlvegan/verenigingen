@@ -186,11 +186,6 @@ class APISecurityFramework:
             SecurityLevel.MEDIUM,
         ],  # National oversight
         "Verenigingen Staff": [SecurityLevel.HIGH, SecurityLevel.MEDIUM, SecurityLevel.LOW],
-        "Verenigingen Background Service": [
-            SecurityLevel.HIGH,
-            SecurityLevel.MEDIUM,
-            SecurityLevel.LOW,
-        ],  # Background automation (application processing, scheduled tasks)
         "Verenigingen Chapter Board Member": [
             SecurityLevel.HIGH,
             SecurityLevel.MEDIUM,
@@ -203,7 +198,12 @@ class APISecurityFramework:
             SecurityLevel.MEDIUM,
             SecurityLevel.LOW,
         ],  # MEDIUM for self_service_only operations
-        "Verenigingen Webhook User": [SecurityLevel.PUBLIC, SecurityLevel.LOW],
+        "Verenigingen Webhook User": [
+            SecurityLevel.HIGH,
+            SecurityLevel.MEDIUM,
+            SecurityLevel.LOW,
+            SecurityLevel.PUBLIC,
+        ],  # Service account for webhooks and background automation
     }
 
     def __init__(self):

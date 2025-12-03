@@ -1020,8 +1020,7 @@ fixtures = [
     },
     # Custom HTML Blocks
     {"doctype": "Custom HTML Block", "filters": [["name", "=", "Page Links"]]},
-    # Background Service User and Role
-    {"doctype": "Role", "filters": [["name", "=", "Verenigingen Background Service"]]},
+    # Background Service User (uses Webhook User role for consolidated service account permissions)
     {"doctype": "User", "filters": [["email", "=", "background.service@verenigingen.local"]]},
     # Verenigingen Settings with system user
     {"doctype": "Verenigingen Settings"},

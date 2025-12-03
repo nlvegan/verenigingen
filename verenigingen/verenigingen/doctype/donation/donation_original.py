@@ -564,7 +564,7 @@ def create_donor_from_donation(donor_name, email, phone=None, donor_type=None):
 
 
 def get_company_for_donations():
-    company = frappe.db.get_single_value("Verenigingen Settings", "donation_company")
+    company = frappe.db.get_single_value("Verenigingen Settings", "company")
     if not company:
         from verenigingen.utils import get_company
 

@@ -315,7 +315,11 @@ def process_successful_payment_with_idempotency(donation, payment, idempotency_s
 
     # Extract Mollie metadata first
     mollie_data = extract_mollie_payment_data(payment)
-    frappe.logger().info("🔍 Full mollie_data: %s", mollie_data)
+    # Log sanitized data (exclude sensitive fields like customer_id, metadata)
+    safe_log_data = {
+        k: v for k, v in mollie_data.items() if k not in ("customer_id", "metadata", "mandate_id")
+    }
+    frappe.logger().info("🔍 Mollie payment data: %s", safe_log_data)
 
     # Determine if this is recurring using improved detection logic
     is_recurring = _determine_recurring_status(donation, mollie_data)
@@ -503,12 +507,16 @@ def extract_mollie_payment_data(payment):
         "amount": (
             payment.amount.get("value")
             if isinstance(payment.amount, dict)
-            else getattr(payment.amount, "value", None) if hasattr(payment, "amount") else None
+            else getattr(payment.amount, "value", None)
+            if hasattr(payment, "amount")
+            else None
         ),
         "currency": (
             payment.amount.get("currency")
             if isinstance(payment.amount, dict)
-            else getattr(payment.amount, "currency", None) if hasattr(payment, "amount") else None
+            else getattr(payment.amount, "currency", None)
+            if hasattr(payment, "amount")
+            else None
         ),
         "method": getattr(payment, "method", None),
         "customer_id": getattr(payment, "customer_id", None),
@@ -573,9 +581,8 @@ def create_payment_entry_for_donation(donation, mollie_data):
                 frappe.logger().error("❌ Failed to create customer for donor %s", donation.donor)
                 return None
 
-            # Link customer to donor
+            # Link customer to donor (webhook user has Donor write permission)
             donor_doc.customer = customer
-            donor_doc.flags.ignore_permissions = True
             donor_doc.save()
             frappe.logger().info("✅ Created and linked customer %s to donor %s", customer, donation.donor)
 
@@ -592,17 +599,18 @@ def create_payment_entry_for_donation(donation, mollie_data):
 
         # Get company and accounts
         settings = frappe.get_single("Verenigingen Settings")
-        company = settings.donation_company or frappe.defaults.get_global_default("company")
+        company = settings.company or frappe.defaults.get_global_default("company")
 
         # Get donation receivable account from settings (for party tracking)
         donation_account = settings.donation_receivable_account
         if not donation_account:
             donation_account = frappe.get_value("Company", company, "default_receivable_account")
 
-        # Get bank account (for Mollie payments) with validation
-        bank_account = frappe.get_value("Account", {"company": company, "account_name": "Mollie"}, "name")
+        # Get bank account (Mollie) - prefer settings, fallback to named account, then default
+        bank_account = settings.mollie_bank_account
         if not bank_account:
-            # Fallback to default bank account
+            bank_account = frappe.get_value("Account", {"company": company, "account_name": "Mollie"}, "name")
+        if not bank_account:
             bank_account = frappe.get_value("Company", company, "default_bank_account")
 
         # Validate required accounts exist
@@ -654,11 +662,23 @@ def create_payment_entry_for_donation(donation, mollie_data):
         )
 
         # Use proper webhook user permissions - no bypass needed
-        pe.insert()
-        pe.submit()
-
-        frappe.logger().info("✅ Created Payment Entry: %s", pe.name)
-        return pe
+        try:
+            pe.insert()
+            pe.submit()
+            frappe.logger().info("✅ Created Payment Entry: %s", pe.name)
+            return pe
+        except frappe.DuplicateEntryError:
+            # Race condition: another webhook created the PE between our check and insert
+            frappe.logger().info("⚠️ Duplicate Payment Entry detected, fetching existing")
+            existing_pe = frappe.db.get_value(
+                "Payment Entry",
+                {"reference_no": mollie_data["payment_id"], "party": customer},
+                "name",
+            )
+            if existing_pe:
+                return frappe.get_doc("Payment Entry", existing_pe)
+            frappe.logger().error("❌ Duplicate error but no existing PE found")
+            return None
 
     except Exception as e:
         frappe.logger().error("❌ Failed to create Payment Entry: %s", str(e))
@@ -761,7 +781,7 @@ def _create_customer_for_donor(donor_doc):
     try:
         # Get company for customer creation
         settings = frappe.get_single("Verenigingen Settings")
-        company = settings.donation_company or frappe.defaults.get_global_default("company")
+        company = settings.company or frappe.defaults.get_global_default("company")
 
         # Validate and get Customer Group with fallback
         customer_group = "Individual"
@@ -801,7 +821,7 @@ def _create_customer_for_donor(donor_doc):
             }
         )
 
-        customer_doc.flags.ignore_permissions = True
+        # Webhook user has Customer create permission via role
         customer_doc.insert()
 
         frappe.logger().info(
@@ -1088,8 +1108,17 @@ def _validate_payment_amount(payment):
 
     Returns:
         float: Payment amount or 0.0 if invalid/unavailable
+
+    Note:
+        - Negative amounts are rejected (logged as error, returns 0.0)
+        - Amounts over €100,000 are logged as unusual (but still processed)
     """
+    # Maximum reasonable donation/payment amount (€100,000)
+    MAX_REASONABLE_AMOUNT = 100000.0
+
     try:
+        payment_id = getattr(payment, "id", "unknown")
+
         # Handle None payment object
         if not payment:
             frappe.logger().warning("⚠️ Payment object is None")
@@ -1099,50 +1128,65 @@ def _validate_payment_amount(payment):
 
         # Handle missing amount entirely
         if not amount_obj:
-            frappe.logger().warning("⚠️ Payment %s has no amount field", getattr(payment, "id", "unknown"))
+            frappe.logger().warning("⚠️ Payment %s has no amount field", payment_id)
             return 0.0
+
+        # Extract raw value based on format
+        raw_value = None
 
         # Handle dictionary format (API response)
         if isinstance(amount_obj, dict):
-            value = amount_obj.get("value", 0)
-            if value in [None, "", "0", "0.00"]:
-                frappe.logger().warning(
-                    "⚠️ Payment %s has zero/empty amount", getattr(payment, "id", "unknown")
-                )
-                return 0.0
-            return float(value)
-
+            raw_value = amount_obj.get("value", 0)
         # Handle object format (SDK object)
         elif hasattr(amount_obj, "value"):
-            value = getattr(amount_obj, "value", 0)
-            if value in [None, "", "0", "0.00"]:
-                frappe.logger().warning(
-                    "⚠️ Payment %s has zero/empty amount", getattr(payment, "id", "unknown")
-                )
-                return 0.0
-            return float(value)
-
+            raw_value = getattr(amount_obj, "value", 0)
         # Handle direct numeric value
         elif isinstance(amount_obj, (int, float, str)):
-            value = float(amount_obj)
-            if value == 0.0:
-                frappe.logger().warning("⚠️ Payment %s has zero amount", getattr(payment, "id", "unknown"))
-            return value
-
-        # Unknown format
+            raw_value = amount_obj
         else:
-            frappe.logger().error(
-                "⚠️ Unknown amount format for payment %s: %s",
-                getattr(payment, "id", "unknown"),
-                type(amount_obj),
-            )
+            frappe.logger().error("⚠️ Unknown amount format for payment %s: %s", payment_id, type(amount_obj))
             return 0.0
 
+        # Convert to float
+        if raw_value in [None, "", "0", "0.00"]:
+            frappe.log_error(f"Zero/empty payment amount for {payment_id}", "Payment Amount Validation Error")
+            frappe.throw(_("Payment {0} has zero or empty amount - cannot process").format(payment_id))
+
+        value = float(raw_value)
+
+        # RANGE VALIDATION: Reject negative amounts
+        if value < 0:
+            frappe.log_error(
+                f"Negative payment amount detected: {payment_id} = {value}", "Payment Amount Validation Error"
+            )
+            frappe.throw(_("Payment {0} has negative amount ({1}) - rejecting").format(payment_id, value))
+
+        # RANGE VALIDATION: Reject zero amounts
+        if value == 0.0:
+            frappe.log_error(f"Zero payment amount for {payment_id}", "Payment Amount Validation Error")
+            frappe.throw(_("Payment {0} has zero amount - cannot process").format(payment_id))
+
+        # RANGE VALIDATION: Log unusually large amounts (but process them)
+        if value > MAX_REASONABLE_AMOUNT:
+            frappe.logger().warning("⚠️ Payment %s has unusually large amount: €%.2f", payment_id, value)
+            frappe.log_error(
+                f"Unusually large payment amount: {payment_id} = €{value:.2f}", "Payment Amount Warning"
+            )
+            # Still process - just log for review
+
+        return value
+
+    except frappe.ValidationError:
+        # Re-raise validation errors (from frappe.throw)
+        raise
     except (ValueError, AttributeError, TypeError) as e:
-        frappe.logger().error(
-            "❌ Payment amount validation error for payment %s: %s", getattr(payment, "id", "unknown"), e
+        frappe.log_error(
+            f"Payment amount validation error for {getattr(payment, 'id', 'unknown')}: {e}",
+            "Payment Amount Validation Error",
         )
-        return 0.0
+        frappe.throw(
+            _("Invalid payment amount format for payment {0}").format(getattr(payment, "id", "unknown"))
+        )
 
 
 def _validate_webhook_signature():
@@ -1272,7 +1316,9 @@ def _process_payment_refunds(payment_id, payment):
             )
 
             if existing_pe:
-                frappe.logger().info(f"⏭️ Refund {refund.id} already processed (Payment Entry: {existing_pe})")
+                frappe.logger().info(
+                    f"⏭️ Refund {refund.id} already processed (Payment Entry: {existing_pe})"
+                )
                 continue
 
             # Process the refund using unified payment entry creator and utilities
@@ -1393,7 +1439,9 @@ def _notify_member_of_payment_failure(member, payment, failure_count):
         if result.get("status") == "success":
             frappe.logger().info(f"✅ Payment failure notification sent to {member.email}")
         else:
-            frappe.logger().warning(f"⚠️ Failed to send payment failure notification: {result.get('message')}")
+            frappe.logger().warning(
+                f"⚠️ Failed to send payment failure notification: {result.get('message')}"
+            )
 
     except Exception as e:
         frappe.logger().error(f"❌ Error sending payment failure notification: {e}")

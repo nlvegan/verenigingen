@@ -113,8 +113,8 @@ def _get_bulk_settings_data():
 
     # Query 4: Get company name (only if needed)
     company_name = ""
-    if settings.donation_company:
-        company_name = frappe.get_value("Company", settings.donation_company, "company_name")
+    if settings.company:
+        company_name = frappe.get_value("Company", settings.company, "company_name")
 
     return {
         "settings": {
@@ -122,7 +122,7 @@ def _get_bulk_settings_data():
             "enable_chapter_management": settings.enable_chapter_management,
             "organization_email_domain": getattr(settings, "organization_email_domain", ""),
             "anbi_minimum_reportable_amount": flt(getattr(settings, "anbi_minimum_reportable_amount", 500)),
-            "donation_company": settings.donation_company,
+            "company": settings.company,
         },
         "donation_types": donation_types,
         "chapters": chapters,
@@ -513,7 +513,7 @@ def process_mollie_subscription(donation, form_data, mollie_gateway):
 def process_bank_transfer(donation):
     """Process bank transfer payment - maintains exact same logic"""
     settings = frappe.get_single("Verenigingen Settings")
-    company = frappe.get_doc("Company", settings.donation_company)
+    company = frappe.get_doc("Company", settings.company)
 
     # Generate payment reference
     payment_reference = f"DON-{donation.name}"
@@ -615,7 +615,7 @@ def get_performance_comparison():
         start_time = time.time()
 
         settings = frappe.get_single("Verenigingen Settings")
-        frappe.get_value("Company", settings.donation_company, "company_name")
+        frappe.get_value("Company", settings.company, "company_name")
         frappe.get_all("Donation Type", fields=["name", "donation_type"])
         if settings.enable_chapter_management:
             frappe.get_all("Chapter", filters={"published": 1}, fields=["name"])

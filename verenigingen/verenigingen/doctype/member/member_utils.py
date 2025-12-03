@@ -507,14 +507,13 @@ def check_mandate_iban_mismatch(member, current_iban):
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
 def derive_bic_from_iban(iban):
-    """Derive BIC from IBAN - redirects to SEPAService
+    """Derive BIC from IBAN using the IBAN validator utility.
 
-    NOTE: Original implementation here was more sophisticated with full bank mappings.
-    SEPAService should be enhanced with this mapping in a future iteration.
+    Uses Dutch bank code mappings to derive BIC from IBAN.
     """
-    from verenigingen.utils.services import sepa_service
+    from verenigingen.utils.validation.iban_validator import derive_bic_from_iban as _derive_bic
 
-    return sepa_service.derive_bic_from_iban(iban)
+    return _derive_bic(iban)
 
 
 @frappe.whitelist()
@@ -650,7 +649,7 @@ def create_and_link_mandate_enhanced(
     replace_mandate=None,
 ):
     """
-    Create and link SEPA mandate - redirects to SEPAService
+    Create and link SEPA mandate using SEPAMandateManager.
 
     .. deprecated:: 2025-10-14
         Use :func:`verenigingen.services.payment.sepa_mandate_manager.SEPAMandateManager.create_mandate` instead.
@@ -667,22 +666,47 @@ def create_and_link_mandate_enhanced(
         "Deprecated function create_and_link_mandate_enhanced() called. Migrate to SEPAMandateManager.",
         "Deprecation Warning",
     )
-    from verenigingen.utils.services import sepa_service
 
-    # SEPAService uses "replace_existing" parameter instead of "replace_mandate"
-    return sepa_service.create_and_link_mandate_enhanced(
+    from verenigingen.services.payment.sepa_mandate_manager import SEPAMandateManager
+
+    manager = SEPAMandateManager()
+    result = manager.create_mandate(
         member=member,
-        mandate_id=mandate_id,
         iban=iban,
         bic=bic,
         account_holder_name=account_holder_name,
-        mandate_type=mandate_type,
+        mandate_id=mandate_id,
         sign_date=sign_date,
-        used_for_memberships=used_for_memberships,
-        used_for_donations=used_for_donations,
+        used_for_memberships=bool(used_for_memberships),
+        used_for_donations=bool(used_for_donations),
+        mandate_type=mandate_type,
         notes=notes,
-        replace_existing=replace_mandate,  # Parameter name mapping
     )
+
+    # Handle replace_mandate: mark old mandate as non-current
+    if replace_mandate and result.valid:
+        try:
+            member_doc = frappe.get_doc("Member", member)
+            for link in member_doc.sepa_mandates:
+                if link.mandate_reference == replace_mandate:
+                    link.is_current = 0
+            member_doc.save()
+        except Exception as e:
+            frappe.log_error(f"Failed to deactivate old mandate {replace_mandate}: {e}")
+
+    # Convert ValidationResult to legacy dict format for backward compatibility
+    if result.valid:
+        return {
+            "success": True,
+            "mandate_name": result.data.get("mandate_name"),
+            "mandate_id": result.data.get("mandate_id"),
+        }
+    else:
+        return {
+            "success": False,
+            "error": result.message,
+            "errors": result.errors,
+        }
 
 
 @frappe.whitelist()

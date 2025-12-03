@@ -15,7 +15,7 @@ class TestANBIClarityLifecycle(EnhancedTestCase):
     def setUp(self):
         """Set up test environment"""
         # EnhancedTestCase handles permissions automatically
-        self.test_company = frappe.db.get_single_value("Verenigingen Settings", "donation_company") or "Test Company"
+        self.test_company = frappe.db.get_single_value("Verenigingen Settings", "company") or "Test Company"
     
     def tearDown(self):
         """Clean up test data"""

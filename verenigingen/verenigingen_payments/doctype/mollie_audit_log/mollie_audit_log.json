@@ -6,44 +6,55 @@
   "editable_grid": 0,
   "engine": "InnoDB",
   "field_order": [
-    "action",
-    "status",
-    "details",
-    "column_break_1",
+    "event_type",
+    "event_category",
+    "severity",
+    "column_break_main",
     "user",
     "timestamp",
     "ip_address",
-    "section_break_1",
+    "description_section",
+    "description",
+    "event_data",
+    "legacy_section",
+    "action",
+    "status",
+    "details",
+    "security_section",
     "integrity_hash"
   ],
   "fields": [
     {
-      "fieldname": "action",
+      "fieldname": "event_type",
       "fieldtype": "Data",
       "in_list_view": 1,
       "in_standard_filter": 1,
-      "label": "Action",
+      "label": "Event Type",
       "read_only": 1,
-      "reqd": 1
+      "description": "Type of event (e.g., payment_created, webhook_received, financial_entry_error)"
     },
     {
-      "fieldname": "status",
+      "fieldname": "event_category",
       "fieldtype": "Select",
       "in_list_view": 1,
       "in_standard_filter": 1,
-      "label": "Status",
-      "options": "success\nfailed\nwarning",
+      "label": "Event Category",
+      "options": "\npayment\nsubscription\nwebhook_processing\nsecurity\nreconciliation\nconfiguration",
       "read_only": 1,
-      "reqd": 1
+      "description": "Category of the event for filtering and reporting"
     },
     {
-      "fieldname": "details",
-      "fieldtype": "Long Text",
-      "label": "Details",
+      "fieldname": "severity",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Severity",
+      "options": "info\nwarning\nerror\ncritical",
+      "default": "info",
       "read_only": 1
     },
     {
-      "fieldname": "column_break_1",
+      "fieldname": "column_break_main",
       "fieldtype": "Column Break"
     },
     {
@@ -52,8 +63,7 @@
       "in_list_view": 1,
       "label": "User",
       "options": "User",
-      "read_only": 1,
-      "reqd": 1
+      "read_only": 1
     },
     {
       "fieldname": "timestamp",
@@ -61,8 +71,7 @@
       "in_list_view": 1,
       "in_standard_filter": 1,
       "label": "Timestamp",
-      "read_only": 1,
-      "reqd": 1
+      "read_only": 1
     },
     {
       "fieldname": "ip_address",
@@ -71,7 +80,55 @@
       "read_only": 1
     },
     {
-      "fieldname": "section_break_1",
+      "fieldname": "description_section",
+      "fieldtype": "Section Break",
+      "label": "Event Details"
+    },
+    {
+      "fieldname": "description",
+      "fieldtype": "Small Text",
+      "label": "Description",
+      "read_only": 1,
+      "description": "Human-readable description of the event"
+    },
+    {
+      "fieldname": "event_data",
+      "fieldtype": "JSON",
+      "label": "Event Data",
+      "read_only": 1,
+      "description": "Structured JSON data associated with the event"
+    },
+    {
+      "fieldname": "legacy_section",
+      "fieldtype": "Section Break",
+      "label": "Legacy Fields",
+      "collapsible": 1,
+      "description": "Deprecated fields maintained for backwards compatibility"
+    },
+    {
+      "fieldname": "action",
+      "fieldtype": "Data",
+      "label": "Action (Legacy)",
+      "read_only": 1,
+      "description": "Deprecated: Use event_type instead"
+    },
+    {
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "label": "Status (Legacy)",
+      "options": "\nsuccess\nfailed\nwarning",
+      "read_only": 1,
+      "description": "Deprecated: Use severity instead"
+    },
+    {
+      "fieldname": "details",
+      "fieldtype": "Long Text",
+      "label": "Details (Legacy)",
+      "read_only": 1,
+      "description": "Deprecated: Use description and event_data instead"
+    },
+    {
+      "fieldname": "security_section",
       "fieldtype": "Section Break",
       "label": "Security"
     },
@@ -86,7 +143,7 @@
   ],
   "index_web_pages_for_search": 0,
   "links": [],
-  "modified": "2025-01-16 10:30:00.000000",
+  "modified": "2025-12-02 15:00:00.000000",
   "modified_by": "Administrator",
   "module": "Verenigingen Payments",
   "name": "Mollie Audit Log",
@@ -134,7 +191,7 @@
   "read_only_onload": 1,
   "sort_field": "timestamp",
   "sort_order": "DESC",
-  "title_field": "action",
+  "title_field": "event_type",
   "track_changes": 0,
   "track_seen": 0,
   "track_views": 0

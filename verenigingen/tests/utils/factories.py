@@ -86,6 +86,10 @@ class TestUserFactory:
 
         user.append("roles", {"role": "Verenigingen Administrator"})
         user.append("roles", {"role": "System Manager"})
+        # ERPNext roles for financial operations
+        user.append("roles", {"role": "Accounts Manager"})
+        user.append("roles", {"role": "Sales Manager"})
+        user.append("roles", {"role": "Accounts User"})
         user.insert()
 
         return user
@@ -353,14 +357,37 @@ class TestDataBuilder:
         if "member" not in self._data:
             raise ValueError("Must create member before volunteer profile")
 
+        # Handle child table fields that need special formatting
+        interests = kwargs.pop("interests", None)
+        skills = kwargs.pop("skills", None)  # Map to skills_and_qualifications if provided
+        kwargs.pop("availability", None)  # Not a valid field, ignore
+
         volunteer_data = {
             "doctype": "Volunteer",
             "volunteer_name": self._data["member"].full_name,
             "email": f"volunteer.{random_string(8)}@example.com",
             "member": self._data["member"].name,
             "status": "Active",
-            "start_date": today()}
+            "start_date": today(),
+        }
         volunteer_data.update(kwargs)
+
+        # Convert interests list to proper child table format
+        if interests:
+            volunteer_data["interests"] = [
+                {"interest_area": item} if isinstance(item, str) else item
+                for item in interests
+            ]
+
+        # Convert skills string/list to proper child table format for skills_and_qualifications
+        if skills:
+            if isinstance(skills, str):
+                skills = [s.strip() for s in skills.split(",")]
+            volunteer_data["skills_and_qualifications"] = [
+                {"volunteer_skill": item, "skill_category": "Other", "proficiency_level": "3 - Intermediate"}
+                if isinstance(item, str) else item
+                for item in skills
+            ]
 
         volunteer = frappe.get_doc(volunteer_data)
         volunteer.insert()
@@ -397,17 +424,33 @@ class TestDataBuilder:
         else:
             team = frappe.get_doc("Team", team_name)
 
+        # Get or create a team role
+        team_role = kwargs.get("team_role", role)
+        if not frappe.db.exists("Team Role", team_role):
+            # Try common role names
+            if frappe.db.exists("Team Role", "Team Member"):
+                team_role = "Team Member"
+            else:
+                # Create a test team role
+                team_role_doc = frappe.get_doc({
+                    "doctype": "Team Role",
+                    "role_name": team_role or "Test Role",
+                })
+                team_role_doc.insert()
+                team_role = team_role_doc.name
+                self._cleanup_manager.register("Team Role", team_role)
+
         # Add volunteer to team
         team.append(
             "team_members",
             {
                 "volunteer": self._data["volunteer"].name,
                 "volunteer_name": self._data["volunteer"].volunteer_name,
-                "role": role,
-                "role_type": kwargs.get("role_type", "Team Member"),
+                "team_role": team_role,
                 "from_date": kwargs.get("from_date", today()),
                 "is_active": 1,
-                "status": "Active"},
+                "status": "Active",
+            },
         )
         team.save()
 

@@ -25,7 +25,7 @@ def debug_payment_entry_creation():
         try:
             settings = frappe.get_single("Verenigingen Settings")
             print(f"Settings exist: Yes")
-            company = settings.donation_company or frappe.defaults.get_global_default("company")
+            company = settings.company or frappe.defaults.get_global_default("company")
             print(f"Company: {company}")
 
             donation_account = getattr(settings, "donation_receivable_account", None)

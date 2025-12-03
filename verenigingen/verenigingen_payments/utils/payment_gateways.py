@@ -49,7 +49,7 @@ class BankTransferGateway(PaymentGateway):
     def process_payment(self, donation, form_data):
         """Generate bank transfer instructions"""
         settings = frappe.get_single("Verenigingen Settings")
-        company = frappe.get_doc("Company", settings.donation_company)
+        company = frappe.get_doc("Company", settings.company)
 
         # Generate unique payment reference
         payment_reference = f"DON-{donation.name}-{donation.creation.strftime('%Y%m%d')}"

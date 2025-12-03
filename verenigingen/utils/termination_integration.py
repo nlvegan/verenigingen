@@ -939,6 +939,11 @@ def suspend_member_safe(
             "teams_suspended": 0,
         }
 
+        # Check if member is already suspended
+        if member.status == "Suspended":
+            results["actions_taken"].append(f"Member {member_name} is already suspended")
+            return results
+
         # 1. Update member status to Suspended
         original_status = member.status
         member.status = "Suspended"

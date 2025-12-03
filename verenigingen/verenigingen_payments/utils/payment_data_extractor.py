@@ -534,6 +534,74 @@ class PaymentDataExtractor:
 
         return None
 
+    def extract_payment_date(
+        self,
+        payment_data: Any,
+        field_names: Optional[list] = None,
+    ) -> date:
+        """
+        Extract and parse payment date from Mollie payment data.
+
+        Tries multiple field names and handles ISO datetime string parsing.
+        This is the recommended method for webhook processing where payment
+        data is often a dict with ISO datetime strings.
+
+        Args:
+            payment_data: Mollie payment data (dict or object)
+            field_names: List of field names to try (default: ["paid_at", "created_at"])
+
+        Returns:
+            Parsed date or today's date if parsing fails
+
+        Examples:
+            # Standard usage
+            extractor = get_payment_data_extractor()
+            paid_date = extractor.extract_payment_date(payment_data)
+
+            # Custom field priority
+            paid_date = extractor.extract_payment_date(
+                payment_data,
+                field_names=["created_at", "paid_at", "timestamp"]
+            )
+        """
+        if field_names is None:
+            field_names = ["paid_at", "created_at"]
+
+        for field_name in field_names:
+            # Try dict access first
+            if isinstance(payment_data, dict):
+                date_value = payment_data.get(field_name)
+            else:
+                date_value = getattr(payment_data, field_name, None)
+
+            if not date_value:
+                continue
+
+            # Parse ISO datetime strings (Mollie uses "2025-12-01T23:45:30+00:00" format)
+            if isinstance(date_value, str):
+                try:
+                    from dateutil import parser
+
+                    return parser.parse(date_value).date()
+                except (ValueError, TypeError, ImportError):
+                    # Try Frappe's getdate as fallback
+                    try:
+                        return getdate(date_value)
+                    except Exception:
+                        continue
+
+            # Handle datetime objects
+            if hasattr(date_value, "date"):
+                return date_value.date()
+
+            # Handle date objects
+            if isinstance(date_value, date):
+                return date_value
+
+        # Fallback to today
+        frappe.logger().debug(f"Could not extract date from fields {field_names}, using today's date")
+        return getdate()
+
     def extract_date(
         self,
         payment_object: Any,

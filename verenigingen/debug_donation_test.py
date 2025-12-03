@@ -57,7 +57,7 @@ def test_donation_creation():
         print("\n2. Testing donation creation...")
 
         settings = frappe.get_single("Verenigingen Settings")
-        company = settings.donation_company or frappe.get_list("Company", limit=1)[0].name
+        company = settings.company or frappe.get_list("Company", limit=1)[0].name
 
         donation_doc = frappe.new_doc("Donation")
         donation_doc.update(

@@ -245,6 +245,29 @@ def get_context(context):
             "args": {"dry_run": False, "max_payments": 300},
             "formatter": "generic",
         },
+        {
+            "title": "Delete All Payment Entries",
+            "description": "Delete all payment entries from the system (development only)",
+            "method": "verenigingen.e_boekhouden.utils.cleanup_utils.delete_all_payment_entries",
+            "icon": "fa fa-trash-o",
+            "color": "danger",
+            "warning": "This will permanently delete ALL payment entries in the system! Only use on development servers!",
+        },
+        {
+            "title": "Cleanup eBoekhouden Data",
+            "description": "Clean up all e-Boekhouden imported data for fresh migration",
+            "method": "verenigingen.e_boekhouden.utils.cleanup_utils.nuclear_cleanup_all_imported_data",
+            "icon": "fa fa-trash-o",
+            "color": "warning",
+            "warning": "This will permanently delete all imported e-Boekhouden data. Use with caution!",
+        },
+        {
+            "title": "Cleanup Orphaned GL Entries",
+            "description": "Clean up GL entries, Payment Entry References, and Payment Ledger Entries that reference deleted documents",
+            "method": "verenigingen.e_boekhouden.utils.cleanup_utils.cleanup_orphaned_gl_entries",
+            "icon": "fa fa-eraser",
+            "color": "warning",
+        },
     ]
 
     # System administration tools
@@ -298,14 +321,6 @@ def get_context(context):
             "color": "brand-secondary",
             "args": {"days": 90},
             "warning": "This will delete version history older than 90 days",
-        },
-        {
-            "title": "Delete All Payment Entries",
-            "description": "Delete all payment entries from the system (development only)",
-            "method": "verenigingen.e_boekhouden.utils.cleanup_utils.delete_all_payment_entries",
-            "icon": "fa fa-trash-o",
-            "color": "danger",
-            "warning": "⚠️ This will permanently delete ALL payment entries in the system! Only use on development servers!",
         },
         {
             "title": "Security Configuration",
@@ -379,21 +394,6 @@ def get_context(context):
             "icon": "fa fa-flask",
             "color": "brand-accent",
         },
-        {
-            "title": "Cleanup Orphaned GL Entries",
-            "description": "Clean up GL entries, Payment Entry References, and Payment Ledger Entries that reference deleted documents",
-            "method": "verenigingen.e_boekhouden.utils.cleanup_utils.cleanup_orphaned_gl_entries",
-            "icon": "fa fa-eraser",
-            "color": "brand-secondary",
-        },
-        {
-            "title": "Cleanup Imported Data",
-            "description": "Clean up all e-Boekhouden imported data for fresh migration",
-            "method": "verenigingen.e_boekhouden.utils.cleanup_utils.nuclear_cleanup_all_imported_data",
-            "icon": "fa fa-trash-o",
-            "color": "brand-primary",
-            "warning": "This will permanently delete all imported e-Boekhouden data. Use with caution!",
-        },
     ]
 
     # Member import cleanup tools
@@ -449,63 +449,56 @@ def get_context(context):
         },
     ]
 
-    # Add command examples
+    # Add command examples with dynamic site name
+    site_name = frappe.local.site
     context.command_examples = [
         {
             "description": "Check system health",
-            "command": "bench --site dev.veganisme.net execute verenigingen.utils.performance_dashboard.get_system_health",
+            "command": f"bench --site {site_name} execute verenigingen.utils.performance_dashboard.get_system_health",
         },
         {
             "description": "Apply database optimizations",
-            "command": "bench --site dev.veganisme.net execute verenigingen.utils.api_endpoint_optimizer.run_api_optimization --dry_run=False",
+            "command": f"bench --site {site_name} execute verenigingen.utils.api_endpoint_optimizer.run_api_optimization --dry_run=False",
         },
         {
             "description": "Clean up all e-Boekhouden imported data",
-            "command": "bench --site dev.veganisme.net execute verenigingen.e_boekhouden.utils.cleanup_utils.nuclear_cleanup_all_imported_data",
+            "command": f"bench --site {site_name} execute verenigingen.e_boekhouden.utils.cleanup_utils.nuclear_cleanup_all_imported_data",
         },
         {
             "description": "Cleanup orphaned schedules (dry run)",
-            "command": "bench --site dev.veganisme.net execute verenigingen.utils.invoice_management.cleanup_orphaned_schedules --kwargs='{\"dry_run\": True}'",
+            "command": f"bench --site {site_name} execute verenigingen.utils.invoice_management.cleanup_orphaned_schedules --kwargs='{{\"dry_run\": true}}'",
         },
         {
             "description": "Enhanced membership cleanup (dry run)",
-            "command": 'bench --site dev.veganisme.net execute verenigingen.utils.invoice_management.cleanup_orphaned_membership_data --kwargs=\'{"dry_run": True, "max_cleanup": 20}\'',
+            "command": f'bench --site {site_name} execute verenigingen.utils.invoice_management.cleanup_orphaned_membership_data --kwargs=\'{{"dry_run": true, "max_cleanup": 20}}\'',
         },
         {
-            "description": "Enhanced membership cleanup (live) - handles Standard Monthly issues",
-            "command": 'bench --site dev.veganisme.net execute verenigingen.utils.invoice_management.cleanup_orphaned_membership_data --kwargs=\'{"dry_run": False, "max_cleanup": 20}\'',
+            "description": "Enhanced membership cleanup (live)",
+            "command": f'bench --site {site_name} execute verenigingen.utils.invoice_management.cleanup_orphaned_membership_data --kwargs=\'{{"dry_run": false, "max_cleanup": 20}}\'',
         },
         {
             "description": "Preview member cleanup (safe)",
-            "command": "bench --site dev.veganisme.net execute verenigingen.utils.member_import_cleanup.preview_member_cleanup",
+            "command": f"bench --site {site_name} execute verenigingen.utils.member_import_cleanup.preview_member_cleanup",
         },
         {
             "description": "Cleanup test members only",
-            "command": "bench --site dev.veganisme.net execute verenigingen.utils.member_import_cleanup.cleanup_test_members_only",
+            "command": f"bench --site {site_name} execute verenigingen.utils.member_import_cleanup.cleanup_test_members_only",
         },
         {
             "description": "Nuclear cleanup ALL members (DRY RUN)",
-            "command": 'bench --site dev.veganisme.net execute verenigingen.utils.member_import_cleanup.nuclear_cleanup_all_members --kwargs=\'{"confirm_nuclear_cleanup": True, "dry_run": True}\'',
+            "command": f'bench --site {site_name} execute verenigingen.utils.member_import_cleanup.nuclear_cleanup_all_members --kwargs=\'{{"confirm_nuclear_cleanup": true, "dry_run": true}}\'',
         },
         {
-            "description": "⚠️ DANGER: Nuclear cleanup ALL members (LIVE)",
-            "command": 'bench --site dev.veganisme.net execute verenigingen.utils.member_import_cleanup.nuclear_cleanup_all_members --kwargs=\'{"confirm_nuclear_cleanup": True, "dry_run": False}\'',
+            "description": "Nuclear cleanup ALL members (LIVE)",
+            "command": f'bench --site {site_name} execute verenigingen.utils.member_import_cleanup.nuclear_cleanup_all_members --kwargs=\'{{"confirm_nuclear_cleanup": true, "dry_run": false}}\'',
         },
         {
-            "description": "Complete partial payments (dry run, max 300)",
-            "command": 'bench --site dev.veganisme.net execute verenigingen.utils.payment_processing_recovery.complete_partial_payments --kwargs=\'{"dry_run": True, "max_payments": 300}\'',
+            "description": "Complete partial payments (dry run)",
+            "command": f'bench --site {site_name} execute verenigingen.utils.payment_processing_recovery.complete_partial_payments --kwargs=\'{{"dry_run": true, "max_payments": 300}}\'',
         },
         {
-            "description": "Complete partial payments (LIVE, max 300)",
-            "command": 'bench --site dev.veganisme.net execute verenigingen.utils.payment_processing_recovery.complete_partial_payments --kwargs=\'{"dry_run": False, "max_payments": 300}\'',
-        },
-        {
-            "description": "Complete partial payments (LIVE, unlimited - up to 2500)",
-            "command": "bench --site dev.veganisme.net execute verenigingen.utils.payment_processing_recovery.complete_partial_payments --kwargs='{\"dry_run\": False}'",
-        },
-        {
-            "description": "Complete partial payments (LIVE, custom limit)",
-            "command": 'bench --site dev.veganisme.net execute verenigingen.utils.payment_processing_recovery.complete_partial_payments --kwargs=\'{"dry_run": False, "max_payments": 500}\'',
+            "description": "Complete partial payments (LIVE)",
+            "command": f'bench --site {site_name} execute verenigingen.utils.payment_processing_recovery.complete_partial_payments --kwargs=\'{{"dry_run": false, "max_payments": 300}}\'',
         },
     ]
 

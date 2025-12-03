@@ -85,6 +85,7 @@
   "company_bic",
   "column_break_financial",
   "default_cash_account",
+  "mollie_bank_account",
   "automate_membership_payment_entries",
   "batch_processing_section",
   "sepa_mandate_naming_pattern",
@@ -110,7 +111,6 @@
   "membership_webhook_secret",
   "donation_settings_tab",
   "donations_section",
-  "donation_company",
   "automate_donation_payment_entries",
   "donation_debit_account",
   "tax_exempt_for_contributions",
@@ -395,15 +395,6 @@
    "options": "Account"
   },
   {
-   "description": "This company will be set for donations created in the system.",
-   "fieldname": "donation_company",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Company",
-   "options": "Company",
-   "reqd": 1
-  },
-  {
    "description": "The user that will be used to create Donations, Memberships, Invoices, and Payment Entries. This user should have the relevant permissions.",
    "fieldname": "creation_user",
    "fieldtype": "Link",
@@ -677,6 +668,13 @@
    "fieldname": "default_cash_account",
    "fieldtype": "Link",
    "label": "Default Cash Account",
+   "options": "Account"
+  },
+  {
+   "description": "Bank account for Mollie payment processing. If not set, will look for an account named 'Mollie' or fall back to company default bank account.",
+   "fieldname": "mollie_bank_account",
+   "fieldtype": "Link",
+   "label": "Mollie Bank Account",
    "options": "Account"
   },
   {
