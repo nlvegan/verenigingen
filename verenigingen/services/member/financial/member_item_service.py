@@ -36,13 +36,14 @@ from typing import TYPE_CHECKING, Optional
 
 import frappe
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.secure_operations import secure_document_operation
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
 
 
-class MemberItemService:
+class MemberItemService(StatelessService):
     """
     Service for managing membership billing items.
 
@@ -52,8 +53,11 @@ class MemberItemService:
     - Singleton pattern for standardized membership item
     """
 
-    @staticmethod
-    def get_or_create_membership_item(member_doc: "Document") -> Optional["Document"]:
+    def __init__(self) -> None:
+        """Initialize the member item service."""
+        super().__init__(service_name="MemberItemService")
+
+    def get_or_create_membership_item(self, member_doc: "Document") -> Optional["Document"]:
         """
         Get or create the standardized membership fee item.
 
@@ -93,7 +97,7 @@ class MemberItemService:
                     "doctype": "Item",
                     "item_code": item_code,
                     "item_name": "Membership Fee",
-                    "item_group": MemberItemService._get_default_item_group(),
+                    "item_group": self._get_default_item_group(),
                     "is_service_item": 1,
                     "maintain_stock": 0,
                     "include_item_in_manufacturing": 0,
@@ -111,18 +115,17 @@ class MemberItemService:
             )
 
             if not item_result.success:
-                frappe.logger().error(f"Failed to create membership item: {'; '.join(item_result.errors)}")
+                self.logger.error(f"Failed to create membership item: {'; '.join(item_result.errors)}")
                 return None
 
-            frappe.logger().info(f"Created membership item {item.name}")
+            self.logger.info(f"Created membership item {item.name}")
             return item
 
         except Exception as e:
-            frappe.log_error(f"Error creating membership item: {str(e)}", "Member Item Service")
+            self.logger.error(f"Error creating membership item: {str(e)}")
             return None
 
-    @staticmethod
-    def _get_default_item_group() -> str:
+    def _get_default_item_group(self) -> str:
         """
         Get the default item group for membership items.
 

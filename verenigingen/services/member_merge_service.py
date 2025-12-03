@@ -48,11 +48,15 @@ from frappe import _
 from frappe.model.document import Document
 
 from verenigingen.repositories import DuesScheduleRepository
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.operation_result import OperationResult
 
 
-class MemberMergeService:
-    """Service for merging duplicate Member records with field-level control."""
+class MemberMergeService(StatelessService):
+    """Service for merging duplicate Member records with field-level control.
+
+    Inherits from StatelessService for consistent logging, metrics, and error handling.
+    """
 
     # Fields that can be merged (identity and contact data only)
     MERGEABLE_FIELDS = [
@@ -132,7 +136,7 @@ class MemberMergeService:
 
     def __init__(self):
         """Initialize the merge service."""
-        pass
+        super().__init__(service_name="MemberMergeService")
 
     def get_merge_preview(self, source_name: str, target_name: str) -> Dict[str, Any]:
         """
@@ -386,10 +390,7 @@ class MemberMergeService:
                     "Membership Dues Schedule", schedule.name, force=True, ignore_permissions=True
                 )
             except Exception as e:
-                frappe.log_error(
-                    message=f"Failed to delete Dues Schedule {schedule.name}: {str(e)}",
-                    title="Member Merge: Dues Schedule Deletion Failed",
-                )
+                self.logger.error(f"Failed to delete Dues Schedule {schedule.name}: {str(e)}")
 
         # Delete Memberships
         memberships = frappe.get_all("Membership", filters={"member": source.name})
@@ -397,27 +398,20 @@ class MemberMergeService:
             try:
                 frappe.delete_doc("Membership", membership.name, force=True, ignore_permissions=True)
             except Exception as e:
-                frappe.log_error(
-                    message=f"Failed to delete Membership {membership.name}: {str(e)}",
-                    title="Member Merge: Membership Deletion Failed",
-                )
+                self.logger.error(f"Failed to delete Membership {membership.name}: {str(e)}")
 
         # Delete Customer if exists and has no invoices
         if source.customer:
             try:
                 has_invoices = frappe.db.exists("Sales Invoice", {"customer": source.customer})
                 if has_invoices:
-                    frappe.log_error(
-                        message=f"Cannot delete Customer {source.customer} - has invoices. Keeping Customer.",
-                        title="Member Merge: Customer Preservation",
+                    self.logger.info(
+                        f"Cannot delete Customer {source.customer} - has invoices. Keeping Customer."
                     )
                 else:
                     frappe.delete_doc("Customer", source.customer, force=True, ignore_permissions=True)
             except Exception as e:
-                frappe.log_error(
-                    message=f"Failed to delete Customer {source.customer}: {str(e)}",
-                    title="Member Merge: Customer Deletion Failed",
-                )
+                self.logger.error(f"Failed to delete Customer {source.customer}: {str(e)}")
 
         # Finally, delete the Member itself
         # Note: This does NOT delete User, Employee, Volunteer records
@@ -450,10 +444,7 @@ class MemberMergeService:
             contact.save(ignore_permissions=True)
 
         except Exception as e:
-            frappe.log_error(
-                message=f"Failed to add secondary emails to Contact {contact_name}: {str(e)}",
-                title="Member Merge: Email Addition Failed",
-            )
+            self.logger.error(f"Failed to add secondary emails to Contact {contact_name}: {str(e)}")
 
     def _format_merge_comment(self, source_name: str, changes: List[Dict[str, Any]]) -> str:
         """Format a human-readable merge audit comment."""
@@ -491,8 +482,8 @@ def get_merge_preview(source_name: str, target_name: str) -> OperationResult[Dic
         - Requires write permission on both members
         - Never throws exceptions (returns failed OperationResult)
     """
+    service = MemberMergeService()
     try:
-        service = MemberMergeService()
         preview_data = service.get_merge_preview(source_name, target_name)
         return OperationResult.ok(
             preview_data, message=f"Generated merge preview for {source_name} → {target_name}"
@@ -507,10 +498,7 @@ def get_merge_preview(source_name: str, target_name: str) -> OperationResult[Dic
     except frappe.ValidationError as e:
         return OperationResult.fail(str(e), errors=[str(e)], source=source_name, target=target_name)
     except Exception as e:
-        frappe.log_error(
-            f"Unexpected error in merge preview for {source_name} → {target_name}: {str(e)}",
-            "Member Merge Service Error",
-        )
+        service.logger.error(f"Unexpected error in merge preview for {source_name} → {target_name}: {str(e)}")
         return OperationResult.fail(
             _("An error occurred while generating merge preview"),
             errors=[str(e)],
@@ -538,12 +526,12 @@ def execute_merge(
         - Requires write permission on both members
         - Never throws exceptions (returns failed OperationResult)
     """
+    service = MemberMergeService()
     try:
         # Parse field_selections if it's a JSON string
         if isinstance(field_selections, str):
             field_selections = json.loads(field_selections)
 
-        service = MemberMergeService()
         merge_result = service.execute_merge(source_name, target_name, field_selections)
 
         return OperationResult.ok(
@@ -569,10 +557,7 @@ def execute_merge(
         return OperationResult.fail(str(e), errors=[str(e)], source=source_name, target=target_name)
     except AttributeError as e:
         # Handle pre-existing bugs in service methods
-        frappe.log_error(
-            f"AttributeError in member merge {source_name} → {target_name}: {str(e)}",
-            "Member Merge Service Error",
-        )
+        service.logger.error(f"AttributeError in member merge {source_name} → {target_name}: {str(e)}")
         return OperationResult.fail(
             _("An internal error occurred. Please contact support."),
             errors=[str(e)],
@@ -580,10 +565,7 @@ def execute_merge(
             target=target_name,
         )
     except Exception as e:
-        frappe.log_error(
-            f"Unexpected error in member merge {source_name} → {target_name}: {str(e)}",
-            "Member Merge Service Error",
-        )
+        service.logger.error(f"Unexpected error in member merge {source_name} → {target_name}: {str(e)}")
         return OperationResult.fail(
             _("An error occurred while merging members"),
             errors=[str(e)],

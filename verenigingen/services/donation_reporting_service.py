@@ -32,16 +32,20 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
-class DonationReportingService:
-    """Service for handling donation reporting and analytics"""
+class DonationReportingService(StatelessService):
+    """Service for handling donation reporting and analytics.
+
+    Inherits from StatelessService for consistent logging, metrics, and error handling.
+    """
 
     def __init__(self):
-        self.logger = frappe.logger()
+        super().__init__(service_name="DonationReportingService")
 
     def get_anbi_donations_for_reporting(self, from_date: str, to_date: str) -> List[Dict[str, Any]]:
         """
@@ -413,12 +417,12 @@ def get_anbi_donations_for_reporting(from_date: str, to_date: str) -> OperationR
             context={"operation": "anbi_reporting", "params": {"from_date": from_date, "to_date": to_date}},
         )
 
+    service = DonationReportingService()
     try:
-        service = DonationReportingService()
         donations = service.get_anbi_donations_for_reporting(from_date, to_date)
         return OperationResult.ok(donations, message=f"Retrieved {len(donations)} ANBI donations")
     except Exception as e:
-        frappe.log_error(f"Error retrieving ANBI donations: {str(e)}", "Donation Reporting Service Error")
+        service.logger.error(f"Error retrieving ANBI donations: {str(e)}")
         return OperationResult.fail(
             _("Unable to retrieve ANBI donations. Please contact support."),
             errors=[str(e)],
@@ -458,12 +462,12 @@ def get_donations_by_chapter(
                 },
             )
 
+    service = DonationReportingService()
     try:
-        service = DonationReportingService()
         donations = service.get_donations_by_chapter(chapter, from_date, to_date)
         return OperationResult.ok(donations, message=f"Retrieved {donations['count']} donations for chapter")
     except Exception as e:
-        frappe.log_error(f"Error retrieving chapter donations: {str(e)}", "Donation Reporting Service Error")
+        service.logger.error(f"Error retrieving chapter donations: {str(e)}")
         return OperationResult.fail(
             _("Unable to retrieve chapter donations. Please contact support."),
             errors=[str(e)],
@@ -506,12 +510,12 @@ def get_donations_by_campaign(
                 },
             )
 
+    service = DonationReportingService()
     try:
-        service = DonationReportingService()
         donations = service.get_donations_by_campaign(campaign, from_date, to_date)
         return OperationResult.ok(donations, message=f"Retrieved {donations['count']} donations for campaign")
     except Exception as e:
-        frappe.log_error(f"Error retrieving campaign donations: {str(e)}", "Donation Reporting Service Error")
+        service.logger.error(f"Error retrieving campaign donations: {str(e)}")
         return OperationResult.fail(
             _("Unable to retrieve campaign donations. Please contact support."),
             errors=[str(e)],
@@ -554,12 +558,12 @@ def get_donation_summary_by_purpose(
                 },
             )
 
+    service = DonationReportingService()
     try:
-        service = DonationReportingService()
         summary = service.get_donation_summary_by_purpose(from_date, to_date)
         return OperationResult.ok(summary, message="Retrieved donation summary by purpose")
     except Exception as e:
-        frappe.log_error(f"Error retrieving donation summary: {str(e)}", "Donation Reporting Service Error")
+        service.logger.error(f"Error retrieving donation summary: {str(e)}")
         return OperationResult.fail(
             _("Unable to retrieve donation summary. Please contact support."),
             errors=[str(e)],
@@ -602,12 +606,12 @@ def get_donation_accounting_summary(
                 },
             )
 
+    service = DonationReportingService()
     try:
-        service = DonationReportingService()
         summary = service.get_donation_accounting_summary(from_date, to_date)
         return OperationResult.ok(summary, message="Retrieved donation accounting summary")
     except Exception as e:
-        frappe.log_error(f"Error retrieving accounting summary: {str(e)}", "Donation Reporting Service Error")
+        service.logger.error(f"Error retrieving accounting summary: {str(e)}")
         return OperationResult.fail(
             _("Unable to retrieve accounting summary. Please contact support."),
             errors=[str(e)],
@@ -650,12 +654,12 @@ def create_donation_allocation_report(
                 },
             )
 
+    service = DonationReportingService()
     try:
-        service = DonationReportingService()
         report = service.create_donation_allocation_report(chapter, from_date, to_date)
         return OperationResult.ok(report, message="Created donation allocation report")
     except Exception as e:
-        frappe.log_error(f"Error creating allocation report: {str(e)}", "Donation Reporting Service Error")
+        service.logger.error(f"Error creating allocation report: {str(e)}")
         return OperationResult.fail(
             _("Unable to create allocation report. Please contact support."),
             errors=[str(e)],

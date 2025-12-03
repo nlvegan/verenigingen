@@ -43,6 +43,7 @@ from typing import Any, Dict, List, Optional
 import frappe
 from frappe import _
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.operation_result import OperationResult
 
 
@@ -75,10 +76,11 @@ class ValidationResult:
         return cls(valid=False, message=message, errors=errors or [message])
 
 
-class PaymentValidationService:
+class PaymentValidationService(StatelessService):
     """
     Payment validation orchestration service.
 
+    Inherits from StatelessService for consistent logging, metrics, and error handling.
     Consolidates payment validation logic without reimplementing validators.
     Delegates to canonical validators for actual validation logic.
     """
@@ -87,9 +89,12 @@ class PaymentValidationService:
     MIN_PAYMENT_AMOUNT = 0.01
     MAX_PAYMENT_AMOUNT = 100000.00  # €100k reasonable max for association payments
 
-    @staticmethod
+    def __init__(self) -> None:
+        """Initialize the payment validation service."""
+        super().__init__(service_name="PaymentValidationService")
+
     def validate_iban_with_context(
-        iban: str, context: str = "payment", auto_format: bool = True
+        self, iban: str, context: str = "payment", auto_format: bool = True
     ) -> ValidationResult:
         """
         Validate IBAN with context-appropriate error messages.
@@ -123,7 +128,7 @@ class PaymentValidationService:
             error_message = validation_result["message"]
 
             # Enhance error messages based on context
-            enhanced_message = PaymentValidationService._enhance_iban_error_message(error_message, context)
+            enhanced_message = self._enhance_iban_error_message(error_message, context)
 
             return ValidationResult.failure(enhanced_message)
 
@@ -134,14 +139,13 @@ class PaymentValidationService:
                 data["formatted_iban"] = format_iban(iban)
                 data["iban_clean"] = iban.replace(" ", "").upper()
             except Exception as e:
-                frappe.log_error(f"IBAN formatting failed for {iban}: {e}")
+                self.logger.warning(f"IBAN formatting failed for {iban}: {e}")
                 data["formatted_iban"] = iban
                 data["iban_clean"] = iban
 
         return ValidationResult.success(_("IBAN is valid"), data=data)
 
-    @staticmethod
-    def _enhance_iban_error_message(error_message: str, context: str) -> str:
+    def _enhance_iban_error_message(self, error_message: str, context: str) -> str:
         """
         Enhance IBAN error messages with context-specific guidance.
 
@@ -187,8 +191,8 @@ class PaymentValidationService:
         # Default: return original message
         return error_message
 
-    @staticmethod
     def validate_bank_details(
+        self,
         iban: str,
         bic: Optional[str] = None,
         account_holder_name: Optional[str] = None,
@@ -226,7 +230,7 @@ class PaymentValidationService:
         data = {}
 
         # Step 1: Validate IBAN
-        iban_result = PaymentValidationService.validate_iban_with_context(iban, context="bank_details")
+        iban_result = self.validate_iban_with_context(iban, context="bank_details")
 
         if not iban_result.valid:
             errors.extend(iban_result.errors)
@@ -246,12 +250,12 @@ class PaymentValidationService:
                     elif require_bic:
                         errors.append(_("BIC is required and could not be automatically derived from IBAN"))
                 except Exception as e:
-                    frappe.log_error(f"BIC derivation failed for {iban}: {e}")
+                    self.logger.warning(f"BIC derivation failed for {iban}: {e}")
                     if require_bic:
                         errors.append(_("BIC is required"))
             elif bic:
                 # Validate provided BIC format (basic check)
-                bic_validation = PaymentValidationService._validate_bic_format(bic)
+                bic_validation = self._validate_bic_format(bic)
                 if not bic_validation.valid:
                     errors.extend(bic_validation.errors)
                 else:
@@ -262,7 +266,7 @@ class PaymentValidationService:
 
         # Step 3: Validate account holder name (basic check)
         if account_holder_name:
-            holder_validation = PaymentValidationService._validate_account_holder_name(account_holder_name)
+            holder_validation = self._validate_account_holder_name(account_holder_name)
             if not holder_validation.valid:
                 errors.extend(holder_validation.errors)
             else:
@@ -274,8 +278,7 @@ class PaymentValidationService:
 
         return ValidationResult.success(_("Bank details are valid"), data=data)
 
-    @staticmethod
-    def _validate_bic_format(bic: str) -> ValidationResult:
+    def _validate_bic_format(self, bic: str) -> ValidationResult:
         """
         Validate BIC format (basic format check).
 
@@ -305,8 +308,7 @@ class PaymentValidationService:
 
         return ValidationResult.success(_("BIC format is valid"))
 
-    @staticmethod
-    def _validate_account_holder_name(name: str) -> ValidationResult:
+    def _validate_account_holder_name(self, name: str) -> ValidationResult:
         """
         Validate account holder name (basic sanity checks).
 
@@ -337,8 +339,7 @@ class PaymentValidationService:
 
         return ValidationResult.success(_("Account holder name is valid"))
 
-    @staticmethod
-    def validate_payment_method(method: str) -> ValidationResult:
+    def validate_payment_method(self, method: str) -> ValidationResult:
         """
         Validate payment method exists and is enabled.
 
@@ -378,8 +379,8 @@ class PaymentValidationService:
             },
         )
 
-    @staticmethod
     def validate_payment_amount(
+        self,
         amount: float,
         context: str = "payment",
         allow_zero: bool = False,
@@ -407,8 +408,8 @@ class PaymentValidationService:
             Decimal('25.00')
         """
         # Use custom bounds or defaults
-        min_bound = min_amount if min_amount is not None else PaymentValidationService.MIN_PAYMENT_AMOUNT
-        max_bound = max_amount if max_amount is not None else PaymentValidationService.MAX_PAYMENT_AMOUNT
+        min_bound = min_amount if min_amount is not None else self.MIN_PAYMENT_AMOUNT
+        max_bound = max_amount if max_amount is not None else self.MAX_PAYMENT_AMOUNT
 
         # Handle None/empty
         if amount is None:
@@ -494,7 +495,7 @@ def validate_iban_api(iban: str, context: str = "payment") -> OperationResult[Di
                 },
             )
     except Exception as e:
-        frappe.log_error(f"Error validating IBAN: {str(e)}", "Payment Validation Service Error")
+        service.logger.error(f"Error validating IBAN: {str(e)}")
         return OperationResult.fail(
             _("Unable to validate IBAN. Please contact support."),
             errors=[str(e)],
@@ -543,7 +544,7 @@ def validate_bank_details_api(
                 },
             )
     except Exception as e:
-        frappe.log_error(f"Error validating bank details: {str(e)}", "Payment Validation Service Error")
+        service.logger.error(f"Error validating bank details: {str(e)}")
         return OperationResult.fail(
             _("Unable to validate bank details. Please contact support."),
             errors=[str(e)],
@@ -581,7 +582,7 @@ def validate_payment_method_api(method: str) -> OperationResult[Dict[str, Any]]:
                 context={"operation": "payment_method_validation", "params": {"method": method}},
             )
     except Exception as e:
-        frappe.log_error(f"Error validating payment method: {str(e)}", "Payment Validation Service Error")
+        service.logger.error(f"Error validating payment method: {str(e)}")
         return OperationResult.fail(
             _("Unable to validate payment method. Please contact support."),
             errors=[str(e)],
@@ -624,7 +625,7 @@ def validate_payment_amount_api(amount: float, context: str = "payment") -> Oper
                 context={"operation": "amount_validation", "params": {"amount": amount, "context": context}},
             )
     except Exception as e:
-        frappe.log_error(f"Error validating payment amount: {str(e)}", "Payment Validation Service Error")
+        service.logger.error(f"Error validating payment amount: {str(e)}")
         return OperationResult.fail(
             _("Unable to validate payment amount. Please contact support."),
             errors=[str(e)],

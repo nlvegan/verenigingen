@@ -24,8 +24,10 @@ from typing import Any, Dict, List
 import frappe
 from frappe import _
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 
-class ChapterManagementService:
+
+class ChapterManagementService(StatelessService):
     """
     Chapter Management Service
 
@@ -48,8 +50,11 @@ class ChapterManagementService:
         - XSS protection in HTML generation
     """
 
-    @staticmethod
-    def is_chapter_management_enabled() -> bool:
+    def __init__(self) -> None:
+        """Initialize the chapter management service."""
+        super().__init__(service_name="ChapterManagementService")
+
+    def is_chapter_management_enabled(self) -> bool:
         """
         Check if chapter management is enabled in Verenigingen Settings.
 
@@ -66,19 +71,14 @@ class ChapterManagementService:
         try:
             return frappe.db.get_single_value("Verenigingen Settings", "enable_chapter_management") == 1
         except (frappe.DoesNotExistError, frappe.ValidationError) as e:
-            frappe.log_error(
-                f"Settings access error in chapter management check: {str(e)}", "ChapterManagementService"
-            )
+            self.logger.warning(f"Settings access error in chapter management check: {str(e)}")
             # Default to enabled for backward compatibility
             return True
         except frappe.DatabaseError as e:
-            frappe.log_error(
-                f"Database error in chapter management check: {str(e)}", "ChapterManagementService"
-            )
+            self.logger.error(f"Database error in chapter management check: {str(e)}")
             return True
 
-    @staticmethod
-    def get_board_memberships(member_name: str) -> List[Dict[str, Any]]:
+    def get_board_memberships(self, member_name: str) -> List[Dict[str, Any]]:
         """
         Get active board memberships for a member.
 
@@ -105,21 +105,19 @@ class ChapterManagementService:
             >>> for membership in memberships:
             >>>     print(f"{membership['role']} at {membership['chapter']}")
         """
-        if not ChapterManagementService.is_chapter_management_enabled():
+        if not self.is_chapter_management_enabled():
             return []
 
         # Validate input
         if not member_name:
-            frappe.log_error(
-                "get_board_memberships called with empty member_name", "ChapterManagementService"
-            )
+            self.logger.warning("get_board_memberships called with empty member_name")
             return []
 
         # Verify member exists
         if not frappe.db.exists("Member", member_name):
             frappe.throw(_("Member {0} does not exist").format(member_name))
 
-        frappe.logger().info(f"ChapterManagementService: Getting board memberships for {member_name}")
+        self.logger.info(f"ChapterManagementService: Getting board memberships for {member_name}")
 
         board_memberships = frappe.db.sql(
             """
@@ -139,14 +137,13 @@ class ChapterManagementService:
             as_dict=True,
         )
 
-        frappe.logger().info(
+        self.logger.info(
             f"ChapterManagementService: Found {len(board_memberships)} board positions for {member_name}"
         )
 
         return board_memberships
 
-    @staticmethod
-    def get_member_chapters_optimized(member_name: str) -> List[Dict[str, Any]]:
+    def get_member_chapters_optimized(self, member_name: str) -> List[Dict[str, Any]]:
         """
         Get current chapter affiliations with optimized single SQL query.
 
@@ -220,14 +217,14 @@ class ChapterManagementService:
                     }
                 )
 
-            frappe.logger().info(
+            self.logger.info(
                 f"ChapterManagementService: Found {len(chapters)} chapters for {member_name} (optimized)"
             )
             return chapters
 
         except frappe.PermissionError:
             # Permission errors should always propagate - don't fall back
-            frappe.logger().warning(f"Permission denied for chapter query: {member_name}")
+            self.logger.warning(f"Permission denied for chapter query: {member_name}")
             raise
 
         except frappe.DoesNotExistError:
@@ -236,19 +233,15 @@ class ChapterManagementService:
 
         except (frappe.DatabaseError, frappe.db.ProgrammingError) as e:
             # Database-specific errors might benefit from fallback
-            frappe.log_error(
-                f"Database error in optimized chapter query for {member_name}: {str(e)}",
-                "ChapterManagementService",
+            self.logger.warning(
+                f"Database error in optimized chapter query for {member_name}: {str(e)}. "
+                f"Falling back to non-optimized query."
             )
-            frappe.logger().warning(
-                f"Performance degradation: Falling back to non-optimized query for {member_name}"
-            )
-            return ChapterManagementService.get_member_chapters(member_name)
+            return self.get_member_chapters(member_name)
 
         # Let other exceptions propagate to surface bugs
 
-    @staticmethod
-    def get_member_chapters(member_name: str) -> List[Dict[str, Any]]:
+    def get_member_chapters(self, member_name: str) -> List[Dict[str, Any]]:
         """
         Get current chapter affiliations (fallback implementation).
 
@@ -327,28 +320,25 @@ class ChapterManagementService:
                     }
                 )
 
-            frappe.logger().info(
+            self.logger.info(
                 f"ChapterManagementService: Found {len(chapters)} chapters for {member_name} (fallback path, 2 queries)"
             )
             return chapters
 
         except frappe.PermissionError:
             # Explicit permission error - let it propagate
-            frappe.logger().warning(
+            self.logger.warning(
                 f"ChapterManagementService: Permission denied accessing chapters for {member_name}"
             )
             raise
 
         except Exception as e:
-            frappe.log_error(
-                f"Error getting member chapters for {member_name}: {str(e)}", "ChapterManagementService"
-            )
+            self.logger.error(f"Error getting member chapters for {member_name}: {str(e)}")
             raise frappe.ValidationError(
                 _("Could not retrieve chapter information for member {0}").format(member_name)
             )
 
-    @staticmethod
-    def check_board_membership(member_name: str, chapter_name: str) -> bool:
+    def check_board_membership(self, member_name: str, chapter_name: str) -> bool:
         """
         Check if member has active board position in specific chapter.
 
@@ -379,10 +369,9 @@ class ChapterManagementService:
         if not frappe.db.exists("Chapter", chapter_name):
             frappe.throw(_("Chapter {0} does not exist").format(chapter_name))
 
-        return ChapterManagementService._check_board_membership(member_name, chapter_name)
+        return self._check_board_membership(member_name, chapter_name)
 
-    @staticmethod
-    def _check_board_membership(member_name: str, chapter_name: str) -> bool:
+    def _check_board_membership(self, member_name: str, chapter_name: str) -> bool:
         """
         Internal helper: Check board membership without validation.
 
@@ -413,8 +402,7 @@ class ChapterManagementService:
         except Exception:
             return False
 
-    @staticmethod
-    def get_chapter_names(member_name: str) -> List[str]:
+    def get_chapter_names(self, member_name: str) -> List[str]:
         """
         Get simple list of chapter names for a member.
 
@@ -438,7 +426,7 @@ class ChapterManagementService:
         if not member_name:
             return []
 
-        chapters = ChapterManagementService.get_member_chapters_optimized(member_name)
+        chapters = self.get_member_chapters_optimized(member_name)
         return [chapter.get("chapter", chapter.get("name", "")) for chapter in chapters]
 
     # Status to CSS class allowlist for security
@@ -449,8 +437,7 @@ class ChapterManagementService:
         "Suspended": "danger",
     }
 
-    @staticmethod
-    def get_chapter_display_html(member_name: str) -> str:
+    def get_chapter_display_html(self, member_name: str) -> str:
         """
         Generate HTML for displaying member's chapters in UI.
 
@@ -480,7 +467,7 @@ class ChapterManagementService:
             return "<div class='text-muted'>No member specified</div>"
 
         try:
-            chapters = ChapterManagementService.get_member_chapters_optimized(member_name)
+            chapters = self.get_member_chapters_optimized(member_name)
 
             if not chapters:
                 return "<div class='text-muted'>No active chapters</div>"
@@ -494,7 +481,7 @@ class ChapterManagementService:
 
                 # Security: Use allowlist to map status to CSS class
                 # Prevents injection via malicious status values
-                status_class = ChapterManagementService.STATUS_CLASS_MAP.get(status_raw, "secondary")
+                status_class = self.STATUS_CLASS_MAP.get(status_raw, "secondary")
 
                 html += f"""
                 <div class="chapter-item">
@@ -511,24 +498,20 @@ class ChapterManagementService:
             return "<div class='text-danger'>Permission denied</div>"
 
         except Exception as e:
-            frappe.log_error(
-                f"Error generating chapter display HTML for {member_name}: {str(e)}",
-                "ChapterManagementService",
-            )
+            self.logger.error(f"Error generating chapter display HTML for {member_name}: {str(e)}")
             # Generic error message (don't expose internal details)
             return "<div class='text-danger'>Error loading chapters</div>"
 
 
-# Convenience function for backward compatibility
-def get_chapter_management_service():
+def get_chapter_management_service() -> ChapterManagementService:
     """
     Get ChapterManagementService instance.
 
     Returns:
-        ChapterManagementService class (stateless service)
+        ChapterManagementService instance
 
     Example:
         >>> service = get_chapter_management_service()
         >>> enabled = service.is_chapter_management_enabled()
     """
-    return ChapterManagementService
+    return ChapterManagementService()

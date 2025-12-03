@@ -35,11 +35,13 @@ from typing import TYPE_CHECKING
 import frappe
 from frappe.utils import escape_html
 
+from verenigingen.services.infrastructure.base_service import StatelessService
+
 if TYPE_CHECKING:
     from frappe.model.document import Document
 
 
-class MemberVolunteerDisplayService:
+class MemberVolunteerDisplayService(StatelessService):
     """
     Service for generating HTML displays of volunteer-related member information.
 
@@ -47,8 +49,11 @@ class MemberVolunteerDisplayService:
     to the appropriate services (e.g., get_volunteer_for_member utility).
     """
 
-    @staticmethod
-    def generate_volunteer_details_html(member_doc: "Document") -> str:
+    def __init__(self) -> None:
+        """Initialize the member volunteer display service."""
+        super().__init__(service_name="MemberVolunteerDisplayService")
+
+    def generate_volunteer_details_html(self, member_doc: "Document") -> str:
         """
         Generate HTML display for volunteer details and assignment history.
 
@@ -80,9 +85,8 @@ class MemberVolunteerDisplayService:
             try:
                 volunteer = frappe.get_doc("Volunteer", volunteer_name)
             except frappe.DoesNotExistError:
-                frappe.log_error(
-                    f"Volunteer record not found for member {member_doc.name}: {volunteer_name}",
-                    "Volunteer Display Error",
+                self.logger.error(
+                    f"Volunteer record not found for member {member_doc.name}: {volunteer_name}"
                 )
                 return '<div class="text-danger"><em>Error: Volunteer record not found</em></div>'
 
@@ -229,10 +233,9 @@ class MemberVolunteerDisplayService:
 
         except Exception as e:
             # Log detailed error for administrators (with full traceback)
-            frappe.log_error(
+            self.logger.error(
                 f"Error generating volunteer details for member {member_doc.name}: {str(e)}\n\n"
-                f"Traceback: {frappe.get_traceback()}",
-                "Volunteer Details Generation Error",
+                f"Traceback: {frappe.get_traceback()}"
             )
 
             # Return user-friendly error message (no internal details)

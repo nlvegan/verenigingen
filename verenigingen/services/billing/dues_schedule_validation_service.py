@@ -49,6 +49,8 @@ from typing import TYPE_CHECKING, Any, Dict, TypedDict
 import frappe
 from frappe.utils import getdate, today
 
+from verenigingen.services.infrastructure.base_service import StatelessService
+
 if TYPE_CHECKING:
     from frappe.model.document import Document
 
@@ -60,7 +62,7 @@ class ValidationResult(TypedDict):
     reason: str
 
 
-class DuesScheduleValidationService:
+class DuesScheduleValidationService(StatelessService):
     """
     Service for validating membership dues schedule financial constraints.
 
@@ -72,8 +74,11 @@ class DuesScheduleValidationService:
     - Financial constraint enforcement
     """
 
-    @staticmethod
-    def validate_dues_rate_change(schedule_doc: "Document") -> bool:
+    def __init__(self) -> None:
+        """Initialize the dues schedule validation service."""
+        super().__init__(service_name="DuesScheduleValidationService")
+
+    def validate_dues_rate_change(self, schedule_doc: "Document") -> bool:
         """
         Validate if dues rate change meets minimum requirements.
 
@@ -108,8 +113,7 @@ class DuesScheduleValidationService:
 
         return True
 
-    @staticmethod
-    def validate_dues_rate_configuration(schedule_doc: "Document") -> None:
+    def validate_dues_rate_configuration(self, schedule_doc: "Document") -> None:
         """
         Validate and set dues rate based on contribution mode.
 
@@ -174,8 +178,7 @@ class DuesScheduleValidationService:
             if not schedule_doc.uses_custom_amount:
                 schedule_doc.uses_custom_amount = 1
 
-    @staticmethod
-    def validate_financial_constraints(schedule_doc: "Document") -> None:
+    def validate_financial_constraints(self, schedule_doc: "Document") -> None:
         """
         Validate financial constraints and limits.
 
@@ -261,13 +264,9 @@ class DuesScheduleValidationService:
             if isinstance(e, frappe.ValidationError):
                 raise
             # Log other errors but don't block validation
-            frappe.log_error(
-                f"Error in financial constraints validation for {schedule_doc.name}: {str(e)}",
-                "Dues Schedule Validation",
-            )
+            self.logger.error(f"Error in financial constraints validation for {schedule_doc.name}: {str(e)}")
 
-    @staticmethod
-    def validate_dues_rate(schedule_doc: "Document") -> ValidationResult:
+    def validate_dues_rate(self, schedule_doc: "Document") -> ValidationResult:
         """
         Validate dues rate for reasonableness and business logic.
 
@@ -311,19 +310,15 @@ class DuesScheduleValidationService:
                     frappe.db.get_single_value("Verenigingen Settings", "max_reasonable_dues_rate") or 10000
                 )
             except frappe.DoesNotExistError:
-                frappe.log_error(
-                    message="Verenigingen Settings doctype does not exist, using default max_reasonable_dues_rate",
-                    title="Membership Dues - Missing Settings Doctype",
-                    reference_doctype="Membership Dues Schedule",
-                    reference_name=getattr(schedule_doc, "name", "New Document"),
+                self.logger.warning(
+                    f"Verenigingen Settings doctype does not exist, using default max_reasonable_dues_rate. "
+                    f"Reference: Membership Dues Schedule/{getattr(schedule_doc, 'name', 'New Document')}"
                 )
                 max_reasonable_rate = 10000  # Safe fallback if setting doesn't exist
             except Exception as e:
-                frappe.log_error(
-                    message=f"Failed to access dues rate configuration: {str(e)}",
-                    title="Membership Dues - Configuration Access Failed",
-                    reference_doctype="Membership Dues Schedule",
-                    reference_name=getattr(schedule_doc, "name", "New Document"),
+                self.logger.error(
+                    f"Failed to access dues rate configuration: {str(e)}. "
+                    f"Reference: Membership Dues Schedule/{getattr(schedule_doc, 'name', 'New Document')}"
                 )
                 max_reasonable_rate = 10000  # Safe fallback if setting doesn't exist
 
@@ -350,19 +345,15 @@ class DuesScheduleValidationService:
                                 or 200
                             )
                         except frappe.DoesNotExistError:
-                            frappe.log_error(
-                                message="Verenigingen Settings doctype does not exist, using default max_rate_change_percent",
-                                title="Membership Dues - Missing Settings for Rate Change",
-                                reference_doctype="Membership Dues Schedule",
-                                reference_name=getattr(schedule_doc, "name", "New Document"),
+                            self.logger.warning(
+                                f"Verenigingen Settings doctype does not exist, using default max_rate_change_percent. "
+                                f"Reference: Membership Dues Schedule/{getattr(schedule_doc, 'name', 'New Document')}"
                             )
                             max_rate_change = 200  # Safe fallback
                         except Exception as e:
-                            frappe.log_error(
-                                message=f"Failed to access rate change configuration: {str(e)}",
-                                title="Membership Dues - Rate Change Config Access Failed",
-                                reference_doctype="Membership Dues Schedule",
-                                reference_name=getattr(schedule_doc, "name", "New Document"),
+                            self.logger.error(
+                                f"Failed to access rate change configuration: {str(e)}. "
+                                f"Reference: Membership Dues Schedule/{getattr(schedule_doc, 'name', 'New Document')}"
                             )
                             max_rate_change = 200  # Safe fallback
 
@@ -377,14 +368,13 @@ class DuesScheduleValidationService:
 
         except Exception as e:
             # Log validation error for debugging
-            frappe.logger().warning(
+            self.logger.warning(
                 f"Rate validation error for schedule {getattr(schedule_doc, 'name', 'Unknown')}: {str(e)}"
             )
             # Use shorter error message to avoid length limits
             return {"valid": True, "reason": "Rate validation error - allowing generation"}
 
-    @staticmethod
-    def validate_rate_boundaries(schedule_doc: "Document") -> None:
+    def validate_rate_boundaries(self, schedule_doc: "Document") -> None:
         """
         Enhanced rate validation with comprehensive boundary checks.
 
@@ -481,8 +471,7 @@ class DuesScheduleValidationService:
                 alert=True,
             )
 
-    @staticmethod
-    def validate_dates(schedule_doc: "Document") -> None:
+    def validate_dates(self, schedule_doc: "Document") -> None:
         """
         Validate schedule dates for consistency and reasonableness.
 
@@ -554,8 +543,7 @@ class DuesScheduleValidationService:
                     alert=True,
                 )
 
-    @staticmethod
-    def validate_membership_type_consistency(schedule_doc: "Document") -> ValidationResult:
+    def validate_membership_type_consistency(self, schedule_doc: "Document") -> ValidationResult:
         """
         Verify member's current membership type matches schedule.
 
@@ -613,7 +601,7 @@ class DuesScheduleValidationService:
 
         except Exception as e:
             # Log validation error for debugging
-            frappe.logger().warning(
+            self.logger.warning(
                 f"Type consistency validation error for schedule {getattr(schedule_doc, 'name', 'Unknown')}: {str(e)}"
             )
             # Don't block generation on validation errors - continue gracefully

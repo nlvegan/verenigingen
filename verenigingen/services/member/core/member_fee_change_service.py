@@ -38,13 +38,14 @@ from typing import TYPE_CHECKING, Any, Dict
 import frappe
 from frappe.utils import now, today
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.services.member.financial.member_fee_validation_service import MemberFeeValidationService
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
 
 
-class MemberFeeChangeService:
+class MemberFeeChangeService(StatelessService):
     """
     Service for managing fee override changes on Member records.
 
@@ -56,8 +57,11 @@ class MemberFeeChangeService:
     - CSV import bypass for bulk operations
     """
 
-    @staticmethod
-    def handle_fee_override_changes(member_doc: "Document") -> None:
+    def __init__(self) -> None:
+        """Initialize the member fee change service."""
+        super().__init__(service_name="MemberFeeChangeService")
+
+    def handle_fee_override_changes(self, member_doc: "Document") -> None:
         """
         Handle changes to membership fee override using amendment system with better atomicity.
 
@@ -108,7 +112,7 @@ class MemberFeeChangeService:
 
                 # For CSV imports, create audit log entry instead of requiring override fields
                 if getattr(member_doc, "_csv_import", False) and member_doc.dues_rate:
-                    frappe.logger().info(
+                    self.logger.info(
                         f"CSV Import: Member {member_doc.name or 'NEW'} imported with dues_rate {member_doc.dues_rate}"
                     )
 
@@ -140,7 +144,7 @@ class MemberFeeChangeService:
                 return  # No change detected
 
             # If we reach here, there's an actual change to process
-            frappe.logger().info(
+            self.logger.info(
                 f"Processing fee override change for member {member_doc.name}: {old_amount} -> {new_amount}"
             )
 
@@ -163,14 +167,11 @@ class MemberFeeChangeService:
                 "changed_by": frappe.session.user if frappe.session.user else "Administrator",
             }
 
-            frappe.logger().info(f"Queued fee override change for member {member_doc.name}")
+            self.logger.info(f"Queued fee override change for member {member_doc.name}")
 
         except Exception as e:
             # Log error for administrators
-            frappe.log_error(
-                f"Fee override tracking failed for member {member_doc.name}: {str(e)}",
-                "Fee Change Tracking Error",
-            )
+            self.logger.error(f"Fee override tracking failed for member {member_doc.name}: {str(e)}")
             # Notify user that audit tracking failed
             frappe.msgprint(
                 frappe._("Fee change saved but audit tracking failed. Please contact administrator."),
@@ -180,8 +181,7 @@ class MemberFeeChangeService:
             # Don't fail the save operation - allow document to save even if tracking fails
             return
 
-    @staticmethod
-    def record_fee_change(member_doc: "Document", change_data: Dict[str, Any]) -> Any:
+    def record_fee_change(self, member_doc: "Document", change_data: Dict[str, Any]) -> Any:
         """
         Record fee change in history using the financial history manager.
 

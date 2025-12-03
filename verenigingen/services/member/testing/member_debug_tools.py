@@ -36,7 +36,21 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime, today
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.operation_result import OperationResult
+
+
+class MemberDebugToolsService(StatelessService):
+    """Service providing logging and metrics for member debug tools."""
+
+    def __init__(self) -> None:
+        """Initialize the member debug tools service."""
+        super().__init__(service_name="MemberDebugToolsService")
+
+
+def _get_service() -> MemberDebugToolsService:
+    """Get service instance for logging."""
+    return MemberDebugToolsService()
 
 
 @frappe.whitelist()
@@ -99,7 +113,7 @@ def debug_button_conditions(member_name) -> OperationResult[Dict[str, Any]]:
             context={"operation": "button_conditions_debug", "params": {"member_name": member_name}},
         )
     except Exception as e:
-        frappe.log_error(f"Error in debug_button_conditions: {str(e)}", "Member Debug Tools Error")
+        _get_service().logger.error(f"Error in debug_button_conditions: {str(e)}")
         return OperationResult.fail(
             _("An error occurred while debugging button conditions. Please contact support."),
             errors=[str(e)],
@@ -151,9 +165,7 @@ def debug_member_id_assignment(member_name) -> OperationResult[Dict[str, Any]]:
         )
     except AttributeError as e:
         # Handle cases where member methods don't exist
-        frappe.log_error(
-            f"AttributeError in debug_member_id_assignment: {str(e)}", "Member Debug Tools Error"
-        )
+        _get_service().logger.error(f"AttributeError in debug_member_id_assignment: {str(e)}")
         return OperationResult.fail(
             _("Member object missing required methods"),
             errors=[str(e)],
@@ -161,7 +173,7 @@ def debug_member_id_assignment(member_name) -> OperationResult[Dict[str, Any]]:
             context={"operation": "member_id_debug", "params": {"member_name": member_name}},
         )
     except Exception as e:
-        frappe.log_error(f"Error in debug_member_id_assignment: {str(e)}", "Member Debug Tools Error")
+        _get_service().logger.error(f"Error in debug_member_id_assignment: {str(e)}")
         return OperationResult.fail(
             _("An error occurred while debugging member ID assignment. Please contact support."),
             errors=[str(e)],
@@ -206,7 +218,7 @@ def debug_member_status(member_name) -> OperationResult[Dict[str, Any]]:
             context={"operation": "member_status_debug", "params": {"member_name": member_name}},
         )
     except Exception as e:
-        frappe.log_error(f"Error in debug_member_status: {str(e)}", "Member Debug Tools Error")
+        _get_service().logger.error(f"Error in debug_member_status: {str(e)}")
         return OperationResult.fail(
             _("An error occurred while debugging member status. Please contact support."),
             errors=[str(e)],

@@ -31,11 +31,13 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import frappe
 
+from verenigingen.services.infrastructure.base_service import StatelessService
+
 if TYPE_CHECKING:
     from frappe.model.document import Document
 
 
-class ChapterQueryService:
+class ChapterQueryService(StatelessService):
     """
     Service for optimized Chapter query operations.
 
@@ -45,8 +47,11 @@ class ChapterQueryService:
     - Permission calculation for chapter access
     """
 
-    @staticmethod
-    def get_user_permissions_optimized(chapter_doc: "Document") -> Dict[str, Any]:
+    def __init__(self) -> None:
+        """Initialize the chapter query service."""
+        super().__init__(service_name="ChapterQueryService")
+
+    def get_user_permissions_optimized(self, chapter_doc: "Document") -> Dict[str, Any]:
         """
         Get all user permissions for this chapter using single optimized query.
 
@@ -119,7 +124,7 @@ class ChapterQueryService:
             }
 
         except Exception as e:
-            frappe.log_error(f"Error getting user permissions for chapter {chapter_doc.name}: {str(e)}")
+            self.logger.error(f"Error getting user permissions for chapter {chapter_doc.name}: {str(e)}")
             # Return safe defaults on error
             return {
                 "is_board_member": False,

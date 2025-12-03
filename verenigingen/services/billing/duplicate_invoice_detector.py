@@ -7,6 +7,10 @@ Extracted from MembershipDuesSchedule to reduce complexity and improve testabili
 
 This service implements the critical duplicate prevention logic that ensures members
 are not billed multiple times for the same coverage period.
+
+Architecture:
+    - Inherits from StatelessService for consistent logging, metrics, error handling
+    - DuplicateInvoiceDetectionResult kept for backward compatibility with OperationResult-compatible properties
 """
 
 import re
@@ -16,6 +20,7 @@ from typing import Any, Dict, List, Optional
 import frappe
 from frappe.utils import getdate
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.billing_period_calculator import derive_coverage_from_invoice_data
 
 # Business rule constants
@@ -25,12 +30,31 @@ FALLBACK_CUTOFF_DATE = "1900-01-01"  # Sentinel date for first-time invoice gene
 
 
 class DuplicateInvoiceDetectionResult:
-    """Result object for duplicate invoice detection"""
+    """
+    Result object for duplicate invoice detection.
+
+    Deprecated: Migrate to OperationResult[None] in future versions.
+
+    This class maintains backward compatibility while providing OperationResult-compatible
+    properties for gradual migration.
+
+    Attributes:
+        can_generate: Whether invoice generation is allowed (legacy - use .success)
+        reason: Explanation message (legacy - use .error_message for failures)
+        metadata: Additional context
+        success: OperationResult-compatible alias for can_generate
+        error_message: OperationResult-compatible alias for reason (when can_generate=False)
+    """
 
     def __init__(self, can_generate: bool, reason: str, **metadata: Any) -> None:
         self.can_generate: bool = can_generate
         self.reason: str = reason
         self.metadata: Dict[str, Any] = metadata
+
+        # OperationResult-compatible properties
+        self.success: bool = can_generate
+        self.data = None  # No data payload for this result type
+        self.error_message: Optional[str] = reason if not can_generate else None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary format"""
@@ -42,7 +66,7 @@ class DuplicateInvoiceDetectionResult:
         return f"DuplicateInvoiceDetectionResult(can_generate={self.can_generate}, reason='{self.reason}')"
 
 
-class DuplicateInvoiceDetector:
+class DuplicateInvoiceDetector(StatelessService):
     """
     Service for detecting duplicate and overlapping invoice coverage periods.
 
@@ -60,6 +84,7 @@ class DuplicateInvoiceDetector:
         Args:
             schedule_doc: MembershipDuesSchedule document instance
         """
+        super().__init__(service_name="DuplicateInvoiceDetector")
         self.schedule: Any = schedule_doc
         self.member: Optional[str] = schedule_doc.member
         self.billing_frequency: str = schedule_doc.billing_frequency
@@ -247,7 +272,7 @@ class DuplicateInvoiceDetector:
 
             if gap_days > GAP_RESET_THRESHOLD_DAYS:
                 # Large gap detected - skip fallback processing entirely
-                frappe.logger().info(
+                self.logger.info(
                     f"Large coverage gap ({gap_days} days > {GAP_RESET_THRESHOLD_DAYS}) detected for {customer}. "
                     f"Skipping fallback coverage processing per gap reset logic."
                 )
@@ -374,10 +399,9 @@ class DuplicateInvoiceDetector:
 
                 # Validate derived coverage dates
                 if not inv_start or not inv_end:
-                    frappe.log_error(
+                    self.logger.error(
                         f"Failed to derive coverage dates for invoice {inv['name']}: "
-                        f"posting_date={inv['posting_date']}, derived start={inv_start}, end={inv_end}",
-                        "Coverage Derivation Error",
+                        f"posting_date={inv['posting_date']}, derived start={inv_start}, end={inv_end}"
                     )
                     continue
 
@@ -388,9 +412,8 @@ class DuplicateInvoiceDetector:
             except Exception as e:
                 # Clean up HTML tags from error message to prevent formatting issues
                 error_msg = re.sub("<[^<]+?>", "", str(e))
-                frappe.log_error(
-                    f"Error processing fallback coverage for invoice {inv['name']}: {error_msg}",
-                    "Coverage Fallback Error",
+                self.logger.error(
+                    f"Error processing fallback coverage for invoice {inv['name']}: {error_msg}"
                 )
                 continue
 

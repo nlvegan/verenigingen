@@ -2,43 +2,53 @@
 # For license information, please see license.txt
 
 """
-Service for generating membership dues invoices.
+InvoiceGenerator Service - Generates membership dues invoices.
 
-Extracted from MembershipDuesSchedule to reduce complexity and improve testability.
-This service handles invoice construction and financial configuration.
+Architecture:
+    - Inherits from StatelessService for consistent logging, metrics, error handling
+    - Returns OperationResult[SalesInvoice] for invoice generation operations
+    - InvoiceGenerationResult kept as deprecated alias for backward compatibility
 """
 
+import logging
 from datetime import date
 from typing import Any, Dict, Optional, Tuple
 
 import frappe
 from frappe.utils import add_days, today
 
+from verenigingen.services.infrastructure.base_service import StatelessService
+from verenigingen.utils.operation_result import OperationResult
+
+# Module-level logger for static utility classes
+_logger = logging.getLogger(__name__)
+
 
 class InvoiceGenerationResult:
     """
-    Result object for invoice generation operations.
+    Deprecated: Use OperationResult[SalesInvoice] instead.
+
+    This class is maintained for backward compatibility during migration.
+    It wraps OperationResult to provide the legacy .invoice and .error properties.
 
     Attributes:
         success: Whether invoice generation succeeded
-        invoice: Sales Invoice document if successful, None otherwise
-        error: Error message if failed, None otherwise
+        invoice: Sales Invoice document if successful, None otherwise (legacy - use .data)
+        error: Error message if failed, None otherwise (legacy - use .error_message)
         metadata: Additional context about the operation
-
-    Common metadata keys:
-        - submitted (bool): Whether invoice was auto-submitted (not just created as draft)
-        - coverage_tracked (bool): Whether coverage period was recorded on invoice
-        - payment_method (str): Payment method configured (SEPA Direct Debit, Bank Transfer)
-        - fallback_used (str): Which fallback account was used (if any)
     """
 
     def __init__(
         self, success: bool, invoice: Optional[Any] = None, error: Optional[str] = None, **metadata: Any
     ) -> None:
         self.success: bool = success
-        self.invoice: Optional[Any] = invoice
-        self.error: Optional[str] = error
+        self.invoice: Optional[Any] = invoice  # Legacy property
+        self.error: Optional[str] = error  # Legacy property
         self.metadata: Dict[str, Any] = metadata
+
+        # Also expose as OperationResult-compatible properties
+        self.data = invoice
+        self.error_message = error
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary format"""
@@ -54,6 +64,14 @@ class InvoiceGenerationResult:
         if self.success:
             return f"InvoiceGenerationResult(success=True, invoice={self.invoice.name if self.invoice else None})"
         return f"InvoiceGenerationResult(success=False, error='{self.error}')"
+
+    @classmethod
+    def from_operation_result(cls, op_result: OperationResult, **extra_metadata) -> "InvoiceGenerationResult":
+        """Create InvoiceGenerationResult from OperationResult for compatibility."""
+        metadata = {**op_result.metadata, **extra_metadata}
+        if op_result.success:
+            return cls(success=True, invoice=op_result.data, **metadata)
+        return cls(success=False, error=op_result.error_message, **metadata)
 
 
 class MembershipDuesItemManager:
@@ -117,11 +135,11 @@ class MembershipDuesItemManager:
                 item.expense_account = expense_account
 
             item.insert()
-            frappe.logger().info(f"Created membership dues item: {item_name}")
+            _logger.info(f"Created membership dues item: {item_name}")
 
         except frappe.DuplicateEntryError:
             # Another process created the item concurrently - that's fine
-            frappe.logger().info(f"Item {item_name} already exists (created by concurrent process)")
+            _logger.info(f"Item {item_name} already exists (created by concurrent process)")
             # Verify it actually exists now
             if not frappe.db.exists("Item", item_name):
                 # Should never happen, but if it does, raise the original error
@@ -160,9 +178,11 @@ class InvoiceDescriptionBuilder:
             return f"Membership dues for {member_name} ({membership_type}) - Period: {period_start} to {period_end}"
 
 
-class InvoiceGenerator:
+class InvoiceGenerator(StatelessService):
     """
     Service for generating membership dues invoices.
+
+    Inherits from StatelessService for consistent logging, metrics, and error handling.
 
     Handles:
     - Sales invoice document creation
@@ -170,6 +190,12 @@ class InvoiceGenerator:
     - Item management (membership dues items)
     - Payment method configuration (SEPA, bank transfer)
     - Auto-submit logic based on settings
+
+    Example:
+        generator = InvoiceGenerator(schedule_doc)
+        result = generator.generate_invoice(coverage_start, coverage_end, member_doc)
+        if result.success:
+            invoice = result.data  # or result.invoice for legacy compatibility
     """
 
     # Validation constants for coverage period limits
@@ -184,6 +210,7 @@ class InvoiceGenerator:
         Args:
             schedule_doc: MembershipDuesSchedule document instance
         """
+        super().__init__(service_name="InvoiceGenerator")
         self.schedule: Any = schedule_doc
         self.member_name: str = schedule_doc.member
         self.billing_frequency: str = schedule_doc.billing_frequency
@@ -220,7 +247,8 @@ class InvoiceGenerator:
         Raises:
             No exceptions raised - all errors returned in result object
         """
-        try:
+
+        def _generate():
             # Phase 0: Authorization validation
             auth_error = self._validate_authorization()
             if auth_error:
@@ -265,11 +293,15 @@ class InvoiceGenerator:
             # Phase 7: Submission - Submit invoice based on auto-submit settings
             return self._submit_invoice(invoice)
 
+        try:
+            return self.execute_operation(_generate)
         except Exception as e:
             error_msg = f"Invoice generation failed: {str(e)}"
-            frappe.log_error(
-                f"{error_msg}\nSchedule: {self.schedule_name}\nMember: {self.member_name}\nTraceback: {frappe.get_traceback()}",
-                "Invoice Generation Error",
+            self.handle_error(
+                e,
+                "generate_invoice",
+                {"schedule": self.schedule_name, "member": self.member_name},
+                raise_error=False,
             )
             return InvoiceGenerationResult(success=False, error=error_msg)
 
@@ -397,7 +429,7 @@ class InvoiceGenerator:
             return income_account
 
         if income_account:
-            frappe.logger().warning(
+            self.logger.warning(
                 f"Configured dues_income_account '{income_account}' does not exist, using company default"
             )
 
@@ -409,16 +441,15 @@ class InvoiceGenerator:
                 return income_account
 
             if income_account:
-                frappe.logger().warning(f"Company default_income_account '{income_account}' does not exist")
+                self.logger.warning(f"Company default_income_account '{income_account}' does not exist")
         except frappe.DoesNotExistError:
-            frappe.log_error(f"Company '{company}' does not exist", "Invoice Account Configuration")
+            self.logger.error(f"Company '{company}' does not exist")
         except AttributeError:
-            frappe.logger().warning(f"Company '{company}' has no default_income_account field")
+            self.logger.warning(f"Company '{company}' has no default_income_account field")
         except Exception as e:
             # Unexpected error - log with full traceback
-            frappe.log_error(
-                f"Unexpected error accessing company income account: {str(e)}\\n{frappe.get_traceback()}",
-                "Invoice Account Configuration",
+            self.logger.error(
+                f"Unexpected error accessing company income account: {str(e)}\n{frappe.get_traceback()}"
             )
 
         return None
@@ -432,36 +463,43 @@ class InvoiceGenerator:
                 return expense_account
 
             if expense_account:
-                frappe.logger().warning(f"Company default_expense_account '{expense_account}' does not exist")
+                self.logger.warning(f"Company default_expense_account '{expense_account}' does not exist")
         except frappe.DoesNotExistError:
-            frappe.log_error(f"Company '{company}' does not exist", "Invoice Account Configuration")
+            self.logger.error(f"Company '{company}' does not exist")
         except AttributeError:
-            frappe.logger().warning(f"Company '{company}' has no default_expense_account field")
+            self.logger.warning(f"Company '{company}' has no default_expense_account field")
         except Exception as e:
             # Unexpected error - log with full traceback
-            frappe.log_error(
-                f"Unexpected error accessing company expense account: {str(e)}\\n{frappe.get_traceback()}",
-                "Invoice Account Configuration",
+            self.logger.error(
+                f"Unexpected error accessing company expense account: {str(e)}\n{frappe.get_traceback()}"
             )
 
         return None
 
     def _get_cost_center(self, company: str) -> Optional[str]:
         """Get cost center with fallback logic"""
-        # Try Main - [Company Abbreviation]
-        main_cost_center = f"Main - {company.split()[-1] if len(company.split()) > 1 else 'NVV'}"
+        # First: Check if company has a default cost center
+        company_cost_center = frappe.db.get_value("Company", company, "cost_center")
+        if company_cost_center and frappe.db.exists("Cost Center", company_cost_center):
+            return company_cost_center
 
-        if frappe.db.exists("Cost Center", main_cost_center):
-            return main_cost_center
-
-        # Fallback: Search for any Main cost center for this company
+        # Second: Search for Main cost center belonging to this company
         cost_centers = frappe.get_all(
             "Cost Center", filters={"company": company, "cost_center_name": "Main"}, limit=1
         )
         if cost_centers:
             return cost_centers[0]["name"]
 
-        frappe.logger().warning(f"Could not find Main cost center for company {company}")
+        # Third: Try Main - [Company Abbreviation] but verify it belongs to this company
+        abbr = frappe.db.get_value("Company", company, "abbr")
+        if abbr:
+            main_cost_center = f"Main - {abbr}"
+            # Verify it belongs to the correct company
+            cc_company = frappe.db.get_value("Cost Center", main_cost_center, "company")
+            if cc_company == company:
+                return main_cost_center
+
+        self.logger.warning(f"Could not find Main cost center for company {company}")
         return None
 
     def _create_membership_dues_item(
@@ -530,7 +568,7 @@ class InvoiceGenerator:
             mandate_validation = self._validate_sepa_mandate(active_mandate_name, member_doc)
             if mandate_validation:
                 # Validation failed - log warning and fall back to bank transfer
-                frappe.logger().warning(
+                self.logger.warning(
                     f"SEPA mandate {active_mandate_name} validation failed: {mandate_validation}. "
                     f"Falling back to Bank Transfer for member {self.member_name}"
                 )
@@ -714,10 +752,10 @@ class InvoiceGenerator:
             # If setting doesn't exist or is None, default to True (historical behavior)
             if auto_submit is None:
                 auto_submit = True
-                frappe.logger().info("auto_submit_membership_invoices not configured, defaulting to True")
+                self.logger.info("auto_submit_membership_invoices not configured, defaulting to True")
         except Exception as e:
             # If we can't read the setting, default to True and log warning
-            frappe.logger().warning(f"Failed to read auto_submit setting: {str(e)}, defaulting to True")
+            self.logger.warning(f"Failed to read auto_submit setting: {str(e)}, defaulting to True")
             auto_submit = True
 
         # Submit invoice if configured
@@ -733,9 +771,9 @@ class InvoiceGenerator:
                     invoice.submit()
                     submitted = True
                     if attempt > 0:
-                        frappe.logger().info(f"Invoice {invoice.name} auto-submitted after {attempt} retries")
+                        self.logger.info(f"Invoice {invoice.name} auto-submitted after {attempt} retries")
                     else:
-                        frappe.logger().info(f"Invoice {invoice.name} auto-submitted")
+                        self.logger.info(f"Invoice {invoice.name} auto-submitted")
                     break  # Success - exit retry loop
 
                 except frappe.QueryDeadlockError as deadlock_error:
@@ -745,16 +783,15 @@ class InvoiceGenerator:
 
                         time.sleep(retry_delay)
                         retry_delay *= 2  # Exponential backoff
-                        frappe.logger().warning(
+                        self.logger.warning(
                             f"Deadlock on invoice {invoice.name} submission (attempt {attempt + 1}/{max_retries}), retrying..."
                         )
                         continue
                     else:
                         # Final attempt failed - return error
                         error_msg = f"Invoice created but submission failed after {max_retries} retries: {str(deadlock_error)}"
-                        frappe.log_error(
-                            f"{error_msg}\\nInvoice: {invoice.name}\\nTraceback: {frappe.get_traceback()}",
-                            "Invoice Auto-Submit Failed - Deadlock",
+                        self.logger.error(
+                            f"{error_msg}\nInvoice: {invoice.name}\nTraceback: {frappe.get_traceback()}"
                         )
                         return InvoiceGenerationResult(
                             success=False, error=error_msg, invoice=invoice, submitted=False
@@ -763,16 +800,15 @@ class InvoiceGenerator:
                 except Exception as submit_error:
                     # Non-deadlock submission failure is a critical error - don't retry
                     error_msg = f"Invoice created but submission failed: {str(submit_error)}"
-                    frappe.log_error(
-                        f"{error_msg}\\nInvoice: {invoice.name}\\nTraceback: {frappe.get_traceback()}",
-                        "Invoice Auto-Submit Failed",
+                    self.logger.error(
+                        f"{error_msg}\nInvoice: {invoice.name}\nTraceback: {frappe.get_traceback()}"
                     )
                     return InvoiceGenerationResult(
                         success=False, error=error_msg, invoice=invoice, submitted=False
                     )
         else:
             # Auto-submit disabled - keep as draft
-            frappe.logger().info(f"Invoice {invoice.name} kept as draft per settings")
+            self.logger.info(f"Invoice {invoice.name} kept as draft per settings")
 
         return InvoiceGenerationResult(
             success=True, invoice=invoice, submitted=submitted, coverage_tracked=True

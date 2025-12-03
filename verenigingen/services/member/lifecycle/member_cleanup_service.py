@@ -39,11 +39,13 @@ from typing import TYPE_CHECKING, Set
 
 import frappe
 
+from verenigingen.services.infrastructure.base_service import StatelessService
+
 if TYPE_CHECKING:
     from frappe.model.document import Document
 
 
-class MemberCleanupService:
+class MemberCleanupService(StatelessService):
     """
     Service for handling Member deletion and cascade cleanup.
 
@@ -54,6 +56,10 @@ class MemberCleanupService:
     - Child table cleanup to prevent orphaned data
     - Error handling to ensure cleanup completes
     """
+
+    def __init__(self) -> None:
+        """Initialize the member cleanup service."""
+        super().__init__(service_name="MemberCleanupService")
 
     # SECURITY: Whitelist of valid child tables to prevent SQL injection
     VALID_CHILD_TABLES: Set[str] = {
@@ -69,8 +75,7 @@ class MemberCleanupService:
         "tabMember Subscription History",
     }
 
-    @staticmethod
-    def handle_member_deletion(member_doc: "Document") -> None:
+    def handle_member_deletion(self, member_doc: "Document") -> None:
         """
         Handle cascade deletion of related records when a Member is deleted.
 
@@ -115,7 +120,7 @@ class MemberCleanupService:
                     membership.cancel()
                 frappe.delete_doc("Membership", membership_name, force=True)
             except Exception as e:
-                frappe.logger().error(f"Error deleting Membership {membership_name}: {str(e)}")
+                self.logger.error(f"Error deleting Membership {membership_name}: {str(e)}")
 
         # Delete Membership Dues Schedules linked to this member
         dues_schedules = frappe.get_all(
@@ -125,9 +130,9 @@ class MemberCleanupService:
         for schedule_name in dues_schedules:
             try:
                 frappe.delete_doc("Membership Dues Schedule", schedule_name, force=True)
-                frappe.logger().info(f"Deleted orphaned Membership Dues Schedule {schedule_name}")
+                self.logger.info(f"Deleted orphaned Membership Dues Schedule {schedule_name}")
             except Exception as e:
-                frappe.logger().error(f"Error deleting Membership Dues Schedule {schedule_name}: {str(e)}")
+                self.logger.error(f"Error deleting Membership Dues Schedule {schedule_name}: {str(e)}")
 
         # Clear Member reference from Sales Invoices to allow deletion
         # This prevents link validation errors when deleting members with invoices
@@ -140,9 +145,9 @@ class MemberCleanupService:
                 """,
                 member_doc.name,
             )
-            frappe.logger().info(f"Cleared Member references from Sales Invoices for {member_doc.name}")
+            self.logger.info(f"Cleared Member references from Sales Invoices for {member_doc.name}")
         except Exception as e:
-            frappe.logger().error(f"Error clearing Sales Invoice references: {str(e)}")
+            self.logger.error(f"Error clearing Sales Invoice references: {str(e)}")
 
         # Delete Chapter Member assignments
         chapter_members = frappe.get_all("Chapter Member", filters={"member": member_doc.name}, pluck="name")
@@ -151,7 +156,7 @@ class MemberCleanupService:
             try:
                 frappe.delete_doc("Chapter Member", chapter_member_name, force=True)
             except Exception as e:
-                frappe.logger().error(f"Error deleting Chapter Member {chapter_member_name}: {str(e)}")
+                self.logger.error(f"Error deleting Chapter Member {chapter_member_name}: {str(e)}")
 
         # Handle Customer - preserve if has transactions
         if member_doc.customer:
@@ -166,28 +171,28 @@ class MemberCleanupService:
 
                 if has_transactions:
                     # Unlink member from Customer's Dynamic Links
-                    MemberCleanupService._unlink_member_from_customer(member_doc)
-                    frappe.logger().info(
+                    self._unlink_member_from_customer(member_doc)
+                    self.logger.info(
                         f"Customer {member_doc.customer} has transactions - unlinked Member reference"
                     )
                 else:
                     # No transactions - delete Customer
                     frappe.delete_doc("Customer", member_doc.customer, force=True)
-                    frappe.logger().info(f"Deleted Customer {member_doc.customer}")
+                    self.logger.info(f"Deleted Customer {member_doc.customer}")
 
             except Exception as e:
-                frappe.logger().error(f"Error handling Customer {member_doc.customer}: {str(e)}")
+                self.logger.error(f"Error handling Customer {member_doc.customer}: {str(e)}")
 
         # Handle Addresses - unlink from Member but preserve records
         if member_doc.primary_address:
             try:
-                MemberCleanupService._unlink_member_from_address(member_doc, member_doc.primary_address)
+                self._unlink_member_from_address(member_doc, member_doc.primary_address)
             except Exception as e:
-                frappe.logger().error(f"Error unlinking Address {member_doc.primary_address}: {str(e)}")
+                self.logger.error(f"Error unlinking Address {member_doc.primary_address}: {str(e)}")
 
         # Clean up all child table records to prevent orphaned data
         # These are display/cache tables that should be removed with the parent
-        for table_name in MemberCleanupService.VALID_CHILD_TABLES:
+        for table_name in self.VALID_CHILD_TABLES:
             try:
                 # Verify table exists before attempting deletion
                 if not frappe.db.table_exists(table_name):
@@ -200,13 +205,12 @@ class MemberCleanupService:
                     """,
                     member_doc.name,
                 )
-                frappe.logger().info(f"Cleaned up {table_name} records for {member_doc.name}")
+                self.logger.info(f"Cleaned up {table_name} records for {member_doc.name}")
             except Exception as e:
                 # Some tables might not exist in all installations, so just log and continue
-                frappe.logger().debug(f"Could not clean up {table_name}: {str(e)}")
+                self.logger.debug(f"Could not clean up {table_name}: {str(e)}")
 
-    @staticmethod
-    def _unlink_member_from_customer(member_doc: "Document") -> None:
+    def _unlink_member_from_customer(self, member_doc: "Document") -> None:
         """
         Remove Member link from Customer's Dynamic Links table.
 
@@ -244,8 +248,7 @@ class MemberCleanupService:
             # Customer must be updated to remove broken links
             customer.save(ignore_permissions=True)
 
-    @staticmethod
-    def _unlink_member_from_address(member_doc: "Document", address_name: str) -> None:
+    def _unlink_member_from_address(self, member_doc: "Document", address_name: str) -> None:
         """
         Remove Member link from Address's links table.
 

@@ -33,11 +33,13 @@ from typing import TYPE_CHECKING, Any, Dict
 import frappe
 from frappe import _
 
+from verenigingen.services.infrastructure.base_service import StatelessService
+
 if TYPE_CHECKING:
     from frappe.model.document import Document
 
 
-class MemberDonorIntegrationService:
+class MemberDonorIntegrationService(StatelessService):
     """
     Service for managing integration between Member and Donor DocTypes.
 
@@ -48,8 +50,11 @@ class MemberDonorIntegrationService:
     - Dutch phone number formatting
     """
 
-    @staticmethod
-    def create_donor_from_member(member_name: str) -> Dict[str, Any]:
+    def __init__(self) -> None:
+        """Initialize the member donor integration service."""
+        super().__init__(service_name="MemberDonorIntegrationService")
+
+    def create_donor_from_member(self, member_name: str) -> Dict[str, Any]:
         """
         Create a donor record from member information.
 
@@ -78,18 +83,21 @@ class MemberDonorIntegrationService:
                 print(f"Created donor: {result['donor_name']}")
         """
         try:
-            from verenigingen.utils.donor_utils import check_donor_exists
+            from verenigingen.services.member.donor.donor_management_service import (
+                get_donor_management_service,
+            )
             from verenigingen.utils.secure_operations import secure_document_operation
 
             member = frappe.get_doc("Member", member_name)
 
-            # Check if donor already exists
-            existing_check = check_donor_exists(member_name)
-            if existing_check.get("exists"):
+            # Check if donor already exists using donor management service
+            donor_service = get_donor_management_service()
+            existing_check = donor_service.check_donor_exists(member_name)
+            if existing_check.success and existing_check.data:
                 return {
                     "success": False,
                     "message": _("Donor record already exists for this member"),
-                    "donor_name": existing_check.get("donor_name"),
+                    "donor_name": existing_check.data.get("donor_name"),
                 }
 
             # Create donor record
@@ -140,9 +148,7 @@ class MemberDonorIntegrationService:
                         address_parts.append(address_doc.country)
                     donor.address = ", ".join(address_parts)
                 except Exception as addr_e:
-                    frappe.logger().warning(
-                        f"Could not copy address from member {member_name}: {str(addr_e)}"
-                    )
+                    self.logger.warning(f"Could not copy address from member {member_name}: {str(addr_e)}")
 
             # Link to the member record
             donor.member = member.name
@@ -159,9 +165,7 @@ class MemberDonorIntegrationService:
                 return {
                     "success": False,
                     "error": "; ".join(donor_result.errors),
-                    "message": _("Failed to create donor record: {0}").format(
-                        "; ".join(donor_result.errors)
-                    ),
+                    "message": _("Failed to create donor record: {0}").format("; ".join(donor_result.errors)),
                 }
 
             # Link the customer record if it exists
@@ -181,26 +185,24 @@ class MemberDonorIntegrationService:
                         )
 
                         if not customer_result.success:
-                            frappe.logger().warning(
+                            self.logger.warning(
                                 f"Could not link customer {member.customer} to donor {donor.name}: "
                                 f"{'; '.join(customer_result.errors)}"
                             )
                 except Exception as cust_e:
-                    frappe.logger().warning(f"Could not link customer to donor: {str(cust_e)}")
+                    self.logger.warning(f"Could not link customer to donor: {str(cust_e)}")
 
-            frappe.logger().info(f"Created donor record {donor.name} for member {member.name}")
+            self.logger.info(f"Created donor record {donor.name} for member {member.name}")
 
             return {
                 "success": True,
-                "message": _(
-                    "Donor record created successfully. Member can now receive donation receipts."
-                ),
+                "message": _("Donor record created successfully. Member can now receive donation receipts."),
                 "donor_name": donor.name,
             }
 
         except Exception as e:
             # Very short error message to avoid log truncation
-            frappe.log_error(f"Donor creation failed: {str(e)[:50]}")
+            self.logger.error(f"Donor creation failed: {str(e)[:50]}")
             return {
                 "success": False,
                 "error": str(e),

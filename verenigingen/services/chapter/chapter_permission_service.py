@@ -38,11 +38,13 @@ from typing import TYPE_CHECKING, List, Optional, Tuple
 import frappe
 from frappe import _
 
+from verenigingen.services.infrastructure.base_service import StatelessService
+
 if TYPE_CHECKING:
     from frappe.model.document import Document
 
 
-class ChapterPermissionService:
+class ChapterPermissionService(StatelessService):
     """
     Service for managing Chapter permission checking and access control.
 
@@ -63,12 +65,15 @@ class ChapterPermissionService:
     BOARD_MEMBER_ROLE = "Verenigingen Chapter Board Member"
     MEMBER_ROLE = "Verenigingen Member"
 
+    def __init__(self) -> None:
+        """Initialize the chapter permission service."""
+        super().__init__(service_name="ChapterPermissionService")
+
     # ========================================================================
     # QUERY PERMISSION METHODS
     # ========================================================================
 
-    @staticmethod
-    def get_permission_query_conditions(user: Optional[str] = None) -> str:
+    def get_permission_query_conditions(self, user: Optional[str] = None) -> str:
         """Get permission query conditions for Chapters in list views.
 
         This method controls which chapters appear in list views based on
@@ -90,14 +95,14 @@ class ChapterPermissionService:
                 user = frappe.session.user
 
             # Admin users see all chapters
-            if ChapterPermissionService._is_admin_user(user):
+            if self._is_admin_user(user):
                 return ""
 
             user_roles = frappe.get_roles(user)
 
             # Board members see their chapters + published chapters
-            if ChapterPermissionService.BOARD_MEMBER_ROLE in user_roles:
-                board_chapters = ChapterPermissionService._get_user_board_chapters(user)
+            if self.BOARD_MEMBER_ROLE in user_roles:
+                board_chapters = self._get_user_board_chapters(user)
                 if board_chapters:
                     # Use frappe.db.escape() to prevent SQL injection (follows codebase pattern)
                     escaped_names = [frappe.db.escape(c) for c in board_chapters]
@@ -107,7 +112,7 @@ class ChapterPermissionService:
             return "`tabChapter`.published = 1"
 
         except Exception as e:
-            frappe.log_error(f"Error in chapter permission query: {str(e)}")
+            self.logger.error(f"Error in chapter permission query: {str(e)}")
             # Fail safe - show only published chapters on error
             return "`tabChapter`.published = 1"
 
@@ -115,8 +120,9 @@ class ChapterPermissionService:
     # DOCUMENT PERMISSION METHODS
     # ========================================================================
 
-    @staticmethod
-    def has_chapter_permission(doc: "Document", ptype: str = "read", user: Optional[str] = None) -> bool:
+    def has_chapter_permission(
+        self, doc: "Document", ptype: str = "read", user: Optional[str] = None
+    ) -> bool:
         """Control document-level access to specific Chapter.
 
         Provides row-level security ensuring board members can only access
@@ -142,7 +148,7 @@ class ChapterPermissionService:
         user_roles = frappe.get_roles(user)
 
         # Admin roles always have full access
-        if ChapterPermissionService._is_admin_or_staff(user_roles):
+        if self._is_admin_or_staff(user_roles):
             return True
 
         # Service accounts (webhooks, background jobs) defer to standard Frappe DocPerm
@@ -153,35 +159,32 @@ class ChapterPermissionService:
             return service_result
 
         # Check board member access (full access to their chapters)
-        if ChapterPermissionService.BOARD_MEMBER_ROLE in user_roles:
-            if ChapterPermissionService._is_user_board_member_of_chapter(user, doc.name):
+        if self.BOARD_MEMBER_ROLE in user_roles:
+            if self._is_user_board_member_of_chapter(user, doc.name):
                 return True
             # Board member role but NOT on this chapter's board - explicitly deny
-            ChapterPermissionService._log_permission_denial(
-                user, doc.name, ptype, "board_member_not_on_chapter"
-            )
+            self._log_permission_denial(user, doc.name, ptype, "board_member_not_on_chapter")
             return False
 
         # Regular members have read-only access to published chapters
-        if ChapterPermissionService.MEMBER_ROLE in user_roles:
+        if self.MEMBER_ROLE in user_roles:
             if ptype == "read":
                 return True
             # Explicitly deny write operations for regular members
             if ptype in ["write", "delete", "submit", "cancel"]:
-                ChapterPermissionService._log_permission_denial(user, doc.name, ptype, "member_write_denied")
+                self._log_permission_denial(user, doc.name, ptype, "member_write_denied")
                 return False
 
         # Default deny - never delegate to role permissions alone
         # Row-level security requires explicit permission grant
-        ChapterPermissionService._log_permission_denial(user, doc.name, ptype, "no_explicit_permission")
+        self._log_permission_denial(user, doc.name, ptype, "no_explicit_permission")
         return False
 
     # ========================================================================
     # API PERMISSION METHODS
     # ========================================================================
 
-    @staticmethod
-    def can_user_view_member_board_info(member_name: str, user: Optional[str] = None) -> bool:
+    def can_user_view_member_board_info(self, member_name: str, user: Optional[str] = None) -> bool:
         """Check if user can view board information for a member.
 
         Used by get_board_memberships() API to validate access.
@@ -204,7 +207,7 @@ class ChapterPermissionService:
         user_roles = frappe.get_roles(user)
 
         # Admins have full access
-        if ChapterPermissionService._is_admin_user(user_roles):
+        if self._is_admin_user(user_roles):
             return True
 
         # Users can view their own board info
@@ -214,12 +217,11 @@ class ChapterPermissionService:
 
         # Board members can view info for members in their chapters
         if current_member:
-            return ChapterPermissionService._has_shared_chapter_access(current_member, member_name)
+            return self._has_shared_chapter_access(current_member, member_name)
 
         return False
 
-    @staticmethod
-    def can_user_view_chapter_board_history(chapter_name: str, user: Optional[str] = None) -> bool:
+    def can_user_view_chapter_board_history(self, chapter_name: str, user: Optional[str] = None) -> bool:
         """Check if user can view board history for a chapter.
 
         Used by get_chapter_board_history() API to validate access.
@@ -241,18 +243,17 @@ class ChapterPermissionService:
         user_roles = frappe.get_roles(user)
 
         # Admins have full access
-        if ChapterPermissionService._is_admin_user(user_roles):
+        if self._is_admin_user(user_roles):
             return True
 
         # Board members of this chapter can view its history
-        return ChapterPermissionService._is_user_board_member_of_chapter(user, chapter_name)
+        return self._is_user_board_member_of_chapter(user, chapter_name)
 
     # ========================================================================
     # HELPER METHODS (Private)
     # ========================================================================
 
-    @staticmethod
-    def _is_admin_user(user_or_roles) -> bool:
+    def _is_admin_user(self, user_or_roles) -> bool:
         """Check if user has admin role.
 
         Args:
@@ -266,10 +267,9 @@ class ChapterPermissionService:
         else:
             roles = user_or_roles
 
-        return any(role in ChapterPermissionService.ADMIN_ROLES for role in roles)
+        return any(role in self.ADMIN_ROLES for role in roles)
 
-    @staticmethod
-    def _is_admin_or_staff(user_or_roles) -> bool:
+    def _is_admin_or_staff(self, user_or_roles) -> bool:
         """Check if user has admin or staff role.
 
         Args:
@@ -283,10 +283,9 @@ class ChapterPermissionService:
         else:
             roles = user_or_roles
 
-        return any(role in ChapterPermissionService.STAFF_ROLES for role in roles)
+        return any(role in self.STAFF_ROLES for role in roles)
 
-    @staticmethod
-    def _get_member_and_volunteer(user: str) -> Tuple[Optional[str], Optional[str]]:
+    def _get_member_and_volunteer(self, user: str) -> Tuple[Optional[str], Optional[str]]:
         """Get member and volunteer records for a user.
 
         Args:
@@ -301,8 +300,7 @@ class ChapterPermissionService:
             volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")
         return member, volunteer
 
-    @staticmethod
-    def _get_user_board_chapters(user: str) -> List[str]:
+    def _get_user_board_chapters(self, user: str) -> List[str]:
         """Get list of chapters where user is an active board member.
 
         Args:
@@ -311,7 +309,7 @@ class ChapterPermissionService:
         Returns:
             List of chapter names
         """
-        member, volunteer = ChapterPermissionService._get_member_and_volunteer(user)
+        member, volunteer = self._get_member_and_volunteer(user)
         if not volunteer:
             return []
 
@@ -327,8 +325,7 @@ class ChapterPermissionService:
 
         return [chapter[0] for chapter in board_chapters]
 
-    @staticmethod
-    def _is_user_board_member_of_chapter(user: str, chapter_name: str) -> bool:
+    def _is_user_board_member_of_chapter(self, user: str, chapter_name: str) -> bool:
         """Check if user is an active board member of specific chapter.
 
         Args:
@@ -338,7 +335,7 @@ class ChapterPermissionService:
         Returns:
             True if user is active board member of chapter
         """
-        member, volunteer = ChapterPermissionService._get_member_and_volunteer(user)
+        member, volunteer = self._get_member_and_volunteer(user)
         if not volunteer:
             return False
 
@@ -346,8 +343,7 @@ class ChapterPermissionService:
             "Chapter Board Member", {"parent": chapter_name, "volunteer": volunteer, "is_active": 1}
         )
 
-    @staticmethod
-    def _has_shared_chapter_access(requesting_member: str, target_member: str) -> bool:
+    def _has_shared_chapter_access(self, requesting_member: str, target_member: str) -> bool:
         """Check if requesting member has board access to any of target member's chapters.
 
         Used to determine if a board member can view another member's information.
@@ -396,8 +392,7 @@ class ChapterPermissionService:
 
         return bool(target_chapter_set & requesting_chapter_set)
 
-    @staticmethod
-    def _log_permission_denial(user: str, chapter: str, ptype: str, reason: str):
+    def _log_permission_denial(self, user: str, chapter: str, ptype: str, reason: str):
         """Log permission denial for audit trail.
 
         Args:
@@ -406,7 +401,7 @@ class ChapterPermissionService:
             ptype: Permission type requested
             reason: Denial reason code
         """
-        frappe.logger().info(
+        self.logger.info(
             f"Chapter permission denied: user={user}, chapter={chapter}, "
             f"permission={ptype}, reason={reason}"
         )

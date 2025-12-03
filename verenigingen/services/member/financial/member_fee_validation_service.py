@@ -41,11 +41,13 @@ from typing import TYPE_CHECKING
 import frappe
 from frappe import _
 
+from verenigingen.services.infrastructure.base_service import StatelessService
+
 if TYPE_CHECKING:
     from frappe.model.document import Document
 
 
-class MemberFeeValidationService:
+class MemberFeeValidationService(StatelessService):
     """
     Service for validating membership fee overrides.
 
@@ -56,8 +58,11 @@ class MemberFeeValidationService:
     - Audit logging for fee override actions
     """
 
-    @staticmethod
-    def validate_fee_override_amount(amount: float) -> None:
+    def __init__(self) -> None:
+        """Initialize the member fee validation service."""
+        super().__init__(service_name="MemberFeeValidationService")
+
+    def validate_fee_override_amount(self, amount: float) -> None:
         """
         Validate that fee override amount is positive.
 
@@ -75,8 +80,7 @@ class MemberFeeValidationService:
         if amount and amount <= 0:
             frappe.throw(_("Membership fee override must be greater than 0"))
 
-    @staticmethod
-    def validate_fee_override_reason(member_doc: "Document") -> None:
+    def validate_fee_override_reason(self, member_doc: "Document") -> None:
         """
         Validate that fee override has a documented reason when required.
 
@@ -116,7 +120,7 @@ class MemberFeeValidationService:
         fee_override_reason = getattr(member_doc, "fee_override_reason", None)
 
         # Debug logging for troubleshooting
-        frappe.logger("member_validation").info(
+        self.logger.info(
             f"Fee override validation: member={member_doc.name or 'NEW'}, "
             f"dues_rate={member_doc.dues_rate}, "
             f"is_csv_import={is_csv_import}, is_system_update={is_system_update}, "
@@ -136,8 +140,7 @@ class MemberFeeValidationService:
         if not fee_override_reason:
             frappe.throw(_("Please provide a reason for the fee override"))
 
-    @staticmethod
-    def validate_fee_override_permissions(member_doc: "Document") -> None:
+    def validate_fee_override_permissions(self, member_doc: "Document") -> None:
         """
         Validate that only authorized users can set fee overrides.
 
@@ -199,7 +202,7 @@ class MemberFeeValidationService:
             )
 
         # Log the fee override action for audit purposes
-        frappe.logger().info(
+        self.logger.info(
             f"Fee override set by {frappe.session.user} for member {member_doc.name}: "
             f"Amount: {member_doc.dues_rate}, "
             f"Reason: {getattr(member_doc, 'fee_override_reason', 'No reason provided')}"

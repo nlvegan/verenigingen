@@ -34,11 +34,13 @@ from typing import TYPE_CHECKING, Optional
 import frappe
 from frappe.utils import today
 
+from verenigingen.services.infrastructure.base_service import StatelessService
+
 if TYPE_CHECKING:
     from frappe.model.document import Document
 
 
-class ChapterBoardService:
+class ChapterBoardService(StatelessService):
     """
     Service for managing Chapter board member data and operations.
 
@@ -48,8 +50,11 @@ class ChapterBoardService:
     - Board document field auto-population and file organization
     """
 
-    @staticmethod
-    def update_chapter_head(chapter_doc: "Document") -> bool:
+    def __init__(self) -> None:
+        """Initialize the chapter board service."""
+        super().__init__(service_name="ChapterBoardService")
+
+    def update_chapter_head(self, chapter_doc: "Document") -> bool:
         """
         Update chapter_head field based on board members with chair roles.
 
@@ -87,7 +92,7 @@ class ChapterBoardService:
                     return False
 
                 # Use single optimized query to get chair member
-                chair_member = ChapterBoardService.get_chapter_chair_optimized(chapter_doc)
+                chair_member = self.get_chapter_chair_optimized(chapter_doc)
 
                 if chair_member:
                     chapter_doc.chapter_head = chair_member
@@ -98,7 +103,7 @@ class ChapterBoardService:
 
                 # Log change if head changed
                 if old_head != chapter_doc.chapter_head:
-                    frappe.logger().info(
+                    self.logger.info(
                         f"Chapter head updated for {chapter_doc.name}: {old_head} -> {chapter_doc.chapter_head}"
                     )
 
@@ -110,11 +115,10 @@ class ChapterBoardService:
                 raise transaction_error
 
         except Exception as e:
-            frappe.log_error(f"Error updating chapter head for {chapter_doc.name}: {str(e)}")
+            self.logger.error(f"Error updating chapter head for {chapter_doc.name}: {str(e)}")
             return False
 
-    @staticmethod
-    def get_chapter_chair_optimized(chapter_doc: "Document") -> Optional[str]:
+    def get_chapter_chair_optimized(self, chapter_doc: "Document") -> Optional[str]:
         """
         Find chapter chair member using optimized single query.
 
@@ -177,8 +181,7 @@ class ChapterBoardService:
         result = frappe.db.sql(chair_query, params, as_dict=True)
         return result[0].member if result else None
 
-    @staticmethod
-    def populate_board_document_fields(chapter_doc: "Document") -> None:
+    def populate_board_document_fields(self, chapter_doc: "Document") -> None:
         """
         Auto-populate uploaded_by and upload_date fields for board documents.
 
@@ -238,7 +241,7 @@ class ChapterBoardService:
                         doc.document_file = new_file_url
 
         except Exception as e:
-            frappe.log_error(f"Error populating board document fields: {str(e)}")
+            self.logger.error(f"Error populating board document fields: {str(e)}")
 
 
 def get_chapter_board_service() -> ChapterBoardService:

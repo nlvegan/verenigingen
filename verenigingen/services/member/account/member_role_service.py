@@ -26,10 +26,11 @@ from typing import Optional
 import frappe
 from frappe import _
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.secure_operations import secure_document_operation
 
 
-class MemberRoleService:
+class MemberRoleService(StatelessService):
     """
     Service for managing user roles and modules for member accounts.
 
@@ -40,8 +41,11 @@ class MemberRoleService:
     - Role creation and initialization
     """
 
-    @staticmethod
-    def add_member_roles_to_user(user_name: str) -> Optional[str]:
+    def __init__(self) -> None:
+        """Initialize the member role service."""
+        super().__init__(service_name="MemberRoleService")
+
+    def add_member_roles_to_user(self, user_name: str) -> Optional[str]:
         """
         Add appropriate role profile for a member user to access portal pages.
 
@@ -62,11 +66,11 @@ class MemberRoleService:
             # Check if Verenigingen Member role profile exists
             role_profile_name = "Verenigingen Member"
             if not frappe.db.exists("Role Profile", role_profile_name):
-                frappe.logger().warning(
+                self.logger.warning(
                     f"Role Profile {role_profile_name} does not exist. Creating basic roles manually."
                 )
                 # Fallback to individual role assignment
-                return MemberRoleService._assign_individual_member_roles(user_name)
+                return self._assign_individual_member_roles(user_name)
 
             # Add role profile to user
             user = frappe.get_doc("User", user_name)
@@ -100,19 +104,17 @@ class MemberRoleService:
 
             # Save with proper permissions (no bypass)
             user.save()
-            frappe.logger().info(f"Assigned role profile '{role_profile_name}' to user {user_name}")
+            self.logger.info(f"Assigned role profile '{role_profile_name}' to user {user_name}")
 
             return user.name
 
         except Exception as e:
-            frappe.log_error(
-                f"Error adding roles to user {user_name}: {str(e)}\n\nTraceback: {frappe.get_traceback()}",
-                "Member Role Assignment Error",
+            self.logger.error(
+                f"Error adding roles to user {user_name}: {str(e)}\n\nTraceback: {frappe.get_traceback()}"
             )
             return None
 
-    @staticmethod
-    def _assign_individual_member_roles(user_name: str) -> str:
+    def _assign_individual_member_roles(self, user_name: str) -> str:
         """
         Fallback method to assign individual roles when role profile is not available.
 
@@ -139,7 +141,7 @@ class MemberRoleService:
 
             # Check if Verenigingen Member role exists, create if not
             if not frappe.db.exists("Role", "Verenigingen Member"):
-                MemberRoleService.create_verenigingen_member_role()
+                self.create_verenigingen_member_role()
 
             # Add roles to user
             user = frappe.get_doc("User", user_name)
@@ -165,7 +167,7 @@ class MemberRoleService:
 
             for role in member_roles:
                 if not frappe.db.exists("Role", role):
-                    frappe.logger().warning(f"Role {role} does not exist, skipping")
+                    self.logger.warning(f"Role {role} does not exist, skipping")
                     continue
                 # Always add the role since we cleared roles above
                 user.append("roles", {"role": role})
@@ -176,19 +178,17 @@ class MemberRoleService:
 
             # Save with proper permissions (no bypass)
             user.save()
-            frappe.logger().info(f"Assigned individual roles to user {user_name}: {member_roles}")
+            self.logger.info(f"Assigned individual roles to user {user_name}: {member_roles}")
 
             return user.name
 
         except Exception as e:
-            frappe.log_error(
-                f"Error assigning individual member roles to user {user_name}: {str(e)}\n\nTraceback: {frappe.get_traceback()}",
-                "Member Role Assignment Error",
+            self.logger.error(
+                f"Error assigning individual member roles to user {user_name}: {str(e)}\n\nTraceback: {frappe.get_traceback()}"
             )
             raise
 
-    @staticmethod
-    def set_member_user_modules(user_name: str) -> None:
+    def set_member_user_modules(self, user_name: str) -> None:
         """
         Set allowed modules for member users - restrict to relevant modules only.
 
@@ -231,21 +231,19 @@ class MemberRoleService:
             )
 
             if not module_result.success:
-                frappe.logger().error(f"Failed to set module restrictions: {'; '.join(module_result.errors)}")
+                self.logger.error(f"Failed to set module restrictions: {'; '.join(module_result.errors)}")
                 frappe.throw(
                     _("Failed to set module restrictions: {0}").format("; ".join(module_result.errors))
                 )
 
-            frappe.logger().info(f"Set module restrictions for user {user_name}")
+            self.logger.info(f"Set module restrictions for user {user_name}")
 
         except Exception as e:
-            frappe.log_error(
-                f"Error setting module restrictions for user {user_name}: {str(e)}\n\nTraceback: {frappe.get_traceback()}",
-                "Member Module Setup Error",
+            self.logger.error(
+                f"Error setting module restrictions for user {user_name}: {str(e)}\n\nTraceback: {frappe.get_traceback()}"
             )
 
-    @staticmethod
-    def create_verenigingen_member_role() -> None:
+    def create_verenigingen_member_role(self) -> None:
         """
         Create the Verenigingen Member role for consolidated member access.
 
@@ -272,19 +270,18 @@ class MemberRoleService:
             )
 
             if not role_result.success:
-                frappe.logger().error(
+                self.logger.error(
                     f"Failed to create Verenigingen Member role: {'; '.join(role_result.errors)}"
                 )
                 frappe.throw(
                     _("Failed to create Verenigingen Member role: {0}").format("; ".join(role_result.errors))
                 )
 
-            frappe.logger().info("Created Verenigingen Member role successfully")
+            self.logger.info("Created Verenigingen Member role successfully")
 
         except Exception as e:
-            frappe.log_error(
-                f"Error creating Verenigingen Member role: {str(e)}\n\nTraceback: {frappe.get_traceback()}",
-                "Role Creation Error",
+            self.logger.error(
+                f"Error creating Verenigingen Member role: {str(e)}\n\nTraceback: {frappe.get_traceback()}"
             )
             raise
 

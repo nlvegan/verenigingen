@@ -31,11 +31,13 @@ from typing import TYPE_CHECKING, Optional
 
 import frappe
 
+from verenigingen.services.infrastructure.base_service import StatelessService
+
 if TYPE_CHECKING:
     from frappe.model.document import Document
 
 
-class DepartmentSyncService:
+class DepartmentSyncService(StatelessService):
     """
     Service for synchronizing ERPNext Department records with Chapter.
 
@@ -46,8 +48,11 @@ class DepartmentSyncService:
     - Company configuration management
     """
 
-    @staticmethod
-    def sync_department(chapter_doc: "Document", old_doc: Optional["Document"] = None) -> None:
+    def __init__(self) -> None:
+        """Initialize the department sync service."""
+        super().__init__(service_name="DepartmentSyncService")
+
+    def sync_department(self, chapter_doc: "Document", old_doc: Optional["Document"] = None) -> None:
         """
         Synchronize ERPNext Department record with Chapter for native integration.
 
@@ -106,7 +111,7 @@ class DepartmentSyncService:
                 if dept_doc.disabled != is_disabled:
                     dept_doc.disabled = is_disabled
                     dept_doc.save(ignore_permissions=True)
-                    frappe.logger().info(
+                    self.logger.info(
                         f"Updated Department {actual_dept_name} disabled status to {is_disabled}"
                     )
             else:
@@ -121,7 +126,7 @@ class DepartmentSyncService:
                     }
                 )
                 dept_doc.insert(ignore_permissions=True)
-                frappe.logger().info(
+                self.logger.info(
                     f"Created Department {dept_doc.name} for chapter {chapter_doc.name} "
                     f"(disabled={is_disabled}, company={company})"
                 )
@@ -142,10 +147,7 @@ class DepartmentSyncService:
 
         except Exception as e:
             # Don't block chapter save if department sync fails
-            frappe.log_error(
-                f"Failed to sync Department for chapter {chapter_doc.name}: {str(e)}",
-                "Chapter Department Sync Error",
-            )
+            self.logger.error(f"Failed to sync Department for chapter {chapter_doc.name}: {str(e)}")
 
 
 def get_department_sync_service() -> DepartmentSyncService:

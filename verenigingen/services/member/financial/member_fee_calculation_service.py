@@ -17,11 +17,13 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 import frappe
 from frappe import _
 
+from verenigingen.services.infrastructure.base_service import StatelessService
+
 if TYPE_CHECKING:
     from frappe.model.document import Document
 
 
-class MemberFeeCalculationService:
+class MemberFeeCalculationService(StatelessService):
     """
     Service for calculating membership fees with proper precedence handling.
 
@@ -31,8 +33,11 @@ class MemberFeeCalculationService:
     3. Default (0.00)
     """
 
-    @staticmethod
-    def get_current_membership_fee(member_doc: "Document") -> Dict[str, Any]:
+    def __init__(self) -> None:
+        """Initialize the member fee calculation service."""
+        super().__init__(service_name="MemberFeeCalculationService")
+
+    def get_current_membership_fee(self, member_doc: "Document") -> Dict[str, Any]:
         """
         Get current effective membership fee for a member.
 
@@ -61,10 +66,7 @@ class MemberFeeCalculationService:
 
             active_membership = MemberMembershipService.get_active_membership_for_member_doc(member_doc)
         except Exception as e:
-            frappe.log_error(
-                f"Error retrieving active membership for member {member_doc.name}: {str(e)}",
-                "Fee Calculation Error",
-            )
+            self.logger.error(f"Error retrieving active membership for member {member_doc.name}: {str(e)}")
             return {
                 "amount": 0,
                 "source": "error",
@@ -77,9 +79,8 @@ class MemberFeeCalculationService:
 
                 # Check if membership type has template
                 if not membership_type.dues_schedule_template:
-                    frappe.log_error(
-                        f"Membership Type '{membership_type.name}' missing dues schedule template",
-                        "Fee Calculation Error",
+                    self.logger.error(
+                        f"Membership Type '{membership_type.name}' missing dues schedule template"
                     )
                     return {
                         "amount": 0,
@@ -90,9 +91,8 @@ class MemberFeeCalculationService:
                 # Get template and validate amount
                 template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
                 if not template.suggested_amount:
-                    frappe.log_error(
-                        f"Template '{membership_type.dues_schedule_template}' missing suggested_amount",
-                        "Fee Calculation Error",
+                    self.logger.error(
+                        f"Template '{membership_type.dues_schedule_template}' missing suggested_amount"
                     )
                     return {
                         "amount": 0,
@@ -107,9 +107,7 @@ class MemberFeeCalculationService:
                 }
             except Exception as e:
                 # Log error but don't crash the UI
-                frappe.log_error(
-                    f"Error calculating fee for member {member_doc.name}: {str(e)}", "Fee Calculation Error"
-                )
+                self.logger.error(f"Error calculating fee for member {member_doc.name}: {str(e)}")
                 return {
                     "amount": 0,
                     "source": "error",
@@ -119,8 +117,7 @@ class MemberFeeCalculationService:
         # Priority 3: Default (no fee)
         return {"amount": 0, "source": "none"}
 
-    @staticmethod
-    def get_display_membership_fee(member_doc) -> Dict:
+    def get_display_membership_fee(self, member_doc) -> Dict:
         """
         Get membership fee with amendment status for display purposes.
 
@@ -141,7 +138,7 @@ class MemberFeeCalculationService:
             - reason (str, optional): Reason for fee/amendment
         """
         # Get base fee information
-        current_fee = MemberFeeCalculationService.get_current_membership_fee(member_doc)
+        current_fee = self.get_current_membership_fee(member_doc)
 
         # Check for pending amendments
         pending_amendments = frappe.get_all(

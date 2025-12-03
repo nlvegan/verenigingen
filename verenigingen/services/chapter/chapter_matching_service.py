@@ -32,11 +32,13 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import frappe
 
+from verenigingen.services.infrastructure.base_service import StatelessService
+
 if TYPE_CHECKING:
     from frappe.model.document import Document
 
 
-class ChapterMatchingService:
+class ChapterMatchingService(StatelessService):
     """
     Service for chapter matching and suggestion algorithms.
 
@@ -57,12 +59,15 @@ class ChapterMatchingService:
     SCORE_CITY_IN_REGION = 35
     SCORE_CITY_IN_NAME = 45
 
+    def __init__(self) -> None:
+        """Initialize the chapter matching service."""
+        super().__init__(service_name="ChapterMatchingService")
+
     # ========================================================================
     # PUBLIC MATCHING METHODS
     # ========================================================================
 
-    @staticmethod
-    def get_chapters_by_postal_code(postal_code: str) -> List[Dict[str, Any]]:
+    def get_chapters_by_postal_code(self, postal_code: str) -> List[Dict[str, Any]]:
         """Get chapters that match a postal code.
 
         Args:
@@ -97,8 +102,8 @@ class ChapterMatchingService:
 
         return matching_chapters
 
-    @staticmethod
     def suggest_chapters_for_member(
+        self,
         member: str,
         postal_code: Optional[str] = None,
         state: Optional[str] = None,
@@ -130,32 +135,32 @@ class ChapterMatchingService:
             [{"name": "Amsterdam", "match_score": 90, ...}]
         """
         # Check if chapter management is enabled
-        if not ChapterMatchingService._is_chapter_management_enabled():
+        if not self._is_chapter_management_enabled():
             return []
 
         # Resolve location data from member if not provided
         if not postal_code and not state and not city:
-            postal_code, state, city = ChapterMatchingService._get_member_location(member)
+            postal_code, state, city = self._get_member_location(member)
 
         matching_chapters = []
 
         # Strategy 1: Postal code matching (high confidence)
         if postal_code:
-            chapters_by_postal = ChapterMatchingService.get_chapters_by_postal_code(postal_code)
+            chapters_by_postal = self.get_chapters_by_postal_code(postal_code)
             for chapter in chapters_by_postal:
                 matching_chapters.append(
                     {
                         "name": chapter.get("name"),
                         "city": chapter.get("region", ""),
                         "state": chapter.get("region", ""),
-                        "match_score": ChapterMatchingService.SCORE_POSTAL_CODE_MATCH,
+                        "match_score": self.SCORE_POSTAL_CODE_MATCH,
                         "distance": "Unknown",
                     }
                 )
 
         # Strategy 2: Region/city matching (fallback)
         if not matching_chapters:
-            matching_chapters = ChapterMatchingService._find_chapters_by_region(state, city)
+            matching_chapters = self._find_chapters_by_region(state, city)
 
         # Sort by match score descending
         matching_chapters.sort(key=lambda x: x.get("match_score", 0), reverse=True)
@@ -166,8 +171,7 @@ class ChapterMatchingService:
     # HELPER METHODS (Private)
     # ========================================================================
 
-    @staticmethod
-    def _is_chapter_management_enabled() -> bool:
+    def _is_chapter_management_enabled(self) -> bool:
         """Check if chapter management is enabled in settings.
 
         Returns:
@@ -178,8 +182,7 @@ class ChapterMatchingService:
         except Exception:
             return True  # Fail open
 
-    @staticmethod
-    def _get_member_location(member: str) -> tuple:
+    def _get_member_location(self, member: str) -> tuple:
         """Get location data from member's address.
 
         Args:
@@ -203,19 +206,18 @@ class ChapterMatchingService:
                     state = address_doc.state
                     city = address_doc.city
                 except Exception as e:
-                    frappe.log_error(f"Error fetching address for member {member}: {str(e)}")
+                    self.logger.error(f"Error fetching address for member {member}: {str(e)}")
 
             # Fallback to member's direct postal code field
             if not postal_code and hasattr(member_doc, "pincode"):
                 postal_code = member_doc.pincode
 
         except Exception as e:
-            frappe.log_error(f"Error getting member location: {str(e)}")
+            self.logger.error(f"Error getting member location: {str(e)}")
 
         return postal_code, state, city
 
-    @staticmethod
-    def _find_chapters_by_region(state: Optional[str], city: Optional[str]) -> List[Dict[str, Any]]:
+    def _find_chapters_by_region(self, state: Optional[str], city: Optional[str]) -> List[Dict[str, Any]]:
         """Find chapters by region/city matching with scoring.
 
         Args:
@@ -232,9 +234,7 @@ class ChapterMatchingService:
         matching_chapters = []
 
         for chapter in all_chapters:
-            score = ChapterMatchingService._calculate_region_match_score(
-                chapter=chapter, state=state, city=city
-            )
+            score = self._calculate_region_match_score(chapter=chapter, state=state, city=city)
 
             if score > 0:
                 matching_chapters.append(
@@ -249,9 +249,8 @@ class ChapterMatchingService:
 
         return matching_chapters
 
-    @staticmethod
     def _calculate_region_match_score(
-        chapter: Dict[str, Any], state: Optional[str], city: Optional[str]
+        self, chapter: Dict[str, Any], state: Optional[str], city: Optional[str]
     ) -> int:
         """Calculate match score based on region/city matching.
 
@@ -277,9 +276,9 @@ class ChapterMatchingService:
             region_lower = chapter.get("region").lower()
 
             if state_lower in region_lower:
-                score += ChapterMatchingService.SCORE_STATE_IN_REGION
+                score += self.SCORE_STATE_IN_REGION
             elif region_lower in state_lower:
-                score += ChapterMatchingService.SCORE_REGION_IN_STATE
+                score += self.SCORE_REGION_IN_STATE
 
         # City matching
         if city and chapter.get("region"):
@@ -288,8 +287,8 @@ class ChapterMatchingService:
             name_lower = chapter.get("name").lower()
 
             if city_lower in region_lower:
-                score += ChapterMatchingService.SCORE_CITY_IN_REGION
+                score += self.SCORE_CITY_IN_REGION
             elif city_lower in name_lower:
-                score += ChapterMatchingService.SCORE_CITY_IN_NAME
+                score += self.SCORE_CITY_IN_NAME
 
         return score

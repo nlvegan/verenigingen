@@ -40,11 +40,13 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 import frappe
 from frappe.utils import now_datetime
 
+from verenigingen.services.infrastructure.base_service import StatelessService
+
 if TYPE_CHECKING:
     from frappe.model.document import Document
 
 
-class MemberFeeChangeHistoryService:
+class MemberFeeChangeHistoryService(StatelessService):
     """
     Service for managing fee change history child table on Member records.
 
@@ -59,8 +61,11 @@ class MemberFeeChangeHistoryService:
     # Valid billing frequencies for fee change history
     VALID_BILLING_FREQUENCIES = ["Daily", "Monthly", "Quarterly", "Semi-Annual", "Annual", "Custom"]
 
-    @staticmethod
-    def _validate_billing_frequency(frequency: Optional[str] = None) -> str:
+    def __init__(self) -> None:
+        """Initialize the fee change history service."""
+        super().__init__(service_name="MemberFeeChangeHistoryService")
+
+    def _validate_billing_frequency(self, frequency: Optional[str] = None) -> str:
         """
         Validate and normalize billing frequency.
 
@@ -78,12 +83,11 @@ class MemberFeeChangeHistoryService:
             >>> MemberFeeChangeHistoryService._validate_billing_frequency(None)
             "Custom"
         """
-        if frequency and frequency in MemberFeeChangeHistoryService.VALID_BILLING_FREQUENCIES:
+        if frequency and frequency in self.VALID_BILLING_FREQUENCIES:
             return frequency
         return "Custom"
 
-    @staticmethod
-    def add_fee_change_to_history(member_doc: "Document", schedule_data: Dict[str, Any]) -> None:
+    def add_fee_change_to_history(self, member_doc: "Document", schedule_data: Dict[str, Any]) -> None:
         """
         Add a single fee change to history incrementally.
 
@@ -140,9 +144,7 @@ class MemberFeeChangeHistoryService:
                     break
 
             # Validate billing frequency - use "Custom" for unsupported frequencies
-            billing_freq = MemberFeeChangeHistoryService._validate_billing_frequency(
-                schedule_data.get("billing_frequency")
-            )
+            billing_freq = self._validate_billing_frequency(schedule_data.get("billing_frequency"))
 
             # Build entry data with all required fields
             entry_data = {
@@ -181,15 +183,11 @@ class MemberFeeChangeHistoryService:
             # This prevents multiple saves when refreshing history
 
         except Exception as e:
-            frappe.log_error(
-                f"Error adding fee change to history for member {member_doc.name}: {str(e)}",
-                "Fee Change History Update",
-            )
+            self.logger.error(f"Error adding fee change to history for member {member_doc.name}: {str(e)}")
             # Ensure method closure
             return
 
-    @staticmethod
-    def update_fee_change_in_history(member_doc: "Document", schedule_data: Dict[str, Any]) -> None:
+    def update_fee_change_in_history(self, member_doc: "Document", schedule_data: Dict[str, Any]) -> None:
         """
         Update an existing fee change in history.
 
@@ -228,7 +226,7 @@ class MemberFeeChangeHistoryService:
 
         if not hasattr(member_doc, "fee_change_history") or not member_doc.fee_change_history:
             # If no history exists, just add it
-            MemberFeeChangeHistoryService.add_fee_change_to_history(member_doc, schedule_data)
+            self.add_fee_change_to_history(member_doc, schedule_data)
             return
 
         try:
@@ -240,9 +238,7 @@ class MemberFeeChangeHistoryService:
                 if row.dues_schedule == schedule_name:
                     found = True
                     # Update the entry with new data
-                    billing_freq = MemberFeeChangeHistoryService._validate_billing_frequency(
-                        schedule_data.get("billing_frequency")
-                    )
+                    billing_freq = self._validate_billing_frequency(schedule_data.get("billing_frequency"))
 
                     # Update fields
                     row.change_date = schedule_data.get("change_date") or now_datetime()
@@ -256,7 +252,7 @@ class MemberFeeChangeHistoryService:
 
             if not found:
                 # Entry not in history, add it
-                MemberFeeChangeHistoryService.add_fee_change_to_history(member_doc, schedule_data)
+                self.add_fee_change_to_history(member_doc, schedule_data)
             else:
                 # CORRECTED SECURE VERSION: Use secure operations with explicit permission validation
                 result = secure_document_operation(
@@ -269,17 +265,13 @@ class MemberFeeChangeHistoryService:
                 )
 
                 if not result.success:
-                    frappe.log_error(
-                        f"Failed to update fee change in history for member {member_doc.name}: {'; '.join(result.errors)}",
-                        "Fee Change History Manager",
+                    self.logger.error(
+                        f"Failed to update fee change in history for member {member_doc.name}: {'; '.join(result.errors)}"
                     )
                     return
 
         except Exception as e:
-            frappe.log_error(
-                f"Error updating fee change in history for member {member_doc.name}: {str(e)}",
-                "Fee Change History Update",
-            )
+            self.logger.error(f"Error updating fee change in history for member {member_doc.name}: {str(e)}")
 
 
 def get_member_fee_change_history_service() -> MemberFeeChangeHistoryService:

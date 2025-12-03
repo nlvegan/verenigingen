@@ -43,6 +43,7 @@ from typing import TYPE_CHECKING
 import frappe
 from frappe import _
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.services.member.account.member_role_service import MemberRoleService
 from verenigingen.utils.dutch_name_utils import get_full_last_name, is_dutch_installation
 from verenigingen.utils.operation_result import OperationResult
@@ -52,7 +53,7 @@ if TYPE_CHECKING:
     from frappe.model.document import Document
 
 
-class MemberUserAccountService:
+class MemberUserAccountService(StatelessService):
     """
     Service for creating user accounts for members.
 
@@ -63,8 +64,11 @@ class MemberUserAccountService:
     - API-driven account creation
     """
 
-    @staticmethod
-    def create_user_for_member(member_doc: "Document") -> str:
+    def __init__(self) -> None:
+        """Initialize the member user account service."""
+        super().__init__(service_name="MemberUserAccountService")
+
+    def create_user_for_member(self, member_doc: "Document") -> str:
         """
         Create a user account for a member.
 
@@ -155,7 +159,7 @@ class MemberUserAccountService:
             # Use direct database update to bypass "set only once" validation on owner field
             frappe.db.set_value("Member", member_doc.name, "owner", user.name, update_modified=False)
             member_doc.reload()
-            frappe.logger().info(
+            self.logger.info(
                 f"Transferred ownership of member {member_doc.name} from {original_owner} to {user.name}"
             )
 
@@ -169,8 +173,9 @@ class MemberUserAccountService:
         frappe.msgprint(_("User {0} created successfully").format(user.name))
         return user.name
 
-    @staticmethod
-    def create_member_user_account(member_name: str, send_welcome_email: bool = True) -> OperationResult[str]:
+    def create_member_user_account(
+        self, member_name: str, send_welcome_email: bool = True
+    ) -> OperationResult[str]:
         """
         Create a user account for a member - API-compatible wrapper.
 
@@ -220,7 +225,7 @@ class MemberUserAccountService:
                 )
 
                 if not member_result.success:
-                    frappe.logger().error(f"Failed to link user to member: {'; '.join(member_result.errors)}")
+                    self.logger.error(f"Failed to link user to member: {'; '.join(member_result.errors)}")
                     frappe.throw(
                         _("Failed to link user to member: {0}").format("; ".join(member_result.errors))
                     )
@@ -254,7 +259,7 @@ class MemberUserAccountService:
             )
 
             if not user_result.success:
-                frappe.logger().error(f"Failed to create user: {'; '.join(user_result.errors)}")
+                self.logger.error(f"Failed to create user: {'; '.join(user_result.errors)}")
                 frappe.throw(_("Failed to create user: {0}").format("; ".join(user_result.errors)))
 
             # Set allowed modules for member users
@@ -273,27 +278,26 @@ class MemberUserAccountService:
             )
 
             if not member_link_result.success:
-                frappe.logger().error(
+                self.logger.error(
                     f"Failed to link new user to member: {'; '.join(member_link_result.errors)}"
                 )
                 frappe.throw(
                     _("Failed to link new user to member: {0}").format("; ".join(member_link_result.errors))
                 )
 
-            frappe.logger().info(f"Created user account {user.name} for member {member.name}")
+            self.logger.info(f"Created user account {user.name} for member {member.name}")
 
             return OperationResult.ok(
                 user.name, message=_("User account created successfully"), action="created_new"
             )
 
         except Exception as e:
-            frappe.log_error(f"Error creating user account for member {member_name}: {str(e)}")
+            self.logger.error(f"Error creating user account for member {member_name}: {str(e)}")
             return OperationResult.fail(
                 _("Failed to create user account: {0}").format(str(e)), errors=[str(e)], member=member_name
             )
 
-    @staticmethod
-    def create_user_account_if_needed(member_doc: "Document") -> None:
+    def create_user_account_if_needed(self, member_doc: "Document") -> None:
         """
         Create user account for member if conditions are met.
 
@@ -332,22 +336,20 @@ class MemberUserAccountService:
                 return
 
             # Create user account using wrapper method
-            result = MemberUserAccountService.create_member_user_account(
-                member_doc.name, send_welcome_email=False
-            )
+            result = self.create_member_user_account(member_doc.name, send_welcome_email=False)
 
             if result.get("success"):
-                frappe.logger().info(
-                    f"Auto-created user account for manually created member {member_doc.name}"
-                )
+                self.logger.info(f"Auto-created user account for manually created member {member_doc.name}")
             else:
-                frappe.logger().warning(
+                self.logger.warning(
                     f"Could not auto-create user account for member {member_doc.name}: "
                     f"{result.get('error', 'Unknown error')}"
                 )
 
         except Exception as e:
-            frappe.log_error(f"Error in create_user_account_if_needed for member {member_doc.name}: {str(e)}")
+            self.logger.error(
+                f"Error in create_user_account_if_needed for member {member_doc.name}: {str(e)}"
+            )
             # Don't raise exception to avoid blocking member save
 
 

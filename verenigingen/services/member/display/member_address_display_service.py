@@ -22,13 +22,14 @@ from typing import TYPE_CHECKING
 
 import frappe
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.services.member.core.member_status_service import get_member_status_color
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
 
 
-class MemberAddressDisplayService:
+class MemberAddressDisplayService(StatelessService):
     """
     Service for generating HTML displays of address-related member information.
 
@@ -36,8 +37,11 @@ class MemberAddressDisplayService:
     to the appropriate services (e.g., MemberAddressService).
     """
 
-    @staticmethod
-    def get_address_members_html(member_doc: "Document") -> str:
+    def __init__(self) -> None:
+        """Initialize the member address display service."""
+        super().__init__(service_name="MemberAddressDisplayService")
+
+    def get_address_members_html(self, member_doc: "Document") -> str:
         """
         Generate HTML content for displaying other members at the same address.
 
@@ -89,15 +93,13 @@ class MemberAddressDisplayService:
 
         except Exception as e:
             # Log detailed error for administrators
-            frappe.log_error(
-                f"Error loading address members for {member_doc.name}: {str(e)}\n\nTraceback: {frappe.get_traceback()}",
-                "Address Display Error",
+            self.logger.error(
+                f"Error loading address members for {member_doc.name}: {str(e)}\n\nTraceback: {frappe.get_traceback()}"
             )
             # Return generic error message to users (don't expose internal details)
             return '<div class="text-danger"><i class="fa fa-exclamation-triangle"></i> Error loading member information. Please contact your administrator.</div>'
 
-    @staticmethod
-    def update_address_display(member_doc: "Document") -> str:
+    def update_address_display(self, member_doc: "Document") -> str:
         """
         Update the address_display HTML field with formatted address information.
 
@@ -149,14 +151,10 @@ class MemberAddressDisplayService:
             return html_content
 
         except Exception as e:
-            frappe.log_error(
-                f"Error updating address display for member {member_doc.name}: {str(e)}",
-                "Member Address Display"
-            )
+            self.logger.error(f"Error updating address display for member {member_doc.name}: {str(e)}")
             return '<p style="color: #dc3545;">Error loading address information</p>'
 
-    @staticmethod
-    def update_other_members_at_address_display(member_doc: "Document") -> str:
+    def update_other_members_at_address_display(self, member_doc: "Document") -> str:
         """
         Update the other_members_at_address HTML field with data from get_other_members_at_address.
 
@@ -192,9 +190,7 @@ class MemberAddressDisplayService:
 
                 # Skip if member_name is empty - this prevents broken links
                 if not member_name or not member_name.strip():
-                    frappe.log_error(
-                        f"Empty member name in same address display: {member}", "Member DocType"
-                    )
+                    self.logger.warning(f"Empty member name in same address display: {member}")
                     continue
 
                 status_color = {"Active": "success", "Pending": "warning", "Suspended": "danger"}.get(
@@ -216,10 +212,7 @@ class MemberAddressDisplayService:
                 if not DocumentExistenceValidator.validate_document_exists(
                     "Member", member_name, throw_on_error=False
                 ):
-                    frappe.log_error(
-                        f"Invalid member reference in same address display: {member_name}",
-                        "Member DocType",
-                    )
+                    self.logger.warning(f"Invalid member reference in same address display: {member_name}")
                     continue
 
                 # Use Frappe's built-in escaping for security
@@ -245,7 +238,9 @@ class MemberAddressDisplayService:
 
                 html_content += '<div class="member-card" style="border-left: 3px solid #dee2e6; padding: 10px; margin: 8px 0; background: #f8f9fa;">'
                 html_content += f'<a href="/app/member/{member_name_html}" onclick="event.preventDefault(); frappe.set_route(\'Form\', \'Member\', {member_name_js}); return false;" style="font-weight: 600; color: #007bff; text-decoration: none; cursor: pointer;" title="View {member_full_name_html}">{member_full_name_html}</a><br>'
-                html_content += f'<span class="badge badge-{status_color}">{member.get("status", "Unknown")}</span>'
+                html_content += (
+                    f'<span class="badge badge-{status_color}">{member.get("status", "Unknown")}</span>'
+                )
 
                 if member.get("member_since"):
                     html_content += (
@@ -261,9 +256,8 @@ class MemberAddressDisplayService:
             return html_content
 
         except Exception as e:
-            frappe.log_error(
-                f"Error updating other members at address display for member {member_doc.name}: {str(e)}",
-                "Member Address Display"
+            self.logger.error(
+                f"Error updating other members at address display for member {member_doc.name}: {str(e)}"
             )
             return '<p style="color: #dc3545;">Error loading address information</p>'
 

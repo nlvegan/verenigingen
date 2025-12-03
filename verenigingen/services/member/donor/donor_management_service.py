@@ -41,11 +41,12 @@ from typing import Any, Dict, Optional
 import frappe
 from frappe import _
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.secure_operations import secure_document_operation
 
 
-class DonorManagementService:
+class DonorManagementService(StatelessService):
     """
     Donor Management Service
 
@@ -68,8 +69,11 @@ class DonorManagementService:
         - Address copied from member's primary address
     """
 
-    @staticmethod
-    def check_donor_exists(member_name: str) -> OperationResult[Optional[Dict[str, str]]]:
+    def __init__(self) -> None:
+        """Initialize the donor management service."""
+        super().__init__(service_name="DonorManagementService")
+
+    def check_donor_exists(self, member_name: str) -> OperationResult[Optional[Dict[str, str]]]:
         """
         Check if a donor record exists for a member.
 
@@ -121,15 +125,12 @@ class DonorManagementService:
             return OperationResult.ok(None, exists=False)
 
         except Exception as e:
-            frappe.log_error(
-                f"Error checking donor existence for member {member_name}: {str(e)}", "DonorManagementService"
-            )
+            self.logger.error(f"Error checking donor existence for member {member_name}: {str(e)}")
             return OperationResult.fail(
                 f"Failed to check donor existence: {str(e)}", errors=[str(e)], member=member_name
             )
 
-    @staticmethod
-    def create_donor_from_member(member_name: str) -> OperationResult[str]:
+    def create_donor_from_member(self, member_name: str) -> OperationResult[str]:
         """
         Create a donor record from member information.
 
@@ -175,7 +176,7 @@ class DonorManagementService:
             member = frappe.get_doc("Member", member_name)
 
             # Check if donor already exists
-            existing_check = DonorManagementService.check_donor_exists(member_name)
+            existing_check = self.check_donor_exists(member_name)
             if not existing_check.success:
                 return existing_check.chain("Failed to check for existing donor")
 
@@ -188,7 +189,7 @@ class DonorManagementService:
                 )
 
             # Prepare donor data
-            donor_data_result = DonorManagementService._prepare_donor_basic_data(member)
+            donor_data_result = self._prepare_donor_basic_data(member)
             if not donor_data_result.success:
                 return donor_data_result.chain("Failed to prepare donor data")
 
@@ -199,12 +200,12 @@ class DonorManagementService:
 
             # Copy address if available (non-critical)
             if member.primary_address:
-                address_result = DonorManagementService._copy_address_from_member(member)
+                address_result = self._copy_address_from_member(member)
                 if address_result.success:
                     donor.address = address_result.data
                 else:
                     # Address copy failed - log warning but continue (non-critical)
-                    frappe.logger().warning(
+                    self.logger.warning(
                         f"DonorManagementService: Could not copy address for member {member.name}: {address_result.error_message}"
                     )
 
@@ -227,18 +228,14 @@ class DonorManagementService:
 
             # Link customer if exists (non-critical, log warning on failure)
             if member.customer:
-                customer_link_result = DonorManagementService._link_customer_to_donor(
-                    member.customer, donor.name
-                )
+                customer_link_result = self._link_customer_to_donor(member.customer, donor.name)
                 if not customer_link_result.success:
                     # Customer linking failed - log warning but continue (non-critical)
-                    frappe.logger().warning(
+                    self.logger.warning(
                         f"DonorManagementService: Donor created but customer link failed: {customer_link_result.error_message}"
                     )
 
-            frappe.logger().info(
-                f"DonorManagementService: Created donor {donor.name} for member {member.name}"
-            )
+            self.logger.info(f"DonorManagementService: Created donor {donor.name} for member {member.name}")
 
             return OperationResult.ok(
                 donor.name,
@@ -246,15 +243,12 @@ class DonorManagementService:
             )
 
         except Exception as e:
-            frappe.log_error(
-                f"Donor creation failed for {member_name}: {str(e)[:100]}", "DonorManagementService"
-            )
+            self.logger.error(f"Donor creation failed for {member_name}: {str(e)[:100]}")
             return OperationResult.fail(
                 _("Failed to create donor record: {0}").format(str(e)), errors=[str(e)], member=member_name
             )
 
-    @staticmethod
-    def _prepare_donor_basic_data(member) -> OperationResult[Dict[str, Any]]:
+    def _prepare_donor_basic_data(self, member) -> OperationResult[Dict[str, Any]]:
         """
         Prepare basic donor data from member document.
 
@@ -295,25 +289,24 @@ class DonorManagementService:
 
             # Format Dutch phone number if available
             if member.contact_number and member.contact_number.strip():
-                phone_result = DonorManagementService._format_dutch_phone_number(member.contact_number)
+                phone_result = self._format_dutch_phone_number(member.contact_number)
                 if phone_result.success:
                     donor_data["phone"] = phone_result.data
                 else:
                     # Phone formatting failed - log warning but continue (non-fatal)
-                    frappe.logger().warning(
+                    self.logger.warning(
                         f"DonorManagementService: Could not format phone for member {member.name}: {phone_result.error_message}"
                     )
 
             return OperationResult.ok(donor_data)
 
         except Exception as e:
-            frappe.logger().error(
+            self.logger.error(
                 f"DonorManagementService: Error preparing donor data for member {member.name}: {str(e)}"
             )
             return OperationResult.fail(f"Failed to prepare donor data: {str(e)}", errors=[str(e)])
 
-    @staticmethod
-    def _format_dutch_phone_number(phone: str) -> OperationResult[str]:
+    def _format_dutch_phone_number(self, phone: str) -> OperationResult[str]:
         """
         Format Dutch phone numbers with +31 country code.
 
@@ -358,13 +351,10 @@ class DonorManagementService:
             return OperationResult.ok(formatted)
 
         except Exception as e:
-            frappe.logger().warning(
-                f"DonorManagementService: Error formatting phone number '{phone}': {str(e)}"
-            )
+            self.logger.warning(f"DonorManagementService: Error formatting phone number '{phone}': {str(e)}")
             return OperationResult.fail(f"Failed to format phone number: {str(e)}", errors=[str(e)])
 
-    @staticmethod
-    def _copy_address_from_member(member) -> OperationResult[str]:
+    def _copy_address_from_member(self, member) -> OperationResult[str]:
         """
         Copy and format address from member's primary address.
 
@@ -417,13 +407,12 @@ class DonorManagementService:
             return OperationResult.ok(formatted_address)
 
         except Exception as e:
-            frappe.logger().warning(
+            self.logger.warning(
                 f"DonorManagementService: Could not copy address from member {member.name}: {str(e)}"
             )
             return OperationResult.fail(f"Failed to copy address: {str(e)}", errors=[str(e)])
 
-    @staticmethod
-    def _link_customer_to_donor(customer_name: str, donor_name: str) -> OperationResult[None]:
+    def _link_customer_to_donor(self, customer_name: str, donor_name: str) -> OperationResult[None]:
         """
         Link customer record to donor record.
 
@@ -467,34 +456,32 @@ class DonorManagementService:
 
             if not customer_result.success:
                 error_msg = "; ".join(customer_result.errors)
-                frappe.logger().warning(
+                self.logger.warning(
                     f"DonorManagementService: Could not link customer {customer_name} to donor {donor_name}: {error_msg}"
                 )
                 return OperationResult.fail(
                     f"Failed to link customer to donor: {error_msg}", errors=customer_result.errors
                 )
 
-            frappe.logger().info(
-                f"DonorManagementService: Linked customer {customer_name} to donor {donor_name}"
-            )
+            self.logger.info(f"DonorManagementService: Linked customer {customer_name} to donor {donor_name}")
 
             return OperationResult.ok(None, customer=customer_name, donor=donor_name)
 
         except Exception as e:
-            frappe.logger().warning(f"DonorManagementService: Could not link customer to donor: {str(e)}")
+            self.logger.warning(f"DonorManagementService: Could not link customer to donor: {str(e)}")
             return OperationResult.fail(f"Failed to link customer to donor: {str(e)}", errors=[str(e)])
 
 
 # Convenience function for backward compatibility
-def get_donor_management_service():
+def get_donor_management_service() -> DonorManagementService:
     """
     Get DonorManagementService instance.
 
     Returns:
-        DonorManagementService class (stateless service)
+        DonorManagementService instance
 
     Example:
         >>> service = get_donor_management_service()
         >>> result = service.create_donor_from_member("Member-001")
     """
-    return DonorManagementService
+    return DonorManagementService()

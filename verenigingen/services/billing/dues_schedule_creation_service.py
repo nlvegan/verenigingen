@@ -26,12 +26,19 @@ class CreationResult:
     Provides structured outcome with success status, schedule name,
     and detailed error information for diagnostics.
 
+    Deprecated: Migrate to OperationResult[str] in future versions.
+
+    This class maintains backward compatibility while providing OperationResult-compatible
+    properties for gradual migration.
+
     Attributes:
         success: Whether creation succeeded
-        schedule_name: Name of created schedule (if successful)
-        error: Error message (if failed)
+        schedule_name: Name of created schedule (if successful) (legacy - use .data)
+        error: Error message (if failed) (legacy - use .error_message)
         error_category: Classification ("config", "validation", "system", "duplicate")
         retry_job_id: Background job ID for retry (if enqueued)
+        data: OperationResult-compatible alias for schedule_name
+        error_message: OperationResult-compatible alias for error
     """
 
     def __init__(
@@ -60,6 +67,10 @@ class CreationResult:
         self.error_category = error_category
         self.retry_job_id = retry_job_id
         self.metadata = metadata
+
+        # OperationResult-compatible properties
+        self.data: Optional[str] = schedule_name
+        self.error_message: Optional[str] = error
 
     def to_dict(self) -> Dict:
         """Convert to dict for serialization."""

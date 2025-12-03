@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 from frappe import _
 from frappe.utils import flt
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.employee_user_link import create_employee_for_approved_volunteer
 from verenigingen.utils.member_utils import get_volunteer_for_current_user
 from verenigingen.utils.operation_result import OperationResult
@@ -49,7 +50,7 @@ class ExpenseSubmissionRequest:
     additional_expenses: list = field(default_factory=list)
 
 
-class VolunteerExpenseSubmissionService:
+class VolunteerExpenseSubmissionService(StatelessService):
     """Service for managing volunteer expense submissions"""
 
     REQUIRED_FIELDS = ["description", "amount", "expense_date", "organization_type", "category"]
@@ -60,6 +61,7 @@ class VolunteerExpenseSubmissionService:
         Args:
             volunteer_name: Volunteer record name. If None, uses current user's volunteer.
         """
+        super().__init__(service_name="VolunteerExpenseSubmissionService")
         self._volunteer_name = volunteer_name
         self._volunteer_doc = None
         self._settings = None
@@ -207,7 +209,7 @@ class VolunteerExpenseSubmissionService:
         except frappe.PermissionError:
             raise
         except Exception as e:
-            frappe.log_error(f"Error submitting expense: {str(e)}", "Volunteer Expense Submission Error")
+            self.logger.error(f"Error submitting expense: {str(e)}")
             return OperationResult.fail(str(e))
 
     def _build_request(
@@ -326,7 +328,7 @@ class VolunteerExpenseSubmissionService:
         """Validate volunteer can submit national expenses"""
         # Policy-covered expenses allowed for all volunteers
         if category and self._is_policy_covered_expense(category):
-            frappe.logger().info(
+            self.logger.info(
                 f"Policy-covered national expense allowed for volunteer {self.volunteer_name}: {category}"
             )
             return None
@@ -398,7 +400,7 @@ class VolunteerExpenseSubmissionService:
         if self.volunteer_doc.employee_id:
             return False
 
-        frappe.logger().info(
+        self.logger.info(
             f"Creating employee record for volunteer {self.volunteer_doc.name} during expense submission"
         )
 
@@ -411,7 +413,7 @@ class VolunteerExpenseSubmissionService:
                 )
             )
 
-        frappe.logger().info(
+        self.logger.info(
             f"Successfully created employee {employee_id} for volunteer {self.volunteer_doc.name}"
         )
 
@@ -544,10 +546,7 @@ class VolunteerExpenseSubmissionService:
         )
 
         if not expense_result.success:
-            frappe.log_error(
-                f"Failed to create expense claim: {'; '.join(expense_result.errors)}",
-                "Expense Claim Security",
-            )
+            self.logger.error(f"Failed to create expense claim: {'; '.join(expense_result.errors)}")
             frappe.throw(_("Failed to create expense claim: {0}").format("; ".join(expense_result.errors)))
 
         return frappe.get_doc("Expense Claim", expense_result.doc_name)
@@ -573,25 +572,22 @@ class VolunteerExpenseSubmissionService:
                 # Handle custom base64 format
                 self._attach_base64_file(expense_claim_name, receipt_data)
             else:
-                frappe.logger().warning(
-                    f"Receipt data provided but no valid file format found: {receipt_data}"
-                )
+                self.logger.warning(f"Receipt data provided but no valid file format found: {receipt_data}")
                 return {"success": False, "error": "Invalid file format"}
 
             return {"success": True}
 
         except Exception as attachment_error:
             # Log error but don't fail the entire expense submission
-            frappe.log_error(
-                f"Failed to attach receipt to expense claim {expense_claim_name}: {str(attachment_error)}",
-                "Expense Receipt Attachment Error",
+            self.logger.error(
+                f"Failed to attach receipt to expense claim {expense_claim_name}: {str(attachment_error)}"
             )
-            frappe.logger().warning(f"Receipt attachment failed for {expense_claim_name}: {attachment_error}")
+            self.logger.warning(f"Receipt attachment failed for {expense_claim_name}: {attachment_error}")
             return {"success": False, "error": str(attachment_error)}
 
     def _attach_frappe_file(self, expense_claim_name: str, receipt_data: dict) -> None:
         """Attach a Frappe file to expense claim"""
-        frappe.logger().info(f"Using Frappe built-in file: {receipt_data.get('frappe_file_name')}")
+        self.logger.info(f"Using Frappe built-in file: {receipt_data.get('frappe_file_name')}")
 
         file_doc = frappe.get_doc("File", receipt_data.get("frappe_file_name"))
         file_doc.attached_to_doctype = "Expense Claim"
@@ -611,7 +607,7 @@ class VolunteerExpenseSubmissionService:
                 f"File attachment failed: {file_result.errors[0] if file_result.errors else 'Unknown error'}"
             )
 
-        frappe.logger().info(
+        self.logger.info(
             f"Successfully re-attached Frappe file {file_doc.name} to expense claim {expense_claim_name}"
         )
 
@@ -619,7 +615,7 @@ class VolunteerExpenseSubmissionService:
         """Attach a base64-encoded file to expense claim"""
         import base64
 
-        frappe.logger().info(f"Using custom base64 file: {receipt_data.get('file_name')}")
+        self.logger.info(f"Using custom base64 file: {receipt_data.get('file_name')}")
 
         file_content = base64.b64decode(receipt_data.get("file_content", ""))
 
@@ -647,7 +643,7 @@ class VolunteerExpenseSubmissionService:
                 f"Receipt upload failed: {file_result.errors[0] if file_result.errors else 'Unknown error'}"
             )
 
-        frappe.logger().info(
+        self.logger.info(
             f"Successfully attached custom receipt {receipt_data.get('file_name')} to expense claim {expense_claim_name}"
         )
 

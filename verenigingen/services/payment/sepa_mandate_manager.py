@@ -45,6 +45,7 @@ import frappe
 from frappe import _
 from frappe.utils import today
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.services.payment.validation_service import ValidationResult, get_payment_validation_service
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.secure_operations import secure_document_operation
@@ -70,10 +71,11 @@ class MandateInfo:
     mandate_type: str = "RCUR"  # Recurring mandate by default
 
 
-class SEPAMandateManager:
+class SEPAMandateManager(StatelessService):
     """
     Service for managing SEPA mandates across the application.
 
+    Inherits from StatelessService for consistent logging, metrics, and error handling.
     Consolidates mandate operations that were previously scattered across:
     - verenigingen/doctype/member/member.py
     - verenigingen/doctype/member/mixins/sepa_mixin.py
@@ -87,6 +89,7 @@ class SEPAMandateManager:
 
     def __init__(self):
         """Initialize the SEPA Mandate Manager"""
+        super().__init__(service_name="SEPAMandateManager")
         self.validation_service = get_payment_validation_service()
 
     @staticmethod
@@ -395,15 +398,11 @@ class SEPAMandateManager:
                     continue
                 else:
                     # Not a deadlock or max retries exceeded
-                    frappe.log_error(
-                        f"Database error generating mandate reference: {e}", "SEPA Reference Generation"
-                    )
+                    self.logger.error(f"Database error generating mandate reference: {e}")
                     raise frappe.ValidationError(_("Unable to generate mandate reference. Please try again."))
 
             except Exception as e:
-                frappe.log_error(
-                    f"Unexpected error generating mandate reference: {e}", "SEPA Reference Generation"
-                )
+                self.logger.error(f"Unexpected error generating mandate reference: {e}")
                 raise frappe.ValidationError(_("Unable to generate mandate reference: {0}").format(str(e)))
 
         # Should never reach here, but just in case
@@ -544,7 +543,7 @@ class SEPAMandateManager:
             )
 
         except Exception as e:
-            frappe.log_error(f"Error creating SEPA mandate for member {member}: {e}", "SEPA Mandate Creation")
+            self.logger.error(f"Error creating SEPA mandate for member {member}: {e}")
             return ValidationResult.failure(_("Error creating SEPA mandate: {0}").format(str(e)))
 
     def _link_mandate_to_member(self, member_doc, mandate_doc):
@@ -710,9 +709,7 @@ class SEPAMandateManager:
             )
 
         except Exception as e:
-            frappe.log_error(
-                f"Error deactivating mandates for member {member}: {e}", "SEPA Mandate Deactivation"
-            )
+            self.logger.error(f"Error deactivating mandates for member {member}: {e}")
             return ValidationResult.failure(_("Error deactivating mandates: {0}").format(str(e)))
 
 

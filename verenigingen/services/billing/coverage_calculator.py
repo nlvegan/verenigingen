@@ -6,44 +6,68 @@ CoverageCalculator Service - Consolidated coverage period calculations.
 
 Extracts all date/coverage calculation logic from MembershipDuesSchedule god object.
 Consolidates existing billing_period_calculator.py utilities with DocType methods.
+
+Architecture:
+    - Inherits from StatelessService for consistent logging, metrics, error handling
+    - Returns OperationResult[CoveragePeriod] for fallible operations
+    - Pure CoveragePeriod dataclass for domain data
 """
 
+import logging
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any, Dict, Optional
 
 import frappe
 from frappe.utils import add_days, add_months, getdate, today
 
+from verenigingen.services.infrastructure.base_service import StatelessService
+from verenigingen.utils.operation_result import OperationResult
 
+# Module-level logger for static methods
+_logger = logging.getLogger(__name__)
+
+
+@dataclass
+class CoveragePeriod:
+    """
+    Pure data structure for coverage period information.
+
+    Attributes:
+        start_date: Coverage period start date
+        end_date: Coverage period end date
+        calculation_method: How period was calculated ("sequential", "date_based", "first_invoice")
+        metadata: Additional calculation context (previous_coverage_end, force_date, etc.)
+    """
+
+    start_date: date
+    end_date: date
+    calculation_method: str
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def __repr__(self) -> str:
+        return (
+            f"CoveragePeriod(start={self.start_date}, end={self.end_date}, "
+            f"method={self.calculation_method})"
+        )
+
+
+# Backward compatibility alias - deprecated, use CoveragePeriod + OperationResult
 class CoveragePeriodResult:
     """
-    Result object for coverage period calculations.
+    Deprecated: Use OperationResult[CoveragePeriod] instead.
 
-    Provides validation and metadata about how the coverage period was calculated.
+    This class is maintained for backward compatibility during migration.
+    Will be removed in a future version.
     """
 
     def __init__(self, start_date: date, end_date: date, calculation_method: str, **metadata: Any):
-        """
-        Initialize coverage period result.
-
-        Args:
-            start_date: Coverage period start date
-            end_date: Coverage period end date
-            calculation_method: How period was calculated ("sequential", "date_based", "first_invoice")
-            **metadata: Additional calculation metadata (previous_coverage_end, force_date, etc.)
-        """
         self.start_date = start_date
         self.end_date = end_date
         self.calculation_method = calculation_method
         self.metadata = metadata
 
     def is_valid(self) -> bool:
-        """
-        Validate that coverage period is logically sound.
-
-        Returns:
-            bool: True if period is valid, False otherwise
-        """
         if not self.start_date or not self.end_date:
             return False
         if self.start_date > self.end_date:
@@ -57,18 +81,19 @@ class CoveragePeriodResult:
         )
 
 
-class CoverageCalculator:
+class CoverageCalculator(StatelessService):
     """
     Service for calculating coverage periods and invoice dates for membership billing.
 
+    Inherits from StatelessService for consistent logging, metrics, and error handling.
     Consolidates all date/period calculation logic into a single, testable service.
-    Stateless - all context passed as parameters or extracted from schedule doc at init.
 
     Example:
         calculator = CoverageCalculator(schedule_doc)
         result = calculator.calculate_next_coverage_period(member_doc)
-        if result.is_valid():
-            start, end = result.start_date, result.end_date
+        if result.success:
+            period = result.data
+            start, end = period.start_date, period.end_date
     """
 
     def __init__(self, schedule_doc: Any):
@@ -78,6 +103,7 @@ class CoverageCalculator:
         Args:
             schedule_doc: MembershipDuesSchedule document (for accessing billing frequency fields)
         """
+        super().__init__(service_name="CoverageCalculator")
         self.schedule_name = schedule_doc.name
         self.billing_frequency = schedule_doc.billing_frequency
         self.custom_frequency_number = getattr(schedule_doc, "custom_frequency_number", None)
@@ -89,7 +115,7 @@ class CoverageCalculator:
 
     def calculate_next_coverage_period(
         self, member_doc: Any, force_date: Optional[date] = None, use_sequential: Optional[bool] = None
-    ) -> CoveragePeriodResult:
+    ) -> OperationResult[CoveragePeriod]:
         """
         Calculate the next coverage period for invoice generation.
 
@@ -102,86 +128,102 @@ class CoverageCalculator:
             use_sequential: Override sequential setting (None = use global setting)
 
         Returns:
-            CoveragePeriodResult with start_date, end_date, calculation metadata
+            OperationResult[CoveragePeriod] with period data on success, error details on failure
         """
-        # Determine if sequential coverage is enabled
-        if use_sequential is None:
-            settings = frappe.get_single("Verenigingen Settings")
-            use_sequential = getattr(settings, "enable_sequential_coverage", True)
 
-        metadata = {
-            "use_sequential": use_sequential,
-            "force_date": force_date,
-        }
+        def _calculate():
+            # Determine if sequential coverage is enabled
+            seq = use_sequential
+            if seq is None:
+                settings = frappe.get_single("Verenigingen Settings")
+                seq = getattr(settings, "enable_sequential_coverage", True)
 
-        # Sequential logic: Build on previous coverage
-        if use_sequential:
-            latest_coverage_end = self.get_latest_coverage_end_date(member_doc)
-            metadata["previous_coverage_end"] = latest_coverage_end
+            metadata = {
+                "use_sequential": seq,
+                "force_date": force_date,
+            }
 
-            if latest_coverage_end:
-                # Start the day after previous coverage ended
-                coverage_start = add_days(latest_coverage_end, 1)
-                calculation_method = "sequential"
-                # Calculate end date based on billing frequency from this start
-                coverage_end = self._calculate_coverage_end(coverage_start)
+            # Sequential logic: Build on previous coverage
+            if seq:
+                latest_coverage_end = self.get_latest_coverage_end_date(member_doc)
+                metadata["previous_coverage_end"] = latest_coverage_end
+
+                if latest_coverage_end:
+                    # Start the day after previous coverage ended
+                    coverage_start = add_days(latest_coverage_end, 1)
+                    calculation_method = "sequential"
+                    # Calculate end date based on billing frequency from this start
+                    coverage_end = self._calculate_coverage_end(coverage_start)
+                else:
+                    # First invoice: Use the billing period containing the reference date
+                    reference_date = getdate(force_date or today())
+                    period_start, coverage_end = self.calculate_billing_period(
+                        self.billing_frequency,
+                        reference_date,
+                        self.custom_frequency_number,
+                        self.custom_frequency_unit,
+                    )
+
+                    # For members who joined mid-period, start from their membership start date
+                    membership_start = self._get_membership_start_date()
+                    if membership_start and getdate(membership_start) > getdate(period_start):
+                        coverage_start = getdate(membership_start)
+                        metadata["membership_start_used"] = True
+                    else:
+                        coverage_start = period_start
+                        metadata["membership_start_used"] = False
+
+                    calculation_method = "first_invoice"
+                    metadata["reference_date"] = reference_date
+                    metadata["period_start"] = period_start
+                    metadata["membership_start"] = membership_start
             else:
-                # First invoice: Use the billing period containing the reference date
-                # This ensures we cover the full period (e.g., Q4 = Oct 1 - Dec 31)
-                # rather than starting from today mid-period
-                reference_date = getdate(force_date or today())
-                period_start, coverage_end = self.calculate_billing_period(
+                # Fallback to date-based calculation
+                calculation_method = "date_based"
+                coverage_start, coverage_end = self.calculate_billing_period(
                     self.billing_frequency,
-                    reference_date,
+                    force_date or today(),
                     self.custom_frequency_number,
                     self.custom_frequency_unit,
                 )
 
-                # For members who joined mid-period, start from their membership start date
-                # rather than the period start (they shouldn't pay for time before they joined)
-                membership_start = self._get_membership_start_date()
-                if membership_start and getdate(membership_start) > getdate(period_start):
-                    coverage_start = getdate(membership_start)
-                    metadata["membership_start_used"] = True
-                else:
-                    coverage_start = period_start
-                    metadata["membership_start_used"] = False
+            # Validation: Ensure coverage dates are valid
+            if not coverage_start or not coverage_end:
+                return OperationResult.fail(
+                    f"Coverage calculation failed: start={coverage_start}, end={coverage_end}",
+                    calculation_method=calculation_method,
+                    **metadata,
+                )
 
-                calculation_method = "first_invoice"
-                metadata["reference_date"] = reference_date
-                metadata["period_start"] = period_start
-                metadata["membership_start"] = membership_start
-        else:
-            # Fallback to date-based calculation
-            calculation_method = "date_based"
-            coverage_start, coverage_end = self.calculate_billing_period(
-                self.billing_frequency,
-                force_date or today(),
-                self.custom_frequency_number,
-                self.custom_frequency_unit,
+            # For daily billing, start and end can be the same day; otherwise start must be before end
+            if getdate(coverage_start) > getdate(coverage_end):
+                return OperationResult.fail(
+                    f"Invalid coverage period: start date {coverage_start} must not be after end date {coverage_end}",
+                    calculation_method=calculation_method,
+                    **metadata,
+                )
+
+            if getdate(coverage_start) == getdate(coverage_end) and self.billing_frequency != "Daily":
+                return OperationResult.fail(
+                    f"Invalid coverage period: start date {coverage_start} must be before end date {coverage_end} "
+                    f"for {self.billing_frequency} billing",
+                    calculation_method=calculation_method,
+                    **metadata,
+                )
+
+            period = CoveragePeriod(
+                start_date=coverage_start,
+                end_date=coverage_end,
+                calculation_method=calculation_method,
+                metadata=metadata,
             )
-            return CoveragePeriodResult(coverage_start, coverage_end, calculation_method, **metadata)
+            return OperationResult.ok(period, **metadata)
 
-        # Validation: Ensure coverage dates are valid
-        if not coverage_start or not coverage_end:
-            metadata["error"] = f"Coverage calculation failed: start={coverage_start}, end={coverage_end}"
-            return CoveragePeriodResult(None, None, calculation_method, **metadata)
-
-        # For daily billing, start and end can be the same day; otherwise start must be before end
-        if getdate(coverage_start) > getdate(coverage_end):
-            metadata["error"] = (
-                f"Invalid coverage period: start date {coverage_start} must not be after end date {coverage_end}"
-            )
-            return CoveragePeriodResult(None, None, calculation_method, **metadata)
-
-        if getdate(coverage_start) == getdate(coverage_end) and self.billing_frequency != "Daily":
-            metadata["error"] = (
-                f"Invalid coverage period: start date {coverage_start} must be before end date {coverage_end} "
-                f"for {self.billing_frequency} billing"
-            )
-            return CoveragePeriodResult(None, None, calculation_method, **metadata)
-
-        return CoveragePeriodResult(coverage_start, coverage_end, calculation_method, **metadata)
+        try:
+            return self.execute_operation(_calculate)
+        except Exception as e:
+            self.handle_error(e, "calculate_next_coverage_period", raise_error=False)
+            return OperationResult.fail(str(e))
 
     def should_generate_invoice_for_cutoff(
         self, cutoff_date: date, latest_coverage_end: Optional[date] = None
@@ -194,9 +236,6 @@ class CoverageCalculator:
         - If coverage exists and extends to/past cutoff_date: no invoice needed
         - If coverage exists but ends before cutoff_date: invoice needed
         - If NO coverage exists (0 invoices): invoice needed (0% of period is covered)
-
-        The next_invoice_date field is NOT used here - it's a scheduling hint that can
-        become stale. The source of truth is actual invoice coverage dates.
 
         Args:
             cutoff_date: Target date that should be covered by invoices (e.g., end of Q4)
@@ -217,7 +256,6 @@ class CoverageCalculator:
             return latest_coverage_end < cutoff_date
 
         # No coverage exists (0 invoices) - member ALWAYS needs an invoice
-        # The current period has 0% coverage from existing invoices
         return True
 
     # ========== Data Access Methods ==========
@@ -313,10 +351,7 @@ class CoverageCalculator:
 
         today_date = getdate(today())
 
-        # DEBUG LOGGING
-        frappe.logger().info(
-            f"[CoverageCalculator] today_date={today_date}, cutoff_frequency={cutoff_frequency}"
-        )
+        _logger.debug(f"[CoverageCalculator] today_date={today_date}, cutoff_frequency={cutoff_frequency}")
 
         if cutoff_frequency == "Monthly":
             # End of current month
@@ -338,12 +373,9 @@ class CoverageCalculator:
             quarter_end_month = ((current_quarter * 3 - 1) + book_year_start_month - 1) % 12 + 1
 
             # Determine the year for the quarter end
-            # If quarter_end_month >= today's month, we're still in this year's quarter
-            # If quarter_end_month < today's month, the quarter must have wrapped to next year
             if quarter_end_month >= today_date.month:
                 quarter_end_year = today_date.year
             else:
-                # Quarter wraps to next year (e.g., book year starts in April, we're in Jan-Mar)
                 quarter_end_year = today_date.year + 1
 
             # Calculate last day of quarter end month
@@ -357,7 +389,7 @@ class CoverageCalculator:
             book_year_end_month = getattr(settings, "book_year_end_month", 12)
             book_year_end_day = getattr(settings, "book_year_end_day", 31)
 
-            frappe.logger().info(
+            _logger.debug(
                 f"[CoverageCalculator] Yearly: book_year_end_month={book_year_end_month}, "
                 f"book_year_end_day={book_year_end_day}, today={today_date}"
             )
@@ -365,30 +397,24 @@ class CoverageCalculator:
             if today_date.month < book_year_end_month or (
                 today_date.month == book_year_end_month and today_date.day <= book_year_end_day
             ):
-                # Still in current book year
                 end_year = today_date.year
             else:
-                # In next book year
                 end_year = today_date.year + 1
 
-            frappe.logger().info(f"[CoverageCalculator] end_year={end_year}")
+            _logger.debug(f"[CoverageCalculator] end_year={end_year}")
 
             # Calculate last day of book year end month
-            if book_year_end_month == 12:
-                # December - use actual last day or day 31
-                import calendar
+            import calendar
 
+            if book_year_end_month == 12:
                 last_day = min(book_year_end_day, calendar.monthrange(end_year, 12)[1])
                 result = date_obj(end_year, 12, last_day)
-                frappe.logger().info(f"[CoverageCalculator] Returning Dec result: {result}")
+                _logger.debug(f"[CoverageCalculator] Returning Dec result: {result}")
                 return result
             else:
-                # Other month - calculate last day properly
-                import calendar
-
                 last_day = min(book_year_end_day, calendar.monthrange(end_year, book_year_end_month)[1])
                 result = date_obj(end_year, book_year_end_month, last_day)
-                frappe.logger().info(f"[CoverageCalculator] Returning other month result: {result}")
+                _logger.debug(f"[CoverageCalculator] Returning other month result: {result}")
                 return result
 
         else:
@@ -492,7 +518,7 @@ class CoverageCalculator:
         membership_start = frappe.db.get_value(
             "Membership",
             {"member": self.member_name, "status": "Active", "docstatus": 1},
-            "start_date"
+            "start_date",
         )
 
         return getdate(membership_start) if membership_start else None

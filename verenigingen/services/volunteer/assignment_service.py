@@ -36,10 +36,11 @@ from typing import Dict, List, Optional
 import frappe
 from frappe import _
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.services.volunteer.assignment_query_builder import AssignmentQueryBuilder
 
 
-class VolunteerAssignmentService:
+class VolunteerAssignmentService(StatelessService):
     """Service for managing volunteer assignment aggregation"""
 
     def __init__(self, volunteer_name: str):
@@ -48,6 +49,7 @@ class VolunteerAssignmentService:
         Args:
             volunteer_name: Volunteer record name
         """
+        super().__init__(service_name="VolunteerAssignmentService")
         self.volunteer_name = volunteer_name
         self.volunteer_doc = None  # Lazy loaded
 
@@ -74,7 +76,7 @@ class VolunteerAssignmentService:
             # Delegate to optimized query builder
             return self._get_aggregated_assignments_optimized()
         except Exception as e:
-            frappe.log_error(f"Error in optimized assignments query: {str(e)}")
+            self.logger.error(f"Error in optimized assignments query: {str(e)}")
             # Fail-fast: show user-visible error
             return self._fail_fast_on_query_error("volunteer assignments")
 
@@ -109,7 +111,7 @@ class VolunteerAssignmentService:
             "This indicates a system error that requires investigation."
         )
 
-        frappe.log_error(error_message, "Volunteer Query Failure")
+        self.logger.error(f"Volunteer Query Failure: {error_message}")
 
         # Fail-fast: Show user-visible error instead of silently hiding data
         frappe.throw(
@@ -143,7 +145,7 @@ class VolunteerAssignmentService:
             # Delegate to optimized query builder
             return self._get_volunteer_history_optimized()
         except Exception as e:
-            frappe.log_error(f"Error in optimized history query: {str(e)}")
+            self.logger.error(f"Error in optimized history query: {str(e)}")
             # Fail-fast: show user-visible error (consistent with get_aggregated_assignments)
             return self._fail_fast_on_query_error("volunteer history")
 

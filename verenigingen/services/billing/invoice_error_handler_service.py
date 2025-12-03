@@ -49,6 +49,8 @@ from typing import TYPE_CHECKING, Any, Dict, Literal, TypedDict
 import frappe
 from frappe.utils import today
 
+from verenigingen.services.infrastructure.base_service import StatelessService
+
 # Import shared billing constants (eliminates duplication with controller)
 from verenigingen.utils.billing_constants import (
     DEADLOCK_PATTERNS,
@@ -74,9 +76,11 @@ class RecoveryResult(TypedDict):
     retry_count: int
 
 
-class InvoiceErrorHandlerService:
+class InvoiceErrorHandlerService(StatelessService):
     """
     Service for handling invoice generation errors and recovery.
+
+    Inherits from StatelessService for consistent logging, metrics, and error handling.
 
     This service handles:
     - Error classification (transient vs. persistent)
@@ -86,8 +90,11 @@ class InvoiceErrorHandlerService:
     - Manual review escalation
     """
 
-    @staticmethod
-    def _deduplicate_error_message(error_msg: str) -> str:
+    def __init__(self) -> None:
+        """Initialize the invoice error handler service."""
+        super().__init__(service_name="InvoiceErrorHandlerService")
+
+    def _deduplicate_error_message(self, error_msg: str) -> str:
         """
         Remove repetitive error prefixes from nested exception handling.
 
@@ -115,8 +122,7 @@ class InvoiceErrorHandlerService:
 
         return cleaned.strip()
 
-    @staticmethod
-    def _is_deadlock_error(error_msg: str) -> bool:
+    def _is_deadlock_error(self, error_msg: str) -> bool:
         """
         Check if error message indicates a database deadlock.
 
@@ -143,8 +149,9 @@ class InvoiceErrorHandlerService:
         error_lower = str(error_msg).lower()
         return any(pattern in error_lower for pattern in DEADLOCK_PATTERNS)
 
-    @staticmethod
-    def handle_invoice_generation_failure(schedule_doc: "Document", error_message: str) -> RecoveryResult:
+    def handle_invoice_generation_failure(
+        self, schedule_doc: "Document", error_message: str
+    ) -> RecoveryResult:
         """
         Handle invoice generation failures with smart recovery logic.
 
@@ -187,7 +194,7 @@ class InvoiceErrorHandlerService:
 
         # ✅ SPECIAL HANDLING: Deadlocks are transient - don't count them as retries
         # They should be retried immediately in the next batch without penalty
-        is_deadlock = InvoiceErrorHandlerService._is_deadlock_error(error_message)
+        is_deadlock = self._is_deadlock_error(error_message)
 
         if not is_deadlock:
             # Increment retry count for real failures
@@ -195,58 +202,28 @@ class InvoiceErrorHandlerService:
         else:
             # Track deadlocks separately for monitoring
             deadlock_count += 1
-            frappe.logger().info(
+            self.logger.info(
                 f"Deadlock error for {schedule_doc.name} (#{deadlock_count}) - not incrementing retry count (transient error)"
             )
 
             # Alert if excessive deadlocks indicate systemic issue
             if deadlock_count > 10:
-                try:
-                    frappe.log_error(
-                        title=f"Excessive Deadlocks - {schedule_doc.name[:50]}",
-                        message=f"Schedule {schedule_doc.name} has experienced {deadlock_count} deadlocks. "
-                        f"This may indicate database contention issues requiring investigation.\n\n"
-                        f"Latest error: {error_message}",
-                    )
-                except Exception as e:
-                    frappe.logger().warning(
-                        f"Failed to log excessive deadlocks for {schedule_doc.name}: {str(e)}. "
-                        f"Deadlock count: {deadlock_count}"
-                    )
+                self.logger.error(
+                    f"Excessive deadlocks for schedule {schedule_doc.name} ({deadlock_count} total). "
+                    f"This may indicate database contention issues. Latest error: {error_message}"
+                )
 
         # Update retry tracking using secure operations framework
         from verenigingen.utils.secure_operations import secure_document_operation
 
         # Clean up error message to avoid repetitive prefixes
-        clean_error = InvoiceErrorHandlerService._deduplicate_error_message(error_message)
+        clean_error = self._deduplicate_error_message(error_message)
 
-        # Log full error details (with safe error handling)
-        full_error_details = (
-            f"Schedule: {schedule_doc.name}\n"
-            f"Retry Count: {retry_count}\n"
-            f"Deadlock Count: {deadlock_count}\n"
-            f"Is Deadlock: {is_deadlock}\n"
-            f"Error: {clean_error}\n\n"
-            f"Traceback:\n{frappe.get_traceback()}"
+        # Log full error details
+        self.logger.error(
+            f"Invoice failure #{retry_count} for {schedule_doc.name}: {clean_error}. "
+            f"Deadlock count: {deadlock_count}, Is deadlock: {is_deadlock}"
         )
-        try:
-            frappe.log_error(
-                title=f"Invoice Failure #{retry_count} - {schedule_doc.name[:40]}",
-                message=full_error_details,
-            )
-        except Exception as log_err:
-            try:
-                frappe.logger().error(
-                    f"Failed to log invoice generation error for {schedule_doc.name}: {str(log_err)}\n"
-                    f"Original error: {clean_error}"
-                )
-            except Exception as e:
-                # Absolute last resort - print to stderr with error details
-                print(
-                    f"CRITICAL: All logging failed for {schedule_doc.name} - {str(e)}. "
-                    f"Original error: {clean_error}",
-                    file=sys.stderr,
-                )
 
         # Update the document fields before saving
         schedule_doc.custom_invoice_retry_count = retry_count
@@ -265,24 +242,20 @@ class InvoiceErrorHandlerService:
 
         if not retry_update_result.success:
             error_msg = retry_update_result.errors[0] if retry_update_result.errors else "Unknown error"
-            frappe.log_error(
-                f"Failed to update retry tracking for {schedule_doc.name}: {error_msg}",
-                "Retry Tracking Update Failure",
-            )
+            self.logger.error(f"Failed to update retry tracking for {schedule_doc.name}: {error_msg}")
 
         # Decision logic based on retry count and error patterns
         if retry_count >= 3:
             # After 3 failures, check if we should auto-advance or flag for manual review
-            if InvoiceErrorHandlerService.should_auto_advance_schedule(schedule_doc, error_message):
+            if self.should_auto_advance_schedule(schedule_doc, error_message):
                 # Auto-advance dates to prevent infinite loops
                 old_next_date = schedule_doc.next_invoice_date
                 schedule_doc._advance_schedule_dates()
 
                 # Log the advancement
-                frappe.log_error(
+                self.logger.warning(
                     f"Auto-advanced schedule {schedule_doc.name} after {retry_count} failures. "
-                    f"Previous next_invoice_date: {old_next_date}, New: {schedule_doc.next_invoice_date}",
-                    "Schedule Auto-Advanced",
+                    f"Previous next_invoice_date: {old_next_date}, New: {schedule_doc.next_invoice_date}"
                 )
 
                 return {"action_taken": "date_advanced", "retry_count": retry_count}
@@ -302,8 +275,7 @@ class InvoiceErrorHandlerService:
             # Track failure and retry next time
             return {"action_taken": "retry_tracked", "retry_count": retry_count}
 
-    @staticmethod
-    def should_auto_advance_schedule(schedule_doc: "Document", error_message: str) -> bool:
+    def should_auto_advance_schedule(self, schedule_doc: "Document", error_message: str) -> bool:
         """
         Determine if a schedule should be auto-advanced based on error patterns.
 
@@ -416,8 +388,8 @@ class InvoiceErrorHandlerService:
         # ✅ SPECIAL CASE: Deadlocks are transient database locking issues
         # Don't auto-advance (which would skip the invoice) - instead flag for manual review
         # so they can be retried in the next batch run when lock contention clears
-        if InvoiceErrorHandlerService._is_deadlock_error(error_message):
-            frappe.logger().info(
+        if self._is_deadlock_error(error_message):
+            self.logger.info(
                 f"Deadlock detected for schedule {schedule_doc.name} - flagging for retry in next batch"
             )
             # Return False to prevent auto-advance (which would skip this invoice)
@@ -427,9 +399,8 @@ class InvoiceErrorHandlerService:
         # ✅ ENHANCED: Check critical issues first
         for pattern in critical_manual_review_patterns:
             if pattern in error_lower:
-                frappe.log_error(
-                    f"Critical error detected for schedule {schedule_doc.name}: {error_message}",
-                    "Critical Schedule Error - Manual Review Required",
+                self.logger.error(
+                    f"Critical error detected for schedule {schedule_doc.name}: {error_message}"
                 )
                 return False
 
@@ -449,9 +420,8 @@ class InvoiceErrorHandlerService:
 
         if reconstruction_triggered:
             # Log the reconstruction attempt
-            frappe.log_error(
-                f"Health reconstruction triggered for schedule {schedule_doc.name}: {error_message}",
-                "Health Reconstruction Triggered",
+            self.logger.info(
+                f"Health reconstruction triggered for schedule {schedule_doc.name}: {error_message}"
             )
             # Still auto-advance since we attempted reconstruction
             return True

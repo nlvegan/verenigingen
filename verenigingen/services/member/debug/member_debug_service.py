@@ -42,10 +42,11 @@ import frappe
 from frappe import _
 from frappe.utils import getdate, today
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.operation_result import OperationResult
 
 
-class MemberDebugService:
+class MemberDebugService(StatelessService):
     """
     Member Debug Utilities Service
 
@@ -73,8 +74,11 @@ class MemberDebugService:
         - Safe for exploratory use
     """
 
-    @staticmethod
-    def test_dues_schedule_query(member_name: str) -> OperationResult[Dict[str, Any]]:
+    def __init__(self) -> None:
+        """Initialize the member debug service."""
+        super().__init__(service_name="MemberDebugService")
+
+    def test_dues_schedule_query(self, member_name: str) -> OperationResult[Dict[str, Any]]:
         """
         Test the exact query used in JavaScript for dues schedules.
 
@@ -110,13 +114,12 @@ class MemberDebugService:
                 {"query_result": result, "filters_used": filters}, message="Query executed successfully"
             )
         except Exception as e:
-            frappe.log_error(f"Dues schedule query failed for {member_name}: {str(e)}", "MemberDebugService")
+            self.logger.error(f"Dues schedule query failed for {member_name}: {str(e)}")
             return OperationResult.fail(
                 f"Query failed: {str(e)}", errors=[str(e)], filters_used=filters, member=member_name
             )
 
-    @staticmethod
-    def debug_button_conditions(member_name: str) -> OperationResult[Dict[str, Any]]:
+    def debug_button_conditions(self, member_name: str) -> OperationResult[Dict[str, Any]]:
         """
         Debug what buttons should appear for a member in the UI.
 
@@ -191,15 +194,12 @@ class MemberDebugService:
             return OperationResult.ok(button_conditions)
 
         except Exception as e:
-            frappe.log_error(
-                f"Button conditions debug failed for {member_name}: {str(e)}", "MemberDebugService"
-            )
+            self.logger.error(f"Button conditions debug failed for {member_name}: {str(e)}")
             return OperationResult.fail(
                 f"Failed to retrieve button conditions: {str(e)}", errors=[str(e)], member=member_name
             )
 
-    @staticmethod
-    def debug_member_status(member_name: str) -> OperationResult[Dict[str, Any]]:
+    def debug_member_status(self, member_name: str) -> OperationResult[Dict[str, Any]]:
         """
         Debug member status for button investigation.
 
@@ -240,13 +240,12 @@ class MemberDebugService:
             return OperationResult.ok(status_info)
 
         except Exception as e:
-            frappe.log_error(f"Member status debug failed for {member_name}: {str(e)}", "MemberDebugService")
+            self.logger.error(f"Member status debug failed for {member_name}: {str(e)}")
             return OperationResult.fail(
                 f"Failed to retrieve member status: {str(e)}", errors=[str(e)], member=member_name
             )
 
-    @staticmethod
-    def test_amendment_filtering() -> OperationResult[Dict[str, Any]]:
+    def test_amendment_filtering(self) -> OperationResult[Dict[str, Any]]:
         """
         Test the new amendment filtering logic.
 
@@ -326,13 +325,13 @@ class MemberDebugService:
             )
 
         except Exception as e:
-            frappe.log_error(f"Amendment filtering test error: {str(e)}", "MemberDebugService")
+            self.logger.error(f"Amendment filtering test error: {str(e)}")
             return OperationResult.fail(
                 f"Amendment filtering test failed: {str(e)}", errors=[str(e)], member=member_name
             )
 
-    @staticmethod
     def test_automatic_fee_history_update(
+        self,
         member_name: str = "Assoc-Member-2025-07-0017",
     ) -> OperationResult[Dict[str, Any]]:
         """
@@ -444,7 +443,7 @@ class MemberDebugService:
             )
 
         except Exception as e:
-            frappe.log_error(f"Fee history automation test error: {str(e)}", "MemberDebugService")
+            self.logger.error(f"Fee history automation test error: {str(e)}")
             return OperationResult.fail(
                 f"Fee history automation test failed: {str(e)}",
                 errors=[str(e)],
@@ -452,8 +451,8 @@ class MemberDebugService:
                 test_completed=False,
             )
 
-    @staticmethod
     def test_fee_history_functionality(
+        self,
         member_name: str = "Assoc-Member-2025-07-0030",
     ) -> OperationResult[Dict[str, Any]]:
         """
@@ -523,7 +522,7 @@ class MemberDebugService:
             )
 
         except Exception as e:
-            frappe.log_error(f"Test fee history error: {str(e)}", "MemberDebugService")
+            self.logger.error(f"Test fee history error: {str(e)}")
             import traceback
 
             return OperationResult.fail(
@@ -534,16 +533,15 @@ class MemberDebugService:
             )
 
 
-# Convenience function for backward compatibility
-def get_member_debug_service():
+def get_member_debug_service() -> MemberDebugService:
     """
     Get MemberDebugService instance.
 
     Returns:
-        MemberDebugService class (stateless service)
+        MemberDebugService instance
 
     Example:
         >>> service = get_member_debug_service()
         >>> result = service.test_dues_schedule_query("Member-001")
     """
-    return MemberDebugService
+    return MemberDebugService()

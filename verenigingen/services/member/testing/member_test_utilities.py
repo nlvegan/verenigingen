@@ -37,7 +37,21 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime, today
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.operation_result import OperationResult
+
+
+class MemberTestUtilitiesService(StatelessService):
+    """Service providing logging and metrics for member test utilities."""
+
+    def __init__(self) -> None:
+        """Initialize the member test utilities service."""
+        super().__init__(service_name="MemberTestUtilitiesService")
+
+
+def _get_service() -> MemberTestUtilitiesService:
+    """Get service instance for logging."""
+    return MemberTestUtilitiesService()
 
 
 @frappe.whitelist()
@@ -155,7 +169,7 @@ def test_member_form_functionality(member_name) -> OperationResult[Dict[str, Any
             context={"operation": "member_form_test", "params": {"member_name": member_name}},
         )
     except Exception as e:
-        frappe.log_error(f"Error in member form functionality test: {str(e)}", "Member Test Utilities Error")
+        _get_service().logger.error(f"Error in member form functionality test: {str(e)}")
         return OperationResult.fail(
             _("An error occurred while testing member form functionality. Please contact support."),
             errors=[str(e)],
@@ -276,7 +290,7 @@ def test_automatic_fee_history_update(
             context={"operation": "fee_history_test", "params": {"member_name": member_name}},
         )
     except Exception as e:
-        frappe.log_error(f"Error in fee history update test: {str(e)}", "Member Test Utilities Error")
+        _get_service().logger.error(f"Error in fee history update test: {str(e)}")
         return OperationResult.fail(
             _("An error occurred while testing fee history update. Please contact support."),
             errors=[str(e)],
@@ -358,7 +372,7 @@ def test_fee_history_functionality(
     except Exception as e:
         import traceback
 
-        frappe.log_error(f"Test fee history error: {str(e)}\n{traceback.format_exc()}", "Test Fee History")
+        _get_service().logger.error(f"Test fee history error: {str(e)}\n{traceback.format_exc()}")
         return OperationResult.fail(
             _("An error occurred while testing fee history functionality. Please contact support."),
             errors=[str(e)],
@@ -441,7 +455,7 @@ def test_amendment_filtering() -> OperationResult[Dict[str, Any]]:
             context={"operation": "amendment_filtering_test"},
         )
     except Exception as e:
-        frappe.log_error(f"Error in amendment filtering test: {str(e)}", "Member Test Utilities Error")
+        _get_service().logger.error(f"Error in amendment filtering test: {str(e)}")
         return OperationResult.fail(
             _("An error occurred while testing amendment filtering. Please contact support."),
             errors=[str(e)],
@@ -485,7 +499,7 @@ def test_dues_schedule_query(member_name) -> OperationResult[Dict[str, Any]]:
             )
 
     except Exception as e:
-        frappe.log_error(f"Error in dues schedule query test: {str(e)}", "Member Test Utilities Error")
+        _get_service().logger.error(f"Error in dues schedule query test: {str(e)}")
         filters = {"member": member_name, "is_template": 0, "status": ["in", ["Active", "Paused"]]}
         return OperationResult.fail(
             _("An error occurred while querying dues schedule. Please contact support."),

@@ -48,8 +48,11 @@ def handle_service_error(error, service_name, operation, context=None, raise_err
     full_message = f"[{service_name}] {operation} failed: {error_message}{context_str}"
 
     # Log the error with appropriate level
+    # Use keyword args to avoid positional confusion across Frappe versions
+    # Truncate title to 140 chars (Frappe Error Log constraint)
     if log_level == "error":
-        frappe.log_error(full_message, f"{service_name} Error")
+        title = f"{service_name} Error"[:140]
+        frappe.log_error(message=full_message, title=title)
     elif log_level == "warning":
         frappe.logger().warning(full_message)
     else:

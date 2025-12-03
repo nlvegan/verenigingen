@@ -33,11 +33,13 @@ from typing import TYPE_CHECKING, Any, Dict, List
 
 import frappe
 
+from verenigingen.services.infrastructure.base_service import StatelessService
+
 if TYPE_CHECKING:
     from frappe.model.document import Document
 
 
-class MemberChapterDisplayService:
+class MemberChapterDisplayService(StatelessService):
     """
     Service for generating chapter membership display HTML.
 
@@ -50,8 +52,11 @@ class MemberChapterDisplayService:
     - Empty state (no chapters)
     """
 
-    @staticmethod
-    def should_update_chapter_display(member_doc: "Document") -> bool:
+    def __init__(self) -> None:
+        """Initialize the member chapter display service."""
+        super().__init__(service_name="MemberChapterDisplayService")
+
+    def should_update_chapter_display(self, member_doc: "Document") -> bool:
         """
         Check if chapter display needs updating to avoid unnecessary processing.
 
@@ -97,8 +102,7 @@ class MemberChapterDisplayService:
 
         return False
 
-    @staticmethod
-    def update_current_chapter_display(member_doc: "Document") -> None:
+    def update_current_chapter_display(self, member_doc: "Document") -> None:
         """
         Update the current chapter display field based on Chapter Member relationships.
 
@@ -131,7 +135,7 @@ class MemberChapterDisplayService:
             </div>
         """
         try:
-            chapters = MemberChapterDisplayService._get_current_chapters_optimized(member_doc)
+            chapters = self._get_current_chapters_optimized(member_doc)
 
             if not chapters:
                 # Use the custom field until the main field is fixed
@@ -186,13 +190,12 @@ class MemberChapterDisplayService:
             setattr(member_doc, field_name, "".join(html_items))
 
         except Exception as e:
-            frappe.log_error(f"Error updating chapter display: {str(e)}", "Member Chapter Display")
+            self.logger.error(f"Error updating chapter display: {str(e)}")
             member_doc.current_chapter_display = (
                 '<p style="color: #dc3545;">Error loading chapter information</p>'
             )
 
-    @staticmethod
-    def _get_current_chapters_optimized(member_doc: "Document") -> List[Dict[str, Any]]:
+    def _get_current_chapters_optimized(self, member_doc: "Document") -> List[Dict[str, Any]]:
         """
         Get current chapter memberships with optimized single query.
 

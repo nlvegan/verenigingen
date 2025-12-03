@@ -32,11 +32,13 @@ import frappe
 from frappe import _
 from frappe.utils import today
 
+from verenigingen.services.infrastructure.base_service import StatelessService
+
 if TYPE_CHECKING:
     from frappe.model.document import Document
 
 
-class ChapterValidationService:
+class ChapterValidationService(StatelessService):
     """
     Service for validating Chapter records and auto-fixing required fields.
 
@@ -46,8 +48,11 @@ class ChapterValidationService:
     - Required field auto-fixing for test and production data
     """
 
-    @staticmethod
-    def validate_chapter_access(chapter_doc: "Document") -> None:
+    def __init__(self) -> None:
+        """Initialize the chapter validation service."""
+        super().__init__(service_name="ChapterValidationService")
+
+    def validate_chapter_access(self, chapter_doc: "Document") -> None:
         """
         Validate chapter access permissions to prevent unauthorized edits.
 
@@ -89,11 +94,10 @@ class ChapterValidationService:
                     )
 
         except Exception as e:
-            frappe.log_error(f"Error validating chapter access for {chapter_doc.name}: {str(e)}")
+            self.logger.error(f"Error validating chapter access for {chapter_doc.name}: {str(e)}")
             # Don't block access on validation errors
 
-    @staticmethod
-    def auto_fix_required_fields(chapter_doc: "Document") -> None:
+    def auto_fix_required_fields(self, chapter_doc: "Document") -> None:
         """
         Auto-fix missing required fields if possible to prevent validation errors.
 
@@ -123,33 +127,29 @@ class ChapterValidationService:
                         # Use the actual test region name from database
                         test_region = frappe.db.get_value("Region", {"region_code": "TR"}, "name")
                         chapter_doc.region = test_region or "test-region"
-                        frappe.logger().info(f"Auto-fixed missing region for test chapter {chapter_doc.name}")
+                        self.logger.info(f"Auto-fixed missing region for test chapter {chapter_doc.name}")
                     elif not chapter_doc.get("__islocal"):  # If not a new document
                         # For existing documents, use a generic region
                         chapter_doc.region = "Unspecified Region"
-                        frappe.logger().info(
-                            f"Auto-fixed missing region for existing chapter {chapter_doc.name}"
-                        )
+                        self.logger.info(f"Auto-fixed missing region for existing chapter {chapter_doc.name}")
                 else:
                     # For new documents without region, set default
                     chapter_doc.region = "General"
-                    frappe.logger().info("Auto-fixed missing region for new chapter")
+                    self.logger.info("Auto-fixed missing region for new chapter")
 
             # Auto-fix missing introduction for unpublished chapters
             if not chapter_doc.introduction and not chapter_doc.published:
                 if hasattr(chapter_doc, "name") and chapter_doc.name and "test" in chapter_doc.name.lower():
                     chapter_doc.introduction = f"This is a test chapter: {chapter_doc.name}"
-                    frappe.logger().info(
-                        f"Auto-fixed missing introduction for test chapter {chapter_doc.name}"
-                    )
+                    self.logger.info(f"Auto-fixed missing introduction for test chapter {chapter_doc.name}")
                 else:
                     chapter_doc.introduction = "Chapter introduction will be added soon."
-                    frappe.logger().info(
+                    self.logger.info(
                         f"Auto-fixed missing introduction for chapter {getattr(chapter_doc, 'name', 'unnamed')}"
                     )
 
         except Exception as e:
-            frappe.log_error(f"Error auto-fixing chapter fields: {str(e)}")
+            self.logger.error(f"Error auto-fixing chapter fields: {str(e)}")
 
 
 def get_chapter_validation_service() -> ChapterValidationService:

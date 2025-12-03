@@ -11,13 +11,18 @@ from verenigingen.integrations.mollie.utils.common_helpers import (
     format_mollie_amount,
     format_mollie_response_amount,
 )
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.security.api_security_framework import OperationType
 
 
-class MollieDebugService:
-    """Centralized service for Mollie API debugging operations"""
+class MollieDebugService(StatelessService):
+    """Centralized service for Mollie API debugging operations.
+
+    Inherits from StatelessService for consistent logging, metrics, and error handling.
+    """
 
     def __init__(self):
+        super().__init__(service_name="MollieDebugService")
         self.mollie_client = MollieClient()
 
     def debug_customer(self, customer_id):
@@ -243,7 +248,7 @@ class MollieDebugService:
             cancelled_subscription = customer_obj.subscriptions.delete(subscription_id)
 
             # Log admin action
-            frappe.logger().info(
+            self.logger.info(
                 f"ADMIN CANCELLATION: User {frappe.session.user} cancelled subscription {subscription_id} for customer {customer_id}. Reason: {reason}"
             )
 
@@ -270,7 +275,7 @@ class MollieDebugService:
                     "cannot be cancelled",
                 ]
             ):
-                frappe.logger().info(
+                self.logger.info(
                     f"ADMIN CANCELLATION ATTEMPT: User {frappe.session.user} attempted to cancel already-cancelled subscription {subscription_id} for customer {customer_id}. Reason: {reason}"
                 )
 
@@ -318,17 +323,17 @@ class MollieDebugService:
                         try:
                             customer_obj.subscriptions.delete(sub.id)
                             cancelled_subscriptions.append(sub.id)
-                            frappe.logger().info(
+                            self.logger.info(
                                 f"ADMIN MANDATE REVOCATION: Cancelled subscription {sub.id} "
                                 f"before revoking mandate {mandate_id} for customer {customer_id}"
                             )
                         except Exception as sub_error:
                             # Log but don't fail if subscription is already cancelled
-                            frappe.logger().warning(
+                            self.logger.warning(
                                 f"Could not cancel subscription {sub.id} during mandate revocation: {str(sub_error)}"
                             )
             except Exception as list_error:
-                frappe.logger().warning(
+                self.logger.warning(
                     f"Could not list subscriptions during mandate revocation for customer {customer_id}: {str(list_error)}"
                 )
 
@@ -336,7 +341,7 @@ class MollieDebugService:
             revoked_mandate = customer_obj.mandates.delete(mandate_id)
 
             # Log admin action
-            frappe.logger().info(
+            self.logger.info(
                 f"ADMIN REVOCATION: User {frappe.session.user} revoked mandate {mandate_id} "
                 f"for customer {customer_id}. Cancelled {len(cancelled_subscriptions)} subscriptions. "
                 f"Reason: {reason}"
@@ -358,7 +363,7 @@ class MollieDebugService:
         except Exception as api_error:
             error_message = str(api_error)
             if "no longer available" in error_message or "Gone" in error_message:
-                frappe.logger().info(
+                self.logger.info(
                     f"ADMIN REVOCATION ATTEMPT: User {frappe.session.user} attempted to revoke already-revoked mandate {mandate_id} for customer {customer_id}. Reason: {reason}"
                 )
 
@@ -404,20 +409,20 @@ class MollieDebugService:
             mandates = customer_obj.mandates.list()
 
             # Log the impending deletion with full details
-            frappe.logger().warning(
+            self.logger.warning(
                 f"CUSTOMER DELETION INITIATED: User {frappe.session.user} is deleting customer {customer_id}"
             )
-            frappe.logger().warning(f"Customer details: {customer_details}")
-            frappe.logger().warning(
+            self.logger.warning(f"Customer details: {customer_details}")
+            self.logger.warning(
                 f"Will cascade delete {len(subscriptions)} subscriptions and {len(mandates)} mandates"
             )
-            frappe.logger().warning(f"Reason: {reason}")
+            self.logger.warning(f"Reason: {reason}")
 
             # Perform the deletion
             deleted_customer = client.customers.delete(customer_id)
 
             # Log successful deletion
-            frappe.logger().warning(
+            self.logger.warning(
                 f"CUSTOMER DELETION COMPLETED: Customer {customer_id} successfully deleted by {frappe.session.user}"
             )
 
@@ -438,7 +443,7 @@ class MollieDebugService:
         except Exception as api_error:
             error_message = str(api_error)
             if "not found" in error_message.lower() or "does not exist" in error_message.lower():
-                frappe.logger().info(
+                self.logger.info(
                     f"CUSTOMER DELETION ATTEMPT: User {frappe.session.user} attempted to delete non-existent customer {customer_id}. Reason: {reason}"
                 )
 
@@ -932,7 +937,7 @@ class MollieDebugService:
                 response.raise_for_status()
 
             # Log admin action
-            frappe.logger().info(
+            self.logger.info(
                 f"ADMIN PAYMENT CANCELLATION: User {frappe.session.user} cancelled payment {payment_id}. Reason: {reason}"
             )
 
@@ -960,7 +965,7 @@ class MollieDebugService:
                     "already failed",
                 ]
             ):
-                frappe.logger().info(
+                self.logger.info(
                     f"ADMIN PAYMENT CANCELLATION ATTEMPT: User {frappe.session.user} attempted to cancel uncancellable payment {payment_id}. Reason: {reason}"
                 )
 
@@ -1032,7 +1037,7 @@ class MollieDebugService:
 
         except Exception as e:
             result["error"] = str(e)
-            frappe.log_error(f"Mollie search customers error: {str(e)}")
+            self.logger.error(f"Mollie search customers error: {str(e)}")
 
         return result
 
@@ -1091,7 +1096,7 @@ class MollieDebugService:
             result["status"] = "error"
             result["message"] = f"Webhook processing failed: {str(e)}"
             result["http_status"] = frappe.local.response.get("http_status_code", 500)
-            frappe.log_error(f"Webhook test processing error: {str(e)}")
+            self.logger.error(f"Webhook test processing error: {str(e)}")
 
         return result
 
@@ -1217,7 +1222,7 @@ class MollieDebugService:
                     )
                     if calculated_start:
                         subscription_data["startDate"] = calculated_start
-                        frappe.logger().info(
+                        self.logger.info(
                             f"Auto-calculated subscription start date: {calculated_start} "
                             f"(interval: {interval}, configured months: {mollie_settings.quarterly_yearly_payment_months})"
                         )
@@ -1241,7 +1246,7 @@ class MollieDebugService:
                 result["next_payment_date"] = str(subscription.next_payment_date)
 
             # Enhanced audit logging
-            frappe.logger().info(
+            self.logger.info(
                 f"DEBUG SUBSCRIPTION CREATION: User {frappe.session.user} "
                 f"created subscription {subscription.id} for customer {customer_id} "
                 f"(amount: €{amount_float:.2f}, interval: {interval}, description: {description}, "
@@ -1255,7 +1260,7 @@ class MollieDebugService:
             result["status"] = "error"
 
             # Log full error internally with user context
-            frappe.log_error(
+            self.logger.error(
                 f"Mollie subscription creation error for user {frappe.session.user}, "
                 f"customer {customer_id}: {str(e)}"
             )
@@ -1392,7 +1397,7 @@ class MollieDebugService:
                     )
                     if calculated_start:
                         subscription_data["startDate"] = calculated_start
-                        frappe.logger().info(
+                        self.logger.info(
                             f"Auto-calculated subscription start date: {calculated_start} "
                             f"(interval: {mollie_interval}, configured months: {mollie_settings.quarterly_yearly_payment_months})"
                         )
@@ -1418,7 +1423,7 @@ class MollieDebugService:
                 result["times"] = subscription.times
 
             # Enhanced audit logging
-            frappe.logger().info(
+            self.logger.info(
                 f"DEBUG SUBSCRIPTION CREATION: User {frappe.session.user} "
                 f"created subscription {subscription.id} for customer {customer_id} "
                 f"(amount: €{amount_float:.2f}, interval: {mollie_interval}, "
@@ -1432,7 +1437,7 @@ class MollieDebugService:
             result["status"] = "error"
 
             # Log full error internally with user context
-            frappe.log_error(
+            self.logger.error(
                 f"Mollie scheduled subscription creation error for user {frappe.session.user}, "
                 f"customer {customer_id}: {str(e)}"
             )
@@ -1547,9 +1552,9 @@ class MollieDebugService:
                 sanitized_error = self._sanitize_error_message(error_msg)
 
             result["error"] = sanitized_error
-            frappe.log_error(
-                f"Mollie list subscriptions error for customer {customer_id}: {error_msg}\n"
-                f"Mode: {self.mollie_client.is_test_mode()}",
+            self.logger.error(
+                f"Mollie list subscriptions error for customer {customer_id}: {error_msg}. "
+                f"Mode: {self.mollie_client.is_test_mode()}"
                 "Mollie Customer Error",
             )
 
@@ -1664,7 +1669,7 @@ class MollieDebugService:
         except Exception as e:
             sanitized_error = self._sanitize_error_message(str(e))
             result["error"] = sanitized_error
-            frappe.log_error(f"Error retrieving customer payments for {customer_id}: {str(e)}")
+            self.logger.error(f"Error retrieving customer payments for {customer_id}: {str(e)}")
 
         return result
 
@@ -1712,16 +1717,16 @@ class MollieDebugService:
                 except Exception as e:
                     result["errors"] += 1
                     result["results"].append({"payment_id": payment_id, "status": "error", "error": str(e)})
-                    frappe.log_error(f"Error processing payment {payment_id}: {e}")
+                    self.logger.error(f"Error processing payment {payment_id}: {e}")
 
-            frappe.logger().info(
+            self.logger.info(
                 f"✅ Batch processing complete: {result['processed']} processed, "
                 f"{result['skipped']} skipped, {result['errors']} errors"
             )
 
         except Exception as e:
             result["error"] = str(e)
-            frappe.log_error(f"Batch processing error: {e}")
+            self.logger.error(f"Batch processing error: {e}")
 
         return result
 
@@ -1801,7 +1806,7 @@ class MollieDebugService:
             result["customer_id"] = customer_id
 
             # Enhanced audit logging
-            frappe.logger().info(
+            self.logger.info(
                 f"DEBUG PAYMENT CREATION: User {frappe.session.user} "
                 f"created payment {payment.id} "
                 f"(amount: €{amount_float:.2f}, description: {description}, "
@@ -1815,7 +1820,7 @@ class MollieDebugService:
             result["status"] = "error"
 
             # Log full error internally with user context
-            frappe.log_error(f"Mollie test payment creation error for user {frappe.session.user}: {str(e)}")
+            self.logger.error(f"Mollie test payment creation error for user {frappe.session.user}: {str(e)}")
 
         return result
 
@@ -1870,7 +1875,7 @@ class MollieDebugService:
             )
 
             result["total_checked"] = len(members)
-            frappe.logger().info(
+            self.logger.info(
                 f"Mollie membership end date sync: Found {len(members)} terminated/banned/suspended members "
                 f"with Mollie customer IDs (dry_run={dry_run})"
             )
@@ -1960,7 +1965,7 @@ class MollieDebugService:
                                 member_result["updated"] = True
                                 result["updates_applied"] += 1
 
-                                frappe.logger().info(
+                                self.logger.info(
                                     f"Updated member {member.name} member_end_date "
                                     f"from {current_member_end_date} to {canceled_date} "
                                     f"based on Mollie subscription cancellation"
@@ -2018,7 +2023,7 @@ class MollieDebugService:
                                     )
                                     frappe.db.commit()  # Commit immediately for safety
 
-                                    frappe.logger().info(
+                                    self.logger.info(
                                         f"Updated membership {membership[0].name} cancellation_date "
                                         f"from {current_cancellation_date} to {canceled_date} "
                                         f"for member {member.name}"
@@ -2030,7 +2035,7 @@ class MollieDebugService:
 
                 except Exception as member_error:
                     member_result["error"] = str(member_error)
-                    frappe.log_error(
+                    self.logger.error(
                         f"Error processing member {member.name} for Mollie sync: {str(member_error)}"
                     )
 
@@ -2038,19 +2043,19 @@ class MollieDebugService:
 
             # Summary logging
             if dry_run:
-                frappe.logger().info(
+                self.logger.info(
                     f"Mollie sync DRY RUN complete: {result['total_checked']} members checked, "
                     f"{result['updates_needed']} would be updated"
                 )
             else:
-                frappe.logger().info(
+                self.logger.info(
                     f"Mollie sync complete: {result['total_checked']} members checked, "
                     f"{result['updates_applied']} updated"
                 )
 
         except Exception as e:
             result["error"] = str(e)
-            frappe.log_error(f"Mollie membership end date sync error: {str(e)}")
+            self.logger.error(f"Mollie membership end date sync error: {str(e)}")
 
         return result
 
@@ -2110,7 +2115,7 @@ class MollieDebugService:
             # Build customer ID lookup map for fast filtering
             customer_id_to_member = {m.mollie_customer_id: m for m in members}
 
-            frappe.logger().info(
+            self.logger.info(
                 f"Bulk payment retrieval: Found {len(members)} active members with Mollie IDs. "
                 f"Using global payments endpoint with pagination."
             )
@@ -2162,7 +2167,7 @@ class MollieDebugService:
                     batch_payments = list(payment_list)
                     result["api_calls_made"] += 1
 
-                    frappe.logger().info(
+                    self.logger.info(
                         f"Fetched batch of {len(batch_payments)} payments (API call #{result['api_calls_made']})"
                     )
 
@@ -2174,7 +2179,7 @@ class MollieDebugService:
                         # Deduplicate: Skip if we've already seen this payment ID
                         if payment.id in seen_payment_ids:
                             result["total_filtered_by_duplicate"] += 1
-                            frappe.logger().warning(
+                            self.logger.warning(
                                 f"⚠️ Duplicate payment ID from Mollie API: {payment.id}. "
                                 f"This indicates the API returned the same payment multiple times."
                             )
@@ -2250,7 +2255,7 @@ class MollieDebugService:
                         has_next = False
 
                 except Exception as batch_error:
-                    frappe.log_error(f"Error fetching payment batch: {str(batch_error)}")
+                    self.logger.error(f"Error fetching payment batch: {str(batch_error)}")
                     break
 
             # Convert member_results dict to list
@@ -2259,7 +2264,7 @@ class MollieDebugService:
                     result["members"].append(member_result)
                     result["members_checked"] += 1
 
-            frappe.logger().info(
+            self.logger.info(
                 f"Bulk retrieval complete: {result['api_calls_made']} API calls made, "
                 f"{total_fetched} total payments fetched, {result['total_payments']} matched to members, "
                 f"{result['unprocessed_payments']} unprocessed"
@@ -2267,7 +2272,7 @@ class MollieDebugService:
 
         except Exception as e:
             result["error"] = str(e)
-            frappe.log_error(f"Bulk payment retrieval error: {str(e)}")
+            self.logger.error(f"Bulk payment retrieval error: {str(e)}")
 
         return result
 
@@ -2317,7 +2322,7 @@ class MollieDebugService:
             result["total_batches"] = total_batches
             result["batch_size"] = SAFE_BATCH_SIZE
 
-            frappe.logger().info(
+            self.logger.info(
                 f"Auto-splitting {len(payment_ids)} payments into {total_batches} batches "
                 f"of {SAFE_BATCH_SIZE} to prevent deadlocks"
             )
@@ -2328,7 +2333,7 @@ class MollieDebugService:
                 end_idx = min(start_idx + SAFE_BATCH_SIZE, len(payment_ids))
                 batch_payment_ids = payment_ids[start_idx:end_idx]
 
-                frappe.logger().info(
+                self.logger.info(
                     f"Processing batch {batch_num + 1}/{total_batches}: "
                     f"payments {start_idx + 1}-{end_idx} of {len(payment_ids)}"
                 )
@@ -2348,7 +2353,7 @@ class MollieDebugService:
                 # Add random delay between batches to reduce contention (0.5-2 seconds)
                 if batch_num < total_batches - 1:  # Don't delay after last batch
                     delay = random.uniform(0.5, 2.0)
-                    frappe.logger().info(
+                    self.logger.info(
                         f"Batch {batch_num + 1} complete. Waiting {delay:.2f}s before next batch..."
                     )
                     time.sleep(delay)
@@ -2366,7 +2371,7 @@ class MollieDebugService:
             dues_processor = DuesPaymentProcessor()
 
             # Step 1: Group payments by member to prevent deadlocks
-            frappe.logger().info(f"Grouping {len(payment_ids)} payments by member...")
+            self.logger.info(f"Grouping {len(payment_ids)} payments by member...")
             payments_by_member = defaultdict(list)
 
             for payment_id in payment_ids:
@@ -2385,9 +2390,9 @@ class MollieDebugService:
                 except Exception as e:
                     # On error, process individually
                     payments_by_member[f"error_{payment_id}"].append(payment_id)
-                    frappe.logger().warning(f"Failed to group payment {payment_id}: {e}")
+                    self.logger.warning(f"Failed to group payment {payment_id}: {e}")
 
-            frappe.logger().info(
+            self.logger.info(
                 f"Grouped into {len(payments_by_member)} groups: "
                 + ", ".join(f"{k}({len(v)})" for k, v in list(payments_by_member.items())[:5])
             )
@@ -2477,7 +2482,7 @@ class MollieDebugService:
                                             payment_result["payment_entry_submitted"] = True
                                 except Exception as submit_error:
                                     payment_result["submit_error"] = str(submit_error)
-                                    frappe.log_error(f"Submission error for {payment_id}: {submit_error}")
+                                    self.logger.error(f"Submission error for {payment_id}: {submit_error}")
 
                             # Success - break retry loop
                             break
@@ -2489,7 +2494,7 @@ class MollieDebugService:
 
                             if is_deadlock and retry_count < max_retries:
                                 wait_time = 0.1 * (2 ** (retry_count - 1))
-                                frappe.logger().warning(
+                                self.logger.warning(
                                     f"Deadlock on {payment_id}, retry {retry_count}/{max_retries} after {wait_time}s"
                                 )
                                 time.sleep(wait_time)
@@ -2500,7 +2505,7 @@ class MollieDebugService:
                                     "status": "error",
                                     "error": error_str,
                                 }
-                                frappe.log_error(f"Error processing {payment_id}: {e}")
+                                self.logger.error(f"Error processing {payment_id}: {e}")
                                 break
 
                     # Record result
@@ -2513,14 +2518,14 @@ class MollieDebugService:
                             result["errors"] += 1
                         result["results"].append(payment_result)
 
-            frappe.logger().info(
+            self.logger.info(
                 f"Bulk processing complete: {result['processed']} processed, "
                 f"{result['skipped']} skipped, {result['errors']} errors"
             )
 
         except Exception as e:
             result["error"] = str(e)
-            frappe.log_error(f"Bulk processing error: {e}")
+            self.logger.error(f"Bulk processing error: {e}")
 
         return result
 
@@ -2543,7 +2548,7 @@ class MollieDebugService:
         Returns:
             Dict with batch processing results
         """
-        frappe.logger().info(
+        self.logger.info(
             f"Background job {job_id}: Processing batch {batch_num} with {len(payment_ids)} payments"
         )
 
@@ -2555,7 +2560,7 @@ class MollieDebugService:
             result["batch_num"] = batch_num
             result["job_id"] = job_id
 
-            frappe.logger().info(
+            self.logger.info(
                 f"Background job {job_id}: Batch {batch_num} complete - "
                 f"{result['processed']} processed, {result['skipped']} skipped, {result['errors']} errors"
             )
@@ -2564,7 +2569,7 @@ class MollieDebugService:
 
         except Exception as e:
             error_msg = f"Background job {job_id}: Batch {batch_num} failed - {str(e)}"
-            frappe.log_error(error_msg, "Batch Payment Processing Error")
+            self.logger.error(error_msg)
             return {
                 "batch_num": batch_num,
                 "job_id": job_id,

@@ -6,12 +6,18 @@ EligibilityChecker Service - Consolidated eligibility determination for invoice 
 
 Extracts eligibility validation logic from MembershipDuesSchedule god object.
 Provides structured, testable validation with detailed failure reasons.
+
+Architecture:
+    - Inherits from StatelessService for consistent logging, metrics, error handling
+    - Returns EligibilityResult with category-based routing for detailed diagnostics
 """
 
 from typing import Any, Dict, Optional
 
 import frappe
 from frappe.utils import add_days, getdate, today
+
+from verenigingen.services.infrastructure.base_service import StatelessService
 
 
 class EligibilityResult:
@@ -21,12 +27,19 @@ class EligibilityResult:
     Provides detailed eligibility status with category-based reasons
     for better diagnostics and error reporting.
 
+    Deprecated: Migrate to OperationResult[None] in future versions.
+
+    This class maintains backward compatibility while providing OperationResult-compatible
+    properties for gradual migration.
+
     Attributes:
-        can_generate: Whether invoice generation is allowed
-        reason: Human-readable explanation
+        can_generate: Whether invoice generation is allowed (legacy - use .success)
+        reason: Human-readable explanation (legacy - use .error_message for failures)
         category: Classification of result ("valid", "member_status", "membership",
                   "rate", "duplicate", "timing", "system")
         metadata: Additional context (gap_reset, lock_status, etc.)
+        success: OperationResult-compatible alias for can_generate
+        error_message: OperationResult-compatible alias for reason (when can_generate=False)
     """
 
     def __init__(self, can_generate: bool, reason: str, category: str, **metadata: Any):
@@ -43,6 +56,11 @@ class EligibilityResult:
         self.reason = reason
         self.category = category
         self.metadata = metadata
+
+        # OperationResult-compatible properties
+        self.success: bool = can_generate
+        self.data = None  # No data payload for eligibility checks
+        self.error_message: Optional[str] = reason if not can_generate else None
 
     def to_dict(self) -> Dict:
         """
@@ -65,7 +83,7 @@ class EligibilityResult:
         )
 
 
-class EligibilityChecker:
+class EligibilityChecker(StatelessService):
     """
     Service for determining if a membership dues schedule is eligible for invoice generation.
 
@@ -91,6 +109,7 @@ class EligibilityChecker:
         Args:
             schedule_doc: MembershipDuesSchedule document
         """
+        super().__init__(service_name="EligibilityChecker")
         self.schedule_name = schedule_doc.name
         self.member_name = schedule_doc.member
         self.billing_frequency = schedule_doc.billing_frequency
@@ -280,10 +299,7 @@ class EligibilityChecker:
         )
 
         if not active_membership:
-            frappe.log_error(
-                f"Invoice blocked: member {self.member_name} no active membership",
-                "Membership Status Validation",
-            )
+            self.logger.error(f"Invoice blocked: member {self.member_name} no active membership")
             return EligibilityResult(
                 False, f"Member {self.member_name} has no active membership", "membership"
             )
@@ -334,9 +350,7 @@ class EligibilityChecker:
 
         except Exception as e:
             # Fail closed on rate validation errors - better to block than generate invalid invoices
-            frappe.log_error(
-                f"Rate validation error for {self.schedule_name}: {str(e)}", "Rate Validation Error"
-            )
+            self.logger.error(f"Rate validation error for {self.schedule_name}: {str(e)}")
             return EligibilityResult(False, f"Rate validation system error: {str(e)}", "system")
 
     def check_membership_type_consistency(self, member_doc: Any) -> EligibilityResult:
@@ -362,9 +376,7 @@ class EligibilityChecker:
 
         except Exception as e:
             # Fail closed on type validation errors - better to block than bill at wrong rate
-            frappe.log_error(
-                f"Type validation error for {self.schedule_name}: {str(e)}", "Type Validation Error"
-            )
+            self.logger.error(f"Type validation error for {self.schedule_name}: {str(e)}")
             return EligibilityResult(False, f"Type validation system error: {str(e)}", "system")
 
     def check_concurrency_lock(self) -> EligibilityResult:
@@ -403,9 +415,7 @@ class EligibilityChecker:
         except Exception as e:
             # Fail closed on Redis errors - if Redis is down, instance has bigger problems
             # Pre-generation safety checks (missing invoice checks) provide additional safety
-            frappe.log_error(
-                f"Redis lock check error for {self.schedule_name}: {str(e)}", "Concurrency Check Error"
-            )
+            self.logger.error(f"Redis lock check error for {self.schedule_name}: {str(e)}")
             return EligibilityResult(False, f"Concurrency check system error: {str(e)}", "system")
 
     def check_for_duplicates(self) -> EligibilityResult:
@@ -440,9 +450,7 @@ class EligibilityChecker:
         except Exception as e:
             # Fail closed on duplicate detection errors
             # Better to block generation than create duplicates
-            frappe.log_error(
-                f"Duplicate check error for {self.schedule_name}: {str(e)}", "Duplicate Check Error"
-            )
+            self.logger.error(f"Duplicate check error for {self.schedule_name}: {str(e)}")
             return EligibilityResult(False, f"Duplicate detection error: {str(e)}", "system")
 
     def check_schedule_timing(self) -> EligibilityResult:

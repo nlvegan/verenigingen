@@ -56,15 +56,18 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import frappe
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.operation_result import OperationResult
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
 
 
-class MemberHistoryUpdateService:
+class MemberHistoryUpdateService(StatelessService):
     """
     Service for orchestrating member history table updates.
+
+    Inherits from StatelessService for consistent logging, metrics, and error handling.
 
     This service coordinates the rebuilding of all history-related child tables
     for a member, including:
@@ -74,8 +77,11 @@ class MemberHistoryUpdateService:
     - Volunteer expense history (from Employee link)
     """
 
-    @staticmethod
-    def incremental_update_history_tables(member_doc: "Document") -> OperationResult[Dict[str, Any]]:
+    def __init__(self) -> None:
+        """Initialize the member history update service."""
+        super().__init__(service_name="MemberHistoryUpdateService")
+
+    def incremental_update_history_tables(self, member_doc: "Document") -> OperationResult[Dict[str, Any]]:
         """
         Rebuild payment history, donation history, and volunteer expense history tables.
 
@@ -137,17 +143,17 @@ class MemberHistoryUpdateService:
                 donation_changes = 0
 
             # STEP 2.5: Update dues payment history (from Payment Entry custom_member field)
-            dues_changes = MemberHistoryUpdateService._update_dues_payment_history(member_doc)
+            dues_changes = self._update_dues_payment_history(member_doc)
             if dues_changes > 0:
                 changes_made = True
 
             # STEP 2.6: Update invoice payment history (from Sales Invoices linked to member)
-            invoice_changes = MemberHistoryUpdateService._update_invoice_payment_history(member_doc)
+            invoice_changes = self._update_invoice_payment_history(member_doc)
             if invoice_changes > 0:
                 changes_made = True
 
             # STEP 3: Update volunteer expense history if employee is linked
-            expense_changes = MemberHistoryUpdateService._update_volunteer_expense_history(member_doc)
+            expense_changes = self._update_volunteer_expense_history(member_doc)
             if expense_changes > 0:
                 changes_made = True
 
@@ -194,10 +200,7 @@ class MemberHistoryUpdateService:
             )
 
         except Exception as e:
-            frappe.log_error(
-                f"Error in incremental history update for member {member_doc.name}: {str(e)}",
-                "Incremental History Update",
-            )
+            self.logger.error(f"Error in incremental history update for member {member_doc.name}: {str(e)}")
             return OperationResult.fail(
                 f"Error updating history tables: {str(e)}",
                 errors=[str(e)],
@@ -206,8 +209,7 @@ class MemberHistoryUpdateService:
                 member=member_doc.name,
             )
 
-    @staticmethod
-    def _update_volunteer_expense_history(member_doc: "Document") -> int:
+    def _update_volunteer_expense_history(self, member_doc: "Document") -> int:
         """
         Update volunteer expense history for this member.
 
@@ -260,19 +262,16 @@ class MemberHistoryUpdateService:
 
         # Try batched version first (93% query reduction)
         try:
-            expected_rows_list = MemberHistoryUpdateService._build_expense_entries_batched(
-                member_doc, current_claims
-            )
+            expected_rows_list = self._build_expense_entries_batched(member_doc, current_claims)
             expected_rows = {row["expense_claim"]: row for row in expected_rows_list}
         except Exception as e:
-            frappe.log_error(
-                f"Batched expense entry build failed for {member_doc.name}, using fallback: {str(e)}",
-                "Expense Entry Batch Fallback",
+            self.logger.warning(
+                f"Batched expense entry build failed for {member_doc.name}, using fallback: {str(e)}"
             )
             # Fallback to individual processing
             expected_rows = {}
             for claim in current_claims:
-                expected_row = MemberHistoryUpdateService._build_lightweight_expense_entry(member_doc, claim)
+                expected_row = self._build_lightweight_expense_entry(member_doc, claim)
                 expected_rows[expected_row["expense_claim"]] = expected_row
 
         # Process each current claim using pre-built rows
@@ -299,17 +298,13 @@ class MemberHistoryUpdateService:
                     member_doc.append("volunteer_expenses", expected_row)
                     added_count += 1
                 except Exception as e:
-                    frappe.log_error(
-                        f"Failed to append volunteer expense for {member_doc.name}: {str(e)}",
-                        "Volunteer Expense Append Error",
-                    )
+                    self.logger.error(f"Failed to append volunteer expense for {member_doc.name}: {str(e)}")
                     # Continue processing other entries - don't break entire update
                     continue
 
         return removed_count + updated_count + added_count
 
-    @staticmethod
-    def _update_dues_payment_history(member_doc: "Document") -> int:
+    def _update_dues_payment_history(self, member_doc: "Document") -> int:
         """
         Rebuild membership dues payment history from ALL Payment Entries with custom_member field.
 
@@ -408,17 +403,15 @@ class MemberHistoryUpdateService:
                     member_doc.append("payment_history", expected_row)
                     added_count += 1
                 except Exception as e:
-                    frappe.log_error(
-                        f"Failed to append dues payment {payment.name} for {member_doc.name}: {str(e)}",
-                        "Dues Payment History Append Error",
+                    self.logger.error(
+                        f"Failed to append dues payment {payment.name} for {member_doc.name}: {str(e)}"
                     )
                     # Continue processing other entries - don't break entire update
                     continue
 
         return removed_count + updated_count + added_count
 
-    @staticmethod
-    def _update_invoice_payment_history(member_doc: "Document") -> int:
+    def _update_invoice_payment_history(self, member_doc: "Document") -> int:
         """
         Rebuild membership invoice payment history from ALL Sales Invoices linked to member's customer.
 
@@ -588,25 +581,21 @@ class MemberHistoryUpdateService:
                         member_doc.append("payment_history", expected_row)
                         added_count += 1
                     except Exception as e:
-                        frappe.log_error(
-                            f"Failed to append invoice {invoice.name} for {member_doc.name}: {str(e)}",
-                            "Invoice Payment History Append Error",
+                        self.logger.error(
+                            f"Failed to append invoice {invoice.name} for {member_doc.name}: {str(e)}"
                         )
                         # Continue processing other entries - don't break entire update
                         continue
 
             except Exception as e:
-                frappe.log_error(
-                    f"Failed to process invoice {invoice.name} for {member_doc.name}: {str(e)}",
-                    "Invoice Payment History Process Error",
-                )
+                self.logger.error(f"Failed to process invoice {invoice.name} for {member_doc.name}: {str(e)}")
                 # Continue processing other entries
                 continue
 
         return removed_count + updated_count + added_count
 
-    @staticmethod
     def _batch_fetch_with_chunking(
+        self,
         doctype: str,
         name_list: List[str],
         fields: List[str],
@@ -641,9 +630,8 @@ class MemberHistoryUpdateService:
 
         return results
 
-    @staticmethod
     def _build_expense_entries_batched(
-        member_doc: "Document", claims: List[Dict[str, Any]]
+        self, member_doc: "Document", claims: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
         """
         OPTIMIZED: Build all expense entries using batch queries.
@@ -679,7 +667,7 @@ class MemberHistoryUpdateService:
         # QUERY 2: Batch fetch ALL payment entries with chunking
         all_payment_entries = []
         if all_payment_entry_names:
-            all_payment_entries = MemberHistoryUpdateService._batch_fetch_with_chunking(
+            all_payment_entries = self._batch_fetch_with_chunking(
                 doctype="Payment Entry",
                 name_list=list(all_payment_entry_names),
                 fields=["name", "posting_date", "paid_amount", "mode_of_payment"],
@@ -793,24 +781,22 @@ class MemberHistoryUpdateService:
 
             except Exception as e:
                 error_count += 1
-                frappe.log_error(
-                    f"Error building batched expense entry for {getattr(claim_data, 'name', 'unknown')}: {str(e)}",
-                    "Batched Expense Entry Build Error",
+                self.logger.error(
+                    f"Error building batched expense entry for {getattr(claim_data, 'name', 'unknown')}: {str(e)}"
                 )
                 # Continue with other claims
                 continue
 
         # Log processing summary if there were any errors
         if error_count > 0:
-            frappe.logger().warning(
+            self.logger.warning(
                 f"Batched expense entry build for {member_doc.name}: "
                 f"{success_count} succeeded, {error_count} failed"
             )
 
         return entries
 
-    @staticmethod
-    def _build_lightweight_expense_entry(member_doc: "Document", claim_data) -> dict:
+    def _build_lightweight_expense_entry(self, member_doc: "Document", claim_data) -> dict:
         """
         Build expense history entry from claim data without loading full document.
 
@@ -901,9 +887,8 @@ class MemberHistoryUpdateService:
             }
 
         except Exception as e:
-            frappe.log_error(
-                f"Error building lightweight expense entry for {getattr(claim_data, 'name', 'unknown')}: {str(e)}",
-                "Lightweight Expense Entry Build Error",
+            self.logger.error(
+                f"Error building lightweight expense entry for {getattr(claim_data, 'name', 'unknown')}: {str(e)}"
             )
             # Return minimal entry on error
             return {
@@ -924,8 +909,7 @@ class MemberHistoryUpdateService:
                 "payment_status": "Draft",
             }
 
-    @staticmethod
-    def refresh_fee_change_history(member_name: str) -> OperationResult[Dict[str, Any]]:
+    def refresh_fee_change_history(self, member_name: str) -> OperationResult[Dict[str, Any]]:
         """
         Refresh fee change history from dues schedules and amendments with integrity checking.
 
@@ -1115,12 +1099,8 @@ class MemberHistoryUpdateService:
 
             if not fee_history_result.success:
                 # Log full traceback for debugging
-                frappe.log_error(
-                    title=f"Fee History Update Failed: {member_doc.name}",
-                    message=f"Errors: {fee_history_result.errors}\n\nTraceback:\n{frappe.get_traceback()}",
-                )
-                frappe.logger().error(
-                    f"Failed to update fee change history: {'; '.join(fee_history_result.errors)}"
+                self.logger.error(
+                    f"Fee history update failed for {member_doc.name}: {'; '.join(fee_history_result.errors)}"
                 )
                 frappe.throw(
                     frappe._("Failed to update fee change history: {0}").format(
@@ -1148,7 +1128,7 @@ class MemberHistoryUpdateService:
 
         except Exception as e:
             error_msg = str(e)[:100] + "..." if len(str(e)) > 100 else str(e)  # Truncate long errors
-            frappe.log_error(f"Fee change history error: {error_msg}", "Fee History Refresh")
+            self.logger.error(f"Fee change history error for {member_name}: {error_msg}")
             return OperationResult.fail(f"Error: {error_msg}", errors=[str(e)], member=member_name)
 
 

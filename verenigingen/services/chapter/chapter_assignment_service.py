@@ -42,11 +42,13 @@ import frappe
 from frappe import _
 from frappe.utils import today
 
+from verenigingen.services.infrastructure.base_service import StatelessService
+
 if TYPE_CHECKING:
     from frappe.model.document import Document
 
 
-class ChapterAssignmentService:
+class ChapterAssignmentService(StatelessService):
     """
     Service for managing administrative chapter member assignments.
 
@@ -58,12 +60,15 @@ class ChapterAssignmentService:
     - Audit trail creation via comments
     """
 
+    def __init__(self) -> None:
+        """Initialize the chapter assignment service."""
+        super().__init__(service_name="ChapterAssignmentService")
+
     # ========================================================================
     # PUBLIC ASSIGNMENT METHODS
     # ========================================================================
 
-    @staticmethod
-    def assign_member(member: str, chapter: str, note: Optional[str] = None) -> Dict[str, Any]:
+    def assign_member(self, member: str, chapter: str, note: Optional[str] = None) -> Dict[str, Any]:
         """Assign a member to a chapter.
 
         This is the basic assignment operation for administrative use.
@@ -92,16 +97,15 @@ class ChapterAssignmentService:
         added = chapter_doc.add_member(member)
 
         # Update member tracking fields
-        ChapterAssignmentService._update_member_tracking_fields(member=member, chapter=chapter, note=note)
+        self._update_member_tracking_fields(member=member, chapter=chapter, note=note)
 
         # Create audit comment if note provided
         if note:
-            ChapterAssignmentService._create_assignment_comment(member=member, chapter=chapter, note=note)
+            self._create_assignment_comment(member=member, chapter=chapter, note=note)
 
         return {"success": True, "added_to_members": added}
 
-    @staticmethod
-    def assign_with_cleanup(member: str, chapter: str, note: Optional[str] = None) -> Dict[str, Any]:
+    def assign_with_cleanup(self, member: str, chapter: str, note: Optional[str] = None) -> Dict[str, Any]:
         """Assign a member to a chapter with automatic cleanup.
 
         This method:
@@ -136,15 +140,12 @@ class ChapterAssignmentService:
 
             # 1. Cleanup existing chapter memberships
             cleanup_performed = (
-                ChapterAssignmentService._cleanup_chapter_memberships(member=member, target_chapter=chapter)
-                or cleanup_performed
+                self._cleanup_chapter_memberships(member=member, target_chapter=chapter) or cleanup_performed
             )
 
             # 2. Cleanup board memberships
             cleanup_performed = (
-                ChapterAssignmentService._cleanup_board_memberships(
-                    member=member, reassignment_reason=f"Reassigned to {chapter}"
-                )
+                self._cleanup_board_memberships(member=member, reassignment_reason=f"Reassigned to {chapter}")
                 or cleanup_performed
             )
 
@@ -176,7 +177,7 @@ class ChapterAssignmentService:
 
             else:
                 # Not in target - perform assignment
-                result = ChapterAssignmentService.assign_member(member, chapter, note)
+                result = self.assign_member(member, chapter, note)
                 result["cleanup_performed"] = cleanup_performed
 
                 if cleanup_performed:
@@ -189,15 +190,14 @@ class ChapterAssignmentService:
             return result
 
         except Exception as e:
-            frappe.logger().error(f"Error in assign_with_cleanup: {str(e)}")
+            self.logger.error(f"Error in assign_with_cleanup: {str(e)}")
             return {"success": False, "message": str(e)}
 
     # ========================================================================
     # CLEANUP HELPER METHODS (Private)
     # ========================================================================
 
-    @staticmethod
-    def _cleanup_chapter_memberships(member: str, target_chapter: str) -> bool:
+    def _cleanup_chapter_memberships(self, member: str, target_chapter: str) -> bool:
         """Remove member from all chapters except target.
 
         Args:
@@ -220,7 +220,7 @@ class ChapterAssignmentService:
                     old_chapter_doc = frappe.get_doc("Chapter", membership.parent)
                     old_chapter_doc.remove_member(member, leave_reason=f"Reassigned to {target_chapter}")
                     cleanup_performed = True
-                    frappe.logger().info(f"Removed member {member} from chapter {membership.parent}")
+                    self.logger.info(f"Removed member {member} from chapter {membership.parent}")
 
                 except Exception as e:
                     # If chapter method fails, disable directly
@@ -234,21 +234,20 @@ class ChapterAssignmentService:
                         )
                         frappe.db.commit()
                         cleanup_performed = True
-                        frappe.logger().info(
+                        self.logger.info(
                             f"Directly disabled membership {membership.name} for member {member}"
                         )
 
                     except Exception as e2:
-                        frappe.logger().error(
+                        self.logger.error(
                             f"Error removing member from chapter {membership.parent}: {str(e)} and {str(e2)}"
                         )
             else:
-                frappe.logger().info(f"Member {member} is already in target chapter {target_chapter}")
+                self.logger.info(f"Member {member} is already in target chapter {target_chapter}")
 
         return cleanup_performed
 
-    @staticmethod
-    def _cleanup_board_memberships(member: str, reassignment_reason: str) -> bool:
+    def _cleanup_board_memberships(self, member: str, reassignment_reason: str) -> bool:
         """End all board memberships for a member.
 
         Args:
@@ -280,10 +279,10 @@ class ChapterAssignmentService:
                 board_doc.save()
                 cleanup_performed = True
 
-                frappe.logger().info(f"Ended board membership {board_membership.name} for member {member}")
+                self.logger.info(f"Ended board membership {board_membership.name} for member {member}")
 
             except Exception as e:
-                frappe.logger().error(f"Error ending board membership {board_membership.name}: {str(e)}")
+                self.logger.error(f"Error ending board membership {board_membership.name}: {str(e)}")
 
         return cleanup_performed
 
@@ -291,8 +290,7 @@ class ChapterAssignmentService:
     # MEMBER UPDATE HELPER METHODS (Private)
     # ========================================================================
 
-    @staticmethod
-    def _update_member_tracking_fields(member: str, chapter: str, note: Optional[str] = None):
+    def _update_member_tracking_fields(self, member: str, chapter: str, note: Optional[str] = None):
         """Update member tracking fields after assignment.
 
         Args:
@@ -320,11 +318,10 @@ class ChapterAssignmentService:
 
         if not member_update_result.success:
             error_msg = "; ".join(member_update_result.errors)
-            frappe.logger().error(f"Failed to update member chapter display: {error_msg}")
+            self.logger.error(f"Failed to update member chapter display: {error_msg}")
             frappe.throw(_("Failed to update member chapter display: {0}").format(error_msg))
 
-    @staticmethod
-    def _create_assignment_comment(member: str, chapter: str, note: str):
+    def _create_assignment_comment(self, member: str, chapter: str, note: str):
         """Create audit comment for chapter assignment.
 
         Args:
@@ -353,5 +350,5 @@ class ChapterAssignmentService:
 
         if not note_result.success:
             error_msg = "; ".join(note_result.errors)
-            frappe.logger().error(f"Failed to create chapter change note: {error_msg}")
+            self.logger.error(f"Failed to create chapter change note: {error_msg}")
             # Don't fail main operation for note creation failure
