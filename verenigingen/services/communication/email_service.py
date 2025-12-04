@@ -5,7 +5,6 @@ Consolidates all email functionality from various modules into a single,
 consistent service with proper error handling, logging, and security.
 """
 
-import logging
 import time
 from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Union
@@ -14,10 +13,9 @@ import frappe
 from frappe import _
 from frappe.utils import get_datetime, now
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.service_error_handler import create_service_result, handle_service_error
-
-logger = logging.getLogger(__name__)
 
 
 class BoundedLRUCache:
@@ -77,7 +75,7 @@ class BoundedLRUCache:
         return len(self._cache)
 
 
-class EmailService:
+class EmailService(StatelessService):
     """
     Centralized email service that replaces scattered email implementations.
 
@@ -90,6 +88,7 @@ class EmailService:
     """
 
     def __init__(self):
+        super().__init__(service_name="EmailService")
         self.settings = self._load_email_settings()
         # Bounded cache with max 50 templates, 1 hour TTL
         self.template_cache = BoundedLRUCache(max_size=50, ttl_seconds=3600)
@@ -143,7 +142,9 @@ class EmailService:
                 email_context = context.copy()
             else:
                 # Invalid context type - log warning and use empty dict
-                logger.warning(f"Invalid context type {type(context)}, expected dict. Using empty context.")
+                self.logger.warning(
+                    f"Invalid context type {type(context)}, expected dict. Using empty context."
+                )
                 email_context = {}
 
             email_context.update(self._get_default_context())
@@ -408,7 +409,7 @@ class EmailService:
 
             # Check if email account is configured
             if not self._has_active_email_account():
-                logger.warning(
+                self.logger.warning(
                     f"No active email account configured. Email not queued.\n"
                     f"Recipients: {recipients}\n"
                     f"Subject: {subject[:50]}..."
@@ -461,7 +462,7 @@ class EmailService:
             )
 
         except Exception as e:
-            logger.error(
+            self.logger.error(
                 f"Email queueing failed: {str(e)}\n"
                 f"Recipients: {recipients}\n"
                 f"Subject: {subject[:50] if subject else 'None'}..."
@@ -525,11 +526,11 @@ class EmailService:
             if result.success:
                 return result.data.name
             else:
-                logger.warning(f"Failed to create communication record: {'; '.join(result.errors)}")
+                self.logger.warning(f"Failed to create communication record: {'; '.join(result.errors)}")
                 return None
 
         except Exception as e:
-            logger.error(f"Communication record creation failed: {str(e)}")
+            self.logger.error(f"Communication record creation failed: {str(e)}")
             return None
 
     def _get_template(self, template_name: str) -> Optional[Dict[str, Any]]:
@@ -553,7 +554,7 @@ class EmailService:
             return None
 
         except Exception as e:
-            logger.error(f"Template loading failed for {template_name}: {str(e)}")
+            self.logger.error(f"Template loading failed for {template_name}: {str(e)}")
             return None
 
     def _render_template(self, template: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, str]:
@@ -564,7 +565,7 @@ class EmailService:
 
             return {"subject": rendered_subject, "content": rendered_content}
         except Exception as e:
-            logger.error(f"Template rendering failed: {str(e)}")
+            self.logger.error(f"Template rendering failed: {str(e)}")
             raise e
 
     def _get_default_context(self) -> Dict[str, Any]:
@@ -605,7 +606,7 @@ class EmailService:
             active_accounts = frappe.get_all("Email Account", filters={"enable_outgoing": 1}, limit=1)
             return len(active_accounts) > 0
         except Exception as e:
-            logger.error(f"Error checking email accounts: {str(e)}")
+            self.logger.error(f"Error checking email accounts: {str(e)}")
             return False
 
 

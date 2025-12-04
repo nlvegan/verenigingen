@@ -5,24 +5,22 @@ Handles all donation validation logic extracted from the monolithic donation con
 Provides comprehensive validation for ANBI compliance, payment methods, and donation purposes.
 """
 
-import logging
 from typing import Any, Dict, List, Optional
 
 import frappe
 from frappe import _
 from frappe.utils import flt, getdate
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.validation_utilities import DateRangeValidator, DocumentExistenceValidator
 
-logger = logging.getLogger(__name__)
 
-
-class DonationValidationService:
+class DonationValidationService(StatelessService):
     """Service for handling donation validation logic"""
 
     def __init__(self, donation_doc):
+        super().__init__(service_name="DonationValidationService")
         self.donation = donation_doc
-        self.logger = logger
 
     def validate_all(self) -> List[str]:
         """
@@ -47,7 +45,7 @@ class DonationValidationService:
         except frappe.ValidationError as e:
             if is_website_user and ("bank transfers" in str(e).lower() or "payment id" in str(e).lower()):
                 # For website users, log payment method issues as warnings rather than errors
-                logger.warning(f"Payment method validation warning for website user: {str(e)}")
+                self.logger.warning(f"Payment method validation warning for website user: {str(e)}")
             else:
                 errors.append(str(e))
 
@@ -66,7 +64,7 @@ class DonationValidationService:
         except frappe.ValidationError as e:
             if is_website_user and ("campaign" in str(e).lower() or "chapter" in str(e).lower()):
                 # For website users, log purpose validation issues as warnings
-                logger.warning(f"Donation purpose validation warning for website user: {str(e)}")
+                self.logger.warning(f"Donation purpose validation warning for website user: {str(e)}")
             else:
                 errors.append(str(e))
 
@@ -307,3 +305,8 @@ class DonationValidationService:
             "purpose_type": self.donation.donation_purpose_type,
             "user_type": frappe.db.get_value("User", frappe.session.user, "user_type"),
         }
+
+
+def get_donation_validation_service(donation_doc) -> DonationValidationService:
+    """Get instance of DonationValidationService."""
+    return DonationValidationService(donation_doc)

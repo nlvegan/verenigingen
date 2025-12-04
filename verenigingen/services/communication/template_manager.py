@@ -4,19 +4,19 @@ Email Template Manager
 Handles template loading, caching, and validation for the EmailService.
 """
 
-import logging
 from typing import Any, Dict, List, Optional
 
 import frappe
 from frappe import _
 
-logger = logging.getLogger(__name__)
+from verenigingen.services.infrastructure.base_service import StatelessService
 
 
-class TemplateManager:
+class TemplateManager(StatelessService):
     """Manages email templates with caching and validation."""
 
     def __init__(self):
+        super().__init__(service_name="TemplateManager")
         self.cache = {}
         self.validation_cache = {}
 
@@ -47,7 +47,7 @@ class TemplateManager:
             return None
 
         except Exception as e:
-            logger.error(f"Template loading failed for {template_name}: {str(e)}")
+            self.logger.error(f"Template loading failed for {template_name}: {str(e)}")
             return None
 
     def validate_template(self, template_name: str) -> Dict[str, Any]:
@@ -102,7 +102,7 @@ class TemplateManager:
 
             return {"subject": rendered_subject, "content": rendered_content}
         except Exception as e:
-            logger.error(f"Template rendering failed: {str(e)}")
+            self.logger.error(f"Template rendering failed: {str(e)}")
             return {
                 "subject": "Email Notification",
                 "content": "There was an error rendering this email template.",
@@ -123,5 +123,10 @@ class TemplateManager:
             templates = frappe.get_all("Email Template", fields=["name"])
             return [t.name for t in templates]
         except Exception as e:
-            logger.error(f"Failed to get available templates: {str(e)}")
+            self.logger.error(f"Failed to get available templates: {str(e)}")
             return []
+
+
+def get_template_manager() -> TemplateManager:
+    """Get instance of TemplateManager."""
+    return TemplateManager()

@@ -5,22 +5,21 @@ Handles different types of system notifications with appropriate routing
 and template selection.
 """
 
-import logging
 from typing import Any, Dict, List, Union
 
 import frappe
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.operation_result import OperationResult
 
 from .email_service import get_email_service
 
-logger = logging.getLogger(__name__)
 
-
-class NotificationDispatcher:
+class NotificationDispatcher(StatelessService):
     """Dispatches notifications based on type and recipient preferences."""
 
     def __init__(self):
+        super().__init__(service_name="NotificationDispatcher")
         self.email_service = get_email_service()
 
         # Notification type mappings
@@ -86,7 +85,7 @@ class NotificationDispatcher:
             )
 
         except Exception as e:
-            logger.error(f"Notification dispatch failed for {notification_type}: {str(e)}")
+            self.logger.error(f"Notification dispatch failed for {notification_type}: {str(e)}")
             return OperationResult.fail(str(e), notification_type=notification_type)
 
     def dispatch_bulk_notifications(
@@ -148,7 +147,7 @@ class NotificationDispatcher:
             return recipients
 
         except Exception as e:
-            logger.warning(f"Recipient filtering failed: {str(e)}, returning all recipients")
+            self.logger.warning(f"Recipient filtering failed: {str(e)}, returning all recipients")
             return recipients if isinstance(recipients, list) else [recipients]
 
     def get_supported_notification_types(self) -> List[str]:
@@ -158,3 +157,8 @@ class NotificationDispatcher:
     def validate_notification_type(self, notification_type: str) -> bool:
         """Check if notification type is supported."""
         return notification_type in self.template_mapping
+
+
+def get_notification_dispatcher() -> NotificationDispatcher:
+    """Get instance of NotificationDispatcher."""
+    return NotificationDispatcher()
