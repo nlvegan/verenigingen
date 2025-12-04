@@ -668,3 +668,8 @@ def create_donation_allocation_report(
                 "params": {"chapter": chapter, "from_date": from_date, "to_date": to_date},
             },
         )
+
+
+def get_donation_reporting_service() -> DonationReportingService:
+    """Get instance of DonationReportingService."""
+    return DonationReportingService()

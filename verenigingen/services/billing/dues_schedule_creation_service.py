@@ -557,3 +557,8 @@ def retry_create_dues_schedule_job(
         )
 
     return result.to_dict()
+
+
+def get_dues_schedule_creation_service() -> DuesScheduleCreationService:
+    """Get instance of DuesScheduleCreationService."""
+    return DuesScheduleCreationService()

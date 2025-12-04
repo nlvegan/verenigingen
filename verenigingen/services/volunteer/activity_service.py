@@ -199,3 +199,8 @@ class VolunteerActivityService(StatelessService):
         if not self.volunteer_doc:
             self.volunteer_doc = frappe.get_doc("Volunteer", self.volunteer_name)
         return self.volunteer_doc
+
+
+def get_volunteer_activity_service(volunteer_name: str = None) -> VolunteerActivityService:
+    """Get instance of VolunteerActivityService."""
+    return VolunteerActivityService(volunteer_name=volunteer_name)

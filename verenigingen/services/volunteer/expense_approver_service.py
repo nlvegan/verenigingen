@@ -284,3 +284,8 @@ class VolunteerExpenseApproverService(StatelessService):
             return fallback_approver
 
         return None
+
+
+def get_volunteer_expense_approver_service(volunteer_name: str) -> VolunteerExpenseApproverService:
+    """Get instance of VolunteerExpenseApproverService."""
+    return VolunteerExpenseApproverService(volunteer_name)

@@ -564,3 +564,8 @@ class MembershipCreationService(StatelessService):
             max_retries=1,
             field_restore_callback=restore_member_fields,
         )
+
+
+def get_membership_creation_service() -> MembershipCreationService:
+    """Get instance of MembershipCreationService."""
+    return MembershipCreationService()

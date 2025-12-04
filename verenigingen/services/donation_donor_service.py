@@ -373,3 +373,8 @@ class DonationDonorService(StatelessService):
             "anonymous_donations": getattr(donor, "anonymous_donations_preferred", False),
             "tax_receipt_preference": getattr(donor, "tax_receipt_preference", "Email"),
         }
+
+
+def get_donation_donor_service(donation_doc) -> DonationDonorService:
+    """Get instance of DonationDonorService."""
+    return DonationDonorService(donation_doc)

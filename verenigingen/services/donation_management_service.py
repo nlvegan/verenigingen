@@ -288,3 +288,8 @@ class DonationManagementService(StatelessService):
             return {"status": "error", "message": f"Unsupported donation flow type: {flow_type}"}
 
         return {"status": "valid", "message": "Flow type is supported"}
+
+
+def get_donation_management_service() -> DonationManagementService:
+    """Get instance of DonationManagementService."""
+    return DonationManagementService()

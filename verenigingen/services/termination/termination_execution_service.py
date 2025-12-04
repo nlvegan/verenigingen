@@ -519,3 +519,8 @@ class TerminationExecutionService(StatelessService):
 
         # Re-raise original exception
         frappe.throw(_("Failed to execute termination: {0}").format(error_msg))
+
+
+def get_termination_execution_service() -> TerminationExecutionService:
+    """Get instance of TerminationExecutionService."""
+    return TerminationExecutionService()

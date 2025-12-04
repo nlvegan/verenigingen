@@ -331,3 +331,13 @@ class TeamValidationService(StatelessService):
             frappe.throw(_("End date cannot be before start date"))
 
         return True
+
+
+def get_team_service() -> TeamService:
+    """Get instance of TeamService."""
+    return TeamService()
+
+
+def get_team_validation_service() -> TeamValidationService:
+    """Get instance of TeamValidationService."""
+    return TeamValidationService()

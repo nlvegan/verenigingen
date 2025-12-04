@@ -280,3 +280,8 @@ class TerminationAuditService(StatelessService):
         rejector = doc.approved_by or "Unknown"  # Same field used for rejection
         reason = doc.rejection_reason or "No reason provided"
         self.add_entry(doc, "Request Rejected", f"Rejected by: {rejector}. Reason: {reason}", is_system=False)
+
+
+def get_termination_audit_service() -> TerminationAuditService:
+    """Get instance of TerminationAuditService."""
+    return TerminationAuditService()

@@ -346,3 +346,10 @@ class TerminationApprovalService(StatefulService):
         except Exception as e:
             self.logger.error(f"Error getting eligible approvers: {str(e)}")
             return []
+
+
+def get_termination_approval_service(
+    termination_request: "MembershipTerminationRequest",
+) -> TerminationApprovalService:
+    """Get instance of TerminationApprovalService."""
+    return TerminationApprovalService(termination_request)

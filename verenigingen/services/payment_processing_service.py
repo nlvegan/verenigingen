@@ -497,3 +497,8 @@ class PaymentProcessingService(StatelessService):
 
         except Exception as e:
             self.logger.warning(f"⚠️ [{self.debug_context}] Error fixing customer-donor link: {e}")
+
+
+def get_payment_processing_service(debug_context: str = "webhook") -> PaymentProcessingService:
+    """Get instance of PaymentProcessingService."""
+    return PaymentProcessingService(debug_context=debug_context)

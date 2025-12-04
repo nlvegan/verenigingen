@@ -585,3 +585,8 @@ class DonationFinancialService(StatelessService):
 
             company = get_company()
         return company
+
+
+def get_donation_financial_service() -> DonationFinancialService:
+    """Get instance of DonationFinancialService."""
+    return DonationFinancialService()
