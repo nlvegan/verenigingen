@@ -755,3 +755,8 @@ class InvoiceGenerator(StatelessService):
             self.logger.info(f"Invoice {invoice.name} kept as draft per settings")
 
         return OperationResult.ok(invoice, submitted=submitted, coverage_tracked=True)
+
+
+def get_invoice_generator(schedule_doc) -> InvoiceGenerator:
+    """Get instance of InvoiceGenerator."""
+    return InvoiceGenerator(schedule_doc)

@@ -488,3 +488,8 @@ class EligibilityChecker(StatelessService):
                 )
 
         return EligibilityResult(True, "Timing check passed", "valid")
+
+
+def get_eligibility_checker(schedule_doc) -> EligibilityChecker:
+    """Get instance of EligibilityChecker."""
+    return EligibilityChecker(schedule_doc)
