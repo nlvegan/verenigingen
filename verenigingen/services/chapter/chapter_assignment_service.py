@@ -352,3 +352,8 @@ class ChapterAssignmentService(StatelessService):
             error_msg = "; ".join(note_result.errors)
             self.logger.error(f"Failed to create chapter change note: {error_msg}")
             # Don't fail main operation for note creation failure
+
+
+def get_chapter_assignment_service() -> ChapterAssignmentService:
+    """Get singleton instance of ChapterAssignmentService."""
+    return ChapterAssignmentService()

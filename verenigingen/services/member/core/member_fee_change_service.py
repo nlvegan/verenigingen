@@ -39,7 +39,9 @@ import frappe
 from frappe.utils import now, today
 
 from verenigingen.services.infrastructure.base_service import StatelessService
-from verenigingen.services.member.financial.member_fee_validation_service import MemberFeeValidationService
+from verenigingen.services.member.financial.member_fee_validation_service import (
+    get_member_fee_validation_service,
+)
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
@@ -99,7 +101,7 @@ class MemberFeeChangeService(StatelessService):
             return
 
         # Check permissions for fee override changes
-        MemberFeeValidationService.validate_fee_override_permissions(member_doc)
+        get_member_fee_validation_service().validate_fee_override_permissions(member_doc)
 
         # Skip fee override change tracking for new member applications
         # Applications should set initial fee amounts without triggering change tracking
@@ -107,8 +109,8 @@ class MemberFeeChangeService(StatelessService):
             # For new documents, validate and set audit fields but no change tracking
             if member_doc.dues_rate:
                 # Validate fee override using dedicated validation service (Phase 2D-2)
-                MemberFeeValidationService.validate_fee_override_amount(member_doc.dues_rate)
-                MemberFeeValidationService.validate_fee_override_reason(member_doc)
+                get_member_fee_validation_service().validate_fee_override_amount(member_doc.dues_rate)
+                get_member_fee_validation_service().validate_fee_override_reason(member_doc)
 
                 # For CSV imports, create audit log entry instead of requiring override fields
                 if getattr(member_doc, "_csv_import", False) and member_doc.dues_rate:
@@ -155,8 +157,8 @@ class MemberFeeChangeService(StatelessService):
 
             # Validate fee override using dedicated validation service (Phase 2D-2)
             if new_amount:
-                MemberFeeValidationService.validate_fee_override_amount(new_amount)
-                MemberFeeValidationService.validate_fee_override_reason(member_doc)
+                get_member_fee_validation_service().validate_fee_override_amount(new_amount)
+                get_member_fee_validation_service().validate_fee_override_reason(member_doc)
 
             # Store change data for deferred processing to avoid save recursion
             member_doc._pending_fee_change = {

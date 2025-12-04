@@ -19,6 +19,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.services.member.core.member_fee_change_service import (
     MemberFeeChangeService,
+    get_member_fee_change_service,
 )
 
 
@@ -41,7 +42,7 @@ class TestMemberFeeChangeService(FrappeTestCase):
         member_doc = SimpleMemberDoc()
 
         # Should return early without calling validation
-        MemberFeeChangeService.handle_fee_override_changes(member_doc)
+        get_member_fee_change_service().handle_fee_override_changes(member_doc)
 
         # Verify no pending change created
         self.assertFalse(hasattr(member_doc, "_pending_fee_change"))
@@ -62,7 +63,7 @@ class TestMemberFeeChangeService(FrappeTestCase):
         member_doc = SimpleMemberDoc()
 
         # Should return early without calling validation
-        MemberFeeChangeService.handle_fee_override_changes(member_doc)
+        get_member_fee_change_service().handle_fee_override_changes(member_doc)
 
         # Verify no pending change created
         self.assertFalse(hasattr(member_doc, "_pending_fee_change"))
@@ -95,7 +96,7 @@ class TestMemberFeeChangeService(FrappeTestCase):
         with patch("frappe.session") as mock_session:
             mock_session.user = "Administrator"
 
-            MemberFeeChangeService.handle_fee_override_changes(member_doc)
+            get_member_fee_change_service().handle_fee_override_changes(member_doc)
 
         # Verify audit fields set but no change tracking
         self.assertIsNotNone(member_doc.fee_override_date)
@@ -119,12 +120,12 @@ class TestMemberFeeChangeService(FrappeTestCase):
 
         member_doc = SimpleMemberDoc()
 
-        # Mock validation service to bypass permission checks in test
-        with patch("verenigingen.services.member.core.member_fee_change_service.MemberFeeValidationService"):
+        # Mock validation service factory function to bypass permission checks in test
+        mock_validation_service = Mock()
+        with patch("verenigingen.services.member.core.member_fee_change_service.get_member_fee_validation_service", return_value=mock_validation_service):
             with patch("frappe.session") as mock_session:
                 mock_session.user = "test@example.com"
-                with patch("frappe.logger"):
-                    MemberFeeChangeService.handle_fee_override_changes(member_doc)
+                get_member_fee_change_service().handle_fee_override_changes(member_doc)
 
         # Verify pending change was created
         self.assertTrue(hasattr(member_doc, "_pending_fee_change"))
@@ -150,7 +151,7 @@ class TestMemberFeeChangeService(FrappeTestCase):
 
         member_doc = SimpleMemberDoc()
 
-        MemberFeeChangeService.handle_fee_override_changes(member_doc)
+        get_member_fee_change_service().handle_fee_override_changes(member_doc)
 
         # Verify no pending change (no actual change)
         self.assertFalse(hasattr(member_doc, "_pending_fee_change"))
@@ -174,15 +175,13 @@ class TestMemberFeeChangeService(FrappeTestCase):
 
         member_doc = SimpleMemberDoc()
 
-        with patch("frappe.log_error") as mock_log_error:
-            with patch("frappe.msgprint") as mock_msgprint:
-                with patch("frappe._", return_value="Fee change saved but audit tracking failed. Please contact administrator."):
-                    MemberFeeChangeService.handle_fee_override_changes(member_doc)
+        with patch("frappe.msgprint") as mock_msgprint:
+            with patch("frappe._", return_value="Fee change saved but audit tracking failed. Please contact administrator."):
+                get_member_fee_change_service().handle_fee_override_changes(member_doc)
 
         # Verify user was notified
+        # (Error is logged via self.logger.error which is part of StatelessService)
         mock_msgprint.assert_called_once()
-        # Verify error was logged
-        mock_log_error.assert_called_once()
 
     def test_record_fee_change_uses_history_manager(self):
         """Test that record_fee_change delegates to history manager"""
@@ -204,7 +203,7 @@ class TestMemberFeeChangeService(FrappeTestCase):
             mock_manager.add_or_update_entry = Mock(return_value={"success": True})
             mock_get_manager.return_value = mock_manager
 
-            result = MemberFeeChangeService.record_fee_change(member_doc, change_data)
+            result = get_member_fee_change_service().record_fee_change(member_doc, change_data)
 
         # Verify manager was called
         mock_manager.add_or_update_entry.assert_called_once()

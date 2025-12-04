@@ -292,3 +292,8 @@ class ChapterMatchingService(StatelessService):
                 score += self.SCORE_CITY_IN_NAME
 
         return score
+
+
+def get_chapter_matching_service() -> ChapterMatchingService:
+    """Get singleton instance of ChapterMatchingService."""
+    return ChapterMatchingService()

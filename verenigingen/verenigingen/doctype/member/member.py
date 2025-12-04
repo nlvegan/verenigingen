@@ -109,10 +109,10 @@ def generate_volunteer_details_html(member_doc: "Member") -> str:
         str: Formatted HTML string with volunteer details and assignment history
     """
     from verenigingen.services.member.display.member_volunteer_display_service import (
-        MemberVolunteerDisplayService,
+        get_member_volunteer_display_service,
     )
 
-    return MemberVolunteerDisplayService.generate_volunteer_details_html(member_doc)
+    return get_member_volunteer_display_service().generate_volunteer_details_html(member_doc)
 
 
 class Member(
@@ -223,10 +223,10 @@ class Member(
         for service layer separation (Phase 2D-3).
         """
         from verenigingen.services.member.display.member_chapter_display_service import (
-            MemberChapterDisplayService,
+            get_member_chapter_display_service,
         )
 
-        return MemberChapterDisplayService.should_update_chapter_display(self)
+        return get_member_chapter_display_service().should_update_chapter_display(self)
 
     def _update_computed_address_fields(self):
         """Update computed address fields using Address Management Service.
@@ -272,10 +272,10 @@ class Member(
         for service layer separation (Phase 2D-2).
         """
         from verenigingen.services.member.financial.member_fee_validation_service import (
-            MemberFeeValidationService,
+            get_member_fee_validation_service,
         )
 
-        MemberFeeValidationService.validate_fee_override_amount(amount)
+        get_member_fee_validation_service().validate_fee_override_amount(amount)
 
     def _validate_fee_override_reason(self):
         """
@@ -285,10 +285,10 @@ class Member(
         for service layer separation (Phase 2D-2).
         """
         from verenigingen.services.member.financial.member_fee_validation_service import (
-            MemberFeeValidationService,
+            get_member_fee_validation_service,
         )
 
-        MemberFeeValidationService.validate_fee_override_reason(self)
+        get_member_fee_validation_service().validate_fee_override_reason(self)
 
     def validate_fee_override_permissions(self):
         """
@@ -298,10 +298,10 @@ class Member(
         for service layer separation (Phase 2D-2).
         """
         from verenigingen.services.member.financial.member_fee_validation_service import (
-            MemberFeeValidationService,
+            get_member_fee_validation_service,
         )
 
-        MemberFeeValidationService.validate_fee_override_permissions(self)
+        get_member_fee_validation_service().validate_fee_override_permissions(self)
 
     def has_permission(self, ptype="read", user=None):
         """
@@ -371,10 +371,10 @@ class Member(
     def get_address_members_html(self) -> str:
         """Get HTML content for address members field - delegates to MemberAddressDisplayService"""
         from verenigingen.services.member.display.member_address_display_service import (
-            MemberAddressDisplayService,
+            get_member_address_display_service,
         )
 
-        return MemberAddressDisplayService.get_address_members_html(self)
+        return get_member_address_display_service().get_address_members_html(self)
 
     def _get_status_color(self, status):
         """Get Bootstrap color class for member status - delegated to member_status_service"""
@@ -403,9 +403,11 @@ class Member(
         EXTRACTED: Moved to MemberUserAccountService.create_user_account_if_needed()
         for service layer separation.
         """
-        from verenigingen.services.member.account.member_user_account_service import MemberUserAccountService
+        from verenigingen.services.member.account.member_user_account_service import (
+            get_member_user_account_service,
+        )
 
-        MemberUserAccountService.create_user_account_if_needed(self)
+        get_member_user_account_service().create_user_account_if_needed(self)
 
     def onload(self):
         """Execute when document is loaded"""
@@ -701,9 +703,9 @@ class Member(
         EXTRACTED: Moved to MemberCleanupService.handle_member_deletion()
         for service layer separation.
         """
-        from verenigingen.services.member.lifecycle.member_cleanup_service import MemberCleanupService
+        from verenigingen.services.member.lifecycle.member_cleanup_service import get_member_cleanup_service
 
-        return MemberCleanupService.handle_member_deletion(self)
+        return get_member_cleanup_service().handle_member_deletion(self)
 
     def _unlink_from_customer(self):
         """
@@ -712,9 +714,9 @@ class Member(
         EXTRACTED: Moved to MemberCleanupService._unlink_member_from_customer()
         for service layer separation.
         """
-        from verenigingen.services.member.lifecycle.member_cleanup_service import MemberCleanupService
+        from verenigingen.services.member.lifecycle.member_cleanup_service import get_member_cleanup_service
 
-        return MemberCleanupService._unlink_member_from_customer(self)
+        return get_member_cleanup_service()._unlink_member_from_customer(self)
 
     def _unlink_from_address(self, address_name):
         """
@@ -723,9 +725,9 @@ class Member(
         EXTRACTED: Moved to MemberCleanupService._unlink_member_from_address()
         for service layer separation.
         """
-        from verenigingen.services.member.lifecycle.member_cleanup_service import MemberCleanupService
+        from verenigingen.services.member.lifecycle.member_cleanup_service import get_member_cleanup_service
 
-        return MemberCleanupService._unlink_member_from_address(self, address_name)
+        return get_member_cleanup_service()._unlink_member_from_address(self, address_name)
 
     def calculate_age(self):
         """Calculate age based on birth_date field - delegated to member_age_service"""
@@ -810,9 +812,11 @@ class Member(
     @critical_api(operation_type=OperationType.ADMIN)
     def create_user(self) -> Dict[str, Any]:
         """Create a user account for this member - delegates to MemberUserAccountService"""
-        from verenigingen.services.member.account.member_user_account_service import MemberUserAccountService
+        from verenigingen.services.member.account.member_user_account_service import (
+            get_member_user_account_service,
+        )
 
-        return MemberUserAccountService.create_user_for_member(self)
+        return get_member_user_account_service().create_user_for_member(self)
 
     def handle_fee_override_changes(self):
         """
@@ -821,9 +825,9 @@ class Member(
         EXTRACTED: Moved to MemberFeeChangeService.handle_fee_override_changes()
         for service layer separation.
         """
-        from verenigingen.services.member.core.member_fee_change_service import MemberFeeChangeService
+        from verenigingen.services.member.core.member_fee_change_service import get_member_fee_change_service
 
-        return MemberFeeChangeService.handle_fee_override_changes(self)
+        return get_member_fee_change_service().handle_fee_override_changes(self)
 
     def record_fee_change(self, change_data):
         """
@@ -832,9 +836,9 @@ class Member(
         EXTRACTED: Moved to MemberFeeChangeService.record_fee_change()
         for service layer separation.
         """
-        from verenigingen.services.member.core.member_fee_change_service import MemberFeeChangeService
+        from verenigingen.services.member.core.member_fee_change_service import get_member_fee_change_service
 
-        return MemberFeeChangeService.record_fee_change(self, change_data)
+        return get_member_fee_change_service().record_fee_change(self, change_data)
 
     def get_active_membership(self):
         """
@@ -846,9 +850,9 @@ class Member(
         Returns:
             Membership document if found, None otherwise
         """
-        from verenigingen.services.member.core.member_membership_service import MemberMembershipService
+        from verenigingen.services.member.core.member_membership_service import get_member_membership_service
 
-        return MemberMembershipService.get_active_membership_for_member_doc(self)
+        return get_member_membership_service().get_active_membership_for_member_doc(self)
 
     def update_membership_status(self):
         """Update member's membership_status field based on active memberships - delegated to member_status_service"""
@@ -949,20 +953,20 @@ class Member(
     def get_current_membership_fee(self):
         """Get current effective membership fee - delegates to MemberFeeCalculationService"""
         from verenigingen.services.member.financial.member_fee_calculation_service import (
-            MemberFeeCalculationService,
+            get_member_fee_calculation_service,
         )
 
-        return MemberFeeCalculationService.get_current_membership_fee(self)
+        return get_member_fee_calculation_service().get_current_membership_fee(self)
 
     @frappe.whitelist()
     @standard_api(operation_type=OperationType.FINANCIAL)
     def get_display_membership_fee(self):
         """Get membership fee for display with amendment status - delegates to MemberFeeCalculationService"""
         from verenigingen.services.member.financial.member_fee_calculation_service import (
-            MemberFeeCalculationService,
+            get_member_fee_calculation_service,
         )
 
-        return MemberFeeCalculationService.get_display_membership_fee(self)
+        return get_member_fee_calculation_service().get_display_membership_fee(self)
 
     def get_or_create_membership_item(self):
         """
@@ -971,9 +975,9 @@ class Member(
         EXTRACTED: Moved to MemberItemService.get_or_create_membership_item()
         for service layer separation (Member Phase 2E-1).
         """
-        from verenigingen.services.member.financial.member_item_service import MemberItemService
+        from verenigingen.services.member.financial.member_item_service import get_member_item_service
 
-        return MemberItemService.get_or_create_membership_item(self)
+        return get_member_item_service().get_or_create_membership_item(self)
 
     @frappe.whitelist()
     @standard_api(operation_type=OperationType.ADMIN)
@@ -996,10 +1000,10 @@ class Member(
         for service layer separation.
         """
         from verenigingen.services.member.display.member_chapter_display_service import (
-            MemberChapterDisplayService,
+            get_member_chapter_display_service,
         )
 
-        return MemberChapterDisplayService.update_current_chapter_display(self)
+        return get_member_chapter_display_service().update_current_chapter_display(self)
 
     def get_current_chapters_optimized(self):
         """
@@ -1013,10 +1017,10 @@ class Member(
 
         try:
             from verenigingen.services.member.chapter.chapter_management_service import (
-                ChapterManagementService,
+                get_chapter_management_service,
             )
 
-            return ChapterManagementService.get_member_chapters_optimized(self.name)
+            return get_chapter_management_service().get_member_chapters_optimized(self.name)
         except Exception as e:
             frappe.log_error(f"Error getting current chapters optimized: {str(e)}", "Member Chapter Query")
             # Fallback to original method
@@ -1029,9 +1033,11 @@ class Member(
         EXTRACTED: Moved to ChapterManagementService.get_member_chapters()
         for service layer separation (Member Phase 2E-2).
         """
-        from verenigingen.services.member.chapter.chapter_management_service import ChapterManagementService
+        from verenigingen.services.member.chapter.chapter_management_service import (
+            get_chapter_management_service,
+        )
 
-        return ChapterManagementService.get_member_chapters(self.name)
+        return get_chapter_management_service().get_member_chapters(self.name)
 
     def update_other_members_at_address_display(self, save_to_db=False):
         """
@@ -1041,11 +1047,11 @@ class Member(
         Database save logic remains here for transaction control.
         """
         from verenigingen.services.member.display.member_address_display_service import (
-            MemberAddressDisplayService,
+            get_member_address_display_service,
         )
 
         # Generate HTML content using service
-        html_content = MemberAddressDisplayService.update_other_members_at_address_display(self)
+        html_content = get_member_address_display_service().update_other_members_at_address_display(self)
 
         # Set the HTML content
         self.other_members_at_address = html_content
@@ -1063,10 +1069,10 @@ class Member(
         for service layer separation.
         """
         from verenigingen.services.member.display.member_address_display_service import (
-            MemberAddressDisplayService,
+            get_member_address_display_service,
         )
 
-        self.address_display = MemberAddressDisplayService.update_address_display(self)
+        self.address_display = get_member_address_display_service().update_address_display(self)
 
     def add_fee_change_to_history(self, schedule_data):
         """
@@ -1076,10 +1082,10 @@ class Member(
         for service layer separation.
         """
         from verenigingen.services.member.history.member_fee_change_history_service import (
-            MemberFeeChangeHistoryService,
+            get_member_fee_change_history_service,
         )
 
-        return MemberFeeChangeHistoryService.add_fee_change_to_history(self, schedule_data)
+        return get_member_fee_change_history_service().add_fee_change_to_history(self, schedule_data)
 
     def update_fee_change_in_history(self, schedule_data):
         """
@@ -1089,10 +1095,10 @@ class Member(
         for service layer separation.
         """
         from verenigingen.services.member.history.member_fee_change_history_service import (
-            MemberFeeChangeHistoryService,
+            get_member_fee_change_history_service,
         )
 
-        return MemberFeeChangeHistoryService.update_fee_change_in_history(self, schedule_data)
+        return get_member_fee_change_history_service().update_fee_change_in_history(self, schedule_data)
 
     def _update_donation_history(self):
         """Update donation history for this member - delegates to DonationHistoryManager"""
@@ -1112,36 +1118,36 @@ class Member(
     def _update_volunteer_expense_history(self):
         """Update volunteer expense history - delegates to MemberHistoryUpdateService"""
         from verenigingen.services.member.history.member_history_update_service import (
-            MemberHistoryUpdateService,
+            get_member_history_update_service,
         )
 
-        return MemberHistoryUpdateService._update_volunteer_expense_history(self)
+        return get_member_history_update_service()._update_volunteer_expense_history(self)
 
     def _update_dues_payment_history(self):
         """Rebuild membership dues payment history - delegates to MemberHistoryUpdateService"""
         from verenigingen.services.member.history.member_history_update_service import (
-            MemberHistoryUpdateService,
+            get_member_history_update_service,
         )
 
-        return MemberHistoryUpdateService._update_dues_payment_history(self)
+        return get_member_history_update_service()._update_dues_payment_history(self)
 
     def _update_invoice_payment_history(self):
         """Rebuild membership invoice payment history - delegates to MemberHistoryUpdateService"""
         from verenigingen.services.member.history.member_history_update_service import (
-            MemberHistoryUpdateService,
+            get_member_history_update_service,
         )
 
-        return MemberHistoryUpdateService._update_invoice_payment_history(self)
+        return get_member_history_update_service()._update_invoice_payment_history(self)
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.ADMIN)
     def incremental_update_history_tables(self):
         """Rebuild payment history tables - delegates to MemberHistoryUpdateService"""
         from verenigingen.services.member.history.member_history_update_service import (
-            MemberHistoryUpdateService,
+            get_member_history_update_service,
         )
 
-        return MemberHistoryUpdateService.incremental_update_history_tables(self)
+        return get_member_history_update_service().incremental_update_history_tables(self)
 
     def _batch_fetch_with_chunking(self, doctype, name_list, fields, filters=None, chunk_size=500):
         """
@@ -1151,10 +1157,10 @@ class Member(
         for better service layer separation and reusability.
         """
         from verenigingen.services.member.history.member_history_update_service import (
-            MemberHistoryUpdateService,
+            get_member_history_update_service,
         )
 
-        return MemberHistoryUpdateService._batch_fetch_with_chunking(
+        return get_member_history_update_service()._batch_fetch_with_chunking(
             doctype, name_list, fields, filters, chunk_size
         )
 
@@ -1166,10 +1172,10 @@ class Member(
         for service layer separation. Query reduction: 41 queries → 3 queries (93%).
         """
         from verenigingen.services.member.history.member_history_update_service import (
-            MemberHistoryUpdateService,
+            get_member_history_update_service,
         )
 
-        return MemberHistoryUpdateService._build_expense_entries_batched(self, claims)
+        return get_member_history_update_service()._build_expense_entries_batched(self, claims)
 
     def _build_lightweight_expense_entry(self, claim_data):
         """
@@ -1179,10 +1185,10 @@ class Member(
         for service layer separation.
         """
         from verenigingen.services.member.history.member_history_update_service import (
-            MemberHistoryUpdateService,
+            get_member_history_update_service,
         )
 
-        return MemberHistoryUpdateService._build_lightweight_expense_entry(self, claim_data)
+        return get_member_history_update_service()._build_lightweight_expense_entry(self, claim_data)
 
     def _get_volunteer_id(self):
         """Get the volunteer ID for this member"""
@@ -1210,9 +1216,9 @@ def is_chapter_management_enabled():
 @standard_api(operation_type=OperationType.REPORTING)
 def get_board_memberships(member_name):
     """Get board memberships for a member"""
-    from verenigingen.services.member.chapter import ChapterManagementService
+    from verenigingen.services.member.chapter import get_chapter_management_service
 
-    return ChapterManagementService.get_board_memberships(member_name)
+    return get_chapter_management_service().get_board_memberships(member_name)
 
 
 def handle_fee_override_after_save(doc, method=None):
@@ -1373,9 +1379,9 @@ def get_linked_donations(member):
 @critical_api(operation_type=OperationType.ADMIN)
 def assign_member_id(member_name):
     """Assign member ID - delegates to MemberIDService"""
-    from verenigingen.services.member.identification.member_id_service import MemberIDService
+    from verenigingen.services.member.identification.member_id_service import get_member_id_service
 
-    return MemberIDService.assign_member_id(member_name)
+    return get_member_id_service().assign_member_id(member_name)
 
 
 @frappe.whitelist()
@@ -1535,9 +1541,9 @@ def get_active_sepa_mandate(member, iban=None):
 @critical_api(operation_type=OperationType.ADMIN)
 def assign_missing_member_ids():
     """Assign missing member IDs - delegates to MemberIDService"""
-    from verenigingen.services.member.identification.member_id_service import MemberIDService
+    from verenigingen.services.member.identification.member_id_service import get_member_id_service
 
-    return MemberIDService.assign_missing_member_ids()
+    return get_member_id_service().assign_missing_member_ids()
 
 
 @frappe.whitelist()
@@ -1645,9 +1651,9 @@ def create_and_link_mandate_enhanced(
 @development_only_api(operation_type=OperationType.UTILITY)
 def debug_member_id_assignment(member_name):
     """Debug member ID assignment - delegates to MemberIDService"""
-    from verenigingen.services.member.identification.member_id_service import MemberIDService
+    from verenigingen.services.member.identification.member_id_service import get_member_id_service
 
-    return MemberIDService.debug_member_id_assignment(member_name)
+    return get_member_id_service().debug_member_id_assignment(member_name)
 
 
 @frappe.whitelist()
@@ -1666,9 +1672,11 @@ def create_member_user_account(member_name, send_welcome_email=True):
     Returns:
         dict: Result dictionary with success, message, user, and action
     """
-    from verenigingen.services.member.account.member_user_account_service import MemberUserAccountService
+    from verenigingen.services.member.account.member_user_account_service import (
+        get_member_user_account_service,
+    )
 
-    return MemberUserAccountService.create_member_user_account(member_name, send_welcome_email)
+    return get_member_user_account_service().create_member_user_account(member_name, send_welcome_email)
 
 
 # NOTE: Member role management functions have been extracted to MemberRoleService
@@ -1682,9 +1690,9 @@ def create_member_user_account(member_name, send_welcome_email=True):
 @standard_api(operation_type=OperationType.REPORTING)
 def check_donor_exists(member_name):
     """Check if a donor record exists for this member"""
-    from verenigingen.services.member.donor import DonorManagementService
+    from verenigingen.services.member.donor import get_donor_management_service
 
-    return DonorManagementService.check_donor_exists(member_name)
+    return get_donor_management_service().check_donor_exists(member_name)
 
 
 @frappe.whitelist()
@@ -1703,10 +1711,10 @@ def create_donor_from_member(member_name):
         dict: Result dictionary with success, message, and donor_name
     """
     from verenigingen.services.member.integration.member_donor_integration_service import (
-        MemberDonorIntegrationService,
+        get_member_donor_integration_service,
     )
 
-    return MemberDonorIntegrationService.create_donor_from_member(member_name)
+    return get_member_donor_integration_service().create_donor_from_member(member_name)
 
 
 # Global functions that were missing from current version
@@ -1725,10 +1733,12 @@ def get_member_current_chapters(member_name):
         return []
 
     try:
-        from verenigingen.services.member.chapter.chapter_management_service import ChapterManagementService
+        from verenigingen.services.member.chapter.chapter_management_service import (
+            get_chapter_management_service,
+        )
 
         # Use optimized service method
-        return ChapterManagementService.get_member_chapters_optimized(member_name)
+        return get_chapter_management_service().get_member_chapters_optimized(member_name)
 
     except frappe.PermissionError:
         # If no permission to member, return empty list (API compatibility)
@@ -1750,9 +1760,11 @@ def get_member_chapter_names(member_name):
         return []
 
     try:
-        from verenigingen.services.member.chapter.chapter_management_service import ChapterManagementService
+        from verenigingen.services.member.chapter.chapter_management_service import (
+            get_chapter_management_service,
+        )
 
-        return ChapterManagementService.get_chapter_names(member_name)
+        return get_chapter_management_service().get_chapter_names(member_name)
     except Exception as e:
         frappe.log_error(f"Error getting member chapter names: {str(e)}", "Member Chapter Names API")
         return []
@@ -1770,9 +1782,11 @@ def get_member_chapter_display_html(member_name):
         return "<div class='text-muted'>No member specified</div>"
 
     try:
-        from verenigingen.services.member.chapter.chapter_management_service import ChapterManagementService
+        from verenigingen.services.member.chapter.chapter_management_service import (
+            get_chapter_management_service,
+        )
 
-        return ChapterManagementService.get_chapter_display_html(member_name)
+        return get_chapter_management_service().get_chapter_display_html(member_name)
 
     except Exception as e:
         frappe.log_error(f"Error generating chapter display HTML: {str(e)}", "Member Chapter Display")
@@ -1867,9 +1881,11 @@ def refresh_fee_change_history(member_name):
     Returns:
         dict: Result dictionary with success, message, and statistics
     """
-    from verenigingen.services.member.history.member_history_update_service import MemberHistoryUpdateService
+    from verenigingen.services.member.history.member_history_update_service import (
+        get_member_history_update_service,
+    )
 
-    return MemberHistoryUpdateService.refresh_fee_change_history(member_name)
+    return get_member_history_update_service().refresh_fee_change_history(member_name)
 
 
 # =============================================================================

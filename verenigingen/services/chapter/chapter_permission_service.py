@@ -405,3 +405,8 @@ class ChapterPermissionService(StatelessService):
             f"Chapter permission denied: user={user}, chapter={chapter}, "
             f"permission={ptype}, reason={reason}"
         )
+
+
+def get_chapter_permission_service() -> ChapterPermissionService:
+    """Get singleton instance of ChapterPermissionService."""
+    return ChapterPermissionService()

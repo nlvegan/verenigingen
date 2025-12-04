@@ -359,9 +359,9 @@ class Chapter(Document):
         EXTRACTED: Moved to ChapterValidationService.validate_chapter_access()
         for service layer separation (Chapter Phase 2).
         """
-        from verenigingen.services.chapter.chapter_validation_service import ChapterValidationService
+        from verenigingen.services.chapter.chapter_validation_service import get_chapter_validation_service
 
-        ChapterValidationService.validate_chapter_access(self)
+        get_chapter_validation_service().validate_chapter_access(self)
 
     def is_board_member(self, member_name=None, user=None, volunteer_name=None):
         """Check if user is board member - delegates to BoardManager"""
@@ -459,9 +459,9 @@ class Chapter(Document):
         EXTRACTED: Moved to ChapterBoardService.update_chapter_head()
         for service layer separation (Chapter Phase 2).
         """
-        from verenigingen.services.chapter.chapter_board_service import ChapterBoardService
+        from verenigingen.services.chapter.chapter_board_service import get_chapter_board_service
 
-        return ChapterBoardService.update_chapter_head(self)
+        return get_chapter_board_service().update_chapter_head(self)
 
     def get_chapter_chair_optimized(self):
         """
@@ -470,9 +470,9 @@ class Chapter(Document):
         EXTRACTED: Moved to ChapterBoardService.get_chapter_chair_optimized()
         for service layer separation (Chapter Phase 2).
         """
-        from verenigingen.services.chapter.chapter_board_service import ChapterBoardService
+        from verenigingen.services.chapter.chapter_board_service import get_chapter_board_service
 
-        return ChapterBoardService.get_chapter_chair_optimized(self)
+        return get_chapter_board_service().get_chapter_chair_optimized(self)
 
     # Chapter no longer uses WebsiteGenerator to avoid Desk form rendering conflicts.
     # WebsiteGenerator was causing child tables to not render for board members because
@@ -492,9 +492,9 @@ class Chapter(Document):
         EXTRACTED: Moved to ChapterQueryService.get_user_permissions_optimized()
         for service layer separation (Chapter Phase 3).
         """
-        from verenigingen.services.chapter.chapter_query_service import ChapterQueryService
+        from verenigingen.services.chapter.chapter_query_service import get_chapter_query_service
 
-        return ChapterQueryService.get_user_permissions_optimized(self)
+        return get_chapter_query_service().get_user_permissions_optimized(self)
 
     def get_members_optimized(self):
         """Optimized query to get chapter members with details"""
@@ -537,9 +537,9 @@ class Chapter(Document):
         EXTRACTED: Moved to ChapterValidationService.auto_fix_required_fields()
         for service layer separation (Chapter Phase 2).
         """
-        from verenigingen.services.chapter.chapter_validation_service import ChapterValidationService
+        from verenigingen.services.chapter.chapter_validation_service import get_chapter_validation_service
 
-        ChapterValidationService.auto_fix_required_fields(self)
+        get_chapter_validation_service().auto_fix_required_fields(self)
 
     def _populate_board_document_fields(self):
         """
@@ -548,9 +548,9 @@ class Chapter(Document):
         EXTRACTED: Moved to ChapterBoardService.populate_board_document_fields()
         for service layer separation (Chapter Phase 2).
         """
-        from verenigingen.services.chapter.chapter_board_service import ChapterBoardService
+        from verenigingen.services.chapter.chapter_board_service import get_chapter_board_service
 
-        ChapterBoardService.populate_board_document_fields(self)
+        get_chapter_board_service().populate_board_document_fields(self)
 
     def _ensure_route(self):
         """Ensure route is set"""
@@ -564,9 +564,9 @@ class Chapter(Document):
         EXTRACTED: Moved to DepartmentSyncService.sync_department()
         for service layer separation (Chapter Phase 1).
         """
-        from verenigingen.services.chapter.department_sync_service import DepartmentSyncService
+        from verenigingen.services.chapter.department_sync_service import get_department_sync_service
 
-        DepartmentSyncService.sync_department(self, old_doc)
+        get_department_sync_service().sync_department(self, old_doc)
 
     def _handle_document_changes(self):
         """Handle changes between document versions"""
@@ -681,9 +681,9 @@ class Chapter(Document):
         EXTRACTED: Moved to ChapterFinanceService.create_chapter_cost_center()
         for service layer separation (Chapter Phase 1).
         """
-        from verenigingen.services.chapter.chapter_finance_service import ChapterFinanceService
+        from verenigingen.services.chapter.chapter_finance_service import get_chapter_finance_service
 
-        ChapterFinanceService.create_chapter_cost_center(self)
+        get_chapter_finance_service().create_chapter_cost_center(self)
 
     def _get_validated_company(self):
         """
@@ -692,9 +692,9 @@ class Chapter(Document):
         EXTRACTED: Moved to ChapterFinanceService.get_validated_company()
         for service layer separation (Chapter Phase 1).
         """
-        from verenigingen.services.chapter.chapter_finance_service import ChapterFinanceService
+        from verenigingen.services.chapter.chapter_finance_service import get_chapter_finance_service
 
-        return ChapterFinanceService.get_validated_company(self)
+        return get_chapter_finance_service().get_validated_company(self)
 
     def _get_appropriate_parent_cost_center(self, company):
         """
@@ -703,9 +703,9 @@ class Chapter(Document):
         EXTRACTED: Moved to ChapterFinanceService.get_appropriate_parent_cost_center()
         for service layer separation (Chapter Phase 1).
         """
-        from verenigingen.services.chapter.chapter_finance_service import ChapterFinanceService
+        from verenigingen.services.chapter.chapter_finance_service import get_chapter_finance_service
 
-        return ChapterFinanceService.get_appropriate_parent_cost_center(self, company)
+        return get_chapter_finance_service().get_appropriate_parent_cost_center(self, company)
 
     def _update_chapter_cost_center_name(self):
         """
@@ -714,9 +714,9 @@ class Chapter(Document):
         EXTRACTED: Moved to ChapterFinanceService.update_chapter_cost_center_name()
         for service layer separation (Chapter Phase 1).
         """
-        from verenigingen.services.chapter.chapter_finance_service import ChapterFinanceService
+        from verenigingen.services.chapter.chapter_finance_service import get_chapter_finance_service
 
-        ChapterFinanceService.update_chapter_cost_center_name(self)
+        get_chapter_finance_service().update_chapter_cost_center_name(self)
 
 
 # ============================================================================
@@ -751,9 +751,9 @@ def get_chapter_permission_query_conditions(user=None):
 
     This function remains as a compatibility wrapper for the hooks system.
     """
-    from verenigingen.services.chapter.chapter_permission_service import ChapterPermissionService
+    from verenigingen.services.chapter.chapter_permission_service import get_chapter_permission_service
 
-    return ChapterPermissionService.get_permission_query_conditions(user)
+    return get_chapter_permission_service().get_permission_query_conditions(user)
 
 
 def has_chapter_permission(doc, ptype="read", user=None):
@@ -767,9 +767,9 @@ def has_chapter_permission(doc, ptype="read", user=None):
     Provides row-level security ensuring board members can only access their own chapters.
     Without this, any user with "Verenigingen Chapter Board Member" role could access ALL chapters.
     """
-    from verenigingen.services.chapter.chapter_permission_service import ChapterPermissionService
+    from verenigingen.services.chapter.chapter_permission_service import get_chapter_permission_service
 
-    return ChapterPermissionService.has_chapter_permission(doc, ptype, user)
+    return get_chapter_permission_service().has_chapter_permission(doc, ptype, user)
 
 
 def get_user_accessible_chapters_optimized(user):
@@ -837,14 +837,14 @@ def get_board_memberships(member_name):
 
     Permission check extracted to ChapterPermissionService.can_user_view_member_board_info()
     """
-    from verenigingen.services.chapter.chapter_permission_service import ChapterPermissionService
+    from verenigingen.services.chapter.chapter_permission_service import get_chapter_permission_service
 
     try:
         if not member_name:
             return []
 
         # Check if user has permission to view member information
-        if not ChapterPermissionService.can_user_view_member_board_info(member_name):
+        if not get_chapter_permission_service().can_user_view_member_board_info(member_name):
             frappe.throw(_("You don't have permission to view this member's board information"))
 
         # First find the volunteer record for this member
@@ -891,14 +891,14 @@ def get_chapter_board_history(chapter_name):
 
     Permission check extracted to ChapterPermissionService.can_user_view_chapter_board_history()
     """
-    from verenigingen.services.chapter.chapter_permission_service import ChapterPermissionService
+    from verenigingen.services.chapter.chapter_permission_service import get_chapter_permission_service
 
     try:
         if not chapter_name:
             frappe.throw(_("Chapter name is required"))
 
         # Check if user has permission to view chapter board information
-        if not ChapterPermissionService.can_user_view_chapter_board_history(chapter_name):
+        if not get_chapter_permission_service().can_user_view_chapter_board_history(chapter_name):
             frappe.throw(_("You don't have permission to view board history for this chapter"))
 
         chapter = frappe.get_doc("Chapter", chapter_name)
@@ -939,9 +939,9 @@ def get_chapters_by_postal_code(postal_code):
 
     This function remains as a compatibility wrapper for the API.
     """
-    from verenigingen.services.chapter.chapter_matching_service import ChapterMatchingService
+    from verenigingen.services.chapter.chapter_matching_service import get_chapter_matching_service
 
-    return ChapterMatchingService.get_chapters_by_postal_code(postal_code)
+    return get_chapter_matching_service().get_chapters_by_postal_code(postal_code)
 
 
 @frappe.whitelist(allow_guest=True)
@@ -954,9 +954,9 @@ def suggest_chapters_for_member(member, postal_code=None, state=None, city=None)
 
     This function remains as a compatibility wrapper for the API.
     """
-    from verenigingen.services.chapter.chapter_matching_service import ChapterMatchingService
+    from verenigingen.services.chapter.chapter_matching_service import get_chapter_matching_service
 
-    return ChapterMatchingService.suggest_chapters_for_member(member, postal_code, state, city)
+    return get_chapter_matching_service().suggest_chapters_for_member(member, postal_code, state, city)
 
 
 @frappe.whitelist()
@@ -974,9 +974,9 @@ def is_chapter_management_enabled():
 
     This function remains as a compatibility wrapper.
     """
-    from verenigingen.services.chapter.chapter_matching_service import ChapterMatchingService
+    from verenigingen.services.chapter.chapter_matching_service import get_chapter_matching_service
 
-    return ChapterMatchingService._is_chapter_management_enabled()
+    return get_chapter_matching_service()._is_chapter_management_enabled()
 
 
 @frappe.whitelist()
@@ -989,9 +989,9 @@ def assign_member_to_chapter(member, chapter, note=None):
 
     This function remains as a compatibility wrapper for the API.
     """
-    from verenigingen.services.chapter.chapter_assignment_service import ChapterAssignmentService
+    from verenigingen.services.chapter.chapter_assignment_service import get_chapter_assignment_service
 
-    return ChapterAssignmentService.assign_member(member, chapter, note)
+    return get_chapter_assignment_service().assign_member(member, chapter, note)
 
 
 @frappe.whitelist()
@@ -1042,9 +1042,9 @@ def assign_member_to_chapter_with_cleanup(member, chapter, note=None):
 
     This function remains as a compatibility wrapper for the API.
     """
-    from verenigingen.services.chapter.chapter_assignment_service import ChapterAssignmentService
+    from verenigingen.services.chapter.chapter_assignment_service import get_chapter_assignment_service
 
-    return ChapterAssignmentService.assign_with_cleanup(member, chapter, note)
+    return get_chapter_assignment_service().assign_with_cleanup(member, chapter, note)
 
 
 @frappe.whitelist()

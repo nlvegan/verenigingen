@@ -146,10 +146,10 @@ class MembershipDuesSchedule(Document):
         DELEGATES to: DuesScheduleValidationService.validate_dates()
         """
         from verenigingen.services.billing.dues_schedule_validation_service import (
-            DuesScheduleValidationService,
+            get_dues_schedule_validation_service,
         )
 
-        return DuesScheduleValidationService.validate_dates(self)
+        return get_dues_schedule_validation_service().validate_dates(self)
 
     def validate_custom_frequency(self):
         """Validate custom frequency settings"""
@@ -263,10 +263,10 @@ class MembershipDuesSchedule(Document):
         DELEGATES to: DuesScheduleValidationService.validate_dues_rate_change()
         """
         from verenigingen.services.billing.dues_schedule_validation_service import (
-            DuesScheduleValidationService,
+            get_dues_schedule_validation_service,
         )
 
-        return DuesScheduleValidationService.validate_dues_rate_change(self)
+        return get_dues_schedule_validation_service().validate_dues_rate_change(self)
 
     def is_chapter_board_with_finance(self, user):
         """Check if user is a chapter board member with financial permissions"""
@@ -319,10 +319,10 @@ class MembershipDuesSchedule(Document):
         DELEGATES to: DuesScheduleValidationService.validate_dues_rate_configuration()
         """
         from verenigingen.services.billing.dues_schedule_validation_service import (
-            DuesScheduleValidationService,
+            get_dues_schedule_validation_service,
         )
 
-        DuesScheduleValidationService.validate_dues_rate_configuration(self)
+        get_dues_schedule_validation_service().validate_dues_rate_configuration(self)
 
     def validate_financial_constraints(self):
         """
@@ -331,10 +331,10 @@ class MembershipDuesSchedule(Document):
         DELEGATES to: DuesScheduleValidationService.validate_financial_constraints()
         """
         from verenigingen.services.billing.dues_schedule_validation_service import (
-            DuesScheduleValidationService,
+            get_dues_schedule_validation_service,
         )
 
-        DuesScheduleValidationService.validate_financial_constraints(self)
+        get_dues_schedule_validation_service().validate_financial_constraints(self)
 
     def validate_template_fields(self):
         """Additional validation for template-specific fields"""
@@ -615,10 +615,10 @@ class MembershipDuesSchedule(Document):
         DELEGATES to: DuesScheduleValidationService.validate_dues_rate()
         """
         from verenigingen.services.billing.dues_schedule_validation_service import (
-            DuesScheduleValidationService,
+            get_dues_schedule_validation_service,
         )
 
-        return DuesScheduleValidationService.validate_dues_rate(self)
+        return get_dues_schedule_validation_service().validate_dues_rate(self)
 
     def validate_membership_type_consistency(self):
         """
@@ -626,10 +626,10 @@ class MembershipDuesSchedule(Document):
         DELEGATES to: DuesScheduleValidationService.validate_membership_type_consistency()
         """
         from verenigingen.services.billing.dues_schedule_validation_service import (
-            DuesScheduleValidationService,
+            get_dues_schedule_validation_service,
         )
 
-        return DuesScheduleValidationService.validate_membership_type_consistency(self)
+        return get_dues_schedule_validation_service().validate_membership_type_consistency(self)
 
     @staticmethod
     def _deduplicate_error_message(error_msg):
@@ -637,9 +637,11 @@ class MembershipDuesSchedule(Document):
         Remove repetitive error prefixes.
         DELEGATES to: InvoiceErrorHandlerService._deduplicate_error_message()
         """
-        from verenigingen.services.billing.invoice_error_handler_service import InvoiceErrorHandlerService
+        from verenigingen.services.billing.invoice_error_handler_service import (
+            get_invoice_error_handler_service,
+        )
 
-        return InvoiceErrorHandlerService._deduplicate_error_message(error_msg)
+        return get_invoice_error_handler_service()._deduplicate_error_message(error_msg)
 
     @staticmethod
     def _is_deadlock_error(error_msg):
@@ -647,9 +649,11 @@ class MembershipDuesSchedule(Document):
         Check if error is a database deadlock.
         DELEGATES to: InvoiceErrorHandlerService._is_deadlock_error()
         """
-        from verenigingen.services.billing.invoice_error_handler_service import InvoiceErrorHandlerService
+        from verenigingen.services.billing.invoice_error_handler_service import (
+            get_invoice_error_handler_service,
+        )
 
-        return InvoiceErrorHandlerService._is_deadlock_error(error_msg)
+        return get_invoice_error_handler_service()._is_deadlock_error(error_msg)
 
     def generate_invoice(self, force=False):
         """Generate invoice for the current period with enhanced coverage tracking and concurrency protection"""
@@ -830,9 +834,11 @@ class MembershipDuesSchedule(Document):
         Handle invoice generation failures with smart recovery logic.
         DELEGATES to: InvoiceErrorHandlerService.handle_invoice_generation_failure()
         """
-        from verenigingen.services.billing.invoice_error_handler_service import InvoiceErrorHandlerService
+        from verenigingen.services.billing.invoice_error_handler_service import (
+            get_invoice_error_handler_service,
+        )
 
-        return InvoiceErrorHandlerService.handle_invoice_generation_failure(self, error_message)
+        return get_invoice_error_handler_service().handle_invoice_generation_failure(self, error_message)
 
     def _clear_retry_tracking(self):
         """Clear retry tracking fields after successful invoice generation."""
@@ -864,9 +870,11 @@ class MembershipDuesSchedule(Document):
         Determine if a schedule should be auto-advanced based on error patterns.
         DELEGATES to: InvoiceErrorHandlerService.should_auto_advance_schedule()
         """
-        from verenigingen.services.billing.invoice_error_handler_service import InvoiceErrorHandlerService
+        from verenigingen.services.billing.invoice_error_handler_service import (
+            get_invoice_error_handler_service,
+        )
 
-        return InvoiceErrorHandlerService.should_auto_advance_schedule(self, error_message)
+        return get_invoice_error_handler_service().should_auto_advance_schedule(self, error_message)
 
     def _trigger_health_reconstruction(self, error_message):
         """
@@ -1310,10 +1318,10 @@ class MembershipDuesSchedule(Document):
         DELEGATES to: DuesScheduleValidationService.validate_rate_boundaries()
         """
         from verenigingen.services.billing.dues_schedule_validation_service import (
-            DuesScheduleValidationService,
+            get_dues_schedule_validation_service,
         )
 
-        DuesScheduleValidationService.validate_rate_boundaries(self)
+        get_dues_schedule_validation_service().validate_rate_boundaries(self)
 
 
 @frappe.whitelist()
