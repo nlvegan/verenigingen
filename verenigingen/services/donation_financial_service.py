@@ -11,13 +11,15 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate, nowdate
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 
-class DonationFinancialService:
+
+class DonationFinancialService(StatelessService):
     """Service for handling donation financial operations"""
 
     def __init__(self, donation_doc):
+        super().__init__(service_name="DonationFinancialService")
         self.donation = donation_doc
-        self.logger = frappe.logger()
 
     def process_financial_entries(self) -> Dict[str, Any]:
         """

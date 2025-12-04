@@ -20,8 +20,10 @@ import frappe
 from frappe import _
 from frappe.utils import getdate, today
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 
-class VolunteerActivityService:
+
+class VolunteerActivityService(StatelessService):
     """Service for managing volunteer activities"""
 
     def __init__(self, volunteer_name: str):
@@ -30,6 +32,7 @@ class VolunteerActivityService:
         Args:
             volunteer_name: Volunteer record name
         """
+        super().__init__(service_name="VolunteerActivityService")
         self.volunteer_name = volunteer_name
         self.volunteer_doc = None  # Lazy loaded
 
@@ -108,9 +111,7 @@ class VolunteerActivityService:
 
             activity.insert()
 
-            frappe.logger("volunteer").info(
-                f"Added activity {activity.name} for volunteer {self.volunteer_name}"
-            )
+            self.logger.info(f"Added activity {activity.name} for volunteer {self.volunteer_name}")
 
             return activity.name
 
@@ -118,10 +119,7 @@ class VolunteerActivityService:
             # ValidationErrors already have user-friendly messages, just re-raise
             raise
         except Exception as e:
-            frappe.log_error(
-                f"Error adding activity for volunteer {self.volunteer_name}: {str(e)}",
-                "Volunteer Activity Error",
-            )
+            self.logger.error(f"Error adding activity for volunteer {self.volunteer_name}: {str(e)}")
             # Preserve stack trace for debugging
             frappe.throw(
                 _("Failed to add volunteer activity: {0}").format(str(e)),
@@ -179,9 +177,7 @@ class VolunteerActivityService:
 
             activity.save()
 
-            frappe.logger("volunteer").info(
-                f"Ended activity {activity_name} for volunteer {self.volunteer_name}"
-            )
+            self.logger.info(f"Ended activity {activity_name} for volunteer {self.volunteer_name}")
 
         except frappe.DoesNotExistError:
             frappe.throw(_("Volunteer Activity {0} not found").format(activity_name))
@@ -189,9 +185,8 @@ class VolunteerActivityService:
             # ValidationErrors already have user-friendly messages, just re-raise
             raise
         except Exception as e:
-            frappe.log_error(
-                f"Error ending activity {activity_name} for volunteer {self.volunteer_name}: {str(e)}",
-                "Volunteer Activity Error",
+            self.logger.error(
+                f"Error ending activity {activity_name} for volunteer {self.volunteer_name}: {str(e)}"
             )
             # Preserve stack trace for debugging
             frappe.throw(

@@ -11,6 +11,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, validate_email_address
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
@@ -52,12 +53,12 @@ def get_donor_by_email(email: str) -> Optional[Any]:
     return None
 
 
-class DonationDonorService:
+class DonationDonorService(StatelessService):
     """Service for handling donor-related operations for donations"""
 
     def __init__(self, donation_doc):
+        super().__init__(service_name="DonationDonorService")
         self.donation = donation_doc
-        self.logger = frappe.logger()
 
     def ensure_donor_exists(self) -> str:
         """

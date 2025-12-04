@@ -11,10 +11,14 @@ Functions:
     - validate_customer_creation(): Pre-creation validation
 """
 
+import logging
+
 import frappe
 from frappe import _
 
 from verenigingen.utils.service_error_handler import handle_service_error, validate_required_fields
+
+logger = logging.getLogger(__name__)
 
 # Safe import of security framework with fallback
 try:
@@ -60,7 +64,7 @@ def create_customer_for_member(member_doc, suppress_messages=False):
     # Check if customer already exists for this member (database constraint check)
     existing_customer = frappe.db.get_value("Customer", {"member": member_doc.name}, "name")
     if existing_customer:
-        frappe.logger().info(f"Customer {existing_customer} already exists for Member {member_doc.name}")
+        logger.info(f"Customer {existing_customer} already exists for Member {member_doc.name}")
         # Update member record to reflect the existing customer link
         member_doc.db_set("customer", existing_customer, update_modified=False)
         return existing_customer

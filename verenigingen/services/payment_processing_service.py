@@ -17,15 +17,16 @@ from verenigingen.api.refund_processor import (
     process_payment_chargeback,
     process_payment_refund,
 )
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
-class PaymentProcessingService:
+class PaymentProcessingService(StatelessService):
     """Service class for handling payment processing operations"""
 
     def __init__(self, debug_context: str = "webhook"):
+        super().__init__(service_name="PaymentProcessingService")
         self.debug_context = debug_context
-        self.logger = frappe.logger()
 
     def process_payment_webhook(self, payment_id: str, payment_data: Any) -> Dict[str, Any]:
         """
@@ -63,7 +64,6 @@ class PaymentProcessingService:
 
         except Exception as e:
             error_msg = f"Payment processing failed for {payment_id}: {str(e)}"
-            frappe.log_error(error_msg, f"Payment Processing Error [{self.debug_context}]")
             self.logger.error(f"❌ [{self.debug_context}] {error_msg}")
             return {"status": "error", "message": error_msg}
 
@@ -337,7 +337,6 @@ class PaymentProcessingService:
 
         except Exception as e:
             error_msg = f"Failed to create payment entry for donation {donation.name}: {str(e)}"
-            frappe.log_error(error_msg, f"Payment Entry Error [{self.debug_context}]")
             self.logger.error(f"❌ [{self.debug_context}] Payment Entry creation failed: {str(e)}")
             return {"status": "error", "message": error_msg}
 

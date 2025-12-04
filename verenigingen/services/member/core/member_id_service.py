@@ -11,6 +11,7 @@ Functions:
 """
 
 import datetime
+import logging
 import random
 import time
 
@@ -19,6 +20,8 @@ from frappe import _
 
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.service_error_handler import create_service_result, handle_service_error
+
+logger = logging.getLogger(__name__)
 
 
 def generate_member_id():
@@ -101,7 +104,7 @@ def generate_application_id():
     import uuid
 
     fallback_id = f"APP-{date_str}-{str(uuid.uuid4())[:4].upper()}"
-    frappe.logger().warning(f"Application ID generation required fallback: {fallback_id}")
+    logger.warning(f"Application ID generation required fallback: {fallback_id}")
     return fallback_id
 
 

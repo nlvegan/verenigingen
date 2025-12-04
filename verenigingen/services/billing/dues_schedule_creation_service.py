@@ -13,10 +13,13 @@ Provides a production-grade service for creating membership dues schedules with:
 Replaces the problematic cache-based retry queue with proper background job processing.
 """
 
+import logging
 from typing import Any, ClassVar, Dict, Optional
 
 import frappe
 from frappe.utils import now
+
+logger = logging.getLogger(__name__)
 
 
 class CreationResult:
@@ -179,7 +182,7 @@ class DuesScheduleCreationService:
 
         # Clamp retry_count to valid range
         if retry_count < 0 or retry_count > self.MAX_RETRIES:
-            frappe.logger().warning(
+            logger.warning(
                 f"[DUES SCHEDULE] Invalid retry_count {retry_count} for {member_name}, "
                 f"clamping to [0, {self.MAX_RETRIES}]"
             )
@@ -202,9 +205,7 @@ class DuesScheduleCreationService:
             )
 
             if existing_schedule:
-                frappe.logger().info(
-                    f"[DUES SCHEDULE] Schedule already exists for {member_name}: {existing_schedule}"
-                )
+                logger.info(f"[DUES SCHEDULE] Schedule already exists for {member_name}: {existing_schedule}")
                 # Success - reset circuit breaker
                 self._record_success()
                 return CreationResult(
@@ -230,9 +231,7 @@ class DuesScheduleCreationService:
 
             schedule_name = MembershipDuesSchedule.create_from_template(member_name, **kwargs)
 
-            frappe.logger().info(
-                f"[DUES SCHEDULE] Successfully created {schedule_name} for member {member_name}"
-            )
+            logger.info(f"[DUES SCHEDULE] Successfully created {schedule_name} for member {member_name}")
 
             # Reset circuit breaker on successful creation
             self._record_success()
@@ -243,7 +242,7 @@ class DuesScheduleCreationService:
             error_str = str(e)
             error_category = self._categorize_error(error_str)
 
-            frappe.logger().warning(
+            logger.warning(
                 f"[DUES SCHEDULE] Creation failed for {member_name} (attempt {retry_count + 1}): {error_str}"
             )
 
@@ -332,7 +331,7 @@ class DuesScheduleCreationService:
             pending_jobs = len(queue)
 
             if pending_jobs > self.QUEUE_CONGESTION_THRESHOLD:
-                frappe.logger().warning(
+                logger.warning(
                     f"[DUES SCHEDULE] Queue congestion detected ({pending_jobs} jobs pending). "
                     f"Deferring retry for {member_name} to prevent overload. "
                     f"This will be retried by the scheduled auto-creator task."
@@ -341,7 +340,7 @@ class DuesScheduleCreationService:
                 return None
         except Exception as queue_check_error:
             # If queue check fails, proceed with enqueue (fail open)
-            frappe.logger().warning(
+            logger.warning(
                 f"[DUES SCHEDULE] Could not check queue depth: {queue_check_error}. Proceeding with enqueue."
             )
 
@@ -375,7 +374,7 @@ class DuesScheduleCreationService:
         # Get actual RQ job ID from returned Job object
         job_id = job.id if hasattr(job, "id") else f"retry_dues_schedule_{member_name}_{retry_count}"
 
-        frappe.logger().info(
+        logger.info(
             f"[DUES SCHEDULE] Enqueued retry {retry_count} for {member_name} "
             f"with {delay_seconds}s delay (job ID: {job_id})"
         )
@@ -433,7 +432,7 @@ class DuesScheduleCreationService:
             is_open = failure_count >= self.CIRCUIT_BREAKER_THRESHOLD
 
             if is_open:
-                frappe.logger().warning(
+                logger.warning(
                     f"[DUES SCHEDULE] Circuit breaker OPEN: {failure_count} recent failures. "
                     f"Preventing retries to avoid cascade failure. "
                     f"Will auto-reset in {self.CIRCUIT_BREAKER_WINDOW}s."
@@ -442,9 +441,7 @@ class DuesScheduleCreationService:
             return is_open
         except Exception as e:
             # If cache check fails, fail open (allow retry)
-            frappe.logger().warning(
-                f"[DUES SCHEDULE] Circuit breaker check failed: {e}. Allowing retry (fail-open)."
-            )
+            logger.warning(f"[DUES SCHEDULE] Circuit breaker check failed: {e}. Allowing retry (fail-open).")
             return False
 
     def _record_failure(self):
@@ -457,19 +454,19 @@ class DuesScheduleCreationService:
             # Set with TTL - automatically resets after window expires
             frappe.cache().set_value(key, new_failures, expires_in_sec=self.CIRCUIT_BREAKER_WINDOW)
 
-            frappe.logger().info(
+            logger.info(
                 f"[DUES SCHEDULE] Circuit breaker: {new_failures} failures "
                 f"(threshold: {self.CIRCUIT_BREAKER_THRESHOLD})"
             )
         except Exception as e:
-            frappe.logger().warning(f"[DUES SCHEDULE] Could not record failure: {e}")
+            logger.warning(f"[DUES SCHEDULE] Could not record failure: {e}")
 
     def _record_success(self):
         """Record a success - resets circuit breaker."""
         try:
             frappe.cache().delete_value(self.CIRCUIT_BREAKER_CACHE_KEY)
         except Exception as e:
-            frappe.logger().warning(f"[DUES SCHEDULE] Could not reset circuit breaker: {e}")
+            logger.warning(f"[DUES SCHEDULE] Could not reset circuit breaker: {e}")
 
     def _create_failure_alert(
         self, member_name: str, membership_name: str, error: str, error_category: str, retry_count: int
@@ -572,17 +569,17 @@ class DuesScheduleCreationService:
                 if result.success:
                     notification_count += 1
                 else:
-                    frappe.logger().error(
+                    logger.error(
                         f"[DUES SCHEDULE] Failed to create alert for admin {admin}: "
                         f"{'; '.join(result.errors)}"
                     )
 
-            frappe.logger().info(
+            logger.info(
                 f"[DUES SCHEDULE] Created {notification_count}/{len(admin_users[:5])} failure alerts for {member_name}"
             )
 
         except Exception as alert_error:
-            frappe.logger().error(f"[DUES SCHEDULE] Failed to create failure alert: {str(alert_error)}")
+            logger.error(f"[DUES SCHEDULE] Failed to create failure alert: {str(alert_error)}")
 
 
 # Background job entry point
@@ -606,7 +603,7 @@ def retry_create_dues_schedule_job(
         All parameters from DuesScheduleCreationService.create_schedule_with_retry
         **kwargs: Ignored scheduling metadata passed by frappe.enqueue()
     """
-    frappe.logger().info(f"[DUES SCHEDULE] Background job starting for {member_name} (retry {retry_count})")
+    logger.info(f"[DUES SCHEDULE] Background job starting for {member_name} (retry {retry_count})")
 
     service = DuesScheduleCreationService()
     result = service.create_schedule_with_retry(
@@ -620,10 +617,8 @@ def retry_create_dues_schedule_job(
     )
 
     if result.success:
-        frappe.logger().info(
-            f"[DUES SCHEDULE] Background job succeeded for {member_name}: {result.schedule_name}"
-        )
+        logger.info(f"[DUES SCHEDULE] Background job succeeded for {member_name}: {result.schedule_name}")
     else:
-        frappe.logger().warning(f"[DUES SCHEDULE] Background job failed for {member_name}: {result.error}")
+        logger.warning(f"[DUES SCHEDULE] Background job failed for {member_name}: {result.error}")
 
     return result.to_dict()

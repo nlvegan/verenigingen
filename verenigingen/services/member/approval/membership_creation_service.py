@@ -33,11 +33,15 @@ Exception pattern provides:
 See: docs/patterns/ERROR_HANDLING_PATTERNS.md
 """
 
+import logging
+
 import frappe
 from frappe import _
 from frappe.utils import date_diff, getdate, today
 
 from verenigingen.utils.service_error_handler import create_service_result, handle_service_error
+
+logger = logging.getLogger(__name__)
 
 
 class MembershipCreationService:
@@ -145,7 +149,7 @@ class MembershipCreationService:
             Exception: For other errors during creation
         """
         try:
-            frappe.logger().info(
+            logger.info(
                 f"MembershipCreationService: Starting for {member_doc.name}, "
                 f"start_date={start_date}, create_invoice={create_invoice}, "
                 f"custom_dues_rate={custom_dues_rate}"
@@ -190,13 +194,11 @@ class MembershipCreationService:
                 member_doc, membership, dues_schedule, invoice, approval_fields
             )
 
-            frappe.logger().info(
-                f"MembershipCreationService: Successfully created membership for {member_doc.name}"
-            )
+            logger.info(f"MembershipCreationService: Successfully created membership for {member_doc.name}")
             return membership
 
         except Exception as e:
-            frappe.log_error(f"MembershipCreationService: Error for {member_doc.name}: {str(e)}")
+            logger.error(f"MembershipCreationService: Error for {member_doc.name}: {str(e)}")
             frappe.throw(_("Error creating membership: {0}").format(str(e)))
 
     @staticmethod
@@ -235,7 +237,7 @@ class MembershipCreationService:
         member_doc.csv_import_custom_fee = custom_dues_rate
         member_doc.csv_import_custom_fee_reason = custom_rate_reason or "Imported from CSV"
 
-        frappe.logger().info(
+        logger.info(
             f"MembershipCreationService: Set CSV import custom fee {custom_dues_rate} for {member_doc.name}"
         )
 
@@ -297,7 +299,7 @@ class MembershipCreationService:
 
         if same_type and days_old <= 1:
             # Existing membership is appropriate - reuse it
-            frappe.logger().info(
+            logger.info(
                 f"MembershipCreationService: Reusing membership {existing_membership.name} "
                 f"for {member_doc.name} (retry scenario)"
             )
@@ -353,9 +355,7 @@ class MembershipCreationService:
             membership.insert()
             membership.submit()
 
-        frappe.logger().info(
-            f"MembershipCreationService: Created membership {membership.name} for {member_doc.name}"
-        )
+        logger.info(f"MembershipCreationService: Created membership {membership.name} for {member_doc.name}")
         return membership
 
     @staticmethod
@@ -376,7 +376,7 @@ class MembershipCreationService:
         )
 
         if existing_schedule:
-            frappe.logger().info(
+            logger.info(
                 f"MembershipCreationService: Dues schedule {existing_schedule} "
                 f"already exists for {member_doc.name}"
             )
@@ -391,11 +391,11 @@ class MembershipCreationService:
             schedule_name = MembershipDuesSchedule.create_from_template(
                 member_doc.name, membership_type=membership_type.name, membership_name=membership.name
             )
-            frappe.logger().info(
+            logger.info(
                 f"MembershipCreationService: Created dues schedule {schedule_name} for {member_doc.name}"
             )
         except Exception as e:
-            frappe.logger().error(f"MembershipCreationService: Failed to create dues schedule: {str(e)}")
+            logger.error(f"MembershipCreationService: Failed to create dues schedule: {str(e)}")
             # Don't fail approval if dues schedule creation fails
             frappe.msgprint(
                 _("Warning: Dues schedule creation failed. It will be retried automatically."),
@@ -423,12 +423,10 @@ class MembershipCreationService:
             invoice = create_membership_invoice(
                 member_doc, membership, membership_type, current_fee["amount"]
             )
-            frappe.logger().info(
-                f"MembershipCreationService: Created invoice {invoice.name} for {member_doc.name}"
-            )
+            logger.info(f"MembershipCreationService: Created invoice {invoice.name} for {member_doc.name}")
             return invoice
         except Exception as e:
-            frappe.logger().error(f"MembershipCreationService: Failed to create invoice: {str(e)}")
+            logger.error(f"MembershipCreationService: Failed to create invoice: {str(e)}")
             frappe.msgprint(
                 _("Warning: Invoice creation failed: {0}").format(str(e)), alert=True, indicator="orange"
             )
@@ -450,9 +448,7 @@ class MembershipCreationService:
         Returns:
             str: Dues schedule name or None
         """
-        frappe.logger().info(
-            f"MembershipCreationService: Reloading member {member_doc.name} for consolidated updates"
-        )
+        logger.info(f"MembershipCreationService: Reloading member {member_doc.name} for consolidated updates")
         member_doc.reload()
 
         # Set current membership plan
@@ -529,7 +525,7 @@ class MembershipCreationService:
 
         # SECURITY_AUDIT: Comprehensive logging compensates for business rule bypass
         if member_doc.dues_rate:
-            frappe.logger().warning(
+            logger.warning(
                 f"SECURITY_AUDIT: Fee override validation bypassed via _system_update "
                 f"for member {member_doc.name}, dues_rate={member_doc.dues_rate}, "
                 f"user={frappe.session.user}, context=MembershipCreationService.approval_workflow"
@@ -562,7 +558,7 @@ class MembershipCreationService:
 
             # Security audit log
             if doc.dues_rate:
-                frappe.logger().warning(
+                logger.warning(
                     f"SECURITY_AUDIT: Fee override validation bypassed via _system_update "
                     f"for member {doc.name}, dues_rate={doc.dues_rate}, "
                     f"user={frappe.session.user}, context=MembershipCreationService (retry)"
@@ -571,9 +567,7 @@ class MembershipCreationService:
         # Use retry utility with automatic rollback of membership if member save fails
         from verenigingen.utils.document_save_retry import save_with_rollback
 
-        frappe.logger().info(
-            f"MembershipCreationService: Saving member {member_doc.name} with rollback protection"
-        )
+        logger.info(f"MembershipCreationService: Saving member {member_doc.name} with rollback protection")
         save_with_rollback(
             member_doc,
             rollback_docs=[membership],  # Cancel membership if member save fails

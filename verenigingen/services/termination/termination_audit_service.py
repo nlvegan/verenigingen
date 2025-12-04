@@ -44,12 +44,15 @@ Compliance:
 - Full error context preserved for debugging
 """
 
+import logging
 import traceback
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import frappe
 from frappe import _
 from frappe.utils import now
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
@@ -98,7 +101,7 @@ class TerminationAuditService:
 
         # Ensure the user exists - LOG SECURITY WARNING if fallback needed
         if not frappe.db.exists("User", audit_user):
-            frappe.logger().warning(
+            logger.warning(
                 f"SECURITY: Audit user '{audit_user}' does not exist - using Administrator fallback. "
                 f"Document: {doc.name}, Action: {action}, Is System: {is_system}. "
                 f"This may indicate corrupted session or deleted user account."
@@ -145,9 +148,7 @@ class TerminationAuditService:
             new_status = doc.status
 
         # Log the status change
-        frappe.logger().info(
-            f"Termination request {doc.name} status changed from {old_status} to {new_status}"
-        )
+        logger.info(f"Termination request {doc.name} status changed from {old_status} to {new_status}")
 
         # Add audit trail entry
         TerminationAuditService.add_entry(
@@ -156,7 +157,7 @@ class TerminationAuditService:
 
         # Handle specific status transitions
         if new_status == "Executed" and old_status != "Executed":
-            frappe.logger().info(f"Executing termination for request {doc.name}")
+            logger.info(f"Executing termination for request {doc.name}")
             # Execution is triggered by workflow - actual execution logged separately
 
         elif new_status == "Approved":
@@ -250,7 +251,7 @@ class TerminationAuditService:
         error_trace = traceback.format_exc()
 
         # Log full error context to logger (includes stack trace)
-        frappe.logger().error(
+        logger.error(
             f"Termination execution failed for {doc.name}:\n"
             f"Error Type: {error_type}\n"
             f"Error Message: {error_msg}\n"

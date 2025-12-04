@@ -35,10 +35,11 @@ from typing import Any, Dict
 import frappe
 from frappe import _
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.operation_result import OperationResult
 
 
-class MemberIDService:
+class MemberIDService(StatelessService):
     """
     Member ID Management Service
 
@@ -61,8 +62,11 @@ class MemberIDService:
         - Debug: @development_only_api (production safety)
     """
 
-    @staticmethod
-    def assign_member_id(member_name: str) -> OperationResult[str]:
+    def __init__(self) -> None:
+        """Initialize the member ID service."""
+        super().__init__(service_name="MemberIDService")
+
+    def assign_member_id(self, member_name: str) -> OperationResult[str]:
         """
         Assign member ID to a single member.
 
@@ -130,20 +134,19 @@ class MemberIDService:
             # Save the member
             member.save()
 
-            frappe.logger().info(f"MemberIDService: Assigned member ID {member.member_id} to {member_name}")
+            self.logger.info(f"MemberIDService: Assigned member ID {member.member_id} to {member_name}")
 
             return OperationResult.ok(
                 str(next_id), message=_("Member ID {0} assigned successfully").format(next_id)
             )
 
         except Exception as e:
-            frappe.log_error(f"Error assigning member ID to {member_name}: {str(e)}", "MemberIDService")
+            self.logger.error(f"Error assigning member ID to {member_name}: {str(e)}")
             return OperationResult.fail(
                 _("Error assigning member ID: {0}").format(str(e)), errors=[str(e)], member=member_name
             )
 
-    @staticmethod
-    def assign_missing_member_ids() -> OperationResult[Dict[str, Any]]:
+    def assign_missing_member_ids(self) -> OperationResult[Dict[str, Any]]:
         """
         Bulk assign member IDs to all eligible members who don't have one.
 
@@ -176,7 +179,7 @@ class MemberIDService:
             - Skips members who don't qualify
             - Never throws exceptions (returns failed OperationResult)
         """
-        frappe.logger().info("MemberIDService: Starting bulk member ID assignment")
+        self.logger.info("MemberIDService: Starting bulk member ID assignment")
 
         try:
             # Find all members without IDs
@@ -190,7 +193,7 @@ class MemberIDService:
             assigned_count = 0
             errors = []
 
-            frappe.logger().info(f"MemberIDService: Found {total_checked} members without member IDs")
+            self.logger.info(f"MemberIDService: Found {total_checked} members without member IDs")
 
             for member_data in members_without_ids:
                 try:
@@ -201,18 +204,18 @@ class MemberIDService:
                         member.ensure_member_id()
                         assigned_count += 1
 
-                        frappe.logger().info(
+                        self.logger.info(
                             f"MemberIDService: Assigned ID {member.member_id} to {member.full_name} ({member.name})"
                         )
                     else:
-                        frappe.logger().debug(
+                        self.logger.debug(
                             f"MemberIDService: Skipping {member.name} - does not qualify for member ID "
                             f"(status: {member.status})"
                         )
 
                 except Exception as e:
                     error_msg = f"Failed to assign ID to {member_data.name}: {str(e)}"
-                    frappe.logger().error(f"MemberIDService: {error_msg}")
+                    self.logger.error(f"MemberIDService: {error_msg}")
                     errors.append(error_msg)
 
             # Summary message
@@ -221,7 +224,7 @@ class MemberIDService:
             if errors:
                 message += f" ({len(errors)} errors)"
 
-            frappe.logger().info(f"MemberIDService: {message}")
+            self.logger.info(f"MemberIDService: {message}")
 
             results = {
                 "total_checked": total_checked,
@@ -240,11 +243,10 @@ class MemberIDService:
                 )
 
         except Exception as e:
-            frappe.log_error(f"Bulk member ID assignment failed: {str(e)}", "MemberIDService")
+            self.logger.error(f"Bulk member ID assignment failed: {str(e)}")
             return OperationResult.fail(f"Bulk member ID assignment failed: {str(e)}", errors=[str(e)])
 
-    @staticmethod
-    def debug_member_id_assignment(member_name: str) -> OperationResult[Dict[str, Any]]:
+    def debug_member_id_assignment(self, member_name: str) -> OperationResult[Dict[str, Any]]:
         """
         Debug utility for troubleshooting member ID assignment.
 
@@ -332,13 +334,13 @@ class MemberIDService:
                     "explanation"
                 ] = f"Member status '{debug_info['status']}' does not qualify for member ID"
 
-            frappe.logger().debug(f"MemberIDService: Debug info for {member_name}: {debug_info}")
+            self.logger.debug(f"MemberIDService: Debug info for {member_name}: {debug_info}")
 
             return OperationResult.ok(debug_info)
 
         except Exception as e:
             error_msg = str(e)
-            frappe.logger().error(
+            self.logger.error(
                 f"MemberIDService: Error in debug_member_id_assignment for {member_name}: {error_msg}"
             )
             return OperationResult.fail(
@@ -346,16 +348,16 @@ class MemberIDService:
             )
 
 
-# Convenience function for backward compatibility
-def get_member_id_service():
+# Convenience function for getting service instance
+def get_member_id_service() -> MemberIDService:
     """
     Get MemberIDService instance.
 
     Returns:
-        MemberIDService class (stateless service)
+        MemberIDService instance
 
     Example:
         >>> service = get_member_id_service()
         >>> member_id = service.assign_member_id("Member-001")
     """
-    return MemberIDService
+    return MemberIDService()

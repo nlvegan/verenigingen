@@ -27,9 +27,12 @@ Dependencies:
 - Configuration validation with clear error messages
 """
 
+import logging
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import frappe
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
@@ -162,7 +165,7 @@ class TemplateConfigurationService:
         # This ensures compliance even if template is misconfigured
         if not skip_validation:
             if template_minimum < membership_type_minimum:
-                frappe.logger().warning(
+                logger.warning(
                     f"Template minimum amount (€{template_minimum:.2f}) is less than "
                     f"membership type minimum (€{membership_type_minimum:.2f}). "
                     f"Using membership type minimum instead."

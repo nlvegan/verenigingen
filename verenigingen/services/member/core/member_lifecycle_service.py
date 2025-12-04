@@ -18,22 +18,20 @@ Author: Verenigingen Development Team
 Created: 2025-09-18
 """
 
-import logging
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import frappe
 from frappe import _
 from frappe.utils import now_datetime, today
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.operation_result import OperationResult
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
 
-logger = logging.getLogger(__name__)
 
-
-class MemberLifecycleService:
+class MemberLifecycleService(StatelessService):
     """
     Centralized service for managing member lifecycle operations.
 
@@ -43,7 +41,7 @@ class MemberLifecycleService:
 
     def __init__(self):
         """Initialize the Member Lifecycle Service"""
-        pass
+        super().__init__(service_name="MemberLifecycleService")
 
     def approve_application(self, member: "Document") -> OperationResult[str]:
         """
@@ -85,7 +83,7 @@ class MemberLifecycleService:
             return OperationResult.ok(member.member_id, approved=True, setup_results=setup_result)
 
         except Exception as e:
-            logger.error(f"Error validating application for member {member.name}: {str(e)}")
+            self.logger.error(f"Error validating application for member {member.name}: {str(e)}")
             return OperationResult.fail(f"Application validation failed: {str(e)}")
 
     def reject_application(self, member: "Document", reason: str) -> OperationResult[str]:
@@ -132,7 +130,7 @@ class MemberLifecycleService:
             )
 
         except Exception as e:
-            logger.error(f"Error rejecting application for member {member.name}: {str(e)}")
+            self.logger.error(f"Error rejecting application for member {member.name}: {str(e)}")
             return OperationResult.fail(f"Application rejection failed: {str(e)}")
 
     def update_membership_status(self, member) -> OperationResult[Dict[str, Any]]:
@@ -194,7 +192,7 @@ class MemberLifecycleService:
                     )
 
         except Exception as e:
-            logger.error(f"Error updating membership status for member {member.name}: {str(e)}")
+            self.logger.error(f"Error updating membership status for member {member.name}: {str(e)}")
             return OperationResult.fail(
                 f"Membership status update failed: {str(e)}",
                 membership_status=None,
@@ -251,7 +249,7 @@ class MemberLifecycleService:
             )
 
         except Exception as e:
-            logger.error(f"Error syncing status fields for member {member.name}: {str(e)}")
+            self.logger.error(f"Error syncing status fields for member {member.name}: {str(e)}")
             return OperationResult.fail(
                 f"Status synchronization failed: {str(e)}",
                 changes_made=[],
@@ -322,7 +320,7 @@ class MemberLifecycleService:
             return OperationResult.ok(getattr(member, "application_status", None), changes_made=changes_made)
 
         except Exception as e:
-            logger.error(f"Error setting application status defaults for member {member.name}: {str(e)}")
+            self.logger.error(f"Error setting application status defaults for member {member.name}: {str(e)}")
             return OperationResult.fail(
                 f"Setting application status defaults failed: {str(e)}",
                 changes_made=[],
@@ -425,12 +423,12 @@ class MemberLifecycleService:
                     user_name = MemberUserAccountService.create_user_for_member(member)
                     setup_results["user_created"] = True
                     setup_results["user_name"] = user_name
-                    logger.info(f"Created user account {user_name} for member {member.name}")
+                    self.logger.info(f"Created user account {user_name} for member {member.name}")
                     # Reload member to get updated user field
                     member.reload()
                 except Exception as e:
                     setup_results["errors"].append(f"Failed to create user: {str(e)}")
-                    logger.error(f"Exception creating user for {member.name}: {str(e)}")
+                    self.logger.error(f"Exception creating user for {member.name}: {str(e)}")
 
             # Create customer if not exists
             if not member.customer:
@@ -498,7 +496,7 @@ class MemberLifecycleService:
                     success = remove_pending_chapter_membership(member, chapter_to_remove)
                     if success:
                         cleanup_results["chapters_removed"].append(chapter_to_remove)
-                        frappe.logger().info(
+                        self.logger.info(
                             f"Removed pending chapter membership for {member.name} from {chapter_to_remove}"
                         )
                     else:
@@ -546,5 +544,11 @@ class MemberLifecycleService:
             return None
 
 
-# Singleton instance
+# Convenience function for getting service instance
+def get_member_lifecycle_service() -> MemberLifecycleService:
+    """Get MemberLifecycleService instance."""
+    return MemberLifecycleService()
+
+
+# Singleton instance for backward compatibility
 member_lifecycle_service = MemberLifecycleService()

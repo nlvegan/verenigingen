@@ -4,10 +4,13 @@ Email Template Manager
 Handles template loading, caching, and validation for the EmailService.
 """
 
+import logging
 from typing import Any, Dict, List, Optional
 
 import frappe
 from frappe import _
+
+logger = logging.getLogger(__name__)
 
 
 class TemplateManager:
@@ -36,7 +39,7 @@ class TemplateManager:
                 template_data = {
                     "name": template_name,
                     "subject": template_doc.subject,
-                    "content": template_doc.response_,
+                    "content": template_doc.response,
                     "doc": template_doc,
                 }
                 self.cache[template_name] = template_data
@@ -44,7 +47,7 @@ class TemplateManager:
             return None
 
         except Exception as e:
-            frappe.logger("template_manager").error(f"Template loading failed for {template_name}: {str(e)}")
+            logger.error(f"Template loading failed for {template_name}: {str(e)}")
             return None
 
     def validate_template(self, template_name: str) -> Dict[str, Any]:
@@ -99,7 +102,7 @@ class TemplateManager:
 
             return {"subject": rendered_subject, "content": rendered_content}
         except Exception as e:
-            frappe.logger("template_manager").error(f"Template rendering failed: {str(e)}")
+            logger.error(f"Template rendering failed: {str(e)}")
             return {
                 "subject": "Email Notification",
                 "content": "There was an error rendering this email template.",
@@ -120,5 +123,5 @@ class TemplateManager:
             templates = frappe.get_all("Email Template", fields=["name"])
             return [t.name for t in templates]
         except Exception as e:
-            frappe.logger("template_manager").error(f"Failed to get available templates: {str(e)}")
+            logger.error(f"Failed to get available templates: {str(e)}")
             return []

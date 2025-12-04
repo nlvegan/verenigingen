@@ -6,11 +6,14 @@ Handles the multi-stage approval workflow with different rules based on
 termination type (voluntary, disciplinary, non-payment, etc.).
 """
 
+import logging
 from typing import Dict, List, Optional, Tuple
 
 import frappe
 from frappe import _
 from frappe.utils import now
+
+logger = logging.getLogger(__name__)
 
 
 class TerminationApprovalService:
@@ -199,11 +202,9 @@ class TerminationApprovalService:
         try:
             if self.request.secondary_approver:
                 # TODO: Implement email notification
-                frappe.logger().info(
-                    f"Approval notification should be sent to {self.request.secondary_approver}"
-                )
+                logger.info(f"Approval notification should be sent to {self.request.secondary_approver}")
         except Exception as e:
-            frappe.logger().error(f"Failed to send approval notification: {str(e)}")
+            logger.error(f"Failed to send approval notification: {str(e)}")
 
     def _add_to_expulsion_report(self) -> None:
         """Add disciplinary termination to expulsion report"""
@@ -236,7 +237,7 @@ class TerminationApprovalService:
                 if member_chapters:
                     expulsion_entry.chapter_involved = member_chapters[0].parent
             else:
-                frappe.logger().warning(
+                logger.warning(
                     f"User {frappe.session.user} lacks permission to read Chapter Member - "
                     f"chapter information omitted from expulsion report"
                 )
@@ -252,14 +253,12 @@ class TerminationApprovalService:
             )
 
             if not expulsion_result.success:
-                frappe.logger().error(
-                    f"Failed to create expulsion report entry: {'; '.join(expulsion_result.errors)}"
-                )
+                logger.error(f"Failed to create expulsion report entry: {'; '.join(expulsion_result.errors)}")
 
-            frappe.logger().info(f"Added expulsion report entry for {self.request.member_name}")
+            logger.info(f"Added expulsion report entry for {self.request.member_name}")
 
         except Exception as e:
-            frappe.logger().error(f"Failed to create expulsion report entry: {str(e)}")
+            logger.error(f"Failed to create expulsion report entry: {str(e)}")
 
     @staticmethod
     def validate_approver_permissions(user: str) -> None:
@@ -344,5 +343,5 @@ class TerminationApprovalService:
             return users
 
         except Exception as e:
-            frappe.log_error(f"Error getting eligible approvers: {str(e)}")
+            logger.error(f"Error getting eligible approvers: {str(e)}")
             return []

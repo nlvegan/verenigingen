@@ -13,11 +13,15 @@ Functions:
     - process_member_approval(): Orchestrate complete approval workflow
 """
 
+import logging
+
 import frappe
 from frappe import _
 from frappe.utils import now_datetime, today
 
 from verenigingen.utils.service_error_handler import create_service_result, handle_service_error
+
+logger = logging.getLogger(__name__)
 
 
 def validate_member_fields(required_fields):
@@ -84,11 +88,9 @@ def resolve_membership_type(member, membership_type=None):
                 try:
                     member.selected_membership_type = membership_type
                     member.save()
-                    frappe.logger().info(
-                        f"Auto-assigned membership type {membership_type} to member {member.name}"
-                    )
+                    logger.info(f"Auto-assigned membership type {membership_type} to member {member.name}")
                 except Exception as e:
-                    frappe.logger().error(f"Could not save membership type to member: {str(e)}")
+                    logger.error(f"Could not save membership type to member: {str(e)}")
             else:
                 frappe.throw(
                     _("No membership types available in the system. Please create a membership type first.")
@@ -136,7 +138,7 @@ def create_member_iban_history(member):
         )
 
         if existing_history:
-            frappe.logger().info(f"IBAN history already exists for member {member.name}")
+            logger.info(f"IBAN history already exists for member {member.name}")
             return create_service_result(
                 success=True,
                 data={"existing_record": existing_history, "message": "IBAN history already exists"},
@@ -144,10 +146,10 @@ def create_member_iban_history(member):
                 operation="create_member_iban_history",
             )
 
-        # Create IBAN history record as child table entry
-        iban_history = frappe.get_doc(
+        # Create IBAN history record using proper child table pattern
+        iban_history = member.append(
+            "iban_history",
             {
-                "doctype": "Member IBAN History",
                 "iban": member.iban,
                 "bank_account_name": getattr(
                     member, "bank_account_name", member.iban.split()[-1] if member.iban else ""
@@ -155,13 +157,10 @@ def create_member_iban_history(member):
                 "from_date": today(),
                 "is_active": 1,
                 "change_reason": "Application Approval",
-                "parent": member.name,
-                "parenttype": "Member",
-                "parentfield": "iban_history",
-            }
+            },
         )
 
-        iban_history.insert()
+        member.save()
 
         return create_service_result(
             success=True,
@@ -202,7 +201,7 @@ def create_membership_and_invoice(member, membership_type, create_invoice=True):
         )
 
         if existing_membership:
-            frappe.logger().info(f"Member {member.name} already has active membership: {existing_membership}")
+            logger.info(f"Member {member.name} already has active membership: {existing_membership}")
             membership = frappe.get_doc("Membership", existing_membership)
             # Update membership type if different
             if membership.membership_type != membership_type:
@@ -237,7 +236,7 @@ def create_membership_and_invoice(member, membership_type, create_invoice=True):
                 )
                 billing_amount = template.dues_rate or template.suggested_amount or 0
             except Exception as e:
-                frappe.logger().warning(f"Could not load dues schedule template: {str(e)}")
+                logger.warning(f"Could not load dues schedule template: {str(e)}")
                 billing_amount = membership_type_doc.minimum_amount or 0
         else:
             billing_amount = membership_type_doc.minimum_amount or 0
@@ -254,9 +253,9 @@ def create_membership_and_invoice(member, membership_type, create_invoice=True):
                     membership_type_doc,
                     amount=billing_amount,
                 )
-                frappe.logger().info(f"Created invoice {invoice.name} for member {member.name}")
+                logger.info(f"Created invoice {invoice.name} for member {member.name}")
             except Exception as e:
-                frappe.logger().error(f"Could not create invoice for member {member.name}: {str(e)}")
+                logger.error(f"Could not create invoice for member {member.name}: {str(e)}")
 
         return create_service_result(
             success=True,
@@ -319,9 +318,7 @@ def finalize_member_approval(member, notes=None):
             member.save()
 
             # Success - break out of retry loop
-            frappe.logger().info(
-                f"Member approval finalized successfully for {member.name} on attempt {attempt + 1}"
-            )
+            logger.info(f"Member approval finalized successfully for {member.name} on attempt {attempt + 1}")
 
             return create_service_result(
                 success=True,

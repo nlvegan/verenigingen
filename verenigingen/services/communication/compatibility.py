@@ -23,6 +23,7 @@ Migration Status: ✅ COMPLETE (2025-11-24)
 See: docs/patterns/OPERATION_RESULT_PATTERN.md
 """
 
+import logging
 from typing import Any, Dict, List, Optional, Union
 
 import frappe
@@ -31,6 +32,8 @@ from frappe import _
 from verenigingen.utils.operation_result import OperationResult
 
 from .email_service import get_email_service
+
+logger = logging.getLogger(__name__)
 
 
 # Compatibility wrapper for SEPA notifications
@@ -90,7 +93,7 @@ def send_sepa_email(
         return result  # Already OperationResult
 
     except Exception as e:
-        frappe.logger("email_compatibility").error(f"SEPA email compatibility failed: {str(e)}")
+        logger.error(f"SEPA email compatibility failed: {str(e)}")
         return OperationResult.fail(f"SEPA email failed: {str(e)}", errors=[str(e)])
 
 
@@ -158,7 +161,7 @@ def send_member_notification(
         return result  # Already OperationResult
 
     except Exception as e:
-        frappe.logger("email_compatibility").error(f"Member notification compatibility failed: {str(e)}")
+        logger.error(f"Member notification compatibility failed: {str(e)}")
         return OperationResult.fail(
             f"Member notification failed: {str(e)}", errors=[str(e)], member=member_name
         )
@@ -225,7 +228,7 @@ def send_chapter_email(
         return result  # Already OperationResult
 
     except Exception as e:
-        frappe.logger("email_compatibility").error(f"Chapter email compatibility failed: {str(e)}")
+        logger.error(f"Chapter email compatibility failed: {str(e)}")
         return OperationResult.fail(f"Chapter email failed: {str(e)}", errors=[str(e)], chapter=chapter_name)
 
 
@@ -278,7 +281,7 @@ def send_templated_email_legacy(
         return result  # Already OperationResult
 
     except Exception as e:
-        frappe.logger("email_compatibility").error(f"Template email legacy compatibility failed: {str(e)}")
+        logger.error(f"Template email legacy compatibility failed: {str(e)}")
         return OperationResult.fail(
             f"Legacy template email failed: {str(e)}", errors=[str(e)], template=template_id
         )
@@ -313,7 +316,7 @@ def get_segment_recipients(segment: str, chapter_name: str = None) -> List[str]:
         return [m.email for m in members if m.email]
 
     except Exception as e:
-        frappe.logger("email_compatibility").error(f"Segment recipient lookup failed: {str(e)}")
+        logger.error(f"Segment recipient lookup failed: {str(e)}")
         return []
 
 

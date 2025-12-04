@@ -37,11 +37,14 @@ Security:
 - Reverts status on failure for retry safety
 """
 
+import logging
 from typing import TYPE_CHECKING, Any, Dict
 
 import frappe
 from frappe import _
 from frappe.utils import now
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
@@ -124,7 +127,7 @@ class TerminationExecutionService:
                 frappe.db.commit()  # Release lock
                 return True  # Already executed, skip duplicate
 
-            frappe.logger().info(f"Starting termination execution for {termination_request.name}")
+            logger.info(f"Starting termination execution for {termination_request.name}")
 
             # STEP 2: Pre-execution validation - minimal checks for retry safety
             TerminationExecutionService._validate_preconditions(termination_request)
@@ -150,7 +153,7 @@ class TerminationExecutionService:
             # STEP 6: Commit transaction - all or nothing
             frappe.db.commit()
 
-            frappe.logger().info(f"Termination execution completed for {termination_request.name}")
+            logger.info(f"Termination execution completed for {termination_request.name}")
 
             # STEP 7: Show success message to user (after commit)
             if results.get("errors"):
@@ -169,9 +172,7 @@ class TerminationExecutionService:
             # QCE Fix #3: Rollback transaction before status revert
             # This ensures partial changes are not persisted
             frappe.db.rollback()
-            frappe.logger().error(
-                f"Transaction rolled back for {termination_request.name} due to error: {str(e)}"
-            )
+            logger.error(f"Transaction rolled back for {termination_request.name} due to error: {str(e)}")
 
             # Error recovery - revert status in separate transaction and re-raise
             TerminationExecutionService._handle_error(termination_request, e)
@@ -230,7 +231,7 @@ class TerminationExecutionService:
         )
 
         member = termination_request.member
-        frappe.logger().info(f"Starting safe system updates for member {member}")
+        logger.info(f"Starting safe system updates for member {member}")
 
         # Define termination operations in execution order
         # Order matters: preparatory operations first, member status update last
@@ -258,7 +259,7 @@ class TerminationExecutionService:
         results = executor.execute()
 
         # Log results summary
-        frappe.logger().info(f"System updates completed: {results}")
+        logger.info(f"System updates completed: {results}")
 
         # Add detailed audit entries
         for action in results["actions_taken"]:
@@ -348,7 +349,7 @@ class TerminationExecutionService:
 
         # Check if already executed
         if locked_row and locked_row[0].execution_date:
-            frappe.logger().info(
+            logger.info(
                 f"Termination {termination_request.name} already executed on "
                 f"{locked_row[0].execution_date} by {locked_row[0].executed_by} "
                 f"- skipping duplicate execution (detected with database lock)"
@@ -362,9 +363,7 @@ class TerminationExecutionService:
             return True  # Already executed
 
         # Lock acquired, execution_date is None - proceed with execution
-        frappe.logger().debug(
-            f"Idempotency check passed with lock for {termination_request.name} - proceeding"
-        )
+        logger.debug(f"Idempotency check passed with lock for {termination_request.name} - proceeding")
         return False  # Not yet executed
 
     @staticmethod
@@ -390,7 +389,7 @@ class TerminationExecutionService:
 
         # Log member current status for audit purposes but don't block
         current_member_status = frappe.db.get_value("Member", member, "status")
-        frappe.logger().info(
+        logger.info(
             f"Executing termination {termination_request.name} - "
             f"member {member} current status: {current_member_status}"
         )
@@ -437,13 +436,13 @@ class TerminationExecutionService:
         if not termination_request.executed_by:
             termination_request.executed_by = frappe.session.user
             termination_request.execution_date = now()
-            frappe.logger().info(
+            logger.info(
                 f"Tracking execution for {termination_request.name}: "
                 f"executed_by={frappe.session.user}, execution_date={now()}"
             )
         else:
             # This is a retry - log it
-            frappe.logger().warning(
+            logger.warning(
                 f"RETRY DETECTED for {termination_request.name}: "
                 f"Original execution by {termination_request.executed_by} on {termination_request.execution_date}. "
                 f"Retry by {frappe.session.user} on {now()}. "
@@ -487,7 +486,7 @@ class TerminationExecutionService:
             frappe.ValidationError: With formatted error message
         """
         error_msg = str(error)
-        frappe.logger().error(f"Termination execution failed for {termination_request.name}: {error_msg}")
+        logger.error(f"Termination execution failed for {termination_request.name}: {error_msg}")
 
         # Start new transaction for status revert (main transaction already rolled back)
         frappe.db.begin()
@@ -508,7 +507,7 @@ class TerminationExecutionService:
                 )
                 termination_request.save()
 
-                frappe.logger().info(
+                logger.info(
                     f"Status reverted to Approved for {termination_request.name} after rollback - retry enabled"
                 )
 
@@ -518,9 +517,7 @@ class TerminationExecutionService:
         except Exception as revert_error:
             # If status revert fails, rollback and log but don't hide original error
             frappe.db.rollback()
-            frappe.logger().error(
-                f"Failed to revert status for {termination_request.name}: {str(revert_error)}"
-            )
+            logger.error(f"Failed to revert status for {termination_request.name}: {str(revert_error)}")
 
         # Re-raise original exception
         frappe.throw(_("Failed to execute termination: {0}").format(error_msg))

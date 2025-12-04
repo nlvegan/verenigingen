@@ -282,7 +282,7 @@ class MemberDebugService(StatelessService):
             # Get amendments with new filtering
             amendments = get_member_pending_contribution_amendments(member_name)
 
-            frappe.logger().info(f"Found {len(amendments)} pending amendments for {member_name}")
+            self.logger.info(f"Found {len(amendments)} pending amendments for {member_name}")
 
             # Also test the raw query to see what would be returned without filtering
             raw_amendments = frappe.get_all(
@@ -292,7 +292,7 @@ class MemberDebugService(StatelessService):
                 order_by="creation desc",
             )
 
-            frappe.logger().info(f"Raw query returned {len(raw_amendments)} amendments")
+            self.logger.info(f"Raw query returned {len(raw_amendments)} amendments")
 
             # Show the difference
             details = []
@@ -310,7 +310,7 @@ class MemberDebugService(StatelessService):
 
                 detail = f"{status_str}: {amendment.name} - {amendment.status} {date_status}"
                 details.append(detail)
-                frappe.logger().info(f"  {detail}")
+                self.logger.info(f"  {detail}")
 
             test_results = {
                 "member": member_name,
@@ -363,11 +363,11 @@ class MemberDebugService(StatelessService):
             - Never throws exceptions (returns failed OperationResult)
         """
         try:
-            frappe.logger().info(f"Testing automatic fee change history update for {member_name}")
+            self.logger.info(f"Testing automatic fee change history update for {member_name}")
 
             # Get current fee change history count
             current_count = frappe.db.count("Member Fee Change History", {"parent": member_name})
-            frappe.logger().info(f"Current fee change history count: {current_count}")
+            self.logger.info(f"Current fee change history count: {current_count}")
 
             # Get member's current active dues schedule
             active_schedule = frappe.db.get_value(
@@ -384,7 +384,7 @@ class MemberDebugService(StatelessService):
                     member=member_name,
                 )
 
-            frappe.logger().info(
+            self.logger.info(
                 f"Current active schedule: {active_schedule.name} with rate: €{active_schedule.dues_rate}"
             )
 
@@ -393,7 +393,7 @@ class MemberDebugService(StatelessService):
             old_rate = schedule_doc.dues_rate
             new_rate = max(old_rate + 5.00, 10.00)  # Add €5 or set to €10, whichever is higher
 
-            frappe.logger().info(f"Changing dues rate from €{old_rate} to €{new_rate}")
+            self.logger.info(f"Changing dues rate from €{old_rate} to €{new_rate}")
 
             # Update the schedule
             schedule_doc.dues_rate = new_rate
@@ -401,12 +401,12 @@ class MemberDebugService(StatelessService):
 
             # Check if fee change history was updated automatically
             new_count = frappe.db.count("Member Fee Change History", {"parent": member_name})
-            frappe.logger().info(f"New fee change history count: {new_count}")
+            self.logger.info(f"New fee change history count: {new_count}")
 
             history_updated = new_count > current_count
 
             if history_updated:
-                frappe.logger().info("✅ SUCCESS: Fee change history was updated automatically!")
+                self.logger.info("✅ SUCCESS: Fee change history was updated automatically!")
 
                 # Get the latest entry
                 latest_entry = frappe.db.get_value(
@@ -418,17 +418,17 @@ class MemberDebugService(StatelessService):
                 )
 
                 if latest_entry:
-                    frappe.logger().info(
+                    self.logger.info(
                         f"Latest entry: {latest_entry.change_type} - "
                         f"€{latest_entry.old_dues_rate} → €{latest_entry.new_dues_rate}"
                     )
             else:
-                frappe.logger().warning("❌ FAILED: Fee change history was not updated automatically")
+                self.logger.warning("❌ FAILED: Fee change history was not updated automatically")
 
             # Revert the change
             schedule_doc.dues_rate = old_rate
             schedule_doc.save()
-            frappe.logger().info(f"Reverted dues rate back to €{old_rate}")
+            self.logger.info(f"Reverted dues rate back to €{old_rate}")
 
             test_results = {
                 "history_updated": history_updated,

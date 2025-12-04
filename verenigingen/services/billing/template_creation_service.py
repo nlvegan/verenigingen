@@ -30,6 +30,7 @@ Dependencies:
 - Member document for linking schedules
 """
 
+import logging
 from typing import TYPE_CHECKING, Optional
 
 import frappe
@@ -39,6 +40,8 @@ from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
+
+logger = logging.getLogger(__name__)
 
 
 class TemplateCreationService:
@@ -108,10 +111,7 @@ class TemplateCreationService:
             return template
 
         except Exception as e:
-            frappe.log_error(
-                f"Error creating default template for {membership_type}: {str(e)}",
-                "Default Template Creation",
-            )
+            logger.error(f"Error creating default template for {membership_type}: {str(e)}")
             raise frappe.ValidationError(f"Could not create default template for {membership_type}: {str(e)}")
 
     @staticmethod
@@ -285,7 +285,7 @@ class TemplateCreationService:
             schedule.uses_custom_amount = 1
             schedule.custom_amount_reason = custom_amount_reason or "Imported from CSV"
             schedule.custom_amount_approved = custom_amount_approved
-            frappe.logger().info(
+            logger.info(
                 f"[DUES SCHEDULE] Using CSV import custom amount: €{custom_amount:.2f} for member {member_name}"
             )
         # Priority 3: Template fallbacks

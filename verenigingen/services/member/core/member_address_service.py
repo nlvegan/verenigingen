@@ -68,7 +68,7 @@ class MemberAddressService:
         return cls._instance
 
     def __init__(self):
-        self.logger = frappe.logger("MemberAddressService")
+        self.logger = logging.getLogger(__name__)
 
     def update_member_address_fields(self, member) -> OperationResult[str]:
         """

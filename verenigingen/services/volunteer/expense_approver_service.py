@@ -26,10 +26,11 @@ from typing import Optional
 import frappe
 from frappe import _
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.secure_operations import secure_document_operation
 
 
-class VolunteerExpenseApproverService:
+class VolunteerExpenseApproverService(StatelessService):
     """Service for managing volunteer expense approver logic"""
 
     # Financial roles priority order for board approvers
@@ -47,6 +48,7 @@ class VolunteerExpenseApproverService:
         Args:
             volunteer_name: Volunteer record name
         """
+        super().__init__(service_name="VolunteerExpenseApproverService")
         self.volunteer_name = volunteer_name
         self.volunteer_doc = None  # Lazy loaded
 
@@ -94,9 +96,8 @@ class VolunteerExpenseApproverService:
             return "Administrator"
 
         except Exception as e:
-            frappe.log_error(
-                f"Error determining expense approver for volunteer {self.volunteer_name}: {str(e)}",
-                "Expense Approver Error",
+            self.logger.error(
+                f"Error determining expense approver for volunteer {self.volunteer_name}: {str(e)}"
             )
             return "Administrator"  # Safe fallback
 

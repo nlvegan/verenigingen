@@ -5,8 +5,12 @@ Business logic service for team management operations,
 extracted from the Team DocType controller to maintain clean architecture.
 """
 
+import logging
+
 import frappe
 from frappe import _
+
+logger = logging.getLogger(__name__)
 
 
 class TeamService:
@@ -33,7 +37,7 @@ class TeamService:
                 break
 
         if not team_member:
-            frappe.logger().warning(f"Could not find team member for volunteer {volunteer_id}")
+            logger.warning(f"Could not find team member for volunteer {volunteer_id}")
             return False
 
         # Create role description using Team Role system
@@ -49,11 +53,9 @@ class TeamService:
         )
 
         if success:
-            frappe.logger().info(
-                f"Added team assignment history for volunteer {volunteer_id}: {role_description}"
-            )
+            logger.info(f"Added team assignment history for volunteer {volunteer_id}: {role_description}")
         else:
-            frappe.logger().error(
+            logger.error(
                 f"Error adding team assignment history for volunteer {volunteer_id}: {role_description}"
             )
 
@@ -98,11 +100,9 @@ class TeamService:
         )
 
         if success:
-            frappe.logger().info(
-                f"Completed team assignment history for volunteer {volunteer_id}: {role_description}"
-            )
+            logger.info(f"Completed team assignment history for volunteer {volunteer_id}: {role_description}")
         else:
-            frappe.logger().error(
+            logger.error(
                 f"Error completing team assignment history for volunteer {volunteer_id}: {role_description}"
             )
 
@@ -260,7 +260,7 @@ class TeamService:
                 raise  # Re-raise validation errors
             else:
                 # Log other errors but don't block the transaction
-                frappe.log_error(f"Error in unique role validation: {e}", "Unique Role Validation Error")
+                logger.error(f"Error in unique role validation: {e}")
 
 
 class TeamValidationService:

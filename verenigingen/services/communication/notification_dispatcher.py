@@ -5,6 +5,7 @@ Handles different types of system notifications with appropriate routing
 and template selection.
 """
 
+import logging
 from typing import Any, Dict, List, Union
 
 import frappe
@@ -12,6 +13,8 @@ import frappe
 from verenigingen.utils.operation_result import OperationResult
 
 from .email_service import get_email_service
+
+logger = logging.getLogger(__name__)
 
 
 class NotificationDispatcher:
@@ -83,9 +86,7 @@ class NotificationDispatcher:
             )
 
         except Exception as e:
-            frappe.logger("notification_dispatcher").error(
-                f"Notification dispatch failed for {notification_type}: {str(e)}"
-            )
+            logger.error(f"Notification dispatch failed for {notification_type}: {str(e)}")
             return OperationResult.fail(str(e), notification_type=notification_type)
 
     def dispatch_bulk_notifications(
@@ -147,9 +148,7 @@ class NotificationDispatcher:
             return recipients
 
         except Exception as e:
-            frappe.logger("notification_dispatcher").warning(
-                f"Recipient filtering failed: {str(e)}, returning all recipients"
-            )
+            logger.warning(f"Recipient filtering failed: {str(e)}, returning all recipients")
             return recipients if isinstance(recipients, list) else [recipients]
 
     def get_supported_notification_types(self) -> List[str]:

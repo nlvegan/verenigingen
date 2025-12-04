@@ -28,11 +28,14 @@ Key Design Decisions:
 - Validates name matching for security when linking to existing users
 """
 
+import logging
 from typing import Dict, List, Optional, Tuple
 
 import frappe
 from frappe import _
 from frappe.model.document import Document
+
+logger = logging.getLogger(__name__)
 
 
 class AccountCreationService:
@@ -113,7 +116,7 @@ class AccountCreationService:
 
                 # If artifacts are missing, allow ACR creation to complete the setup
                 if missing_artifacts:
-                    frappe.logger().info(
+                    logger.info(
                         f"Member {member.name} has user account but missing: {', '.join(missing_artifacts)}. "
                         "Creating ACR to complete setup."
                     )
@@ -123,7 +126,7 @@ class AccountCreationService:
                 return False, f"Member {member.name} already has complete account setup: {member.user}"
             else:
                 # Stale link - log warning but allow creation
-                frappe.logger().warning(
+                logger.warning(
                     f"Member {member.name} has stale user link to {member.user} (user deleted). "
                     "Will allow new account creation."
                 )
@@ -207,7 +210,7 @@ class AccountCreationService:
                     f"Names do not match: User({user_data.first_name} {user_data.last_name}) != "
                     f"Member({member.first_name} {member.last_name})"
                 )
-                frappe.logger().warning(error_msg)
+                logger.warning(error_msg)
                 return False, error_msg
 
         # Check if user is already linked to a different member
@@ -220,9 +223,7 @@ class AccountCreationService:
                 )
             else:
                 # Already linked to this member - idempotent operation
-                frappe.logger().info(
-                    f"User {user_name} already linked to member {member.name}, no action needed"
-                )
+                logger.info(f"User {user_name} already linked to member {member.name}, no action needed")
                 return True, None
 
         # Set Member.user field (CORRECT relationship direction)
@@ -230,15 +231,13 @@ class AccountCreationService:
             frappe.db.set_value("Member", member.name, "user", user_name, update_modified=False)
             frappe.db.commit()
 
-            frappe.logger().info(
-                f"Linked existing user {user_name} ({user_data.email}) to member {member.name}"
-            )
+            logger.info(f"Linked existing user {user_name} ({user_data.email}) to member {member.name}")
             return True, None
 
         except Exception as e:
             frappe.db.rollback()
             error_msg = f"Failed to link user {user_name} to member {member.name}: {str(e)}"
-            frappe.logger().error(error_msg)
+            logger.error(error_msg)
             return False, error_msg
 
     def create_account_request(
@@ -310,7 +309,7 @@ class AccountCreationService:
                     return True, None, {"action": "linked", "user_name": existing_user_info["user_name"]}
                 else:
                     # Linking failed (likely name mismatch) - need to create new request
-                    frappe.logger().warning(
+                    logger.warning(
                         f"Could not link existing user {existing_user_info['user_name']} "
                         f"to member {member.name}: {error}. Will create new request."
                     )
@@ -352,7 +351,7 @@ class AccountCreationService:
         except Exception as e:
             frappe.db.rollback()
             error_msg = f"Failed to create account request for {member.name}: {str(e)}"
-            frappe.logger().error(error_msg)
+            logger.error(error_msg)
             return False, error_msg, None
 
     def queue_bulk_requests(
@@ -392,7 +391,7 @@ class AccountCreationService:
                 "linked_users": List[str]
             }
         """
-        frappe.logger().info(
+        logger.info(
             f"[AccountCreationService] Starting bulk requests for {len(member_names)} members, "
             f"create_employee={create_employee}, filter_by_status={filter_by_status}"
         )
@@ -411,7 +410,7 @@ class AccountCreationService:
                 # Filter by status if requested
                 if filter_by_status and member.status not in self.VALID_ACCOUNT_STATUSES:
                     skipped_by_status.append(f"{member_name} ({member.status})")
-                    frappe.logger().debug(
+                    logger.debug(
                         f"[AccountCreationService] {idx}/{len(member_names)}: Skipped {member_name} - "
                         f"status '{member.status}' not in {self.VALID_ACCOUNT_STATUSES}"
                     )
@@ -430,40 +429,40 @@ class AccountCreationService:
                 if success:
                     if result["action"] == "created":
                         requests_created.append(result["request_name"])
-                        frappe.logger().info(
+                        logger.info(
                             f"[AccountCreationService] {idx}/{len(member_names)}: Created request "
                             f"{result['request_name']} for {member_name}"
                         )
                     elif result["action"] == "linked":
                         users_linked.append(result["user_name"])
-                        frappe.logger().info(
+                        logger.info(
                             f"[AccountCreationService] {idx}/{len(member_names)}: Linked existing user "
                             f"{result['user_name']} to {member_name}"
                         )
                     elif result["action"] == "already_linked":
                         # Already has account - not an error, but track it
                         already_has_account.append(f"{member_name} → {result['user_name']}")
-                        frappe.logger().debug(
+                        logger.debug(
                             f"[AccountCreationService] {idx}/{len(member_names)}: {member_name} already "
                             f"linked to {result['user_name']}, skipping"
                         )
                 else:
                     validation_errors.append(f"{member_name}: {error}")
-                    frappe.logger().warning(
+                    logger.warning(
                         f"[AccountCreationService] {idx}/{len(member_names)}: Failed for {member_name}: {error}"
                     )
 
             except frappe.DoesNotExistError:
                 validation_errors.append(f"Member {member_name} does not exist")
-                frappe.logger().error(f"[AccountCreationService] Member {member_name} does not exist")
+                logger.error(f"[AccountCreationService] Member {member_name} does not exist")
             except Exception as e:
                 validation_errors.append(f"Member {member_name}: Unexpected error - {str(e)}")
-                frappe.logger().error(
+                logger.error(
                     f"[AccountCreationService] Unexpected error for {member_name}: {str(e)}", exc_info=True
                 )
 
         # Log comprehensive summary
-        frappe.logger().info(
+        logger.info(
             f"[AccountCreationService] BULK COMPLETE: "
             f"{len(requests_created)} requests created, "
             f"{len(users_linked)} users linked, "
@@ -474,13 +473,13 @@ class AccountCreationService:
 
         # Log details of what was skipped
         if skipped_by_status:
-            frappe.logger().info(
+            logger.info(
                 f"[AccountCreationService] Skipped by status: {skipped_by_status[:10]}"
                 + (f" ... and {len(skipped_by_status) - 10} more" if len(skipped_by_status) > 10 else "")
             )
 
         if already_has_account:
-            frappe.logger().info(
+            logger.info(
                 f"[AccountCreationService] Already had accounts: {already_has_account[:10]}"
                 + (f" ... and {len(already_has_account) - 10} more" if len(already_has_account) > 10 else "")
             )

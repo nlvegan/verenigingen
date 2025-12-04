@@ -54,12 +54,15 @@ See: docs/patterns/OPERATION_RESULT_PATTERN.md
 Author: Verenigingen Development Team
 """
 
+import logging
 from typing import Callable, Dict, List, Optional
 
 import frappe
 from frappe import _
 
 from verenigingen.utils.operation_result import OperationResult
+
+logger = logging.getLogger(__name__)
 
 # ==================== CONFIGURATION ====================
 
@@ -132,9 +135,7 @@ def sync_fields(doc, method=None):
             _sync_to_target(doc, target_doctype, config)
         except Exception as e:
             # Log error but don't block the source document save
-            frappe.log_error(
-                f"Failed to sync {source_doctype} -> {target_doctype}: {str(e)}", "Field Sync Error"
-            )
+            logger.error(f"Failed to sync {source_doctype} -> {target_doctype}: {str(e)}")
 
 
 def _sync_to_target(source_doc, target_doctype: str, config: Dict):
@@ -183,7 +184,7 @@ def _sync_to_target(source_doc, target_doctype: str, config: Dict):
 
         # Log success
         field_names = ", ".join(changed_fields.keys())
-        frappe.logger().info(
+        logger.info(
             f"Synced fields [{field_names}] from {source_doc.doctype} {source_doc.name} "
             f"to {target_doctype} {target_name}"
         )
@@ -311,7 +312,7 @@ def add_sync_config(source_doctype: str, target_doctype: str, config: Dict):
 
     FIELD_SYNC_CONFIG[source_doctype][target_doctype] = config
 
-    frappe.logger().info(f"Added sync configuration: {source_doctype} -> {target_doctype}")
+    logger.info(f"Added sync configuration: {source_doctype} -> {target_doctype}")
 
 
 # ==================== TESTING UTILITIES ====================

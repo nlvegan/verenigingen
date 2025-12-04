@@ -178,7 +178,7 @@ class SEPAMandateManager(StatelessService):
 
         except Exception as e:
             # Retrieval failures don't need Error Log documents - use logger
-            frappe.logger().error(f"Error getting active mandates for member {member}: {e}")
+            self.logger.error(f"Error getting active mandates for member {member}: {e}")
             return []
 
     def get_default_mandate(self, member: str) -> Optional[MandateInfo]:
@@ -234,7 +234,7 @@ class SEPAMandateManager(StatelessService):
 
         except Exception as e:
             # Retrieval failures don't need Error Log documents - use logger
-            frappe.logger().error(f"Error checking mandate existence for member {member}: {e}")
+            self.logger.error(f"Error checking mandate existence for member {member}: {e}")
             return False
 
     # ========== Mandate Validation Methods ==========
@@ -390,7 +390,7 @@ class SEPAMandateManager(StatelessService):
                     import time
 
                     wait_time = 0.1 * (2**retry)  # Exponential backoff: 0.1s, 0.2s, 0.4s, 0.8s, 1.6s
-                    frappe.logger().warning(
+                    self.logger.warning(
                         f"Deadlock generating mandate reference (attempt {retry + 1}/{self.MANDATE_REFERENCE_RETRIES}), "
                         f"retrying in {wait_time:.1f}s"
                     )
@@ -571,7 +571,7 @@ class SEPAMandateManager(StatelessService):
                 # Check if already linked (idempotency)
                 existing = [m for m in member.sepa_mandates if m.sepa_mandate == mandate_doc.name]
                 if existing:
-                    frappe.logger().info(f"Mandate {mandate_doc.name} already linked to member {member.name}")
+                    self.logger.info(f"Mandate {mandate_doc.name} already linked to member {member.name}")
                     return
 
                 member.append(
@@ -604,7 +604,7 @@ class SEPAMandateManager(StatelessService):
 
             except frappe.TimestampMismatchError as e:
                 if attempt < MAX_RETRIES - 1:
-                    frappe.logger().warning(
+                    self.logger.warning(
                         f"Timestamp mismatch on attempt {attempt + 1}, "
                         f"retrying member link for {member_doc.name}"
                     )
@@ -615,7 +615,7 @@ class SEPAMandateManager(StatelessService):
                     continue
                 else:
                     # Final attempt failed
-                    frappe.logger().error(f"Failed to link mandate after {MAX_RETRIES} attempts: {e}")
+                    self.logger.error(f"Failed to link mandate after {MAX_RETRIES} attempts: {e}")
                     raise frappe.ValidationError(
                         _(
                             "Unable to link mandate to member due to concurrent modifications. "
@@ -624,7 +624,7 @@ class SEPAMandateManager(StatelessService):
                     )
 
             except Exception as e:
-                frappe.logger().error(f"Error linking mandate to member {member_doc.name}: {e}")
+                self.logger.error(f"Error linking mandate to member {member_doc.name}: {e}")
                 raise
 
     # ========== Mandate Lifecycle Methods ==========
@@ -689,7 +689,7 @@ class SEPAMandateManager(StatelessService):
                     )
 
                     if not deactivation_result.success:
-                        frappe.logger().error(
+                        self.logger.error(
                             f"Failed to deactivate mandate {mandate_info.mandate_id}: {'; '.join(deactivation_result.errors)}"
                         )
                         continue  # Skip this mandate and continue with others
@@ -699,7 +699,7 @@ class SEPAMandateManager(StatelessService):
                         {"mandate_id": mandate_info.mandate_id, "old_iban": mandate_info.iban}
                     )
 
-                    frappe.logger().info(
+                    self.logger.info(
                         f"Deactivated SEPA mandate {mandate_info.mandate_id} for member {member} due to IBAN change"
                     )
 

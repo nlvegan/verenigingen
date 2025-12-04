@@ -564,9 +564,7 @@ def get_service_infrastructure_status() -> OperationResult[Dict[str, Any]]:
         return OperationResult.ok(status_data, message="Service infrastructure status retrieved successfully")
 
     except Exception as e:
-        frappe.log_error(
-            f"Error retrieving service infrastructure status: {str(e)}", "Service Integration Error"
-        )
+        logging.getLogger(__name__).error(f"Error retrieving service infrastructure status: {str(e)}")
         return OperationResult.fail(
             _("Unable to retrieve service infrastructure status. Please contact support."),
             errors=[str(e)],
@@ -606,7 +604,7 @@ def run_service_integration_tests() -> OperationResult[Dict[str, Any]]:
             )
 
     except Exception as e:
-        frappe.log_error(f"Error running service integration tests: {str(e)}", "Service Integration Error")
+        logging.getLogger(__name__).error(f"Error running service integration tests: {str(e)}")
         return OperationResult.fail(
             _("Unable to run service integration tests. Please contact support."),
             errors=[str(e)],

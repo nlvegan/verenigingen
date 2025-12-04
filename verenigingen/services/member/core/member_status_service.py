@@ -11,12 +11,16 @@ Functions:
     - update_member_membership_status(): Update membership status based on active memberships
 """
 
+import logging
+
 import frappe
 
 # Import member utils for active membership lookup
 from verenigingen.utils.member_utils import get_active_membership_for_member
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.service_error_handler import handle_service_error, safe_import
+
+logger = logging.getLogger(__name__)
 
 
 def set_member_application_status_defaults(member_doc) -> OperationResult[str]:

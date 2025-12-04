@@ -41,6 +41,7 @@ THRESHOLD RECOMMENDATIONS:
 See: docs/patterns/OPERATION_RESULT_PATTERN.md
 """
 
+import logging
 from difflib import SequenceMatcher
 from typing import Dict, List, Optional, Tuple
 
@@ -51,6 +52,8 @@ from verenigingen.utils.operation_result import OperationResult
 
 # Import security decorators
 from verenigingen.utils.security.api_security_framework import standard_api
+
+logger = logging.getLogger(__name__)
 
 
 class DuplicateMatch:
@@ -531,10 +534,7 @@ def check_duplicate_for_approval(member_name: str) -> OperationResult[Dict]:
 
     except Exception as e:
         # SECURITY FIX 4: Don't expose internal error details to client
-        frappe.log_error(
-            f"Unexpected error in duplicate detection for {member_name}: {str(e)}",
-            "Duplicate Detection System Error",
-        )
+        logger.error(f"Unexpected error in duplicate detection for {member_name}: {str(e)}")
         return OperationResult.fail(
             _("An error occurred while checking for duplicates. Please contact support."),
             errors=["Internal error occurred"],

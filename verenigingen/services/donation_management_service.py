@@ -10,15 +10,16 @@ from typing import Any, Dict, Optional, Tuple
 import frappe
 from frappe.utils import nowdate
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
-class DonationManagementService:
+class DonationManagementService(StatelessService):
     """Service class for handling donation management operations"""
 
     def __init__(self, debug_context: str = "webhook"):
+        super().__init__(service_name="DonationManagementService")
         self.debug_context = debug_context
-        self.logger = frappe.logger()
 
     def determine_donation_flow(self, payment_data: Any) -> Tuple[str, Dict[str, Any]]:
         """
