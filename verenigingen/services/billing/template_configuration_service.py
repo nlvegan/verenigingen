@@ -11,7 +11,7 @@ Extracted from membership_dues_schedule.py:
 - get_template_values() - Lines 39-126 (87 LOC)
 
 Architecture:
-- Static methods for stateless configuration operations
+- StatelessService base class with unified logging and metrics
 - Template value resolution with fallback logic
 - Circular reference handling for self-referencing templates
 - Minimum amount enforcement from membership types
@@ -27,18 +27,17 @@ Dependencies:
 - Configuration validation with clear error messages
 """
 
-import logging
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict
 
 import frappe
 
-logger = logging.getLogger(__name__)
+from verenigingen.services.infrastructure.base_service import StatelessService
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
 
 
-class TemplateConfigurationService:
+class TemplateConfigurationService(StatelessService):
     """
     Service for managing dues schedule template configuration.
 
@@ -49,8 +48,11 @@ class TemplateConfigurationService:
     - Handling self-referencing templates
     """
 
-    @staticmethod
+    def __init__(self):
+        super().__init__(service_name="TemplateConfigurationService")
+
     def get_template_values(
+        self,
         schedule_doc: "Document",
         membership_type: str,
         is_template: bool = False,
@@ -79,7 +81,8 @@ class TemplateConfigurationService:
             frappe.ValidationError: If template not found, not configured, or invalid
 
         Example:
-            >>> values = TemplateConfigurationService.get_template_values(
+            >>> service = TemplateConfigurationService()
+            >>> values = service.get_template_values(
             ...     schedule_doc=schedule,
             ...     membership_type="Standard",
             ...     is_template=False
@@ -165,7 +168,7 @@ class TemplateConfigurationService:
         # This ensures compliance even if template is misconfigured
         if not skip_validation:
             if template_minimum < membership_type_minimum:
-                logger.warning(
+                self.logger.warning(
                     f"Template minimum amount (€{template_minimum:.2f}) is less than "
                     f"membership type minimum (€{membership_type_minimum:.2f}). "
                     f"Using membership type minimum instead."

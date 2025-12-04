@@ -13,7 +13,6 @@ Architecture:
     - Pure CoveragePeriod dataclass for domain data
 """
 
-import logging
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any, Dict, Optional
@@ -23,9 +22,6 @@ from frappe.utils import add_days, add_months, getdate, today
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.operation_result import OperationResult
-
-# Module-level logger for static methods
-_logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -96,20 +92,30 @@ class CoverageCalculator(StatelessService):
             start, end = period.start_date, period.end_date
     """
 
-    def __init__(self, schedule_doc: Any):
+    def __init__(self, schedule_doc: Optional[Any] = None):
         """
-        Initialize calculator with schedule context.
+        Initialize calculator with optional schedule context.
 
         Args:
-            schedule_doc: MembershipDuesSchedule document (for accessing billing frequency fields)
+            schedule_doc: MembershipDuesSchedule document (for accessing billing frequency fields).
+                         Optional for utility method access (calculate_billing_period, etc.)
         """
         super().__init__(service_name="CoverageCalculator")
-        self.schedule_name = schedule_doc.name
-        self.billing_frequency = schedule_doc.billing_frequency
-        self.custom_frequency_number = getattr(schedule_doc, "custom_frequency_number", None)
-        self.custom_frequency_unit = getattr(schedule_doc, "custom_frequency_unit", None)
-        self.member_name = schedule_doc.member
-        self.next_invoice_date = getattr(schedule_doc, "next_invoice_date", None)
+        if schedule_doc is not None:
+            self.schedule_name = schedule_doc.name
+            self.billing_frequency = schedule_doc.billing_frequency
+            self.custom_frequency_number = getattr(schedule_doc, "custom_frequency_number", None)
+            self.custom_frequency_unit = getattr(schedule_doc, "custom_frequency_unit", None)
+            self.member_name = schedule_doc.member
+            self.next_invoice_date = getattr(schedule_doc, "next_invoice_date", None)
+        else:
+            # Utility-only mode - schedule-specific methods will fail
+            self.schedule_name = None
+            self.billing_frequency = None
+            self.custom_frequency_number = None
+            self.custom_frequency_unit = None
+            self.member_name = None
+            self.next_invoice_date = None
 
     # ========== Primary Public API ==========
 
@@ -302,10 +308,10 @@ class CoverageCalculator(StatelessService):
             return latest_invoice[0].custom_coverage_end_date
         return None
 
-    # ========== Static Utility Methods ==========
+    # ========== Utility Methods ==========
 
-    @staticmethod
     def calculate_billing_period(
+        self,
         billing_frequency: str,
         invoice_date,
         custom_frequency_number: Optional[int] = None,
@@ -331,8 +337,7 @@ class CoverageCalculator(StatelessService):
             billing_frequency, invoice_date, custom_frequency_number, custom_frequency_unit
         )
 
-    @staticmethod
-    def calculate_cutoff_date_for_period() -> date:
+    def calculate_cutoff_date_for_period(self) -> date:
         """
         Calculate the cutoff date for invoice generation based on Verenigingen Settings.
 
@@ -351,7 +356,9 @@ class CoverageCalculator(StatelessService):
 
         today_date = getdate(today())
 
-        _logger.debug(f"[CoverageCalculator] today_date={today_date}, cutoff_frequency={cutoff_frequency}")
+        self.logger.debug(
+            f"[CoverageCalculator] today_date={today_date}, cutoff_frequency={cutoff_frequency}"
+        )
 
         if cutoff_frequency == "Monthly":
             # End of current month
@@ -389,7 +396,7 @@ class CoverageCalculator(StatelessService):
             book_year_end_month = getattr(settings, "book_year_end_month", 12)
             book_year_end_day = getattr(settings, "book_year_end_day", 31)
 
-            _logger.debug(
+            self.logger.debug(
                 f"[CoverageCalculator] Yearly: book_year_end_month={book_year_end_month}, "
                 f"book_year_end_day={book_year_end_day}, today={today_date}"
             )
@@ -401,7 +408,7 @@ class CoverageCalculator(StatelessService):
             else:
                 end_year = today_date.year + 1
 
-            _logger.debug(f"[CoverageCalculator] end_year={end_year}")
+            self.logger.debug(f"[CoverageCalculator] end_year={end_year}")
 
             # Calculate last day of book year end month
             import calendar
@@ -409,12 +416,12 @@ class CoverageCalculator(StatelessService):
             if book_year_end_month == 12:
                 last_day = min(book_year_end_day, calendar.monthrange(end_year, 12)[1])
                 result = date_obj(end_year, 12, last_day)
-                _logger.debug(f"[CoverageCalculator] Returning Dec result: {result}")
+                self.logger.debug(f"[CoverageCalculator] Returning Dec result: {result}")
                 return result
             else:
                 last_day = min(book_year_end_day, calendar.monthrange(end_year, book_year_end_month)[1])
                 result = date_obj(end_year, book_year_end_month, last_day)
-                _logger.debug(f"[CoverageCalculator] Returning other month result: {result}")
+                self.logger.debug(f"[CoverageCalculator] Returning other month result: {result}")
                 return result
 
         else:
@@ -425,8 +432,8 @@ class CoverageCalculator(StatelessService):
                 next_month = today_date.replace(month=today_date.month + 1, day=1)
             return add_days(next_month, -1)
 
-    @staticmethod
     def derive_coverage_from_invoice_data(
+        self,
         posting_date,
         last_invoice_date: Optional[date] = None,
         next_invoice_date: Optional[date] = None,

@@ -20,9 +20,6 @@ from frappe.utils import add_days, today
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.operation_result import OperationResult
 
-# Module-level logger for static utility classes
-_logger = logging.getLogger(__name__)
-
 
 class InvoiceGenerationResult:
     """
@@ -77,8 +74,10 @@ class InvoiceGenerationResult:
 class MembershipDuesItemManager:
     """Manages membership dues item creation and lookups"""
 
-    @staticmethod
-    def get_item_name(billing_frequency: str, custom_settings: Optional[Dict[str, Any]] = None) -> str:
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+
+    def get_item_name(self, billing_frequency: str, custom_settings: Optional[Dict[str, Any]] = None) -> str:
         """
         Get item name for billing frequency.
 
@@ -97,8 +96,8 @@ class MembershipDuesItemManager:
         else:
             return f"Membership Dues - {billing_frequency}"
 
-    @staticmethod
     def ensure_item_exists(
+        self,
         item_name: str,
         company: str,
         income_account: Optional[str] = None,
@@ -135,11 +134,11 @@ class MembershipDuesItemManager:
                 item.expense_account = expense_account
 
             item.insert()
-            _logger.info(f"Created membership dues item: {item_name}")
+            self.logger.info(f"Created membership dues item: {item_name}")
 
         except frappe.DuplicateEntryError:
             # Another process created the item concurrently - that's fine
-            _logger.info(f"Item {item_name} already exists (created by concurrent process)")
+            self.logger.info(f"Item {item_name} already exists (created by concurrent process)")
             # Verify it actually exists now
             if not frappe.db.exists("Item", item_name):
                 # Should never happen, but if it does, raise the original error
@@ -149,8 +148,8 @@ class MembershipDuesItemManager:
 class InvoiceDescriptionBuilder:
     """Builds invoice descriptions based on billing frequency"""
 
-    @staticmethod
     def build_description(
+        self,
         member_name: str,
         membership_type: str,
         billing_frequency: str,
@@ -523,10 +522,11 @@ class InvoiceGenerator(StatelessService):
                 "unit": getattr(self.schedule, "custom_frequency_unit", "Months"),
             }
 
-        item_name = MembershipDuesItemManager.get_item_name(self.billing_frequency, custom_settings)
+        item_manager = MembershipDuesItemManager()
+        item_name = item_manager.get_item_name(self.billing_frequency, custom_settings)
 
         settings = frappe.get_single("Verenigingen Settings")
-        MembershipDuesItemManager.ensure_item_exists(
+        item_manager.ensure_item_exists(
             item_name=item_name,
             company=settings.company,
             income_account=income_account,
@@ -706,7 +706,7 @@ class InvoiceGenerator(StatelessService):
                 "item_code": item_code,
                 "qty": 1,
                 "rate": self.dues_rate,
-                "description": InvoiceDescriptionBuilder.build_description(
+                "description": InvoiceDescriptionBuilder().build_description(
                     member_name=self.member_display_name,
                     membership_type=self.membership_type,
                     billing_frequency=self.billing_frequency,

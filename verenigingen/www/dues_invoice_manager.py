@@ -61,7 +61,7 @@ def get_context(context):
         # Default to current month
         period_start = today_date.replace(day=1)
 
-    period_end = CoverageCalculator.calculate_cutoff_date_for_period()
+    period_end = CoverageCalculator().calculate_cutoff_date_for_period()
 
     context.current_period_start = period_start.strftime("%Y-%m-%d")
     context.current_period_end = period_end.strftime("%Y-%m-%d")

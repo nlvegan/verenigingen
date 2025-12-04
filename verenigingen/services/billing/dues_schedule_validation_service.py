@@ -103,7 +103,7 @@ class DuesScheduleValidationService(StatelessService):
 
         from verenigingen.services.billing.template_configuration_service import TemplateConfigurationService
 
-        template_values = TemplateConfigurationService.get_template_values(
+        template_values = TemplateConfigurationService().get_template_values(
             schedule_doc, schedule_doc.membership_type
         )
         min_amount = template_values.get("minimum_amount", 0)
@@ -156,7 +156,7 @@ class DuesScheduleValidationService(StatelessService):
                     TemplateConfigurationService,
                 )
 
-                template_values = TemplateConfigurationService.get_template_values(
+                template_values = TemplateConfigurationService().get_template_values(
                     schedule_doc, schedule_doc.membership_type
                 )
                 suggested_amount = template_values.get("suggested_amount", 0)
@@ -431,7 +431,7 @@ class DuesScheduleValidationService(StatelessService):
                 TemplateConfigurationService,
             )
 
-            template_values = TemplateConfigurationService.get_template_values(
+            template_values = TemplateConfigurationService().get_template_values(
                 schedule_doc, schedule_doc.membership_type
             )
             min_amount = template_values.get("minimum_amount", 0)

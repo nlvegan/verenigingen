@@ -12,7 +12,7 @@ Extracted from membership_dues_schedule.py:
 - create_default_template() - Lines 1878-1910 (35 LOC)
 
 Architecture:
-- Static methods for stateless template operations
+- StatelessService base class with unified logging and metrics
 - Template-based instance creation with field copying
 - Sophisticated dues rate priority logic
 - Member document linking with concurrency handling
@@ -30,21 +30,19 @@ Dependencies:
 - Member document for linking schedules
 """
 
-import logging
 from typing import TYPE_CHECKING, Optional
 
 import frappe
 from frappe.utils import today
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
 
-logger = logging.getLogger(__name__)
 
-
-class TemplateCreationService:
+class TemplateCreationService(StatelessService):
     """
     Service for managing membership dues schedule templates.
 
@@ -55,8 +53,10 @@ class TemplateCreationService:
     - Dues rate priority logic
     """
 
-    @staticmethod
-    def create_default_template(membership_type: str) -> "Document":
+    def __init__(self):
+        super().__init__(service_name="TemplateCreationService")
+
+    def create_default_template(self, membership_type: str) -> "Document":
         """
         Create a default template for a membership type.
 
@@ -82,7 +82,8 @@ class TemplateCreationService:
             - Auto Generate: Yes
 
         Example:
-            >>> template = TemplateCreationService.create_default_template("Standard")
+            >>> service = TemplateCreationService()
+            >>> template = service.create_default_template("Standard")
             >>> print(template.schedule_name)  # "Default-Template-Standard"
         """
         try:
@@ -111,11 +112,11 @@ class TemplateCreationService:
             return template
 
         except Exception as e:
-            logger.error(f"Error creating default template for {membership_type}: {str(e)}")
+            self.logger.error(f"Error creating default template for {membership_type}: {str(e)}")
             raise frappe.ValidationError(f"Could not create default template for {membership_type}: {str(e)}")
 
-    @staticmethod
     def create_from_template(
+        self,
         member_name: str,
         template_name: Optional[str] = None,
         membership_type: Optional[str] = None,
@@ -157,7 +158,8 @@ class TemplateCreationService:
             3. Template dues_rate or suggested_amount
 
         Example:
-            >>> schedule_name = TemplateCreationService.create_from_template(
+            >>> service = TemplateCreationService()
+            >>> schedule_name = service.create_from_template(
             ...     member_name="Member-001",
             ...     membership_type="Standard"
             ... )
@@ -285,7 +287,7 @@ class TemplateCreationService:
             schedule.uses_custom_amount = 1
             schedule.custom_amount_reason = custom_amount_reason or "Imported from CSV"
             schedule.custom_amount_approved = custom_amount_approved
-            logger.info(
+            self.logger.info(
                 f"[DUES SCHEDULE] Using CSV import custom amount: €{custom_amount:.2f} for member {member_name}"
             )
         # Priority 3: Template fallbacks

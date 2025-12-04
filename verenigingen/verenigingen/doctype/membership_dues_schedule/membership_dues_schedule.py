@@ -33,15 +33,14 @@ class MembershipDuesSchedule(Document):
         """
         Get billing and contribution values from template if available.
 
-        EXTRACTED: Moved to TemplateConfigurationService.get_template_values()
-        for service layer separation (Dues Schedule Phase 3).
+        EXTRACTED: Moved to TemplateConfigurationService for service layer separation.
 
         Returns:
             dict: Template configuration values (minimum_amount, suggested_amount, etc.)
         """
         from verenigingen.services.billing.template_configuration_service import TemplateConfigurationService
 
-        return TemplateConfigurationService.get_template_values(
+        return TemplateConfigurationService().get_template_values(
             schedule_doc=self,
             membership_type=self.membership_type,
             is_template=self.is_template,
@@ -494,12 +493,12 @@ class MembershipDuesSchedule(Document):
 
         result = calculator.calculate_next_coverage_period(member_doc=member_doc, force_date=force_date)
 
-        # Validate result
-        if not result.is_valid():
-            error_msg = result.metadata.get("error", "Unknown coverage calculation error")
+        # Validate result (now uses OperationResult pattern)
+        if not result.success:
+            error_msg = result.error_message or "Unknown coverage calculation error"
             frappe.throw(error_msg)
 
-        return result.start_date, result.end_date
+        return result.data.start_date, result.data.end_date
 
     def should_generate_for_cutoff_period(self, cutoff_date):
         """
@@ -1095,12 +1094,11 @@ class MembershipDuesSchedule(Document):
         """
         Create a default template for a membership type.
 
-        EXTRACTED: Moved to TemplateCreationService.create_default_template()
-        for service layer separation (Dues Schedule Phase 1-1).
+        EXTRACTED: Moved to TemplateCreationService for service layer separation.
         """
         from verenigingen.services.billing.template_creation_service import TemplateCreationService
 
-        return TemplateCreationService.create_default_template(membership_type)
+        return TemplateCreationService().create_default_template(membership_type)
 
     @staticmethod
     def create_from_template(
@@ -1115,12 +1113,11 @@ class MembershipDuesSchedule(Document):
         """
         Create an individual dues schedule from a template.
 
-        EXTRACTED: Moved to TemplateCreationService.create_from_template()
-        for service layer separation (Dues Schedule Phase 1-2).
+        EXTRACTED: Moved to TemplateCreationService for service layer separation.
         """
         from verenigingen.services.billing.template_creation_service import TemplateCreationService
 
-        return TemplateCreationService.create_from_template(
+        return TemplateCreationService().create_from_template(
             member_name=member_name,
             template_name=template_name,
             membership_type=membership_type,
