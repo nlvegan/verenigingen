@@ -21,78 +21,9 @@ import frappe
 from frappe.utils import now
 
 from verenigingen.services.infrastructure.base_service import StatelessService
+from verenigingen.utils.operation_result import OperationResult
 
 _module_logger = logging.getLogger(__name__)
-
-
-class CreationResult:
-    """
-    Result object for dues schedule creation operations.
-
-    Provides structured outcome with success status, schedule name,
-    and detailed error information for diagnostics.
-
-    Deprecated: Migrate to OperationResult[str] in future versions.
-
-    This class maintains backward compatibility while providing OperationResult-compatible
-    properties for gradual migration.
-
-    Attributes:
-        success: Whether creation succeeded
-        schedule_name: Name of created schedule (if successful) (legacy - use .data)
-        error: Error message (if failed) (legacy - use .error_message)
-        error_category: Classification ("config", "validation", "system", "duplicate")
-        retry_job_id: Background job ID for retry (if enqueued)
-        data: OperationResult-compatible alias for schedule_name
-        error_message: OperationResult-compatible alias for error
-    """
-
-    def __init__(
-        self,
-        success: bool,
-        schedule_name: Optional[str] = None,
-        error: Optional[str] = None,
-        error_category: Optional[str] = None,
-        retry_job_id: Optional[str] = None,
-        **metadata: Any,
-    ):
-        """
-        Initialize creation result.
-
-        Args:
-            success: Whether creation succeeded
-            schedule_name: Name of created schedule (if successful)
-            error: Error message (if failed)
-            error_category: Classification of error
-            retry_job_id: Background job ID for retry
-            **metadata: Additional context for debugging
-        """
-        self.success = success
-        self.schedule_name = schedule_name
-        self.error = error
-        self.error_category = error_category
-        self.retry_job_id = retry_job_id
-        self.metadata = metadata
-
-        # OperationResult-compatible properties
-        self.data: Optional[str] = schedule_name
-        self.error_message: Optional[str] = error
-
-    def to_dict(self) -> Dict:
-        """Convert to dict for serialization."""
-        return {
-            "success": self.success,
-            "schedule_name": self.schedule_name,
-            "error": self.error,
-            "error_category": self.error_category,
-            "retry_job_id": self.retry_job_id,
-            **self.metadata,
-        }
-
-    def __repr__(self):
-        if self.success:
-            return f"CreationResult(success=True, schedule_name='{self.schedule_name}')"
-        return f"CreationResult(success=False, error='{self.error}', category='{self.error_category}')"
 
 
 class DuesScheduleCreationService(StatelessService):
@@ -117,9 +48,10 @@ class DuesScheduleCreationService(StatelessService):
             membership_type="Standard Member"
         )
         if result.success:
-            print(f"Created: {result.schedule_name}")
+            print(f"Created: {result.data}")  # schedule_name in .data
         else:
-            print(f"Failed: {result.error}, retry job: {result.retry_job_id}")
+            print(f"Failed: {result.error_message}")
+            print(f"Retry job: {result.metadata.get('retry_job_id')}")
     """
 
     # Retry configuration
@@ -145,7 +77,7 @@ class DuesScheduleCreationService(StatelessService):
         custom_amount_reason: Optional[str] = None,
         custom_amount_approved: int = 0,
         retry_count: int = 0,
-    ) -> CreationResult:
+    ) -> OperationResult[str]:
         """
         Create dues schedule with automatic retry on failure.
 
@@ -162,28 +94,26 @@ class DuesScheduleCreationService(StatelessService):
             retry_count: Current retry attempt number (internal use)
 
         Returns:
-            CreationResult with success status, schedule name, or retry job ID
+            OperationResult[str] with schedule_name in .data on success,
+            error details and retry metadata on failure
         """
         # Input validation
         if not member_name or not member_name.strip():
-            return CreationResult(
-                success=False, error="Invalid member_name: cannot be empty", error_category="validation"
-            )
+            return OperationResult.fail("Invalid member_name: cannot be empty", error_category="validation")
 
         if not membership_name or not membership_name.strip():
-            return CreationResult(
-                success=False, error="Invalid membership_name: cannot be empty", error_category="validation"
+            return OperationResult.fail(
+                "Invalid membership_name: cannot be empty", error_category="validation"
             )
 
         if not membership_type or not membership_type.strip():
-            return CreationResult(
-                success=False, error="Invalid membership_type: cannot be empty", error_category="validation"
+            return OperationResult.fail(
+                "Invalid membership_type: cannot be empty", error_category="validation"
             )
 
         if custom_amount is not None and custom_amount < 0:
-            return CreationResult(
-                success=False,
-                error=f"Invalid custom_amount: {custom_amount} (must be non-negative)",
+            return OperationResult.fail(
+                f"Invalid custom_amount: {custom_amount} (must be non-negative)",
                 error_category="validation",
             )
 
@@ -198,9 +128,8 @@ class DuesScheduleCreationService(StatelessService):
         try:
             # Check circuit breaker before attempting creation
             if self._should_circuit_break():
-                return CreationResult(
-                    success=False,
-                    error="Circuit breaker is open due to repeated failures. Retries suspended temporarily.",
+                return OperationResult.fail(
+                    "Circuit breaker is open due to repeated failures. Retries suspended temporarily.",
                     error_category="system",
                     circuit_breaker_open=True,
                     retry_count=retry_count,
@@ -217,11 +146,7 @@ class DuesScheduleCreationService(StatelessService):
                 )
                 # Success - reset circuit breaker
                 self._record_success()
-                return CreationResult(
-                    success=True,
-                    schedule_name=existing_schedule,
-                    already_exists=True,
-                )
+                return OperationResult.ok(existing_schedule, already_exists=True)
 
             # Attempt creation
             from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import (
@@ -245,7 +170,7 @@ class DuesScheduleCreationService(StatelessService):
             # Reset circuit breaker on successful creation
             self._record_success()
 
-            return CreationResult(success=True, schedule_name=schedule_name, retry_count=retry_count)
+            return OperationResult.ok(schedule_name, retry_count=retry_count)
 
         except Exception as e:
             error_str = str(e)
@@ -273,9 +198,8 @@ class DuesScheduleCreationService(StatelessService):
 
                 # Check if retry was deferred due to queue congestion
                 if retry_job_id is None:
-                    return CreationResult(
-                        success=False,
-                        error=error_str,
+                    return OperationResult.fail(
+                        error_str,
                         error_category=error_category,
                         retry_count=retry_count,
                         will_retry=False,
@@ -283,9 +207,8 @@ class DuesScheduleCreationService(StatelessService):
                         deferred_to_scheduled_task=True,
                     )
 
-                return CreationResult(
-                    success=False,
-                    error=error_str,
+                return OperationResult.fail(
+                    error_str,
                     error_category=error_category,
                     retry_job_id=retry_job_id,
                     retry_count=retry_count,
@@ -301,9 +224,8 @@ class DuesScheduleCreationService(StatelessService):
                     retry_count=retry_count,
                 )
 
-                return CreationResult(
-                    success=False,
-                    error=error_str,
+                return OperationResult.fail(
+                    error_str,
                     error_category=error_category,
                     retry_count=retry_count,
                     max_retries_reached=retry_count >= self.MAX_RETRIES,
@@ -628,10 +550,10 @@ def retry_create_dues_schedule_job(
     )
 
     if result.success:
-        _module_logger.info(
-            f"[DUES SCHEDULE] Background job succeeded for {member_name}: {result.schedule_name}"
-        )
+        _module_logger.info(f"[DUES SCHEDULE] Background job succeeded for {member_name}: {result.data}")
     else:
-        _module_logger.warning(f"[DUES SCHEDULE] Background job failed for {member_name}: {result.error}")
+        _module_logger.warning(
+            f"[DUES SCHEDULE] Background job failed for {member_name}: {result.error_message}"
+        )
 
     return result.to_dict()

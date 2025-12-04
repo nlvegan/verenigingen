@@ -48,35 +48,6 @@ class CoveragePeriod:
         )
 
 
-# Backward compatibility alias - deprecated, use CoveragePeriod + OperationResult
-class CoveragePeriodResult:
-    """
-    Deprecated: Use OperationResult[CoveragePeriod] instead.
-
-    This class is maintained for backward compatibility during migration.
-    Will be removed in a future version.
-    """
-
-    def __init__(self, start_date: date, end_date: date, calculation_method: str, **metadata: Any):
-        self.start_date = start_date
-        self.end_date = end_date
-        self.calculation_method = calculation_method
-        self.metadata = metadata
-
-    def is_valid(self) -> bool:
-        if not self.start_date or not self.end_date:
-            return False
-        if self.start_date > self.end_date:
-            return False
-        return True
-
-    def __repr__(self):
-        return (
-            f"CoveragePeriodResult(start={self.start_date}, end={self.end_date}, "
-            f"method={self.calculation_method})"
-        )
-
-
 class CoverageCalculator(StatelessService):
     """
     Service for calculating coverage periods and invoice dates for membership billing.

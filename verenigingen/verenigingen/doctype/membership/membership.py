@@ -198,13 +198,13 @@ class Membership(Document):
                 if result.success:
                     # Update member record with dues schedule link
                     member = frappe.get_doc("Member", self.member)
-                    member.current_dues_schedule = result.schedule_name
+                    member.current_dues_schedule = result.data
                     member._system_update = True
                     try:
                         member.save()
                     except frappe.TimestampMismatchError:
                         member.reload()
-                        member.current_dues_schedule = result.schedule_name
+                        member.current_dues_schedule = result.data
                         member._system_update = True
                         member.save()
 
@@ -221,9 +221,9 @@ class Membership(Document):
                         )
 
                     frappe.logger().info(
-                        f"Successfully created dues schedule {result.schedule_name} via retry service"
+                        f"Successfully created dues schedule {result.data} via retry service"
                     )
-                elif result.retry_job_id:
+                elif result.metadata.get("retry_job_id"):
                     # Retry enqueued - show user-friendly message
                     frappe.msgprint(
                         "Dues schedule creation will be retried automatically in the background. "
