@@ -20,6 +20,47 @@ class TestDonationRefactoringIntegration:
     """Integration test for refactored donation services"""
 
     @staticmethod
+    def _create_test_donor():
+        """
+        Factory method for creating test donor.
+
+        Permission bypass is allowed in factory methods for test data creation.
+        """
+        donor = frappe.new_doc("Donor")
+        donor.donor_name = "Anna Test Integration"
+        donor.donor_email = "anna.test.integration@example.nl"
+        donor.phone = "+31 20 123 4567"
+        donor.donor_type = "Individual"
+        donor.preferred_communication_method = "Email"
+        donor.anbi_consent = 1
+        donor.anbi_consent_date = frappe.utils.now()
+        donor.flags.ignore_validate = True  # Skip BSN validation for test
+        donor.insert(ignore_permissions=True)  # OK in factory method
+        return donor
+
+    @staticmethod
+    def _create_test_donations(donor_name, count=3):
+        """
+        Factory method for creating test donations.
+
+        Permission bypass is allowed in factory methods for test data creation.
+        """
+        donations = []
+        for i in range(count):
+            donation_date = add_months(today(), -i)
+            donation = frappe.new_doc("Donation")
+            donation.donor = donor_name
+            donation.donation_date = donation_date
+            donation.amount = 100
+            donation.mode_of_payment = "Bank Transfer"
+            donation.status = "One-time"
+            donation.paid = 1
+            donation.insert(ignore_permissions=True)  # OK in factory method
+            donation.submit()
+            donations.append(donation)
+        return donations
+
+    @staticmethod
     def run_full_test():
         """Run complete integration test"""
         print("=" * 80)
@@ -36,24 +77,11 @@ class TestDonationRefactoringIntegration:
         }
 
         try:
-            # Test 1: Create test persona (with ignore_validate to bypass BSN validation in test)
+            # Test 1: Create test persona using factory methods
             print("\n1. Creating test persona (Anna de Vries)...")
 
-            # Create simplified persona without BSN validation issues
-            from frappe.utils import add_months
-
-            # Create donor
-            donor = frappe.new_doc("Donor")
-            donor.donor_name = "Anna Test Integration"
-            donor.donor_email = "anna.test.integration@example.nl"
-            donor.phone = "+31 20 123 4567"
-            donor.donor_type = "Individual"
-            donor.preferred_communication_method = "Email"
-            donor.anbi_consent = 1
-            donor.anbi_consent_date = frappe.utils.now()
-            donor.flags.ignore_validate = True  # Skip BSN validation for test
-            donor.insert(ignore_permissions=True)
-
+            # Create donor using factory method
+            donor = TestDonationRefactoringIntegration._create_test_donor()
             donor_name = donor.name
             print(f"   ✅ Created donor: {donor_name}")
 
@@ -61,22 +89,9 @@ class TestDonationRefactoringIntegration:
             # Just create simple one-time donations to test the refactored services
             agreement_name = None
 
-            # Create a few test donations (one-time, no agreement needed)
-            donation_count = 0
-            for i in range(3):
-                donation_date = add_months(today(), -i)
-                donation = frappe.new_doc("Donation")
-                donation.donor = donor.name
-                donation.donation_date = donation_date  # Correct field name
-                donation.amount = 100
-                donation.mode_of_payment = "Bank Transfer"  # Correct field name
-                donation.status = "One-time"
-                donation.paid = 1
-                donation.insert(ignore_permissions=True)
-                donation.submit()
-                donation_count += 1
-
-            print(f"   ✅ Created {donation_count} one-time donations")
+            # Create test donations using factory method
+            donations = TestDonationRefactoringIntegration._create_test_donations(donor.name, count=3)
+            print(f"   ✅ Created {len(donations)} one-time donations")
             results["persona_creation"] = True
 
             # Test 2: DonationReportingService
@@ -118,7 +133,7 @@ class TestDonationRefactoringIntegration:
 
             # Test bank transfer donation creation
             try:
-                bank_donation = DonationFinancialService.create_donation_from_bank_transfer(
+                bank_donation = DonationFinancialService().create_donation_from_bank_transfer(
                     donor=donor.name,
                     amount=150.00,
                     date=frappe.utils.formatdate(today(), "yyyy-mm-dd"),
