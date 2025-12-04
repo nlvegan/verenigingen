@@ -1382,7 +1382,7 @@ def test_chapter_membership_workflow() -> OperationResult[Dict[str, Any]]:
         # Handle OperationResult
         if isinstance(application_result, OperationResult):
             if not application_result.success:
-                raise Exception(f"Application submission failed: {application_result.error}")
+                raise Exception(f"Application submission failed: {application_result.error_message}")
             application_result_data = application_result.data
         else:
             application_result_data = application_result
@@ -1415,7 +1415,7 @@ def test_chapter_membership_workflow() -> OperationResult[Dict[str, Any]]:
         # Handle OperationResult
         if isinstance(approval_result, OperationResult):
             if not approval_result.success:
-                raise Exception(f"Application approval failed: {approval_result.error}")
+                raise Exception(f"Application approval failed: {approval_result.error_message}")
             approval_result_data = approval_result.data
         else:
             approval_result_data = approval_result

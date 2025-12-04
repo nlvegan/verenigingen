@@ -71,19 +71,19 @@ class TestInvoiceGenerator(EnhancedTestCase):
         )
 
         # Assert
-        self.assertTrue(result.success, f"Invoice generation failed: {result.error}")
-        self.assertIsNotNone(result.invoice)
-        self.assertEqual(result.invoice.customer, self.customer_doc.name)
-        self.assertEqual(result.invoice.member, self.member.name)
-        self.assertEqual(str(result.invoice.custom_coverage_start_date), "2025-01-01")
-        self.assertEqual(str(result.invoice.custom_coverage_end_date), "2025-12-31")
-        self.assertEqual(result.invoice.is_membership_invoice, 1)
-        self.assertEqual(result.invoice.membership_dues_schedule_display, self.schedule.name)
+        self.assertTrue(result.success, f"Invoice generation failed: {result.error_message}")
+        self.assertIsNotNone(result.data)
+        self.assertEqual(result.data.customer, self.customer_doc.name)
+        self.assertEqual(result.data.member, self.member.name)
+        self.assertEqual(str(result.data.custom_coverage_start_date), "2025-01-01")
+        self.assertEqual(str(result.data.custom_coverage_end_date), "2025-12-31")
+        self.assertEqual(result.data.is_membership_invoice, 1)
+        self.assertEqual(result.data.membership_dues_schedule_display, self.schedule.name)
 
         # Verify invoice has items
-        self.assertEqual(len(result.invoice.items), 1)
-        self.assertEqual(result.invoice.items[0].qty, 1)
-        self.assertEqual(result.invoice.items[0].rate, self.schedule.dues_rate)
+        self.assertEqual(len(result.data.items), 1)
+        self.assertEqual(result.data.items[0].qty, 1)
+        self.assertEqual(result.data.items[0].rate, self.schedule.dues_rate)
 
     # ========== Account Configuration Tests ==========
 
@@ -108,11 +108,11 @@ class TestInvoiceGenerator(EnhancedTestCase):
             )
 
             # Assert - should succeed with company default
-            self.assertTrue(result.success, f"Invoice generation failed: {result.error}")
-            self.assertIsNotNone(result.invoice)
+            self.assertTrue(result.success, f"Invoice generation failed: {result.error_message}")
+            self.assertIsNotNone(result.data)
             # Verify fallback was used (company default income account)
             company_doc = frappe.get_cached_doc("Company", settings.company)
-            self.assertEqual(result.invoice.items[0].income_account, company_doc.default_income_account)
+            self.assertEqual(result.data.items[0].income_account, company_doc.default_income_account)
 
         finally:
             # Restore original setting
@@ -146,7 +146,7 @@ class TestInvoiceGenerator(EnhancedTestCase):
 
                 # Assert - should fail with clear error
                 self.assertFalse(result.success)
-                self.assertIn("Income account not configured", result.error)
+                self.assertIn("Income account not configured", result.error_message)
 
             finally:
                 # Restore original settings
@@ -189,9 +189,9 @@ class TestInvoiceGenerator(EnhancedTestCase):
         # Assert
         self.assertTrue(result.success)
         # Check if SEPA field exists on invoice (custom field may not be installed)
-        if hasattr(result.invoice, "sepa_mandate_id"):
-            self.assertIsNotNone(result.invoice.sepa_mandate_id)
-            self.assertEqual(result.invoice.sepa_mandate_id, mandate.name)
+        if hasattr(result.data, "sepa_mandate_id"):
+            self.assertIsNotNone(result.data.sepa_mandate_id)
+            self.assertEqual(result.data.sepa_mandate_id, mandate.name)
 
         # Note: Cleanup handled by EnhancedTestCase tearDown
 
@@ -223,8 +223,8 @@ class TestInvoiceGenerator(EnhancedTestCase):
         # Assert - should succeed but without SEPA mandate
         self.assertTrue(result.success)
         # Mandate should NOT be linked due to expiration (if field exists)
-        if hasattr(result.invoice, "sepa_mandate_id"):
-            self.assertIsNone(result.invoice.sepa_mandate_id)
+        if hasattr(result.data, "sepa_mandate_id"):
+            self.assertIsNone(result.data.sepa_mandate_id)
 
         # Note: Cleanup handled by EnhancedTestCase tearDown
 
@@ -243,8 +243,8 @@ class TestInvoiceGenerator(EnhancedTestCase):
         # Assert
         self.assertTrue(result.success)
         # Check if SEPA field exists (custom field may not be installed)
-        if hasattr(result.invoice, "sepa_mandate_id"):
-            self.assertIsNone(result.invoice.sepa_mandate_id)
+        if hasattr(result.data, "sepa_mandate_id"):
+            self.assertIsNone(result.data.sepa_mandate_id)
 
     # ========== Auto-Submit Tests ==========
 
@@ -266,7 +266,7 @@ class TestInvoiceGenerator(EnhancedTestCase):
 
             # Assert
             self.assertTrue(result.success)
-            self.assertEqual(result.invoice.docstatus, 1)  # 1 = Submitted
+            self.assertEqual(result.data.docstatus, 1)  # 1 = Submitted
             self.assertTrue(result.metadata.get("submitted", False))
 
         finally:
@@ -292,7 +292,7 @@ class TestInvoiceGenerator(EnhancedTestCase):
 
             # Assert
             self.assertTrue(result.success)
-            self.assertEqual(result.invoice.docstatus, 0)  # 0 = Draft
+            self.assertEqual(result.data.docstatus, 0)  # 0 = Draft
             self.assertFalse(result.metadata.get("submitted", True))
 
         finally:
@@ -322,7 +322,7 @@ class TestInvoiceGenerator(EnhancedTestCase):
 
             # Assert
             self.assertFalse(result.success)
-            self.assertIn("does not have a customer record", result.error)
+            self.assertIn("does not have a customer record", result.error_message)
 
         finally:
             # Restore customer
@@ -350,7 +350,7 @@ class TestInvoiceGenerator(EnhancedTestCase):
 
             # Assert
             self.assertFalse(result.success)
-            self.assertIn("Company not configured", result.error)
+            self.assertIn("Company not configured", result.error_message)
 
         finally:
             # Restore company
@@ -371,7 +371,7 @@ class TestInvoiceGenerator(EnhancedTestCase):
 
         # Assert
         self.assertFalse(result.success)
-        self.assertIn("must not be after end date", result.error)
+        self.assertIn("must not be after end date", result.error_message)
 
     def test_member_document_mismatch_validation(self):
         """Test validation fails when member_doc doesn't match schedule"""
@@ -391,7 +391,7 @@ class TestInvoiceGenerator(EnhancedTestCase):
 
         # Assert
         self.assertFalse(result.success)
-        self.assertIn("Member document mismatch", result.error)
+        self.assertIn("Member document mismatch", result.error_message)
 
         # Note: Cleanup handled by EnhancedTestCase tearDown - no manual deletion needed
 
@@ -420,7 +420,7 @@ class TestInvoiceGenerator(EnhancedTestCase):
             # Assert
             self.assertTrue(result.success)
             # Verify item code contains custom frequency description
-            item_code = result.invoice.items[0].item_code
+            item_code = result.data.items[0].item_code
             self.assertIn("Custom", item_code)
             self.assertIn("Every 3 Months", item_code)
 
@@ -457,7 +457,7 @@ class TestInvoiceGenerator(EnhancedTestCase):
 
             # Assert
             self.assertTrue(result.success)
-            self.assertEqual(result.invoice.payment_terms_template, template_name)
+            self.assertEqual(result.data.payment_terms_template, template_name)
 
         finally:
             # Restore original terms

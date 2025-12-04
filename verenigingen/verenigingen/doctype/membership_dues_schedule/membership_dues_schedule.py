@@ -740,9 +740,9 @@ class MembershipDuesSchedule(Document):
 
             # Check service result
             if not result.success:
-                frappe.throw(f"Invoice generation failed: {result.error}")
+                frappe.throw(f"Invoice generation failed: {result.error_message}")
 
-            invoice = result.invoice
+            invoice = result.data
             invoice_name = invoice.name
 
             # ✅ SAFETY CHECK: Ensure we're not trying to edit a cancelled invoice

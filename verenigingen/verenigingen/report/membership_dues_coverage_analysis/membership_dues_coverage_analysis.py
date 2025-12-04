@@ -1116,13 +1116,13 @@ def generate_catchup_invoices(members, from_date=None, to_date=None):
                         generated_invoices.append(
                             {
                                 "member": member_name,
-                                "invoice": result.invoice.name,
+                                "invoice": result.data.name,
                                 "amount": period["amount"],
                                 "period": f"{period['start']} to {period['end']}",
                             }
                         )
                     else:
-                        error_msg = f"Failed to generate invoice for {member_name}: {result.error}"
+                        error_msg = f"Failed to generate invoice for {member_name}: {result.error_message}"
                         errors.append(error_msg)
 
                 except Exception as gen_error:

@@ -6,8 +6,7 @@ InvoiceGenerator Service - Generates membership dues invoices.
 
 Architecture:
     - Inherits from StatelessService for consistent logging, metrics, error handling
-    - Returns OperationResult[SalesInvoice] for invoice generation operations
-    - InvoiceGenerationResult kept as deprecated alias for backward compatibility
+    - Returns OperationResult[Any] for invoice generation operations (Any = SalesInvoice doc)
 """
 
 import logging
@@ -19,56 +18,6 @@ from frappe.utils import add_days, today
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.operation_result import OperationResult
-
-
-class InvoiceGenerationResult:
-    """
-    Deprecated: Use OperationResult[SalesInvoice] instead.
-
-    This class is maintained for backward compatibility during migration.
-    It wraps OperationResult to provide the legacy .invoice and .error properties.
-
-    Attributes:
-        success: Whether invoice generation succeeded
-        invoice: Sales Invoice document if successful, None otherwise (legacy - use .data)
-        error: Error message if failed, None otherwise (legacy - use .error_message)
-        metadata: Additional context about the operation
-    """
-
-    def __init__(
-        self, success: bool, invoice: Optional[Any] = None, error: Optional[str] = None, **metadata: Any
-    ) -> None:
-        self.success: bool = success
-        self.invoice: Optional[Any] = invoice  # Legacy property
-        self.error: Optional[str] = error  # Legacy property
-        self.metadata: Dict[str, Any] = metadata
-
-        # Also expose as OperationResult-compatible properties
-        self.data = invoice
-        self.error_message = error
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary format"""
-        result: Dict[str, Any] = {
-            "success": self.success,
-            "invoice": self.invoice.name if self.invoice else None,
-            "error": self.error,
-        }
-        result.update(self.metadata)
-        return result
-
-    def __repr__(self) -> str:
-        if self.success:
-            return f"InvoiceGenerationResult(success=True, invoice={self.invoice.name if self.invoice else None})"
-        return f"InvoiceGenerationResult(success=False, error='{self.error}')"
-
-    @classmethod
-    def from_operation_result(cls, op_result: OperationResult, **extra_metadata) -> "InvoiceGenerationResult":
-        """Create InvoiceGenerationResult from OperationResult for compatibility."""
-        metadata = {**op_result.metadata, **extra_metadata}
-        if op_result.success:
-            return cls(success=True, invoice=op_result.data, **metadata)
-        return cls(success=False, error=op_result.error_message, **metadata)
 
 
 class MembershipDuesItemManager:
@@ -194,7 +143,7 @@ class InvoiceGenerator(StatelessService):
         generator = InvoiceGenerator(schedule_doc)
         result = generator.generate_invoice(coverage_start, coverage_end, member_doc)
         if result.success:
-            invoice = result.data  # or result.invoice for legacy compatibility
+            invoice = result.data  # SalesInvoice document
     """
 
     # Validation constants for coverage period limits
@@ -220,7 +169,7 @@ class InvoiceGenerator(StatelessService):
 
     def generate_invoice(
         self, coverage_start: date, coverage_end: date, member_doc: Any
-    ) -> InvoiceGenerationResult:
+    ) -> OperationResult[Any]:
         """
         Generate a sales invoice for membership dues.
 
@@ -241,7 +190,7 @@ class InvoiceGenerator(StatelessService):
             member_doc: Member document (pre-fetched by caller)
 
         Returns:
-            InvoiceGenerationResult with success status and invoice
+            OperationResult[Any] with invoice document in .data on success
 
         Raises:
             No exceptions raised - all errors returned in result object
@@ -251,24 +200,23 @@ class InvoiceGenerator(StatelessService):
             # Phase 0: Authorization validation
             auth_error = self._validate_authorization()
             if auth_error:
-                return InvoiceGenerationResult(success=False, error=auth_error)
+                return OperationResult.fail(auth_error)
 
             # Phase 1: Input validation
             input_error = self._validate_inputs(coverage_start, coverage_end, member_doc)
             if input_error:
-                return InvoiceGenerationResult(success=False, error=input_error)
+                return OperationResult.fail(input_error)
 
             # Phase 2: Validate prerequisites
             validation_error = self._validate_prerequisites(member_doc)
             if validation_error:
-                return InvoiceGenerationResult(success=False, error=validation_error)
+                return OperationResult.fail(validation_error)
 
             # Phase 3: Account configuration - Get invoice accounts with fallbacks
             income_account, expense_account, cost_center = self._get_invoice_accounts()
             if not income_account:
-                return InvoiceGenerationResult(
-                    success=False,
-                    error="Income account not configured. Check Verenigingen Settings and Company defaults.",
+                return OperationResult.fail(
+                    "Income account not configured. Check Vereinigingen Settings and Company defaults."
                 )
 
             # Phase 4: Item management - Ensure membership dues item exists
@@ -302,7 +250,7 @@ class InvoiceGenerator(StatelessService):
                 {"schedule": self.schedule_name, "member": self.member_name},
                 raise_error=False,
             )
-            return InvoiceGenerationResult(success=False, error=error_msg)
+            return OperationResult.fail(error_msg)
 
     def _validate_inputs(self, coverage_start: date, coverage_end: date, member_doc: Any) -> Optional[str]:
         """
@@ -732,7 +680,7 @@ class InvoiceGenerator(StatelessService):
 
         return invoice
 
-    def _submit_invoice(self, invoice: Any) -> InvoiceGenerationResult:
+    def _submit_invoice(self, invoice: Any) -> OperationResult[Any]:
         """
         Submit invoice based on auto-submit settings.
 
@@ -740,7 +688,7 @@ class InvoiceGenerator(StatelessService):
             invoice: Sales Invoice document (already inserted)
 
         Returns:
-            InvoiceGenerationResult
+            OperationResult[Any] with invoice in .data on success
         """
         submitted = False
 
@@ -788,14 +736,12 @@ class InvoiceGenerator(StatelessService):
                         )
                         continue
                     else:
-                        # Final attempt failed - return error
+                        # Final attempt failed - return error (invoice still in metadata for recovery)
                         error_msg = f"Invoice created but submission failed after {max_retries} retries: {str(deadlock_error)}"
                         self.logger.error(
                             f"{error_msg}\nInvoice: {invoice.name}\nTraceback: {frappe.get_traceback()}"
                         )
-                        return InvoiceGenerationResult(
-                            success=False, error=error_msg, invoice=invoice, submitted=False
-                        )
+                        return OperationResult.fail(error_msg, invoice=invoice, submitted=False)
 
                 except Exception as submit_error:
                     # Non-deadlock submission failure is a critical error - don't retry
@@ -803,13 +749,9 @@ class InvoiceGenerator(StatelessService):
                     self.logger.error(
                         f"{error_msg}\nInvoice: {invoice.name}\nTraceback: {frappe.get_traceback()}"
                     )
-                    return InvoiceGenerationResult(
-                        success=False, error=error_msg, invoice=invoice, submitted=False
-                    )
+                    return OperationResult.fail(error_msg, invoice=invoice, submitted=False)
         else:
             # Auto-submit disabled - keep as draft
             self.logger.info(f"Invoice {invoice.name} kept as draft per settings")
 
-        return InvoiceGenerationResult(
-            success=True, invoice=invoice, submitted=submitted, coverage_tracked=True
-        )
+        return OperationResult.ok(invoice, submitted=submitted, coverage_tracked=True)
