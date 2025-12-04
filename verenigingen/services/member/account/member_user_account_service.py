@@ -44,7 +44,7 @@ import frappe
 from frappe import _
 
 from verenigingen.services.infrastructure.base_service import StatelessService
-from verenigingen.services.member.account.member_role_service import MemberRoleService
+from verenigingen.services.member.account.member_role_service import get_member_role_service
 from verenigingen.utils.dutch_name_utils import get_full_last_name, is_dutch_installation
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.secure_operations import secure_document_operation
@@ -144,10 +144,10 @@ class MemberUserAccountService(StatelessService):
             frappe.throw(_("Failed to create user: {0}").format("; ".join(user_result.errors)))
 
         # Add member-specific roles after user is created
-        MemberRoleService.add_member_roles_to_user(user.name)
+        get_member_role_service().add_member_roles_to_user(user.name)
 
         # Set allowed modules for member users
-        MemberRoleService.set_member_user_modules(user.name)
+        get_member_role_service().set_member_user_modules(user.name)
 
         # Update user field on member document
         member_doc.user = user.name
@@ -231,7 +231,7 @@ class MemberUserAccountService(StatelessService):
                     )
 
                 # Add member roles to existing user
-                MemberRoleService.add_member_roles_to_user(existing_user)
+                get_member_role_service().add_member_roles_to_user(existing_user)
 
                 return OperationResult.ok(
                     existing_user,
@@ -263,10 +263,10 @@ class MemberUserAccountService(StatelessService):
                 frappe.throw(_("Failed to create user: {0}").format("; ".join(user_result.errors)))
 
             # Set allowed modules for member users
-            MemberRoleService.set_member_user_modules(user.name)
+            get_member_role_service().set_member_user_modules(user.name)
 
             # Add member-specific roles
-            MemberRoleService.add_member_roles_to_user(user.name)
+            get_member_role_service().add_member_roles_to_user(user.name)
 
             # Link user to member
             member.user = user.name
