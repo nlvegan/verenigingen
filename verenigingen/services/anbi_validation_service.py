@@ -76,9 +76,15 @@ from typing import Any, Dict, List, Optional, Tuple
 import frappe
 from frappe import _
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 
-class ANBIValidationService:
+
+class ANBIValidationService(StatelessService):
     """Service for ANBI eligibility validation"""
+
+    def __init__(self):
+        """Initialize the ANBI Validation Service."""
+        super().__init__(service_name="ANBIValidationService")
 
     def _load_settings(self) -> Dict[str, Any]:
         """
