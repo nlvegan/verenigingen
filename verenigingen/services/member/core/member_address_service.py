@@ -20,12 +20,12 @@ Author: Verenigingen Development Team
 Created: 2025-09-18
 """
 
-import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 import frappe
 from frappe.utils import get_datetime, getdate, now
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.address_matching.dutch_address_normalizer import (
     AddressFingerprintCollisionHandler,
     DutchAddressNormalizer,
@@ -35,7 +35,7 @@ from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.validation_utilities import AgeValidator, DocumentExistenceValidator
 
 
-class MemberAddressService:
+class MemberAddressService(StatelessService):
     """
     Service for managing Member address operations with Dutch-specific normalization.
 
@@ -68,7 +68,7 @@ class MemberAddressService:
         return cls._instance
 
     def __init__(self):
-        self.logger = logging.getLogger(__name__)
+        super().__init__(service_name="MemberAddressService")
 
     def update_member_address_fields(self, member) -> OperationResult[str]:
         """
