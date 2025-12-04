@@ -14,6 +14,7 @@ Key Responsibilities:
     - Handle rollback on failures
 
 Architecture:
+    - StatelessService base class with unified logging and metrics
     - Each method handles ONE specific responsibility
     - Clear input/output contracts
     - Comprehensive error handling
@@ -33,22 +34,22 @@ Exception pattern provides:
 See: docs/patterns/ERROR_HANDLING_PATTERNS.md
 """
 
-import logging
-
 import frappe
 from frappe import _
 from frappe.utils import date_diff, getdate, today
 
+from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.service_error_handler import create_service_result, handle_service_error
 
-logger = logging.getLogger(__name__)
 
-
-class MembershipCreationService:
+class MembershipCreationService(StatelessService):
     """Service for creating memberships during member approval workflow"""
 
-    @staticmethod
+    def __init__(self):
+        super().__init__(service_name="MembershipCreationService")
+
     def _validate_membership_creation_inputs(
+        self,
         member_doc,
         start_date=None,
         custom_dues_rate=None,
@@ -117,8 +118,8 @@ class MembershipCreationService:
                 )
             )
 
-    @staticmethod
     def create_membership_on_approval(
+        self,
         member_doc,
         start_date=None,
         create_invoice=True,
@@ -149,60 +150,53 @@ class MembershipCreationService:
             Exception: For other errors during creation
         """
         try:
-            logger.info(
+            self.logger.info(
                 f"MembershipCreationService: Starting for {member_doc.name}, "
                 f"start_date={start_date}, create_invoice={create_invoice}, "
                 f"custom_dues_rate={custom_dues_rate}"
             )
 
             # Step 0: Validate all inputs (defense-in-depth)
-            MembershipCreationService._validate_membership_creation_inputs(
+            self._validate_membership_creation_inputs(
                 member_doc, start_date, custom_dues_rate, approval_fields
             )
 
             # Step 1: Validate membership creation parameters
-            membership_type = MembershipCreationService._validate_and_get_membership_type(member_doc)
+            membership_type = self._validate_and_get_membership_type(member_doc)
 
             # Step 2: Handle CSV import custom fee (if applicable)
             if custom_dues_rate:
-                MembershipCreationService._set_csv_import_custom_fee(
-                    member_doc, custom_dues_rate, custom_rate_reason
-                )
+                self._set_csv_import_custom_fee(member_doc, custom_dues_rate, custom_rate_reason)
 
             # Step 3: Get existing membership or create new one
-            membership = MembershipCreationService._get_or_create_membership(
+            membership = self._get_or_create_membership(
                 member_doc, membership_type, start_date, is_csv_import
             )
 
             # Step 4: Ensure dues schedule exists
-            MembershipCreationService._ensure_dues_schedule_exists(member_doc, membership, membership_type)
+            self._ensure_dues_schedule_exists(member_doc, membership, membership_type)
 
             # Step 5: Generate invoice (if needed)
             invoice = None
             if create_invoice:
-                invoice = MembershipCreationService._create_membership_invoice(
-                    member_doc, membership, membership_type
-                )
+                invoice = self._create_membership_invoice(member_doc, membership, membership_type)
 
             # Step 6: Consolidate all member field updates
-            dues_schedule = MembershipCreationService._consolidate_member_updates(
-                member_doc, membership, invoice, approval_fields
-            )
+            dues_schedule = self._consolidate_member_updates(member_doc, membership, invoice, approval_fields)
 
             # Step 7: Save member with rollback on failure
-            MembershipCreationService._save_member_with_rollback(
-                member_doc, membership, dues_schedule, invoice, approval_fields
-            )
+            self._save_member_with_rollback(member_doc, membership, dues_schedule, invoice, approval_fields)
 
-            logger.info(f"MembershipCreationService: Successfully created membership for {member_doc.name}")
+            self.logger.info(
+                f"MembershipCreationService: Successfully created membership for {member_doc.name}"
+            )
             return membership
 
         except Exception as e:
-            logger.error(f"MembershipCreationService: Error for {member_doc.name}: {str(e)}")
+            self.logger.error(f"MembershipCreationService: Error for {member_doc.name}: {str(e)}")
             frappe.throw(_("Error creating membership: {0}").format(str(e)))
 
-    @staticmethod
-    def _validate_and_get_membership_type(member_doc):
+    def _validate_and_get_membership_type(self, member_doc):
         """
         Validate that member has a selected membership type.
 
@@ -220,8 +214,7 @@ class MembershipCreationService:
 
         return frappe.get_doc("Membership Type", member_doc.selected_membership_type)
 
-    @staticmethod
-    def _set_csv_import_custom_fee(member_doc, custom_dues_rate, custom_rate_reason):
+    def _set_csv_import_custom_fee(self, member_doc, custom_dues_rate, custom_rate_reason):
         """
         Set custom dues rate for CSV imports.
 
@@ -237,12 +230,11 @@ class MembershipCreationService:
         member_doc.csv_import_custom_fee = custom_dues_rate
         member_doc.csv_import_custom_fee_reason = custom_rate_reason or "Imported from CSV"
 
-        logger.info(
+        self.logger.info(
             f"MembershipCreationService: Set CSV import custom fee {custom_dues_rate} for {member_doc.name}"
         )
 
-    @staticmethod
-    def _get_or_create_membership(member_doc, membership_type, start_date, is_csv_import):
+    def _get_or_create_membership(self, member_doc, membership_type, start_date, is_csv_import):
         """
         Get existing active membership or create new one.
 
@@ -269,17 +261,12 @@ class MembershipCreationService:
         )
 
         if existing_membership:
-            return MembershipCreationService._handle_existing_membership(
-                member_doc, existing_membership, membership_type
-            )
+            return self._handle_existing_membership(member_doc, existing_membership, membership_type)
 
         # No existing membership - create new one
-        return MembershipCreationService._create_new_membership(
-            member_doc, membership_type, start_date, is_csv_import
-        )
+        return self._create_new_membership(member_doc, membership_type, start_date, is_csv_import)
 
-    @staticmethod
-    def _handle_existing_membership(member_doc, existing_membership, membership_type):
+    def _handle_existing_membership(self, member_doc, existing_membership, membership_type):
         """
         Handle existing membership in retry scenario.
 
@@ -299,7 +286,7 @@ class MembershipCreationService:
 
         if same_type and days_old <= 1:
             # Existing membership is appropriate - reuse it
-            logger.info(
+            self.logger.info(
                 f"MembershipCreationService: Reusing membership {existing_membership.name} "
                 f"for {member_doc.name} (retry scenario)"
             )
@@ -317,8 +304,7 @@ class MembershipCreationService:
             )
         )
 
-    @staticmethod
-    def _create_new_membership(member_doc, membership_type, start_date, is_csv_import):
+    def _create_new_membership(self, member_doc, membership_type, start_date, is_csv_import):
         """
         Create new membership record.
 
@@ -355,11 +341,12 @@ class MembershipCreationService:
             membership.insert()
             membership.submit()
 
-        logger.info(f"MembershipCreationService: Created membership {membership.name} for {member_doc.name}")
+        self.logger.info(
+            f"MembershipCreationService: Created membership {membership.name} for {member_doc.name}"
+        )
         return membership
 
-    @staticmethod
-    def _ensure_dues_schedule_exists(member_doc, membership, membership_type):
+    def _ensure_dues_schedule_exists(self, member_doc, membership, membership_type):
         """
         Ensure membership dues schedule exists.
 
@@ -376,7 +363,7 @@ class MembershipCreationService:
         )
 
         if existing_schedule:
-            logger.info(
+            self.logger.info(
                 f"MembershipCreationService: Dues schedule {existing_schedule} "
                 f"already exists for {member_doc.name}"
             )
@@ -391,11 +378,11 @@ class MembershipCreationService:
             schedule_name = MembershipDuesSchedule.create_from_template(
                 member_doc.name, membership_type=membership_type.name, membership_name=membership.name
             )
-            logger.info(
+            self.logger.info(
                 f"MembershipCreationService: Created dues schedule {schedule_name} for {member_doc.name}"
             )
         except Exception as e:
-            logger.error(f"MembershipCreationService: Failed to create dues schedule: {str(e)}")
+            self.logger.error(f"MembershipCreationService: Failed to create dues schedule: {str(e)}")
             # Don't fail approval if dues schedule creation fails
             frappe.msgprint(
                 _("Warning: Dues schedule creation failed. It will be retried automatically."),
@@ -403,8 +390,7 @@ class MembershipCreationService:
                 indicator="orange",
             )
 
-    @staticmethod
-    def _create_membership_invoice(member_doc, membership, membership_type):
+    def _create_membership_invoice(self, member_doc, membership, membership_type):
         """
         Create membership invoice.
 
@@ -423,17 +409,18 @@ class MembershipCreationService:
             invoice = create_membership_invoice(
                 member_doc, membership, membership_type, current_fee["amount"]
             )
-            logger.info(f"MembershipCreationService: Created invoice {invoice.name} for {member_doc.name}")
+            self.logger.info(
+                f"MembershipCreationService: Created invoice {invoice.name} for {member_doc.name}"
+            )
             return invoice
         except Exception as e:
-            logger.error(f"MembershipCreationService: Failed to create invoice: {str(e)}")
+            self.logger.error(f"MembershipCreationService: Failed to create invoice: {str(e)}")
             frappe.msgprint(
                 _("Warning: Invoice creation failed: {0}").format(str(e)), alert=True, indicator="orange"
             )
             return None
 
-    @staticmethod
-    def _consolidate_member_updates(member_doc, membership, invoice, approval_fields):
+    def _consolidate_member_updates(self, member_doc, membership, invoice, approval_fields):
         """
         Consolidate all member field updates after membership creation.
 
@@ -448,7 +435,9 @@ class MembershipCreationService:
         Returns:
             str: Dues schedule name or None
         """
-        logger.info(f"MembershipCreationService: Reloading member {member_doc.name} for consolidated updates")
+        self.logger.info(
+            f"MembershipCreationService: Reloading member {member_doc.name} for consolidated updates"
+        )
         member_doc.reload()
 
         # Set current membership plan
@@ -480,8 +469,7 @@ class MembershipCreationService:
 
         return dues_schedule
 
-    @staticmethod
-    def _save_member_with_rollback(member_doc, membership, dues_schedule, invoice, approval_fields):
+    def _save_member_with_rollback(self, member_doc, membership, dues_schedule, invoice, approval_fields):
         """
         Save member with retry logic and rollback on failure.
 
@@ -525,7 +513,7 @@ class MembershipCreationService:
 
         # SECURITY_AUDIT: Comprehensive logging compensates for business rule bypass
         if member_doc.dues_rate:
-            logger.warning(
+            self.logger.warning(
                 f"SECURITY_AUDIT: Fee override validation bypassed via _system_update "
                 f"for member {member_doc.name}, dues_rate={member_doc.dues_rate}, "
                 f"user={frappe.session.user}, context=MembershipCreationService.approval_workflow"
@@ -558,7 +546,7 @@ class MembershipCreationService:
 
             # Security audit log
             if doc.dues_rate:
-                logger.warning(
+                self.logger.warning(
                     f"SECURITY_AUDIT: Fee override validation bypassed via _system_update "
                     f"for member {doc.name}, dues_rate={doc.dues_rate}, "
                     f"user={frappe.session.user}, context=MembershipCreationService (retry)"
@@ -567,7 +555,9 @@ class MembershipCreationService:
         # Use retry utility with automatic rollback of membership if member save fails
         from verenigingen.utils.document_save_retry import save_with_rollback
 
-        logger.info(f"MembershipCreationService: Saving member {member_doc.name} with rollback protection")
+        self.logger.info(
+            f"MembershipCreationService: Saving member {member_doc.name} with rollback protection"
+        )
         save_with_rollback(
             member_doc,
             rollback_docs=[membership],  # Cancel membership if member save fails

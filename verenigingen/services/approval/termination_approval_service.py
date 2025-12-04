@@ -6,17 +6,16 @@ Handles the multi-stage approval workflow with different rules based on
 termination type (voluntary, disciplinary, non-payment, etc.).
 """
 
-import logging
 from typing import Dict, List, Optional, Tuple
 
 import frappe
 from frappe import _
 from frappe.utils import now
 
-logger = logging.getLogger(__name__)
+from verenigingen.services.infrastructure.base_service import StatefulService
 
 
-class TerminationApprovalService:
+class TerminationApprovalService(StatefulService):
     """
     Service for managing termination request approval workflows.
 
@@ -37,13 +36,14 @@ class TerminationApprovalService:
         "Board Member",
     ]
 
-    def __init__(self, termination_request: "MembershipTerminationRequest"):
+    def __init__(self, termination_request: "MembershipTerminationRequest" = None):
         """
         Initialize approval service for a termination request.
 
         Args:
             termination_request: The MembershipTerminationRequest document
         """
+        super().__init__(service_name="TerminationApprovalService")
         self.request = termination_request
 
     def requires_secondary_approval(self) -> bool:
@@ -202,9 +202,9 @@ class TerminationApprovalService:
         try:
             if self.request.secondary_approver:
                 # TODO: Implement email notification
-                logger.info(f"Approval notification should be sent to {self.request.secondary_approver}")
+                self.logger.info(f"Approval notification should be sent to {self.request.secondary_approver}")
         except Exception as e:
-            logger.error(f"Failed to send approval notification: {str(e)}")
+            self.logger.error(f"Failed to send approval notification: {str(e)}")
 
     def _add_to_expulsion_report(self) -> None:
         """Add disciplinary termination to expulsion report"""
@@ -237,7 +237,7 @@ class TerminationApprovalService:
                 if member_chapters:
                     expulsion_entry.chapter_involved = member_chapters[0].parent
             else:
-                logger.warning(
+                self.logger.warning(
                     f"User {frappe.session.user} lacks permission to read Chapter Member - "
                     f"chapter information omitted from expulsion report"
                 )
@@ -253,15 +253,16 @@ class TerminationApprovalService:
             )
 
             if not expulsion_result.success:
-                logger.error(f"Failed to create expulsion report entry: {'; '.join(expulsion_result.errors)}")
+                self.logger.error(
+                    f"Failed to create expulsion report entry: {'; '.join(expulsion_result.errors)}"
+                )
 
-            logger.info(f"Added expulsion report entry for {self.request.member_name}")
+            self.logger.info(f"Added expulsion report entry for {self.request.member_name}")
 
         except Exception as e:
-            logger.error(f"Failed to create expulsion report entry: {str(e)}")
+            self.logger.error(f"Failed to create expulsion report entry: {str(e)}")
 
-    @staticmethod
-    def validate_approver_permissions(user: str) -> None:
+    def validate_approver_permissions(self, user: str) -> None:
         """
         Validate that the user has permission to approve termination requests.
 
@@ -282,11 +283,11 @@ class TerminationApprovalService:
         # Check if user has appropriate roles
         user_roles = frappe.get_roles(user)
 
-        if not any(role in user_roles for role in TerminationApprovalService.APPROVAL_ROLES):
+        if not any(role in user_roles for role in self.APPROVAL_ROLES):
             frappe.throw(_("User {0} does not have permission to approve termination requests").format(user))
 
-    @staticmethod
     def get_eligible_approvers(
+        self,
         doctype: Optional[str] = None,
         txt: Optional[str] = None,
         searchfield: Optional[str] = None,
@@ -314,7 +315,7 @@ class TerminationApprovalService:
             # Build parameterized conditions
             conditions = ["u.enabled = 1"]
             query_params = {
-                "roles": TerminationApprovalService.APPROVAL_ROLES,
+                "roles": self.APPROVAL_ROLES,
                 "start": start,
                 "page_len": page_len,
             }
@@ -343,5 +344,5 @@ class TerminationApprovalService:
             return users
 
         except Exception as e:
-            logger.error(f"Error getting eligible approvers: {str(e)}")
+            self.logger.error(f"Error getting eligible approvers: {str(e)}")
             return []

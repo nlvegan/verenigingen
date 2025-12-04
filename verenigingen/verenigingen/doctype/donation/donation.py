@@ -286,7 +286,7 @@ def create_donation_from_bank_transfer(donor, amount, date, bank_reference, dona
     """Create donation from bank transfer details (payment-first architecture)"""
     from verenigingen.services.donation_financial_service import DonationFinancialService
 
-    return DonationFinancialService.create_donation_from_bank_transfer(
+    return DonationFinancialService().create_donation_from_bank_transfer(
         donor=donor, amount=amount, date=date, bank_reference=bank_reference, donation_type=donation_type
     )
 
@@ -344,7 +344,7 @@ def create_sepa_donation(donor, amount, date, sepa_mandate, donation_type=None, 
     """Create donation for SEPA direct debit"""
     from verenigingen.services.donation_financial_service import DonationFinancialService
 
-    return DonationFinancialService.create_sepa_donation(
+    return DonationFinancialService().create_sepa_donation(
         donor=donor,
         amount=amount,
         date=date,
@@ -443,7 +443,7 @@ def create_chapter_donation(donor, amount, chapter, date=None, donation_type=Non
     """Create a donation earmarked for a specific chapter"""
     from verenigingen.services.donation_financial_service import DonationFinancialService
 
-    return DonationFinancialService.create_chapter_donation(
+    return DonationFinancialService().create_chapter_donation(
         donor=donor, amount=amount, chapter=chapter, date=date, donation_type=donation_type, notes=notes
     )
 
@@ -464,7 +464,7 @@ def reconcile_donation_accounts():
     """Reconcile donation amounts with GL entries"""
     from verenigingen.services.donation_financial_service import DonationFinancialService
 
-    return DonationFinancialService.reconcile_donation_accounts()
+    return DonationFinancialService().reconcile_donation_accounts()
 
 
 @frappe.whitelist()

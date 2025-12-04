@@ -33,9 +33,9 @@ class Team(Document):
         """Validate team document"""
         from verenigingen.services.team_service import TeamValidationService
 
-        TeamValidationService.validate_dates(self)
-        TeamValidationService.validate_team_members(self)
-        TeamValidationService.validate_role_profile_configuration(self)
+        TeamValidationService().validate_dates(self)
+        TeamValidationService().validate_team_members(self)
+        TeamValidationService().validate_role_profile_configuration(self)
         self._validate_unique_roles()
         self._update_team_lead()
 
@@ -97,7 +97,7 @@ class Team(Document):
         """Validate unique role constraints"""
         from verenigingen.services.team_service import TeamService
 
-        TeamService.validate_unique_roles(self)
+        TeamService().validate_unique_roles(self)
 
     def _update_team_lead(self):
         """Auto-populate team_lead field from active Team Leader"""
@@ -402,9 +402,6 @@ class Team(Document):
 
     def _detect_and_emit_membership_changes(self, old_doc):
         """Detect and emit team membership changes"""
-        old_members = {(m.volunteer, m.from_date, m.team_role) for m in (old_doc.team_members or [])}
-        new_members = {(m.volunteer, m.from_date, m.team_role) for m in (self.team_members or [])}
-
         # Group by volunteer to detect changes
         old_by_volunteer = {}
         for m in old_doc.team_members or []:

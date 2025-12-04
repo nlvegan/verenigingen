@@ -80,7 +80,7 @@ class TestTerminationExecutionService(EnhancedTestCase):
         # Mock transaction methods to avoid conflicts with test framework's transaction
         with patch('frappe.db.begin'), patch('frappe.db.commit'), patch('frappe.db.rollback'):
             # First execution should succeed
-            result1 = TerminationExecutionService.execute(request)
+            result1 = TerminationExecutionService().execute(request)
             self.assertTrue(result1, "First execution should succeed")
 
             # Reload to get updated state
@@ -92,7 +92,7 @@ class TestTerminationExecutionService(EnhancedTestCase):
             self.assertIsNotNone(executed_by_first, "First execution should set executed_by")
 
             # Second execution attempt (simulates concurrent execution arriving after first)
-            result2 = TerminationExecutionService.execute(request)
+            result2 = TerminationExecutionService().execute(request)
             self.assertTrue(result2, "Second execution should return True (idempotent)")
 
             # Reload and verify execution tracking unchanged (proof of idempotency)
@@ -124,7 +124,7 @@ class TestTerminationExecutionService(EnhancedTestCase):
         # Mock transaction methods to avoid conflicts with test framework
         with patch('frappe.db.begin'), patch('frappe.db.commit'), patch('frappe.db.rollback'):
             # First execution should succeed
-            result1 = TerminationExecutionService.execute(request)
+            result1 = TerminationExecutionService().execute(request)
             self.assertTrue(result1, "First execution should succeed")
 
             # Reload to get updated state
@@ -133,7 +133,7 @@ class TestTerminationExecutionService(EnhancedTestCase):
 
             # Second execution should be idempotent (return True but not re-execute)
             execution_date_before = request.execution_date
-            result2 = TerminationExecutionService.execute(request)
+            result2 = TerminationExecutionService().execute(request)
 
             self.assertTrue(result2, "Second execution should return True (idempotent)")
 
@@ -170,7 +170,7 @@ class TestTerminationExecutionService(EnhancedTestCase):
             ):
                 # Execution should fail
                 with self.assertRaises(Exception) as context:
-                    TerminationExecutionService.execute(request)
+                    TerminationExecutionService().execute(request)
 
                 self.assertIn("Simulated execution failure", str(context.exception))
 
@@ -211,7 +211,7 @@ class TestTerminationExecutionService(EnhancedTestCase):
         # Mock transaction methods
         with patch('frappe.db.begin'), patch('frappe.db.commit'), patch('frappe.db.rollback'):
             # Execute successfully
-            result = TerminationExecutionService.execute(request)
+            result = TerminationExecutionService().execute(request)
             self.assertTrue(result, "Execution should succeed")
 
             # Reload to verify committed state
@@ -257,7 +257,7 @@ class TestTerminationExecutionService(EnhancedTestCase):
                 side_effect=Exception("Test error for status revert")
             ):
                 with self.assertRaises(Exception):
-                    TerminationExecutionService.execute(request)
+                    TerminationExecutionService().execute(request)
 
         # Reload document
         request.reload()
@@ -312,7 +312,7 @@ class TestTerminationExecutionService(EnhancedTestCase):
             ):
                 # First execution should fail
                 with self.assertRaises(Exception):
-                    TerminationExecutionService.execute(request)
+                    TerminationExecutionService().execute(request)
 
                 # Reload after failure
                 request.reload()
@@ -320,7 +320,7 @@ class TestTerminationExecutionService(EnhancedTestCase):
                 self.assertIsNone(request.execution_date, "Should have no execution_date after rollback")
 
                 # Retry should succeed
-                result = TerminationExecutionService.execute(request)
+                result = TerminationExecutionService().execute(request)
                 self.assertTrue(result, "Retry should succeed")
 
                 # Verify successful retry
@@ -346,7 +346,7 @@ class TestTerminationExecutionService(EnhancedTestCase):
         """
         # Test with non-Document object
         with self.assertRaises(TypeError) as context:
-            TerminationExecutionService.execute("not a document")
+            TerminationExecutionService().execute("not a document")
 
         self.assertIn("Expected frappe.model.document.Document", str(context.exception))
 
@@ -357,7 +357,7 @@ class TestTerminationExecutionService(EnhancedTestCase):
         })
 
         with self.assertRaises(TypeError) as context:
-            TerminationExecutionService.execute(wrong_doctype)
+            TerminationExecutionService().execute(wrong_doctype)
 
         self.assertIn("Expected DocType 'Membership Termination Request'", str(context.exception))
 
@@ -368,7 +368,7 @@ class TestTerminationExecutionService(EnhancedTestCase):
         # Mock transaction methods
         with patch('frappe.db.begin'), patch('frappe.db.commit'), patch('frappe.db.rollback'):
             # Should not raise TypeError
-            result = TerminationExecutionService.execute(request)
+            result = TerminationExecutionService().execute(request)
             self.assertTrue(result, "Valid input should execute successfully")
 
     # ========================================================================
@@ -409,7 +409,7 @@ class TestTerminationExecutionService(EnhancedTestCase):
         with patch('frappe.db.begin'), patch('frappe.db.commit'), patch('frappe.db.rollback'):
             # Execute with pre-existing executed_by (retry scenario)
             with patch('frappe.logger') as mock_logger:
-                result = TerminationExecutionService.execute(request)
+                result = TerminationExecutionService().execute(request)
                 self.assertTrue(result)
 
                 # Verify retry was logged (check for warning about existing executed_by)
@@ -452,7 +452,7 @@ class TestTerminationExecutionService(EnhancedTestCase):
 
         # Execution should fail validation
         with self.assertRaises(Exception):
-            TerminationExecutionService.execute(draft_request)
+            TerminationExecutionService().execute(draft_request)
 
     def test_validation_requires_submitted_document(self):
         """Test that validation requires submitted document"""
@@ -472,7 +472,7 @@ class TestTerminationExecutionService(EnhancedTestCase):
 
         # Execution should fail validation
         with self.assertRaises(Exception):
-            TerminationExecutionService.execute(unsubmitted_request)
+            TerminationExecutionService().execute(unsubmitted_request)
 
     # ========================================================================
     # Performance Tests
@@ -492,7 +492,7 @@ class TestTerminationExecutionService(EnhancedTestCase):
         # Mock transaction methods
         with patch('frappe.db.begin'), patch('frappe.db.commit'), patch('frappe.db.rollback'):
             start_time = time.time()
-            result = TerminationExecutionService.execute(request)
+            result = TerminationExecutionService().execute(request)
             execution_time = time.time() - start_time
 
             self.assertTrue(result, "Execution should succeed")
@@ -554,7 +554,7 @@ class TestTerminationExecutionServiceEdgeCases(EnhancedTestCase):
         with patch('frappe.db.begin'), patch('frappe.db.commit'), patch('frappe.db.rollback'):
             # Execution should fail gracefully
             with self.assertRaises(Exception):
-                TerminationExecutionService.execute(request)
+                TerminationExecutionService().execute(request)
 
     # Note: Database lock timeout testing removed per test quality standards
     # Database operations should not be mocked in integration tests

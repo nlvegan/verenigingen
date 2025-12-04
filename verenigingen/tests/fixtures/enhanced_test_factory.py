@@ -2715,6 +2715,10 @@ class EnhancedTestCase(FrappeTestCase):
             
             # Don't set default fiscal year on company - ERPNext handles this automatically
 
+            # Ensure Verenigingen Settings uses the test company and its accounts
+            # This prevents company/account mismatch errors in invoice generation
+            self._ensure_verenigingen_settings(test_company)
+
             # Ensure Department infrastructure for Chapter/Department integration
             # Chapter.after_insert() calls _sync_department() which requires:
             # 1. Company (already ensured above)
@@ -3480,11 +3484,25 @@ class EnhancedTestCase(FrappeTestCase):
 
     def _ensure_company_defaults(self, company_name):
         """
-        Ensure company has default receivable and payable accounts set.
+        Ensure company has default receivable, payable accounts, cost center, and round off account.
 
         Called after Chart of Accounts initialization to configure company defaults.
         """
         company_doc = frappe.get_doc("Company", company_name)
+
+        # Set round off account if not already set (required for invoice submission)
+        if not company_doc.round_off_account:
+            # Find an expense account for round off
+            round_off_account = frappe.db.get_value(
+                "Account",
+                {"company": company_name, "account_type": "Expense Account", "is_group": 0},
+                "name"
+            )
+            if not round_off_account:
+                # No expense account exists - create one for round off
+                round_off_account = self._create_round_off_account(company_name)
+            if round_off_account:
+                company_doc.db_set("round_off_account", round_off_account)
 
         # Set default receivable account if not already set
         if not company_doc.default_receivable_account:
@@ -3505,6 +3523,174 @@ class EnhancedTestCase(FrappeTestCase):
             )
             if payable_account:
                 company_doc.db_set("default_payable_account", payable_account)
+
+        # Ensure cost center exists and is set as default
+        self._ensure_company_cost_center(company_name)
+
+    def _ensure_company_cost_center(self, company_name):
+        """
+        Ensure company has a cost center configured.
+
+        Creates a Main cost center if none exists and sets it as the company default.
+        This is critical for Sales Invoice creation which requires a cost center.
+        """
+        # Check if company already has a default cost center
+        existing_default = frappe.db.get_value("Company", company_name, "cost_center")
+        if existing_default and frappe.db.exists("Cost Center", existing_default):
+            return existing_default
+
+        # Check for any existing cost center for this company
+        existing_cc = frappe.db.get_value(
+            "Cost Center",
+            {"company": company_name, "is_group": 0},
+            "name"
+        )
+        if existing_cc:
+            frappe.db.set_value("Company", company_name, "cost_center", existing_cc, update_modified=False)
+            return existing_cc
+
+        # No cost center exists - create one using ERPNext's standard approach
+        abbr = frappe.db.get_value("Company", company_name, "abbr") or "TC"
+
+        # Check if there's already a root cost center for this company (group with no parent)
+        root_cc_name = frappe.db.get_value(
+            "Cost Center",
+            {"company": company_name, "is_group": 1},
+            "name"
+        )
+
+        if not root_cc_name:
+            # Create root cost center - use db.sql to bypass tree validation for root
+            root_cc_name = f"{company_name} - {abbr}"
+            if not frappe.db.exists("Cost Center", root_cc_name):
+                frappe.db.sql("""
+                    INSERT INTO `tabCost Center`
+                    (name, cost_center_name, company, is_group, lft, rgt, parent_cost_center, docstatus, creation, modified, owner, modified_by)
+                    VALUES (%s, %s, %s, 1, 1, 4, '', 0, NOW(), NOW(), 'Administrator', 'Administrator')
+                """, (root_cc_name, company_name, company_name))
+
+        # Create Main cost center under root
+        main_cc_name = f"Main - {abbr}"
+        if not frappe.db.exists("Cost Center", main_cc_name):
+            frappe.db.sql("""
+                INSERT INTO `tabCost Center`
+                (name, cost_center_name, company, is_group, lft, rgt, parent_cost_center, docstatus, creation, modified, owner, modified_by)
+                VALUES (%s, %s, %s, 0, 2, 3, %s, 0, NOW(), NOW(), 'Administrator', 'Administrator')
+            """, (main_cc_name, "Main", company_name, root_cc_name))
+
+        # Set as company default
+        frappe.db.set_value("Company", company_name, "cost_center", main_cc_name, update_modified=False)
+        return main_cc_name
+
+    def _create_round_off_account(self, company_name):
+        """
+        Create a round off expense account for the company.
+
+        Required for Sales Invoice submission in ERPNext.
+        """
+        abbr = frappe.db.get_value("Company", company_name, "abbr") or "TC"
+
+        # Find or create expense parent account
+        expense_parent = frappe.db.get_value(
+            "Account",
+            {"company": company_name, "root_type": "Expense", "is_group": 1},
+            "name"
+        )
+
+        if not expense_parent:
+            # Create expense root using SQL to bypass tree validation
+            expense_parent = f"Expenses - {abbr}"
+            if not frappe.db.exists("Account", expense_parent):
+                frappe.db.sql("""
+                    INSERT INTO `tabAccount`
+                    (name, account_name, company, root_type, report_type, is_group, lft, rgt, parent_account, docstatus, creation, modified, owner, modified_by)
+                    VALUES (%s, %s, %s, 'Expense', 'Profit and Loss', 1, 1, 4, '', 0, NOW(), NOW(), 'Administrator', 'Administrator')
+                """, (expense_parent, "Expenses", company_name))
+
+        # Create round off account
+        round_off_name = f"Round Off - {abbr}"
+        if not frappe.db.exists("Account", round_off_name):
+            frappe.db.sql("""
+                INSERT INTO `tabAccount`
+                (name, account_name, company, root_type, report_type, account_type, is_group, lft, rgt, parent_account, docstatus, creation, modified, owner, modified_by)
+                VALUES (%s, %s, %s, 'Expense', 'Profit and Loss', 'Expense Account', 0, 2, 3, %s, 0, NOW(), NOW(), 'Administrator', 'Administrator')
+            """, (round_off_name, "Round Off", company_name, expense_parent))
+
+        return round_off_name
+
+    def _ensure_verenigingen_settings(self, test_company):
+        """
+        Ensure Verenigingen Settings is configured for the test company.
+
+        This prevents company/account mismatch errors in invoice generation tests
+        by ensuring the dues_income_account and cost center belong to the same
+        company used for test members and invoices.
+        """
+        # Get or create income account for test company
+        income_account = self._get_or_create_income_account(test_company)
+
+        # Get or create cost center for test company
+        cost_center = self._get_or_create_cost_center(test_company)
+
+        # Update Verenigingen Settings to use the test company
+        frappe.db.set_value("Verenigingen Settings", None, "company", test_company, update_modified=False)
+        frappe.db.set_value("Verenigingen Settings", None, "dues_income_account", income_account, update_modified=False)
+
+        # Also ensure default_income_account on the company for fallback paths
+        current_default = frappe.db.get_value("Company", test_company, "default_income_account")
+        if not current_default:
+            frappe.db.set_value("Company", test_company, "default_income_account", income_account, update_modified=False)
+
+        # Ensure company has a cost center configured
+        if cost_center:
+            current_cost_center = frappe.db.get_value("Company", test_company, "cost_center")
+            if not current_cost_center:
+                frappe.db.set_value("Company", test_company, "cost_center", cost_center, update_modified=False)
+
+        frappe.db.commit()
+
+    def _get_or_create_cost_center(self, company):
+        """Get or create a Main cost center for testing"""
+        # Check for existing Main cost center
+        existing = frappe.db.get_value("Cost Center", {"cost_center_name": "Main", "company": company})
+        if existing:
+            return existing
+
+        # Get company abbreviation for naming
+        abbr = frappe.db.get_value("Company", company, "abbr") or company.split()[-1][:3].upper()
+        cost_center_name = f"Main - {abbr}"
+
+        # Check if this specific name exists
+        if frappe.db.exists("Cost Center", cost_center_name):
+            return cost_center_name
+
+        # Find parent cost center (root for this company)
+        parent_cc = frappe.db.get_value("Cost Center", {"company": company, "is_group": 1, "parent_cost_center": ""})
+
+        if not parent_cc:
+            # Create root cost center first
+            root_name = f"{company} - {abbr}"
+            if not frappe.db.exists("Cost Center", root_name):
+                root_cc = frappe.new_doc("Cost Center")
+                root_cc.cost_center_name = company
+                root_cc.company = company
+                root_cc.is_group = 1
+                root_cc.parent_cost_center = ""
+                root_cc.insert()
+                self.factory.track_document("Cost Center", root_cc.name, priority=1)
+                parent_cc = root_cc.name
+            else:
+                parent_cc = root_name
+
+        # Create Main cost center
+        cc = frappe.new_doc("Cost Center")
+        cc.cost_center_name = "Main"
+        cc.company = company
+        cc.parent_cost_center = parent_cc
+        cc.is_group = 0
+        cc.insert()
+        self.factory.track_document("Cost Center", cc.name, priority=1)
+        return cc.name
 
     def _ensure_test_item(self, item_code):
         """Ensure test item exists for invoices"""

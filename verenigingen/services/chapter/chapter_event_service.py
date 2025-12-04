@@ -13,7 +13,7 @@ Extracted from chapter.py:
 - _detect_and_emit_settings_changes() - Lines 682-703 (22 LOC)
 
 Architecture:
-- Static methods for stateless operations
+- StatelessService base class with unified logging and metrics
 - Chapter document and old_doc passed as parameters
 - Event emission for background processing
 - Set-based change detection for efficiency
@@ -38,12 +38,13 @@ from verenigingen.events.chapter_events import (
     emit_chapter_membership_changed,
     emit_chapter_settings_changed,
 )
+from verenigingen.services.infrastructure.base_service import StatelessService
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
 
 
-class ChapterEventService:
+class ChapterEventService(StatelessService):
     """
     Service for detecting Chapter changes and emitting events.
 
@@ -54,8 +55,11 @@ class ChapterEventService:
     - Event emission with action metadata
     """
 
-    @staticmethod
-    def detect_and_emit_board_changes(chapter_doc: "Document", old_doc: "Document") -> None:
+    def __init__(self):
+        """Initialize the Chapter Event Service"""
+        super().__init__(service_name="ChapterEventService")
+
+    def detect_and_emit_board_changes(self, chapter_doc: "Document", old_doc: "Document") -> None:
         """
         Detect and emit board member changes including activation/deactivation.
 
@@ -138,8 +142,7 @@ class ChapterEventService:
                     },
                 )
 
-    @staticmethod
-    def detect_and_emit_membership_changes(chapter_doc: "Document", old_doc: "Document") -> None:
+    def detect_and_emit_membership_changes(self, chapter_doc: "Document", old_doc: "Document") -> None:
         """
         Detect and emit chapter membership changes (joins and leaves).
 
@@ -177,8 +180,7 @@ class ChapterEventService:
                 {"member": member, "action": "left", "changed_by": frappe.session.user},
             )
 
-    @staticmethod
-    def detect_and_emit_settings_changes(chapter_doc: "Document", old_doc: "Document") -> None:
+    def detect_and_emit_settings_changes(self, chapter_doc: "Document", old_doc: "Document") -> None:
         """
         Detect and emit chapter settings changes for important fields.
 

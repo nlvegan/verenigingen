@@ -322,14 +322,14 @@ class TestTerminationApprovalService(EnhancedTestCase):
     def test_validate_approver_with_valid_user(self):
         """Should pass validation for valid approver"""
         # Should not raise
-        TerminationApprovalService.validate_approver_permissions(
+        TerminationApprovalService().validate_approver_permissions(
             "approver.test@verenigingen.test"
         )
 
     def test_validate_approver_nonexistent_user_fails(self):
         """Should fail for non-existent user"""
         with self.assertRaises(frappe.ValidationError) as context:
-            TerminationApprovalService.validate_approver_permissions(
+            TerminationApprovalService().validate_approver_permissions(
                 "nonexistent@test.com"
             )
 
@@ -348,7 +348,7 @@ class TestTerminationApprovalService(EnhancedTestCase):
 
         try:
             with self.assertRaises(frappe.ValidationError) as context:
-                TerminationApprovalService.validate_approver_permissions(
+                TerminationApprovalService().validate_approver_permissions(
                     "disabled.test@verenigingen.test"
                 )
 
@@ -369,7 +369,7 @@ class TestTerminationApprovalService(EnhancedTestCase):
 
         try:
             with self.assertRaises(frappe.ValidationError) as context:
-                TerminationApprovalService.validate_approver_permissions(
+                TerminationApprovalService().validate_approver_permissions(
                     "norole.test@verenigingen.test"
                 )
 
@@ -383,7 +383,7 @@ class TestTerminationApprovalService(EnhancedTestCase):
 
     def test_get_eligible_approvers_returns_users_with_roles(self):
         """Should return users with approval roles"""
-        approvers = TerminationApprovalService.get_eligible_approvers()
+        approvers = TerminationApprovalService().get_eligible_approvers()
 
         self.assertIsInstance(approvers, list)
         self.assertGreater(len(approvers), 0)
@@ -397,7 +397,7 @@ class TestTerminationApprovalService(EnhancedTestCase):
     def test_get_eligible_approvers_filters_by_text(self):
         """Should filter approvers by search text"""
         # Search for the test approver
-        approvers = TerminationApprovalService.get_eligible_approvers(txt="Test Approver")
+        approvers = TerminationApprovalService().get_eligible_approvers(txt="Test Approver")
 
         # Should find our test approver
         approver_emails = [a[0] for a in approvers]
@@ -415,7 +415,7 @@ class TestTerminationApprovalService(EnhancedTestCase):
         )
 
         try:
-            approvers = TerminationApprovalService.get_eligible_approvers()
+            approvers = TerminationApprovalService().get_eligible_approvers()
             approver_emails = [a[0] for a in approvers]
 
             # Should not include disabled user
@@ -426,10 +426,10 @@ class TestTerminationApprovalService(EnhancedTestCase):
     def test_get_eligible_approvers_pagination(self):
         """Should support pagination parameters"""
         # Get first page
-        page1 = TerminationApprovalService.get_eligible_approvers(start=0, page_len=2)
+        page1 = TerminationApprovalService().get_eligible_approvers(start=0, page_len=2)
 
         # Get second page
-        page2 = TerminationApprovalService.get_eligible_approvers(start=2, page_len=2)
+        page2 = TerminationApprovalService().get_eligible_approvers(start=2, page_len=2)
 
         # Pages should be different (unless there are fewer than 4 approvers total)
         if len(page1) == 2 and len(page2) > 0:

@@ -16,8 +16,21 @@ import frappe
 from verenigingen.services.payment.validation_service import (
     PaymentValidationService,
     ValidationResult,
+    get_payment_validation_service,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+
+# Module-level service instance for tests
+_test_service = None
+
+
+def get_test_service():
+    """Get or create a test service instance."""
+    global _test_service
+    if _test_service is None:
+        _test_service = get_payment_validation_service()
+    return _test_service
 
 
 class TestValidationResult(EnhancedTestCase):
@@ -54,7 +67,7 @@ class TestIBANValidationWithContext(EnhancedTestCase):
 
     def test_valid_dutch_iban(self):
         """Test validation of valid Dutch IBAN"""
-        result = PaymentValidationService.validate_iban_with_context("NL91ABNA0417164300")
+        result = get_test_service().validate_iban_with_context("NL91ABNA0417164300")
 
         self.assertTrue(result.valid)
         self.assertIn("formatted_iban", result.data)
@@ -63,21 +76,21 @@ class TestIBANValidationWithContext(EnhancedTestCase):
 
     def test_valid_iban_with_spaces(self):
         """Test IBAN validation handles spaces correctly"""
-        result = PaymentValidationService.validate_iban_with_context("NL91 ABNA 0417 1643 00")
+        result = get_test_service().validate_iban_with_context("NL91 ABNA 0417 1643 00")
 
         self.assertTrue(result.valid)
         self.assertEqual(result.data["iban_clean"], "NL91ABNA0417164300")
 
     def test_empty_iban(self):
         """Test validation fails for empty IBAN"""
-        result = PaymentValidationService.validate_iban_with_context("")
+        result = get_test_service().validate_iban_with_context("")
 
         self.assertFalse(result.valid)
         self.assertIn("required", result.message.lower())
 
     def test_invalid_iban_checksum(self):
         """Test validation fails for invalid checksum with user-friendly message"""
-        result = PaymentValidationService.validate_iban_with_context("NL00ABNA0417164300")
+        result = get_test_service().validate_iban_with_context("NL00ABNA0417164300")
 
         self.assertFalse(result.valid)
         # Should have enhanced error message about double-checking
@@ -85,7 +98,7 @@ class TestIBANValidationWithContext(EnhancedTestCase):
 
     def test_iban_too_short(self):
         """Test validation fails for too-short IBAN with helpful message"""
-        result = PaymentValidationService.validate_iban_with_context("NL91")
+        result = get_test_service().validate_iban_with_context("NL91")
 
         self.assertFalse(result.valid)
         # Error message is enhanced to be user-friendly (mentions "incorrect" instead of technical "too short")
@@ -93,7 +106,7 @@ class TestIBANValidationWithContext(EnhancedTestCase):
 
     def test_iban_with_invalid_characters(self):
         """Test validation fails for IBAN with special characters"""
-        result = PaymentValidationService.validate_iban_with_context("NL91-ABNA-0417-1643-00")
+        result = get_test_service().validate_iban_with_context("NL91-ABNA-0417-1643-00")
 
         self.assertFalse(result.valid)
         # Error message is enhanced to be user-friendly (mentions "incorrect" from checksum validation)
@@ -101,14 +114,14 @@ class TestIBANValidationWithContext(EnhancedTestCase):
 
     def test_context_in_error_message(self):
         """Test context is included in error messages"""
-        result = PaymentValidationService.validate_iban_with_context("", context="SEPA mandate")
+        result = get_test_service().validate_iban_with_context("", context="SEPA mandate")
 
         self.assertFalse(result.valid)
         self.assertIn("SEPA mandate", result.message)
 
     def test_auto_format_disabled(self):
         """Test validation without auto-formatting"""
-        result = PaymentValidationService.validate_iban_with_context(
+        result = get_test_service().validate_iban_with_context(
             "NL91ABNA0417164300",
             auto_format=False
         )
@@ -122,7 +135,7 @@ class TestBankDetailsValidation(EnhancedTestCase):
 
     def test_valid_bank_details_with_auto_derive_bic(self):
         """Test validation with BIC auto-derivation for Dutch IBAN"""
-        result = PaymentValidationService.validate_bank_details(
+        result = get_test_service().validate_bank_details(
             iban="NL91ABNA0417164300",
             auto_derive_bic=True
         )
@@ -134,7 +147,7 @@ class TestBankDetailsValidation(EnhancedTestCase):
 
     def test_valid_bank_details_with_provided_bic(self):
         """Test validation with manually provided BIC"""
-        result = PaymentValidationService.validate_bank_details(
+        result = get_test_service().validate_bank_details(
             iban="NL91ABNA0417164300",
             bic="ABNANL2A"
         )
@@ -145,7 +158,7 @@ class TestBankDetailsValidation(EnhancedTestCase):
 
     def test_bank_details_with_account_holder_name(self):
         """Test validation including account holder name"""
-        result = PaymentValidationService.validate_bank_details(
+        result = get_test_service().validate_bank_details(
             iban="NL91ABNA0417164300",
             account_holder_name="Test User"
         )
@@ -155,7 +168,7 @@ class TestBankDetailsValidation(EnhancedTestCase):
 
     def test_invalid_iban_fails_bank_details(self):
         """Test bank details validation fails if IBAN is invalid"""
-        result = PaymentValidationService.validate_bank_details(
+        result = get_test_service().validate_bank_details(
             iban="INVALID",
             bic="ABNANL2A"
         )
@@ -165,7 +178,7 @@ class TestBankDetailsValidation(EnhancedTestCase):
 
     def test_invalid_bic_format(self):
         """Test validation fails for invalid BIC format"""
-        result = PaymentValidationService.validate_bank_details(
+        result = get_test_service().validate_bank_details(
             iban="NL91ABNA0417164300",
             bic="INVALID"
         )
@@ -176,7 +189,7 @@ class TestBankDetailsValidation(EnhancedTestCase):
     def test_bic_required_but_missing(self):
         """Test validation fails when BIC is required but not provided/derivable"""
         # Use non-Dutch IBAN that can't auto-derive BIC
-        result = PaymentValidationService.validate_bank_details(
+        result = get_test_service().validate_bank_details(
             iban="DE89370400440532013000",  # German IBAN
             auto_derive_bic=True,
             require_bic=True
@@ -188,7 +201,7 @@ class TestBankDetailsValidation(EnhancedTestCase):
 
     def test_account_holder_name_too_short(self):
         """Test validation fails for too-short account holder name"""
-        result = PaymentValidationService.validate_bank_details(
+        result = get_test_service().validate_bank_details(
             iban="NL91ABNA0417164300",
             account_holder_name="A"
         )
@@ -198,7 +211,7 @@ class TestBankDetailsValidation(EnhancedTestCase):
 
     def test_account_holder_name_too_long(self):
         """Test validation fails for too-long account holder name"""
-        result = PaymentValidationService.validate_bank_details(
+        result = get_test_service().validate_bank_details(
             iban="NL91ABNA0417164300",
             account_holder_name="A" * 71  # SEPA max is 70
         )
@@ -208,7 +221,7 @@ class TestBankDetailsValidation(EnhancedTestCase):
 
     def test_account_holder_name_only_numbers(self):
         """Test validation fails for account holder name with only numbers"""
-        result = PaymentValidationService.validate_bank_details(
+        result = get_test_service().validate_bank_details(
             iban="NL91ABNA0417164300",
             account_holder_name="123456"
         )
@@ -222,32 +235,32 @@ class TestBICFormatValidation(EnhancedTestCase):
 
     def test_valid_bic_8_characters(self):
         """Test validation of valid 8-character BIC"""
-        result = PaymentValidationService._validate_bic_format("ABNANL2A")
+        result = get_test_service()._validate_bic_format("ABNANL2A")
 
         self.assertTrue(result.valid)
 
     def test_valid_bic_11_characters(self):
         """Test validation of valid 11-character BIC"""
-        result = PaymentValidationService._validate_bic_format("ABNANL2AXXX")
+        result = get_test_service()._validate_bic_format("ABNANL2AXXX")
 
         self.assertTrue(result.valid)
 
     def test_invalid_bic_length(self):
         """Test validation fails for invalid BIC length"""
-        result = PaymentValidationService._validate_bic_format("ABNA")
+        result = get_test_service()._validate_bic_format("ABNA")
 
         self.assertFalse(result.valid)
         self.assertIn("8 or 11", result.message)
 
     def test_invalid_bic_format(self):
         """Test validation fails for invalid BIC format"""
-        result = PaymentValidationService._validate_bic_format("12345678")
+        result = get_test_service()._validate_bic_format("12345678")
 
         self.assertFalse(result.valid)
 
     def test_bic_case_insensitive(self):
         """Test BIC validation is case-insensitive"""
-        result = PaymentValidationService._validate_bic_format("abnanl2a")
+        result = get_test_service()._validate_bic_format("abnanl2a")
 
         self.assertTrue(result.valid)
 
@@ -265,14 +278,14 @@ class TestPaymentMethodValidation(EnhancedTestCase):
             mode.type = "Cash"
             mode.insert()
 
-        result = PaymentValidationService.validate_payment_method("Test Cash")
+        result = get_test_service().validate_payment_method("Test Cash")
 
         self.assertTrue(result.valid)
         self.assertEqual(result.data["method_name"], "Test Cash")
 
     def test_nonexistent_payment_method(self):
         """Test validation fails for non-existent payment method"""
-        result = PaymentValidationService.validate_payment_method("NonExistent Method")
+        result = get_test_service().validate_payment_method("NonExistent Method")
 
         self.assertFalse(result.valid)
         self.assertIn("does not exist", result.message)
@@ -286,14 +299,14 @@ class TestPaymentMethodValidation(EnhancedTestCase):
             mode.enabled = 0
             mode.insert()
 
-        result = PaymentValidationService.validate_payment_method("Disabled Method")
+        result = get_test_service().validate_payment_method("Disabled Method")
 
         self.assertFalse(result.valid)
         self.assertIn("disabled", result.message.lower())
 
     def test_empty_payment_method(self):
         """Test validation fails for empty payment method"""
-        result = PaymentValidationService.validate_payment_method("")
+        result = get_test_service().validate_payment_method("")
 
         self.assertFalse(result.valid)
         self.assertIn("required", result.message.lower())
@@ -304,7 +317,7 @@ class TestPaymentAmountValidation(EnhancedTestCase):
 
     def test_valid_amount(self):
         """Test validation of valid payment amount"""
-        result = PaymentValidationService.validate_payment_amount(25.50)
+        result = get_test_service().validate_payment_amount(25.50)
 
         self.assertTrue(result.valid)
         self.assertEqual(result.data["amount"], Decimal("25.50"))
@@ -312,41 +325,41 @@ class TestPaymentAmountValidation(EnhancedTestCase):
 
     def test_zero_amount_not_allowed_by_default(self):
         """Test validation fails for zero amount by default"""
-        result = PaymentValidationService.validate_payment_amount(0)
+        result = get_test_service().validate_payment_amount(0)
 
         self.assertFalse(result.valid)
         self.assertIn("greater than zero", result.message)
 
     def test_zero_amount_allowed_when_configured(self):
         """Test validation passes for zero when explicitly allowed"""
-        result = PaymentValidationService.validate_payment_amount(0, allow_zero=True)
+        result = get_test_service().validate_payment_amount(0, allow_zero=True)
 
         self.assertTrue(result.valid)
 
     def test_negative_amount(self):
         """Test validation fails for negative amount"""
-        result = PaymentValidationService.validate_payment_amount(-10.00)
+        result = get_test_service().validate_payment_amount(-10.00)
 
         self.assertFalse(result.valid)
         self.assertIn("negative", result.message.lower())
 
     def test_amount_below_minimum(self):
         """Test validation fails for amount below minimum"""
-        result = PaymentValidationService.validate_payment_amount(0.001)
+        result = get_test_service().validate_payment_amount(0.001)
 
         self.assertFalse(result.valid)
         self.assertIn("at least", result.message)
 
     def test_amount_above_maximum(self):
         """Test validation fails for amount above maximum"""
-        result = PaymentValidationService.validate_payment_amount(150000.00)
+        result = get_test_service().validate_payment_amount(150000.00)
 
         self.assertFalse(result.valid)
         self.assertIn("cannot exceed", result.message)
 
     def test_custom_minimum(self):
         """Test validation with custom minimum amount"""
-        result = PaymentValidationService.validate_payment_amount(
+        result = get_test_service().validate_payment_amount(
             5.00,
             min_amount=10.00
         )
@@ -356,7 +369,7 @@ class TestPaymentAmountValidation(EnhancedTestCase):
 
     def test_custom_maximum(self):
         """Test validation with custom maximum amount"""
-        result = PaymentValidationService.validate_payment_amount(
+        result = get_test_service().validate_payment_amount(
             50.00,
             max_amount=40.00
         )
@@ -366,28 +379,28 @@ class TestPaymentAmountValidation(EnhancedTestCase):
 
     def test_invalid_amount_type(self):
         """Test validation fails for invalid amount type"""
-        result = PaymentValidationService.validate_payment_amount("not a number")
+        result = get_test_service().validate_payment_amount("not a number")
 
         self.assertFalse(result.valid)
         self.assertIn("not a valid number", result.message)
 
     def test_none_amount(self):
         """Test validation fails for None amount"""
-        result = PaymentValidationService.validate_payment_amount(None)
+        result = get_test_service().validate_payment_amount(None)
 
         self.assertFalse(result.valid)
         self.assertIn("required", result.message.lower())
 
     def test_excessive_decimal_places(self):
         """Test validation fails for more than 2 decimal places"""
-        result = PaymentValidationService.validate_payment_amount(25.555)
+        result = get_test_service().validate_payment_amount(25.555)
 
         self.assertFalse(result.valid)
         self.assertIn("2 decimal places", result.message)
 
     def test_amount_precision_preserved(self):
         """Test Decimal precision is maintained for amounts"""
-        result = PaymentValidationService.validate_payment_amount(25.50)
+        result = get_test_service().validate_payment_amount(25.50)
 
         self.assertTrue(result.valid)
         # Check it's Decimal, not float
@@ -403,25 +416,28 @@ class TestAPIEndpoints(EnhancedTestCase):
     def test_validate_iban_api(self):
         """Test IBAN validation API endpoint"""
         from verenigingen.services.payment.validation_service import validate_iban_api
+        from verenigingen.utils.operation_result import OperationResult
 
         result = validate_iban_api(iban="NL91ABNA0417164300")
 
-        self.assertIsInstance(result, dict)
-        self.assertTrue(result["valid"])
-        self.assertIn("formatted_iban", result["data"])
+        self.assertIsInstance(result, OperationResult)
+        self.assertTrue(result.success)
+        self.assertIn("formatted_iban", result.data)
 
     def test_validate_bank_details_api(self):
         """Test bank details validation API endpoint"""
         from verenigingen.services.payment.validation_service import validate_bank_details_api
+        from verenigingen.utils.operation_result import OperationResult
 
         result = validate_bank_details_api(iban="NL91ABNA0417164300")
 
-        self.assertIsInstance(result, dict)
-        self.assertTrue(result["valid"])
+        self.assertIsInstance(result, OperationResult)
+        self.assertTrue(result.success)
 
     def test_validate_payment_method_api(self):
         """Test payment method validation API endpoint"""
         from verenigingen.services.payment.validation_service import validate_payment_method_api
+        from verenigingen.utils.operation_result import OperationResult
 
         # Create test payment method first
         if not frappe.db.exists("Mode of Payment", "API Test"):
@@ -432,19 +448,20 @@ class TestAPIEndpoints(EnhancedTestCase):
 
         result = validate_payment_method_api(method="API Test")
 
-        self.assertIsInstance(result, dict)
-        self.assertTrue(result["valid"])
+        self.assertIsInstance(result, OperationResult)
+        self.assertTrue(result.success)
 
     def test_validate_payment_amount_api(self):
         """Test payment amount validation API endpoint"""
         from verenigingen.services.payment.validation_service import validate_payment_amount_api
+        from verenigingen.utils.operation_result import OperationResult
 
         result = validate_payment_amount_api(amount=25.50)
 
-        self.assertIsInstance(result, dict)
-        self.assertTrue(result["valid"])
+        self.assertIsInstance(result, OperationResult)
+        self.assertTrue(result.success)
         # Amount should be converted to float for JSON serialization
-        self.assertIsInstance(result["data"]["amount"], float)
+        self.assertIsInstance(result.data["amount"], float)
 
 
 def run_tests():

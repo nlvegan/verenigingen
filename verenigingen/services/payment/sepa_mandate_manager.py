@@ -92,8 +92,7 @@ class SEPAMandateManager(StatelessService):
         super().__init__(service_name="SEPAMandateManager")
         self.validation_service = get_payment_validation_service()
 
-    @staticmethod
-    def _normalize_iban(iban: str) -> str:
+    def _normalize_iban(self, iban: str) -> str:
         """
         Normalize IBAN for comparison.
 
@@ -107,9 +106,9 @@ class SEPAMandateManager(StatelessService):
             Normalized IBAN string (no spaces, uppercase)
 
         Examples:
-            >>> SEPAMandateManager._normalize_iban("NL91 ABNA 0417 1643 00")
+            >>> SEPAMandateManager()._normalize_iban("NL91 ABNA 0417 1643 00")
             'NL91ABNA0417164300'
-            >>> SEPAMandateManager._normalize_iban("nl91-abna-0417-1643-00")
+            >>> SEPAMandateManager()._normalize_iban("nl91-abna-0417-1643-00")
             'NL91ABNA0417164300'
         """
         import re

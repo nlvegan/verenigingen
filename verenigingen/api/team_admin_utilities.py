@@ -46,7 +46,7 @@ def fix_all_missing_assignment_history():
                     # Import here to avoid circular imports
                     from verenigingen.services.team_service import TeamService
 
-                    success = TeamService.add_assignment_history(
+                    success = TeamService().add_assignment_history(
                         team_doc=team,
                         volunteer_id=member.volunteer,
                         team_role=member.team_role or member.role or "Team Member",
@@ -110,7 +110,7 @@ def fix_missing_assignment_history(team_name=None, volunteer_name=None):
             if not history_exists:
                 from verenigingen.services.team_service import TeamService
 
-                success = TeamService.add_assignment_history(
+                success = TeamService().add_assignment_history(
                     team_doc=team,
                     volunteer_id=volunteer_name,
                     team_role=member.team_role or member.role or "Team Member",

@@ -53,13 +53,13 @@ class MembershipTerminationRequest(Document):
         """UPDATED: Now uses TerminationAuditService.log_document_update()"""
         from verenigingen.services.termination import TerminationAuditService
 
-        TerminationAuditService.log_document_update(self)
+        TerminationAuditService().log_document_update(self)
 
     def after_insert(self):
         """UPDATED: Now uses TerminationAuditService.log_request_created()"""
         from verenigingen.services.termination import TerminationAuditService
 
-        TerminationAuditService.log_request_created(self)
+        TerminationAuditService().log_request_created(self)
 
     def on_update_after_submit(self):
         """Handle status changes after document is submitted (workflow changes)"""
@@ -80,7 +80,7 @@ class MembershipTerminationRequest(Document):
         from verenigingen.services.termination import TerminationAuditService
 
         # Log status change to audit trail
-        TerminationAuditService.log_status_change(self)
+        TerminationAuditService().log_status_change(self)
 
         # Skip if already being executed by the service (prevents recursive execution)
         if getattr(self.flags, "skip_status_change_hook", False):
@@ -106,7 +106,7 @@ class MembershipTerminationRequest(Document):
         """
         from verenigingen.services.termination import TerminationExecutionService
 
-        return TerminationExecutionService.execute(self)
+        return TerminationExecutionService().execute(self)
 
     def execute_system_updates_safely(self) -> Dict:
         """EXTRACTED: Moved to TerminationExecutionService.execute_system_updates()
@@ -116,7 +116,7 @@ class MembershipTerminationRequest(Document):
         """
         from verenigingen.services.termination import TerminationExecutionService
 
-        return TerminationExecutionService.execute_system_updates(self)
+        return TerminationExecutionService().execute_system_updates(self)
 
     def add_audit_entry(self, action: str, details: str, is_system: bool = False) -> None:
         """EXTRACTED: Moved to TerminationAuditService.add_entry()
@@ -126,7 +126,7 @@ class MembershipTerminationRequest(Document):
         """
         from verenigingen.services.termination import TerminationAuditService
 
-        return TerminationAuditService.add_entry(self, action, details, is_system)
+        return TerminationAuditService().add_entry(self, action, details, is_system)
 
     def set_approval_requirements(self):
         """Set whether secondary approval is required based on termination type"""
@@ -177,7 +177,7 @@ class MembershipTerminationRequest(Document):
         """
         from verenigingen.services.termination import TerminationExecutionService
 
-        return TerminationExecutionService.execute_from_api(self)
+        return TerminationExecutionService().execute_from_api(self)
 
     def validate_permissions(self):
         """Validate user permissions for different termination types"""
@@ -237,7 +237,7 @@ class MembershipTerminationRequest(Document):
             if self.secondary_approver:
                 from verenigingen.services.approval import TerminationApprovalService
 
-                TerminationApprovalService.validate_approver_permissions(self.secondary_approver)
+                TerminationApprovalService().validate_approver_permissions(self.secondary_approver)
 
     def validate_commitment_period(self):
         """
@@ -470,7 +470,7 @@ def get_eligible_approvers(doctype=None, txt=None, searchfield=None, start=0, pa
     """
     from verenigingen.services.approval import TerminationApprovalService
 
-    return TerminationApprovalService.get_eligible_approvers(
+    return TerminationApprovalService().get_eligible_approvers(
         doctype=doctype, txt=txt, searchfield=searchfield, start=start, page_len=page_len, filters=filters
     )
 

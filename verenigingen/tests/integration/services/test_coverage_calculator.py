@@ -19,7 +19,7 @@ from datetime import date
 
 import frappe
 
-from verenigingen.services.billing.coverage_calculator import CoverageCalculator, CoveragePeriodResult
+from verenigingen.services.billing.coverage_calculator import CoverageCalculator, CoveragePeriod
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
@@ -77,13 +77,13 @@ class TestCoverageCalculator(EnhancedTestCase):
         # Act
         result = calculator.calculate_next_coverage_period(self.member)
 
-        # Assert
-        self.assertTrue(result.is_valid())
-        self.assertIsNotNone(result.start_date)
-        self.assertIsNotNone(result.end_date)
-        self.assertEqual(result.calculation_method, "first_invoice")
-        self.assertIn("previous_coverage_end", result.metadata)
-        self.assertIsNone(result.metadata["previous_coverage_end"])
+        # Assert (uses OperationResult pattern)
+        self.assertTrue(result.success)
+        self.assertIsNotNone(result.data.start_date)
+        self.assertIsNotNone(result.data.end_date)
+        self.assertEqual(result.data.calculation_method, "first_invoice")
+        self.assertIn("previous_coverage_end", result.data.metadata)
+        self.assertIsNone(result.data.metadata["previous_coverage_end"])
 
     def test_mid_period_membership_start_uses_membership_date(self):
         """
@@ -106,18 +106,18 @@ class TestCoverageCalculator(EnhancedTestCase):
         result = calculator.calculate_next_coverage_period(self.member)
 
         # Assert - coverage should start from membership start, not period start
-        self.assertTrue(result.is_valid())
-        self.assertEqual(result.calculation_method, "first_invoice")
+        self.assertTrue(result.success)
+        self.assertEqual(result.data.calculation_method, "first_invoice")
 
         # For Annual billing: period would be Jan 1 - Dec 31
         # But coverage should start from Nov 15 (membership start)
-        self.assertEqual(result.start_date, expected_start)
-        self.assertEqual(result.end_date, date(2025, 12, 31))
+        self.assertEqual(result.data.start_date, expected_start)
+        self.assertEqual(result.data.end_date, date(2025, 12, 31))
 
         # Verify metadata shows membership_start was used
-        self.assertTrue(result.metadata.get("membership_start_used"))
-        self.assertEqual(result.metadata.get("membership_start"), expected_start)
-        self.assertEqual(result.metadata.get("period_start"), date(2025, 1, 1))
+        self.assertTrue(result.data.metadata.get("membership_start_used"))
+        self.assertEqual(result.data.metadata.get("membership_start"), expected_start)
+        self.assertEqual(result.data.metadata.get("period_start"), date(2025, 1, 1))
 
     def test_period_start_membership_uses_period_start(self):
         """
@@ -141,12 +141,12 @@ class TestCoverageCalculator(EnhancedTestCase):
         result = calculator.calculate_next_coverage_period(member_jan)
 
         # Assert - coverage starts from period start (which equals membership start)
-        self.assertTrue(result.is_valid())
-        self.assertEqual(result.start_date, date(2025, 1, 1))
-        self.assertEqual(result.end_date, date(2025, 12, 31))
+        self.assertTrue(result.success)
+        self.assertEqual(result.data.start_date, date(2025, 1, 1))
+        self.assertEqual(result.data.end_date, date(2025, 12, 31))
 
         # Verify metadata shows membership_start was NOT used (period_start was)
-        self.assertFalse(result.metadata.get("membership_start_used"))
+        self.assertFalse(result.data.metadata.get("membership_start_used"))
 
     def test_sequential_coverage_builds_on_previous(self):
         """Test that sequential coverage starts day after previous invoice"""
@@ -167,10 +167,10 @@ class TestCoverageCalculator(EnhancedTestCase):
         result = calculator.calculate_next_coverage_period(self.member)
 
         # Assert
-        self.assertTrue(result.is_valid())
-        self.assertEqual(result.start_date, date(2025, 2, 1))  # Day after previous end
-        self.assertEqual(result.calculation_method, "sequential")
-        self.assertEqual(result.metadata["previous_coverage_end"], date(2025, 1, 31))
+        self.assertTrue(result.success)
+        self.assertEqual(result.data.start_date, date(2025, 2, 1))  # Day after previous end
+        self.assertEqual(result.data.calculation_method, "sequential")
+        self.assertEqual(result.data.metadata["previous_coverage_end"], date(2025, 1, 31))
 
     # ========== Billing Frequency Tests ==========
 
@@ -192,9 +192,9 @@ class TestCoverageCalculator(EnhancedTestCase):
             )
 
             # Assert
-            self.assertTrue(result.is_valid())
-            self.assertEqual(result.start_date, result.end_date)  # Same day for daily billing
-            self.assertEqual(result.start_date, TEST_FORCE_DATE_DEC)
+            self.assertTrue(result.success)
+            self.assertEqual(result.data.start_date, result.data.end_date)  # Same day for daily billing
+            self.assertEqual(result.data.start_date, TEST_FORCE_DATE_DEC)
 
         finally:
             # Restore original frequency
@@ -226,9 +226,9 @@ class TestCoverageCalculator(EnhancedTestCase):
             )
 
             # Assert
-            self.assertTrue(result.is_valid())
-            self.assertEqual(result.start_date, date(2025, 1, 1))
-            self.assertEqual(result.end_date, date(2025, 3, 31))  # 3 months (Q1)
+            self.assertTrue(result.success)
+            self.assertEqual(result.data.start_date, date(2025, 1, 1))
+            self.assertEqual(result.data.end_date, date(2025, 3, 31))  # 3 months (Q1)
 
         finally:
             # Cleanup handled by test framework
@@ -249,11 +249,11 @@ class TestCoverageCalculator(EnhancedTestCase):
         )
 
         # Assert
-        self.assertTrue(result.is_valid())
-        self.assertEqual(result.calculation_method, "date_based")
+        self.assertTrue(result.success)
+        self.assertEqual(result.data.calculation_method, "date_based")
         # Date-based calculation uses billing_period_calculator logic
         # Result should be a valid period (start before end)
-        self.assertLess(result.start_date, result.end_date or result.start_date)
+        self.assertLess(result.data.start_date, result.data.end_date or result.data.start_date)
 
     # ========== Database Query Tests ==========
 
@@ -365,13 +365,13 @@ class TestCoverageCalculator(EnhancedTestCase):
             )
 
             # Assert
-            self.assertTrue(result.is_valid())
+            self.assertTrue(result.success)
             # For Monthly billing, force_date determines the period (Dec 1-31),
             # Since membership_start (Nov 15) < period_start (Dec 1), coverage uses period_start
-            self.assertEqual(result.start_date, date(2025, 12, 1))  # Period start
-            self.assertEqual(result.end_date, date(2025, 12, 31))  # Period end
-            self.assertEqual(result.metadata["force_date"], TEST_FORCE_DATE_DEC_MID)
-            self.assertEqual(result.metadata["reference_date"], TEST_FORCE_DATE_DEC_MID)
+            self.assertEqual(result.data.start_date, date(2025, 12, 1))  # Period start
+            self.assertEqual(result.data.end_date, date(2025, 12, 31))  # Period end
+            self.assertEqual(result.data.metadata["force_date"], TEST_FORCE_DATE_DEC_MID)
+            self.assertEqual(result.data.metadata["reference_date"], TEST_FORCE_DATE_DEC_MID)
         finally:
             # Restore original frequency
             self.schedule.billing_frequency = original_frequency
@@ -403,9 +403,9 @@ class TestCoverageCalculator(EnhancedTestCase):
         )
 
         # Assert
-        self.assertTrue(result.is_valid())
-        self.assertEqual(result.start_date, date(2025, 1, 1))
-        self.assertEqual(result.end_date, date(2025, 3, 31))  # 3 months coverage
+        self.assertTrue(result.success)
+        self.assertEqual(result.data.start_date, date(2025, 1, 1))
+        self.assertEqual(result.data.end_date, date(2025, 3, 31))  # 3 months coverage
 
 
 class TestShouldGenerateForCutoff(EnhancedTestCase):

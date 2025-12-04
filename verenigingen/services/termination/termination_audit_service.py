@@ -44,7 +44,6 @@ Compliance:
 - Full error context preserved for debugging
 """
 
-import logging
 import traceback
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
@@ -52,13 +51,13 @@ import frappe
 from frappe import _
 from frappe.utils import now
 
-logger = logging.getLogger(__name__)
+from verenigingen.services.infrastructure.base_service import StatelessService
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
 
 
-class TerminationAuditService:
+class TerminationAuditService(StatelessService):
     """
     Service for termination audit trail management.
 
@@ -70,12 +69,15 @@ class TerminationAuditService:
     - Distinguishing system vs user actions
     """
 
+    def __init__(self):
+        """Initialize the Termination Audit Service"""
+        super().__init__(service_name="TerminationAuditService")
+
     # ========================================================================
     # PUBLIC AUDIT METHODS
     # ========================================================================
 
-    @staticmethod
-    def add_entry(doc: "Document", action: str, details: str, is_system: bool = False) -> None:
+    def add_entry(self, doc: "Document", action: str, details: str, is_system: bool = False) -> None:
         """Add an entry to the audit trail with proper user handling.
 
         QCE HIGH PRIORITY FIX #6 (2025-11-24):
@@ -93,15 +95,15 @@ class TerminationAuditService:
             is_system: True if system-initiated action, False if user-initiated
 
         Examples:
-            >>> TerminationAuditService.add_entry(doc, "Status Changed", "Draft → Approved")
-            >>> TerminationAuditService.add_entry(doc, "System Update", "SEPA mandate cancelled", is_system=True)
+            >>> TerminationAuditService().add_entry(doc, "Status Changed", "Draft → Approved")
+            >>> TerminationAuditService().add_entry(doc, "System Update", "SEPA mandate cancelled", is_system=True)
         """
         # Handle system entries properly - use Administrator instead of "System"
         audit_user = frappe.session.user if not is_system else "Administrator"
 
         # Ensure the user exists - LOG SECURITY WARNING if fallback needed
         if not frappe.db.exists("User", audit_user):
-            logger.warning(
+            self.logger.warning(
                 f"SECURITY: Audit user '{audit_user}' does not exist - using Administrator fallback. "
                 f"Document: {doc.name}, Action: {action}, Is System: {is_system}. "
                 f"This may indicate corrupted session or deleted user account."
@@ -119,9 +121,8 @@ class TerminationAuditService:
             },
         )
 
-    @staticmethod
     def log_status_change(
-        doc: "Document", old_status: Optional[str] = None, new_status: Optional[str] = None
+        self, doc: "Document", old_status: Optional[str] = None, new_status: Optional[str] = None
     ) -> None:
         """Log a status change in the audit trail.
 
@@ -135,8 +136,8 @@ class TerminationAuditService:
             new_status: New status (uses doc.status if not provided)
 
         Examples:
-            >>> TerminationAuditService.log_status_change(doc, "Draft", "Pending Approval")
-            >>> TerminationAuditService.log_status_change(doc)  # Uses doc.status
+            >>> TerminationAuditService().log_status_change(doc, "Draft", "Pending Approval")
+            >>> TerminationAuditService().log_status_change(doc)  # Uses doc.status
         """
         # Get old status from saved doc if not provided
         if old_status is None:
@@ -148,26 +149,25 @@ class TerminationAuditService:
             new_status = doc.status
 
         # Log the status change
-        logger.info(f"Termination request {doc.name} status changed from {old_status} to {new_status}")
+        self.logger.info(f"Termination request {doc.name} status changed from {old_status} to {new_status}")
 
         # Add audit trail entry
-        TerminationAuditService.add_entry(
+        self.add_entry(
             doc, "Status Changed", f"Status changed from {old_status} to {new_status}", is_system=True
         )
 
         # Handle specific status transitions
         if new_status == "Executed" and old_status != "Executed":
-            logger.info(f"Executing termination for request {doc.name}")
+            self.logger.info(f"Executing termination for request {doc.name}")
             # Execution is triggered by workflow - actual execution logged separately
 
         elif new_status == "Approved":
-            TerminationAuditService._log_approved_transition(doc)
+            self._log_approved_transition(doc)
 
         elif new_status == "Rejected":
-            TerminationAuditService._log_rejected_transition(doc)
+            self._log_rejected_transition(doc)
 
-    @staticmethod
-    def log_document_update(doc: "Document") -> None:
+    def log_document_update(self, doc: "Document") -> None:
         """Log a document update (before_save event).
 
         Called during document save to track modifications.
@@ -176,12 +176,11 @@ class TerminationAuditService:
             doc: MembershipTerminationRequest document
 
         Examples:
-            >>> TerminationAuditService.log_document_update(doc)
+            >>> TerminationAuditService().log_document_update(doc)
         """
-        TerminationAuditService.add_entry(doc, "Document Updated", f"Status: {doc.status}")
+        self.add_entry(doc, "Document Updated", f"Status: {doc.status}")
 
-    @staticmethod
-    def log_request_created(doc: "Document") -> None:
+    def log_request_created(self, doc: "Document") -> None:
         """Log request creation (after_insert event).
 
         Called after a new termination request is created.
@@ -190,12 +189,11 @@ class TerminationAuditService:
             doc: MembershipTerminationRequest document
 
         Examples:
-            >>> TerminationAuditService.log_request_created(doc)
+            >>> TerminationAuditService().log_request_created(doc)
         """
-        TerminationAuditService.add_entry(doc, "Request Created", f"Termination type: {doc.termination_type}")
+        self.add_entry(doc, "Request Created", f"Termination type: {doc.termination_type}")
 
-    @staticmethod
-    def log_execution_complete(doc: "Document", results: Dict[str, Any]) -> None:
+    def log_execution_complete(self, doc: "Document", results: Dict[str, Any]) -> None:
         """Log successful execution completion.
 
         Called after termination execution completes successfully.
@@ -206,7 +204,7 @@ class TerminationAuditService:
 
         Examples:
             >>> results = {"actions_taken": ["Cancel membership", "Cancel SEPA"], "errors": []}
-            >>> TerminationAuditService.log_execution_complete(doc, results)
+            >>> TerminationAuditService().log_execution_complete(doc, results)
         """
         actions_count = len(results.get("actions_taken", []))
         errors_count = len(results.get("errors", []))
@@ -216,18 +214,17 @@ class TerminationAuditService:
         else:
             details = f"System updates completed: {actions_count} actions"
 
-        TerminationAuditService.add_entry(doc, "Termination Executed", details)
+        self.add_entry(doc, "Termination Executed", details)
 
         # Log individual actions
         for action in results.get("actions_taken", []):
-            TerminationAuditService.add_entry(doc, "System Update", action, is_system=True)
+            self.add_entry(doc, "System Update", action, is_system=True)
 
         # Log errors
         for error in results.get("errors", []):
-            TerminationAuditService.add_entry(doc, "System Update Error", error, is_system=True)
+            self.add_entry(doc, "System Update Error", error, is_system=True)
 
-    @staticmethod
-    def log_execution_failed(doc: "Document", error: Exception) -> None:
+    def log_execution_failed(self, doc: "Document", error: Exception) -> None:
         """Log execution failure with full error context.
 
         QCE HIGH PRIORITY FIX #5 (2025-11-24):
@@ -244,14 +241,14 @@ class TerminationAuditService:
             >>> try:
             >>>     execute_termination()
             >>> except Exception as e:
-            >>>     TerminationAuditService.log_execution_failed(doc, e)
+            >>>     TerminationAuditService().log_execution_failed(doc, e)
         """
         error_msg = str(error)
         error_type = type(error).__name__
         error_trace = traceback.format_exc()
 
         # Log full error context to logger (includes stack trace)
-        logger.error(
+        self.logger.error(
             f"Termination execution failed for {doc.name}:\n"
             f"Error Type: {error_type}\n"
             f"Error Message: {error_msg}\n"
@@ -259,28 +256,22 @@ class TerminationAuditService:
         )
 
         # Add audit entry with error type and message (not full trace - too verbose for UI)
-        TerminationAuditService.add_entry(
-            doc, "Execution Failed", f"Error Type: {error_type}\nMessage: {error_msg}"
-        )
+        self.add_entry(doc, "Execution Failed", f"Error Type: {error_type}\nMessage: {error_msg}")
 
     # ========================================================================
     # HELPER METHODS (Private)
     # ========================================================================
 
-    @staticmethod
-    def _log_approved_transition(doc: "Document") -> None:
+    def _log_approved_transition(self, doc: "Document") -> None:
         """Log additional details when request is approved.
 
         Args:
             doc: MembershipTerminationRequest document
         """
         approver = doc.approved_by or "Unknown"
-        TerminationAuditService.add_entry(
-            doc, "Request Approved", f"Approved by: {approver}", is_system=False
-        )
+        self.add_entry(doc, "Request Approved", f"Approved by: {approver}", is_system=False)
 
-    @staticmethod
-    def _log_rejected_transition(doc: "Document") -> None:
+    def _log_rejected_transition(self, doc: "Document") -> None:
         """Log additional details when request is rejected.
 
         Args:
@@ -288,6 +279,4 @@ class TerminationAuditService:
         """
         rejector = doc.approved_by or "Unknown"  # Same field used for rejection
         reason = doc.rejection_reason or "No reason provided"
-        TerminationAuditService.add_entry(
-            doc, "Request Rejected", f"Rejected by: {rejector}. Reason: {reason}", is_system=False
-        )
+        self.add_entry(doc, "Request Rejected", f"Rejected by: {rejector}. Reason: {reason}", is_system=False)

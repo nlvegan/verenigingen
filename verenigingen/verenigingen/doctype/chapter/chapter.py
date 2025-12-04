@@ -613,7 +613,7 @@ class Chapter(Document):
         """
         from verenigingen.services.chapter.chapter_event_service import ChapterEventService
 
-        ChapterEventService.detect_and_emit_board_changes(self, old_doc)
+        ChapterEventService().detect_and_emit_board_changes(self, old_doc)
 
     def _detect_and_emit_membership_changes(self, old_doc):
         """
@@ -624,7 +624,7 @@ class Chapter(Document):
         """
         from verenigingen.services.chapter.chapter_event_service import ChapterEventService
 
-        ChapterEventService.detect_and_emit_membership_changes(self, old_doc)
+        ChapterEventService().detect_and_emit_membership_changes(self, old_doc)
 
     def _detect_and_emit_settings_changes(self, old_doc):
         """
@@ -635,7 +635,7 @@ class Chapter(Document):
         """
         from verenigingen.services.chapter.chapter_event_service import ChapterEventService
 
-        ChapterEventService.detect_and_emit_settings_changes(self, old_doc)
+        ChapterEventService().detect_and_emit_settings_changes(self, old_doc)
 
     # ========================================================================
     # BACKWARD COMPATIBILITY METHODS

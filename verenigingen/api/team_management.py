@@ -87,12 +87,10 @@ def sync_team_with_volunteers(team_name=None):
             # Import here to avoid circular imports
             from verenigingen.services.team_service import TeamService
 
-            TeamService.sync_with_volunteers(team_doc)
+            TeamService().sync_with_volunteers(team_doc)
             updated_count += 1
-            frappe.logger().info(f"Successfully synced team {team['name']} with volunteers")
         except Exception as e:
             frappe.log_error(f"Failed to sync team {team['name']}: {str(e)}", "Team Sync Error")
-            frappe.logger().error(f"Error syncing team {team['name']}: {str(e)}")
 
     return {"updated_count": updated_count}
 
@@ -162,8 +160,6 @@ def bulk_apply_team_role_profiles(team_name):
                     volunteer_doc.role_profile = role_profile
                     volunteer_doc.save()
                     applied_count += 1
-
-                    frappe.logger().info(f"Applied role profile {role_profile} to {member.volunteer_name}")
                 except Exception as e:
                     frappe.log_error(f"Failed to apply role profile to {member.volunteer_name}: {str(e)}")
 

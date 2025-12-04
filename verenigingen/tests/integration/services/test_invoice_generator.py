@@ -207,8 +207,7 @@ class TestInvoiceGenerator(EnhancedTestCase):
         mandate.iban = "NL91ABNA0417164300"
         mandate.account_holder_name = f"{self.member.first_name} {self.member.last_name}"
         mandate.sign_date = date(2024, 1, 1)
-        mandate.sign_date = date(2024, 1, 1)
-        mandate.valid_until = date(2024, 12, 31)  # Expired
+        mandate.expiry_date = date(2024, 12, 31)  # Expired
         mandate.insert()
         frappe.db.commit()
 

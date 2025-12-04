@@ -5,27 +5,28 @@ Business logic service for team management operations,
 extracted from the Team DocType controller to maintain clean architecture.
 """
 
-import logging
-
 import frappe
 from frappe import _
 
-logger = logging.getLogger(__name__)
+from verenigingen.services.infrastructure.base_service import StatelessService
 
 
-class TeamService:
+class TeamService(StatelessService):
     """Service class for team business logic operations"""
 
-    @staticmethod
-    def sync_with_volunteers(team_doc):
+    def __init__(self):
+        """Initialize the Team Service"""
+        super().__init__(service_name="TeamService")
+
+    def sync_with_volunteers(self, team_doc):
         """Sync team members with volunteer system"""
         # Trigger volunteer assignment history updates
         if hasattr(team_doc, "handle_team_member_changes"):
             team_doc.handle_team_member_changes()
+        self.logger.info(f"Successfully synced team {team_doc.name} with volunteers")
         return True
 
-    @staticmethod
-    def add_assignment_history(team_doc, volunteer_id: str, team_role: str, start_date: str):
+    def add_assignment_history(self, team_doc, volunteer_id: str, team_role: str, start_date: str):
         """Add assignment history for a team member"""
         from verenigingen.utils.assignment_history_manager import AssignmentHistoryManager
 
@@ -37,11 +38,11 @@ class TeamService:
                 break
 
         if not team_member:
-            logger.warning(f"Could not find team member for volunteer {volunteer_id}")
+            self.logger.warning(f"Could not find team member for volunteer {volunteer_id}")
             return False
 
         # Create role description using Team Role system
-        role_description = TeamService._get_role_description_for_history(team_member)
+        role_description = self._get_role_description_for_history(team_member)
 
         success = AssignmentHistoryManager.add_assignment_history(
             volunteer_id=volunteer_id,
@@ -53,17 +54,18 @@ class TeamService:
         )
 
         if success:
-            logger.info(f"Added team assignment history for volunteer {volunteer_id}: {role_description}")
+            self.logger.info(
+                f"Added team assignment history for volunteer {volunteer_id}: {role_description}"
+            )
         else:
-            logger.error(
+            self.logger.error(
                 f"Error adding team assignment history for volunteer {volunteer_id}: {role_description}"
             )
 
         return success
 
-    @staticmethod
     def complete_assignment_history(
-        team_doc, volunteer_id: str, team_role: str, start_date: str, end_date: str
+        self, team_doc, volunteer_id: str, team_role: str, start_date: str, end_date: str
     ):
         """Complete assignment history for a team member"""
         from verenigingen.utils.assignment_history_manager import AssignmentHistoryManager
@@ -87,7 +89,7 @@ class TeamService:
             role_description = team_role or "Team Member"
         else:
             # Create role description using Team Role system
-            role_description = TeamService._get_role_description_for_history(team_member)
+            role_description = self._get_role_description_for_history(team_member)
 
         success = AssignmentHistoryManager.complete_assignment_history(
             volunteer_id=volunteer_id,
@@ -100,16 +102,17 @@ class TeamService:
         )
 
         if success:
-            logger.info(f"Completed team assignment history for volunteer {volunteer_id}: {role_description}")
+            self.logger.info(
+                f"Completed team assignment history for volunteer {volunteer_id}: {role_description}"
+            )
         else:
-            logger.error(
+            self.logger.error(
                 f"Error completing team assignment history for volunteer {volunteer_id}: {role_description}"
             )
 
         return success
 
-    @staticmethod
-    def _get_role_description_for_history(team_member):
+    def _get_role_description_for_history(self, team_member):
         """Generate role description for assignment history using Team Role system"""
         role_description = "Team Member"  # Default fallback
 
@@ -132,15 +135,13 @@ class TeamService:
 
         return role_description
 
-    @staticmethod
-    def validate_team_member_changes(team_doc):
+    def validate_team_member_changes(self, team_doc):
         """Validate team member changes before save"""
         # This could include business rule validation
         # that doesn't belong in the DocType controller
         return True
 
-    @staticmethod
-    def handle_member_role_change(team_doc, old_member, new_member):
+    def handle_member_role_change(self, team_doc, old_member, new_member):
         """Handle role changes for team members"""
         if not old_member or not new_member:
             return
@@ -155,17 +156,14 @@ class TeamService:
         if role_changed and old_member.is_active and new_member.is_active:
             # Role changed - complete old assignment and create new one
             change_date = frappe.utils.today()
-            TeamService.complete_assignment_history(
+            self.complete_assignment_history(
                 team_doc, old_member.volunteer, old_member.team_role, old_member.from_date, change_date
             )
 
             # Start new assignment with new role using today's date
-            TeamService.add_assignment_history(
-                team_doc, new_member.volunteer, new_member.team_role, change_date
-            )
+            self.add_assignment_history(team_doc, new_member.volunteer, new_member.team_role, change_date)
 
-    @staticmethod
-    def validate_unique_roles(team_doc):
+    def validate_unique_roles(self, team_doc):
         """Validate unique role constraints across teams"""
         # This logic could be moved here from the controller
         # to separate business logic from document lifecycle
@@ -200,7 +198,7 @@ class TeamService:
             return True
 
         # REMOVED: Global validation across teams - unique roles should only be unique WITHIN a team
-        # TeamService._validate_unique_roles_globally(team_doc, unique_roles_to_check, role_assignments)
+        # self._validate_unique_roles_globally(team_doc, unique_roles_to_check, role_assignments)
 
         # Check for violations within this team (this is the correct behavior)
         for role_name, assignments in role_assignments.items():
@@ -213,8 +211,7 @@ class TeamService:
 
         return True
 
-    @staticmethod
-    def _validate_unique_roles_globally(team_doc, unique_roles_to_check, role_assignments):
+    def _validate_unique_roles_globally(self, team_doc, unique_roles_to_check, role_assignments):
         """Validate unique roles across all teams with database-level concurrency protection"""
 
         if not unique_roles_to_check:
@@ -260,14 +257,17 @@ class TeamService:
                 raise  # Re-raise validation errors
             else:
                 # Log other errors but don't block the transaction
-                logger.error(f"Error in unique role validation: {e}")
+                self.logger.error(f"Error in unique role validation: {e}")
 
 
-class TeamValidationService:
+class TeamValidationService(StatelessService):
     """Separate service for team validation logic"""
 
-    @staticmethod
-    def validate_team_members(team_doc):
+    def __init__(self):
+        """Initialize the Team Validation Service"""
+        super().__init__(service_name="TeamValidationService")
+
+    def validate_team_members(self, team_doc):
         """Validate team members data and structure"""
         # Check if there's at least one team leader
         has_leader = False
@@ -287,8 +287,7 @@ class TeamValidationService:
 
         return True
 
-    @staticmethod
-    def validate_role_profile_configuration(team_doc):
+    def validate_role_profile_configuration(self, team_doc):
         """Validate role profile configuration"""
         # Validate default role profile exists
         if team_doc.default_role_profile and not frappe.db.exists(
@@ -326,8 +325,7 @@ class TeamValidationService:
 
         return True
 
-    @staticmethod
-    def validate_dates(team_doc):
+    def validate_dates(self, team_doc):
         """Validate start and end dates"""
         if team_doc.end_date and team_doc.start_date and team_doc.end_date < team_doc.start_date:
             frappe.throw(_("End date cannot be before start date"))

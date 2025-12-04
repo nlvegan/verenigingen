@@ -545,7 +545,7 @@ class Member(
             MembershipCreationService,
         )
 
-        return MembershipCreationService.create_membership_on_approval(
+        return MembershipCreationService().create_membership_on_approval(
             self,
             start_date=start_date,
             create_invoice=create_invoice,
@@ -1520,13 +1520,13 @@ def get_active_sepa_mandate(member, iban=None):
 
     # Return first mandate or None (legacy API returned single mandate)
     if mandates:
-        m = mandates[0]
+        m = mandates[0]  # SEPA Mandate document, not Member
         return {
             "name": m.name,
-            "mandate_id": m.mandate_id,
+            "mandate_id": m.mandate_id,  # ast-skip: SEPA Mandate field
             "status": m.status,
             "iban": m.iban,
-            "account_holder_name": m.account_holder_name,
+            "account_holder_name": m.account_holder_name,  # ast-skip: SEPA Mandate field
         }
     return None
 

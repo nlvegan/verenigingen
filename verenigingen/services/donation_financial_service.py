@@ -17,7 +17,7 @@ from verenigingen.services.infrastructure.base_service import StatelessService
 class DonationFinancialService(StatelessService):
     """Service for handling donation financial operations"""
 
-    def __init__(self, donation_doc):
+    def __init__(self, donation_doc=None):
         super().__init__(service_name="DonationFinancialService")
         self.donation = donation_doc
 
@@ -381,9 +381,8 @@ class DonationFinancialService(StatelessService):
         campaign = frappe.get_doc("Campaign", self.donation.campaign)
         return getattr(campaign, "project", None)
 
-    @staticmethod
     def create_donation_from_bank_transfer(
-        donor: str, amount: float, date: str, bank_reference: str, donation_type: Optional[str] = None
+        self, donor: str, amount: float, date: str, bank_reference: str, donation_type: Optional[str] = None
     ) -> Any:
         """
         Create donation from bank transfer details (payment-first architecture)
@@ -401,7 +400,7 @@ class DonationFinancialService(StatelessService):
         if not donation_type:
             donation_type = frappe.db.get_single_value("Verenigingen Settings", "default_donation_type")
 
-        company = DonationFinancialService._get_company_for_donations()
+        company = self._get_company_for_donations()
         donation = frappe.get_doc(
             {
                 "doctype": "Donation",
@@ -420,8 +419,8 @@ class DonationFinancialService(StatelessService):
         # Note: Payment Entry should be created separately by bank reconciliation system
         return donation
 
-    @staticmethod
     def create_sepa_donation(
+        self,
         donor: str,
         amount: float,
         date: str,
@@ -446,7 +445,7 @@ class DonationFinancialService(StatelessService):
         if not donation_type:
             donation_type = frappe.db.get_single_value("Verenigingen Settings", "default_donation_type")
 
-        company = DonationFinancialService._get_company_for_donations()
+        company = self._get_company_for_donations()
         status = "Recurring" if recurring_frequency else "Promised"
 
         donation = frappe.get_doc(
@@ -467,8 +466,8 @@ class DonationFinancialService(StatelessService):
 
         return donation
 
-    @staticmethod
     def create_chapter_donation(
+        self,
         donor: str,
         amount: float,
         chapter: str,
@@ -496,7 +495,7 @@ class DonationFinancialService(StatelessService):
         if not donation_type:
             donation_type = frappe.db.get_single_value("Verenigingen Settings", "default_donation_type")
 
-        company = DonationFinancialService._get_company_for_donations()
+        company = self._get_company_for_donations()
         donation = frappe.get_doc(
             {
                 "doctype": "Donation",
@@ -513,8 +512,7 @@ class DonationFinancialService(StatelessService):
 
         return donation
 
-    @staticmethod
-    def reconcile_donation_accounts() -> Dict[str, Any]:
+    def reconcile_donation_accounts(self) -> Dict[str, Any]:
         """
         Reconcile donation amounts with GL entries
 
@@ -579,8 +577,7 @@ class DonationFinancialService(StatelessService):
 
         return reconciliation_report
 
-    @staticmethod
-    def _get_company_for_donations() -> str:
+    def _get_company_for_donations(self) -> str:
         """Get company for donation operations"""
         company = frappe.db.get_single_value("Verenigingen Settings", "company")
         if not company:
