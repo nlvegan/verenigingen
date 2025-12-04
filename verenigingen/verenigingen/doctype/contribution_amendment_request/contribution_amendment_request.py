@@ -1366,9 +1366,9 @@ def create_fee_change_amendment(member_name, new_amount, reason, effective_date=
     member = frappe.get_doc("Member", member_name)
 
     # Get current active membership using service
-    from verenigingen.services.member.core.member_membership_service import MemberMembershipService
+    from verenigingen.services.member.core.member_membership_service import get_member_membership_service
 
-    membership = MemberMembershipService.get_active_membership(member_name)
+    membership = get_member_membership_service().get_active_membership(member_name)
     if not membership:
         frappe.throw(_("No active membership found for this member"))
 

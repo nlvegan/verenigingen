@@ -16,6 +16,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.services.member.display.member_chapter_display_service import (
     MemberChapterDisplayService,
+    get_member_chapter_display_service,
 )
 
 
@@ -51,7 +52,7 @@ class TestMemberChapterDisplayService(FrappeTestCase):
             "_get_current_chapters_optimized",
             return_value=malicious_chapters,
         ):
-            MemberChapterDisplayService.update_current_chapter_display(member_doc)
+            get_member_chapter_display_service().update_current_chapter_display(member_doc)
 
         # Verify the output is escaped
         output = member_doc.current_chapter_display
@@ -82,7 +83,7 @@ class TestMemberChapterDisplayService(FrappeTestCase):
             "_get_current_chapters_optimized",
             return_value=malicious_chapters,
         ):
-            MemberChapterDisplayService.update_current_chapter_display(member_doc)
+            get_member_chapter_display_service().update_current_chapter_display(member_doc)
 
         output = member_doc.current_chapter_display
         self.assertIsNotNone(output)
@@ -111,7 +112,7 @@ class TestMemberChapterDisplayService(FrappeTestCase):
             "_get_current_chapters_optimized",
             return_value=malicious_chapters,
         ):
-            MemberChapterDisplayService.update_current_chapter_display(member_doc)
+            get_member_chapter_display_service().update_current_chapter_display(member_doc)
 
         output = member_doc.current_chapter_display
         self.assertIsNotNone(output)
@@ -139,7 +140,7 @@ class TestMemberChapterDisplayService(FrappeTestCase):
             "_get_current_chapters_optimized",
             return_value=safe_chapters,
         ):
-            MemberChapterDisplayService.update_current_chapter_display(member_doc)
+            get_member_chapter_display_service().update_current_chapter_display(member_doc)
 
         output = member_doc.current_chapter_display
         self.assertIsNotNone(output)
@@ -158,7 +159,7 @@ class TestMemberChapterDisplayService(FrappeTestCase):
         with patch.object(
             MemberChapterDisplayService, "_get_current_chapters_optimized", return_value=[]
         ):
-            MemberChapterDisplayService.update_current_chapter_display(member_doc)
+            get_member_chapter_display_service().update_current_chapter_display(member_doc)
 
         output = member_doc.current_chapter_display
         self.assertIsNotNone(output)
@@ -190,7 +191,7 @@ class TestMemberChapterDisplayService(FrappeTestCase):
             "_get_current_chapters_optimized",
             return_value=mixed_chapters,
         ):
-            MemberChapterDisplayService.update_current_chapter_display(member_doc)
+            get_member_chapter_display_service().update_current_chapter_display(member_doc)
 
         output = member_doc.current_chapter_display
         self.assertIsNotNone(output)
@@ -211,7 +212,7 @@ class TestMemberChapterDisplayService(FrappeTestCase):
             "_get_current_chapters_optimized",
             side_effect=Exception("Database error"),
         ):
-            MemberChapterDisplayService.update_current_chapter_display(member_doc)
+            get_member_chapter_display_service().update_current_chapter_display(member_doc)
 
         output = member_doc.current_chapter_display
         self.assertIsNotNone(output)

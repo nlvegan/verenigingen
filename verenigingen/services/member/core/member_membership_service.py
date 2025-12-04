@@ -100,3 +100,8 @@ class MemberMembershipService(StatelessService):
             Membership document if found, None otherwise
         """
         return self.get_active_membership(member_doc.name)
+
+
+def get_member_membership_service() -> MemberMembershipService:
+    """Get singleton instance of MemberMembershipService."""
+    return MemberMembershipService()

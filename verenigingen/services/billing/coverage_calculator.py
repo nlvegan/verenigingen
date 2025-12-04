@@ -500,3 +500,8 @@ class CoverageCalculator(StatelessService):
         )
 
         return getdate(membership_start) if membership_start else None
+
+
+def get_coverage_calculator() -> CoverageCalculator:
+    """Get singleton instance of CoverageCalculator."""
+    return CoverageCalculator()

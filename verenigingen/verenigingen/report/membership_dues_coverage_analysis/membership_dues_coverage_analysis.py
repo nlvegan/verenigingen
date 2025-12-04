@@ -995,8 +995,7 @@ def generate_catchup_invoices(members, from_date=None, to_date=None):
     import html
     from datetime import timedelta
 
-    from vereinigen.services.billing.coverage_calculator import CoverageCalculator
-
+    from verenigingen.services.billing.coverage_calculator import get_coverage_calculator
     from verenigingen.services.billing.invoice_generator import InvoiceGenerator
 
     # Check permissions
@@ -1079,7 +1078,7 @@ def generate_catchup_invoices(members, from_date=None, to_date=None):
                 if is_current_period and not member_end_date:
                     # This period ends around today and member hasn't indicated end date
                     # Extend to proper billing period end
-                    proper_end = CoverageCalculator.calculate_period_end_date(
+                    proper_end = get_coverage_calculator().calculate_period_end_date(
                         period_start, schedule_doc.billing_frequency
                     )
                     period_end = proper_end

@@ -22,7 +22,10 @@ from unittest.mock import patch
 import frappe
 from frappe.utils import today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.services.chapter.chapter_permission_service import ChapterPermissionService
+from verenigingen.services.chapter.chapter_permission_service import (
+    ChapterPermissionService,
+    get_chapter_permission_service,
+)
 
 
 class TestChapterPermissionServiceIntegration(EnhancedTestCase):
@@ -307,7 +310,7 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
         """Test that System Manager gets unrestricted access (empty string)"""
         frappe.set_user("admin.test@verenigingen.test")
 
-        result = ChapterPermissionService.get_permission_query_conditions("admin.test@verenigingen.test")
+        result = get_chapter_permission_service().get_permission_query_conditions("admin.test@verenigingen.test")
 
         self.assertEqual(result, "", "Admin should have unrestricted access")
 
@@ -315,7 +318,7 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
         """Test that admins have permission for all chapters"""
         frappe.set_user("admin.test@verenigingen.test")
 
-        result = ChapterPermissionService.has_chapter_permission(
+        result = get_chapter_permission_service().has_chapter_permission(
             self.chapter_amsterdam, "read", "admin.test@verenigingen.test"
         )
 
@@ -329,7 +332,7 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
         """Test that board members can access their own chapters"""
         frappe.set_user("board.test@verenigingen.test")
 
-        result = ChapterPermissionService.has_chapter_permission(
+        result = get_chapter_permission_service().has_chapter_permission(
             self.chapter_amsterdam, "read", "board.test@verenigingen.test"
         )
 
@@ -343,7 +346,7 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
         # Clear cached roles to ensure fresh lookup from database
         frappe.cache.hdel("roles", user)
 
-        result = ChapterPermissionService.has_chapter_permission(
+        result = get_chapter_permission_service().has_chapter_permission(
             self.chapter_rotterdam, "read", user
         )
 
@@ -356,7 +359,7 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
 
         # Patch at the module level where frappe is imported
         with patch.object(frappe, 'get_roles', side_effect=lambda u: self._get_db_roles(u)):
-            result = ChapterPermissionService.get_permission_query_conditions(user)
+            result = get_chapter_permission_service().get_permission_query_conditions(user)
 
         # Should include board member's chapter and published condition
         self.assertIn(self.chapter_amsterdam.name, result, "Query should include board member's chapter")
@@ -370,7 +373,7 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
         """Test that regular members have read-only access to published chapters"""
         frappe.set_user("regular.test@verenigingen.test")
 
-        result = ChapterPermissionService.has_chapter_permission(
+        result = get_chapter_permission_service().has_chapter_permission(
             self.chapter_amsterdam, "read", "regular.test@verenigingen.test"
         )
 
@@ -384,7 +387,7 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
         # Clear cached roles to ensure fresh lookup from database
         frappe.cache.hdel("roles", user)
 
-        result = ChapterPermissionService.has_chapter_permission(
+        result = get_chapter_permission_service().has_chapter_permission(
             self.chapter_amsterdam, "write", user
         )
 
@@ -397,7 +400,7 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
 
         # Patch frappe.get_roles to return actual DB roles
         with patch.object(frappe, 'get_roles', side_effect=lambda u: self._get_db_roles(u)):
-            result = ChapterPermissionService.get_permission_query_conditions(user)
+            result = get_chapter_permission_service().get_permission_query_conditions(user)
 
         self.assertEqual(result, "`tabChapter`.published = 1", "Regular members should only see published chapters")
 
@@ -409,7 +412,7 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
         """Test that admins can view any member's board information"""
         frappe.set_user("admin.test@verenigingen.test")
 
-        result = ChapterPermissionService.can_user_view_member_board_info(
+        result = get_chapter_permission_service().can_user_view_member_board_info(
             self.member_board.name, "admin.test@verenigingen.test"
         )
 
@@ -419,7 +422,7 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
         """Test that users can view their own board information"""
         frappe.set_user("board.test@verenigingen.test")
 
-        result = ChapterPermissionService.can_user_view_member_board_info(
+        result = get_chapter_permission_service().can_user_view_member_board_info(
             self.member_board.name, "board.test@verenigingen.test"
         )
 
@@ -429,7 +432,7 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
         """Test that admins can view any chapter's board history"""
         frappe.set_user("admin.test@verenigingen.test")
 
-        result = ChapterPermissionService.can_user_view_chapter_board_history(
+        result = get_chapter_permission_service().can_user_view_chapter_board_history(
             self.chapter_amsterdam.name, "admin.test@verenigingen.test"
         )
 
@@ -439,7 +442,7 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
         """Test that board members can view their chapter's board history"""
         frappe.set_user("board.test@verenigingen.test")
 
-        result = ChapterPermissionService.can_user_view_chapter_board_history(
+        result = get_chapter_permission_service().can_user_view_chapter_board_history(
             self.chapter_amsterdam.name, "board.test@verenigingen.test"
         )
 
@@ -453,7 +456,7 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
         # Clear cached roles to ensure fresh lookup from database
         frappe.cache.hdel("roles", user)
 
-        result = ChapterPermissionService.can_user_view_chapter_board_history(
+        result = get_chapter_permission_service().can_user_view_chapter_board_history(
             self.chapter_rotterdam.name, user
         )
 
@@ -470,7 +473,7 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
         self._create_test_user_with_role(test_email, "Verenigingen Member")
         frappe.set_user(test_email)
 
-        result = ChapterPermissionService.can_user_view_member_board_info(
+        result = get_chapter_permission_service().can_user_view_member_board_info(
             self.member_board.name, test_email
         )
 
@@ -483,13 +486,13 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
 
         # Patch frappe.get_roles to return actual DB roles
         with patch.object(frappe, 'get_roles', side_effect=lambda u: self._get_db_roles(u)):
-            result = ChapterPermissionService.has_chapter_permission(
+            result = get_chapter_permission_service().has_chapter_permission(
                 self.chapter_unpublished, "read", user
             )
 
             # Regular members should only see published chapters
             # The service returns True for read access, but the query conditions filter it
-            query = ChapterPermissionService.get_permission_query_conditions(user)
+            query = get_chapter_permission_service().get_permission_query_conditions(user)
             self.assertIn("published = 1", query, "Unpublished chapters should be filtered out")
 
     # ========================================================================
@@ -500,7 +503,7 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
         """Test _get_user_board_chapters returns list of chapter names"""
         frappe.set_user("board.test@verenigingen.test")
 
-        chapters = ChapterPermissionService._get_user_board_chapters("board.test@verenigingen.test")
+        chapters = get_chapter_permission_service()._get_user_board_chapters("board.test@verenigingen.test")
 
         self.assertIn(self.chapter_amsterdam.name, chapters, "Should include Amsterdam chapter")
         self.assertNotIn(self.chapter_rotterdam.name, chapters, "Should not include Rotterdam chapter")
@@ -509,7 +512,7 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
         """Test _is_user_board_member_of_chapter detects board membership"""
         frappe.set_user("board.test@verenigingen.test")
 
-        result = ChapterPermissionService._is_user_board_member_of_chapter(
+        result = get_chapter_permission_service()._is_user_board_member_of_chapter(
             "board.test@verenigingen.test", self.chapter_amsterdam.name
         )
 
@@ -519,7 +522,7 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
         """Test _is_user_board_member_of_chapter returns False for non-members"""
         frappe.set_user("regular.test@verenigingen.test")
 
-        result = ChapterPermissionService._is_user_board_member_of_chapter(
+        result = get_chapter_permission_service()._is_user_board_member_of_chapter(
             "regular.test@verenigingen.test", self.chapter_amsterdam.name
         )
 
@@ -537,11 +540,11 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
         # Patch frappe.get_roles to return actual DB roles
         with patch.object(frappe, 'get_roles', side_effect=lambda u: self._get_db_roles(u)):
             # Test query conditions
-            query = ChapterPermissionService.get_permission_query_conditions(user)
+            query = get_chapter_permission_service().get_permission_query_conditions(user)
             self.assertIn(self.chapter_amsterdam.name, query, "Query should include board member's chapter")
 
             # Test document permission
-            has_perm = ChapterPermissionService.has_chapter_permission(
+            has_perm = get_chapter_permission_service().has_chapter_permission(
                 self.chapter_amsterdam, "read", user
             )
             self.assertTrue(has_perm, "Board member should have read permission")
@@ -554,18 +557,18 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
         # Patch frappe.get_roles to return actual DB roles
         with patch.object(frappe, 'get_roles', side_effect=lambda u: self._get_db_roles(u)):
             # Test query conditions - should only see published
-            query = ChapterPermissionService.get_permission_query_conditions(user)
+            query = get_chapter_permission_service().get_permission_query_conditions(user)
             self.assertEqual(query, "`tabChapter`.published = 1", "Regular members should only see published")
 
             # Test document permission - read allowed, write denied
             self.assertTrue(
-                ChapterPermissionService.has_chapter_permission(
+                get_chapter_permission_service().has_chapter_permission(
                     self.chapter_amsterdam, "read", user
                 ),
                 "Regular member should have read access"
             )
             self.assertFalse(
-                ChapterPermissionService.has_chapter_permission(
+                get_chapter_permission_service().has_chapter_permission(
                     self.chapter_amsterdam, "write", user
                 ),
                 "Regular member should not have write access"

@@ -17,6 +17,7 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.services.member.lifecycle.member_cleanup_service import (
     MemberCleanupService,
+    get_member_cleanup_service,
 )
 
 
@@ -57,7 +58,7 @@ class TestMemberCleanupService(EnhancedTestCase):
         self.assertEqual(frappe.get_doc("Membership", membership_name).docstatus, 1)
 
         # Call cleanup service
-        MemberCleanupService.handle_member_deletion(member)
+        get_member_cleanup_service().handle_member_deletion(member)
 
         # Verify membership no longer exists (was cancelled and deleted)
         self.assertFalse(frappe.db.exists("Membership", membership_name))
@@ -124,7 +125,7 @@ class TestMemberCleanupService(EnhancedTestCase):
         member.reload()
 
         # Call cleanup service
-        MemberCleanupService.handle_member_deletion(member)
+        get_member_cleanup_service().handle_member_deletion(member)
 
         # Verify customer was deleted (no transactions to preserve)
         self.assertFalse(frappe.db.exists("Customer", customer_name))
@@ -165,7 +166,7 @@ class TestMemberCleanupService(EnhancedTestCase):
         member.reload()
 
         # Call cleanup service
-        MemberCleanupService.handle_member_deletion(member)
+        get_member_cleanup_service().handle_member_deletion(member)
 
         # Verify address still exists (unlinked, not deleted)
         self.assertTrue(frappe.db.exists("Address", address_name))
@@ -196,7 +197,7 @@ class TestMemberCleanupService(EnhancedTestCase):
         member.reload()
 
         # Call cleanup service
-        MemberCleanupService.handle_member_deletion(member)
+        get_member_cleanup_service().handle_member_deletion(member)
 
         # Verify chapter memberships were cleaned up
         remaining_memberships = frappe.db.count("Chapter Member", {"member": member.name})
@@ -261,7 +262,7 @@ class TestMemberCleanupService(EnhancedTestCase):
 
         # Execute cascade deletion
         member.reload()
-        MemberCleanupService.handle_member_deletion(member)
+        get_member_cleanup_service().handle_member_deletion(member)
 
         # Verify comprehensive cleanup:
 
@@ -300,7 +301,7 @@ class TestMemberCleanupService(EnhancedTestCase):
 
         # Call cleanup service - should handle any errors gracefully
         try:
-            MemberCleanupService.handle_member_deletion(member)
+            get_member_cleanup_service().handle_member_deletion(member)
             # If it completes without raising, the error handling worked
         except Exception as e:
             # The service should catch errors, so this shouldn't happen

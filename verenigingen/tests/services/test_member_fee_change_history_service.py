@@ -16,6 +16,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.services.member.history.member_fee_change_history_service import (
     MemberFeeChangeHistoryService,
+    get_member_fee_change_history_service,
 )
 
 
@@ -27,7 +28,7 @@ class TestMemberFeeChangeHistoryService(FrappeTestCase):
         valid_frequencies = ["Daily", "Monthly", "Quarterly", "Semi-Annual", "Annual", "Custom"]
 
         for freq in valid_frequencies:
-            result = MemberFeeChangeHistoryService._validate_billing_frequency(freq)
+            result = get_member_fee_change_history_service()._validate_billing_frequency(freq)
             self.assertEqual(
                 result, freq, f"Valid frequency '{freq}' should be returned as-is"
             )
@@ -37,7 +38,7 @@ class TestMemberFeeChangeHistoryService(FrappeTestCase):
         invalid_frequencies = ["Weekly", "Biweekly", "InvalidValue", "random_string"]
 
         for freq in invalid_frequencies:
-            result = MemberFeeChangeHistoryService._validate_billing_frequency(freq)
+            result = get_member_fee_change_history_service()._validate_billing_frequency(freq)
             self.assertEqual(
                 result,
                 "Custom",
@@ -46,12 +47,12 @@ class TestMemberFeeChangeHistoryService(FrappeTestCase):
 
     def test_validate_billing_frequency_none(self):
         """Test that None defaults to Custom"""
-        result = MemberFeeChangeHistoryService._validate_billing_frequency(None)
+        result = get_member_fee_change_history_service()._validate_billing_frequency(None)
         self.assertEqual(result, "Custom", "None should return 'Custom'")
 
     def test_validate_billing_frequency_empty_string(self):
         """Test that empty string defaults to Custom"""
-        result = MemberFeeChangeHistoryService._validate_billing_frequency("")
+        result = get_member_fee_change_history_service()._validate_billing_frequency("")
         self.assertEqual(result, "Custom", "Empty string should return 'Custom'")
 
     def test_valid_billing_frequencies_constant(self):
@@ -83,7 +84,7 @@ class TestMemberFeeChangeHistoryService(FrappeTestCase):
         # Mock append to prevent actual database operations
         member_doc.append = Mock()
 
-        MemberFeeChangeHistoryService.add_fee_change_to_history(member_doc, schedule_data)
+        get_member_fee_change_history_service().add_fee_change_to_history(member_doc, schedule_data)
 
         # Verify append was called
         member_doc.append.assert_called_once()
@@ -123,7 +124,7 @@ class TestMemberFeeChangeHistoryService(FrappeTestCase):
 
         member_doc.append = Mock()
 
-        MemberFeeChangeHistoryService.add_fee_change_to_history(member_doc, schedule_data)
+        get_member_fee_change_history_service().add_fee_change_to_history(member_doc, schedule_data)
 
         # Verify append was NOT called (existing entry should be updated)
         member_doc.append.assert_not_called()
@@ -163,7 +164,7 @@ class TestMemberFeeChangeHistoryService(FrappeTestCase):
             entry_data
         )
 
-        MemberFeeChangeHistoryService.add_fee_change_to_history(member_doc, schedule_data)
+        get_member_fee_change_history_service().add_fee_change_to_history(member_doc, schedule_data)
 
         # Verify history was truncated to 50 entries
         self.assertLessEqual(
@@ -193,7 +194,7 @@ class TestMemberFeeChangeHistoryService(FrappeTestCase):
         with patch(
             "verenigingen.services.member.history.member_fee_change_history_service.MemberFeeChangeHistoryService.add_fee_change_to_history"
         ) as mock_add:
-            MemberFeeChangeHistoryService.update_fee_change_in_history(
+            get_member_fee_change_history_service().update_fee_change_in_history(
                 member_doc, schedule_data
             )
 

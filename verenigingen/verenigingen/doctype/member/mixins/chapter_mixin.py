@@ -48,10 +48,10 @@ class ChapterMixin:
 
         try:
             from verenigingen.services.member.chapter.chapter_management_service import (
-                ChapterManagementService,
+                get_chapter_management_service,
             )
 
-            return ChapterManagementService.get_member_chapters_optimized(self.name)
+            return get_chapter_management_service().get_member_chapters_optimized(self.name)
         except Exception as e:
             frappe.log_error(f"Error in ChapterMixin.get_chapters for {self.name}: {str(e)}", "ChapterMixin")
             return []
@@ -71,15 +71,15 @@ class ChapterMixin:
 
         try:
             from verenigingen.services.member.chapter.chapter_management_service import (
-                ChapterManagementService,
+                get_chapter_management_service,
             )
 
             if chapter:
                 # Check specific chapter using public API
-                return ChapterManagementService.check_board_membership(self.name, chapter)
+                return get_chapter_management_service().check_board_membership(self.name, chapter)
             else:
                 # Check any board membership
-                board_positions = ChapterManagementService.get_board_memberships(self.name)
+                board_positions = get_chapter_management_service().get_board_memberships(self.name)
                 return len(board_positions) > 0
         except Exception as e:
             frappe.log_error(f"Error checking board membership for {self.name}: {str(e)}", "ChapterMixin")
@@ -97,10 +97,10 @@ class ChapterMixin:
 
         try:
             from verenigingen.services.member.chapter.chapter_management_service import (
-                ChapterManagementService,
+                get_chapter_management_service,
             )
 
-            board_memberships = ChapterManagementService.get_board_memberships(self.name)
+            board_memberships = get_chapter_management_service().get_board_memberships(self.name)
             # Transform to expected format
             return [{"chapter": bm.get("chapter"), "role": bm.get("role")} for bm in board_memberships]
         except Exception as e:
@@ -111,10 +111,10 @@ class ChapterMixin:
         """Check if chapter management is enabled (delegates to service)"""
         try:
             from verenigingen.services.member.chapter.chapter_management_service import (
-                ChapterManagementService,
+                get_chapter_management_service,
             )
 
-            return ChapterManagementService.is_chapter_management_enabled()
+            return get_chapter_management_service().is_chapter_management_enabled()
         except Exception:
             # Default to enabled for backward compatibility
             return True
