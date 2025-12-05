@@ -1,0 +1,20 @@
+[
+  {
+    "doctype": "Donor",
+    "name": "Test Donor - 1",
+    "donor_name": "Test Donor One",
+    "donor_type": "Individual"
+  },
+  {
+    "doctype": "Donor",
+    "name": "Test Donor - 2",
+    "donor_name": "Test Donor Two",
+    "donor_type": "Individual"
+  },
+  {
+    "doctype": "Donor",
+    "name": "Test Organization Donor",
+    "donor_name": "Test Organization",
+    "donor_type": "Company"
+  }
+]

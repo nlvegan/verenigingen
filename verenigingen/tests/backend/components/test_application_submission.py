@@ -58,12 +58,16 @@ class TestApplicationSubmission(VereningingenTestCase):
         self.assertIsNotNone(result, "Application submission should return a result")
         self.assertTrue(result.get("success"), f"Application submission failed: {result}")
 
+        # API returns nested structure: {'success': True, 'data': {...}, ...}
+        # Extract data from nested structure
+        result_data = result.get("data", result)  # Fall back to result itself if no 'data' key
+
         # Verify the created member
-        member_id = result.get("member_record")
+        member_id = result_data.get("member_record")
         self.assertIsNotNone(member_id, f"Application should return a member_record. Got result: {result}")
-        
+
         # Also verify application ID
-        application_id = result.get("application_id")
+        application_id = result_data.get("application_id")
         self.assertIsNotNone(application_id, "Application should return an application_id")
         
         member = frappe.get_doc("Member", member_id)
@@ -80,7 +84,7 @@ class TestApplicationSubmission(VereningingenTestCase):
         
         # Verify status (check what the actual status is)
         # Based on the result, status should be "pending_review"
-        self.assertEqual(result.get("status"), "pending_review")
+        self.assertEqual(result_data.get("status"), "pending_review")
         
         # Verify application was submitted successfully
         self.assertEqual(result.get("success"), True)
@@ -101,6 +105,9 @@ class TestApplicationSubmission(VereningingenTestCase):
         # Verify initial state
         initial_application_custom_fee = existing_member.application_custom_fee
         self.assertIsNone(initial_application_custom_fee, "Initial application custom fee should be None")
+
+        # Reload to get latest version before making changes (avoid timestamp mismatch from hooks)
+        existing_member.reload()
 
         # Update their application custom fee (doesn't require reason field)
         existing_member.application_custom_fee = 150.0

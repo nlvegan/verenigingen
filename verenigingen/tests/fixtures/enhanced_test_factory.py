@@ -3647,6 +3647,18 @@ class EnhancedTestCase(FrappeTestCase):
             if not current_cost_center:
                 frappe.db.set_value("Company", test_company, "cost_center", cost_center, update_modified=False)
 
+        # Clear stale national_board_chapter references to prevent "Chapter not found" errors
+        # This setting may point to a chapter from a previous test run that no longer exists
+        current_national_chapter = frappe.db.get_value(
+            "Verenigingen Settings", None, "national_board_chapter"
+        )
+        if current_national_chapter and not frappe.db.exists("Chapter", current_national_chapter):
+            frappe.db.set_value(
+                "Verenigingen Settings", None,
+                "national_board_chapter", None,
+                update_modified=False
+            )
+
         frappe.db.commit()
 
     def _get_or_create_cost_center(self, company):

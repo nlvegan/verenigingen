@@ -1,0 +1,26 @@
+[
+  {
+    "doctype": "Chapter",
+    "name": "TEST-Chapter-National",
+    "status": "Active",
+    "region": "Test Region",
+    "postal_codes": "1000-9999",
+    "contact_email": "test@example.com"
+  },
+  {
+    "doctype": "Chapter",
+    "name": "TEST-Chapter-Amsterdam",
+    "status": "Active",
+    "region": "Noord-Holland",
+    "postal_codes": "1000-1099",
+    "contact_email": "amsterdam@example.com"
+  },
+  {
+    "doctype": "Chapter",
+    "name": "TEST-Chapter-Rotterdam",
+    "status": "Active",
+    "region": "Zuid-Holland",
+    "postal_codes": "3000-3099",
+    "contact_email": "rotterdam@example.com"
+  }
+]

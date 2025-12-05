@@ -14,7 +14,8 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, now, today
 
-from verenigingen.services.communication.email_service import get_email_service
+# Lazy import for email_service to avoid circular dependency
+# from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.error_handling import log_error
 from verenigingen.utils.security.types import AuditEventType, AuditSeverity, OperationType
 
@@ -408,6 +409,9 @@ class SEPAAuditLogger:
     def _send_security_notification(self, message: str, event_type: str, count: int):
         """Send security notification to administrators"""
         try:
+            # Lazy import to avoid circular dependency
+            from verenigingen.services.communication.email_service import get_email_service
+
             # Get admin users
             admin_users = frappe.get_all("User", filters={"enabled": 1}, fields=["email", "full_name"])
 

@@ -168,7 +168,8 @@ class SEPAAuditLog(Document):
 
         # Generate trace ID if not provided - essential for correlation
         if not self.trace_id:
-            self.trace_id = frappe.local.request_id or frappe.generate_hash(length=10)
+            # Use getattr() to safely access request_id which may not exist outside HTTP context
+            self.trace_id = getattr(frappe.local, "request_id", None) or frappe.generate_hash(length=10)
 
         # Validate compliance status against SEPA regulatory requirements
         valid_statuses = ["Compliant", "Exception", "Failed", "Pending Review"]

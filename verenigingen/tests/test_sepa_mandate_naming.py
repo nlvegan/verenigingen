@@ -7,6 +7,7 @@ import frappe
 from frappe.utils import today, add_days
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.validation.iban_validator import generate_test_iban
+from verenigingen.verenigingen_payments.services.sepa_mandate_identity_service import sepa_mandate_identity_service
 
 
 class TestSEPAMandateNaming(EnhancedTestCase):
@@ -38,7 +39,25 @@ class TestSEPAMandateNaming(EnhancedTestCase):
     def setUp(self):
         """Set up test-specific environment"""
         super().setUp()
-        
+
+        # Reset settings to default at start of each test for isolation
+        # Use direct DB writes to bypass singleton caching issues
+        frappe.db.set_value(
+            "Verenigingen Settings", None,
+            "sepa_mandate_naming_pattern", "MANDATE-.YY.-.MM.-.####",
+            update_modified=False
+        )
+        frappe.db.set_value(
+            "Verenigingen Settings", None,
+            "sepa_mandate_starting_counter", 1,
+            update_modified=False
+        )
+        frappe.db.commit()
+        # Clear singleton cache so next get_single() fetches fresh values
+        frappe.clear_cache(doctype="Verenigingen Settings")
+        # Also clear the SEPA identity service's internal cache
+        sepa_mandate_identity_service.clear_settings_cache()
+
         # Create a test member for SEPA mandate creation
         self.test_member = self.create_test_member(
             first_name="SEPA",
@@ -73,15 +92,21 @@ class TestSEPAMandateNaming(EnhancedTestCase):
 
     def test_custom_naming_pattern(self):
         """Test custom naming patterns work correctly"""
-        
-        # Set custom pattern
+
+        # Set custom pattern - use unique prefix to avoid conflicts with existing mandates
+        unique_prefix = frappe.utils.random_string(6).upper()
+        test_pattern = f"{unique_prefix}-.YY.-.####"
+
         settings = frappe.get_single("Verenigingen Settings")
         original_pattern = settings.sepa_mandate_naming_pattern
-        
-        settings.sepa_mandate_naming_pattern = "CUSTOM-.YY.-.####"
+
+        settings.sepa_mandate_naming_pattern = test_pattern
         settings.sepa_mandate_starting_counter = 100
         settings.save()
-        
+        # Clear caches to ensure new settings take effect
+        frappe.clear_cache(doctype="Verenigingen Settings")
+        sepa_mandate_identity_service.clear_settings_cache()
+
         try:
             # Create SEPA mandate
             mandate = frappe.new_doc("SEPA Mandate")
@@ -91,10 +116,10 @@ class TestSEPAMandateNaming(EnhancedTestCase):
             mandate.member = self.test_member.name
             
             mandate.save()
-            
-            self.assertTrue(mandate.mandate_id.startswith("CUSTOM-"), 
-                           f"mandate_id '{mandate.mandate_id}' should start with 'CUSTOM-'")
-            self.assertIn("0100", mandate.mandate_id, 
+
+            self.assertTrue(mandate.mandate_id.startswith(unique_prefix),
+                           f"mandate_id '{mandate.mandate_id}' should start with '{unique_prefix}'")
+            self.assertIn("0100", mandate.mandate_id,
                          f"mandate_id '{mandate.mandate_id}' should contain starting counter '0100'")
             
             # Enhanced Test Factory handles cleanup automatically
@@ -107,19 +132,24 @@ class TestSEPAMandateNaming(EnhancedTestCase):
 
     def test_starting_counter_functionality(self):
         """Test that starting counter works for first mandate of a pattern"""
-        
+
         settings = frappe.get_single("Verenigingen Settings")
         original_pattern = settings.sepa_mandate_naming_pattern
         original_counter = settings.sepa_mandate_starting_counter
-        
-        # Use unique pattern to avoid conflicts with existing mandates
-        test_pattern = f"COUNTER-TEST-.YY.-.####"
+
+        # Use timestamp-based unique pattern to absolutely avoid conflicts
+        import time
+        unique_suffix = f"{int(time.time() * 1000) % 100000000:08d}"
+        test_pattern = f"CNT{unique_suffix}-.YY.-.####"
         test_counter = 2500
         
         settings.sepa_mandate_naming_pattern = test_pattern
         settings.sepa_mandate_starting_counter = test_counter
         settings.save()
-        
+        # Clear caches to ensure new settings take effect
+        frappe.clear_cache(doctype="Verenigingen Settings")
+        sepa_mandate_identity_service.clear_settings_cache()
+
         try:
             # Create first mandate with this pattern
             mandate1 = frappe.new_doc("SEPA Mandate")
@@ -166,9 +196,11 @@ class TestSEPAMandateNaming(EnhancedTestCase):
 
     def test_manual_mandate_id_not_overwritten(self):
         """Test that manually set mandate_id is not overwritten"""
-        
-        manual_id = "MANUAL-MANDATE-12345"
-        
+
+        # Use unique ID to avoid conflicts with previous test runs
+        unique_suffix = frappe.utils.random_string(8)
+        manual_id = f"MANUAL-MANDATE-{unique_suffix}"
+
         mandate = frappe.new_doc("SEPA Mandate")
         mandate.mandate_id = manual_id  # Set manually
         mandate.account_holder_name = "Manual ID Test"
@@ -227,12 +259,13 @@ class TestSEPAMandateNaming(EnhancedTestCase):
 
     def test_uniqueness_enforcement(self):
         """Test that mandate_id uniqueness is enforced"""
-        
+
         settings = frappe.get_single("Verenigingen Settings")
         original_pattern = settings.sepa_mandate_naming_pattern
-        
-        # Use simple pattern to make testing easier
-        settings.sepa_mandate_naming_pattern = "UNIQUE-.####"
+
+        # Use unique pattern to avoid conflicts with existing mandates
+        unique_prefix = frappe.utils.random_string(6).upper()
+        settings.sepa_mandate_naming_pattern = f"UNQ{unique_prefix}-.####"
         settings.sepa_mandate_starting_counter = 1
         settings.save()
         
@@ -303,16 +336,20 @@ class TestSEPAMandateNaming(EnhancedTestCase):
 
     def test_integration_with_existing_workflow(self):
         """Test that SEPA mandate creation integrates properly with existing workflows"""
-        
+
         # Create a member with SEPA mandate through normal workflow
         member = self.create_test_member(
             first_name="Workflow",
             last_name="Integration",
             email="workflow.test@example.com"
         )
-        
+
         # Create SEPA mandate as would happen in normal workflow
-        mandate = self.create_test_sepa_mandate(member=member.name)
+        # Provide valid test IBAN to avoid validation errors
+        mandate = self.create_test_sepa_mandate(
+            member_name=member.name,
+            iban=generate_test_iban("TEST")
+        )
         
         # Should have auto-generated mandate_id
         self.assertTrue(mandate.mandate_id, "Mandate should have auto-generated mandate_id")

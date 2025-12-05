@@ -1,5 +1,9 @@
 {
- "charts": [],
+ "charts": [
+  {
+   "chart_name": "SEPA Payment Status"
+  }
+ ],
  "content": "[{\"id\":\"card_0\",\"type\":\"card\",\"data\":{\"card_name\":\"Payment Gateways\",\"col\":4}},{\"id\":\"card_1\",\"type\":\"card\",\"data\":{\"card_name\":\"SEPA Processing\",\"col\":4}},{\"id\":\"card_2\",\"type\":\"card\",\"data\":{\"card_name\":\"Payment Plans\",\"col\":4}},{\"id\":\"card_3\",\"type\":\"card\",\"data\":{\"card_name\":\"Payment Processing\",\"col\":4}},{\"id\":\"card_4\",\"type\":\"card\",\"data\":{\"card_name\":\"SEPA Auditing & Retry\",\"col\":4}},{\"id\":\"card_5\",\"type\":\"card\",\"data\":{\"card_name\":\"Reports & Analytics\",\"col\":4}},{\"id\":\"card_6\",\"type\":\"card\",\"data\":{\"card_name\":\"Financial Reports\",\"col\":4}},{\"id\":\"MuUu8BdccN\",\"type\":\"card\",\"data\":{\"card_name\":\"Mollie Payments\",\"col\":4}},{\"id\":\"qD0pJGL7aT\",\"type\":\"custom_block\",\"data\":{\"custom_block_name\":\"Mollie Payments\",\"col\":12}}]",
  "creation": "2025-09-11 23:52:52.928436",
  "custom_blocks": [
@@ -247,7 +251,7 @@
    "type": "Link"
   }
  ],
- "modified": "2025-11-28 07:23:10.707147",
+ "modified": "2025-12-05 14:48:09.020433",
  "modified_by": "Administrator",
  "module": "Verenigingen Payments",
  "name": "Verenigingen Payments",

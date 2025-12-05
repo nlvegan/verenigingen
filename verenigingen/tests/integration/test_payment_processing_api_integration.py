@@ -64,22 +64,16 @@ class TestPaymentProcessingAPIIntegration(EnhancedTestCase):
         )
 
     def _create_overdue_invoice(self, member, days_overdue, amount):
-        """Create real overdue invoice using business logic (no mocks)"""
-        from verenigingen.utils.application_payments import create_membership_invoice_with_amount
-        
-        # Call REAL invoice creation function (not mocked)
-        invoice = create_membership_invoice_with_amount(
-            member_name=member,
-            amount=amount,
-            description=f"Test overdue invoice - {days_overdue} days"
+        """Create real overdue invoice using Enhanced Test Factory"""
+        # Use the factory method for consistent test data
+        invoice = self.create_test_sales_invoice(
+            customer=member,
+            posting_date=add_days(today(), -days_overdue),
+            due_date=add_days(today(), -days_overdue + 30),
+            grand_total=amount,
+            is_membership_invoice=1
         )
-        
-        # Make it overdue by setting old posting date
-        invoice.posting_date = add_days(today(), -days_overdue)
-        invoice.due_date = add_days(today(), -days_overdue + 30)
-        invoice.save()
         invoice.submit()
-        
         return invoice
 
     def test_send_overdue_payment_reminders_real_integration(self):

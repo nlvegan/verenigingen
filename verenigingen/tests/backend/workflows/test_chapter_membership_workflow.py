@@ -24,15 +24,11 @@ class TestChapterMembershipWorkflow(EnhancedTestCase):
         super().setUp()
         
         # Use Enhanced Test Factory for test data creation
-        try:
-            self.test_chapter = self.create_test_chapter(
-                title="Test Chapter for Unit Tests",
-                region="nederland",
-                published=1
-            )
-        except Exception:
-            # If chapter creation fails, skip chapter-specific tests
-            self.test_chapter = None
+        # Store chapter NAME (string), not the document object
+        # Functions like create_pending_chapter_membership expect chapter_name string
+        # Don't pass 'title' - Chapter doctype doesn't have that field, factory auto-generates name
+        chapter_doc = self.create_test_chapter(published=1)
+        self.test_chapter = chapter_doc.name  # Store the name, not the document
             
         self.test_member_email = f"test-unit-{int(now_datetime().timestamp())}@example.com"
         self.test_member_name = None
