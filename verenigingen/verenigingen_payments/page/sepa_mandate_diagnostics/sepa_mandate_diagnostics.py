@@ -8,8 +8,11 @@ Replaces blind nightly sync tasks with targeted problem detection and resolution
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, standard_api
+
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.READ)
 def get_mandate_issues():
     """
     Get all SEPA mandate synchronization issues categorized by type.
@@ -51,6 +54,15 @@ def get_mandate_issues():
         "multiple_current_mandates": {
             "title": _("Multiple Current Mandates"),
             "description": _("Members marked as having multiple 'current' mandates"),
+            "severity": "high",
+            "count": 0,
+            "members": [],
+        },
+        "mandate_member_data_mismatch": {
+            "title": _("Mandate/Member Data Mismatch"),
+            "description": _(
+                "Active SEPA mandates where IBAN or account holder name differs from member record"
+            ),
             "severity": "high",
             "count": 0,
             "members": [],
@@ -165,6 +177,47 @@ def get_mandate_issues():
     issues["multiple_current_mandates"]["count"] = len(multiple_current)
     issues["multiple_current_mandates"]["members"] = multiple_current
 
+    # Mandate/Member data mismatch - IBAN or account holder name differs
+    data_mismatch = frappe.db.sql(
+        """
+        SELECT
+            m.name as member_id,
+            m.full_name,
+            m.iban as member_iban,
+            m.bank_account_name as member_account_holder,
+            sm.name as mandate_name,
+            sm.mandate_id,
+            sm.iban as mandate_iban,
+            sm.account_holder_name as mandate_account_holder,
+            CASE
+                WHEN REPLACE(REPLACE(m.iban, ' ', ''), '-', '') != REPLACE(REPLACE(sm.iban, ' ', ''), '-', '')
+                    AND (m.bank_account_name IS NULL OR m.bank_account_name = '' OR m.bank_account_name = sm.account_holder_name)
+                    THEN 'iban_mismatch'
+                WHEN m.bank_account_name IS NOT NULL AND m.bank_account_name != '' AND m.bank_account_name != sm.account_holder_name
+                    AND REPLACE(REPLACE(m.iban, ' ', ''), '-', '') = REPLACE(REPLACE(sm.iban, ' ', ''), '-', '')
+                    THEN 'holder_mismatch'
+                ELSE 'both_mismatch'
+            END as mismatch_type
+        FROM `tabMember` m
+        INNER JOIN `tabSEPA Mandate` sm ON sm.member = m.name
+        WHERE sm.status = 'Active'
+          AND sm.is_active = 1
+          AND (
+              -- IBAN mismatch (normalized comparison without spaces/dashes)
+              REPLACE(REPLACE(m.iban, ' ', ''), '-', '') != REPLACE(REPLACE(sm.iban, ' ', ''), '-', '')
+              -- OR account holder name mismatch (when member has one set)
+              OR (
+                  m.bank_account_name IS NOT NULL
+                  AND m.bank_account_name != ''
+                  AND m.bank_account_name != sm.account_holder_name
+              )
+          )
+        """,
+        as_dict=True,
+    )
+    issues["mandate_member_data_mismatch"]["count"] = len(data_mismatch)
+    issues["mandate_member_data_mismatch"]["members"] = data_mismatch
+
     # Calculate totals
     total_issues = sum(issue["count"] for issue in issues.values())
     unique_members = len(
@@ -182,6 +235,7 @@ def get_mandate_issues():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def fix_member_mandate_issues(member_id, issue_types=None):
     """
     Fix SEPA mandate issues for a specific member.
@@ -207,6 +261,7 @@ def fix_member_mandate_issues(member_id, issue_types=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def bulk_fix_mandate_issues(issue_type=None, member_ids=None):
     """
     Fix SEPA mandate issues for multiple members.
