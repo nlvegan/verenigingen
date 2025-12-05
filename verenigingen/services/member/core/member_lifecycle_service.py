@@ -544,11 +544,22 @@ class MemberLifecycleService(StatelessService):
             return None
 
 
-# Convenience function for getting service instance
+# Lazy singleton - initialized on first access to avoid circular import issues
+_member_lifecycle_service_instance = None
+
+
 def get_member_lifecycle_service() -> MemberLifecycleService:
-    """Get MemberLifecycleService instance."""
-    return MemberLifecycleService()
+    """Get MemberLifecycleService instance (lazy singleton to avoid circular imports)."""
+    global _member_lifecycle_service_instance
+    if _member_lifecycle_service_instance is None:
+        _member_lifecycle_service_instance = MemberLifecycleService()
+    return _member_lifecycle_service_instance
 
 
-# Singleton instance for backward compatibility
-member_lifecycle_service = MemberLifecycleService()
+# For backward compatibility with `from ... import member_lifecycle_service`
+# Use __getattr__ for lazy access - no explicit binding here
+def __getattr__(name):
+    """Module-level __getattr__ for lazy singleton access."""
+    if name == "member_lifecycle_service":
+        return get_member_lifecycle_service()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

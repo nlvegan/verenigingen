@@ -268,6 +268,24 @@ class BankStatementImporter:
             # Get invoice details
             invoice = frappe.get_doc("Sales Invoice", matching_invoice)
 
+            # Get default accounts from company
+            company_doc = frappe.get_doc("Company", invoice.company)
+            default_bank_account = company_doc.default_bank_account
+            default_receivable_account = company_doc.default_receivable_account
+
+            # Fall back to getting accounts from Mode of Payment if company defaults not set
+            if not default_bank_account:
+                mode_of_payment = frappe.get_doc("Mode of Payment", "Bank Transfer")
+                for account in mode_of_payment.accounts:
+                    if account.company == invoice.company:
+                        default_bank_account = account.default_account
+                        break
+
+            if not default_receivable_account:
+                default_receivable_account = frappe.get_cached_value(
+                    "Company", invoice.company, "default_receivable_account"
+                )
+
             # Create payment entry
             payment_entry = frappe.new_doc("Payment Entry")
             payment_entry.update(
@@ -283,6 +301,14 @@ class BankStatementImporter:
                     "reference_date": transaction.get("date", today()),
                     "remarks": f"Bank import: {transaction.get('description', '')}",
                     "mode_of_payment": "Bank Transfer",
+                    # Exchange rates - mandatory in ERPNext v15+
+                    "source_exchange_rate": 1.0,
+                    "target_exchange_rate": 1.0,
+                    # Payment accounts
+                    "paid_from": default_receivable_account,  # Receivables for "Receive" payments
+                    "paid_to": default_bank_account,  # Bank account where money goes
+                    "paid_from_account_currency": invoice.currency or "EUR",
+                    "paid_to_account_currency": "EUR",
                 }
             )
 

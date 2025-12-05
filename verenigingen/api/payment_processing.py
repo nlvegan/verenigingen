@@ -205,12 +205,12 @@ def send_overdue_payment_reminders(
         # Critical Security Fix: Add explicit permission validation
         if not frappe.has_permission("Sales Invoice", "read"):
             return OperationResult.fail(
-                error=_("You don't have permission to access overdue payment data"), http_status_code=403
+                _("You don't have permission to access overdue payment data"), http_status_code=403
             )
 
         if not frappe.has_permission("Member", "read"):
             return OperationResult.fail(
-                error=_("You don't have permission to access member data"), http_status_code=403
+                _("You don't have permission to access member data"), http_status_code=403
             )
 
         # Additional financial operation permission check
@@ -223,7 +223,7 @@ def send_overdue_payment_reminders(
         ]
         if not any(role in required_roles for role in user_roles):
             return OperationResult.fail(
-                error=_("You don't have permission to send payment reminders. Required roles: {0}").format(
+                _("You don't have permission to send payment reminders. Required roles: {0}").format(
                     ", ".join(required_roles)
                 ),
                 http_status_code=403,
@@ -292,7 +292,7 @@ def send_overdue_payment_reminders(
             title="Payment Processing - Send Reminders Failed",
         )
         return OperationResult.fail(
-            error=_("Failed to send payment reminders: {0}").format(str(e)), http_status_code=500
+            _("Failed to send payment reminders: {0}").format(str(e)), http_status_code=500
         )
 
 
@@ -310,7 +310,7 @@ def export_overdue_payments(filters=None, format="CSV") -> OperationResult[Dict[
         # Validate format parameter
         if format not in ["CSV", "XLSX"]:
             return OperationResult.fail(
-                error=_("Invalid export format. Supported formats: CSV, XLSX"), http_status_code=400
+                _("Invalid export format. Supported formats: CSV, XLSX"), http_status_code=400
             )
 
         data = get_data(filters)
@@ -409,7 +409,7 @@ def execute_bulk_payment_action(
 
         if action not in valid_actions:
             return OperationResult.fail(
-                error=_("Invalid action. Valid actions: {0}").format(", ".join(valid_actions)),
+                _("Invalid action. Valid actions: {0}").format(", ".join(valid_actions)),
                 http_status_code=400,
             )
 
@@ -470,7 +470,7 @@ def execute_bulk_payment_action(
             title="Payment Processing - Bulk Action Failed",
         )
         return OperationResult.fail(
-            error=_("Failed to execute bulk payment action: {0}").format(str(e)), http_status_code=500
+            _("Failed to execute bulk payment action: {0}").format(str(e)), http_status_code=500
         )
 
 
@@ -978,5 +978,5 @@ def check_scheduler_logs() -> OperationResult[Dict[str, Any]]:
             title="Payment Processing - Scheduler Logs Check Failed",
         )
         return OperationResult.fail(
-            error=_("Failed to check scheduler logs: {0}").format(str(e)), http_status_code=500
+            _("Failed to check scheduler logs: {0}").format(str(e)), http_status_code=500
         )

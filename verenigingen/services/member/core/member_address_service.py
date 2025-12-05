@@ -439,5 +439,22 @@ class MemberAddressService(StatelessService):
         return "Household Member"
 
 
-# Singleton instance for global access
-member_address_service = MemberAddressService()
+# Lazy singleton - initialized on first access to avoid circular import issues
+_member_address_service_instance = None
+
+
+def get_member_address_service() -> MemberAddressService:
+    """Get MemberAddressService instance (lazy singleton to avoid circular imports)."""
+    global _member_address_service_instance
+    if _member_address_service_instance is None:
+        _member_address_service_instance = MemberAddressService()
+    return _member_address_service_instance
+
+
+# For backward compatibility with `from ... import member_address_service`
+# Use __getattr__ for lazy access - no explicit binding here
+def __getattr__(name):
+    """Module-level __getattr__ for lazy singleton access."""
+    if name == "member_address_service":
+        return get_member_address_service()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

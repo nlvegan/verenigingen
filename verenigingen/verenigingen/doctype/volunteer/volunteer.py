@@ -140,9 +140,9 @@ class Volunteer(Document):
             if hasattr(member, "age") and member.age is not None:
                 age = member.age
             else:
-                from datetime import date, datetime
+                from datetime import datetime
 
-                today_date = date.today()
+                today_date = date.today()  # date imported at module level
                 if isinstance(member.birth_date, str):
                     born = datetime.strptime(member.birth_date, "%Y-%m-%d").date()
                 else:
@@ -467,17 +467,26 @@ class Volunteer(Document):
             frappe.logger().info(f"Queueing secure account creation for volunteer {self.name}")
 
             # Queue account creation with proper security validation
+            # Returns OperationResult, not a plain dict
             result = queue_account_creation_for_volunteer(volunteer_name=self.name, priority="Normal")
 
-            frappe.logger().info(f"Account creation queued successfully: {result['request_name']}")
+            if not result.success:
+                frappe.logger().warning(
+                    f"Account creation queueing returned failure for volunteer {self.name}: {result.error_message}"
+                )
+                return
+
+            # Access data via result.data (OperationResult pattern)
+            request_name = result.data.get("request_name") if result.data else None
+            frappe.logger().info(f"Account creation queued successfully: {request_name}")
 
             # Optionally notify the user about the process
-            if frappe.session.user != "Administrator":
+            if frappe.session.user != "Administrator" and request_name:
                 frappe.publish_realtime(
                     "volunteer_account_creation_queued",
                     {
                         "volunteer_name": self.name,
-                        "request_name": result["request_name"],
+                        "request_name": request_name,
                         "message": "Account creation has been queued and will be processed shortly",
                     },
                     user=frappe.session.user,
@@ -672,7 +681,7 @@ def _queue_volunteer_account_creation(member_name, volunteer_name, roles=None):
     Args:
         member_name: Member record name
         volunteer_name: Volunteer record name
-        roles: List of roles to assign (default: ["Verenigingen Volunteer"])
+        roles: List of roles to assign (default: ["Vereinigingen Volunteer"])
 
     Returns:
         str: Account Creation Request name if successful, None otherwise
@@ -692,18 +701,21 @@ def _queue_volunteer_account_creation(member_name, volunteer_name, roles=None):
                 roles = [roles]
 
         # Queue account creation via centralized manager
+        # Returns OperationResult, not a plain dict
         result = queue_account_creation_for_member(member_name=member_name, roles=roles, priority="Normal")
 
-        if result and result.get("success"):
+        # Access OperationResult attributes correctly
+        if result and result.success:
+            request_name = result.data.get("request_name") if result.data else None
             frappe.logger().info(
                 f"Queued account creation for volunteer {volunteer_name} "
-                f"(member: {member_name}, request: {result.get('request_name')})"
+                f"(member: {member_name}, request: {request_name})"
             )
-            return result.get("request_name")
+            return request_name
         else:
+            error_msg = result.error_message if result else "Unknown error"
             frappe.logger().warning(
-                f"Failed to queue account creation for volunteer {volunteer_name}: "
-                f"{result.get('error') if result else 'Unknown error'}"
+                f"Failed to queue account creation for volunteer {volunteer_name}: {error_msg}"
             )
             return None
 

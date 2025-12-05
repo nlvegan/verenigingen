@@ -930,7 +930,9 @@ class APISecurityFramework:
             if scope == "global":
                 cache_key = f"cor_rate_limit:{operation_name}"
             elif scope == "per_ip":
-                client_ip = frappe.local.request.environ.get("REMOTE_ADDR", "unknown")
+                # Use getattr to safely access request which may not exist outside HTTP context
+                request = getattr(frappe.local, "request", None)
+                client_ip = request.environ.get("REMOTE_ADDR", "unknown") if request else "unknown"
                 cache_key = f"cor_rate_limit:{operation_name}:{client_ip}"
             else:  # per_user (default)
                 cache_key = f"cor_rate_limit:{operation_name}:{frappe.session.user}"

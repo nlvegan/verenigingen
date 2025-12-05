@@ -40,9 +40,9 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import date_diff, getdate, now, now_datetime, today
 
-from verenigingen.services.member.core.member_address_service import member_address_service
+from verenigingen.services.member.core.member_address_service import get_member_address_service
 from verenigingen.services.member.core.member_id_service import generate_application_id, generate_member_id
-from verenigingen.services.member.core.member_lifecycle_service import member_lifecycle_service
+from verenigingen.services.member.core.member_lifecycle_service import get_member_lifecycle_service
 from verenigingen.services.member.core.member_status_service import (
     set_member_application_status_defaults,
     sync_member_status_fields,
@@ -246,7 +246,7 @@ class Member(
             - Sets address_last_updated timestamp
         """
         try:
-            result = member_address_service.update_member_address_fields(self)
+            result = get_member_address_service().update_member_address_fields(self)
 
             if not result.success:
                 # Log errors from the service
@@ -464,7 +464,7 @@ class Member(
 
     def is_application_member(self) -> bool:
         """Check if this member was created through the application process"""
-        return member_lifecycle_service.is_application_member(self)
+        return get_member_lifecycle_service().is_application_member(self)
 
     def should_have_member_id(self) -> bool:
         """Check if this member should have a member ID assigned"""
@@ -502,9 +502,7 @@ class Member(
         EXTRACTED: Moved to MemberAddressService.guess_relationship()
         for service layer separation and better testability.
         """
-        from verenigingen.services.member.core.member_address_service import member_address_service
-
-        return member_address_service.guess_relationship(self, other_member)
+        return get_member_address_service().guess_relationship(self, other_member)
 
     def _get_age_group(self, birth_date):
         """Get age group for privacy-friendly display - delegated to member_age_service"""
@@ -515,7 +513,7 @@ class Member(
     def approve_application(self) -> bool:
         """Approve this application and assign member ID"""
         # Use lifecycle service for core approval logic
-        result = member_lifecycle_service.approve_application(self)
+        result = get_member_lifecycle_service().approve_application(self)
 
         if not result.success:
             # If there are errors, throw the first one
@@ -561,7 +559,7 @@ class Member(
     def reject_application(self, reason: str) -> bool:
         """Reject this application and clean up pending records"""
         # Use lifecycle service for core rejection logic
-        result = member_lifecycle_service.reject_application(self, reason)
+        result = get_member_lifecycle_service().reject_application(self, reason)
 
         if not result.success:
             # If there are errors, throw the first one
@@ -879,7 +877,7 @@ class Member(
                 f"get_other_members_at_address called for {self.name} with address {self.primary_address}"
             )
 
-            result = member_address_service.get_colocated_members(self)
+            result = get_member_address_service().get_colocated_members(self)
 
             if not result.success:
                 # Log errors from the service

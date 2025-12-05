@@ -327,7 +327,7 @@ class SEPAAuditLog(Document):
                 required_permissions=["SEPA Audit Log:create"],
             )
             if result.success:
-                return result.doc
+                return result.document  # Use .document attribute (not .doc)
             else:
                 frappe.log_error(f"SEPA audit logging failed due to permissions: {'; '.join(result.errors)}")
                 return None
