@@ -8,9 +8,11 @@ Extracted from monolithic webhook handler for better maintainability.
 from typing import Any, Dict, Optional
 
 import frappe
+from frappe import _
 
 from verenigingen.services.infrastructure.base_service import StatefulService
 from verenigingen.services.infrastructure.service_config import get_service_config
+from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
@@ -50,6 +52,202 @@ class CustomerHandlingService(StatefulService):
             return True
         except Exception as e:
             self.logger.error(f"Configuration validation failed: {str(e)}")
+            return False
+
+    def create_customer_for_member(self, member_doc, suppress_messages=False) -> str:
+        """Create a customer for this member in ERPNext.
+
+        Handles duplicate detection, secure operations, and proper ERPNext
+        Customer record creation.
+
+        Args:
+            member_doc: Member document instance
+            suppress_messages (bool): Whether to suppress user messages
+
+        Returns:
+            str: Customer name (ID) of created customer
+
+        Raises:
+            frappe.ValidationError: If customer creation fails
+        """
+        operation_name = "create_customer_for_member"
+        start_time = self._start_operation(operation_name)
+
+        try:
+            # Check if customer already exists
+            if member_doc.customer:
+                if not suppress_messages:
+                    frappe.msgprint(
+                        _("Customer {0} already exists for this member").format(member_doc.customer)
+                    )
+                self._end_operation(operation_name, start_time, success=True)
+                return member_doc.customer
+
+            # Check if customer already exists for this member (database constraint check)
+            existing_customer = frappe.db.get_value("Customer", {"member": member_doc.name}, "name")
+            if existing_customer:
+                self.logger.info(f"Customer {existing_customer} already exists for Member {member_doc.name}")
+                # Update member record to reflect the existing customer link
+                member_doc.db_set("customer", existing_customer, update_modified=False)
+                self._end_operation(operation_name, start_time, success=True)
+                return existing_customer
+
+            # Check for similar customers and warn user
+            if member_doc.full_name:
+                similar_name_customers = self.check_similar_customers(member_doc.full_name)
+
+                exact_name_match = next(
+                    (
+                        c
+                        for c in similar_name_customers
+                        if c.customer_name.lower() == member_doc.full_name.lower()
+                    ),
+                    None,
+                )
+                if exact_name_match and not suppress_messages:
+                    customer_info = (
+                        f"Name: {exact_name_match.name}, Email: {exact_name_match.email_id or 'N/A'}"
+                    )
+                    frappe.msgprint(
+                        _("Found existing customer with same name: {0}").format(customer_info)
+                        + _(
+                            "\nCreating a new customer for this member. If you want to link to the existing customer instead, please do so manually."
+                        )
+                    )
+
+                elif similar_name_customers and not suppress_messages:
+                    customer_list = "\n".join(
+                        [f"- {c.customer_name} ({c.name})" for c in similar_name_customers[:5]]
+                    )
+                    frappe.msgprint(
+                        _("Found similar customer names. Please review:")
+                        + f"\n{customer_list}"
+                        + (
+                            _("\n(Showing first 5 of {0} matches)").format(len(similar_name_customers))
+                            if len(similar_name_customers) > 5
+                            else ""
+                        )
+                        + _("\nCreating a new customer for this member.")
+                    )
+
+            # Create new customer document
+            customer = frappe.new_doc("Customer")
+            customer.customer_name = member_doc.full_name
+            customer.customer_type = "Individual"
+            customer.member = member_doc.name  # Link customer back to member
+
+            if member_doc.email:
+                customer.email_id = member_doc.email
+            if hasattr(member_doc, "contact_number") and member_doc.contact_number:
+                customer.mobile_no = member_doc.contact_number
+                customer.phone = member_doc.contact_number
+
+            customer.flags.ignore_mandatory = True
+
+            # Suppress messages during customer creation if requested
+            if suppress_messages:
+                customer.flags.ignore_messages = True
+
+            # Secure customer creation with explicit permission validation
+            customer_result = secure_document_operation(
+                operation="insert",
+                doc=customer,
+                justification=f"Automated customer creation for member {member_doc.name}",
+                required_permissions=["Customer:create"],
+            )
+
+            if not customer_result.success:
+                error_msg = _("Failed to create customer: {0}").format("; ".join(customer_result.errors))
+                self._end_operation(operation_name, start_time, success=False)
+                frappe.throw(error_msg)
+
+            self.logger.info(f"✅ Created customer {customer.name} for member {member_doc.name}")
+            self._end_operation(operation_name, start_time, success=True)
+            return customer.name
+
+        except Exception as e:
+            self._end_operation(operation_name, start_time, success=False)
+            # Re-raise if it's already a ValidationError or similar, otherwise wrap
+            if isinstance(e, (frappe.ValidationError, frappe.DoesNotExistError)):
+                raise
+            self.handle_error(e, operation_name, {"member": member_doc.name})
+            return None
+
+    def check_similar_customers(self, full_name: str, limit: int = 10) -> list:
+        """Check for existing customers with similar names.
+
+        Args:
+            full_name: Full name to search for
+            limit: Maximum number of results to return
+
+        Returns:
+            list: List of similar customer records
+        """
+        if not full_name:
+            return []
+
+        return frappe.get_all(
+            "Customer",
+            filters=[["customer_name", "like", f"%{full_name}%"]],
+            fields=["name", "customer_name", "email_id", "mobile_no"],
+            limit=limit,
+        )
+
+    def find_exact_customer_match(self, full_name: str) -> Optional[Dict]:
+        """Find customer with exact name match (case-insensitive).
+
+        Args:
+            full_name: Full name to match exactly
+
+        Returns:
+            dict or None: Customer record if found, None otherwise
+        """
+        if not full_name:
+            return None
+
+        similar_customers = self.check_similar_customers(full_name)
+        return next((c for c in similar_customers if c.customer_name.lower() == full_name.lower()), None)
+
+    def validate_customer_creation_requirements(self, member_doc) -> Dict:
+        """Validate that member has required fields for customer creation.
+
+        Args:
+            member_doc: Member document instance
+
+        Returns:
+            dict: Validation result with valid/errors fields
+        """
+        errors = []
+
+        if not getattr(member_doc, "full_name", None):
+            errors.append("Member must have a full name to create customer")
+
+        if not getattr(member_doc, "name", None):
+            errors.append("Member must be saved before creating customer")
+
+        return {"valid": len(errors) == 0, "errors": errors}
+
+    def update_member_customer_reference(self, member_doc, customer_name: str) -> bool:
+        """Update member document with customer reference.
+
+        Args:
+            member_doc: Member document instance
+            customer_name: Customer name/ID to link
+
+        Returns:
+            bool: True if update successful
+        """
+        operation_name = "update_member_customer_reference"
+        try:
+            member_doc.customer = customer_name
+            return True
+        except Exception as e:
+            self.handle_error(
+                e,
+                operation_name,
+                {"member": getattr(member_doc, "name", "Unknown"), "customer_name": customer_name},
+                raise_error=False,
+            )
             return False
 
     def update_customer_mandate(self, customer_id: str, mandate_id: str) -> Dict[str, Any]:
