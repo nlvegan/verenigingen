@@ -14,7 +14,7 @@ Migration Status: ✅ COMPLETE (2025-11-24)
 
 import frappe
 from frappe.utils import getdate, add_days
-from verenigingen.services.donation_reporting_service import (
+from verenigingen.services.donation.reporting_service import (
     get_anbi_donations_for_reporting,
     get_donations_by_chapter,
     get_donations_by_campaign,

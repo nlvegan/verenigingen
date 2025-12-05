@@ -11,8 +11,8 @@ Tests the complete donation workflow using real personas to validate:
 import frappe
 from frappe.utils import today, add_months
 from verenigingen.tests.fixtures.anbi_test_personas import ANBITestPersonas
-from verenigingen.services.donation_reporting_service import DonationReportingService
-from verenigingen.services.donation_financial_service import DonationFinancialService
+from verenigingen.services.donation.reporting_service import DonationReportingService
+from verenigingen.services.donation.financial_service import DonationFinancialService
 from verenigingen.services.communication.email_service import get_email_service
 
 

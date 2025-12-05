@@ -94,7 +94,7 @@ class Donation(Document):
         self.validate_donation_purpose()
 
     def create_donor_for_website_user(self):
-        from verenigingen.services.donation_donor_service import get_donor_by_email
+        from verenigingen.services.donation.donor_service import get_donor_by_email
 
         existing_donor = get_donor_by_email(frappe.session.user)
         donor_name = existing_donor.name if existing_donor else None
@@ -284,7 +284,7 @@ class Donation(Document):
 @critical_api(operation_type=OperationType.FINANCIAL)
 def create_donation_from_bank_transfer(donor, amount, date, bank_reference, donation_type=None):
     """Create donation from bank transfer details (payment-first architecture)"""
-    from verenigingen.services.donation_financial_service import DonationFinancialService
+    from verenigingen.services.donation.financial_service import DonationFinancialService
 
     return DonationFinancialService().create_donation_from_bank_transfer(
         donor=donor, amount=amount, date=date, bank_reference=bank_reference, donation_type=donation_type
@@ -296,19 +296,19 @@ def get_donor_by_email(email):
     Get donor by email address.
 
     .. deprecated:: 1.0
-        Use :func:`verenigingen.services.donation_donor_service.get_donor_by_email` instead.
+        Use :func:`verenigingen.services.donation.donor_service.get_donor_by_email` instead.
         This wrapper is kept for backward compatibility only.
     """
     import warnings
 
     warnings.warn(
         "donation.get_donor_by_email() is deprecated. "
-        "Use verenigingen.services.donation_donor_service.get_donor_by_email() instead.",
+        "Use verenigingen.services.donation.donor_service.get_donor_by_email() instead.",
         DeprecationWarning,
         stacklevel=2,
     )
 
-    from verenigingen.services.donation_donor_service import get_donor_by_email as _get_donor_func
+    from verenigingen.services.donation.donor_service import get_donor_by_email as _get_donor_func
 
     return _get_donor_func(email)
 
@@ -342,7 +342,7 @@ def get_company_for_donations():
 @critical_api(operation_type=OperationType.FINANCIAL)
 def create_sepa_donation(donor, amount, date, sepa_mandate, donation_type=None, recurring_frequency=None):
     """Create donation for SEPA direct debit"""
-    from verenigingen.services.donation_financial_service import DonationFinancialService
+    from verenigingen.services.donation.financial_service import DonationFinancialService
 
     return DonationFinancialService().create_sepa_donation(
         donor=donor,
@@ -366,7 +366,7 @@ def create_mode_of_payment(method):
 @high_security_api(operation_type=OperationType.REPORTING)
 def get_anbi_donations_for_reporting(from_date, to_date):
     """Get all ANBI donations requiring Belastingdienst reporting"""
-    from verenigingen.services.donation_reporting_service import DonationReportingService
+    from verenigingen.services.donation.reporting_service import DonationReportingService
 
     service = DonationReportingService()
     return service.get_anbi_donations_for_reporting(from_date, to_date)
@@ -411,7 +411,7 @@ def generate_anbi_agreement_number():
 @high_security_api(operation_type=OperationType.REPORTING)
 def get_donations_by_chapter(chapter, from_date=None, to_date=None):
     """Get all donations earmarked for a specific chapter"""
-    from verenigingen.services.donation_reporting_service import DonationReportingService
+    from verenigingen.services.donation.reporting_service import DonationReportingService
 
     service = DonationReportingService()
     return service.get_donations_by_chapter(chapter, from_date, to_date)
@@ -421,7 +421,7 @@ def get_donations_by_chapter(chapter, from_date=None, to_date=None):
 @high_security_api(operation_type=OperationType.REPORTING)
 def get_donations_by_campaign(campaign, from_date=None, to_date=None):
     """Get all donations for a specific campaign"""
-    from verenigingen.services.donation_reporting_service import DonationReportingService
+    from verenigingen.services.donation.reporting_service import DonationReportingService
 
     service = DonationReportingService()
     return service.get_donations_by_campaign(campaign, from_date, to_date)
@@ -431,7 +431,7 @@ def get_donations_by_campaign(campaign, from_date=None, to_date=None):
 @high_security_api(operation_type=OperationType.REPORTING)
 def get_donation_summary_by_purpose(from_date=None, to_date=None):
     """Get donation summary grouped by purpose type"""
-    from verenigingen.services.donation_reporting_service import DonationReportingService
+    from verenigingen.services.donation.reporting_service import DonationReportingService
 
     service = DonationReportingService()
     return service.get_donation_summary_by_purpose(from_date, to_date)
@@ -441,7 +441,7 @@ def get_donation_summary_by_purpose(from_date=None, to_date=None):
 @critical_api(operation_type=OperationType.FINANCIAL)
 def create_chapter_donation(donor, amount, chapter, date=None, donation_type=None, notes=None):
     """Create a donation earmarked for a specific chapter"""
-    from verenigingen.services.donation_financial_service import DonationFinancialService
+    from verenigingen.services.donation.financial_service import DonationFinancialService
 
     return DonationFinancialService().create_chapter_donation(
         donor=donor, amount=amount, chapter=chapter, date=date, donation_type=donation_type, notes=notes
@@ -452,7 +452,7 @@ def create_chapter_donation(donor, amount, chapter, date=None, donation_type=Non
 @high_security_api(operation_type=OperationType.REPORTING)
 def get_donation_accounting_summary(from_date=None, to_date=None):
     """Get donation accounting summary with GL account details"""
-    from verenigingen.services.donation_reporting_service import DonationReportingService
+    from verenigingen.services.donation.reporting_service import DonationReportingService
 
     service = DonationReportingService()
     return service.get_donation_accounting_summary(from_date, to_date)
@@ -462,7 +462,7 @@ def get_donation_accounting_summary(from_date=None, to_date=None):
 @critical_api(operation_type=OperationType.FINANCIAL)
 def reconcile_donation_accounts():
     """Reconcile donation amounts with GL entries"""
-    from verenigingen.services.donation_financial_service import DonationFinancialService
+    from verenigingen.services.donation.financial_service import DonationFinancialService
 
     return DonationFinancialService().reconcile_donation_accounts()
 
@@ -471,7 +471,7 @@ def reconcile_donation_accounts():
 @high_security_api(operation_type=OperationType.REPORTING)
 def create_donation_allocation_report(chapter=None, from_date=None, to_date=None):
     """Create detailed allocation report for chapter or overall donations"""
-    from verenigingen.services.donation_reporting_service import DonationReportingService
+    from verenigingen.services.donation.reporting_service import DonationReportingService
 
     service = DonationReportingService()
     return service.create_donation_allocation_report(chapter, from_date, to_date)

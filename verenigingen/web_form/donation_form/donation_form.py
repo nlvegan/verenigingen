@@ -112,7 +112,7 @@ def get_or_create_donor(data):
         validated_phone = APIValidator.validate_phone(data.get("donor_phone"), required=False)
 
     # Check if donor exists by email using cached lookup
-    from verenigingen.services.donation_donor_service import get_donor_by_email
+    from verenigingen.services.donation.donor_service import get_donor_by_email
 
     existing_donor_doc = get_donor_by_email(validated_email)
 
