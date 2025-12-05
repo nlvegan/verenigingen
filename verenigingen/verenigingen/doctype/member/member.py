@@ -40,7 +40,6 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import date_diff, getdate, now, now_datetime, today
 
-from verenigingen.services.customer_service import create_customer_for_member
 from verenigingen.services.member.core.member_address_service import member_address_service
 from verenigingen.services.member.core.member_id_service import generate_application_id, generate_member_id
 from verenigingen.services.member.core.member_lifecycle_service import member_lifecycle_service
@@ -689,7 +688,12 @@ class Member(
     def after_insert(self):
         """Execute after document is inserted"""
         if not self.customer and self.email:
-            customer_name = create_customer_for_member(self, suppress_messages=False)
+            # Lazy import to avoid circular dependency
+            from verenigingen.services.customer_handling_service import CustomerHandlingService
+
+            customer_name = CustomerHandlingService().create_customer_for_member(
+                self, suppress_messages=False
+            )
             self.customer = customer_name
             # CRITICAL: Must save to persist customer link to database
             # Otherwise reload() will wipe out this in-memory value
@@ -791,9 +795,12 @@ class Member(
     @frappe.whitelist()
     @critical_api(operation_type=OperationType.FINANCIAL)
     def create_customer(self) -> str:
-        """Create a customer for this member in ERPNext - delegated to customer_service"""
+        """Create a customer for this member in ERPNext - delegated to CustomerHandlingService"""
+        # Lazy import to avoid circular dependency
+        from verenigingen.services.customer_handling_service import CustomerHandlingService
+
         suppress_messages = getattr(self, "_suppress_customer_messages", False)
-        customer_name = create_customer_for_member(self, suppress_messages)
+        customer_name = CustomerHandlingService().create_customer_for_member(self, suppress_messages)
 
         # Update member with customer reference if we got a customer name
         if customer_name:

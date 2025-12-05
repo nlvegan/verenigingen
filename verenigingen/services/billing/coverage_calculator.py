@@ -502,6 +502,11 @@ class CoverageCalculator(StatelessService):
         return getdate(membership_start) if membership_start else None
 
 
-def get_coverage_calculator() -> CoverageCalculator:
-    """Get singleton instance of CoverageCalculator."""
-    return CoverageCalculator()
+def get_coverage_calculator(schedule_doc: Optional[Any] = None) -> CoverageCalculator:
+    """Get instance of CoverageCalculator.
+
+    Args:
+        schedule_doc: MembershipDuesSchedule document for schedule-specific operations.
+                     Optional - pass None for utility methods only (calculate_billing_period, etc.)
+    """
+    return CoverageCalculator(schedule_doc)

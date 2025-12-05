@@ -54,7 +54,7 @@ class CustomerHandlingService(StatefulService):
             self.logger.error(f"Configuration validation failed: {str(e)}")
             return False
 
-    def create_customer_for_member(self, member_doc, suppress_messages=False) -> str:
+    def create_customer_for_member(self, member_doc, suppress_messages=False) -> Optional[str]:
         """Create a customer for this member in ERPNext.
 
         Handles duplicate detection, secure operations, and proper ERPNext
@@ -65,7 +65,7 @@ class CustomerHandlingService(StatefulService):
             suppress_messages (bool): Whether to suppress user messages
 
         Returns:
-            str: Customer name (ID) of created customer
+            Optional[str]: Customer name (ID) of created customer, or None on error
 
         Raises:
             frappe.ValidationError: If customer creation fails
@@ -170,7 +170,11 @@ class CustomerHandlingService(StatefulService):
             # Re-raise if it's already a ValidationError or similar, otherwise wrap
             if isinstance(e, (frappe.ValidationError, frappe.DoesNotExistError)):
                 raise
-            self.handle_error(e, operation_name, {"member": member_doc.name})
+            member_name = getattr(member_doc, "name", "Unknown")
+            self.logger.error(
+                f"Customer creation failed for member {member_name}: {type(e).__name__}: {str(e)}"
+            )
+            self.handle_error(e, operation_name, {"member": member_name})
             return None
 
     def check_similar_customers(self, full_name: str, limit: int = 10) -> list:
