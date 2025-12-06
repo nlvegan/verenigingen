@@ -16,6 +16,7 @@
     "status",
     "pipeline_stage",
     "priority",
+    "bulk_operation_tracker",
     "section_break_details",
     "requested_roles",
     "role_profile",
@@ -94,6 +95,14 @@
       "label": "Priority",
       "options": "Low\nNormal\nHigh\nUrgent",
       "default": "Normal"
+    },
+    {
+      "fieldname": "bulk_operation_tracker",
+      "fieldtype": "Link",
+      "label": "Bulk Operation Tracker",
+      "options": "Bulk Operation Tracker",
+      "read_only": 1,
+      "description": "Links to the bulk import operation that created this request"
     },
     {
       "fieldname": "section_break_details",

@@ -81,22 +81,25 @@ class MijnroodCSVImport(Document):
 
     def on_submit(self):
         """Queue the CSV import for background processing."""
-        if not self.test_mode:
-            # Queue import as background job instead of processing synchronously
-            frappe.enqueue(
-                method="verenigingen.verenigingen.doctype.mijnrood_csv_import.mijnrood_csv_import.process_import_background",
-                queue="long",
-                timeout=3600,  # 1 hour timeout
-                import_doc_name=self.name,
-                now=False,
+        # Queue import as background job (both normal and test mode)
+        frappe.enqueue(
+            method="verenigingen.verenigingen.doctype.mijnrood_csv_import.mijnrood_csv_import.process_import_background",
+            queue="long",
+            timeout=3600,  # 1 hour timeout
+            import_doc_name=self.name,
+            test_mode=self.test_mode,
+            now=False,
+        )
+        self.import_status = "Queued"
+        self.save()
+        if self.test_mode:
+            frappe.msgprint(
+                _("Test import queued (first 25 rows only). You will receive an email when it completes.")
             )
-            self.import_status = "Queued"
-            self.save()
+        else:
             frappe.msgprint(
                 _("Import queued for background processing. You will receive an email when it completes.")
             )
-        else:
-            frappe.msgprint(_("Import completed in test mode. No records were created."))
 
     def _validate_and_preview_csv(self):
         """Validate CSV file and prepare preview data."""
@@ -2288,7 +2291,7 @@ def update_import_tracking_after_retry(import_doc_name: str):
 
 
 @frappe.whitelist()
-def process_import_background(import_doc_name: str):
+def process_import_background(import_doc_name: str, test_mode: bool = False):
     """
     Background job function to process member CSV import.
 
@@ -2297,6 +2300,7 @@ def process_import_background(import_doc_name: str):
 
     Args:
         import_doc_name: Name of the Mijnrood CSV Import document
+        test_mode: If True, only process the first 25 rows
     """
     # Mark this as a background job for scope-based rate limiting
     frappe.flags.in_background_job = True
@@ -2309,7 +2313,8 @@ def process_import_background(import_doc_name: str):
     # Suppress version tracking to prevent activity log flooding during bulk operations
     frappe.flags.ignore_version_changes = True
 
-    frappe.logger().info(f"Starting background import processing for {import_doc_name}")
+    test_mode_str = " (TEST MODE - first 25 rows)" if test_mode else ""
+    frappe.logger().info(f"Starting background import processing for {import_doc_name}{test_mode_str}")
 
     try:
         # Load the import document
@@ -2318,6 +2323,11 @@ def process_import_background(import_doc_name: str):
         # Read and validate CSV data
         csv_data = import_doc._read_csv_file()
         mapped_data, validation_errors = import_doc._validate_and_map_data(csv_data)
+
+        # In test mode, limit to first 25 rows
+        if test_mode and len(mapped_data) > 25:
+            frappe.logger().info(f"Test mode: limiting import from {len(mapped_data)} to 25 rows")
+            mapped_data = mapped_data[:25]
 
         if validation_errors:
             import_doc.import_status = "Failed"

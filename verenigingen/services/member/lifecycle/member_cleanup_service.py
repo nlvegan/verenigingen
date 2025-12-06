@@ -233,10 +233,20 @@ class MemberCleanupService(StatelessService):
             return
 
         customer = frappe.get_doc("Customer", member_doc.customer)
-        # Remove any Dynamic Link entries pointing to this Member
+
+        # Clear custom_member field if it points to this member
+        if hasattr(customer, "custom_member") and customer.custom_member == member_doc.name:
+            customer.custom_member = None
+            # Permission bypass justified: System operation during member deletion
+            customer.save(ignore_permissions=True)
+            return
+
+        # Also handle Dynamic Link entries if they exist (some ERPNext setups)
+        # Use `or []` pattern because get() returns None if field exists but is None
+        customer_links = customer.get("links") or []
         links_to_remove = [
             link
-            for link in customer.get("links", [])
+            for link in customer_links
             if link.link_doctype == "Member" and link.link_name == member_doc.name
         ]
 
@@ -271,9 +281,11 @@ class MemberCleanupService(StatelessService):
         address = frappe.get_doc("Address", address_name)
 
         # Remove any link entries pointing to this Member
+        # Use `or []` pattern because get() returns None if field exists but is None
+        address_links = address.get("links") or []
         links_to_remove = [
             link
-            for link in address.get("links", [])
+            for link in address_links
             if link.link_doctype == "Member" and link.link_name == member_doc.name
         ]
 

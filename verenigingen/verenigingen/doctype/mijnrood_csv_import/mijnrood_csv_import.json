@@ -97,10 +97,10 @@
     },
     {
       "default": "0",
-      "description": "Run in test mode first to preview results without creating records",
+      "description": "Import only the first 25 rows to verify import settings are correct before running a full import",
       "fieldname": "test_mode",
       "fieldtype": "Check",
-      "label": "Test Mode"
+      "label": "Test Mode (First 25 Rows Only)"
     },
     {
       "collapsible": 1,

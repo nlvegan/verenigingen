@@ -784,6 +784,8 @@ workflow_action_handlers = {
 fixtures = [
     # Property Setters (customize ERPNext DocTypes)
     "Property Setter",
+    # Custom DocPerms (permissions for core DocTypes)
+    "Custom DocPerm",
     # Donation Types
     {
         "doctype": "Donation Type",
