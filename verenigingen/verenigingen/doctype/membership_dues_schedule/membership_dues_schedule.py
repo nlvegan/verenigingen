@@ -379,7 +379,8 @@ class MembershipDuesSchedule(Document):
 
     def set_dues_rate_from_membership_type(self):
         """Set dues rate based on membership type template if not already set"""
-        if not self.dues_rate and self.membership_type:
+        # Use 'is None' check to allow 0 as a valid dues rate (e.g., for free memberships)
+        if self.dues_rate is None and self.membership_type:
             # Get the fee from template values (explicit configuration)
             template_values = self.get_template_values()
             # For Calculator mode, use suggested_amount as default

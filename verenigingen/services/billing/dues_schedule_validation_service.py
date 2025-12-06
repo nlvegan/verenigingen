@@ -146,8 +146,9 @@ class DuesScheduleValidationService(StatelessService):
         if not schedule_doc.membership_type:
             return
 
-        # Only calculate dues_rate if not already explicitly set or if it's zero
-        if not schedule_doc.dues_rate or schedule_doc.dues_rate == 0:
+        # Only calculate dues_rate if not already explicitly set (None means not set)
+        # Allow 0 as a valid value for free memberships
+        if schedule_doc.dues_rate is None:
             if schedule_doc.contribution_mode == "Tier" and schedule_doc.selected_tier:
                 tier = frappe.get_doc("Membership Tier", schedule_doc.selected_tier)
                 schedule_doc.dues_rate = tier.amount
@@ -210,17 +211,21 @@ class DuesScheduleValidationService(StatelessService):
             >>> # Administrator: Shows warning, allows save
             >>> # Regular user: Throws error, blocks save
         """
-        if schedule_doc.is_template or not schedule_doc.dues_rate:
-            return  # Skip for templates or when no dues rate is set
+        # Skip for templates or when dues_rate is not set (None)
+        # Allow 0 as valid for free memberships
+        if schedule_doc.is_template or schedule_doc.dues_rate is None:
+            return
 
         try:
             # Get configuration values
             from verenigingen.utils.config_manager import ConfigManager
 
-            # Check absolute minimum (safety check)
-            absolute_minimum = ConfigManager.get("absolute_minimum_dues", 0.01)  # €0.01 minimum
-            if float(schedule_doc.dues_rate) < absolute_minimum:
-                frappe.throw(f"Dues rate cannot be less than €{absolute_minimum:.2f}", frappe.ValidationError)
+            # Check absolute minimum (safety check) - but allow 0 for free memberships
+            # Only enforce minimum for non-zero rates
+            if schedule_doc.dues_rate > 0:
+                absolute_minimum = ConfigManager.get("absolute_minimum_dues", 0.01)  # €0.01 minimum
+                if float(schedule_doc.dues_rate) < absolute_minimum:
+                    frappe.throw(f"Dues rate cannot be less than €{absolute_minimum:.2f}", frappe.ValidationError)
 
             # Check maximum reasonable amount
             maximum_dues = ConfigManager.get("maximum_dues_limit", 1000.0)  # €1000 default max
@@ -408,14 +413,16 @@ class DuesScheduleValidationService(StatelessService):
             >>> DuesScheduleValidationService.validate_rate_boundaries(schedule)
             # Raises: InvalidDuesRateError("Dues rate must be positive. Got: €-5.00")
         """
-        if schedule_doc.is_template or not schedule_doc.dues_rate:
+        # Skip validation for templates or when dues_rate is not set (None)
+        # Allow 0 as valid for free memberships
+        if schedule_doc.is_template or schedule_doc.dues_rate is None:
             return
 
-        # Enhanced minimum validation
-        if schedule_doc.dues_rate <= 0:
+        # Block negative values only (0 is allowed for free memberships)
+        if schedule_doc.dues_rate < 0:
             from verenigingen.utils.exceptions import InvalidDuesRateError
 
-            raise InvalidDuesRateError(f"Dues rate must be positive. Got: €{schedule_doc.dues_rate:.2f}")
+            raise InvalidDuesRateError(f"Dues rate cannot be negative. Got: €{schedule_doc.dues_rate:.2f}")
 
         # Check against membership type boundaries - but only during user edits, not invoice generation
         # Skip strict validation if we're in an automated context like invoice generation
