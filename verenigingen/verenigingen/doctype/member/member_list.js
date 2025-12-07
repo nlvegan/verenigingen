@@ -672,8 +672,14 @@ function show_merge_dialog(source_name, target_name, listview) {
 			target_name: target_name
 		},
 		callback(r) {
-			if (r.message) {
-				render_merge_dialog(r.message, listview);
+			if (r.message && r.message.success) {
+				render_merge_dialog(r.message.data, listview);
+			} else if (r.message && !r.message.success) {
+				frappe.msgprint({
+					title: __('Error'),
+					message: r.message.error_message || __('Failed to load merge preview'),
+					indicator: 'red'
+				});
 			}
 		},
 		error(err) {
@@ -827,8 +833,9 @@ function execute_merge(source_name, target_name, field_selections, listview) {
 		freeze_message: __('Merging members, please wait...'),
 		callback(r) {
 			if (r.message && r.message.success) {
+				const result = r.message.data;
 				frappe.show_alert({
-					message: __('Members merged successfully! {0} changes applied.', [r.message.changes_applied]),
+					message: __('Members merged successfully! {0} changes applied.', [result.changes_applied]),
 					indicator: 'green'
 				}, 5);
 
@@ -836,7 +843,13 @@ function execute_merge(source_name, target_name, field_selections, listview) {
 				listview.refresh();
 
 				// Open the merged member
-				frappe.set_route('Form', 'Member', r.message.merged_member);
+				frappe.set_route('Form', 'Member', result.merged_member);
+			} else if (r.message && !r.message.success) {
+				frappe.msgprint({
+					title: __('Merge Failed'),
+					message: r.message.error_message || __('Failed to merge members'),
+					indicator: 'red'
+				});
 			}
 		},
 		error(err) {
