@@ -1,41 +1,41 @@
 <!-- Membership Dues Payment Processor Section -->
 <!-- Two-stage processing: Retrieve → Select → Process -->
-<div class="bg-white border border-black rounded-lg p-4 mb-6">
-    <div class="p-4 border border-black rounded-lg bg-white">
+<div class="bg-white border-2 border-black p-4 mb-6">
+    <div class="p-4 border-2 border-black bg-white">
         <h3 class="text-lg font-semibold text-black mb-2">
             <i class="fa fa-credit-card mr-2"></i>{{ _("Membership Dues Payment Processor") }}
         </h3>
-        <p class="text-gray-900 mb-4">
+        <p class="text-black mb-4">
             {{ _("Two-stage processing: Retrieve all payment transactions for a customer, then select which ones to process as membership dues payments") }}
         </p>
 
         <!-- Stage 1: Retrieve Payments -->
-        <div class="bg-gray-100 p-4 rounded-lg border border-black mb-4">
-            <h4 class="font-semibold text-black mb-3">{{ _("Stage 1: Retrieve Customer Payments") }}</h4>
+        <div class="brutal-section-dark mb-4">
+            <h4 class="font-semibold mb-3">{{ _("Stage 1: Retrieve Customer Payments") }}</h4>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
-                    <label class="block text-sm font-medium text-black mb-1">{{ _("Mollie Customer ID") }}</label>
-                    <input type="text" id="dues-customer-id" class="w-full px-3 py-2 border border-black rounded-md bg-white"
+                    <label class="block text-sm font-medium mb-1">{{ _("Mollie Customer ID") }}</label>
+                    <input type="text" id="dues-customer-id" class="w-full px-3 py-2 border-2 border-black bg-white text-black"
                            placeholder="cst_xxxxxxxxxx">
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-black mb-1">{{ _("Limit (max 250)") }}</label>
-                    <input type="number" id="dues-payment-limit" class="w-full px-3 py-2 border border-black rounded-md bg-white"
+                    <label class="block text-sm font-medium mb-1">{{ _("Limit (max 250)") }}</label>
+                    <input type="number" id="dues-payment-limit" class="w-full px-3 py-2 border-2 border-black bg-white text-black"
                            value="250" min="1" max="250">
                 </div>
             </div>
 
-            <button type="button" onclick="retrieveCustomerPayments()" class="inline-flex items-center px-4 py-2 bg-gray-900 hover:bg-black text-white font-medium rounded-md transition-colors duration-200 shadow-sm">
+            <button type="button" onclick="retrieveCustomerPayments()" class="btn-brutal btn-brutal--success">
                 <i class="fa fa-download mr-2"></i>{{ _("Retrieve All Payments") }}
             </button>
         </div>
 
         <!-- Stage 2: Select & Process -->
-        <div id="dues-payments-list" class="bg-white p-4 rounded-lg border border-black" style="display: none;">
-            <h4 class="font-semibold text-gray-900 mb-3">{{ _("Stage 2: Select Payments to Process") }}</h4>
+        <div id="dues-payments-list" class="bg-white p-4 border-2 border-black" style="display: none;">
+            <h4 class="font-semibold text-black mb-3">{{ _("Stage 2: Select Payments to Process") }}</h4>
 
-            <div class="mb-4 p-3 bg-white border-2 border-black rounded-lg">
+            <div class="mb-4 p-3 bg-white border-2 border-black">
                 <div class="text-sm text-black">
                     <p class="mb-2"><strong>{{ _("Summary:") }}</strong></p>
                     <p class="mb-1">Customer: <span id="dues-customer-info" class="font-semibold">-</span></p>
@@ -48,18 +48,18 @@
 
             <!-- Quick Selection Buttons -->
             <div class="mb-4 flex gap-2">
-                <button type="button" onclick="selectAllProcessable()" class="inline-flex items-center px-3 py-1.5 bg-gray-600 hover:bg-gray-700 text-white text-sm font-medium rounded-md transition-colors duration-200">
+                <button type="button" onclick="selectAllProcessable()" class="btn-brutal btn-brutal--primary">
                     <i class="fa fa-check-square mr-2"></i>{{ _("Select All Processable") }}
                 </button>
-                <button type="button" onclick="deselectAll()" class="inline-flex items-center px-3 py-1.5 bg-gray-500 hover:bg-gray-600 text-white text-sm font-medium rounded-md transition-colors duration-200">
+                <button type="button" onclick="deselectAll()" class="btn-brutal">
                     <i class="fa fa-square-o mr-2"></i>{{ _("Deselect All") }}
                 </button>
             </div>
 
             <!-- Payments Table -->
-            <div class="overflow-x-auto mb-4">
+            <div class="overflow-x-auto mb-4 border-2 border-black">
                 <table class="w-full text-sm">
-                    <thead class="bg-gray-100">
+                    <thead class="brutal-table-header">
                         <tr>
                             <th class="px-2 py-2 text-left">
                                 <input type="checkbox" id="select-all-checkbox" onchange="toggleSelectAll()">
@@ -78,16 +78,16 @@
                 </table>
             </div>
 
-            <button type="button" onclick="processSelectedPayments()" class="inline-flex items-center px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white font-medium rounded-md transition-colors duration-200">
+            <button type="button" onclick="processSelectedPayments()" class="btn-brutal btn-brutal--warning">
                 <i class="fa fa-cogs mr-2"></i>{{ _("Process Selected Payments") }}
             </button>
         </div>
 
         <!-- Processing Results -->
-        <div id="dues-processing-results" class="bg-white border border-black rounded p-4 mt-4 font-mono whitespace-pre-wrap max-h-96 overflow-y-auto" style="display: none;"></div>
+        <div id="dues-processing-results" class="bg-white border-2 border-black p-4 mt-4 font-mono whitespace-pre-wrap max-h-96 overflow-y-auto" style="display: none;"></div>
 
-        <div class="mt-4 p-3 bg-white border border-black rounded-lg">
-            <div class="text-sm text-gray-900">
+        <div class="mt-4 p-3 bg-white border-2 border-black">
+            <div class="text-sm text-black">
                 <p class="mb-2"><strong>{{ _("How it works:") }}</strong></p>
                 <p class="mb-1">{{ _("1. Enter customer ID and retrieve all payments") }}</p>
                 <p class="mb-1">{{ _("2. System identifies which payments are membership dues (vs donations)") }}</p>
@@ -186,7 +186,8 @@ function renderPaymentsTable(payments) {
 
     payments.forEach((payment, index) => {
         const row = document.createElement('tr');
-        row.className = payment.processable ? 'bg-white hover:bg-gray-100' : 'bg-gray-100';
+        row.className = payment.processable ? 'bg-white' : 'bg-white opacity-60';
+        row.style.borderBottom = '1px solid #000';
 
         // Checkbox
         const checkboxCell = document.createElement('td');
@@ -206,11 +207,12 @@ function renderPaymentsTable(payments) {
         const statusCell = document.createElement('td');
         statusCell.className = 'px-2 py-2';
         const statusBadge = document.createElement('span');
-        statusBadge.className = `px-2 py-1 rounded text-xs font-semibold ${
-            payment.status === 'paid' ? 'bg-green-100 text-green-800' :
-            payment.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-            'bg-gray-100 text-gray-800'
-        }`;
+        statusBadge.className = 'status-badge';
+        statusBadge.classList.add(
+            payment.status === 'paid' ? 'status-paid' :
+            payment.status === 'pending' ? 'status-pending' :
+            'status-canceled'
+        );
         statusBadge.textContent = payment.status;
         statusCell.appendChild(statusBadge);
         row.appendChild(statusCell);
@@ -225,11 +227,9 @@ function renderPaymentsTable(payments) {
         const typeCell = document.createElement('td');
         typeCell.className = 'px-2 py-2';
         const typeBadge = document.createElement('span');
-        typeBadge.className = `px-2 py-1 rounded text-xs font-semibold ${
-            payment.payment_type === 'dues' ? 'bg-gray-100 text-black' :
-            payment.payment_type === 'donation' ? 'bg-blue-100 text-blue-800' :
-            'bg-gray-100 text-gray-800'
-        }`;
+        typeBadge.style.cssText = 'padding: 0.125rem 0.5rem; font-size: 0.625rem; font-weight: 700; text-transform: uppercase; border: 2px solid #000;';
+        typeBadge.style.backgroundColor = payment.payment_type === 'dues' ? '#fff' : payment.payment_type === 'donation' ? '#17a2b8' : '#fff';
+        typeBadge.style.color = payment.payment_type === 'donation' ? '#fff' : '#000';
         typeBadge.textContent = payment.payment_type;
         typeCell.appendChild(typeBadge);
         row.appendChild(typeCell);
@@ -247,9 +247,9 @@ function renderPaymentsTable(payments) {
             // Show either Payment Entry or Bank Transaction that was already created
             const recordName = payment.payment_entry || payment.bank_transaction || 'Yes';
             const recordType = payment.payment_entry ? '(PE)' : payment.bank_transaction ? '(BT)' : '';
-            processedCell.innerHTML = `<span class="text-green-600">✓ ${recordName} ${recordType}</span>`;
+            processedCell.innerHTML = `<span style="color: #28a745; font-weight: bold;">✓ ${recordName} ${recordType}</span>`;
         } else {
-            processedCell.innerHTML = '<span class="text-gray-400">-</span>';
+            processedCell.innerHTML = '<span style="color: #000;">-</span>';
         }
         row.appendChild(processedCell);
 
@@ -350,20 +350,20 @@ function displayProcessingResults(result) {
     const resultsDiv = document.getElementById('dues-processing-results');
     resultsDiv.style.display = 'block';
 
-    let html = '<div class="p-4 bg-white border border-black rounded-lg">';
+    let html = '<div class="p-4 bg-white border-2 border-black">';
     html += '<h4 class="font-semibold mb-3">Processing Results</h4>';
     html += `<div class="mb-3">`;
     html += `<p><strong>Total Requested:</strong> ${result.total_requested}</p>`;
-    html += `<p class="text-green-600"><strong>Successfully Processed:</strong> ${result.processed}</p>`;
-    html += `<p class="text-yellow-600"><strong>Skipped:</strong> ${result.skipped}</p>`;
-    html += `<p class="text-red-600"><strong>Errors:</strong> ${result.errors}</p>`;
+    html += `<p style="color: #28a745;"><strong>Successfully Processed:</strong> ${result.processed}</p>`;
+    html += `<p style="color: #ffc107;"><strong>Skipped:</strong> ${result.skipped}</p>`;
+    html += `<p style="color: #dc3545;"><strong>Errors:</strong> ${result.errors}</p>`;
     html += `</div>`;
 
     if (result.results && result.results.length > 0) {
         html += '<div class="mt-4"><h5 class="font-semibold mb-2">Details:</h5>';
-        html += '<div class="max-h-96 overflow-y-auto">';
+        html += '<div class="max-h-96 overflow-y-auto border-2 border-black">';
         html += '<table class="w-full text-sm">';
-        html += '<thead class="bg-gray-100"><tr>';
+        html += '<thead class="brutal-table-header"><tr>';
         html += '<th class="px-2 py-1 text-left">Payment ID</th>';
         html += '<th class="px-2 py-1 text-left">Status</th>';
         html += '<th class="px-2 py-1 text-left">Member</th>';
@@ -372,10 +372,10 @@ function displayProcessingResults(result) {
         html += '</tr></thead><tbody>';
 
         result.results.forEach(item => {
-            const statusClass =
-                item.status === 'success' ? 'text-green-600' :
-                item.status === 'skipped' || item.status === 'already_processed' ? 'text-yellow-600' :
-                'text-red-600';
+            const statusColor =
+                item.status === 'success' ? '#28a745' :
+                item.status === 'skipped' || item.status === 'already_processed' ? '#ffc107' :
+                '#dc3545';
 
             // Determine which record was created (Payment Entry or Bank Transaction)
             let recordDisplay = '-';
@@ -385,9 +385,9 @@ function displayProcessingResults(result) {
                 recordDisplay = `${item.bank_transaction} (BT)`;
             }
 
-            html += `<tr class="border-b">`;
+            html += `<tr style="border-bottom: 1px solid #000;">`;
             html += `<td class="px-2 py-1 font-mono text-xs">${item.payment_id}</td>`;
-            html += `<td class="px-2 py-1 ${statusClass} font-semibold">${item.status}</td>`;
+            html += `<td class="px-2 py-1 font-semibold" style="color: ${statusColor};">${item.status}</td>`;
             html += `<td class="px-2 py-1 text-xs">${item.member || '-'}</td>`;
             html += `<td class="px-2 py-1 text-xs">${recordDisplay}</td>`;
             html += `<td class="px-2 py-1 text-xs">${item.error || item.skipped_reason || '-'}</td>`;
