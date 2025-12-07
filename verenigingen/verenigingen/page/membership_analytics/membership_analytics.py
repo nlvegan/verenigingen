@@ -1170,8 +1170,10 @@ def get_join_year_segmentation(year, filter_conditions):
     Membership = frappe.qb.DocType("Membership")
     MembershipType = frappe.qb.DocType("Membership Type")
 
-    # Custom function for YEAR()
+    # Custom SQL functions
     Year = CustomFunction("YEAR", ["date"])
+    DateDiff = CustomFunction("DATEDIFF", ["end_date", "start_date"])
+    CurDate = CustomFunction("CURDATE", [])
 
     # Subquery for membership type minimum amount
     mt_subquery = (
@@ -1191,7 +1193,7 @@ def get_join_year_segmentation(year, filter_conditions):
         .select(
             join_year.as_("name"),
             Count("*").as_("total_members"),
-            Avg(Member.total_membership_days).as_("avg_tenure_days"),
+            Avg(DateDiff(CurDate(), Member.member_since)).as_("avg_tenure_days"),
             Avg(Coalesce(Member.dues_rate, mt_subquery, 0)).as_("avg_fee"),
         )
         .where(Member.member_since <= year_end)
