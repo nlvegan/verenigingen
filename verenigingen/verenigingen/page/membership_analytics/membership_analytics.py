@@ -7,6 +7,11 @@ from datetime import datetime, timedelta
 import frappe
 from frappe.utils import add_months, flt, fmt_money, getdate, now_datetime
 
+from verenigingen.utils.constants import (
+    SQLFilters,
+    build_billing_frequency_multiplier_sql,
+    get_year_date_range,
+)
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
@@ -63,8 +68,7 @@ def get_summary_metrics(year, period="year", filters=None):
 
     # Define date range
     if period == "year":
-        start_date = f"{year}-01-01"
-        end_date = f"{year}-12-31"
+        start_date, end_date = get_year_date_range(year)
     elif period == "quarter":
         # Get current quarter
         current_month = datetime.now().month
@@ -165,40 +169,24 @@ def calculate_projected_revenue(year):
     year = int(year)
 
     # Calculate projection for the following year
-    from frappe.utils import getdate
-
     projection_year = year + 1
     projection_start = f"{projection_year}-01-01"
     projection_end = f"{projection_year}-12-31"
 
+    # Build annualized amount SQL using shared helper
+    annualized_amount_sql = build_billing_frequency_multiplier_sql(
+        frequency_column="mds.billing_frequency",
+        amount_expression="COALESCE(m.dues_rate, mds.suggested_amount, 0)",
+        include_custom=True,
+        custom_frequency_number_col="mds.custom_frequency_number",
+        custom_frequency_unit_col="mds.custom_frequency_unit",
+    )
+
     # SQL query to calculate annualized revenue based on billing frequency
     # Includes members who were active during the projection year
-    query = """
+    query = f"""
         SELECT
-            SUM(
-                CASE
-                    WHEN mds.billing_frequency = 'Monthly' THEN
-                        COALESCE(m.dues_rate, mds.suggested_amount, 0) * 12
-                    WHEN mds.billing_frequency = 'Quarterly' THEN
-                        COALESCE(m.dues_rate, mds.suggested_amount, 0) * 4
-                    WHEN mds.billing_frequency = 'Yearly' THEN
-                        COALESCE(m.dues_rate, mds.suggested_amount, 0)
-                    WHEN mds.billing_frequency = 'Custom' THEN
-                        -- For custom frequency, calculate based on how many periods fit in a year
-                        CASE
-                            WHEN mds.custom_frequency_unit = 'Month' THEN
-                                COALESCE(m.dues_rate, mds.suggested_amount, 0) * (12 / NULLIF(mds.custom_frequency_number, 0))
-                            WHEN mds.custom_frequency_unit = 'Week' THEN
-                                COALESCE(m.dues_rate, mds.suggested_amount, 0) * (52 / NULLIF(mds.custom_frequency_number, 0))
-                            WHEN mds.custom_frequency_unit = 'Year' THEN
-                                COALESCE(m.dues_rate, mds.suggested_amount, 0) / NULLIF(mds.custom_frequency_number, 0)
-                            ELSE
-                                COALESCE(m.dues_rate, mds.suggested_amount, 0)
-                        END
-                    ELSE
-                        COALESCE(m.dues_rate, mds.suggested_amount, 0)
-                END
-            ) as total_annual_revenue
+            SUM({annualized_amount_sql}) as total_annual_revenue
         FROM `tabMembership Dues Schedule` mds
         JOIN `tabMember` m ON m.name = mds.member
         WHERE mds.status = 'Active'
@@ -258,20 +246,19 @@ def get_current_year_revenue(year):
     """
     try:
         year = int(year)
-        year_start = f"{year}-01-01"
-        year_end = f"{year}-12-31"
+        year_start, year_end = get_year_date_range(year)
     except (ValueError, TypeError) as e:
         frappe.log_error(f"Invalid year parameter: {year}", "Membership Analytics Revenue Error")
         return _get_error_response(f"Invalid year: {str(e)}")
 
     try:
         # 1. Get all membership invoices for the year (paid or unpaid)
-        invoiced_amount_query = """
+        invoiced_amount_query = f"""
             SELECT COALESCE(SUM(si.grand_total), 0) as total
             FROM `tabSales Invoice` si
             WHERE si.docstatus = 1
                 AND si.posting_date BETWEEN %s AND %s
-                AND (si.is_membership_invoice = 1 OR si.member IS NOT NULL)
+                AND {SQLFilters.MEMBERSHIP_INVOICE}
         """
         invoiced_amount = frappe.db.sql(invoiced_amount_query, (year_start, year_end), as_dict=True)[0].total
 
@@ -332,13 +319,13 @@ def get_current_year_revenue(year):
         direct_payments = direct_payments_result[0].total if direct_payments_result else 0
 
         # 3. Get outstanding (unpaid) membership invoices
-        outstanding_invoices_query = """
+        outstanding_invoices_query = f"""
             SELECT COALESCE(SUM(si.outstanding_amount), 0) as total
             FROM `tabSales Invoice` si
             WHERE si.docstatus = 1
                 AND si.posting_date BETWEEN %s AND %s
                 AND si.status IN ('Unpaid', 'Overdue', 'Partly Paid')
-                AND (si.is_membership_invoice = 1 OR si.member IS NOT NULL)
+                AND {SQLFilters.MEMBERSHIP_INVOICE}
         """
         outstanding_invoices = frappe.db.sql(
             outstanding_invoices_query, (year_start, year_end), as_dict=True
@@ -546,8 +533,7 @@ def get_revenue_projection(year, filters=None):
 
     # Ensure year is an integer
     year = int(year)
-    year_start = f"{year}-01-01"
-    year_end = f"{year}-12-31"
+    year_start, year_end = get_year_date_range(year)
 
     membership_types = frappe.get_all(
         "Membership Type", filters={"is_active": 1}, fields=["name", "minimum_amount"]
@@ -557,18 +543,18 @@ def get_revenue_projection(year, filters=None):
 
     for mt in membership_types:
         # Get actual revenue from invoices for this membership type in the selected year
+        # Uses dues schedule link to get membership type at time of invoice generation,
+        # correctly counting revenue from members who have since quit
         result = frappe.db.sql(
             """
             SELECT
                 COUNT(DISTINCT si.member) as count,
                 SUM(si.grand_total) as revenue
             FROM `tabSales Invoice` si
-            JOIN `tabMember` mem ON si.member = mem.name
-            JOIN `tabMembership` m ON m.member = mem.name AND m.status = 'Active'
+            JOIN `tabMembership Dues Schedule` mds ON si.membership_dues_schedule_display = mds.name
             WHERE si.docstatus = 1
                 AND si.posting_date BETWEEN %s AND %s
-                AND (si.is_membership_invoice = 1 OR si.member IS NOT NULL)
-                AND m.membership_type = %s
+                AND mds.membership_type = %s
         """,
             (year_start, year_end, mt.name),
             as_dict=True,
@@ -1374,8 +1360,6 @@ def get_cohort_analysis(year=None, cohort_interval="monthly"):
         year: Ignored - kept for API compatibility
         cohort_interval: 'monthly' or 'yearly' cohort grouping
     """
-    cohorts = []
-
     # Get the earliest member_since date
     earliest_date = frappe.db.sql(
         """
@@ -1467,10 +1451,9 @@ def _get_quarterly_cohorts(earliest_date):
     while cohort_year < current_date.year or (
         cohort_year == current_date.year and cohort_quarter <= (current_date.month - 1) // 3 + 1
     ):
-        # Calculate quarter start and end dates
+        # Calculate quarter start date
         quarter_start_month = (cohort_quarter - 1) * 3 + 1
         quarter_start = datetime(cohort_year, quarter_start_month, 1)
-        quarter_end_month = quarter_start_month + 2
 
         # Get initial cohort size for the quarter
         initial_count = frappe.db.sql(

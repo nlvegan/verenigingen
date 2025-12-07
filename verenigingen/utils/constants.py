@@ -127,6 +127,14 @@ class Membership:
         BILLING_ANNUAL: 12,
     }
 
+    # Billing frequency to annual multiplier (periods per year)
+    BILLING_FREQUENCY_ANNUAL_MULTIPLIER = {
+        BILLING_MONTHLY: 12,
+        BILLING_QUARTERLY: 4,
+        BILLING_SEMI_ANNUAL: 2,
+        BILLING_ANNUAL: 1,
+    }
+
     # Member statuses
     STATUS_ACTIVE = "Active"
     STATUS_INACTIVE = "Inactive"
@@ -262,3 +270,86 @@ def is_netherlands_country(country: str) -> bool:
 def get_billing_frequency_months(frequency: str) -> int:
     """Get number of months for billing frequency"""
     return Membership.BILLING_FREQUENCY_MONTHS.get(frequency, 1)
+
+
+def get_billing_frequency_annual_multiplier(frequency: str) -> int:
+    """Get annual multiplier for billing frequency (periods per year)"""
+    return Membership.BILLING_FREQUENCY_ANNUAL_MULTIPLIER.get(frequency, 1)
+
+
+def build_billing_frequency_multiplier_sql(
+    frequency_column: str = "billing_frequency",
+    amount_expression: str = "amount",
+    include_custom: bool = True,
+    custom_frequency_number_col: str = "custom_frequency_number",
+    custom_frequency_unit_col: str = "custom_frequency_unit",
+) -> str:
+    """Build SQL CASE statement for annualizing amounts based on billing frequency.
+
+    Args:
+        frequency_column: Column name containing billing frequency
+        amount_expression: SQL expression for the amount to multiply
+        include_custom: Whether to include Custom frequency handling
+        custom_frequency_number_col: Column for custom frequency number
+        custom_frequency_unit_col: Column for custom frequency unit
+
+    Returns:
+        SQL CASE statement string for annual revenue calculation
+    """
+    sql = f"""CASE
+        WHEN {frequency_column} = 'Monthly' THEN {amount_expression} * 12
+        WHEN {frequency_column} = 'Quarterly' THEN {amount_expression} * 4
+        WHEN {frequency_column} = 'Semi-Annual' THEN {amount_expression} * 2
+        WHEN {frequency_column} = 'Yearly' OR {frequency_column} = 'Annual' THEN {amount_expression}"""
+
+    if include_custom:
+        sql += f"""
+        WHEN {frequency_column} = 'Custom' THEN
+            CASE
+                WHEN {custom_frequency_unit_col} = 'Month' THEN
+                    {amount_expression} * (12 / NULLIF({custom_frequency_number_col}, 0))
+                WHEN {custom_frequency_unit_col} = 'Week' THEN
+                    {amount_expression} * (52 / NULLIF({custom_frequency_number_col}, 0))
+                WHEN {custom_frequency_unit_col} = 'Year' THEN
+                    {amount_expression} / NULLIF({custom_frequency_number_col}, 0)
+                ELSE {amount_expression}
+            END"""
+
+    sql += f"""
+        ELSE {amount_expression}
+    END"""
+
+    return sql
+
+
+def get_year_date_range(year: int) -> tuple:
+    """Get start and end date strings for a calendar year.
+
+    Args:
+        year: The calendar year (e.g., 2025)
+
+    Returns:
+        Tuple of (year_start, year_end) as strings in 'YYYY-MM-DD' format
+    """
+    return f"{year}-01-01", f"{year}-12-31"
+
+
+# SQL filter fragments for reuse across queries
+class SQLFilters:
+    """Reusable SQL filter fragments for common query patterns"""
+
+    # Filter for identifying membership-related invoices
+    # Used in revenue calculations and analytics queries
+    MEMBERSHIP_INVOICE = "(si.is_membership_invoice = 1 OR si.member IS NOT NULL)"
+
+    @staticmethod
+    def membership_invoice_filter(table_alias: str = "si") -> str:
+        """Get membership invoice filter with custom table alias.
+
+        Args:
+            table_alias: SQL table alias (default: 'si' for Sales Invoice)
+
+        Returns:
+            SQL WHERE clause fragment for membership invoices
+        """
+        return f"({table_alias}.is_membership_invoice = 1 OR {table_alias}.member IS NOT NULL)"
