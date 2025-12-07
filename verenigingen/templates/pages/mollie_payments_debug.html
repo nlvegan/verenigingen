@@ -479,7 +479,7 @@
         <div id="customer-tab" class="tab-content">
             <div class="debug-card">
                 <h2 class="text-xl font-semibold mb-4">{{ _("Customer ID Debug") }}</h2>
-                <p class="text-gray-600 mb-4">{{ _("Query customer details, subscriptions, and mandates") }}</p>
+                <p class="text-gray-700 mb-4">{{ _("Query customer details, subscriptions, and mandates") }}</p>
 
                 <div class="flex gap-4 items-end">
                     <div class="flex-1">
@@ -489,7 +489,7 @@
                     </div>
                     <div class="flex items-center">
                         <input type="checkbox" id="hide-canceled-items" class="mr-2" checked onchange="refreshResultsDisplay()">
-                        <label for="hide-canceled-items" class="text-sm text-gray-600">{{ _("Hide canceled items") }}</label>
+                        <label for="hide-canceled-items" class="text-sm text-gray-700">{{ _("Hide canceled items") }}</label>
                     </div>
                     <button onclick="debugCustomer()" class="btn-brutal btn-brutal--primary">
                         <i class="fa fa-search"></i>{{ _("Debug Customer") }}
@@ -502,11 +502,11 @@
 
             <!-- Customer Search Section -->
             <div class="debug-card mt-6">
-                <div class="p-4 border border-gray-300 rounded-lg bg-green-50">
-                    <h3 class="text-lg font-semibold text-green-800 mb-2">
+                <div class="p-4 border-2 border-black rounded-lg bg-white">
+                    <h3 class="text-lg font-semibold text-black mb-2">
                         <i class="fa fa-search mr-2"></i>{{ _("Search Customers by Name") }}
                     </h3>
-                    <p class="text-green-700 mb-4">{{ _("Search for customers by name or email address") }}</p>
+                    <p class="text-gray-900 mb-4">{{ _("Search for customers by name or email address") }}</p>
                     <div class="flex gap-4 items-end">
                         <div class="flex-1">
                             <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Search Term") }}</label>
@@ -531,11 +531,11 @@
 
             <!-- Customer List Section -->
             <div class="debug-card mt-6">
-                <div class="p-4 border border-gray-300 rounded-lg bg-blue-50">
-                    <h3 class="text-lg font-semibold text-blue-800 mb-2">
+                <div class="p-4 border-2 border-black rounded-lg bg-white">
+                    <h3 class="text-lg font-semibold text-black mb-2">
                         <i class="fa fa-list mr-2"></i>{{ _("Customer ID Lookup") }}
                     </h3>
-                    <p class="text-blue-700 mb-4">{{ _("List recent customers to easily find and copy customer IDs") }}</p>
+                    <p class="text-gray-900 mb-4">{{ _("List recent customers to easily find and copy customer IDs") }}</p>
                     <div class="flex gap-4 items-end">
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Limit") }}</label>
@@ -556,15 +556,15 @@
 
             <!-- Sync Membership End Dates Section -->
             <div class="debug-card mt-6">
-                <div class="p-4 border border-orange-300 rounded-lg bg-orange-50">
-                    <h3 class="text-lg font-semibold text-orange-800 mb-2">
+                <div class="p-4 border-2 border-black rounded-lg bg-white">
+                    <h3 class="text-lg font-semibold text-black mb-2">
                         <i class="fa fa-sync mr-2"></i>{{ _("Sync Membership End Dates from Mollie") }}
                     </h3>
-                    <p class="text-orange-700 mb-4">
+                    <p class="text-gray-900 mb-4">
                         {{ _("Update membership cancellation dates for terminated/banned/suspended members using Mollie subscription data") }}
                     </p>
-                    <div class="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
-                        <p class="text-sm text-yellow-800">
+                    <div class="mb-4 p-3 bg-amber-400 border-2 border-black rounded">
+                        <p class="text-sm text-black">
                             <strong>{{ _("How it works:") }}</strong><br>
                             {{ _("1. Finds all terminated/banned/suspended members with Mollie customer IDs") }}<br>
                             {{ _("2. Queries Mollie for their subscription cancellation dates") }}<br>
@@ -594,7 +594,7 @@
                 <h3 class="text-lg font-semibold mb-2">
                     <i class="fa fa-skull-crossbones mr-2"></i>{{ _("DANGER ZONE: Delete Customer") }}
                 </h3>
-                <div class="p-4 border-2 border-red-600 bg-red-50 mb-4">
+                <div class="p-4 border-2 border-red-600 bg-red-200 mb-4">
                     <strong>{{ _("WARNING:") }}</strong> {{ _("This will permanently delete the customer AND automatically cancel ALL subscriptions and mandates. This action cannot be undone!") }}
                     <br><br>
                     <strong>{{ _("RESTRICTED TO:") }}</strong> {{ _("Verenigingen Administrator role only") }}
@@ -602,17 +602,17 @@
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <div>
-                        <label class="block text-sm font-medium text-red-700 mb-1">{{ _("Customer ID") }}</label>
+                        <label class="block text-sm font-medium text-red-600 mb-1">{{ _("Customer ID") }}</label>
                         <input type="text" id="delete-customer-id" class="debug-input"
                                placeholder="cst_xxxxxxxxxx">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-red-700 mb-1">{{ _("Deletion Reason") }}</label>
+                        <label class="block text-sm font-medium text-red-600 mb-1">{{ _("Deletion Reason") }}</label>
                         <input type="text" id="delete-reason" class="debug-input"
                                placeholder="Critical administrative cleanup">
                     </div>
                     <div class="md:col-span-2">
-                        <label class="block text-sm font-medium text-red-700 mb-1">
+                        <label class="block text-sm font-medium text-red-600 mb-1">
                             {{ _("Type exactly") }} <strong>"DELETE CUSTOMER"</strong> {{ _("to confirm") }}:
                         </label>
                         <input type="text" id="delete-confirmation" class="debug-input"
@@ -631,11 +631,11 @@
         <!-- Subscription Debug Tab -->
         <div id="subscription-tab" class="tab-content hidden">
             <div class="debug-card mb-6">
-                <div class="p-4 border border-purple-300 rounded-lg bg-purple-50 mb-4">
-                    <h3 class="text-lg font-semibold text-purple-800 mb-2">
+                <div class="p-4 border-2 border-black rounded-lg bg-white mb-4">
+                    <h3 class="text-lg font-semibold text-black mb-2">
                         <i class="fa fa-repeat mr-2"></i>{{ _("Subscription ID Debug") }}
                     </h3>
-                    <p class="text-purple-700 mb-4">{{ _("Query specific subscription details") }}</p>
+                    <p class="text-gray-900 mb-4">{{ _("Query specific subscription details") }}</p>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <div>
@@ -658,11 +658,11 @@
                 </div>
             </div>
 
-            <div class="p-6 border border-indigo-300 rounded-lg bg-indigo-50 shadow-sm mb-6">
-                <h3 class="text-lg font-semibold text-indigo-800 mb-2">
+            <div class="p-6 border-2 border-black rounded-lg bg-white shadow-sm mb-6">
+                <h3 class="text-lg font-semibold text-black mb-2">
                     <i class="fa fa-list mr-2"></i>{{ _("List Customer Subscriptions") }}
                 </h3>
-                <p class="text-indigo-700 mb-4">{{ _("List all subscriptions for a specific customer") }}</p>
+                <p class="text-gray-900 mb-4">{{ _("List all subscriptions for a specific customer") }}</p>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <div>
@@ -691,11 +691,11 @@
             </div>
 
             <div class="debug-card">
-                <div class="p-4 border border-green-300 rounded-lg bg-green-50 mb-4">
-                    <h3 class="text-lg font-semibold text-green-800 mb-2">
+                <div class="p-4 border-2 border-black rounded-lg bg-white mb-4">
+                    <h3 class="text-lg font-semibold text-black mb-2">
                         <i class="fa fa-plus-circle mr-2"></i>{{ _("Create New Subscription") }}
                     </h3>
-                    <p class="text-green-700 mb-4">{{ _("Create a new subscription for testing") }}</p>
+                    <p class="text-gray-900 mb-4">{{ _("Create a new subscription for testing") }}</p>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                         <div>
@@ -743,11 +743,11 @@
 
             <!-- Scheduled Subscription Creation (Advanced) -->
             <div class="debug-card">
-                <div class="p-4 border border-purple-300 rounded-lg bg-purple-50 mb-4">
-                    <h3 class="text-lg font-semibold text-purple-800 mb-2">
+                <div class="p-4 border-2 border-black rounded-lg bg-white mb-4">
+                    <h3 class="text-lg font-semibold text-black mb-2">
                         <i class="fa fa-calendar-check mr-2"></i>{{ _("Create Scheduled Subscription (Advanced)") }}
                     </h3>
-                    <p class="text-purple-700 mb-4">{{ _("Create subscription with flexible scheduling: custom intervals, payment limits, and start dates. Monthly payments use the day configured in Mollie Settings.") }}</p>
+                    <p class="text-gray-900 mb-4">{{ _("Create subscription with flexible scheduling: custom intervals, payment limits, and start dates. Monthly payments use the day configured in Mollie Settings.") }}</p>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                         <div>
@@ -764,7 +764,7 @@
                             <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Interval Count") }}</label>
                             <input type="number" id="sched-sub-interval-count" class="debug-input"
                                    placeholder="3" min="1" max="52" value="3">
-                            <p class="text-xs text-gray-500 mt-1">{{ _("1-12 for months, 1-52 for weeks") }}</p>
+                            <p class="text-xs text-gray-600 mt-1">{{ _("1-12 for months, 1-52 for weeks") }}</p>
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Interval Unit") }}</label>
@@ -777,12 +777,12 @@
                             <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Payment Limit (optional)") }}</label>
                             <input type="number" id="sched-sub-times" class="debug-input"
                                    placeholder="12" min="1" max="999">
-                            <p class="text-xs text-gray-500 mt-1">{{ _("Leave empty for indefinite") }}</p>
+                            <p class="text-xs text-gray-600 mt-1">{{ _("Leave empty for indefinite") }}</p>
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Start Date (optional)") }}</label>
                             <input type="date" id="sched-sub-start-date" class="debug-input">
-                            <p class="text-xs text-gray-500 mt-1">{{ _("Leave empty for auto-calculation") }}</p>
+                            <p class="text-xs text-gray-600 mt-1">{{ _("Leave empty for auto-calculation") }}</p>
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Mandate ID (optional)") }}</label>
@@ -807,7 +807,7 @@
             <!-- Cancel Subscription Section (Danger) -->
             <div class="debug-card debug-section--danger">
                 <h3 class="text-lg font-medium mb-3">{{ _("Cancel Subscription") }}</h3>
-                <p class="text-gray-600 mb-4">{{ _("Cancel an active Mollie subscription for a customer") }}</p>
+                <p class="text-gray-700 mb-4">{{ _("Cancel an active Mollie subscription for a customer") }}</p>
 
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                     <div>
@@ -839,7 +839,7 @@
         <div id="mandate-tab" class="tab-content hidden">
             <div class="debug-card">
                 <h2 class="text-xl font-semibold mb-4">{{ _("Mandate ID Debug") }}</h2>
-                <p class="text-gray-600 mb-4">{{ _("Query specific mandate details") }}</p>
+                <p class="text-gray-700 mb-4">{{ _("Query specific mandate details") }}</p>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <div>
@@ -864,7 +864,7 @@
             <!-- Revoke Mandate Section (Danger) -->
             <div class="debug-card debug-section--danger">
                 <h3 class="text-lg font-medium mb-3">{{ _("Revoke Mandate") }}</h3>
-                <p class="text-gray-600 mb-4">{{ _("Revoke a SEPA direct debit mandate for a customer") }}</p>
+                <p class="text-gray-700 mb-4">{{ _("Revoke a SEPA direct debit mandate for a customer") }}</p>
 
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                     <div>
@@ -897,7 +897,7 @@
             <!-- Individual Payment Debug -->
             <div class="debug-card">
                 <h2 class="text-xl font-semibold mb-4">{{ _("Payment Debug") }}</h2>
-                <p class="text-gray-600 mb-4">{{ _("Debug individual payments with comprehensive details") }}</p>
+                <p class="text-gray-700 mb-4">{{ _("Debug individual payments with comprehensive details") }}</p>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <div>
@@ -916,11 +916,11 @@
 
             <!-- Create Test Payment Section -->
             <div class="debug-card mt-6">
-                <div class="p-4 border border-green-300 rounded-lg bg-green-50">
-                    <h3 class="text-lg font-semibold text-green-800 mb-2">
+                <div class="p-4 border-2 border-black rounded-lg bg-white">
+                    <h3 class="text-lg font-semibold text-black mb-2">
                         <i class="fa fa-plus-circle mr-2"></i>{{ _("Create Test Payment") }}
                     </h3>
-                    <p class="text-green-700 mb-4">{{ _("Create a test payment with customizable description and complete it via Mollie checkout") }}</p>
+                    <p class="text-gray-900 mb-4">{{ _("Create a test payment with customizable description and complete it via Mollie checkout") }}</p>
 
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                         <div>
@@ -940,7 +940,7 @@
                             <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Customer ID (optional)") }}</label>
                             <input type="text" id="test-payment-customer-id" class="debug-input"
                                    placeholder="cst_xxxxxxxxxx">
-                            <p class="text-xs text-gray-500 mt-1">{{ _("Link payment to existing customer for subscription testing") }}</p>
+                            <p class="text-xs text-gray-600 mt-1">{{ _("Link payment to existing customer for subscription testing") }}</p>
                         </div>
                     </div>
 
@@ -954,11 +954,11 @@
 
             <!-- Payment List Section -->
             <div class="debug-card mt-6">
-                <div class="p-4 border border-gray-300 rounded-lg bg-purple-50">
-                    <h3 class="text-lg font-semibold text-purple-800 mb-2">
+                <div class="p-4 border-2 border-black rounded-lg bg-white">
+                    <h3 class="text-lg font-semibold text-black mb-2">
                         <i class="fa fa-list mr-2"></i>{{ _("List Payments") }}
                     </h3>
-                    <p class="text-purple-700 mb-4">{{ _("List recent payments with optional filtering") }}</p>
+                    <p class="text-gray-900 mb-4">{{ _("List recent payments with optional filtering") }}</p>
 
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                         <div>
@@ -995,7 +995,7 @@
             <!-- Cancel Payment Section (Danger) -->
             <div class="debug-card debug-section--danger">
                 <h3 class="text-lg font-medium mb-3">{{ _("Cancel Payment") }}</h3>
-                <p class="text-gray-600 mb-4">{{ _("Cancel a pending payment transaction") }}</p>
+                <p class="text-gray-700 mb-4">{{ _("Cancel a pending payment transaction") }}</p>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <div>
@@ -1010,7 +1010,7 @@
                     </div>
                 </div>
 
-                <div class="mb-4 p-3 border-2 border-yellow-600 bg-yellow-50">
+                <div class="mb-4 p-3 border-2 border-black bg-amber-400">
                     <div class="text-sm">
                         <i class="fa fa-exclamation-triangle mr-1"></i>
                         <strong>{{ _("Note:") }}</strong> {{ _("Only pending/open payments can be cancelled. Paid, failed, or expired payments cannot be cancelled.") }}
@@ -1029,11 +1029,11 @@
         <div id="refunds-tab" class="tab-content hidden">
             <!-- Debug Refund Section -->
             <div class="debug-card mb-6">
-                <div class="p-4 border border-orange-300 rounded-lg bg-orange-50 mb-4">
-                    <h3 class="text-lg font-semibold text-orange-800 mb-2">
+                <div class="p-4 border-2 border-black rounded-lg bg-white mb-4">
+                    <h3 class="text-lg font-semibold text-black mb-2">
                         <i class="fa fa-undo mr-2"></i>{{ _("Debug Specific Refund") }}
                     </h3>
-                    <p class="text-orange-700 mb-4">{{ _("Investigate refund transactions and processing status") }}</p>
+                    <p class="text-gray-900 mb-4">{{ _("Investigate refund transactions and processing status") }}</p>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                         <div>
@@ -1058,11 +1058,11 @@
 
             <!-- List Chargebacks Section -->
             <div class="debug-card">
-                <div class="p-4 border border-danger-300 rounded-lg bg-danger-50 mb-4">
-                    <h3 class="text-lg font-semibold text-danger-800 mb-2">
+                <div class="p-4 border border-red-600 rounded-lg bg-red-200 mb-4">
+                    <h3 class="text-lg font-semibold text-red-700 mb-2">
                         <i class="fa fa-exclamation-triangle mr-2"></i>{{ _("List Chargebacks") }}
                     </h3>
-                    <p class="text-danger-700 mb-4">{{ _("Investigate disputed transactions and chargebacks") }}</p>
+                    <p class="text-red-700 mb-4">{{ _("Investigate disputed transactions and chargebacks") }}</p>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                         <div>
@@ -1090,11 +1090,11 @@
         <div id="webhooks-tab" class="tab-content hidden">
             <!-- Test Webhook Processing Section -->
             <div class="debug-card mb-6">
-                <div class="p-4 border border-gray-300 rounded-lg bg-green-50">
-                    <h3 class="text-lg font-semibold text-green-800 mb-2">
+                <div class="p-4 border-2 border-black rounded-lg bg-white">
+                    <h3 class="text-lg font-semibold text-black mb-2">
                         <i class="fa fa-play mr-2"></i>{{ _("Test Webhook Processing") }}
                     </h3>
-                    <p class="text-green-700 mb-4">{{ _("Manually trigger webhook processing for any payment ID - useful for testing failed webhooks") }}</p>
+                    <p class="text-gray-900 mb-4">{{ _("Manually trigger webhook processing for any payment ID - useful for testing failed webhooks") }}</p>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                         <div>
@@ -1110,8 +1110,8 @@
 
                     <div id="test-webhook-result" class="result-area" style="display: none;"></div>
 
-                    <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                        <div class="text-sm text-blue-700">
+                    <div class="mt-4 p-3 bg-white border-2 border-black rounded-lg">
+                        <div class="text-sm text-gray-900">
                             <p class="mb-2"><strong>{{ _("What this does:") }}</strong></p>
                             <p class="mb-1">{{ _("• Calls the unified webhook handler directly") }}</p>
                             <p class="mb-1">{{ _("• Fetches payment data from Mollie API") }}</p>
@@ -1126,35 +1126,35 @@
             {% include "verenigingen/templates/pages/includes/mollie_dues_payment_processor.html" %}
 
             <!-- Bulk Member Payment Processor Section -->
-            <div class="bg-white border border-gray-300 rounded-lg p-4 mb-6">
-                <div class="p-4 border border-green-300 rounded-lg bg-green-50">
-                    <h3 class="text-lg font-semibold text-green-800 mb-2">
+            <div class="bg-white border-2 border-black rounded-lg p-4 mb-6">
+                <div class="p-4 border-2 border-black rounded-lg bg-white">
+                    <h3 class="text-lg font-semibold text-black mb-2">
                         <i class="fa fa-users mr-2"></i>{{ _("Bulk Member Payment Processor") }}
                     </h3>
-                    <p class="text-green-700 mb-4">
+                    <p class="text-gray-900 mb-4">
                         {{ _("Systematically retrieve payments for ALL members with Mollie customer IDs and process them in bulk") }}
                     </p>
 
                     <!-- Configuration Section -->
-                    <div class="bg-green-100 p-4 rounded-lg border border-green-300 mb-4">
-                        <h4 class="font-semibold text-green-800 mb-3">{{ _("Configuration") }}</h4>
+                    <div class="bg-gray-900 p-4 rounded-lg border-2 border-black mb-4">
+                        <h4 class="font-semibold text-white mb-3">{{ _("Configuration") }}</h4>
 
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                             <div>
-                                <label class="block text-sm font-medium text-green-900 mb-1">{{ _("Days Back") }}</label>
-                                <input type="number" id="bulk-days-back" class="w-full px-3 py-2 border border-green-300 rounded-md bg-white"
+                                <label class="block text-sm font-medium text-white mb-1">{{ _("Days Back") }}</label>
+                                <input type="number" id="bulk-days-back" class="w-full px-3 py-2 border-2 border-black rounded-md bg-white"
                                        value="30" min="1" max="{{ mollie_settings.payment_retrieval_days_back_limit or 1825 }}">
-                                <p class="text-xs text-green-700 mt-1">{{ _("Max: {0} days (configurable in Mollie Settings)").format(mollie_settings.payment_retrieval_days_back_limit or 1825) }}</p>
+                                <p class="text-xs text-gray-300 mt-1">{{ _("Max: {0} days (configurable in Mollie Settings)").format(mollie_settings.payment_retrieval_days_back_limit or 1825) }}</p>
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-green-900 mb-1">{{ _("Max Payments") }}</label>
-                                <input type="number" id="bulk-max-payments" class="w-full px-3 py-2 border border-green-300 rounded-md bg-white"
+                                <label class="block text-sm font-medium text-white mb-1">{{ _("Max Payments") }}</label>
+                                <input type="number" id="bulk-max-payments" class="w-full px-3 py-2 border-2 border-black rounded-md bg-white"
                                        value="5000" min="250" max="10000" step="250">
-                                <p class="text-xs text-green-700 mt-1">{{ _("~20 API calls for 5000 payments") }}</p>
+                                <p class="text-xs text-gray-300 mt-1">{{ _("~20 API calls for 5000 payments") }}</p>
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-green-900 mb-1">{{ _("Payment Status") }}</label>
-                                <select id="bulk-payment-status" class="w-full px-3 py-2 border border-green-300 rounded-md bg-white">
+                                <label class="block text-sm font-medium text-white mb-1">{{ _("Payment Status") }}</label>
+                                <select id="bulk-payment-status" class="w-full px-3 py-2 border-2 border-black rounded-md bg-white">
                                     <option value="all">All</option>
                                     <option value="paid" selected>Paid Only</option>
                                     <option value="pending">Pending Only</option>
@@ -1168,11 +1168,11 @@
                     </div>
 
                     <!-- Results Section -->
-                    <div id="bulk-payments-list" class="bg-white p-4 rounded-lg border border-green-200" style="display: none;">
-                        <h4 class="font-semibold text-green-700 mb-3">{{ _("Retrieved Payments") }}</h4>
+                    <div id="bulk-payments-list" class="bg-white p-4 rounded-lg border-2 border-black" style="display: none;">
+                        <h4 class="font-semibold text-black mb-3">{{ _("Retrieved Payments") }}</h4>
 
-                        <div class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                            <div class="text-sm text-blue-700">
+                        <div class="mb-4 p-3 bg-white border-2 border-black rounded-lg">
+                            <div class="text-sm text-gray-900">
                                 <p class="mb-2"><strong>{{ _("Summary:") }}</strong></p>
                                 <p class="mb-1">Total Members: <span id="bulk-total-members" class="font-semibold">0</span></p>
                                 <p class="mb-1">Members Checked: <span id="bulk-members-checked" class="font-semibold">0</span></p>
@@ -1183,17 +1183,17 @@
                         </div>
 
                         <!-- Processing Options -->
-                        <div class="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                            <h5 class="font-semibold text-yellow-800 mb-2">{{ _("Processing Options") }}</h5>
+                        <div class="mb-4 p-3 bg-amber-400 border-2 border-black rounded-lg">
+                            <h5 class="font-semibold text-black mb-2">{{ _("Processing Options") }}</h5>
                             <div class="grid grid-cols-1 gap-4">
                                 <div>
                                     <div class="flex items-center">
                                         <input type="checkbox" id="bulk-create-bank-transactions" class="mr-2" checked>
-                                        <label for="bulk-create-bank-transactions" class="text-sm font-medium text-yellow-900">
+                                        <label for="bulk-create-bank-transactions" class="text-sm font-medium text-black">
                                             {{ _("Bank Transaction Only") }}
                                         </label>
                                     </div>
-                                    <p class="text-xs text-yellow-700 mt-1 ml-6">
+                                    <p class="text-xs text-gray-900 mt-1 ml-6">
                                         {{ _("Unchecked: Creates both Bank Transaction + Payment Entry (complete audit trail)") }}<br>
                                         {{ _("Checked: Creates only Bank Transaction (for manual reconciliation later)") }}
                                     </p>
@@ -1203,10 +1203,10 @@
 
                         <!-- Quick Selection Buttons -->
                         <div class="mb-4 flex gap-2">
-                            <button type="button" onclick="bulkSelectAllUnprocessed()" class="inline-flex items-center px-3 py-1.5 bg-gray-600 hover:bg-gray-700 text-white text-sm font-medium rounded-md transition-colors duration-200">
+                            <button type="button" onclick="bulkSelectAllUnprocessed()" class="inline-flex items-center px-3 py-1.5 bg-gray-900 hover:bg-black text-white text-sm font-medium rounded-md border-2 border-black transition-colors duration-200">
                                 <i class="fa fa-check-square mr-2"></i>{{ _("Select All Unprocessed") }}
                             </button>
-                            <button type="button" onclick="bulkDeselectAll()" class="inline-flex items-center px-3 py-1.5 bg-gray-500 hover:bg-gray-600 text-white text-sm font-medium rounded-md transition-colors duration-200">
+                            <button type="button" onclick="bulkDeselectAll()" class="inline-flex items-center px-3 py-1.5 bg-gray-600 hover:bg-gray-700 text-white text-sm font-medium rounded-md border-2 border-black transition-colors duration-200">
                                 <i class="fa fa-square-o mr-2"></i>{{ _("Deselect All") }}
                             </button>
                             <span id="bulk-selected-count" class="text-sm font-medium text-gray-700 flex items-center ml-4">
@@ -1215,19 +1215,19 @@
                         </div>
 
                         <!-- Member/Payments Table -->
-                        <div class="overflow-x-auto mb-4 max-h-96 overflow-y-auto">
+                        <div class="overflow-x-auto mb-4 max-h-96 overflow-y-auto border-2 border-black">
                             <table class="w-full text-sm">
-                                <thead class="bg-gray-50 sticky top-0">
+                                <thead class="bg-gray-900 text-white sticky top-0">
                                     <tr>
-                                        <th class="px-2 py-2 text-left">
+                                        <th class="px-2 py-2 text-left border-b-2 border-black">
                                             <input type="checkbox" id="bulk-select-all-checkbox" onchange="bulkToggleSelectAll()">
                                         </th>
-                                        <th class="px-2 py-2 text-left">{{ _("Member") }}</th>
-                                        <th class="px-2 py-2 text-left">{{ _("Payment ID") }}</th>
-                                        <th class="px-2 py-2 text-left">{{ _("Status") }}</th>
-                                        <th class="px-2 py-2 text-left">{{ _("Amount") }}</th>
-                                        <th class="px-2 py-2 text-left">{{ _("Date") }}</th>
-                                        <th class="px-2 py-2 text-left">{{ _("Processed?") }}</th>
+                                        <th class="px-2 py-2 text-left border-b-2 border-black">{{ _("Member") }}</th>
+                                        <th class="px-2 py-2 text-left border-b-2 border-black">{{ _("Payment ID") }}</th>
+                                        <th class="px-2 py-2 text-left border-b-2 border-black">{{ _("Status") }}</th>
+                                        <th class="px-2 py-2 text-left border-b-2 border-black">{{ _("Amount") }}</th>
+                                        <th class="px-2 py-2 text-left border-b-2 border-black">{{ _("Date") }}</th>
+                                        <th class="px-2 py-2 text-left border-b-2 border-black">{{ _("Processed?") }}</th>
                                     </tr>
                                 </thead>
                                 <tbody id="bulk-payments-table-body">
@@ -1242,10 +1242,10 @@
                     </div>
 
                     <!-- Processing Results -->
-                    <div id="bulk-processing-results" class="bg-slate-50 border border-gray-300 rounded p-4 mt-4 font-mono whitespace-pre-wrap max-h-96 overflow-y-auto" style="display: none;"></div>
+                    <div id="bulk-processing-results" class="bg-white border-2 border-black rounded p-4 mt-4 font-mono whitespace-pre-wrap max-h-96 overflow-y-auto" style="display: none;"></div>
 
-                    <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                        <div class="text-sm text-blue-700">
+                    <div class="mt-4 p-3 bg-white border-2 border-black rounded-lg">
+                        <div class="text-sm text-black">
                             <p class="mb-2"><strong>{{ _("How it works:") }}</strong></p>
                             <p class="mb-1">{{ _("1. Configure days back and payment status filter") }}</p>
                             <p class="mb-1">{{ _("2. Click to retrieve ALL payments for ALL active members with Mollie IDs") }}</p>
@@ -1261,7 +1261,7 @@
             <!-- Debug Webhook Delivery Section -->
             <div class="debug-card">
                 <h2 class="text-xl font-semibold mb-4">{{ _("Webhook Debug") }}</h2>
-                <p class="text-gray-600 mb-4">{{ _("Debug webhook delivery and payment status changes") }}</p>
+                <p class="text-gray-700 mb-4">{{ _("Debug webhook delivery and payment status changes") }}</p>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <div>
@@ -1278,9 +1278,9 @@
                 <div id="webhook-result" class="result-area" style="display: none;"></div>
 
                 <!-- Webhook Info Section -->
-                <div class="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                    <h3 class="text-lg font-medium text-blue-800 mb-2">{{ _("Webhook Information") }}</h3>
-                    <div class="text-sm text-blue-700">
+                <div class="mt-6 p-4 bg-white border-2 border-black rounded-lg">
+                    <h3 class="text-lg font-medium text-black mb-2">{{ _("Webhook Information") }}</h3>
+                    <div class="text-sm text-gray-900">
                         <p class="mb-2">{{ _("• Webhook URL configured for payments will show in payment details") }}</p>
                         <p class="mb-2">{{ _("• Status change timeline helps identify webhook trigger points") }}</p>
                         <p class="mb-2">{{ _("• Check your application logs for webhook delivery details") }}</p>
@@ -1293,11 +1293,11 @@
         <!-- Balance Transactions Tab -->
         <div id="balance-tab" class="tab-content hidden">
             <!-- Balance Info Section -->
-            <div class="p-6 border border-blue-300 rounded-lg bg-blue-50 shadow-sm mb-6">
-                <h3 class="text-lg font-semibold text-blue-800 mb-2">
+            <div class="p-6 border-2 border-black rounded-lg bg-white shadow-sm mb-6">
+                <h3 class="text-lg font-semibold text-black mb-2">
                     <i class="fa fa-info-circle mr-2"></i>{{ _("Balance Information") }}
                 </h3>
-                <p class="text-blue-700 mb-4">{{ _("View primary balance details and available funds") }}</p>
+                <p class="text-gray-900 mb-4">{{ _("View primary balance details and available funds") }}</p>
 
                 <button type="button" onclick="getBalanceInfo()" class="btn-brutal btn-brutal--primary">
                     <i class="fa fa-info-circle mr-2"></i>{{ _("Get Balance Info") }}
@@ -1307,11 +1307,11 @@
             </div>
 
             <!-- Process Recent Transactions Section -->
-            <div class="p-6 border border-green-300 rounded-lg bg-green-50 shadow-sm mb-6">
-                <h3 class="text-lg font-semibold text-green-800 mb-2">
+            <div class="p-6 border-2 border-black rounded-lg bg-white shadow-sm mb-6">
+                <h3 class="text-lg font-semibold text-black mb-2">
                     <i class="fa fa-clock-o mr-2"></i>{{ _("Process Recent Transactions") }}
                 </h3>
-                <p class="text-green-700 mb-4">{{ _("Process balance transactions from recent days") }}</p>
+                <p class="text-gray-900 mb-4">{{ _("Process balance transactions from recent days") }}</p>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <div>
@@ -1334,11 +1334,11 @@
             </div>
 
             <!-- Process Date Range Section -->
-            <div class="p-6 border border-purple-300 rounded-lg bg-purple-50 shadow-sm mb-6">
-                <h3 class="text-lg font-semibold text-purple-800 mb-2">
+            <div class="p-6 border-2 border-black rounded-lg bg-white shadow-sm mb-6">
+                <h3 class="text-lg font-semibold text-black mb-2">
                     <i class="fa fa-calendar mr-2"></i>{{ _("Process Specific Date Range") }}
                 </h3>
-                <p class="text-purple-700 mb-4">{{ _("Process balance transactions for a specific date range (unlimited historical access)") }}</p>
+                <p class="text-gray-900 mb-4">{{ _("Process balance transactions for a specific date range (unlimited historical access)") }}</p>
 
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                     <div>
@@ -1364,11 +1364,11 @@
             </div>
 
             <!-- Process Historical Data Section -->
-            <div class="p-6 border border-orange-300 rounded-lg bg-orange-50 shadow-sm mb-6">
-                <h3 class="text-lg font-semibold text-orange-800 mb-2">
+            <div class="p-6 border-2 border-black rounded-lg bg-white shadow-sm mb-6">
+                <h3 class="text-lg font-semibold text-black mb-2">
                     <i class="fa fa-history mr-2"></i>{{ _("Process Historical Data") }}
                 </h3>
-                <p class="text-orange-700 mb-4">{{ _("Batch process months or years of historical data automatically") }}</p>
+                <p class="text-gray-900 mb-4">{{ _("Batch process months or years of historical data automatically") }}</p>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <div>
@@ -1383,8 +1383,8 @@
                     </div>
                 </div>
 
-                <div class="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                    <div class="text-sm text-yellow-700">
+                <div class="mb-4 p-3 bg-amber-400 border-2 border-black rounded-lg">
+                    <div class="text-sm text-black">
                         <i class="fa fa-exclamation-triangle mr-1"></i>
                         <strong>{{ _("Note:") }}</strong> {{ _("Large historical migrations may take several minutes. The process batches by month automatically.") }}
                     </div>
@@ -1398,11 +1398,11 @@
             </div>
 
             <!-- Check Transaction Status Section -->
-            <div class="p-6 border border-indigo-300 rounded-lg bg-indigo-50 shadow-sm mb-6">
-                <h3 class="text-lg font-semibold text-indigo-800 mb-2">
+            <div class="p-6 border-2 border-black rounded-lg bg-white shadow-sm mb-6">
+                <h3 class="text-lg font-semibold text-black mb-2">
                     <i class="fa fa-search mr-2"></i>{{ _("Check Transaction Status") }}
                 </h3>
-                <p class="text-indigo-700 mb-4">{{ _("Verify if a specific balance transaction has been processed") }}</p>
+                <p class="text-gray-900 mb-4">{{ _("Verify if a specific balance transaction has been processed") }}</p>
 
                 <div class="mb-4">
                     <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Transaction ID") }}</label>
@@ -1425,14 +1425,14 @@
             </div>
 
             <!-- Search Transactions by Description Section -->
-            <div class="p-6 border border-purple-300 rounded-lg bg-purple-50 shadow-sm mb-6">
-                <h3 class="text-lg font-semibold text-purple-800 mb-2">
+            <div class="p-6 border-2 border-black rounded-lg bg-white shadow-sm mb-6">
+                <h3 class="text-lg font-semibold text-black mb-2">
                     <i class="fa fa-search mr-2"></i>{{ _("Search Transactions") }}
                 </h3>
-                <p class="text-purple-700 mb-4">{{ _("Search Bank Transactions by description text (fast, searches ERPNext database)") }}</p>
+                <p class="text-gray-900 mb-4">{{ _("Search Bank Transactions by description text (fast, searches ERPNext database)") }}</p>
 
                 <!-- Fetch Recent Button -->
-                <div class="mb-4 p-3 border border-purple-200 rounded bg-white">
+                <div class="mb-4 p-3 border-2 border-black rounded bg-white">
                     <p class="text-sm text-gray-700 mb-2">{{ _("First time? Fetch recent transactions from Mollie to make them searchable:") }}</p>
                     <div class="flex items-center gap-2">
                         <input type="number" id="fetch-limit" class="debug-input flex-1" value="100" min="1" max="250" placeholder="Number of transactions">
@@ -1440,7 +1440,7 @@
                             <i class="fa fa-download mr-2"></i>{{ _("Fetch from Mollie") }}
                         </button>
                     </div>
-                    <p class="text-xs text-gray-600 mt-1">{{ _("Note: This imports transactions into ERPNext, making them searchable (slow, ~10-30 seconds)") }}</p>
+                    <p class="text-xs text-gray-700 mt-1">{{ _("Note: This imports transactions into ERPNext, making them searchable (slow, ~10-30 seconds)") }}</p>
                 </div>
 
                 <div class="mb-4">
@@ -1463,11 +1463,11 @@
             </div>
 
             <!-- Processing Statistics Section -->
-            <div class="p-6 border border-teal-300 rounded-lg bg-teal-50 shadow-sm mb-6">
-                <h3 class="text-lg font-semibold text-teal-800 mb-2">
+            <div class="p-6 border-2 border-black rounded-lg bg-white shadow-sm mb-6">
+                <h3 class="text-lg font-semibold text-black mb-2">
                     <i class="fa fa-bar-chart mr-2"></i>{{ _("Processing Statistics") }}
                 </h3>
-                <p class="text-teal-700 mb-4">{{ _("View statistics and reconciliation metrics for processed balance transactions") }}</p>
+                <p class="text-gray-900 mb-4">{{ _("View statistics and reconciliation metrics for processed balance transactions") }}</p>
 
                 <div class="mb-4">
                     <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Days") }}</label>
@@ -1767,20 +1767,20 @@ function formatCustomerSearchResult(data) {
     }
 
     let html = `<h3>Search Results for "${data.search_term}"</h3>`;
-    html += `<p class="text-gray-600 mb-3">Found ${data.total_found} customer(s)</p>`;
+    html += `<p class="text-gray-700 mb-3">Found ${data.total_found} customer(s)</p>`;
 
     if (data.customers && data.customers.length > 0) {
         html += '<div class="space-y-2">';
         data.customers.forEach(customer => {
-            html += `<div class="p-3 border border-gray-200 rounded-lg bg-white">`;
+            html += `<div class="p-3 border-2 border-black rounded-lg bg-white">`;
             html += `<div class="flex justify-between items-start">`;
             html += `<div>`;
             html += `<h4 class="font-semibold">${customer.name}</h4>`;
-            html += `<p class="text-sm text-gray-600">${customer.email}</p>`;
-            html += `<p class="text-xs text-gray-500">Created: ${new Date(customer.created_at).toLocaleDateString()}</p>`;
+            html += `<p class="text-sm text-gray-700">${customer.email}</p>`;
+            html += `<p class="text-xs text-gray-600">Created: ${new Date(customer.created_at).toLocaleDateString()}</p>`;
             html += `</div>`;
             html += `<div>`;
-            html += `<button onclick="useCustomerId('${customer.id}')" class="text-blue-600 hover:text-blue-800 text-sm font-medium">`;
+            html += `<button onclick="useCustomerId('${customer.id}')" class="text-blue-600 hover:text-black text-sm font-medium">`;
             html += `Use ID: ${customer.id}`;
             html += `</button>`;
             html += `</div>`;
@@ -1789,7 +1789,7 @@ function formatCustomerSearchResult(data) {
         });
         html += '</div>';
     } else {
-        html += '<p class="text-gray-500">No customers found matching your search.</p>';
+        html += '<p class="text-gray-600">No customers found matching your search.</p>';
     }
 
     return html;
@@ -1873,7 +1873,7 @@ function formatSyncEndDatesResult(data) {
     }
 
     let html = `<h3>Sync Membership End Dates Result</h3>`;
-    html += `<div class="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">`;
+    html += `<div class="mt-4 p-4 bg-white border-2 border-black rounded-lg">`;
     html += `<p><strong>Mode:</strong> ${data.dry_run ? '🔍 DRY RUN (no changes made)' : '✅ LIVE UPDATE'}</p>`;
     html += `<p><strong>Members Checked:</strong> ${data.total_checked}</p>`;
     html += `<p><strong>Updates Needed:</strong> ${data.updates_needed}</p>`;
@@ -1887,16 +1887,16 @@ function formatSyncEndDatesResult(data) {
         html += `<div class="mt-2 space-y-3">`;
 
         data.members.forEach(member => {
-            const needsUpdateClass = member.needs_update ? 'border-orange-300 bg-orange-50' : 'border-gray-200 bg-white';
+            const needsUpdateClass = member.needs_update ? 'border-black bg-white' : 'border-black bg-white';
 
             html += `<div class="p-3 border ${needsUpdateClass} rounded-lg">`;
             html += `<div class="flex justify-between items-start">`;
             html += `<div>`;
             html += `<h4 class="font-semibold">${member.full_name} (${member.member})</h4>`;
-            html += `<p class="text-sm text-gray-600">Status: ${member.status}</p>`;
-            html += `<p class="text-xs text-gray-500">Customer ID: ${member.customer_id}</p>`;
+            html += `<p class="text-sm text-gray-700">Status: ${member.status}</p>`;
+            html += `<p class="text-xs text-gray-600">Customer ID: ${member.customer_id}</p>`;
             if (member.subscription_id) {
-                html += `<p class="text-xs text-gray-500">Subscription: ${member.subscription_id}</p>`;
+                html += `<p class="text-xs text-gray-600">Subscription: ${member.subscription_id}</p>`;
             }
             html += `</div>`;
             html += `<div class="text-right">`;
@@ -1915,7 +1915,7 @@ function formatSyncEndDatesResult(data) {
                     html += `<p class="text-green-600 mt-1">✓ Already correct</p>`;
                 }
             } else {
-                html += `<span class="text-gray-500 text-sm">No cancellation date</span>`;
+                html += `<span class="text-gray-600 text-sm">No cancellation date</span>`;
             }
 
             html += `</div>`;
@@ -1927,12 +1927,12 @@ function formatSyncEndDatesResult(data) {
     }
 
     if (data.dry_run && data.updates_needed > 0) {
-        html += `<div class="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded">`;
-        html += `<p class="text-yellow-800"><strong>💡 Next Step:</strong> Uncheck "Dry Run" and click "Sync End Dates" again to apply these ${data.updates_needed} update(s).</p>`;
+        html += `<div class="mt-4 p-3 bg-amber-400 border-2 border-black rounded">`;
+        html += `<p class="text-black"><strong>💡 Next Step:</strong> Uncheck "Dry Run" and click "Sync End Dates" again to apply these ${data.updates_needed} update(s).</p>`;
         html += `</div>`;
     } else if (!data.dry_run && data.updates_applied > 0) {
-        html += `<div class="mt-4 p-3 bg-green-50 border border-green-200 rounded">`;
-        html += `<p class="text-green-800"><strong>✅ Success:</strong> ${data.updates_applied} membership(s) updated with Mollie cancellation dates.</p>`;
+        html += `<div class="mt-4 p-3 bg-white border-2 border-black rounded">`;
+        html += `<p class="text-black"><strong>✅ Success:</strong> ${data.updates_applied} membership(s) updated with Mollie cancellation dates.</p>`;
         html += `</div>`;
     }
 
@@ -3248,7 +3248,7 @@ function formatSubscriptionListResult(data) {
         html += `<div class="mt-4">`;
         data.subscriptions.forEach(sub => {
             const statusClass = sub.status === 'active' ? 'status-active' : 'status-canceled';
-            html += `<div class="p-4 border border-gray-300 rounded-lg mb-3 bg-white">`;
+            html += `<div class="p-4 border-2 border-black rounded-lg mb-3 bg-white">`;
             html += `<div class="flex justify-between items-start mb-2">`;
             html += `<div><strong>ID:</strong> ${sub.id}</div>`;
             html += `<span class="status-badge ${statusClass}">${sub.status}</span>`;
@@ -3264,7 +3264,7 @@ function formatSubscriptionListResult(data) {
         });
         html += `</div>`;
     } else {
-        html += `<p class="mt-4 text-gray-600">No subscriptions found</p>`;
+        html += `<p class="mt-4 text-gray-700">No subscriptions found</p>`;
     }
 
     return html;
@@ -3522,19 +3522,19 @@ function formatProcessingResult(data) {
         data.results.slice(0, 10).forEach(result => {
             const statusClass = result.status === 'success' ? 'text-green-600' :
                               result.status === 'already_processed' ? 'text-blue-600' : 'text-red-600';
-            html += `<div class="p-3 border border-gray-300 rounded-lg bg-white">`;
+            html += `<div class="p-3 border-2 border-black rounded-lg bg-white">`;
             html += `<p><strong>Transaction ID:</strong> ${result.transaction_id}</p>`;
             html += `<p><strong>Status:</strong> <span class="${statusClass}">${result.status}</span></p>`;
             if (result.bank_transaction) html += `<p><strong>Bank Transaction:</strong> ${result.bank_transaction}</p>`;
             if (result.amount) html += `<p><strong>Amount:</strong> EUR ${result.amount.toFixed(2)}</p>`;
             if (result.transaction_type) html += `<p><strong>Type:</strong> ${result.transaction_type}</p>`;
             if (result.error) html += `<p class="text-red-600"><strong>Error:</strong> ${result.error}</p>`;
-            if (result.message) html += `<p class="text-gray-600">${result.message}</p>`;
+            if (result.message) html += `<p class="text-gray-700">${result.message}</p>`;
             html += `</div>`;
         });
 
         if (data.results.length > 10) {
-            html += `<p class="text-gray-600 italic">... and ${data.results.length - 10} more transactions</p>`;
+            html += `<p class="text-gray-700 italic">... and ${data.results.length - 10} more transactions</p>`;
         }
         html += `</div>`;
     }
@@ -3559,7 +3559,7 @@ function formatHistoricalResult(data) {
         html += `<div class="mt-2 space-y-2">`;
 
         data.batches.forEach(batch => {
-            html += `<div class="p-3 border border-gray-300 rounded-lg bg-white">`;
+            html += `<div class="p-3 border-2 border-black rounded-lg bg-white">`;
             html += `<p><strong>Batch #${batch.batch_number}</strong></p>`;
             html += `<p><strong>Date Range:</strong> ${batch.from_date} to ${batch.to_date}</p>`;
             html += `<p><strong>Processed:</strong> <span class="text-green-600">${batch.result.processed}</span></p>`;
@@ -3593,7 +3593,7 @@ function formatTransactionStatus(data) {
         html += `<p><strong>Status:</strong> <span class="status-badge ${bt.status === 'Reconciled' ? 'status-active' : 'status-canceled'}">${bt.status}</span></p>`;
     } else {
         html += `<p><strong>Status:</strong> <span class="status-badge status-canceled">Not Processed</span></p>`;
-        html += `<p class="text-gray-600">This transaction has not been imported into ERPNext yet</p>`;
+        html += `<p class="text-gray-700">This transaction has not been imported into ERPNext yet</p>`;
     }
 
     html += `</div>`;
@@ -3602,7 +3602,7 @@ function formatTransactionStatus(data) {
     if (data.mollie_api_data) {
         const mollie = data.mollie_api_data;
         html += `<h4 class="mt-4 font-medium">Mollie API Data:</h4>`;
-        html += `<div class="mt-2 space-y-2 p-4 bg-gray-50 rounded">`;
+        html += `<div class="mt-2 space-y-2 p-4 bg-white border-2 border-black rounded">`;
         html += `<p><strong>Transaction ID:</strong> ${mollie.id}</p>`;
         html += `<p><strong>Type:</strong> ${mollie.type}</p>`;
 
@@ -3629,7 +3629,7 @@ function formatTransactionStatus(data) {
         html += `</div>`;
     } else if (data.mollie_api_error) {
         html += `<h4 class="mt-4 font-medium text-orange-600">Mollie API Error:</h4>`;
-        html += `<p class="mt-2 text-gray-600">${data.mollie_api_error}</p>`;
+        html += `<p class="mt-2 text-gray-700">${data.mollie_api_error}</p>`;
     }
 
     return html;
@@ -3670,9 +3670,9 @@ function formatFetchResults(data) {
     if (data.errors > 0) {
         html += `<p><strong>Errors:</strong> <span class="text-red-600">${data.errors}</span></p>`;
         if (data.error_details && data.error_details.length > 0) {
-            html += `<div class="mt-2 p-3 bg-red-50 border border-red-200 rounded">`;
-            html += `<p class="font-medium text-red-800">Error Details (first 10):</p>`;
-            html += `<ul class="mt-1 text-sm text-red-700 list-disc list-inside">`;
+            html += `<div class="mt-2 p-3 bg-red-200 border border-red-600 rounded">`;
+            html += `<p class="font-medium text-red-700">Error Details (first 10):</p>`;
+            html += `<ul class="mt-1 text-sm text-red-600 list-disc list-inside">`;
             data.error_details.forEach(err => {
                 html += `<li>${err}</li>`;
             });
@@ -3680,7 +3680,7 @@ function formatFetchResults(data) {
         }
     }
     html += `</div>`;
-    html += `<p class="mt-4 text-green-700 font-medium">✓ Transactions are now searchable! Use the search field above.</p>`;
+    html += `<p class="mt-4 text-gray-900 font-medium">✓ Transactions are now searchable! Use the search field above.</p>`;
 
     return html;
 }
@@ -3705,12 +3705,12 @@ function formatSearchResults(data) {
             const typeLabel = tx.type === 'deposit' ? '💰 Deposit' : '💸 Withdrawal';
             const amountColor = tx.type === 'deposit' ? 'text-green-600' : 'text-red-600';
 
-            html += `<div class="p-4 border border-gray-300 rounded-lg bg-white shadow-sm">`;
+            html += `<div class="p-4 border-2 border-black rounded-lg bg-white shadow-sm">`;
             html += `<div class="flex justify-between items-start mb-2">`;
             html += `<div class="flex-1">`;
             html += `<p class="font-medium text-gray-900">${tx.description}</p>`;
-            html += `<p class="text-sm text-gray-600 mt-1">`;
-            html += `<strong>ID:</strong> <a href="/app/bank-transaction/${tx.name}" class="text-blue-600 hover:text-blue-800">${tx.name}</a>`;
+            html += `<p class="text-sm text-gray-700 mt-1">`;
+            html += `<strong>ID:</strong> <a href="/app/bank-transaction/${tx.name}" class="text-blue-600 hover:text-black">${tx.name}</a>`;
             html += ` | <strong>Date:</strong> ${tx.date}`;
             html += `</p>`;
             html += `</div>`;
@@ -3721,7 +3721,7 @@ function formatSearchResults(data) {
             html += `</div>`;
 
             if (tx.reference_number) {
-                html += `<p class="text-sm text-gray-600 mt-2">`;
+                html += `<p class="text-sm text-gray-700 mt-2">`;
                 html += `<strong>Reference:</strong> ${tx.reference_number}`;
                 if (tx.transaction_id && tx.transaction_id !== tx.reference_number) {
                     html += ` | <strong>Transaction ID:</strong> ${tx.transaction_id}`;
@@ -3730,7 +3730,7 @@ function formatSearchResults(data) {
             }
 
             if (tx.bank_account) {
-                html += `<p class="text-sm text-gray-600"><strong>Account:</strong> ${tx.bank_account}</p>`;
+                html += `<p class="text-sm text-gray-700"><strong>Account:</strong> ${tx.bank_account}</p>`;
             }
 
             html += `</div>`;
@@ -3738,7 +3738,7 @@ function formatSearchResults(data) {
 
         html += `</div>`;
     } else {
-        html += `<p class="mt-4 text-gray-600">No transactions found matching "${data.search_term}"</p>`;
+        html += `<p class="mt-4 text-gray-700">No transactions found matching "${data.search_term}"</p>`;
     }
 
     return html;
@@ -3798,28 +3798,37 @@ function displayBulkPaymentsResults(data) {
         total_payments_found: data.total_payments_found,
         total_payments_after_filtering: data.total_payments_after_filtering,
         total_filtered_by_date: data.total_filtered_by_date,
-        total_filtered_by_duplicate: data.total_filtered_by_duplicate
+        total_filtered_by_duplicate: data.total_filtered_by_duplicate,
+        total_filtered_by_customer: data.total_filtered_by_customer
     });
 
     // Update summary
-    document.getElementById('bulk-total-members').textContent = data.total_members;
-    document.getElementById('bulk-members-checked').textContent = data.members_checked;
+    document.getElementById('bulk-total-members').textContent = data.total_members || 0;
+    document.getElementById('bulk-members-checked').textContent = data.members_checked || 0;
 
     // Show filtering details
-    const totalPayments = data.total_payments || data.total_payments_found || 0;
-    const afterFiltering = data.total_payments_after_filtering || totalPayments;
+    const totalPaymentsFound = data.total_payments_found || 0;
+    const totalPaymentsMatched = data.total_payments || 0;
+    const afterFiltering = data.total_payments_after_filtering || totalPaymentsMatched;
     const filteredByDate = data.total_filtered_by_date || 0;
     const filteredByDuplicate = data.total_filtered_by_duplicate || 0;
+    const filteredByCustomer = data.total_filtered_by_customer || 0;
 
-    console.log('Computed values:', { totalPayments, afterFiltering, filteredByDate, filteredByDuplicate });
+    console.log('Computed values:', { totalPaymentsFound, totalPaymentsMatched, afterFiltering, filteredByDate, filteredByDuplicate, filteredByCustomer });
 
-    if (filteredByDate > 0 || filteredByDuplicate > 0) {
-        const displayText = `${totalPayments} (${afterFiltering} after filtering: ${filteredByDate} date, ${filteredByDuplicate} dup)`;
+    // Build filtering breakdown
+    const filterParts = [];
+    if (filteredByCustomer > 0) filterParts.push(`${filteredByCustomer} no member match`);
+    if (filteredByDate > 0) filterParts.push(`${filteredByDate} outside date range`);
+    if (filteredByDuplicate > 0) filterParts.push(`${filteredByDuplicate} duplicates`);
+
+    if (filterParts.length > 0) {
+        const displayText = `${totalPaymentsFound} found → ${totalPaymentsMatched} matched (filtered: ${filterParts.join(', ')})`;
         console.log('Setting total payments to:', displayText);
         document.getElementById('bulk-total-payments').textContent = displayText;
     } else {
-        console.log('No filtering, setting total payments to:', totalPayments);
-        document.getElementById('bulk-total-payments').textContent = totalPayments;
+        console.log('No filtering, setting total payments to:', totalPaymentsMatched);
+        document.getElementById('bulk-total-payments').textContent = totalPaymentsMatched;
     }
 
     document.getElementById('bulk-unprocessed-payments').textContent = data.unprocessed_payments || data.total_new_payments || 0;
@@ -3833,7 +3842,16 @@ function displayBulkPaymentsResults(data) {
     const customersList = data.customers || data.members || [];
 
     if (customersList.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-gray-500">No members with payments found</td></tr>';
+        // Provide helpful message based on filtering stats
+        let emptyMessage = 'No members with payments found';
+        const filteredByCustomer = data.total_filtered_by_customer || 0;
+        const totalFound = data.total_payments_found || 0;
+        if (totalFound > 0 && filteredByCustomer > 0) {
+            emptyMessage = `${totalFound} payments found from Mollie, but ${filteredByCustomer} did not match any active member's Mollie Customer ID. Check if member records have correct mollie_customer_id values.`;
+        } else if (totalFound === 0) {
+            emptyMessage = 'No payments found from Mollie API for the selected date range.';
+        }
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-gray-600">${emptyMessage}</td></tr>`;
         return;
     }
 
@@ -3849,7 +3867,7 @@ function displayBulkPaymentsResults(data) {
 
             // BulkPaymentChecker uses 'already_processed', old service used 'is_processed'
             const isProcessed = payment.already_processed || payment.is_processed;
-            row.className = isProcessed ? 'bg-gray-50' : 'bg-white hover:bg-gray-50';
+            row.className = isProcessed ? 'bg-gray-200 text-gray-600' : 'bg-white hover:bg-amber-50 border-b border-black';
 
             // BulkPaymentChecker uses 'id', old service used 'payment_id'
             const paymentId = payment.id || payment.payment_id;
@@ -3859,12 +3877,12 @@ function displayBulkPaymentsResults(data) {
                 `<span class="text-gray-400">—</span>`;
 
             const memberDisplay = index === 0 ?
-                `<div class="font-medium">${fullName}</div><div class="text-xs text-gray-500">${memberName}</div>` :
+                `<div class="font-medium">${fullName}</div><div class="text-xs text-gray-600">${memberName}</div>` :
                 `<div class="text-xs text-gray-400">↳ same member</div>`;
 
             const processedBadge = isProcessed ?
-                '<span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded">✓ Processed</span>' :
-                '<span class="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded">Unprocessed</span>';
+                '<span class="px-2 py-1 bg-green-600 text-white text-xs font-bold border-2 border-black rounded">✓ Processed</span>' :
+                '<span class="px-2 py-1 bg-amber-400 text-black text-xs font-bold border-2 border-black rounded">Unprocessed</span>';
 
             // BulkPaymentChecker uses 'amount_display', old service used 'amount'
             const amountDisplay = payment.amount_display || payment.amount;
@@ -3872,9 +3890,9 @@ function displayBulkPaymentsResults(data) {
             row.innerHTML = `
                 <td class="px-2 py-2">${checkbox}</td>
                 <td class="px-2 py-2">${memberDisplay}</td>
-                <td class="px-2 py-2"><code class="text-xs">${paymentId}</code></td>
-                <td class="px-2 py-2"><span class="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">${payment.status}</span></td>
-                <td class="px-2 py-2">${amountDisplay}</td>
+                <td class="px-2 py-2"><code class="text-xs bg-gray-100 px-1 border-2 border-black">${paymentId}</code></td>
+                <td class="px-2 py-2"><span class="px-2 py-1 bg-blue-600 text-white text-xs font-bold border-2 border-black rounded">${payment.status}</span></td>
+                <td class="px-2 py-2 font-mono">${amountDisplay}</td>
                 <td class="px-2 py-2 text-xs">${payment.created_at ? new Date(payment.created_at).toLocaleDateString() : 'N/A'}</td>
                 <td class="px-2 py-2">${processedBadge}</td>
             `;

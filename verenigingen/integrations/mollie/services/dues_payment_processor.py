@@ -252,22 +252,24 @@ class DuesPaymentProcessor:
 
             # Check if invoice already exists for this exact coverage period
             # Use custom coverage fields for precise matching (not just posting_date range)
+            # Only match submitted invoices with outstanding balance (excludes already-paid invoices)
             existing_invoice = frappe.db.get_value(
                 "Sales Invoice",
                 filters={
                     "customer": member.customer,
                     "custom_coverage_start_date": coverage_start,
                     "custom_coverage_end_date": coverage_end,
-                    "docstatus": ["<", 2],  # Not cancelled
+                    "docstatus": 1,  # Only submitted invoices
+                    "outstanding_amount": [">", 0],  # Only unpaid invoices
                 },
-                fieldname=["name", "grand_total"],
+                fieldname=["name", "grand_total", "outstanding_amount"],
                 as_dict=True,
             )
 
             if existing_invoice:
                 frappe.logger().info(
                     f"✅ Found existing invoice {existing_invoice.name} for coverage period "
-                    f"{coverage_start} to {coverage_end}"
+                    f"{coverage_start} to {coverage_end} (outstanding: {existing_invoice.outstanding_amount})"
                 )
                 return existing_invoice.name
 
@@ -405,6 +407,7 @@ class DuesPaymentProcessor:
         import time
 
         # First check if invoice already exists (idempotency)
+        # Check for ANY non-cancelled invoice for this coverage period
         existing_invoice = frappe.db.get_value(
             "Sales Invoice",
             filters={
@@ -413,14 +416,26 @@ class DuesPaymentProcessor:
                 "custom_coverage_end_date": coverage_end,
                 "docstatus": ["<", 2],  # Not cancelled
             },
-            fieldname="name",
+            fieldname=["name", "outstanding_amount"],
+            as_dict=True,
         )
 
         if existing_invoice:
-            frappe.logger().info(
-                f"⏭️ Sales Invoice already exists for coverage {coverage_start} to {coverage_end}: {existing_invoice}"
-            )
-            return existing_invoice
+            if existing_invoice.outstanding_amount > 0:
+                frappe.logger().info(
+                    f"⏭️ Sales Invoice already exists for coverage {coverage_start} to {coverage_end}: "
+                    f"{existing_invoice.name} (outstanding: {existing_invoice.outstanding_amount})"
+                )
+                return existing_invoice.name
+            else:
+                # Invoice exists but is already paid - don't create duplicate, return None
+                # The caller should create an unallocated Payment Entry
+                frappe.logger().warning(
+                    f"⚠️ Invoice {existing_invoice.name} exists for coverage {coverage_start} to {coverage_end} "
+                    f"but is already paid (outstanding: {existing_invoice.outstanding_amount}). "
+                    f"Payment Entry will be created unallocated for manual reconciliation."
+                )
+                return None
 
         # Deadlock retry configuration
         max_retries = 3
@@ -429,6 +444,20 @@ class DuesPaymentProcessor:
         while retry_count < max_retries:
             try:
                 settings = frappe.get_single("Verenigingen Settings")
+
+                # Ensure fiscal year exists BEFORE creating invoice (prevents GL entry failures)
+                from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_exists
+
+                try:
+                    fiscal_year = ensure_fiscal_year_exists(payment_date, settings.company)
+                    frappe.logger().info(
+                        f"Fiscal year {fiscal_year} confirmed for invoice with posting_date={payment_date}"
+                    )
+                except Exception as fy_error:
+                    frappe.logger().error(
+                        f"Cannot create invoice for {member_doc.name}: Missing fiscal year for {payment_date}: {fy_error}"
+                    )
+                    return None
 
                 # Get income account
                 income_account = settings.dues_income_account
@@ -791,6 +820,28 @@ class DuesPaymentProcessor:
         payment_date = extractor.extract_date(payment, field_name="paid_at")
         mode_of_payment = getattr(verenigingen_settings, "mode_of_payment", None) or "Mollie"
 
+        # Idempotency check: ensure Payment Entry doesn't already exist for this payment
+        existing_pe = frappe.db.get_value("Payment Entry", {"reference_no": payment_id}, "name")
+        if existing_pe:
+            frappe.logger().info(
+                f"⏭️ Payment Entry already exists for payment {payment_id}: {existing_pe}"
+            )
+            return existing_pe
+
+        # Ensure fiscal year exists for the payment date (prevents submission failures)
+        from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_exists
+
+        try:
+            fiscal_year = ensure_fiscal_year_exists(payment_date, company)
+            frappe.logger().info(
+                f"Fiscal year {fiscal_year} confirmed for Payment Entry with posting_date={payment_date}"
+            )
+        except Exception as fy_error:
+            frappe.logger().error(
+                f"Cannot create Payment Entry for {member_name}: Missing fiscal year for {payment_date}: {fy_error}"
+            )
+            return None
+
         # Get Mollie clearing account from centralized configuration (throws if not configured)
         mollie_config = get_mollie_config()
         mollie_clearing_account = mollie_config.get_clearing_account()
@@ -833,19 +884,29 @@ class DuesPaymentProcessor:
             }
         )
 
-        # If we have an invoice, link it to the payment entry
+        # If we have an invoice with outstanding amount, link it to the payment entry
         if invoice_name:
             invoice_doc = frappe.get_doc("Sales Invoice", invoice_name)
-            payment_entry.append(
-                "references",
-                {
-                    "reference_doctype": "Sales Invoice",
-                    "reference_name": invoice_name,
-                    "total_amount": invoice_doc.grand_total,
-                    "outstanding_amount": invoice_doc.outstanding_amount,
-                    "allocated_amount": min(amount, invoice_doc.outstanding_amount),
-                },
-            )
+            if invoice_doc.outstanding_amount > 0:
+                allocated = min(amount, invoice_doc.outstanding_amount)
+                payment_entry.append(
+                    "references",
+                    {
+                        "reference_doctype": "Sales Invoice",
+                        "reference_name": invoice_name,
+                        "total_amount": invoice_doc.grand_total,
+                        "outstanding_amount": invoice_doc.outstanding_amount,
+                        "allocated_amount": allocated,
+                    },
+                )
+                frappe.logger().info(
+                    f"Linking PE to invoice {invoice_name} (outstanding: {invoice_doc.outstanding_amount}, allocated: {allocated})"
+                )
+            else:
+                frappe.logger().warning(
+                    f"Invoice {invoice_name} has no outstanding amount ({invoice_doc.outstanding_amount}), "
+                    f"PE will be created unallocated for manual reconciliation"
+                )
 
         payment_entry.insert()
         payment_entry.submit()

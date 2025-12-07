@@ -538,8 +538,9 @@
   },
   {
    "fieldname": "other_members_at_address",
-   "fieldtype": "HTML",
-   "label": "Other Members at This Address"
+   "fieldtype": "HTML Editor",
+   "label": "Other Members at This Address",
+   "read_only": 1
   },
   {
    "fieldname": "erpnext_integration_section",

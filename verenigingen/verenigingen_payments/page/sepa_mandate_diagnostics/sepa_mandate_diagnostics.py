@@ -12,7 +12,7 @@ from verenigingen.utils.security.api_security_framework import OperationType, cr
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.READ)
+@standard_api(operation_type=OperationType.REPORTING)
 def get_mandate_issues():
     """
     Get all SEPA mandate synchronization issues categorized by type.

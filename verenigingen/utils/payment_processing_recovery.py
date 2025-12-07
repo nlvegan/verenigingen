@@ -106,7 +106,7 @@ def get_payment_processing_status(payment_id: str) -> Dict[str, any]:
         if bt_date:
             coverage_start, coverage_end = get_quarter_coverage_dates(bt_date)
 
-            # Look for invoice matching coverage period
+            # Look for invoice matching coverage period with outstanding balance
             member = frappe.get_doc("Member", status["member"])
             if member.customer:
                 existing_invoice = frappe.db.get_value(
@@ -115,7 +115,8 @@ def get_payment_processing_status(payment_id: str) -> Dict[str, any]:
                         "customer": member.customer,
                         "custom_coverage_start_date": coverage_start,
                         "custom_coverage_end_date": coverage_end,
-                        "docstatus": ["<", 2],  # Not cancelled
+                        "docstatus": 1,  # Only submitted invoices
+                        "outstanding_amount": [">", 0],  # Only unpaid invoices
                     },
                     fieldname="name",
                 )
@@ -369,6 +370,21 @@ def complete_partial_payments(
                     else:
                         payment_date = datetime.strptime(payment.created_at[:10], "%Y-%m-%d").date()
                         payment_amount = float(payment.amount.value)
+
+            # Ensure fiscal year exists for the payment date (required for invoice/PE creation)
+            from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_exists
+
+            verenigingen_settings = frappe.get_single("Verenigingen Settings")
+            company = verenigingen_settings.company or frappe.defaults.get_global_default("company")
+            try:
+                fiscal_year = ensure_fiscal_year_exists(payment_date, company)
+                if fiscal_year:
+                    payment_result["actions_taken"].append(f"Ensured Fiscal Year: {fiscal_year}")
+            except Exception as fy_error:
+                frappe.logger().warning(
+                    f"Could not ensure fiscal year for {payment_date}: {fy_error}"
+                )
+                # Continue anyway - will fail later if truly missing
 
             # Create missing documents
             if not status["has_sales_invoice"]:
@@ -650,3 +666,150 @@ def analyze_payment_gaps() -> Dict[str, any]:
             analysis["gap_details"].append(gap)
 
     return analysis
+
+
+@frappe.whitelist()
+def repair_invoices_missing_gl_entries(
+    invoice_names: List[str] = None, dry_run: bool = True
+) -> Dict[str, any]:
+    """
+    Repair Sales Invoices that are submitted but missing GL entries.
+
+    This can happen when invoices were submitted without a valid Fiscal Year.
+    The function ensures the fiscal year exists, then cancels and re-submits
+    the invoice to regenerate proper GL entries.
+
+    Args:
+        invoice_names: List of Sales Invoice names to repair. If None, finds all problematic invoices.
+        dry_run: If True, only report what would be done without making changes.
+
+    Returns:
+        dict: Processing results
+    """
+    if isinstance(dry_run, str):
+        dry_run = dry_run.lower() == "true"
+
+    if isinstance(invoice_names, str):
+        import json
+        invoice_names = json.loads(invoice_names)
+
+    result = {
+        "total_checked": 0,
+        "repaired": 0,
+        "skipped": 0,
+        "errors": 0,
+        "results": [],
+        "dry_run": dry_run,
+        "timestamp": frappe.utils.now(),
+    }
+
+    # If no invoice_names provided, find all submitted invoices without GL entries
+    if not invoice_names:
+        # Find submitted invoices (docstatus=1) that have no GL entries
+        invoices_without_gl = frappe.db.sql(
+            """
+            SELECT si.name, si.posting_date, si.customer, si.grand_total, si.outstanding_amount
+            FROM `tabSales Invoice` si
+            LEFT JOIN `tabGL Entry` gle ON gle.voucher_no = si.name AND gle.voucher_type = 'Sales Invoice'
+            WHERE si.docstatus = 1
+            AND gle.name IS NULL
+            ORDER BY si.posting_date
+            """,
+            as_dict=True,
+        )
+        invoice_names = [inv.name for inv in invoices_without_gl]
+        frappe.logger().info(f"Found {len(invoice_names)} invoices without GL entries")
+
+    result["total_checked"] = len(invoice_names)
+
+    from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_exists
+
+    for invoice_name in invoice_names:
+        inv_result = {
+            "invoice": invoice_name,
+            "status": "pending",
+            "actions": [],
+            "error": None,
+        }
+
+        try:
+            invoice = frappe.get_doc("Sales Invoice", invoice_name)
+
+            # Check if GL entries already exist
+            gl_count = frappe.db.count(
+                "GL Entry",
+                {"voucher_type": "Sales Invoice", "voucher_no": invoice_name},
+            )
+
+            if gl_count > 0:
+                inv_result["status"] = "skipped"
+                inv_result["actions"].append(f"Already has {gl_count} GL entries")
+                result["skipped"] += 1
+                result["results"].append(inv_result)
+                continue
+
+            inv_result["actions"].append(f"Invoice missing GL entries (posting_date: {invoice.posting_date})")
+
+            if dry_run:
+                inv_result["status"] = "dry_run"
+                inv_result["actions"].append("Would ensure fiscal year and re-submit")
+                result["results"].append(inv_result)
+                continue
+
+            # Get company for fiscal year check
+            company = invoice.company
+
+            # Ensure fiscal year exists for the posting date
+            fiscal_year = ensure_fiscal_year_exists(invoice.posting_date, company)
+            inv_result["actions"].append(f"Ensured Fiscal Year: {fiscal_year}")
+
+            # Store original values we need to preserve
+            original_posting_date = invoice.posting_date
+            original_due_date = invoice.due_date
+            original_coverage_start = invoice.custom_coverage_start_date
+            original_coverage_end = invoice.custom_coverage_end_date
+
+            # Cancel the invoice
+            invoice.cancel()
+            inv_result["actions"].append("Cancelled invoice")
+
+            # Amend (create new version from cancelled)
+            amended_invoice = frappe.copy_doc(invoice)
+            amended_invoice.docstatus = 0
+            amended_invoice.amended_from = invoice.name
+
+            # Restore dates (they might be reset during copy)
+            amended_invoice.posting_date = original_posting_date
+            amended_invoice.due_date = original_due_date
+            amended_invoice.set_posting_time = 1
+            amended_invoice.custom_coverage_start_date = original_coverage_start
+            amended_invoice.custom_coverage_end_date = original_coverage_end
+
+            # Insert and submit
+            amended_invoice.insert()
+            amended_invoice.submit()
+
+            inv_result["actions"].append(f"Created amended invoice: {amended_invoice.name}")
+            inv_result["new_invoice"] = amended_invoice.name
+            inv_result["status"] = "repaired"
+            result["repaired"] += 1
+
+            # Verify GL entries were created
+            new_gl_count = frappe.db.count(
+                "GL Entry",
+                {"voucher_type": "Sales Invoice", "voucher_no": amended_invoice.name},
+            )
+            inv_result["actions"].append(f"New invoice has {new_gl_count} GL entries")
+
+        except Exception as e:
+            inv_result["status"] = "error"
+            inv_result["error"] = str(e)
+            result["errors"] += 1
+            frappe.log_error(
+                f"Error repairing invoice {invoice_name}: {e}",
+                "Invoice Repair Error",
+            )
+
+        result["results"].append(inv_result)
+
+    return result

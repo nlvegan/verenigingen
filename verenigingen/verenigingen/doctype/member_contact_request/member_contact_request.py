@@ -18,20 +18,26 @@ class MemberContactRequest(Document):
         if not self.member:
             frappe.throw(_("Member is required"))
 
-        member_doc = frappe.get_doc("Member", self.member)
-        if member_doc.membership_status != "Active":
+        if not frappe.db.exists("Member", self.member):
+            frappe.throw(_("Member {0} does not exist").format(self.member))
+
+        member_status = frappe.db.get_value("Member", self.member, "membership_status")
+        if member_status != "Active":
             frappe.throw(_("Contact requests can only be created for active members"))
 
     def set_member_details(self):
         """Auto-populate member details from linked member record"""
         if self.member and not self.member_name:
-            member_doc = frappe.get_doc("Member", self.member)
-            self.member_name = member_doc.full_name
-            self.email = member_doc.email
-            self.phone = member_doc.contact_number
-            # Note: Member DocType doesn't have organization field - leaving blank
-            if hasattr(member_doc, "organization"):
-                self.organization = member_doc.organization
+            member_data = frappe.db.get_value(
+                "Member",
+                self.member,
+                ["full_name", "email", "contact_number"],
+                as_dict=True,
+            )
+            if member_data:
+                self.member_name = member_data.full_name
+                self.email = member_data.email
+                self.phone = member_data.contact_number
 
     def validate_contact_preferences(self):
         """Validate contact method preferences"""
@@ -282,9 +288,12 @@ def create_contact_request(
     if not frappe.session.user or frappe.session.user == "Guest":
         frappe.throw(_("Authentication required"))
 
+    # Check if member exists
+    if not frappe.db.exists("Member", member):
+        frappe.throw(_("Member {0} does not exist").format(member))
+
     # Check if user has access to this member
-    member_doc = frappe.get_doc("Member", member)
-    if not member_doc.has_permission("read"):
+    if not frappe.has_permission("Member", "read", member):
         frappe.throw(_("You don't have permission to create contact requests for this member"))
 
     # Create contact request
@@ -329,9 +338,12 @@ def create_contact_request(
 def get_member_contact_requests(member, limit=10):
     """Get contact requests for a specific member"""
 
+    # Check if member exists
+    if not frappe.db.exists("Member", member):
+        frappe.throw(_("Member {0} does not exist").format(member))
+
     # Validate member access
-    member_doc = frappe.get_doc("Member", member)
-    if not member_doc.has_permission("read"):
+    if not frappe.has_permission("Member", "read", member):
         frappe.throw(_("You don't have permission to view contact requests for this member"))
 
     contact_requests = frappe.get_all(

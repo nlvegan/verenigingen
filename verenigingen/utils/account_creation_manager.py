@@ -1070,7 +1070,7 @@ class AccountCreationManager:
             return
 
         try:
-            from verenigingen.verenigingen.doctype.member.member import set_member_user_modules
+            from verenigingen.utils.member_account_service import set_member_user_modules
 
             set_member_user_modules(self.created_user)
             frappe.logger().info(f"Module access configured for user {self.created_user}")
@@ -1565,6 +1565,23 @@ def queue_bulk_account_creation_for_members(
             batch_size=batch_size,
             priority=priority,
         )
+
+        # CRITICAL: Link all created ACRs to this tracker
+        # This enables tracking progress and retry functionality
+        if created_requests:
+            placeholders = ", ".join(["%s"] * len(created_requests))
+            frappe.db.sql(
+                f"""
+                UPDATE `tabAccount Creation Request`
+                SET bulk_operation_tracker = %s
+                WHERE name IN ({placeholders})
+                """,
+                [tracker.name] + created_requests,
+            )
+            frappe.db.commit()
+            frappe.logger().info(
+                f"Linked {len(created_requests)} ACRs to tracker {tracker.name}"
+            )
 
         # Split requests into batches
         total_requests = len(created_requests)

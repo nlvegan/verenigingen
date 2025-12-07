@@ -1,43 +1,45 @@
 <!-- Membership Dues Payment Processor Section -->
 <!-- Two-stage processing: Retrieve → Select → Process -->
-<div class="bg-white border border-gray-300 rounded-lg p-4 mb-6">
-    <div class="p-4 border border-gray-300 rounded-lg bg-purple-50">
-        <h3 class="text-lg font-semibold text-purple-800 mb-2">
+<div class="bg-white border border-black rounded-lg p-4 mb-6">
+    <div class="p-4 border border-black rounded-lg bg-white">
+        <h3 class="text-lg font-semibold text-black mb-2">
             <i class="fa fa-credit-card mr-2"></i>{{ _("Membership Dues Payment Processor") }}
         </h3>
-        <p class="text-purple-700 mb-4">
+        <p class="text-gray-900 mb-4">
             {{ _("Two-stage processing: Retrieve all payment transactions for a customer, then select which ones to process as membership dues payments") }}
         </p>
 
         <!-- Stage 1: Retrieve Payments -->
-        <div class="bg-purple-100 p-4 rounded-lg border border-purple-300 mb-4">
-            <h4 class="font-semibold text-purple-800 mb-3">{{ _("Stage 1: Retrieve Customer Payments") }}</h4>
+        <div class="bg-gray-100 p-4 rounded-lg border border-black mb-4">
+            <h4 class="font-semibold text-black mb-3">{{ _("Stage 1: Retrieve Customer Payments") }}</h4>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
-                    <label class="block text-sm font-medium text-purple-900 mb-1">{{ _("Mollie Customer ID") }}</label>
-                    <input type="text" id="dues-customer-id" class="w-full px-3 py-2 border border-purple-300 rounded-md bg-white"
+                    <label class="block text-sm font-medium text-black mb-1">{{ _("Mollie Customer ID") }}</label>
+                    <input type="text" id="dues-customer-id" class="w-full px-3 py-2 border border-black rounded-md bg-white"
                            placeholder="cst_xxxxxxxxxx">
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-purple-900 mb-1">{{ _("Limit (max 250)") }}</label>
-                    <input type="number" id="dues-payment-limit" class="w-full px-3 py-2 border border-purple-300 rounded-md bg-white"
+                    <label class="block text-sm font-medium text-black mb-1">{{ _("Limit (max 250)") }}</label>
+                    <input type="number" id="dues-payment-limit" class="w-full px-3 py-2 border border-black rounded-md bg-white"
                            value="250" min="1" max="250">
                 </div>
             </div>
 
-            <button type="button" onclick="retrieveCustomerPayments()" class="inline-flex items-center px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-md transition-colors duration-200 shadow-sm">
+            <button type="button" onclick="retrieveCustomerPayments()" class="inline-flex items-center px-4 py-2 bg-gray-900 hover:bg-black text-white font-medium rounded-md transition-colors duration-200 shadow-sm">
                 <i class="fa fa-download mr-2"></i>{{ _("Retrieve All Payments") }}
             </button>
         </div>
 
         <!-- Stage 2: Select & Process -->
-        <div id="dues-payments-list" class="bg-white p-4 rounded-lg border border-purple-200" style="display: none;">
-            <h4 class="font-semibold text-purple-700 mb-3">{{ _("Stage 2: Select Payments to Process") }}</h4>
+        <div id="dues-payments-list" class="bg-white p-4 rounded-lg border border-black" style="display: none;">
+            <h4 class="font-semibold text-gray-900 mb-3">{{ _("Stage 2: Select Payments to Process") }}</h4>
 
-            <div class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <div class="text-sm text-blue-700">
+            <div class="mb-4 p-3 bg-white border-2 border-black rounded-lg">
+                <div class="text-sm text-black">
                     <p class="mb-2"><strong>{{ _("Summary:") }}</strong></p>
+                    <p class="mb-1">Customer: <span id="dues-customer-info" class="font-semibold">-</span></p>
+                    <p class="mb-1">Mode: <span id="dues-api-mode" class="font-semibold">-</span></p>
                     <p class="mb-1">Total Retrieved: <span id="dues-total-count" class="font-semibold">0</span></p>
                     <p class="mb-1">Already Processed: <span id="dues-processed-count" class="font-semibold">0</span></p>
                     <p class="mb-1">Available to Process: <span id="dues-unprocessed-count" class="font-semibold">0</span></p>
@@ -57,7 +59,7 @@
             <!-- Payments Table -->
             <div class="overflow-x-auto mb-4">
                 <table class="w-full text-sm">
-                    <thead class="bg-gray-50">
+                    <thead class="bg-gray-100">
                         <tr>
                             <th class="px-2 py-2 text-left">
                                 <input type="checkbox" id="select-all-checkbox" onchange="toggleSelectAll()">
@@ -82,10 +84,10 @@
         </div>
 
         <!-- Processing Results -->
-        <div id="dues-processing-results" class="bg-slate-50 border border-gray-300 rounded p-4 mt-4 font-mono whitespace-pre-wrap max-h-96 overflow-y-auto" style="display: none;"></div>
+        <div id="dues-processing-results" class="bg-white border border-black rounded p-4 mt-4 font-mono whitespace-pre-wrap max-h-96 overflow-y-auto" style="display: none;"></div>
 
-        <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-            <div class="text-sm text-blue-700">
+        <div class="mt-4 p-3 bg-white border border-black rounded-lg">
+            <div class="text-sm text-gray-900">
                 <p class="mb-2"><strong>{{ _("How it works:") }}</strong></p>
                 <p class="mb-1">{{ _("1. Enter customer ID and retrieve all payments") }}</p>
                 <p class="mb-1">{{ _("2. System identifies which payments are membership dues (vs donations)") }}</p>
@@ -140,9 +142,18 @@ async function retrieveCustomerPayments() {
         }
 
         const data = response.message;
+        console.log('Dues Payment Processor Response:', data);
         retrievedPayments = data.payments || [];
 
-        // Update summary
+        // Update summary with customer info
+        const customerInfo = data.customer_name
+            ? `${data.customer_name} (${data.customer_email || 'no email'})`
+            : data.customer_id;
+        document.getElementById('dues-customer-info').textContent = customerInfo;
+        document.getElementById('dues-api-mode').textContent = data.test_mode ? 'TEST' : 'LIVE';
+        document.getElementById('dues-api-mode').className = data.test_mode
+            ? 'font-semibold text-amber-600'
+            : 'font-semibold text-green-600';
         document.getElementById('dues-total-count').textContent = data.total_found;
         document.getElementById('dues-processed-count').textContent = data.processed_count;
         document.getElementById('dues-unprocessed-count').textContent = data.unprocessed_count;
@@ -175,7 +186,7 @@ function renderPaymentsTable(payments) {
 
     payments.forEach((payment, index) => {
         const row = document.createElement('tr');
-        row.className = payment.processable ? 'bg-white hover:bg-gray-50' : 'bg-gray-100';
+        row.className = payment.processable ? 'bg-white hover:bg-gray-100' : 'bg-gray-100';
 
         // Checkbox
         const checkboxCell = document.createElement('td');
@@ -215,7 +226,7 @@ function renderPaymentsTable(payments) {
         typeCell.className = 'px-2 py-2';
         const typeBadge = document.createElement('span');
         typeBadge.className = `px-2 py-1 rounded text-xs font-semibold ${
-            payment.payment_type === 'dues' ? 'bg-purple-100 text-purple-800' :
+            payment.payment_type === 'dues' ? 'bg-gray-100 text-black' :
             payment.payment_type === 'donation' ? 'bg-blue-100 text-blue-800' :
             'bg-gray-100 text-gray-800'
         }`;
@@ -339,7 +350,7 @@ function displayProcessingResults(result) {
     const resultsDiv = document.getElementById('dues-processing-results');
     resultsDiv.style.display = 'block';
 
-    let html = '<div class="p-4 bg-white border border-gray-300 rounded-lg">';
+    let html = '<div class="p-4 bg-white border border-black rounded-lg">';
     html += '<h4 class="font-semibold mb-3">Processing Results</h4>';
     html += `<div class="mb-3">`;
     html += `<p><strong>Total Requested:</strong> ${result.total_requested}</p>`;
@@ -352,7 +363,7 @@ function displayProcessingResults(result) {
         html += '<div class="mt-4"><h5 class="font-semibold mb-2">Details:</h5>';
         html += '<div class="max-h-96 overflow-y-auto">';
         html += '<table class="w-full text-sm">';
-        html += '<thead class="bg-gray-50"><tr>';
+        html += '<thead class="bg-gray-100"><tr>';
         html += '<th class="px-2 py-1 text-left">Payment ID</th>';
         html += '<th class="px-2 py-1 text-left">Status</th>';
         html += '<th class="px-2 py-1 text-left">Member</th>';

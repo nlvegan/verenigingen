@@ -1610,10 +1610,35 @@ class MollieDebugService(StatelessService):
 
             # Get all payments for customer
             client = self.mollie_client.sdk_client
-            customer_obj = client.customers.get(customer_id)
-            payments = customer_obj.payments.list(limit=limit)
 
+            # First verify customer exists and log mode info
+            try:
+                customer_obj = client.customers.get(customer_id)
+                result["customer_name"] = getattr(customer_obj, "name", None)
+                result["customer_email"] = getattr(customer_obj, "email", None)
+                self.logger.info(
+                    f"Retrieved customer {customer_id} in {'test' if result['test_mode'] else 'live'} mode"
+                )
+            except Exception as customer_error:
+                error_msg = str(customer_error)
+                if "No customer exists" in error_msg or "404" in error_msg:
+                    mode = "test" if self.mollie_client.is_test_mode() else "live"
+                    result["error"] = (
+                        f"Customer {customer_id} not found in {mode} mode. "
+                        f"Check if customer exists in the correct Mollie environment."
+                    )
+                else:
+                    result["error"] = self._sanitize_error_message(error_msg)
+                self.logger.error(f"Customer lookup failed for {customer_id}: {error_msg}")
+                return result
+
+            payments_iter = customer_obj.payments.list(limit=limit)
+
+            # Convert to list to avoid iterator issues with len() and multiple iterations
+            payments = list(payments_iter)
             result["total_found"] = len(payments)
+
+            self.logger.info(f"Found {len(payments)} payments for customer {customer_id}")
 
             # Get bank transaction creator for idempotency checks
             from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
@@ -2100,6 +2125,8 @@ class MollieDebugService(StatelessService):
             "total_payments_found": 0,  # Raw count from Mollie API before filtering
             "total_payments_after_filtering": 0,  # After deduplication
             "total_filtered_by_duplicate": 0,
+            "total_filtered_by_date": 0,  # Payments outside date range
+            "total_filtered_by_customer": 0,  # Payments without matching customer_id
         }
 
         try:
@@ -2191,6 +2218,7 @@ class MollieDebugService(StatelessService):
 
                         # Skip if payment doesn't belong to any of our members
                         if not customer_id or customer_id not in customer_id_to_member:
+                            result["total_filtered_by_customer"] += 1
                             continue
 
                         # Parse payment date
@@ -2199,6 +2227,7 @@ class MollieDebugService(StatelessService):
 
                             # Skip if outside date range
                             if payment_date_str < start_date_str:
+                                result["total_filtered_by_date"] += 1
                                 continue
 
                             # Filter by status if specified
