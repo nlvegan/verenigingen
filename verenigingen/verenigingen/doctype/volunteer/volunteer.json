@@ -20,6 +20,11 @@
   "employee_id",
   "status",
   "start_date",
+  "external_ids_section",
+  "vip_user_id",
+  "vip_import_batch",
+  "column_break_external_ids",
+  "google_workspace_id",
   "volunteer_profile_section",
   "interests",
   "column_break_12",
@@ -222,6 +227,38 @@
    "fieldname": "start_date",
    "fieldtype": "Date",
    "label": "Start Date"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "external_ids_section",
+   "fieldtype": "Section Break",
+   "label": "External System IDs"
+  },
+  {
+   "description": "External ID from Volunteer Information Portal for API synchronization",
+   "fieldname": "vip_user_id",
+   "fieldtype": "Data",
+   "label": "VIP User ID",
+   "unique": 1
+  },
+  {
+   "description": "VIP Import batch that created or last updated this volunteer",
+   "fieldname": "vip_import_batch",
+   "fieldtype": "Link",
+   "label": "VIP Import Batch",
+   "options": "VIP Import",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_external_ids",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Google Workspace account reference for API bridging",
+   "fieldname": "google_workspace_id",
+   "fieldtype": "Data",
+   "label": "Google Workspace ID",
+   "unique": 1
   }
  ],
  "image_field": "image",

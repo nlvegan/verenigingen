@@ -229,8 +229,6 @@ class DuesPaymentProcessor:
             )
 
         # Validate payment_date is not in future
-        from frappe.utils import getdate
-
         payment_date = getdate(payment_date)
         if payment_date > date.today():
             raise ValueError(f"Payment date {payment_date} cannot be in the future")
@@ -250,28 +248,35 @@ class DuesPaymentProcessor:
                 frappe.logger().error(f"Member {member_name} has no customer record")
                 return None
 
-            # Check if invoice already exists for this exact coverage period
-            # Use custom coverage fields for precise matching (not just posting_date range)
-            # Only match submitted invoices with outstanding balance (excludes already-paid invoices)
-            existing_invoice = frappe.db.get_value(
-                "Sales Invoice",
-                filters={
-                    "customer": member.customer,
-                    "custom_coverage_start_date": coverage_start,
-                    "custom_coverage_end_date": coverage_end,
-                    "docstatus": 1,  # Only submitted invoices
-                    "outstanding_amount": [">", 0],  # Only unpaid invoices
-                },
-                fieldname=["name", "grand_total", "outstanding_amount"],
-                as_dict=True,
+            # Check for overlapping coverage (not just exact match)
+            # This prevents creating invoices that would overlap with existing coverage
+            from verenigingen.services.billing.coverage_overlap_detector import check_coverage_overlap
+
+            overlap_result = check_coverage_overlap(
+                customer=member.customer,
+                proposed_start=coverage_start,
+                proposed_end=coverage_end,
+                exclude_cancelled=True,
             )
 
-            if existing_invoice:
-                frappe.logger().info(
-                    f"✅ Found existing invoice {existing_invoice.name} for coverage period "
-                    f"{coverage_start} to {coverage_end} (outstanding: {existing_invoice.outstanding_amount})"
-                )
-                return existing_invoice.name
+            if overlap_result.has_overlap:
+                if overlap_result.exact_match:
+                    # Exact match - return the existing invoice
+                    frappe.logger().info(
+                        f"✅ Found existing invoice {overlap_result.exact_match} for coverage period "
+                        f"{coverage_start} to {coverage_end}"
+                    )
+                    return overlap_result.exact_match
+                else:
+                    # Overlapping but not exact - cannot safely create invoice
+                    overlapping_names = [inv["name"] for inv in overlap_result.overlapping_invoices]
+                    frappe.logger().warning(
+                        f"⚠️ Coverage overlap detected for member {member_name}: "
+                        f"proposed {coverage_start} to {coverage_end} overlaps with "
+                        f"existing invoice(s): {', '.join(overlapping_names)}. "
+                        f"Skipping invoice creation - manual review required."
+                    )
+                    return None  # Signal to caller that invoice wasn't created due to overlap
 
             # No existing invoice - need to create one
             # Determine membership type using priority hierarchy with caching
@@ -406,34 +411,47 @@ class DuesPaymentProcessor:
         """
         import time
 
-        # First check if invoice already exists (idempotency)
-        # Check for ANY non-cancelled invoice for this coverage period
-        existing_invoice = frappe.db.get_value(
-            "Sales Invoice",
-            filters={
-                "customer": member_doc.customer,
-                "custom_coverage_start_date": coverage_start,
-                "custom_coverage_end_date": coverage_end,
-                "docstatus": ["<", 2],  # Not cancelled
-            },
-            fieldname=["name", "outstanding_amount"],
-            as_dict=True,
+        from verenigingen.services.billing.coverage_overlap_detector import check_coverage_overlap
+
+        # Check for overlapping coverage (not just exact match) - idempotency with proper overlap detection
+        overlap_result = check_coverage_overlap(
+            customer=member_doc.customer,
+            proposed_start=coverage_start,
+            proposed_end=coverage_end,
+            exclude_cancelled=True,
         )
 
-        if existing_invoice:
-            if existing_invoice.outstanding_amount > 0:
-                frappe.logger().info(
-                    f"⏭️ Sales Invoice already exists for coverage {coverage_start} to {coverage_end}: "
-                    f"{existing_invoice.name} (outstanding: {existing_invoice.outstanding_amount})"
+        if overlap_result.has_overlap:
+            if overlap_result.exact_match:
+                # Exact match found - check if it has outstanding amount
+                exact_invoice = frappe.db.get_value(
+                    "Sales Invoice",
+                    overlap_result.exact_match,
+                    ["name", "outstanding_amount"],
+                    as_dict=True,
                 )
-                return existing_invoice.name
+                if exact_invoice and exact_invoice.outstanding_amount > 0:
+                    frappe.logger().info(
+                        f"⏭️ Sales Invoice already exists for coverage {coverage_start} to {coverage_end}: "
+                        f"{exact_invoice.name} (outstanding: {exact_invoice.outstanding_amount})"
+                    )
+                    return exact_invoice.name
+                else:
+                    # Invoice exists but is already paid - don't create duplicate
+                    frappe.logger().warning(
+                        f"⚠️ Invoice {overlap_result.exact_match} exists for coverage "
+                        f"{coverage_start} to {coverage_end} but is already paid. "
+                        f"Payment Entry will be created unallocated for manual reconciliation."
+                    )
+                    return None
             else:
-                # Invoice exists but is already paid - don't create duplicate, return None
-                # The caller should create an unallocated Payment Entry
+                # Overlapping but not exact - cannot safely create invoice
+                overlapping_names = [inv["name"] for inv in overlap_result.overlapping_invoices]
                 frappe.logger().warning(
-                    f"⚠️ Invoice {existing_invoice.name} exists for coverage {coverage_start} to {coverage_end} "
-                    f"but is already paid (outstanding: {existing_invoice.outstanding_amount}). "
-                    f"Payment Entry will be created unallocated for manual reconciliation."
+                    f"⚠️ Coverage overlap detected for member {member_doc.name}: "
+                    f"proposed {coverage_start} to {coverage_end} overlaps with "
+                    f"existing invoice(s): {', '.join(overlapping_names)}. "
+                    f"Skipping invoice creation - manual review required."
                 )
                 return None
 
@@ -823,9 +841,7 @@ class DuesPaymentProcessor:
         # Idempotency check: ensure Payment Entry doesn't already exist for this payment
         existing_pe = frappe.db.get_value("Payment Entry", {"reference_no": payment_id}, "name")
         if existing_pe:
-            frappe.logger().info(
-                f"⏭️ Payment Entry already exists for payment {payment_id}: {existing_pe}"
-            )
+            frappe.logger().info(f"⏭️ Payment Entry already exists for payment {payment_id}: {existing_pe}")
             return existing_pe
 
         # Ensure fiscal year exists for the payment date (prevents submission failures)

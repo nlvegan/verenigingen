@@ -1,0 +1,329 @@
+{
+  "actions": [],
+  "allow_rename": 1,
+  "autoname": "naming_series:",
+  "creation": "2025-12-07 00:00:00.000000",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "instructions_section",
+    "instructions_html",
+    "file_section",
+    "naming_series",
+    "csv_file",
+    "encoding",
+    "column_break_file",
+    "import_status",
+    "test_mode",
+    "options_section",
+    "skip_delegated_accounts",
+    "create_members_if_missing",
+    "column_break_options",
+    "duplicate_handling",
+    "preview_section",
+    "preview_data",
+    "results_section",
+    "progress_percentage",
+    "rows_processed",
+    "total_rows",
+    "last_processed_at",
+    "column_break_results",
+    "import_summary",
+    "volunteers_created",
+    "volunteers_updated",
+    "volunteers_skipped",
+    "members_not_found",
+    "members_created",
+    "errors_section",
+    "top_errors_summary",
+    "error_log",
+    "notes_section",
+    "notes",
+    "dates_section",
+    "import_date",
+    "column_break_dates",
+    "descriptive_name"
+  ],
+  "fields": [
+    {
+      "fieldname": "instructions_section",
+      "fieldtype": "Section Break",
+      "label": ""
+    },
+    {
+      "fieldname": "instructions_html",
+      "fieldtype": "HTML",
+      "label": "Instructions",
+      "options": "<div class=\"alert alert-info\" style=\"margin-bottom: 15px;\">\n<h6><i class=\"fa fa-info-circle\"></i> VIP Import - Volunteer Information Portal</h6>\n<p>This tool imports volunteer data from VIP (Volunteer Information Portal) CSV exports.</p>\n<p><b>Expected Columns:</b> id, google_account_ref, nvv_relatie_nummer, email, private_email, first_name, last_name, phone_number, mobile_number, date_joined, status, notes, status_notes, is_delegated_account</p>\n<p><b>Matching Logic:</b> Members are matched by nvv_relatie_nummer (member_id), then by private_email, then by organization email.</p>\n<p><b>Status Mapping:</b> available → Active, holiday/break → Inactive, unavailable/quit → Retired</p>\n</div>"
+    },
+    {
+      "fieldname": "file_section",
+      "fieldtype": "Section Break",
+      "label": "File Upload"
+    },
+    {
+      "fieldname": "naming_series",
+      "fieldtype": "Select",
+      "label": "Series",
+      "options": "VIP-IMPORT-.YYYY.-",
+      "reqd": 1
+    },
+    {
+      "description": "Upload your VIP export CSV or Excel file",
+      "fieldname": "csv_file",
+      "fieldtype": "Attach",
+      "label": "CSV/Excel File",
+      "reqd": 1
+    },
+    {
+      "default": "utf-8",
+      "fieldname": "encoding",
+      "fieldtype": "Select",
+      "label": "File Encoding",
+      "options": "utf-8\nutf-8-sig\niso-8859-1\nwindows-1252",
+      "reqd": 1
+    },
+    {
+      "fieldname": "column_break_file",
+      "fieldtype": "Column Break"
+    },
+    {
+      "allow_on_submit": 1,
+      "fieldname": "import_status",
+      "fieldtype": "Select",
+      "label": "Import Status",
+      "options": "\nPending\nValidating\nReady for Import\nQueued\nIn Progress\nCompleted\nFailed",
+      "read_only": 1
+    },
+    {
+      "default": "0",
+      "description": "Import only the first 25 rows to verify import settings are correct before running a full import",
+      "fieldname": "test_mode",
+      "fieldtype": "Check",
+      "label": "Test Mode (First 25 Rows Only)"
+    },
+    {
+      "fieldname": "options_section",
+      "fieldtype": "Section Break",
+      "label": "Import Options"
+    },
+    {
+      "default": "1",
+      "description": "Skip rows where is_delegated_account is true (shared email inboxes)",
+      "fieldname": "skip_delegated_accounts",
+      "fieldtype": "Check",
+      "label": "Skip Delegated Accounts"
+    },
+    {
+      "default": "0",
+      "description": "Create new Member records if no match found. WARNING: Only enable if you want to create Members from VIP data.",
+      "fieldname": "create_members_if_missing",
+      "fieldtype": "Check",
+      "label": "Create Members if Missing"
+    },
+    {
+      "fieldname": "column_break_options",
+      "fieldtype": "Column Break"
+    },
+    {
+      "default": "Skip existing",
+      "description": "How to handle volunteers that already exist (matched by VIP User ID or email)",
+      "fieldname": "duplicate_handling",
+      "fieldtype": "Select",
+      "label": "Duplicate Handling",
+      "options": "Skip existing\nUpdate existing",
+      "reqd": 1
+    },
+    {
+      "collapsible": 1,
+      "fieldname": "preview_section",
+      "fieldtype": "Section Break",
+      "label": "Preview Data"
+    },
+    {
+      "allow_on_submit": 1,
+      "fieldname": "preview_data",
+      "fieldtype": "Code",
+      "label": "Preview Data",
+      "options": "JSON",
+      "read_only": 1
+    },
+    {
+      "fieldname": "results_section",
+      "fieldtype": "Section Break",
+      "label": "Import Progress"
+    },
+    {
+      "allow_on_submit": 1,
+      "fieldname": "progress_percentage",
+      "fieldtype": "Percent",
+      "label": "Progress",
+      "read_only": 1
+    },
+    {
+      "allow_on_submit": 1,
+      "fieldname": "rows_processed",
+      "fieldtype": "Int",
+      "label": "Rows Processed",
+      "read_only": 1
+    },
+    {
+      "allow_on_submit": 1,
+      "fieldname": "total_rows",
+      "fieldtype": "Int",
+      "label": "Total Rows",
+      "read_only": 1
+    },
+    {
+      "allow_on_submit": 1,
+      "fieldname": "last_processed_at",
+      "fieldtype": "Datetime",
+      "label": "Last Processed At",
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_results",
+      "fieldtype": "Column Break"
+    },
+    {
+      "allow_on_submit": 1,
+      "fieldname": "import_summary",
+      "fieldtype": "Small Text",
+      "label": "Import Summary",
+      "read_only": 1
+    },
+    {
+      "allow_on_submit": 1,
+      "default": "0",
+      "fieldname": "volunteers_created",
+      "fieldtype": "Int",
+      "label": "Volunteers Created",
+      "read_only": 1
+    },
+    {
+      "allow_on_submit": 1,
+      "default": "0",
+      "fieldname": "volunteers_updated",
+      "fieldtype": "Int",
+      "label": "Volunteers Updated",
+      "read_only": 1
+    },
+    {
+      "allow_on_submit": 1,
+      "default": "0",
+      "fieldname": "volunteers_skipped",
+      "fieldtype": "Int",
+      "label": "Volunteers Skipped",
+      "read_only": 1
+    },
+    {
+      "allow_on_submit": 1,
+      "default": "0",
+      "fieldname": "members_not_found",
+      "fieldtype": "Int",
+      "label": "Members Not Found",
+      "read_only": 1
+    },
+    {
+      "allow_on_submit": 1,
+      "default": "0",
+      "fieldname": "members_created",
+      "fieldtype": "Int",
+      "label": "Members Created",
+      "read_only": 1
+    },
+    {
+      "collapsible": 1,
+      "fieldname": "errors_section",
+      "fieldtype": "Section Break",
+      "label": "Errors"
+    },
+    {
+      "allow_on_submit": 1,
+      "fieldname": "top_errors_summary",
+      "fieldtype": "Small Text",
+      "label": "Top Errors Summary",
+      "read_only": 1
+    },
+    {
+      "allow_on_submit": 1,
+      "fieldname": "error_log",
+      "fieldtype": "Long Text",
+      "label": "Error Log",
+      "read_only": 1
+    },
+    {
+      "collapsible": 1,
+      "fieldname": "notes_section",
+      "fieldtype": "Section Break",
+      "label": "Notes"
+    },
+    {
+      "fieldname": "notes",
+      "fieldtype": "Text Editor",
+      "label": "Notes"
+    },
+    {
+      "collapsible": 1,
+      "fieldname": "dates_section",
+      "fieldtype": "Section Break",
+      "label": "Dates"
+    },
+    {
+      "fieldname": "import_date",
+      "fieldtype": "Date",
+      "label": "Import Date"
+    },
+    {
+      "fieldname": "column_break_dates",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "descriptive_name",
+      "fieldtype": "Data",
+      "label": "Descriptive Name"
+    }
+  ],
+  "index_web_pages_for_search": 1,
+  "is_submittable": 1,
+  "links": [],
+  "modified": "2025-12-07 00:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Verenigingen",
+  "name": "VIP Import",
+  "naming_rule": "By \"Naming Series\" field",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "submit": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Verenigingen Administrator",
+      "share": 1,
+      "submit": 1,
+      "write": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1
+}

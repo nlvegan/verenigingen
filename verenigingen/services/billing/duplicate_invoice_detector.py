@@ -163,7 +163,10 @@ class DuplicateInvoiceDetector(StatelessService):
         self, customer: str, proposed_start: date, proposed_end: date
     ) -> List[Dict[str, Any]]:
         """
-        Find invoices with overlapping coverage periods using efficient SQL.
+        Find invoices with overlapping coverage periods.
+
+        Delegates to the shared coverage_overlap_detector module for consistent
+        overlap detection across all invoice generation codepaths.
 
         Only checks SUBMITTED invoices (docstatus=1) with explicit coverage dates.
 
@@ -175,28 +178,19 @@ class DuplicateInvoiceDetector(StatelessService):
         Returns:
             List of invoice dictionaries with coverage dates
         """
-        overlapping_invoices = frappe.db.sql(
-            """
-            SELECT si.name, si.posting_date,
-                   si.custom_coverage_start_date, si.custom_coverage_end_date
-            FROM `tabSales Invoice` si
-            WHERE si.customer = %(customer)s
-            AND si.docstatus = 1
-            AND si.custom_coverage_start_date IS NOT NULL
-            AND si.custom_coverage_end_date IS NOT NULL
-            AND %(proposed_start)s <= si.custom_coverage_end_date
-            AND %(proposed_end)s >= si.custom_coverage_start_date
-            LIMIT %(limit)s
-        """,
-            {
-                "customer": customer,
-                "proposed_start": proposed_start,
-                "proposed_end": proposed_end,
-                "limit": MAX_OVERLAPPING_INVOICES,
-            },
-            as_dict=True,
+        from verenigingen.services.billing.coverage_overlap_detector import find_overlapping_invoices
+
+        # Use shared function - filter to submitted invoices only for schedule-based generation
+        all_overlapping = find_overlapping_invoices(
+            customer=customer,
+            proposed_start=proposed_start,
+            proposed_end=proposed_end,
+            exclude_cancelled=True,
+            only_with_outstanding=False,  # Include paid invoices - they still represent coverage
         )
-        return overlapping_invoices
+
+        # Filter to only submitted invoices (docstatus=1) for schedule-based detection
+        return [inv for inv in all_overlapping if inv.get("docstatus") == 1]
 
     def _analyze_overlap(
         self, overlapping_invoices: List[Dict[str, Any]], proposed_start: date, proposed_end: date

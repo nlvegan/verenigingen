@@ -427,18 +427,35 @@ class DocTypeLoader:
         
         return doctypes
     
+    # Directories to exclude from DocType/field scanning (CI artifacts, caches, etc.)
+    EXCLUDED_DIRECTORIES = {
+        'actions-runner', 'node_modules', '.git', '__pycache__', '.tox',
+        'dist', 'build', '.eggs', 'archived_unused', 'archived_deleted'
+    }
+
+    def _should_exclude_path(self, path: Path) -> bool:
+        """Check if a path should be excluded from scanning"""
+        path_parts = path.parts
+        for excluded in self.EXCLUDED_DIRECTORIES:
+            if excluded in path_parts:
+                return True
+        return False
+
     def _load_doctypes_from_app(self, app_path: Path, app_name: str) -> Dict[str, DocTypeMetadata]:
         """Load all DocTypes from a specific app"""
         doctypes = {}
-        
+
         # Find all DocType JSON files
         for json_file in app_path.rglob("**/doctype/*/*.json"):
+            # Skip files in excluded directories (CI artifacts, caches, etc.)
+            if self._should_exclude_path(json_file):
+                continue
             if json_file.name == json_file.parent.name + ".json":
                 try:
                     doctype_meta = self._load_doctype_from_file(json_file, app_name)
                     if doctype_meta:
                         doctypes[doctype_meta.name] = doctype_meta
-                        
+
                 except Exception as e:
                     if self.verbose:
                         logger.warning(f"Error loading {json_file}: {e}")
@@ -539,6 +556,9 @@ class DocTypeLoader:
             custom_field_fixtures = list(app_path.rglob("**/custom_field.json"))
             
             for fixture_file in custom_field_fixtures:
+                # Skip files in excluded directories (CI artifacts, caches, etc.)
+                if self._should_exclude_path(fixture_file):
+                    continue
                 try:
                     fields_added = self._load_custom_fields_from_fixture(fixture_file, doctypes)
                     custom_fields_loaded += fields_added

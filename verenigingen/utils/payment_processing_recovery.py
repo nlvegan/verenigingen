@@ -359,8 +359,6 @@ def complete_partial_payments(
 
                 # If we didn't get date/amount from BT, get from payment
                 if not status["has_bank_transaction"]:
-                    from datetime import datetime
-
                     # Handle both dict and object responses from Mollie
                     if isinstance(payment, dict):
                         payment_date = datetime.strptime(
@@ -381,42 +379,52 @@ def complete_partial_payments(
                 if fiscal_year:
                     payment_result["actions_taken"].append(f"Ensured Fiscal Year: {fiscal_year}")
             except Exception as fy_error:
-                frappe.logger().warning(
-                    f"Could not ensure fiscal year for {payment_date}: {fy_error}"
-                )
+                frappe.logger().warning(f"Could not ensure fiscal year for {payment_date}: {fy_error}")
                 # Continue anyway - will fail later if truly missing
 
             # Create missing documents
             if not status["has_sales_invoice"]:
-                # Check if invoice already exists before creating
+                # Check for overlapping coverage before creating invoice
                 from verenigingen.integrations.mollie.services.dues_payment_processor import (
                     get_quarter_coverage_dates,
                 )
+                from verenigingen.services.billing.coverage_overlap_detector import check_coverage_overlap
 
                 coverage_start, coverage_end = get_quarter_coverage_dates(payment_date)
 
                 member = frappe.get_doc("Member", status["member"])
                 if member.customer:
-                    existing_check = frappe.db.get_value(
-                        "Sales Invoice",
-                        filters={
-                            "customer": member.customer,
-                            "custom_coverage_start_date": coverage_start,
-                            "custom_coverage_end_date": coverage_end,
-                            "docstatus": ["<", 2],
-                        },
-                        fieldname="name",
+                    # Use proper overlap detection (not just exact match)
+                    overlap_result = check_coverage_overlap(
+                        customer=member.customer,
+                        proposed_start=coverage_start,
+                        proposed_end=coverage_end,
+                        exclude_cancelled=True,
                     )
 
-                    if existing_check:
-                        # Invoice exists but wasn't detected - will link it
-                        payment_result["actions_taken"].append(
-                            f"Found existing Sales Invoice: {existing_check}"
-                        )
-                        status["sales_invoice"] = existing_check
-                        status["has_sales_invoice"] = True
+                    if overlap_result.has_overlap:
+                        if overlap_result.exact_match:
+                            # Exact match found - can link to it
+                            payment_result["actions_taken"].append(
+                                f"Found existing Sales Invoice: {overlap_result.exact_match}"
+                            )
+                            status["sales_invoice"] = overlap_result.exact_match
+                            status["has_sales_invoice"] = True
+                        else:
+                            # Overlapping but not exact match - flag for manual review
+                            overlapping_names = [inv["name"] for inv in overlap_result.overlapping_invoices]
+                            payment_result["status"] = "needs_review"
+                            payment_result["error"] = (
+                                f"Coverage overlap detected: proposed {coverage_start} to {coverage_end} "
+                                f"overlaps with existing invoice(s): {', '.join(overlapping_names)}. "
+                                f"Manual review required."
+                            )
+                            payment_result["overlapping_invoices"] = overlapping_names
+                            result["errors"] += 1
+                            result["results"].append(payment_result)
+                            continue  # Skip this payment - needs manual intervention
                     else:
-                        # Actually create new invoice
+                        # No overlap - safe to create new invoice
                         sinv = dues_processor._get_or_create_historical_invoice(
                             status["member"], payment_date, payment_amount
                         )
@@ -691,6 +699,7 @@ def repair_invoices_missing_gl_entries(
 
     if isinstance(invoice_names, str):
         import json
+
         invoice_names = json.loads(invoice_names)
 
     result = {

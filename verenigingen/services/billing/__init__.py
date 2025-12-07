@@ -5,6 +5,13 @@
 Billing services for membership dues processing.
 """
 
+from verenigingen.services.billing.coverage_overlap_detector import (
+    OverlapCheckResult,
+    check_coverage_overlap,
+    find_exact_coverage_invoice,
+    find_overlapping_invoices,
+    get_member_coverage_gaps,
+)
 from verenigingen.services.billing.dues_schedule_validation_service import (
     DuesScheduleValidationService,
     get_dues_schedule_validation_service,
@@ -27,8 +34,16 @@ from verenigingen.services.billing.template_creation_service import (
 )
 
 __all__ = [
+    # Coverage overlap detection (standalone functions)
+    "OverlapCheckResult",
+    "check_coverage_overlap",
+    "find_overlapping_invoices",
+    "find_exact_coverage_invoice",
+    "get_member_coverage_gaps",
+    # Duplicate invoice detection (schedule-based)
     "DuplicateInvoiceDetector",
     "DuplicateInvoiceDetectionResult",
+    # Other services
     "DuesScheduleValidationService",
     "get_dues_schedule_validation_service",
     "InvoiceErrorHandlerService",

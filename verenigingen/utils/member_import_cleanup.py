@@ -582,9 +582,9 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
         )
 
         if dry_run:
-            results["summary"] = (
-                f"DRY RUN: Would delete {results['total_records_affected']} total records across all related DocTypes"
-            )
+            results[
+                "summary"
+            ] = f"DRY RUN: Would delete {results['total_records_affected']} total records across all related DocTypes"
             return results
 
         # Step 3: ACTUAL DELETION (in dependency order) - WITH TRANSACTION SAFETY
@@ -605,7 +605,7 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
             # Delete ALL Dynamic Links pointing to these members (from any doctype)
             if member_names:
                 placeholders = ", ".join(["%s"] * len(member_names))
-                deleted_links = frappe.db.sql(
+                frappe.db.sql(
                     f"""
                     DELETE FROM `tabDynamic Link`
                     WHERE link_doctype = 'Member'
@@ -613,7 +613,7 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
                     """,
                     member_names,
                 )
-                frappe.logger().info(f"Deleted Dynamic Links to Members")
+                frappe.logger().info("Deleted Dynamic Links to Members")
 
             # Also clean up Dynamic Links pointing to the Customers we're about to delete
             if customers_with_member_links:
@@ -627,7 +627,7 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
                     """,
                     customer_names,
                 )
-                frappe.logger().info(f"Deleted Dynamic Links to Customers")
+                frappe.logger().info("Deleted Dynamic Links to Customers")
 
             # Clean up Dynamic Links pointing to Volunteers we're about to delete
             if volunteers:
@@ -641,7 +641,7 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
                     """,
                     volunteer_names,
                 )
-                frappe.logger().info(f"Deleted Dynamic Links to Volunteers")
+                frappe.logger().info("Deleted Dynamic Links to Volunteers")
 
             # Clear chapter_head references to members we're deleting
             if chapters_with_head:
@@ -754,12 +754,24 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
                 volunteer_names = [v.name for v in volunteers]
                 placeholders = ", ".join(["%s"] * len(volunteer_names))
                 # Delete volunteer child tables
-                frappe.db.sql(f"DELETE FROM `tabVolunteer Assignment` WHERE parent IN ({placeholders})", volunteer_names)
-                frappe.db.sql(f"DELETE FROM `tabVolunteer Skill` WHERE parent IN ({placeholders})", volunteer_names)
-                frappe.db.sql(f"DELETE FROM `tabVolunteer Interest Area` WHERE parent IN ({placeholders})", volunteer_names)
-                frappe.db.sql(f"DELETE FROM `tabVolunteer Development Goal` WHERE parent IN ({placeholders})", volunteer_names)
+                frappe.db.sql(
+                    f"DELETE FROM `tabVolunteer Assignment` WHERE parent IN ({placeholders})", volunteer_names
+                )
+                frappe.db.sql(
+                    f"DELETE FROM `tabVolunteer Skill` WHERE parent IN ({placeholders})", volunteer_names
+                )
+                frappe.db.sql(
+                    f"DELETE FROM `tabVolunteer Interest Area` WHERE parent IN ({placeholders})",
+                    volunteer_names,
+                )
+                frappe.db.sql(
+                    f"DELETE FROM `tabVolunteer Development Goal` WHERE parent IN ({placeholders})",
+                    volunteer_names,
+                )
                 # Clear volunteer.member field to break the link
-                frappe.db.sql(f"UPDATE `tabVolunteer` SET member = NULL WHERE name IN ({placeholders})", volunteer_names)
+                frappe.db.sql(
+                    f"UPDATE `tabVolunteer` SET member = NULL WHERE name IN ({placeholders})", volunteer_names
+                )
                 # Delete the volunteers
                 frappe.db.sql(f"DELETE FROM `tabVolunteer` WHERE name IN ({placeholders})", volunteer_names)
                 results["volunteers"]["deleted"] = len(volunteer_names)
@@ -782,9 +794,6 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
                             f"UPDATE `tab{doctype}` SET docstatus = 2 WHERE docstatus = 1 AND name IN ({placeholders})",
                             record_names,
                         )
-                    # Delete child tables if any
-                    if doctype == "Membership":
-                        frappe.db.sql(f"DELETE FROM `tabMembership Payment` WHERE parent IN ({placeholders})", record_names)
                     # Delete the records
                     frappe.db.sql(f"DELETE FROM `tab{doctype}` WHERE name IN ({placeholders})", record_names)
                     results[result_key]["deleted"] = len(record_names)
@@ -861,15 +870,25 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
                 )
 
             # Delete User accounts (filter out system users)
-            users_to_delete = [u.name for u in users_with_member_links if u.name not in ["Administrator", "Guest"]]
+            users_to_delete = [
+                u.name for u in users_with_member_links if u.name not in ["Administrator", "Guest"]
+            ]
             if users_to_delete:
                 # Delete user-related child tables first
                 placeholders = ", ".join(["%s"] * len(users_to_delete))
                 frappe.db.sql(f"DELETE FROM `tabHas Role` WHERE parent IN ({placeholders})", users_to_delete)
-                frappe.db.sql(f"DELETE FROM `tabUser Email` WHERE parent IN ({placeholders})", users_to_delete)
-                frappe.db.sql(f"DELETE FROM `tabUser Social Login` WHERE parent IN ({placeholders})", users_to_delete)
-                frappe.db.sql(f"DELETE FROM `tabBlock Module` WHERE parent IN ({placeholders})", users_to_delete)
-                frappe.db.sql(f"DELETE FROM `tabDefaultValue` WHERE parent IN ({placeholders})", users_to_delete)
+                frappe.db.sql(
+                    f"DELETE FROM `tabUser Email` WHERE parent IN ({placeholders})", users_to_delete
+                )
+                frappe.db.sql(
+                    f"DELETE FROM `tabUser Social Login` WHERE parent IN ({placeholders})", users_to_delete
+                )
+                frappe.db.sql(
+                    f"DELETE FROM `tabBlock Module` WHERE parent IN ({placeholders})", users_to_delete
+                )
+                frappe.db.sql(
+                    f"DELETE FROM `tabDefaultValue` WHERE parent IN ({placeholders})", users_to_delete
+                )
                 # Delete users
                 frappe.db.sql(f"DELETE FROM `tabUser` WHERE name IN ({placeholders})", users_to_delete)
                 results["users"]["deleted"] = len(users_to_delete)
@@ -1026,7 +1045,7 @@ def force_cleanup_orphaned_schedules_and_invoices(dry_run=True):
             ]
             if orphaned_invoices:
                 sample = orphaned_invoices[:5]
-                summary_lines.append(f"\nSample invoices to delete:")
+                summary_lines.append("\nSample invoices to delete:")
                 for inv in sample:
                     summary_lines.append(
                         f"  - {inv.name}: customer={inv.customer}, member={inv.member}, status={inv.docstatus}"
@@ -1111,9 +1130,9 @@ def force_cleanup_orphaned_schedules_and_invoices(dry_run=True):
                     results["orphaned_schedules"]["errors"].append(f"{schedule.name}: {str(e)}")
 
             frappe.db.commit()
-            results["summary"] = (
-                f"Successfully deleted {results['orphaned_schedules']['deleted']} schedules and {results['orphaned_invoices']['deleted']} invoices (with {results['gl_entries_deleted']} GL entries, {results['payment_ledger_deleted']} payment ledger entries, {results['payment_references_deleted']} payment references)"
-            )
+            results[
+                "summary"
+            ] = f"Successfully deleted {results['orphaned_schedules']['deleted']} schedules and {results['orphaned_invoices']['deleted']} invoices (with {results['gl_entries_deleted']} GL entries, {results['payment_ledger_deleted']} payment ledger entries, {results['payment_references_deleted']} payment references)"
 
         except Exception as e:
             frappe.db.rollback()
@@ -1189,13 +1208,13 @@ def cleanup_orphaned_chapter_members(dry_run=True):
                 results["errors"].append(f"{chapter.name}: {str(e)}")
 
         if dry_run:
-            results["summary"] = (
-                f"DRY RUN: Found {results['orphaned_found']} orphaned members across {len(results['chapters_affected'])} chapters"
-            )
+            results[
+                "summary"
+            ] = f"DRY RUN: Found {results['orphaned_found']} orphaned members across {len(results['chapters_affected'])} chapters"
         else:
-            results["summary"] = (
-                f"Removed {results['orphaned_removed']} orphaned members from {len(results['chapters_affected'])} chapters"
-            )
+            results[
+                "summary"
+            ] = f"Removed {results['orphaned_removed']} orphaned members from {len(results['chapters_affected'])} chapters"
             frappe.db.commit()
 
     except Exception as e:
@@ -1301,9 +1320,9 @@ def cleanup_orphaned_addresses_and_contacts(dry_run=True):
         results["contacts"]["count"] = len(orphaned_contacts)
 
         if dry_run:
-            results["summary"] = (
-                f"DRY RUN: Would delete {len(orphaned_addresses)} addresses and {len(orphaned_contacts)} contacts"
-            )
+            results[
+                "summary"
+            ] = f"DRY RUN: Would delete {len(orphaned_addresses)} addresses and {len(orphaned_contacts)} contacts"
             return results
 
         # Delete orphaned records
@@ -1325,9 +1344,9 @@ def cleanup_orphaned_addresses_and_contacts(dry_run=True):
                     results["contacts"]["errors"].append(f"{contact}: {str(e)}")
 
             frappe.db.commit()
-            results["summary"] = (
-                f"Deleted {results['addresses']['deleted']} addresses and {results['contacts']['deleted']} contacts"
-            )
+            results[
+                "summary"
+            ] = f"Deleted {results['addresses']['deleted']} addresses and {results['contacts']['deleted']} contacts"
 
         except Exception as e:
             frappe.db.rollback()

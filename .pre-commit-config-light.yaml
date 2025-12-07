@@ -69,7 +69,7 @@ repos:
 
       - id: ast-field-analyzer
         name: AST Field Analyzer
-        entry: python scripts/validation/ast_field_analyzer.py
+        entry: python scripts/validation/framework/ast_field_analyzer.py
         language: system
         files: '\.py$'
         stages: [pre-push]
