@@ -742,15 +742,30 @@ def get_top_insights(year):
             }
         )
 
-    # Identify at-risk members (simplified version)
-    # Note: last_activity field was removed - using last_duration_update as alternative
-    at_risk_count = frappe.db.count(
-        "Member", filters={"status": "Active", "last_duration_update": ["<", getdate() - timedelta(days=90)]}
+    # Identify at-risk members based on payment activity
+    # Members whose last payment was >90 days ago may be at risk of churning
+    cutoff_date = getdate() - timedelta(days=90)
+    at_risk_result = frappe.db.sql(
+        """
+        SELECT COUNT(*) FROM (
+            SELECT m.name
+            FROM `tabMember` m
+            INNER JOIN `tabMember Payment History` mph ON mph.parent = m.name
+            WHERE m.status = 'Active'
+            GROUP BY m.name
+            HAVING MAX(mph.payment_date) < %s
+        ) as at_risk
+    """,
+        (cutoff_date,),
     )
+    at_risk_count = at_risk_result[0][0] if at_risk_result else 0
 
     if at_risk_count > 0:
         insights.append(
-            {"type": "warning", "message": f"{at_risk_count} members at risk of churning (inactive >90 days)"}
+            {
+                "type": "warning",
+                "message": f"{at_risk_count} members at risk of churning (no payment in >90 days)",
+            }
         )
 
     return insights
