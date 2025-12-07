@@ -61,6 +61,59 @@ class MemberCleanupService(StatelessService):
         """Initialize the member cleanup service."""
         super().__init__(service_name="MemberCleanupService")
 
+    def _log_permission_bypass_audit(
+        self,
+        operation: str,
+        doctype: str,
+        docname: str,
+        member_name: str,
+        justification: str,
+    ) -> None:
+        """
+        Log audit trail for permission bypass operations.
+
+        GDPR Compliance: All permission bypasses during member deletion must be logged
+        for audit trail and regulatory compliance purposes.
+
+        Args:
+            operation: Type of operation (e.g., "unlink_customer", "unlink_address")
+            doctype: DocType being modified
+            docname: Document name being modified
+            member_name: Member being deleted (for correlation)
+            justification: Business justification for the bypass
+        """
+        audit_entry = {
+            "timestamp": frappe.utils.now(),
+            "user": frappe.session.user,
+            "operation": operation,
+            "doctype": doctype,
+            "docname": docname,
+            "member": member_name,
+            "justification": justification,
+            "session_id": getattr(frappe.local, "session", {}).get("sid", "system"),
+        }
+
+        # Log to application logs for audit trail
+        self.logger.info(
+            f"PERMISSION_BYPASS_AUDIT: {operation} on {doctype}:{docname} "
+            f"for member {member_name} by {frappe.session.user} - {justification}"
+        )
+
+        # Also log to frappe error log for persistent audit trail
+        frappe.log_error(
+            title="Member Deletion Audit Trail",
+            message=(
+                f"Permission bypass during member deletion\n\n"
+                f"Operation: {operation}\n"
+                f"DocType: {doctype}\n"
+                f"Document: {docname}\n"
+                f"Member: {member_name}\n"
+                f"User: {frappe.session.user}\n"
+                f"Justification: {justification}\n"
+                f"Timestamp: {audit_entry['timestamp']}"
+            ),
+        )
+
     # SECURITY: Whitelist of valid child tables to prevent SQL injection
     VALID_CHILD_TABLES: Set[str] = {
         "tabMember Volunteer Expenses",
@@ -237,7 +290,14 @@ class MemberCleanupService(StatelessService):
         # Clear custom_member field if it points to this member
         if hasattr(customer, "custom_member") and customer.custom_member == member_doc.name:
             customer.custom_member = None
-            # Permission bypass justified: System operation during member deletion
+            # GDPR Audit: Log permission bypass before execution
+            self._log_permission_bypass_audit(
+                operation="clear_custom_member",
+                doctype="Customer",
+                docname=member_doc.customer,
+                member_name=member_doc.name,
+                justification="System operation during member deletion - clearing custom_member link",
+            )
             customer.save(ignore_permissions=True)
             return
 
@@ -254,8 +314,14 @@ class MemberCleanupService(StatelessService):
             customer.remove(link)
 
         if links_to_remove:
-            # Permission bypass justified: System operation during member deletion
-            # Customer must be updated to remove broken links
+            # GDPR Audit: Log permission bypass before execution
+            self._log_permission_bypass_audit(
+                operation="remove_customer_dynamic_links",
+                doctype="Customer",
+                docname=member_doc.customer,
+                member_name=member_doc.name,
+                justification="System operation during member deletion - removing Dynamic Link entries",
+            )
             customer.save(ignore_permissions=True)
 
     def _unlink_member_from_address(self, member_doc: "Document", address_name: str) -> None:
@@ -293,8 +359,14 @@ class MemberCleanupService(StatelessService):
             address.remove(link)
 
         if links_to_remove:
-            # Permission bypass justified: System operation during member deletion
-            # Address must be updated to remove broken links
+            # GDPR Audit: Log permission bypass before execution
+            self._log_permission_bypass_audit(
+                operation="remove_address_links",
+                doctype="Address",
+                docname=address_name,
+                member_name=member_doc.name,
+                justification="System operation during member deletion - removing Address link entries",
+            )
             address.save(ignore_permissions=True)
 
 
