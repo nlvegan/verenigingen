@@ -262,12 +262,12 @@ def validate_all_pending_invoices():
                 mem.name as member,
                 mem.full_name as member_name,
                 mem.status as member_status,
-                m.status as membership_status,
+                mds.status as membership_status,
                 mem.payment_method
             FROM
                 `tabSales Invoice` si
-            JOIN `tabMembership` m ON si.membership = m.name
-            JOIN `tabMember` mem ON m.member = mem.name
+            JOIN `tabMember` mem ON si.member = mem.name
+            LEFT JOIN `tabMembership Dues Schedule` mds ON si.membership_dues_schedule_display = mds.name
             WHERE
                 si.docstatus = 1
                 AND si.status IN ('Unpaid', 'Overdue')

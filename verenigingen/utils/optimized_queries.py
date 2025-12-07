@@ -340,7 +340,7 @@ class OptimizedMemberQueries:
                 si.grand_total,
                 si.outstanding_amount,
                 si.status as invoice_status,
-                si.membership as membership_id,
+                si.membership_dues_schedule_display as membership_id,
                 pe.name as payment_name,
                 pe.posting_date as payment_date,
                 pe.paid_amount,

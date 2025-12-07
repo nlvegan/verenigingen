@@ -414,11 +414,11 @@ class PaymentReconciliationManager:
                     si.name as invoice,
                     si.customer
                 FROM `tabMember` m
-                JOIN `tabMembership` ms ON ms.member = m.name
-                JOIN `tabSales Invoice` si ON si.membership = ms.name
+                JOIN `tabSales Invoice` si ON si.member = m.name
                 WHERE
                     si.outstanding_amount = %(amount)s
                     AND si.status IN ('Unpaid', 'Overdue')
+                    AND si.docstatus = 1
                 ORDER BY si.due_date DESC
                 LIMIT 50
             """,
@@ -458,11 +458,11 @@ class PaymentReconciliationManager:
                 """
                 SELECT si.name
                 FROM `tabSales Invoice` si
-                JOIN `tabMembership` ms ON si.membership = ms.name
                 WHERE
-                    ms.member = %(member_id)s
+                    si.member = %(member_id)s
                     AND si.outstanding_amount = %(amount)s
                     AND si.status IN ('Unpaid', 'Overdue')
+                    AND si.docstatus = 1
                 ORDER BY si.due_date DESC
                 LIMIT 5
             """,

@@ -153,7 +153,7 @@ class BatchPerformanceOptimizer:
                 m.status as membership_status
             FROM `tabSales Invoice` si
             LEFT JOIN `tabCustomer` c ON si.customer = c.name
-            LEFT JOIN `tabMembership` m ON si.membership = m.name
+            LEFT JOIN `tabMembership Dues Schedule` m ON si.membership_dues_schedule_display = m.name
             WHERE si.name IN %(invoice_names)s
             AND si.docstatus = 1
             AND si.status IN ('Unpaid', 'Overdue')
