@@ -471,12 +471,12 @@ class MemberMergeService(StatelessService):
 
 
 @frappe.whitelist()
-def get_merge_preview(source_name: str, target_name: str) -> OperationResult[Dict[str, Any]]:
+def get_merge_preview(source_name: str, target_name: str) -> Dict[str, Any]:
     """
     API endpoint to get merge preview.
 
     Returns:
-        OperationResult[Dict]: Preview data with field comparisons and warnings
+        Dict: Preview data with field comparisons and warnings (OperationResult.to_dict() format)
 
     Security:
         - Requires write permission on both members
@@ -487,16 +487,16 @@ def get_merge_preview(source_name: str, target_name: str) -> OperationResult[Dic
         preview_data = service.get_merge_preview(source_name, target_name)
         return OperationResult.ok(
             preview_data, message=f"Generated merge preview for {source_name} → {target_name}"
-        )
+        ).to_dict()
     except frappe.PermissionError as e:
         return OperationResult.fail(
             _("Insufficient permissions to merge members"),
             errors=[str(e)],
             source=source_name,
             target=target_name,
-        )
+        ).to_dict()
     except frappe.ValidationError as e:
-        return OperationResult.fail(str(e), errors=[str(e)], source=source_name, target=target_name)
+        return OperationResult.fail(str(e), errors=[str(e)], source=source_name, target=target_name).to_dict()
     except Exception as e:
         service.logger.error(f"Unexpected error in merge preview for {source_name} → {target_name}: {str(e)}")
         return OperationResult.fail(
@@ -504,7 +504,7 @@ def get_merge_preview(source_name: str, target_name: str) -> OperationResult[Dic
             errors=[str(e)],
             source=source_name,
             target=target_name,
-        )
+        ).to_dict()
 
 
 @frappe.whitelist()
@@ -512,7 +512,7 @@ def execute_merge(
     source_name: str,
     target_name: str,
     field_selections: str | Dict[str, str],
-) -> OperationResult[Dict[str, Any]]:
+) -> Dict[str, Any]:
     """
     API endpoint to execute member merge.
 
@@ -520,7 +520,7 @@ def execute_merge(
         field_selections: JSON string or dict mapping fieldname -> "source"|"target"
 
     Returns:
-        OperationResult[Dict]: Merge result with merged member name and statistics
+        Dict: Merge result with merged member name and statistics (OperationResult.to_dict() format)
 
     Security:
         - Requires write permission on both members
@@ -536,25 +536,25 @@ def execute_merge(
 
         return OperationResult.ok(
             merge_result, message=f"Successfully merged {source_name} into {merge_result['merged_member']}"
-        )
+        ).to_dict()
 
     except json.JSONDecodeError as e:
         return OperationResult.fail(
             _("Invalid field selections format"), errors=[str(e)], source=source_name, target=target_name
-        )
+        ).to_dict()
     except frappe.DoesNotExistError as e:
         return OperationResult.fail(
             _("Member not found"), errors=[str(e)], source=source_name, target=target_name
-        )
+        ).to_dict()
     except frappe.PermissionError as e:
         return OperationResult.fail(
             _("Insufficient permissions to merge members"),
             errors=[str(e)],
             source=source_name,
             target=target_name,
-        )
+        ).to_dict()
     except frappe.ValidationError as e:
-        return OperationResult.fail(str(e), errors=[str(e)], source=source_name, target=target_name)
+        return OperationResult.fail(str(e), errors=[str(e)], source=source_name, target=target_name).to_dict()
     except AttributeError as e:
         # Handle pre-existing bugs in service methods
         service.logger.error(f"AttributeError in member merge {source_name} → {target_name}: {str(e)}")
@@ -563,7 +563,7 @@ def execute_merge(
             errors=[str(e)],
             source=source_name,
             target=target_name,
-        )
+        ).to_dict()
     except Exception as e:
         service.logger.error(f"Unexpected error in member merge {source_name} → {target_name}: {str(e)}")
         return OperationResult.fail(
@@ -571,4 +571,4 @@ def execute_merge(
             errors=[str(e)],
             source=source_name,
             target=target_name,
-        )
+        ).to_dict()

@@ -677,7 +677,7 @@ function show_merge_dialog(source_name, target_name, listview) {
 			} else if (r.message && !r.message.success) {
 				frappe.msgprint({
 					title: __('Error'),
-					message: r.message.error_message || __('Failed to load merge preview'),
+					message: r.message.error || __('Failed to load merge preview'),
 					indicator: 'red'
 				});
 			}
@@ -714,10 +714,9 @@ function render_merge_dialog(preview, listview) {
 		const format_value = (value, fieldname) => {
 			if (!value) return '<em>(empty)</em>';
 
-			// Add age display for birth_date
+			// Format date fields for readability
 			if (fieldname === 'birth_date' && value) {
-				const age = frappe.datetime.get_age(value);
-				return `${frappe.datetime.str_to_user(value)} <span style="color: #6c757d; font-size: 0.9em;">(age ${age})</span>`;
+				return frappe.datetime.str_to_user(value);
 			}
 
 			return value;
@@ -847,7 +846,7 @@ function execute_merge(source_name, target_name, field_selections, listview) {
 			} else if (r.message && !r.message.success) {
 				frappe.msgprint({
 					title: __('Merge Failed'),
-					message: r.message.error_message || __('Failed to merge members'),
+					message: r.message.error || __('Failed to merge members'),
 					indicator: 'red'
 				});
 			}
