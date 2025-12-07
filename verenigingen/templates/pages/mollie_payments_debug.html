@@ -205,7 +205,7 @@
     padding: 0.75rem 1.25rem;
     border: 2px solid #000;
     cursor: pointer;
-    background: var(--brand-background);
+    background: var(--brand-background, #ffffff);
     color: #000;
     display: inline-flex;
     align-items: center;
@@ -223,31 +223,31 @@
 }
 
 .btn-brutal--primary {
-    background: var(--brand-primary);
-    color: var(--brand-primary-contrast);
+    background: var(--brand-primary, #cf3131);
+    color: var(--brand-primary-contrast, #ffffff);
 }
 
 .btn-brutal--primary:hover {
-    background: var(--brand-primary-600);
+    background: var(--brand-primary-600, #a82828);
 }
 
 .btn-brutal--secondary {
-    background: var(--brand-secondary);
-    color: var(--brand-secondary-contrast);
+    background: var(--brand-secondary, #01796f);
+    color: var(--brand-secondary-contrast, #ffffff);
 }
 
 .btn-brutal--success {
-    background: var(--brand-success);
+    background: var(--brand-success, #28a745);
     color: #fff;
 }
 
 .btn-brutal--warning {
-    background: var(--brand-warning);
+    background: var(--brand-warning, #ffc107);
     color: #000;
 }
 
 .btn-brutal--danger {
-    background: var(--brand-error);
+    background: var(--brand-error, #dc3545);
     color: #fff;
 }
 
@@ -263,7 +263,7 @@
 }
 
 .btn-brutal--info {
-    background: var(--brand-info);
+    background: var(--brand-info, #17a2b8);
     color: #fff;
 }
 
@@ -327,7 +327,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    border: 1px solid currentColor;
+    border: 2px solid currentColor;
 }
 
 .status-active, .status-paid, .status-valid {
@@ -430,6 +430,84 @@
 .w-32 { width: 8rem; }
 .grid { display: grid; }
 .grid-cols-1 { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+
+/* ==========================================================================
+   BRUTALIST COLOR OVERRIDES - Consistent high-contrast styling
+   ========================================================================== */
+
+/* Text colors - no greys, only black/white */
+.brutal-text { color: #000; }
+.brutal-text-light { color: #fff; }
+.brutal-text-muted { color: #555; } /* For help text - darker than grey for readability */
+
+/* Labels - always black on light, white on dark */
+.brutal-label {
+    display: block;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: #000;
+    margin-bottom: 0.25rem;
+}
+
+.brutal-section-dark .brutal-label,
+.brutal-section-dark label {
+    color: #fff;
+}
+
+/* Descriptions */
+.brutal-desc {
+    color: #000;
+    margin-bottom: 1rem;
+}
+
+/* Help text - visible but subtle */
+.brutal-help {
+    font-size: 0.75rem;
+    color: #555;
+    margin-top: 0.25rem;
+}
+
+.brutal-section-dark .brutal-help {
+    color: #aaa;
+}
+
+/* Dark sections (config boxes, headers) */
+.brutal-section-dark {
+    background-color: #000;
+    color: #fff;
+    padding: 1rem;
+    border: 2px solid #000;
+}
+
+.brutal-section-dark h4,
+.brutal-section-dark h3 {
+    color: #fff;
+}
+
+/* Table styling */
+.brutal-table-header {
+    background-color: #000;
+    color: #fff;
+}
+
+.brutal-table-header th {
+    color: #fff;
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+}
+
+/* Override Tailwind greys with black */
+.text-gray-600, .text-gray-700, .text-gray-800, .text-gray-900 {
+    color: #000 !important;
+}
+
+/* Ensure white backgrounds have black text */
+.bg-white {
+    background-color: #fff;
+    color: #000;
+}
 </style>
 {% endblock %}
 
@@ -944,7 +1022,7 @@
                         </div>
                     </div>
 
-                    <button onclick="createTestPayment()" class="debug-button bg-green-600 hover:bg-green-700">
+                    <button onclick="createTestPayment()" class="btn-brutal btn-brutal--success">
                         <i class="fa fa-plus-circle mr-1"></i>{{ _("Create Test Payment") }}
                     </button>
 
@@ -1136,24 +1214,24 @@
                     </p>
 
                     <!-- Configuration Section -->
-                    <div class="bg-gray-900 p-4 rounded-lg border-2 border-black mb-4">
-                        <h4 class="font-semibold text-white mb-3">{{ _("Configuration") }}</h4>
+                    <div class="brutal-section-dark rounded-lg mb-4">
+                        <h4 class="font-semibold mb-3">{{ _("Configuration") }}</h4>
 
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                             <div>
-                                <label class="block text-sm font-medium text-white mb-1">{{ _("Days Back") }}</label>
+                                <label class="block text-sm font-medium mb-1">{{ _("Days Back") }}</label>
                                 <input type="number" id="bulk-days-back" class="w-full px-3 py-2 border-2 border-black rounded-md bg-white"
                                        value="30" min="1" max="{{ mollie_settings.payment_retrieval_days_back_limit or 1825 }}">
-                                <p class="text-xs text-gray-300 mt-1">{{ _("Max: {0} days (configurable in Mollie Settings)").format(mollie_settings.payment_retrieval_days_back_limit or 1825) }}</p>
+                                <p class="brutal-help">{{ _("Max: {0} days (configurable in Mollie Settings)").format(mollie_settings.payment_retrieval_days_back_limit or 1825) }}</p>
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-white mb-1">{{ _("Max Payments") }}</label>
+                                <label class="block text-sm font-medium mb-1">{{ _("Max Payments") }}</label>
                                 <input type="number" id="bulk-max-payments" class="w-full px-3 py-2 border-2 border-black rounded-md bg-white"
                                        value="5000" min="250" max="10000" step="250">
-                                <p class="text-xs text-gray-300 mt-1">{{ _("~20 API calls for 5000 payments") }}</p>
+                                <p class="brutal-help">{{ _("~20 API calls for 5000 payments") }}</p>
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-white mb-1">{{ _("Payment Status") }}</label>
+                                <label class="block text-sm font-medium mb-1">{{ _("Payment Status") }}</label>
                                 <select id="bulk-payment-status" class="w-full px-3 py-2 border-2 border-black rounded-md bg-white">
                                     <option value="all">All</option>
                                     <option value="paid" selected>Paid Only</option>
@@ -1203,13 +1281,13 @@
 
                         <!-- Quick Selection Buttons -->
                         <div class="mb-4 flex gap-2">
-                            <button type="button" onclick="bulkSelectAllUnprocessed()" class="inline-flex items-center px-3 py-1.5 bg-gray-900 hover:bg-black text-white text-sm font-medium rounded-md border-2 border-black transition-colors duration-200">
+                            <button type="button" onclick="bulkSelectAllUnprocessed()" class="btn-brutal btn-brutal--primary">
                                 <i class="fa fa-check-square mr-2"></i>{{ _("Select All Unprocessed") }}
                             </button>
-                            <button type="button" onclick="bulkDeselectAll()" class="inline-flex items-center px-3 py-1.5 bg-gray-600 hover:bg-gray-700 text-white text-sm font-medium rounded-md border-2 border-black transition-colors duration-200">
+                            <button type="button" onclick="bulkDeselectAll()" class="btn-brutal">
                                 <i class="fa fa-square-o mr-2"></i>{{ _("Deselect All") }}
                             </button>
-                            <span id="bulk-selected-count" class="text-sm font-medium text-gray-700 flex items-center ml-4">
+                            <span id="bulk-selected-count" class="text-sm font-medium text-black flex items-center ml-4">
                                 Selected: <span class="ml-1 font-bold">0</span>
                             </span>
                         </div>
@@ -1217,7 +1295,7 @@
                         <!-- Member/Payments Table -->
                         <div class="overflow-x-auto mb-4 max-h-96 overflow-y-auto border-2 border-black">
                             <table class="w-full text-sm">
-                                <thead class="bg-gray-900 text-white sticky top-0">
+                                <thead class="brutal-table-header sticky top-0">
                                     <tr>
                                         <th class="px-2 py-2 text-left border-b-2 border-black">
                                             <input type="checkbox" id="bulk-select-all-checkbox" onchange="bulkToggleSelectAll()">
@@ -2116,7 +2194,7 @@ function createTestPayment() {
             // Add clickable button to open checkout URL
             const resultDiv = document.getElementById('test-payment-result');
             const button = document.createElement('button');
-            button.className = 'debug-button mt-4';
+            button.className = 'btn-brutal btn-brutal--info mt-4';
             button.innerHTML = '<i class="fa fa-external-link mr-1"></i>{{ _("Complete Payment at Mollie") }}';
             button.onclick = () => window.open(result.checkout_url, '_blank');
             resultDiv.appendChild(button);
@@ -2340,7 +2418,7 @@ function formatCustomerResult(data) {
             html += `<h4>Subscriptions (${filteredSubs.length}${hideCanceled && filteredSubs.length !== data.subscriptions.length ? ` of ${data.subscriptions.length}` : ''}):</h4>`;
             filteredSubs.forEach(sub => {
                 const statusClass = sub.status === 'active' ? 'status-active' : 'status-canceled';
-                html += `<div style="border: 1px solid #ddd; padding: 0.5rem; margin: 0.5rem 0; border-radius: 4px;">`;
+                html += `<div style="border: 2px solid #000; padding: 0.5rem; margin: 0.5rem 0; border-radius: 0;">`;
                 html += `<p><strong>ID:</strong> ${sub.id} <span class="status-badge ${statusClass}">${sub.status}</span></p>`;
                 html += `<p><strong>Amount:</strong> ${sub.amount}</p>`;
                 html += `<p><strong>Interval:</strong> ${sub.interval}</p>`;
@@ -2362,7 +2440,7 @@ function formatCustomerResult(data) {
             html += `<h4>Mandates (${filteredMandates.length}${hideCanceled && filteredMandates.length !== data.mandates.length ? ` of ${data.mandates.length}` : ''}):</h4>`;
             filteredMandates.forEach(mandate => {
                 const statusClass = mandate.status === 'valid' ? 'status-valid' : 'status-invalid';
-                html += `<div style="border: 1px solid #ddd; padding: 0.5rem; margin: 0.5rem 0; border-radius: 4px;">`;
+                html += `<div style="border: 2px solid #000; padding: 0.5rem; margin: 0.5rem 0; border-radius: 0;">`;
                 html += `<p><strong>ID:</strong> ${mandate.id} <span class="status-badge ${statusClass}">${mandate.status}</span></p>`;
                 html += `<p><strong>Method:</strong> ${mandate.method}</p>`;
                 html += `<p><strong>Created:</strong> ${mandate.created_at}</p>`;
@@ -2382,7 +2460,7 @@ function formatCustomerResult(data) {
         if (db.members.length > 0) {
             html += `<h5>Members (${db.members.length}):</h5>`;
             db.members.forEach(member => {
-                html += `<div style="border: 1px solid #ddd; padding: 0.5rem; margin: 0.5rem 0; border-radius: 4px; background-color: #f8f9fa;">`;
+                html += `<div style="border: 2px solid #000; padding: 0.5rem; margin: 0.5rem 0; border-radius: 0; background-color: #fff;">`;
                 html += `<p><strong>ID:</strong> ${member.name}</p>`;
                 html += `<p><strong>Name:</strong> ${member.full_name}</p>`;
                 if (member.payment_method) html += `<p><strong>Payment Method:</strong> ${member.payment_method}</p>`;
@@ -2395,7 +2473,7 @@ function formatCustomerResult(data) {
         if (db.donors.length > 0) {
             html += `<h5>Donors (${db.donors.length}):</h5>`;
             db.donors.forEach(donor => {
-                html += `<div style="border: 1px solid #ddd; padding: 0.5rem; margin: 0.5rem 0; border-radius: 4px; background-color: #f8f9fa;">`;
+                html += `<div style="border: 2px solid #000; padding: 0.5rem; margin: 0.5rem 0; border-radius: 0; background-color: #fff;">`;
                 html += `<p><strong>ID:</strong> ${donor.name}</p>`;
                 html += `<p><strong>Donor Name:</strong> ${donor.donor_name}</p>`;
                 if (donor.member) html += `<p><strong>Linked Member:</strong> ${donor.member}</p>`;
@@ -2474,18 +2552,18 @@ function formatAdminResult(data, action) {
     else if (data.status === 'success') statusClass = 'status-active';
     else statusClass = 'status-error';
 
-    // Make success messages more prominent
+    // Make success messages more prominent - brutalist style
     if (data.status === 'success') {
-        html += `<div style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
-        html += `<p style="margin: 0; font-size: 1.1em;"><strong>✅ ${data.message}</strong></p>`;
+        html += `<div style="background: #fff; border: 2px solid #000; border-left: 6px solid #28a745; padding: 1rem; margin: 1rem 0;">`;
+        html += `<p style="margin: 0; font-size: 1.1em; color: #000;"><strong>✅ ${data.message}</strong></p>`;
         html += `</div>`;
     } else if (data.status === 'warning') {
-        html += `<div style="background: #fffbeb; border: 1px solid #fed7aa; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
-        html += `<p style="margin: 0; font-size: 1.1em;"><strong>⚠️ ${data.message}</strong></p>`;
+        html += `<div style="background: #fff; border: 2px solid #000; border-left: 6px solid #ffc107; padding: 1rem; margin: 1rem 0;">`;
+        html += `<p style="margin: 0; font-size: 1.1em; color: #000;"><strong>⚠️ ${data.message}</strong></p>`;
         html += `</div>`;
     } else {
-        html += `<div style="background: #fef2f2; border: 1px solid #fecaca; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
-        html += `<p style="margin: 0; font-size: 1.1em;"><strong>❌ ${data.message}</strong></p>`;
+        html += `<div style="background: #fff; border: 2px solid #000; border-left: 6px solid #dc3545; padding: 1rem; margin: 1rem 0;">`;
+        html += `<p style="margin: 0; font-size: 1.1em; color: #000;"><strong>❌ ${data.message}</strong></p>`;
         html += `</div>`;
     }
 
@@ -2534,7 +2612,7 @@ function formatCustomerDeletionResult(data) {
     // Show customer details for successful deletions
     if (data.customer_details) {
         html += `<h4>Deleted Customer Details:</h4>`;
-        html += `<div style="border: 1px solid #ddd; padding: 0.5rem; margin: 0.5rem 0; border-radius: 4px; background-color: #fff5f5;">`;
+        html += `<div style="border: 2px solid #000; padding: 0.5rem; margin: 0.5rem 0; background-color: #fff;">`;
         html += `<p><strong>Name:</strong> ${data.customer_details.name}</p>`;
         html += `<p><strong>Email:</strong> ${data.customer_details.email}</p>`;
         html += `<p><strong>Created:</strong> ${data.customer_details.created_at}</p>`;
@@ -2545,7 +2623,7 @@ function formatCustomerDeletionResult(data) {
     // Show cascade deletion details
     if (data.cascaded_deletions) {
         html += `<h4>Cascaded Deletions:</h4>`;
-        html += `<div style="border: 1px solid #ddd; padding: 0.5rem; margin: 0.5rem 0; border-radius: 4px; background-color: #fff5f5;">`;
+        html += `<div style="border: 2px solid #000; padding: 0.5rem; margin: 0.5rem 0; background-color: #fff;">`;
         html += `<p><strong>Subscriptions Deleted:</strong> ${data.cascaded_deletions.subscriptions_deleted}</p>`;
         html += `<p><strong>Mandates Deleted:</strong> ${data.cascaded_deletions.mandates_deleted}</p>`;
         html += `</div>`;
@@ -2575,12 +2653,12 @@ function formatCustomerListResult(data) {
         html += `<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0.5rem;">`;
 
         data.customers.forEach(customer => {
-            html += `<div style="border: 1px solid #ddd; padding: 0.75rem; border-radius: 4px; background-color: #f8f9fa; position: relative;">`;
+            html += `<div style="border: 2px solid #000; padding: 0.75rem; border-radius: 0; background-color: #fff; position: relative;">`;
 
             // Customer ID with copy button
             html += `<div style="display: flex; align-items: center; justify-content: between; margin-bottom: 0.5rem;">`;
-            html += `<p style="margin: 0; font-family: monospace; font-weight: bold; color: #2563eb; flex-grow: 1;">${customer.id}</p>`;
-            html += `<button onclick="copyToClipboard('${customer.id}')" style="background: #2563eb; color: white; border: none; padding: 0.25rem 0.5rem; border-radius: 3px; font-size: 0.75rem; cursor: pointer; margin-left: 0.5rem;" title="Copy Customer ID">`;
+            html += `<p style="margin: 0; font-family: monospace; font-weight: bold; color: #000; flex-grow: 1;">${customer.id}</p>`;
+            html += `<button onclick="copyToClipboard('${customer.id}')" style="background: #17a2b8; color: white; border: 2px solid #000; padding: 0.25rem 0.5rem; font-size: 0.75rem; font-weight: 700; cursor: pointer; margin-left: 0.5rem; text-transform: uppercase;" title="Copy Customer ID">`;
             html += `<i class="fa fa-copy"></i>`;
             html += `</button>`;
             html += `</div>`;
@@ -2591,7 +2669,7 @@ function formatCustomerListResult(data) {
             html += `<p style="margin: 0.25rem 0;"><strong>Mode:</strong> <span class="status-badge ${customer.mode === 'test' ? 'status-pending' : 'status-active'}">${customer.mode}</span></p>`;
 
             // Quick action button
-            html += `<button onclick="useCustomerId('${customer.id}')" style="background: #059669; color: white; border: none; padding: 0.25rem 0.5rem; border-radius: 3px; font-size: 0.75rem; cursor: pointer; margin-top: 0.5rem;" title="Use this Customer ID">`;
+            html += `<button onclick="useCustomerId('${customer.id}')" style="background: #28a745; color: white; border: 2px solid #000; padding: 0.25rem 0.5rem; font-size: 0.75rem; font-weight: 700; cursor: pointer; margin-top: 0.5rem; text-transform: uppercase;" title="Use this Customer ID">`;
             html += `<i class="fa fa-arrow-up mr-1"></i>Use ID`;
             html += `</button>`;
 
@@ -2616,7 +2694,7 @@ function formatPaymentResult(data) {
     html += `<p><strong>Timestamp:</strong> ${data.timestamp}</p>`;
 
     if (data.error) {
-        html += `<div style="color: #dc2626; background: #fef2f2; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<div style="color: #dc3545; background: #fff; border-left: 6px solid #dc3545; padding: 1rem; border-radius: 0; margin: 1rem 0;">`;
         html += `<strong>Error:</strong> ${data.error}`;
         html += `</div>`;
         return html;
@@ -2624,7 +2702,7 @@ function formatPaymentResult(data) {
 
     if (data.payment_found && data.payment_data) {
         const payment = data.payment_data;
-        html += `<div style="background: #f0fdf4; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<div style="background: #fff; border-left: 6px solid #28a745; padding: 1rem; border-radius: 0; margin: 1rem 0;">`;
         html += `<h4>Payment Details</h4>`;
         html += `<p><strong>Status:</strong> <span class="status-badge status-${payment.status}">${payment.status}</span></p>`;
         html += `<p><strong>Amount:</strong> ${payment.amount}</p>`;
@@ -2645,17 +2723,17 @@ function formatPaymentResult(data) {
         html += `<p><strong>Settlement ID:</strong> ${payment.settlement_id || 'N/A'}</p>`;
 
         if (payment.failure_reason) {
-            html += `<p><strong>Failure Reason:</strong> <span style="color: #dc2626;">${payment.failure_reason}</span></p>`;
+            html += `<p><strong>Failure Reason:</strong> <span style="color: #dc3545;">${payment.failure_reason}</span></p>`;
         }
 
         html += `</div>`;
 
         // Show refunds if any
         if (data.refunds && data.refunds.length > 0) {
-            html += `<div style="background: #fef3c7; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+            html += `<div style="background: #fff; border-left: 6px solid #ffc107; padding: 1rem; border-radius: 0; margin: 1rem 0;">`;
             html += `<h4>Refunds (${data.refunds.length})</h4>`;
             data.refunds.forEach(refund => {
-                html += `<div style="border-left: 3px solid #d97706; padding-left: 0.5rem; margin: 0.5rem 0;">`;
+                html += `<div style="border-left: 3px solid #ffc107; padding-left: 0.5rem; margin: 0.5rem 0;">`;
                 html += `<p><strong>ID:</strong> ${refund.id}</p>`;
                 html += `<p><strong>Status:</strong> <span class="status-badge status-${refund.status}">${refund.status}</span></p>`;
                 html += `<p><strong>Amount:</strong> ${refund.amount}</p>`;
@@ -2668,10 +2746,10 @@ function formatPaymentResult(data) {
 
         // Show chargebacks if any
         if (data.chargebacks && data.chargebacks.length > 0) {
-            html += `<div style="background: #fef2f2; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+            html += `<div style="background: #fff; border-left: 6px solid #dc3545; padding: 1rem; border-radius: 0; margin: 1rem 0;">`;
             html += `<h4>Chargebacks (${data.chargebacks.length})</h4>`;
             data.chargebacks.forEach(chargeback => {
-                html += `<div style="border-left: 3px solid #dc2626; padding-left: 0.5rem; margin: 0.5rem 0;">`;
+                html += `<div style="border-left: 3px solid #dc3545; padding-left: 0.5rem; margin: 0.5rem 0;">`;
                 html += `<p><strong>ID:</strong> ${chargeback.id}</p>`;
                 html += `<p><strong>Amount:</strong> ${chargeback.amount}</p>`;
                 html += `<p><strong>Reason:</strong> ${chargeback.reason || 'N/A'}</p>`;
@@ -2696,18 +2774,18 @@ function formatPaymentListResult(data) {
     html += `<p><strong>Test Mode:</strong> ${data.test_mode}</p>`;
 
     if (data.error) {
-        html += `<div style="color: #dc2626; background: #fef2f2; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<div style="color: #dc3545; background: #fff; border-left: 6px solid #dc3545; padding: 1rem; border-radius: 0; margin: 1rem 0;">`;
         html += `<strong>Error:</strong> ${data.error}`;
         html += `</div>`;
         return html;
     }
 
     if (data.payments && data.payments.length > 0) {
-        html += `<div style="background: #f0fdf4; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<div style="background: #fff; border-left: 6px solid #28a745; padding: 1rem; border-radius: 0; margin: 1rem 0;">`;
         html += `<h4>Payments (${data.payments.length})</h4>`;
 
         data.payments.forEach(payment => {
-            html += `<div style="border: 1px solid #e5e7eb; border-radius: 4px; padding: 0.75rem; margin: 0.5rem 0; background: white;">`;
+            html += `<div style="border: 2px solid #000; border-radius: 0; padding: 0.75rem; margin: 0.5rem 0; background: white;">`;
             html += `<p><strong>ID:</strong> ${payment.id}</p>`;
             html += `<p><strong>Status:</strong> <span class="status-badge status-${payment.status}">${payment.status}</span></p>`;
             html += `<p><strong>Amount:</strong> ${payment.amount}</p>`;
@@ -2735,7 +2813,7 @@ function formatRefundResult(data) {
     html += `<p><strong>Test Mode:</strong> ${data.test_mode}</p>`;
 
     if (data.error) {
-        html += `<div style="color: #dc2626; background: #fef2f2; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<div style="color: #dc3545; background: #fff; border-left: 6px solid #dc3545; padding: 1rem; border-radius: 0; margin: 1rem 0;">`;
         html += `<strong>Error:</strong> ${data.error}`;
         html += `</div>`;
         return html;
@@ -2743,7 +2821,7 @@ function formatRefundResult(data) {
 
     if (data.refund_found && data.refund_data) {
         const refund = data.refund_data;
-        html += `<div style="background: #fef3c7; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<div style="background: #fff; border-left: 6px solid #ffc107; padding: 1rem; border-radius: 0; margin: 1rem 0;">`;
         html += `<h4>Refund Details</h4>`;
         html += `<p><strong>Status:</strong> <span class="status-badge status-${refund.status}">${refund.status}</span></p>`;
         html += `<p><strong>Amount:</strong> ${refund.amount}</p>`;
@@ -2767,18 +2845,18 @@ function formatChargebackListResult(data) {
     html += `<p><strong>Test Mode:</strong> ${data.test_mode}</p>`;
 
     if (data.error) {
-        html += `<div style="color: #dc2626; background: #fef2f2; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<div style="color: #dc3545; background: #fff; border-left: 6px solid #dc3545; padding: 1rem; border-radius: 0; margin: 1rem 0;">`;
         html += `<strong>Error:</strong> ${data.error}`;
         html += `</div>`;
         return html;
     }
 
     if (data.chargebacks && data.chargebacks.length > 0) {
-        html += `<div style="background: #fef2f2; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<div style="background: #fff; border-left: 6px solid #dc3545; padding: 1rem; border-radius: 0; margin: 1rem 0;">`;
         html += `<h4>Chargebacks (${data.chargebacks.length})</h4>`;
 
         data.chargebacks.forEach(chargeback => {
-            html += `<div style="border: 1px solid #fca5a5; border-radius: 4px; padding: 0.75rem; margin: 0.5rem 0; background: white;">`;
+            html += `<div style="border: 2px solid #dc3545; border-radius: 0; padding: 0.75rem; margin: 0.5rem 0; background: white;">`;
             html += `<p><strong>ID:</strong> ${chargeback.id}</p>`;
             html += `<p><strong>Payment ID:</strong> ${chargeback.payment_id || 'N/A'}</p>`;
             html += `<p><strong>Amount:</strong> ${chargeback.amount}</p>`;
@@ -2804,7 +2882,7 @@ function formatWebhookTestResult(data) {
     html += `<p><strong>Timestamp:</strong> ${data.timestamp}</p>`;
 
     if (data.error) {
-        html += `<div style="color: #dc2626; background: #fef2f2; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<div style="color: #dc3545; background: #fff; border-left: 6px solid #dc3545; padding: 1rem; border-radius: 0; margin: 1rem 0;">`;
         html += `<strong>Error:</strong> ${data.error}`;
         html += `</div>`;
         return html;
@@ -2815,7 +2893,7 @@ function formatWebhookTestResult(data) {
     if (data.status === 'error') statusClass = 'status-error';
     else if (data.status === 'pending') statusClass = 'status-pending';
 
-    html += `<div style="background: ${data.status === 'success' ? '#f0fdf4' : '#fef2f2'}; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+    html += `<div style="background: #fff; border: 2px solid #000; border-left: 6px solid ${data.status === 'success' ? '#28a745' : '#dc3545'}; padding: 1rem; margin: 1rem 0;">`;
     html += `<h4>Processing Result</h4>`;
     html += `<p><strong>Status:</strong> <span class="status-badge ${statusClass}">${data.status.toUpperCase()}</span></p>`;
     html += `<p><strong>Message:</strong> ${data.message}</p>`;
@@ -2832,7 +2910,7 @@ function formatWebhookTestResult(data) {
     // Show webhook result if available
     if (data.webhook_result && typeof data.webhook_result === 'object') {
         html += `<h5 style="margin-top: 1rem;">Webhook Response:</h5>`;
-        html += `<pre style="background: white; padding: 0.5rem; border-radius: 4px; max-height: 300px; overflow-y: auto; font-size: 0.875rem;">${JSON.stringify(data.webhook_result, null, 2)}</pre>`;
+        html += `<pre style="background: white; padding: 0.5rem; border-radius: 0; max-height: 300px; overflow-y: auto; font-size: 0.875rem;">${JSON.stringify(data.webhook_result, null, 2)}</pre>`;
     }
 
     html += `</div>`;
@@ -2846,7 +2924,7 @@ function formatWebhookResult(data) {
     html += `<p><strong>Test Mode:</strong> ${data.test_mode}</p>`;
 
     if (data.error) {
-        html += `<div style="color: #dc2626; background: #fef2f2; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<div style="color: #dc3545; background: #fff; border-left: 6px solid #dc3545; padding: 1rem; border-radius: 0; margin: 1rem 0;">`;
         html += `<strong>Error:</strong> ${data.error}`;
         html += `</div>`;
         return html;
@@ -2854,7 +2932,7 @@ function formatWebhookResult(data) {
 
     if (data.webhook_info) {
         const webhook = data.webhook_info;
-        html += `<div style="background: #dbeafe; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<div style="background: #fff; border-left: 6px solid #17a2b8; padding: 1rem; border-radius: 0; margin: 1rem 0;">`;
         html += `<h4>Webhook Information</h4>`;
         html += `<p><strong>Payment ID:</strong> ${webhook.payment_id}</p>`;
         html += `<p><strong>Webhook URL:</strong> ${webhook.webhook_url || 'Not configured'}</p>`;
@@ -2863,7 +2941,7 @@ function formatWebhookResult(data) {
 
         if (webhook.status_changes && webhook.status_changes.length > 0) {
             html += `<h5>Status Change Timeline</h5>`;
-            html += `<div style="background: white; padding: 0.5rem; border-radius: 4px; margin: 0.5rem 0;">`;
+            html += `<div style="background: white; padding: 0.5rem; border-radius: 0; margin: 0.5rem 0;">`;
             webhook.status_changes.forEach(change => {
                 html += `<p><strong>${change.status}:</strong> ${new Date(change.timestamp).toLocaleString()}</p>`;
             });
@@ -2871,7 +2949,7 @@ function formatWebhookResult(data) {
         }
 
         if (webhook.note) {
-            html += `<div style="background: #f3f4f6; padding: 0.5rem; border-radius: 4px; margin: 0.5rem 0; font-style: italic;">`;
+            html += `<div style="background: #fff; padding: 0.5rem; border-radius: 0; margin: 0.5rem 0; font-style: italic;">`;
             html += `<p><strong>Note:</strong> ${webhook.note}</p>`;
             html += `</div>`;
         }
@@ -2961,10 +3039,11 @@ function useCustomerId(customerId) {
     // Fill the customer ID in the debug input field
     document.getElementById('customer-id-input').value = customerId;
 
-    // Visual feedback
+    // Visual feedback - brutalist style
     const input = document.getElementById('customer-id-input');
-    input.style.backgroundColor = '#dcfce7';
-    input.style.borderColor = '#16a34a';
+    input.style.backgroundColor = '#fff';
+    input.style.borderColor = '#28a745';
+    input.style.borderWidth = '3px';
 
     // Reset styling after 2 seconds
     setTimeout(() => {
@@ -3867,18 +3946,18 @@ function displayBulkPaymentsResults(data) {
 
             // BulkPaymentChecker uses 'already_processed', old service used 'is_processed'
             const isProcessed = payment.already_processed || payment.is_processed;
-            row.className = isProcessed ? 'bg-gray-200 text-gray-600' : 'bg-white hover:bg-amber-50 border-b border-black';
+            row.className = isProcessed ? 'bg-white opacity-60' : 'bg-white hover:bg-amber-50 border-b border-black';
 
             // BulkPaymentChecker uses 'id', old service used 'payment_id'
             const paymentId = payment.id || payment.payment_id;
 
             const checkbox = !isProcessed ?
                 `<input type="checkbox" class="bulk-payment-checkbox" data-payment-id="${paymentId}" onchange="bulkUpdateSelectedCount()">` :
-                `<span class="text-gray-400">—</span>`;
+                `<span class="text-black">—</span>`;
 
             const memberDisplay = index === 0 ?
-                `<div class="font-medium">${fullName}</div><div class="text-xs text-gray-600">${memberName}</div>` :
-                `<div class="text-xs text-gray-400">↳ same member</div>`;
+                `<div class="font-medium">${fullName}</div><div class="text-xs text-black">${memberName}</div>` :
+                `<div class="text-xs text-black">↳ same member</div>`;
 
             const processedBadge = isProcessed ?
                 '<span class="px-2 py-1 bg-green-600 text-white text-xs font-bold border-2 border-black rounded">✓ Processed</span>' :
@@ -3890,7 +3969,7 @@ function displayBulkPaymentsResults(data) {
             row.innerHTML = `
                 <td class="px-2 py-2">${checkbox}</td>
                 <td class="px-2 py-2">${memberDisplay}</td>
-                <td class="px-2 py-2"><code class="text-xs bg-gray-100 px-1 border-2 border-black">${paymentId}</code></td>
+                <td class="px-2 py-2"><code class="text-xs bg-white px-1 border-2 border-black">${paymentId}</code></td>
                 <td class="px-2 py-2"><span class="px-2 py-1 bg-blue-600 text-white text-xs font-bold border-2 border-black rounded">${payment.status}</span></td>
                 <td class="px-2 py-2 font-mono">${amountDisplay}</td>
                 <td class="px-2 py-2 text-xs">${payment.created_at ? new Date(payment.created_at).toLocaleDateString() : 'N/A'}</td>
