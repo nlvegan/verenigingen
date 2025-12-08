@@ -36,6 +36,7 @@ class VIPDataValidator:
         "id": "vip_user_id",
         "google_account_ref": "google_workspace_id",
         "nvv_relatie_nummer": "member_id",
+        "procurios_id": "procurios_id",  # Alternate member ID source
         # Emails
         "email": "organization_email",
         "private_email": "personal_email",

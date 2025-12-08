@@ -163,8 +163,9 @@ def _find_member(row: Dict) -> Optional[Document]:
 
     Matching order:
     1. member_id (nvv_relatie_nummer)
-    2. personal_email (private_email)
-    3. organization_email (email)
+    2. procurios_id (alternate member ID source)
+    3. personal_email (private_email)
+    4. organization_email (email)
 
     Args:
         row: Mapped row data from validator
@@ -172,9 +173,15 @@ def _find_member(row: Dict) -> Optional[Document]:
     Returns:
         Member document or None if not found
     """
-    # Try member_id first
+    # Try member_id first (from nvv_relatie_nummer)
     if row.get("member_id"):
         member_name = frappe.db.get_value("Member", {"member_id": row["member_id"]}, "name")
+        if member_name:
+            return frappe.get_doc("Member", member_name)
+
+    # Try procurios_id as alternate member_id lookup
+    if row.get("procurios_id"):
+        member_name = frappe.db.get_value("Member", {"member_id": row["procurios_id"]}, "name")
         if member_name:
             return frappe.get_doc("Member", member_name)
 
