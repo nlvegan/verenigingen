@@ -80,34 +80,41 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
     """
     Nuclear cleanup: Delete ALL members and their related records.
 
-    This function will delete records in the following order:
+    This function will delete records in the following phases:
 
-    EARLY CLEANUP (tracking/administrative records):
-    1. Notification Settings (for member emails)
-    2. API Audit Log entries (for member emails)
-    3. Account Creation Requests (for these members)
-    4. Chapter Members (child table links)
+    PHASE 1: DYNAMIC LINKS CLEANUP (Critical for cascade)
+    - Dynamic Links from Members, Customers, Volunteers
+    - Chapter head references cleared
+    - Chapter Board Members deleted
 
-    DEPENDENCY CLEANUP (financial/operational records):
-    5. Sales Invoices (membership invoices AND application invoices):
-       * Invoices linked via Customer records
-       * Application invoices using email as temporary customer
-       * Invoices referenced in remarks/descriptions
-       * All found invoices are canceled (if submitted) then deleted
-    6. Member Payment History
-    7. SEPA Mandates (member-linked)
-    8. Contribution Amendment Requests
-    9. Membership Dues Schedules
-    10. Memberships
-    11. Volunteers
-    12. Donors (where member is linked)
-    13. Addresses (linked to members)
-    14. Contacts (linked to members)
-    15. Customer records (where member is linked)
-    16. User accounts (where member is linked)
+    PHASE 2: CUSTOMERS, CONTACTS, AND ADDRESSES
+    - Customer records (must be deleted BEFORE Contacts/Addresses that link to them)
+    - Contacts (with child tables: Contact Email, Contact Phone)
+    - Addresses (with Dynamic Links)
 
-    FINAL CLEANUP:
-    17. Members (core records deleted last)
+    PHASE 3: TRACKING/ADMINISTRATIVE RECORDS
+    - Notification Settings (for member emails)
+    - API Audit Log entries (for member emails)
+    - Account Creation Requests
+    - Chapter Members (child table links)
+    - Sales Invoices (canceled if submitted, then deleted)
+
+    PHASE 4: FINANCIAL AND OPERATIONAL RECORDS
+    - Volunteers (with child tables)
+    - Member Payment History
+    - SEPA Mandates
+    - Contribution Amendment Requests
+    - Membership Dues Schedules
+    - Memberships
+    - Donors
+
+    PHASE 5: USER-RELATED RECORDS
+    - User Permissions
+    - Employee records
+    - User accounts
+
+    PHASE 6: FINAL CLEANUP
+    - Members (core records deleted last)
 
     Args:
         confirm_nuclear_cleanup (bool): Must be True to proceed
@@ -616,6 +623,7 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
                 frappe.logger().info("Deleted Dynamic Links to Members")
 
             # Also clean up Dynamic Links pointing to the Customers we're about to delete
+            # This includes links FROM Contacts/Addresses TO Customers
             if customers_with_member_links:
                 customer_names = [c.name for c in customers_with_member_links]
                 placeholders = ", ".join(["%s"] * len(customer_names))
@@ -628,6 +636,57 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
                     customer_names,
                 )
                 frappe.logger().info("Deleted Dynamic Links to Customers")
+
+            # Also find and clean up Addresses/Contacts linked to these Customers
+            # (not just Members) - they may have been created via Customer, not Member
+            if customers_with_member_links:
+                customer_names = [c.name for c in customers_with_member_links]
+                placeholders = ", ".join(["%s"] * len(customer_names))
+
+                # Find additional addresses linked to customers
+                customer_addresses = frappe.db.sql(
+                    f"""
+                    SELECT DISTINCT dl.parent
+                    FROM `tabDynamic Link` dl
+                    WHERE dl.parenttype = 'Address'
+                    AND dl.link_doctype = 'Customer'
+                    AND dl.link_name IN ({placeholders})
+                    """,
+                    customer_names,
+                    as_dict=True,
+                )
+                # Add to addresses list (will be deleted in Phase 2)
+                existing_address_parents = {a.parent for a in addresses}
+                for addr in customer_addresses:
+                    if addr.parent not in existing_address_parents:
+                        addresses.append(addr)
+                        existing_address_parents.add(addr.parent)
+                results["addresses"]["count"] = len(addresses)
+
+                # Find additional contacts linked to customers
+                customer_contacts = frappe.db.sql(
+                    f"""
+                    SELECT DISTINCT dl.parent
+                    FROM `tabDynamic Link` dl
+                    WHERE dl.parenttype = 'Contact'
+                    AND dl.link_doctype = 'Customer'
+                    AND dl.link_name IN ({placeholders})
+                    """,
+                    customer_names,
+                    as_dict=True,
+                )
+                # Add to contacts list (will be deleted in Phase 2)
+                existing_contact_parents = {c.parent for c in contacts}
+                for cont in customer_contacts:
+                    if cont.parent not in existing_contact_parents:
+                        contacts.append(cont)
+                        existing_contact_parents.add(cont.parent)
+                results["contacts"]["count"] = len(contacts)
+
+                frappe.logger().info(
+                    f"Found {len(customer_addresses)} additional addresses and "
+                    f"{len(customer_contacts)} additional contacts linked to Customers"
+                )
 
             # Clean up Dynamic Links pointing to Volunteers we're about to delete
             if volunteers:
@@ -666,22 +725,65 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
                 frappe.logger().info(f"Deleted {len(cbm_names)} Chapter Board Member records")
 
             # ============================================================
-            # PHASE 2: DELETE CONTACTS AND ADDRESSES (now safe after Dynamic Links removed)
+            # PHASE 2: DELETE CUSTOMERS, CONTACTS, AND ADDRESSES
+            # Order: Customers first (Contacts/Addresses may link to them)
             # ============================================================
-            frappe.logger().info("Phase 2: Cleaning up Contacts and Addresses...")
+            frappe.logger().info("Phase 2: Cleaning up Customers, Contacts and Addresses...")
 
-            # Delete Contacts first (they may reference Customers)
+            # Delete Customers FIRST (before Contacts/Addresses that may link to them)
+            # Clear custom_member field first to break the link
+            if customers_with_member_links:
+                customer_names = [c.name for c in customers_with_member_links]
+                placeholders = ", ".join(["%s"] * len(customer_names))
+                frappe.db.sql(
+                    f"UPDATE `tabCustomer` SET custom_member = NULL WHERE name IN ({placeholders})",
+                    customer_names,
+                )
+
+            # Now delete Customer records using direct SQL to avoid validation issues
+            for customer in customers_with_member_links:
+                try:
+                    # Delete any remaining child tables for this customer
+                    frappe.db.sql(
+                        "DELETE FROM `tabParty Account` WHERE parent = %s AND parenttype = 'Customer'",
+                        customer.name,
+                    )
+                    frappe.db.sql(
+                        "DELETE FROM `tabSales Team` WHERE parent = %s AND parenttype = 'Customer'",
+                        customer.name,
+                    )
+                    # Delete the customer
+                    frappe.db.sql("DELETE FROM `tabCustomer` WHERE name = %s", customer.name)
+                    results["customers"]["deleted"] += 1
+                except Exception as e:
+                    results["customers"]["errors"].append(f"{customer.name}: {str(e)}")
+
+            frappe.logger().info(f"Deleted {results['customers']['deleted']} Customer records")
+
+            # Delete Contacts (now safe after Customers deleted)
             for contact in contacts:
                 try:
+                    # Delete Contact child tables first
+                    frappe.db.sql("DELETE FROM `tabContact Email` WHERE parent = %s", contact.parent)
+                    frappe.db.sql("DELETE FROM `tabContact Phone` WHERE parent = %s", contact.parent)
+                    frappe.db.sql(
+                        "DELETE FROM `tabDynamic Link` WHERE parent = %s AND parenttype = 'Contact'",
+                        contact.parent,
+                    )
                     # Force delete using SQL to bypass any remaining validations
                     frappe.db.sql("DELETE FROM `tabContact` WHERE name = %s", contact.parent)
                     results["contacts"]["deleted"] += 1
                 except Exception as e:
                     results["contacts"]["errors"].append(f"{contact.parent}: {str(e)}")
 
-            # Delete Addresses
+            # Delete Addresses (now safe after Customers/Contacts deleted)
             for address in addresses:
                 try:
+                    # Delete Address child tables (Dynamic Links)
+                    frappe.db.sql(
+                        "DELETE FROM `tabDynamic Link` WHERE parent = %s AND parenttype = 'Address'",
+                        address.parent,
+                    )
                     frappe.db.sql("DELETE FROM `tabAddress` WHERE name = %s", address.parent)
                     results["addresses"]["deleted"] += 1
                 except Exception as e:
@@ -799,41 +901,9 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
                     results[result_key]["deleted"] = len(record_names)
 
             # ============================================================
-            # PHASE 5: DELETE CUSTOMER RECORDS (now safe after Contacts/Dynamic Links removed)
+            # PHASE 5: DELETE USER-RELATED RECORDS
             # ============================================================
-            frappe.logger().info("Phase 5: Cleaning up Customer records...")
-
-            # Clear custom_member field first to break the link
-            if customers_with_member_links:
-                customer_names = [c.name for c in customers_with_member_links]
-                placeholders = ", ".join(["%s"] * len(customer_names))
-                frappe.db.sql(
-                    f"UPDATE `tabCustomer` SET custom_member = NULL WHERE name IN ({placeholders})",
-                    customer_names,
-                )
-
-            # Now delete Customer records using direct SQL to avoid validation issues
-            for customer in customers_with_member_links:
-                try:
-                    # Delete any remaining child tables for this customer
-                    frappe.db.sql(
-                        "DELETE FROM `tabParty Account` WHERE parent = %s AND parenttype = 'Customer'",
-                        customer.name,
-                    )
-                    frappe.db.sql(
-                        "DELETE FROM `tabSales Team` WHERE parent = %s AND parenttype = 'Customer'",
-                        customer.name,
-                    )
-                    # Delete the customer
-                    frappe.db.sql("DELETE FROM `tabCustomer` WHERE name = %s", customer.name)
-                    results["customers"]["deleted"] += 1
-                except Exception as e:
-                    results["customers"]["errors"].append(f"{customer.name}: {str(e)}")
-
-            # ============================================================
-            # PHASE 6: DELETE USER-RELATED RECORDS
-            # ============================================================
-            frappe.logger().info("Phase 6: Cleaning up User-related records...")
+            frappe.logger().info("Phase 5: Cleaning up User-related records...")
 
             # Delete User Permissions first (they reference employees)
             if user_permissions:
@@ -894,9 +964,9 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
                 results["users"]["deleted"] = len(users_to_delete)
 
             # ============================================================
-            # PHASE 7: FINALLY DELETE MEMBERS (core records deleted last)
+            # PHASE 6: FINALLY DELETE MEMBERS (core records deleted last)
             # ============================================================
-            frappe.logger().info("Phase 7: Cleaning up Member records...")
+            frappe.logger().info("Phase 6: Cleaning up Member records...")
 
             if member_names:
                 placeholders = ", ".join(["%s"] * len(member_names))

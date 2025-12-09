@@ -34,6 +34,13 @@ BATCH_SIZE = 50
 BACKGROUND_JOB_TIMEOUT = 3600  # 1 hour
 MAX_ERRORS_TO_LOG = 100
 MAX_SKIPPED_TO_LOG = 20
+MAX_SKIPPED_PER_CATEGORY = 50  # Limit per category in skipped rows log
+
+
+def _sql_placeholders(count: int) -> str:
+    """Generate SQL placeholders for parameterized queries."""
+    return ", ".join(["%s"] * count)
+
 
 # PII patterns for sanitization
 _EMAIL_PATTERN = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
@@ -659,10 +666,10 @@ def _generate_skipped_rows_log(skipped_rows: List[Dict[str, str]]) -> str:
     for category, entries in categories.items():
         if entries:
             output.append(f"\n### {category} ({len(entries)} rows):\n")
-            for entry in entries[:50]:  # Limit to first 50 per category
+            for entry in entries[:MAX_SKIPPED_PER_CATEGORY]:
                 output.append(f"- {entry}")
-            if len(entries) > 50:
-                output.append(f"- ... and {len(entries) - 50} more")
+            if len(entries) > MAX_SKIPPED_PER_CATEGORY:
+                output.append(f"- ... and {len(entries) - MAX_SKIPPED_PER_CATEGORY} more")
 
     return "\n".join(output) if output else ""
 
@@ -671,7 +678,7 @@ def _generate_skipped_rows_log(skipped_rows: List[Dict[str, str]]) -> str:
 
 
 def _process_account_creation(
-    import_doc: Document, processed_volunteers: List[Dict[str, Any]]
+    import_doc_name: str, processed_volunteers: List[Dict[str, Any]]
 ) -> Dict[str, Any]:
     """
     Queue account creation requests for Active volunteers only.
@@ -683,7 +690,7 @@ def _process_account_creation(
     upgraded role profiles or employee records.
 
     Args:
-        import_doc: VIP Import document
+        import_doc_name: Name of the VIP Import document (for logging correlation)
         processed_volunteers: List of dicts with volunteer processing results
             Each dict has: status, row, volunteer (name), volunteer_status
 
@@ -708,23 +715,41 @@ def _process_account_creation(
     }
 
     try:
-        # Filter to only Active volunteers that were created or updated
+        # Collect volunteer names from successful results
+        volunteer_names = [
+            vol_result.get("volunteer")
+            for vol_result in processed_volunteers
+            if vol_result.get("status") in ("created", "updated") and vol_result.get("volunteer")
+        ]
+
+        if not volunteer_names:
+            frappe.logger().info(
+                f"[VIP Import {import_doc_name}] No volunteers to process for account creation"
+            )
+            return result
+
+        # Batch fetch volunteer status and member links (fixes N+1 query)
+        placeholders = _sql_placeholders(len(volunteer_names))
+        volunteer_data = frappe.db.sql(
+            f"""SELECT name, status, member FROM `tabVolunteer`
+                WHERE name IN ({placeholders})""",
+            volunteer_names,
+            as_dict=True,
+        )
+        volunteer_map = {v["name"]: v for v in volunteer_data}
+
+        # Filter to only Active volunteers
         active_member_names = []
 
-        for vol_result in processed_volunteers:
-            if vol_result.get("status") not in ("created", "updated"):
+        for volunteer_name in volunteer_names:
+            vol_info = volunteer_map.get(volunteer_name)
+            if not vol_info:
                 continue
 
-            volunteer_name = vol_result.get("volunteer")
-            if not volunteer_name:
-                continue
-
-            # Get volunteer status
-            volunteer_status = frappe.db.get_value("Volunteer", volunteer_name, "status")
+            volunteer_status = vol_info.get("status")
 
             if volunteer_status == "Active":
-                # Get the linked member
-                member_name = frappe.db.get_value("Volunteer", volunteer_name, "member")
+                member_name = vol_info.get("member")
                 if member_name:
                     active_member_names.append(member_name)
                     result["active_volunteers_queued"] += 1
@@ -732,17 +757,19 @@ def _process_account_creation(
                 # Inactive, Retired, or other non-active status - skip account upgrade
                 result["inactive_skipped"] += 1
                 frappe.logger().debug(
-                    f"[VIP Import] Skipping account creation for {volunteer_name} "
+                    f"[VIP Import {import_doc_name}] Skipping account creation for {volunteer_name} "
                     f"(status: {volunteer_status})"
                 )
 
         if not active_member_names:
-            frappe.logger().info("[VIP Import] No active volunteers to process for account creation")
+            frappe.logger().info(
+                f"[VIP Import {import_doc_name}] No active volunteers to process for account creation"
+            )
             return result
 
         frappe.logger().info(
-            f"[VIP Import] Queuing account creation for {len(active_member_names)} active volunteers "
-            f"({result['inactive_skipped']} inactive/retired skipped)"
+            f"[VIP Import {import_doc_name}] Queuing account creation for {len(active_member_names)} "
+            f"active volunteers ({result['inactive_skipped']} inactive/retired skipped)"
         )
 
         # Queue account creation with Volunteer role profile and employee creation
@@ -761,20 +788,20 @@ def _process_account_creation(
             result["tracker_name"] = acr_result.get("tracker_name")
 
             frappe.logger().info(
-                f"[VIP Import] Account creation queued: {result['acrs_created']} ACRs created, "
+                f"[VIP Import {import_doc_name}] Account creation queued: {result['acrs_created']} ACRs created, "
                 f"{result['users_linked']} users linked, tracker: {result['tracker_name']}"
             )
         else:
             result["error"] = acr_result.get("error", "Unknown error during account creation")
             frappe.log_error(
-                f"VIP Import account creation failed: {result['error']}",
+                f"[VIP Import {import_doc_name}] Account creation failed: {result['error']}",
                 "VIP Import Account Creation Error",
             )
 
     except Exception as e:
         result["error"] = str(e)
         frappe.log_error(
-            f"VIP Import account creation error: {str(e)}\n{frappe.get_traceback()}",
+            f"[VIP Import {import_doc_name}] Account creation error: {str(e)}\n{frappe.get_traceback()}",
             "VIP Import Account Creation Error",
         )
 
@@ -875,7 +902,7 @@ def process_import_background(import_doc_name: str, test_mode: bool = False):
                 frappe.db.commit()
 
         # Process account creation for Active volunteers
-        acr_result = _process_account_creation(import_doc, processed_volunteers)
+        acr_result = _process_account_creation(import_doc_name, processed_volunteers)
 
         # Finalize
         import_doc.reload()
