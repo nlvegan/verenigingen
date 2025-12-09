@@ -35,6 +35,15 @@
     "volunteers_skipped",
     "members_not_found",
     "members_created",
+    "account_creation_section",
+    "bulk_operation_tracker",
+    "acrs_created",
+    "acrs_queued_for_active",
+    "column_break_acr",
+    "users_upgraded",
+    "employees_created",
+    "skipped_rows_section",
+    "skipped_rows_log",
     "errors_section",
     "top_errors_summary",
     "error_log",
@@ -231,6 +240,70 @@
       "fieldname": "members_created",
       "fieldtype": "Int",
       "label": "Members Created",
+      "read_only": 1
+    },
+    {
+      "fieldname": "account_creation_section",
+      "fieldtype": "Section Break",
+      "label": "Account Creation Results"
+    },
+    {
+      "allow_on_submit": 1,
+      "fieldname": "bulk_operation_tracker",
+      "fieldtype": "Link",
+      "label": "Bulk Operation Tracker",
+      "options": "Bulk Operation Tracker",
+      "read_only": 1
+    },
+    {
+      "allow_on_submit": 1,
+      "default": "0",
+      "fieldname": "acrs_created",
+      "fieldtype": "Int",
+      "label": "ACRs Created",
+      "read_only": 1
+    },
+    {
+      "allow_on_submit": 1,
+      "default": "0",
+      "description": "Number of Active volunteers queued for role profile upgrade and employee creation",
+      "fieldname": "acrs_queued_for_active",
+      "fieldtype": "Int",
+      "label": "Active Volunteers Queued",
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_acr",
+      "fieldtype": "Column Break"
+    },
+    {
+      "allow_on_submit": 1,
+      "default": "0",
+      "fieldname": "users_upgraded",
+      "fieldtype": "Int",
+      "label": "Users Upgraded",
+      "read_only": 1
+    },
+    {
+      "allow_on_submit": 1,
+      "default": "0",
+      "fieldname": "employees_created",
+      "fieldtype": "Int",
+      "label": "Employees Created",
+      "read_only": 1
+    },
+    {
+      "collapsible": 1,
+      "fieldname": "skipped_rows_section",
+      "fieldtype": "Section Break",
+      "label": "Skipped Rows Detail"
+    },
+    {
+      "allow_on_submit": 1,
+      "description": "Itemized list of rows that were skipped during import, categorized by reason",
+      "fieldname": "skipped_rows_log",
+      "fieldtype": "Long Text",
+      "label": "Skipped Rows Log",
       "read_only": 1
     },
     {

@@ -222,5 +222,6 @@
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],
- "title_field": "operation_type"
+ "title_field": "operation_type",
+ "track_changes": 0
 }

@@ -20,6 +20,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import now_datetime, today
 
+from verenigingen.utils.account_creation_manager import queue_bulk_account_creation_for_members
 from verenigingen.utils.csv.secure_csv_parser import SecureCSVParser
 from verenigingen.utils.csv.vip_data_validator import VIPDataValidator
 from verenigingen.utils.csv_import_processor import CSVImportBackgroundProcessor
@@ -555,6 +556,231 @@ def _process_single_row(row: Dict, import_doc: Document, stats: Dict) -> Dict[st
         }
 
 
+# ==================== SKIPPED ROWS LOGGING ====================
+
+
+def _format_skip_info(row: Dict, result: Dict[str, Any]) -> Dict[str, str]:
+    """
+    Format skip information for logging.
+
+    Args:
+        row: Original row data from validator
+        result: Result dictionary from _process_single_row
+
+    Returns:
+        Dict with skip details for categorization
+    """
+    row_num = result.get("row", "?")
+    reason = result.get("reason", "unknown")
+    status = result.get("status", "skipped")
+
+    # Build identifier string
+    identifiers = []
+    if row.get("vip_user_id"):
+        identifiers.append(f"VIP ID: {row['vip_user_id']}")
+    if row.get("member_id"):
+        identifiers.append(f"Member ID: {row['member_id']}")
+    if row.get("organization_email"):
+        identifiers.append(row["organization_email"])
+
+    # Build name string
+    name_parts = []
+    if row.get("first_name"):
+        name_parts.append(row["first_name"])
+    if row.get("last_name"):
+        name_parts.append(row["last_name"])
+    name = " ".join(name_parts) if name_parts else "Unknown"
+
+    identifier_str = " | ".join(identifiers) if identifiers else "No identifier"
+
+    return {
+        "row": row_num,
+        "reason": reason,
+        "status": status,
+        "name": name,
+        "identifier": identifier_str,
+        "error": result.get("error", ""),
+        "volunteer": result.get("volunteer", ""),
+    }
+
+
+def _generate_skipped_rows_log(skipped_rows: List[Dict[str, str]]) -> str:
+    """
+    Generate an itemized list of skipped rows, categorized by reason.
+
+    Similar to MijnRood's _generate_itemized_member_list but adapted for VIP import.
+
+    Args:
+        skipped_rows: List of skip info dicts from _format_skip_info
+
+    Returns:
+        Formatted string for the skipped_rows_log field
+    """
+    if not skipped_rows:
+        return ""
+
+    output = []
+    output.append("## Skipped Rows Detail\n")
+
+    # Categorize by reason
+    categories = {
+        "Member Not Found": [],
+        "Volunteer Already Exists": [],
+        "Processing Errors": [],
+        "Other": [],
+    }
+
+    for skip_info in skipped_rows:
+        reason = skip_info.get("reason", "unknown")
+        status = skip_info.get("status", "skipped")
+        row_num = skip_info.get("row", "?")
+        name = skip_info.get("name", "Unknown")
+        identifier = skip_info.get("identifier", "")
+        error = skip_info.get("error", "")
+        volunteer = skip_info.get("volunteer", "")
+
+        # Format the entry
+        if reason == "member_not_found":
+            entry = f"Row {row_num}: {name} ({identifier})"
+            categories["Member Not Found"].append(entry)
+        elif reason == "volunteer_exists":
+            entry = f"Row {row_num}: {name} - existing volunteer: {volunteer}"
+            categories["Volunteer Already Exists"].append(entry)
+        elif status == "error":
+            # Sanitize error message
+            sanitized_error = _sanitize_error_message(error) if error else "Unknown error"
+            entry = f"Row {row_num}: {name} - {sanitized_error[:100]}"
+            categories["Processing Errors"].append(entry)
+        else:
+            entry = f"Row {row_num}: {name} ({identifier}) - {reason}"
+            categories["Other"].append(entry)
+
+    # Generate output for each non-empty category
+    for category, entries in categories.items():
+        if entries:
+            output.append(f"\n### {category} ({len(entries)} rows):\n")
+            for entry in entries[:50]:  # Limit to first 50 per category
+                output.append(f"- {entry}")
+            if len(entries) > 50:
+                output.append(f"- ... and {len(entries) - 50} more")
+
+    return "\n".join(output) if output else ""
+
+
+# ==================== ACCOUNT CREATION ====================
+
+
+def _process_account_creation(
+    import_doc: Document, processed_volunteers: List[Dict[str, Any]]
+) -> Dict[str, Any]:
+    """
+    Queue account creation requests for Active volunteers only.
+
+    This upgrades existing user accounts (created during membership approval) to
+    Volunteer role profiles and creates Employee records for expense functionality.
+
+    Volunteers with Inactive or Retired status are skipped as they should not get
+    upgraded role profiles or employee records.
+
+    Args:
+        import_doc: VIP Import document
+        processed_volunteers: List of dicts with volunteer processing results
+            Each dict has: status, row, volunteer (name), volunteer_status
+
+    Returns:
+        Dict with account creation summary:
+        {
+            "active_volunteers_queued": int,
+            "inactive_skipped": int,
+            "acrs_created": int,
+            "users_linked": int,
+            "tracker_name": str or None,
+            "error": str or None
+        }
+    """
+    result = {
+        "active_volunteers_queued": 0,
+        "inactive_skipped": 0,
+        "acrs_created": 0,
+        "users_linked": 0,
+        "tracker_name": None,
+        "error": None,
+    }
+
+    try:
+        # Filter to only Active volunteers that were created or updated
+        active_member_names = []
+
+        for vol_result in processed_volunteers:
+            if vol_result.get("status") not in ("created", "updated"):
+                continue
+
+            volunteer_name = vol_result.get("volunteer")
+            if not volunteer_name:
+                continue
+
+            # Get volunteer status
+            volunteer_status = frappe.db.get_value("Volunteer", volunteer_name, "status")
+
+            if volunteer_status == "Active":
+                # Get the linked member
+                member_name = frappe.db.get_value("Volunteer", volunteer_name, "member")
+                if member_name:
+                    active_member_names.append(member_name)
+                    result["active_volunteers_queued"] += 1
+            else:
+                # Inactive, Retired, or other non-active status - skip account upgrade
+                result["inactive_skipped"] += 1
+                frappe.logger().debug(
+                    f"[VIP Import] Skipping account creation for {volunteer_name} "
+                    f"(status: {volunteer_status})"
+                )
+
+        if not active_member_names:
+            frappe.logger().info("[VIP Import] No active volunteers to process for account creation")
+            return result
+
+        frappe.logger().info(
+            f"[VIP Import] Queuing account creation for {len(active_member_names)} active volunteers "
+            f"({result['inactive_skipped']} inactive/retired skipped)"
+        )
+
+        # Queue account creation with Volunteer role profile and employee creation
+        acr_result = queue_bulk_account_creation_for_members(
+            member_names=active_member_names,
+            roles=["Verenigingen Member", "Verenigingen Volunteer"],
+            role_profile="Verenigingen Volunteer",
+            batch_size=50,
+            priority="Low",
+            create_employee=True,  # Volunteers need Employee records for expenses
+        )
+
+        if acr_result.get("success"):
+            result["acrs_created"] = acr_result.get("requests_created", 0)
+            result["users_linked"] = acr_result.get("users_linked", 0)
+            result["tracker_name"] = acr_result.get("tracker_name")
+
+            frappe.logger().info(
+                f"[VIP Import] Account creation queued: {result['acrs_created']} ACRs created, "
+                f"{result['users_linked']} users linked, tracker: {result['tracker_name']}"
+            )
+        else:
+            result["error"] = acr_result.get("error", "Unknown error during account creation")
+            frappe.log_error(
+                f"VIP Import account creation failed: {result['error']}",
+                "VIP Import Account Creation Error",
+            )
+
+    except Exception as e:
+        result["error"] = str(e)
+        frappe.log_error(
+            f"VIP Import account creation error: {str(e)}\n{frappe.get_traceback()}",
+            "VIP Import Account Creation Error",
+        )
+
+    return result
+
+
 # ==================== BACKGROUND JOB ====================
 
 
@@ -616,6 +842,8 @@ def process_import_background(import_doc_name: str, test_mode: bool = False):
             "members_created": 0,
         }
         errors = []
+        processed_volunteers = []  # Track for account creation
+        skipped_rows = []  # Track skipped rows for detailed logging
         total_rows = len(mapped_data)
 
         import_doc.db_set("total_rows", total_rows)
@@ -626,13 +854,28 @@ def process_import_background(import_doc_name: str, test_mode: bool = False):
         for i, row in enumerate(mapped_data):
             result = _process_single_row(row, import_doc, stats)
 
+            # Track volunteer results for account creation
+            if result.get("status") in ("created", "updated"):
+                processed_volunteers.append(result)
+
+            # Track skipped rows for detailed logging
+            if result.get("status") == "skipped":
+                skip_info = _format_skip_info(row, result)
+                skipped_rows.append(skip_info)
+
             if result.get("status") == "error":
                 errors.append(f"Row {result['row']}: {result['error']}")
+                # Also track errors in skipped rows
+                skip_info = _format_skip_info(row, result)
+                skipped_rows.append(skip_info)
 
             # Update progress every batch_size rows
             if (i + 1) % batch_size == 0 or (i + 1) == total_rows:
                 _update_progress(import_doc_name, i + 1, total_rows, stats)
                 frappe.db.commit()
+
+        # Process account creation for Active volunteers
+        acr_result = _process_account_creation(import_doc, processed_volunteers)
 
         # Finalize
         import_doc.reload()
@@ -642,6 +885,18 @@ def process_import_background(import_doc_name: str, test_mode: bool = False):
         import_doc.db_set("volunteers_skipped", stats["volunteers_skipped"])
         import_doc.db_set("members_not_found", stats["members_not_found"])
         import_doc.db_set("members_created", stats["members_created"])
+
+        # Set account creation tracking fields
+        import_doc.db_set("acrs_created", acr_result.get("acrs_created", 0))
+        import_doc.db_set("acrs_queued_for_active", acr_result.get("active_volunteers_queued", 0))
+        import_doc.db_set("users_upgraded", acr_result.get("users_linked", 0))
+        if acr_result.get("tracker_name"):
+            import_doc.db_set("bulk_operation_tracker", acr_result["tracker_name"])
+
+        # Set skipped rows log
+        if skipped_rows:
+            skipped_rows_log = _generate_skipped_rows_log(skipped_rows)
+            import_doc.db_set("skipped_rows_log", skipped_rows_log)
 
         # Set summary
         summary_parts = [
@@ -654,6 +909,29 @@ def process_import_background(import_doc_name: str, test_mode: bool = False):
             summary_parts.append(f"Members created: {stats['members_created']}")
         if stats["members_not_found"] > 0:
             summary_parts.append(f"Members not found: {stats['members_not_found']}")
+
+        # Add account creation summary
+        if acr_result.get("active_volunteers_queued", 0) > 0:
+            summary_parts.append("")
+            summary_parts.append("--- Account Creation ---")
+            summary_parts.append(f"Active volunteers queued: {acr_result['active_volunteers_queued']}")
+            if acr_result.get("inactive_skipped", 0) > 0:
+                summary_parts.append(f"Inactive/Retired skipped: {acr_result['inactive_skipped']}")
+            if acr_result.get("acrs_created", 0) > 0:
+                summary_parts.append(f"Account creation requests: {acr_result['acrs_created']}")
+            if acr_result.get("users_linked", 0) > 0:
+                summary_parts.append(f"Users linked (already had accounts): {acr_result['users_linked']}")
+            if acr_result.get("tracker_name"):
+                summary_parts.append(f"Progress tracker: {acr_result['tracker_name']}")
+        elif acr_result.get("inactive_skipped", 0) > 0:
+            summary_parts.append("")
+            summary_parts.append("--- Account Creation ---")
+            summary_parts.append(
+                f"All {acr_result['inactive_skipped']} volunteers have Inactive/Retired status - no account upgrades needed"
+            )
+
+        if acr_result.get("error"):
+            summary_parts.append(f"Account creation error: {acr_result['error']}")
 
         import_doc.db_set("import_summary", "\n".join(summary_parts))
 
