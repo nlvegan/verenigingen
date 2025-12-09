@@ -900,9 +900,7 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
 
             if member_names:
                 placeholders = ", ".join(["%s"] * len(member_names))
-                # Delete any remaining child tables
-                frappe.db.sql(f"DELETE FROM `tabMember Skill` WHERE parent IN ({placeholders})", member_names)
-                # Delete members
+                # Delete members (child tables cascade automatically in Frappe)
                 frappe.db.sql(f"DELETE FROM `tabMember` WHERE name IN ({placeholders})", member_names)
                 results["members"]["deleted"] = len(member_names)
 
