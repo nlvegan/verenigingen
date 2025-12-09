@@ -395,12 +395,21 @@ class MembershipCreationService(StatelessService):
             MembershipDuesSchedule,
         )
 
+        # Get CSV import custom fee if set (this is set by _set_csv_import_custom_fee)
+        csv_custom_fee = getattr(member_doc, "csv_import_custom_fee", None)
+        csv_custom_fee_reason = getattr(member_doc, "csv_import_custom_fee_reason", None)
+
         try:
             schedule_name = MembershipDuesSchedule.create_from_template(
-                member_doc.name, membership_type=membership_type.name, membership_name=membership.name
+                member_doc.name,
+                membership_type=membership_type.name,
+                membership_name=membership.name,
+                custom_amount=csv_custom_fee,
+                custom_amount_reason=csv_custom_fee_reason,
             )
             self.logger.info(
                 f"MembershipCreationService: Created dues schedule {schedule_name} for {member_doc.name}"
+                + (f" with custom amount €{csv_custom_fee}" if csv_custom_fee else "")
             )
         except Exception as e:
             self.logger.error(f"MembershipCreationService: Failed to create dues schedule: {str(e)}")
