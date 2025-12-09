@@ -20,8 +20,87 @@ const fs = require('fs');
 const path = require('path');
 
 /**
+ * Dynamically determines the project root directory.
+ * Works both locally and in GitHub Actions CI environment.
+ * @returns {string} Absolute path to the verenigingen app root
+ */
+function getProjectRoot() {
+	// Start from this file's directory and traverse up to find the project root
+	// This file is at: verenigingen/tests/setup/controller-loader.js
+	// Project root is 3 levels up: verenigingen (app root)
+	const thisDir = __dirname;
+
+	// Go up from tests/setup to the app root (verenigingen/)
+	let projectRoot = path.resolve(thisDir, '..', '..', '..');
+
+	// Validate we found the right directory by checking for package.json or pyproject.toml
+	if (fs.existsSync(path.join(projectRoot, 'pyproject.toml')) ||
+	    fs.existsSync(path.join(projectRoot, 'package.json'))) {
+		return projectRoot;
+	}
+
+	// Fallback: check for verenigingen/hooks.py as marker
+	const hooksPath = path.join(projectRoot, 'verenigingen', 'hooks.py');
+	if (fs.existsSync(hooksPath)) {
+		return projectRoot;
+	}
+
+	// Last resort fallback for backwards compatibility
+	const fallbackPath = '/home/frappe/frappe-bench/apps/verenigingen';
+	if (fs.existsSync(fallbackPath)) {
+		return fallbackPath;
+	}
+
+	throw new Error(
+		`Could not determine project root. Searched from: ${thisDir}`
+	);
+}
+
+// Cache the project root for performance
+let _projectRoot = null;
+
+/**
+ * Gets the cached project root or computes it once
+ * @returns {string} Project root path
+ */
+function getCachedProjectRoot() {
+	if (_projectRoot === null) {
+		_projectRoot = getProjectRoot();
+	}
+	return _projectRoot;
+}
+
+/**
+ * Resolves a controller path that may be relative or use the old hardcoded format.
+ * Supports both:
+ * - Relative paths: 'verenigingen/doctype/member/member.js'
+ * - Old absolute paths: '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/...'
+ * @param {string} inputPath - The path to resolve
+ * @returns {string} Absolute path to the controller
+ */
+function resolveControllerPath(inputPath) {
+	const projectRoot = getCachedProjectRoot();
+
+	// If it's already an absolute path
+	if (path.isAbsolute(inputPath)) {
+		// Check if it's the old hardcoded format and convert it
+		const oldPrefix = '/home/frappe/frappe-bench/apps/verenigingen/';
+		if (inputPath.startsWith(oldPrefix)) {
+			// Strip the old prefix and resolve relative to actual project root
+			const relativePart = inputPath.substring(oldPrefix.length);
+			return path.join(projectRoot, relativePart);
+		}
+		// Otherwise return as-is (already absolute)
+		return inputPath;
+	}
+
+	// Relative path - resolve from project root
+	return path.join(projectRoot, inputPath);
+}
+
+/**
  * Loads a Frappe controller file and extracts testable event handlers
- * @param {string} controllerPath - Path to the controller file
+ * @param {string} controllerPath - Path to the controller file (relative or absolute)
  * @returns {Object} Extracted event handlers organized by DocType
  */
 function loadFrappeController(controllerPath) {
@@ -33,13 +112,14 @@ function loadFrappeController(controllerPath) {
 		throw new Error('Controller path must be a non-empty string');
 	}
 
-	// Ensure absolute path and validate it's within expected directory structure
-	const absolutePath = path.resolve(controllerPath);
-	const expectedBasePath = '/home/frappe/frappe-bench/apps/verenigingen';
+	// Resolve the path (handles both relative and old hardcoded absolute paths)
+	const absolutePath = resolveControllerPath(controllerPath);
+	const projectRoot = getCachedProjectRoot();
 
-	if (!absolutePath.startsWith(expectedBasePath)) {
+	// Validate path is within project directory
+	if (!absolutePath.startsWith(projectRoot)) {
 		throw new Error(
-			`Controller file must be within project directory: ${absolutePath}`
+			`Controller file must be within project directory: ${absolutePath} (project root: ${projectRoot})`
 		);
 	}
 
@@ -473,5 +553,8 @@ module.exports = {
 	validateControllerEvents,
 	loadMultipleControllers,
 	createControllerTester,
-	setupMinimalFrappeEnvironment
+	setupMinimalFrappeEnvironment,
+	// Path resolution utilities for test files
+	getProjectRoot: getCachedProjectRoot,
+	resolveControllerPath
 };
