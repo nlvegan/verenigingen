@@ -59,6 +59,7 @@ class TestMembership(EnhancedTestCase):
         self.membership_type.currency = "EUR"
         self.membership_type.is_active = 1
         self.membership_type.allow_auto_renewal = 1
+        self.membership_type.role_profile = "Verenigingen Member"  # Required field
         # Template will be set after creation
         self.membership_type.insert()
 

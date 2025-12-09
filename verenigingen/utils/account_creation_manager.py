@@ -1070,9 +1070,9 @@ class AccountCreationManager:
             return
 
         try:
-            from verenigingen.utils.member_account_service import set_member_user_modules
+            from verenigingen.services.member.account.member_role_service import get_member_role_service
 
-            set_member_user_modules(self.created_user)
+            get_member_role_service().set_member_user_modules(self.created_user)
             frappe.logger().info(f"Module access configured for user {self.created_user}")
 
         except Exception as e:
@@ -1579,9 +1579,7 @@ def queue_bulk_account_creation_for_members(
                 [tracker.name] + created_requests,
             )
             frappe.db.commit()
-            frappe.logger().info(
-                f"Linked {len(created_requests)} ACRs to tracker {tracker.name}"
-            )
+            frappe.logger().info(f"Linked {len(created_requests)} ACRs to tracker {tracker.name}")
 
         # Split requests into batches
         total_requests = len(created_requests)

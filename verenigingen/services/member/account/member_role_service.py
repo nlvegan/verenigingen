@@ -45,12 +45,16 @@ class MemberRoleService(StatelessService):
         """Initialize the member role service."""
         super().__init__(service_name="MemberRoleService")
 
-    def add_member_roles_to_user(self, user_name: str) -> Optional[str]:
+    def add_member_roles_to_user(
+        self, user_name: str, role_profile_name: Optional[str] = None
+    ) -> Optional[str]:
         """
         Add appropriate role profile for a member user to access portal pages.
 
         Args:
             user_name: Username/email of the user
+            role_profile_name: Optional role profile to assign. If not provided,
+                              defaults to "Verenigingen Member"
 
         Returns:
             Optional[str]: Username if successful, None if failed
@@ -63,8 +67,9 @@ class MemberRoleService(StatelessService):
             if not frappe.has_permission("User", "write"):
                 frappe.throw(_("Insufficient permissions to modify user roles"))
 
-            # Check if Verenigingen Member role profile exists
-            role_profile_name = "Verenigingen Member"
+            # Use provided role profile or default to Verenigingen Member
+            if not role_profile_name:
+                role_profile_name = "Verenigingen Member"
             if not frappe.db.exists("Role Profile", role_profile_name):
                 self.logger.warning(
                     f"Role Profile {role_profile_name} does not exist. Creating basic roles manually."

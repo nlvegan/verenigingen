@@ -209,10 +209,21 @@ def get_form_data():
                         "membership_type_name",
                         "description",
                         "minimum_amount",
-                        "billing_period",
+                        "dues_schedule_template",
                     ],
                     order_by="minimum_amount",
                 )
+                # Enrich with billing_frequency from linked template
+                for mt in membership_types:
+                    mt["billing_frequency"] = "Annual"  # Default
+                    if mt.get("dues_schedule_template"):
+                        template_frequency = frappe.db.get_value(
+                            "Membership Dues Schedule",
+                            mt["dues_schedule_template"],
+                            "billing_frequency",
+                        )
+                        if template_frequency:
+                            mt["billing_frequency"] = template_frequency
             except Exception as fallback_e:
                 frappe.log_error(f"Error getting basic membership types: {str(fallback_e)}")
                 membership_types = []
@@ -697,10 +708,7 @@ def create_volunteer_record(member):
         return None
 
     try:
-        from verenigingen.utils.secure_operations import (
-            get_system_user_for_operation,
-            secure_user_context,
-        )
+        from verenigingen.utils.secure_operations import get_system_user_for_operation, secure_user_context
 
         # Check if a volunteer linked to this member already exists (handles reapplication case)
         existing_volunteer = frappe.db.get_value("Volunteer", {"member": member.name}, "name")
@@ -773,14 +781,17 @@ def get_membership_fee_info(membership_type):
     try:
         membership_type_doc = frappe.get_doc("Membership Type", membership_type)
 
-        # Get standard amount from template, not minimum_amount
+        # Get standard amount and billing frequency from template
         standard_amount = 0
+        billing_frequency = "Annual"  # Default
         if membership_type_doc.dues_schedule_template:
             try:
                 template = frappe.get_doc(
                     "Membership Dues Schedule", membership_type_doc.dues_schedule_template
                 )
                 standard_amount = template.dues_rate or template.suggested_amount or 0
+                # Get billing frequency from template (source of truth)
+                billing_frequency = template.billing_frequency or "Annual"
             except Exception:
                 pass
 
@@ -794,11 +805,7 @@ def get_membership_fee_info(membership_type):
             "standard_amount": standard_amount,
             "currency": _get_membership_type_currency(membership_type_doc),
             "description": membership_type_doc.description,
-            "billing_period": getattr(
-                membership_type_doc,
-                "billing_period",
-                getattr(membership_type_doc, "billing_frequency", "Annual"),
-            ),
+            "billing_frequency": billing_frequency,
         }
 
     except Exception as e:
@@ -810,14 +817,17 @@ def get_membership_type_details(membership_type):
     try:
         membership_type_doc = frappe.get_doc("Membership Type", membership_type)
 
-        # Get base amount from template, not minimum_amount
+        # Get base amount and billing frequency from template
         base_amount = 0
+        billing_frequency = "Annual"  # Default
         if membership_type_doc.dues_schedule_template:
             try:
                 template = frappe.get_doc(
                     "Membership Dues Schedule", membership_type_doc.dues_schedule_template
                 )
                 base_amount = template.dues_rate or template.suggested_amount or 0
+                # Get billing frequency from template (source of truth)
+                billing_frequency = template.billing_frequency or "Annual"
             except Exception:
                 pass
 
@@ -852,11 +862,7 @@ def get_membership_type_details(membership_type):
             "description": membership_type_doc.description,
             "amount": base_amount,  # Use template-based amount, not minimum_amount
             "currency": _get_membership_type_currency(membership_type_doc),
-            "billing_period": getattr(
-                membership_type_doc,
-                "billing_period",
-                getattr(membership_type_doc, "billing_frequency", "Annual"),
-            ),
+            "billing_frequency": billing_frequency,
             "allow_custom_amount": True,  # Enable custom amounts for all membership types
             # minimum_amount usage here is correct - it's for validation bounds
             "minimum_amount": membership_type_doc.minimum_amount * 0.5,  # 50% of constraint floor

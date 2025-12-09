@@ -198,7 +198,7 @@ class MembershipCreationService(StatelessService):
 
     def _validate_and_get_membership_type(self, member_doc):
         """
-        Validate that member has a selected membership type.
+        Validate that member has a selected membership type with a valid dues schedule template.
 
         Args:
             member_doc: Member document instance
@@ -207,12 +207,33 @@ class MembershipCreationService(StatelessService):
             Document: Membership Type document
 
         Raises:
-            frappe.ValidationError: If no membership type selected
+            frappe.ValidationError: If no membership type selected or no template configured
         """
         if not member_doc.selected_membership_type:
             frappe.throw(_("No membership type selected for this application"))
 
-        return frappe.get_doc("Membership Type", member_doc.selected_membership_type)
+        membership_type = frappe.get_doc("Membership Type", member_doc.selected_membership_type)
+
+        # Validate that membership type has a dues schedule template
+        # This is required for the new category-based membership type system
+        if not membership_type.dues_schedule_template:
+            frappe.throw(
+                _(
+                    "Membership Type '{0}' has no dues schedule template configured. "
+                    "Please assign a template to this membership type before approving applications."
+                ).format(membership_type.name)
+            )
+
+        # Validate that the template exists
+        if not frappe.db.exists("Membership Dues Schedule", membership_type.dues_schedule_template):
+            frappe.throw(
+                _(
+                    "Dues schedule template '{0}' configured for membership type '{1}' does not exist. "
+                    "Please fix the membership type configuration."
+                ).format(membership_type.dues_schedule_template, membership_type.name)
+            )
+
+        return membership_type
 
     def _set_csv_import_custom_fee(self, member_doc, custom_dues_rate, custom_rate_reason):
         """

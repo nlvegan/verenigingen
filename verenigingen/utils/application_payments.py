@@ -32,7 +32,8 @@ def create_membership_invoice_with_amount(member, membership, amount):
     # Calculate coverage period for the first billing cycle
     from frappe.utils import add_months, add_years, getdate
 
-    billing_period = getattr(membership_type, "billing_period", "Annual")
+    # billing_period is optional on membership type - default to Annual if not set
+    billing_period = getattr(membership_type, "billing_period", None) or "Annual"
     period_start = today()
 
     # Calculate period end based on billing frequency

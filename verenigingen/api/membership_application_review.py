@@ -21,6 +21,7 @@ from verenigingen.services.member.validation.member_duplicate_detection_service 
     check_duplicate_for_approval,
 )
 from verenigingen.utils.member_utils import get_volunteer_for_member
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.secure_operations import secure_document_operation
 
 # Import security decorators
@@ -518,23 +519,53 @@ def safe_log_error(message, title=None):
 
 def create_secure_user_account_for_member(member, activate_as_volunteer=False):
     """
-    Create user account for approved member using secure AccountCreationManager with proper role profiles
+    Create user account for approved member using secure AccountCreationManager with proper role profiles.
 
     Args:
         member: Member document
         activate_as_volunteer: If True, assign Volunteer role profile; otherwise Member role profile
+
+    Returns:
+        dict: Result dictionary with keys: success, message, user, action, error, account_request
+              (Compatible with existing callers that use .get() access)
+
+    Note:
+        Internally uses OperationResult pattern but returns dict for backward compatibility.
+        Callers can use result.get("success"), result.get("action"), etc.
     """
     try:
-        from verenigingen.utils.account_creation_manager import (
-            AccountCreationManager,
-            queue_account_creation_for_member,
-        )
+        from verenigingen.utils.account_creation_manager import queue_account_creation_for_member
 
-        # Determine role profile based on explicit activation flag
-        role_profile = "Verenigingen Member"  # Default role profile for regular members
+        # Determine role profile from membership type, with fallback to default
+        # The membership type's role_profile field defines what permissions members get
+        role_profile = None
+        if member.selected_membership_type:
+            # Validate membership type exists
+            if not frappe.db.exists("Membership Type", member.selected_membership_type):
+                frappe.logger().error(
+                    f"Membership Type '{member.selected_membership_type}' no longer exists for member {member.name}"
+                )
+            else:
+                role_profile = frappe.db.get_value(
+                    "Membership Type", member.selected_membership_type, "role_profile"
+                )
+                # Validate retrieved role_profile exists
+                if role_profile and not frappe.db.exists("Role Profile", role_profile):
+                    frappe.logger().warning(
+                        f"Role Profile '{role_profile}' configured for Membership Type "
+                        f"'{member.selected_membership_type}' does not exist - using default"
+                    )
+                    role_profile = None
+
+        if not role_profile:
+            role_profile = "Verenigingen Member"  # Fallback default
+            frappe.logger().info(
+                f"Using default role profile 'Verenigingen Member' for member {member.name} "
+                f"(membership_type: {member.selected_membership_type or 'not set'})"
+            )
         additional_roles = []  # Only for roles not covered by role profiles
 
-        # Only assign Volunteer profile if explicitly requested via activate_as_volunteer parameter
+        # Override with Volunteer profile if explicitly requested via activate_as_volunteer parameter
         if activate_as_volunteer:
             # Verify volunteer record exists before assigning volunteer profile
             volunteer_name = get_volunteer_for_member(member.name)
@@ -584,18 +615,19 @@ def create_secure_user_account_for_member(member, activate_as_volunteer=False):
                     f"User linkage verification failed: expected {member.email}, got {linked_user}",
                     "Account Linking Verification",
                 )
-                return {
-                    "success": False,
-                    "message": "Failed to link user account",
-                    "error": "Linkage verification failed",
-                }
+                return OperationResult.fail(
+                    _("Failed to link user account"),
+                    errors=["Linkage verification failed"],
+                    user=None,
+                    action="link_failed",
+                ).to_dict()
 
-            return {
-                "success": True,
-                "message": "Linked to existing user account",
-                "user": member.email,
-                "action": "linked_existing",
-            }
+            return OperationResult.ok(
+                member.email,
+                message=_("Linked to existing user account"),
+                user=member.email,
+                action="linked_existing",
+            ).to_dict()
 
         # Check for existing account creation request
         existing_request = frappe.db.get_value(
@@ -608,41 +640,57 @@ def create_secure_user_account_for_member(member, activate_as_volunteer=False):
             frappe.logger().info(
                 f"Account creation request already exists for {member.name}: {existing_request}"
             )
-            return {
-                "success": True,
-                "message": "Account creation already in progress or completed",
-                "user": None,
-                "action": "existing_request",
-                "account_request": existing_request,
-            }
+            return OperationResult.ok(
+                existing_request,
+                message=_("Account creation already in progress or completed"),
+                user=None,
+                action="existing_request",
+                account_request=existing_request,
+            ).to_dict()
 
-        # Create new account creation request
-        account_request = queue_account_creation_for_member(
+        # Create new account creation request - this returns OperationResult
+        account_result = queue_account_creation_for_member(
             member_name=member.name,
             roles=additional_roles if additional_roles else None,
             role_profile=role_profile,
             priority="High",  # Member approval is high priority
         )
 
-        # Return compatible response structure for existing code
-        if account_request:
-            return {
-                "success": True,
-                "message": "User account creation queued successfully via secure system",
-                "user": None,  # Will be set when background job completes
-                "action": "queued_secure",
-                "account_request": (
-                    account_request.name if hasattr(account_request, "name") else str(account_request)
-                ),
-            }
+        # Handle OperationResult from queue_account_creation_for_member
+        if account_result and account_result.success:
+            request_name = (
+                account_result.data.get("request")
+                if isinstance(account_result.data, dict)
+                else str(account_result.data)
+                if account_result.data
+                else None
+            )
+            return OperationResult.ok(
+                request_name,
+                message=_("User account creation queued successfully via secure system"),
+                user=None,  # Will be set when background job completes
+                action="queued_secure",
+                account_request=request_name,
+            ).to_dict()
         else:
-            return {"success": False, "error": "Failed to queue account creation request"}
+            error_msg = account_result.error_message if account_result else "Unknown error"
+            return OperationResult.fail(
+                _("Failed to queue account creation request"),
+                errors=[error_msg],
+                user=None,
+                action="queue_failed",
+            ).to_dict()
 
     except Exception as e:
         # Create shortened error message to avoid log title length issues
         error_msg = str(e)[:100] + "..." if len(str(e)) > 100 else str(e)
         frappe.log_error(f"Account creation error for {member.name}: {error_msg}")
-        return {"success": False, "error": error_msg}
+        return OperationResult.fail(
+            _("Account creation failed"),
+            errors=[error_msg],
+            user=None,
+            action="exception",
+        ).to_dict()
 
 
 def activate_volunteer_record(member):

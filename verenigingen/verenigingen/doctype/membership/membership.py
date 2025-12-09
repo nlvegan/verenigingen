@@ -413,8 +413,8 @@ class Membership(Document):
         if self.membership_type and self.start_date:
             membership_type = frappe.get_doc("Membership Type", self.membership_type)
 
-            # Get duration from membership type
-            billing_period = getattr(membership_type, "billing_period", "Annual")
+            # Get duration from membership type (billing_period is optional)
+            billing_period = getattr(membership_type, "billing_period", None) or "Annual"
             if billing_period != "Lifetime":
                 billing_period_in_months = getattr(membership_type, "billing_period_in_months", None)
                 months = self.get_months_from_period(billing_period, billing_period_in_months)
@@ -734,7 +734,7 @@ class Membership(Document):
                 "Custom": "Annual",  # Custom periods default to annual
             }
 
-            billing_period = getattr(membership_type, "billing_period", "Annual")
+            billing_period = getattr(membership_type, "billing_period", None) or "Annual"
             dues_schedule.billing_frequency = period_mapping.get(billing_period, "Annual")
 
         # Set contribution mode - use proper values

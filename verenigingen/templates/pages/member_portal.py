@@ -432,9 +432,9 @@ def get_payment_status(member, membership):
         billing_frequency = "Monthly"  # Default fallback
         if membership:
             try:
-                # Get the billing period from the Membership Type doctype
+                # Get the billing period from the Membership Type doctype (optional field)
                 membership_type_doc = frappe.get_doc("Membership Type", membership.membership_type)
-                billing_period = getattr(membership_type_doc, "billing_period", "Monthly")
+                billing_period = getattr(membership_type_doc, "billing_period", None) or "Monthly"
 
                 # Map billing periods to display names
                 billing_frequency_map = {

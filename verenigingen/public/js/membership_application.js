@@ -92,6 +92,28 @@
  * Updated to use the Membership Dues Schedule system.
  */
 
+/**
+ * Get the billing period from a membership type object.
+ * Provides consistent fallback chain across the application:
+ * 1. billing_frequency (from dues schedule template - preferred)
+ * 2. billing_period (legacy field on membership type)
+ * 3. legacy_period (very old field, rarely used)
+ * 4. default value (typically 'year')
+ *
+ * @param {Object} membershipType - Membership type object from API
+ * @param {string} [defaultValue='year'] - Default value if no period found
+ * @returns {string} The billing period (e.g., 'Annual', 'Monthly', 'year')
+ */
+function getBillingPeriod(membershipType, defaultValue = 'year') {
+	if (!membershipType) {
+		return defaultValue;
+	}
+	return membershipType.billing_frequency
+		|| membershipType.billing_period
+		|| membershipType.legacy_period
+		|| defaultValue;
+}
+
 // Form Validator class - needed by BaseStep
 class FormValidator {
 	validateRequired(selector) {
@@ -2085,9 +2107,8 @@ class _MembershipApplication {
 		const targetPeriod = billingPeriodMapping[paymentInterval];
 		if (targetPeriod) {
 			for (const membershipType of membershipTypes) {
-				// Updated to use billing_period
-				const billingPeriod
-          = membershipType.billing_period || membershipType.legacy_period;
+				// Use helper for consistent billing period resolution
+				const billingPeriod = getBillingPeriod(membershipType);
 				if (
 					billingPeriod
           && billingPeriod.toLowerCase() === targetPeriod.toLowerCase()
@@ -2289,7 +2310,7 @@ class _MembershipApplication {
 
 				// Format amount with billing period
 				const amount = data.custom_contribution_fee || membershipType.amount;
-				const period = membershipType.billing_period || 'year';
+				const period = getBillingPeriod(membershipType);
 				// Use simple currency formatting to avoid HTML structure issues
 				const currency = membershipType.currency || 'EUR';
 				const formattedAmount = `${currency} ${parseFloat(amount).toFixed(2)}`;
@@ -2534,7 +2555,7 @@ class _MembershipApplication {
 		const amount = type.amount || 0;
 		const membershipTypeName
       = type.membership_type_name || type.name || 'Unknown';
-		const billingPeriod = type.billing_period || 'year';
+		const billingPeriod = getBillingPeriod(type);
 
 		// Get contribution options (new structure)
 		const contributionOptions = type.contribution_options || {};
@@ -2938,9 +2959,8 @@ class _MembershipApplication {
 			? membershipTypeDetails.membership_type_name || membershipTypeDetails.name
 			: membershipType;
 
-		const billingPeriod = membershipTypeDetails
-			? membershipTypeDetails.billing_period || 'year'
-			: 'year';
+		// Use helper for consistent billing period resolution
+		const billingPeriod = getBillingPeriod(membershipTypeDetails);
 
 		const periodText
       = billingPeriod.toLowerCase() === 'quarterly'

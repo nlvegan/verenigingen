@@ -16,7 +16,9 @@
     "pricing_section",
     "minimum_amount",
     "billing_settings_section",
-    "dues_schedule_template"
+    "dues_schedule_template",
+    "permissions_section",
+    "role_profile"
   ],
   "fields": [
     {
@@ -44,13 +46,12 @@
       "fieldtype": "Column Break"
     },
     {
-      "default": "Annual",
       "fieldname": "billing_period",
       "fieldtype": "Select",
       "in_list_view": 1,
-      "label": "Billing Period",
-      "options": "Daily\nMonthly\nQuarterly\nBiannual\nAnnual\nLifetime\nCustom",
-      "reqd": 1
+      "label": "Default Billing Period",
+      "options": "\nDaily\nMonthly\nQuarterly\nBiannual\nAnnual\nLifetime\nCustom",
+      "description": "Optional default billing period. If not set, billing frequency is determined by the linked Dues Schedule Template."
     },
     {
       "depends_on": "eval:doc.billing_period=='Custom'",
@@ -99,6 +100,19 @@
       "reqd": 0,
       "get_query": "verenigingen.verenigingen.doctype.membership_type.membership_type.get_template_query",
       "description": "Template dues schedule to use for new memberships of this type"
+    },
+    {
+      "fieldname": "permissions_section",
+      "fieldtype": "Section Break",
+      "label": "User Permissions"
+    },
+    {
+      "fieldname": "role_profile",
+      "fieldtype": "Link",
+      "label": "Role Profile",
+      "options": "Role Profile",
+      "reqd": 1,
+      "description": "Role profile assigned to members with this membership type. Determines their system permissions."
     }
   ],
   "modified": "2023-01-01 00:00:00.000000",

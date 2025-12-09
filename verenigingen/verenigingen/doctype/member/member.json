@@ -45,6 +45,8 @@
   "termination_status_html",
   "fee_change_history_section",
   "fee_change_history",
+  "membership_type_history_section",
+  "membership_type_history",
   "payments_tab",
   "payment_method_section",
   "payment_method",
@@ -752,6 +754,19 @@
    "fieldtype": "Table",
    "label": "Dues Rate History",
    "options": "Member Fee Change History",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.membership_type_history && doc.membership_type_history.length > 0",
+   "fieldname": "membership_type_history_section",
+   "fieldtype": "Section Break",
+   "label": "Membership Type History"
+  },
+  {
+   "fieldname": "membership_type_history",
+   "fieldtype": "Table",
+   "label": "Membership Type History",
+   "options": "Membership Type History Entry",
    "read_only": 1
   },
   {

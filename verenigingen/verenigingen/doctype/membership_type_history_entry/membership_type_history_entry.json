@@ -1,0 +1,74 @@
+{
+  "app": "verenigingen",
+  "creation": "2025-12-09 00:00:00.000000",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "membership_type",
+    "from_date",
+    "to_date",
+    "column_break_1",
+    "changed_by",
+    "reason",
+    "amendment_request"
+  ],
+  "fields": [
+    {
+      "fieldname": "membership_type",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "label": "Membership Type",
+      "options": "Membership Type",
+      "reqd": 1
+    },
+    {
+      "fieldname": "from_date",
+      "fieldtype": "Date",
+      "in_list_view": 1,
+      "label": "From Date",
+      "reqd": 1
+    },
+    {
+      "fieldname": "to_date",
+      "fieldtype": "Date",
+      "in_list_view": 1,
+      "label": "To Date",
+      "description": "Leave empty for current membership type"
+    },
+    {
+      "fieldname": "column_break_1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "changed_by",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "label": "Changed By",
+      "options": "User",
+      "reqd": 1
+    },
+    {
+      "fieldname": "reason",
+      "fieldtype": "Small Text",
+      "label": "Reason"
+    },
+    {
+      "fieldname": "amendment_request",
+      "fieldtype": "Link",
+      "label": "Amendment Request",
+      "options": "Contribution Amendment Request"
+    }
+  ],
+  "istable": 1,
+  "modified": "2025-12-09 00:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Verenigingen",
+  "name": "Membership Type History Entry",
+  "owner": "Administrator",
+  "permissions": [],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1
+}

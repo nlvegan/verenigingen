@@ -54,7 +54,7 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
         })
         self.membership_type = self.factory.ensure_membership_type("Standard Member", {
             "amount": 25.00,
-            "billing_frequency": "Monthly"
+            "billing_period": "Monthly"  # Factory expects billing_period, not billing_frequency
         })
         
         # Create test admin user for approval workflow

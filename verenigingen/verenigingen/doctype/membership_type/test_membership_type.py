@@ -25,6 +25,7 @@ class TestMembershipType(EnhancedTestCase):
             "billing_period": "Annual",
             "minimum_amount": 120,
             "is_active": 1,
+            "role_profile": "Verenigingen Member",
         }
 
         # Enhanced Test Factory will handle cleanup automatically
@@ -91,6 +92,7 @@ class TestMembershipType(EnhancedTestCase):
         first_type.billing_period = "Annual"
         first_type.minimum_amount = 100
         first_type.default_for_new_members = 1
+        first_type.role_profile = "Verenigingen Member"
         first_type.insert()
 
         # Create a second membership type
@@ -99,6 +101,7 @@ class TestMembershipType(EnhancedTestCase):
         second_type.billing_period = "Annual"
         second_type.minimum_amount = 120
         second_type.default_for_new_members = 1
+        second_type.role_profile = "Verenigingen Member"
         second_type.insert()
 
         # The business logic for ensuring only one default doesn't appear to be implemented

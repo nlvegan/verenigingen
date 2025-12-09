@@ -226,9 +226,9 @@ class ContributionAmendmentRequest(Document):
             # Already set above from dues schedule
             pass
         elif membership.membership_type:
-            # Get billing interval from membership type
+            # Get billing interval from membership type (billing_period is optional)
             membership_type = frappe.get_doc("Membership Type", membership.membership_type)
-            self.current_billing_interval = getattr(membership_type, "billing_period", "Monthly")
+            self.current_billing_interval = getattr(membership_type, "billing_period", None) or "Monthly"
         else:
             self.current_billing_interval = "Monthly"
 
@@ -846,7 +846,7 @@ class ContributionAmendmentRequest(Document):
                     )
                     dues_schedule.billing_frequency = template.billing_frequency
                 else:
-                    # Fallback to membership type's billing period
+                    # Fallback to membership type's billing period (if set)
                     billing_period_map = {
                         "Daily": "Daily",
                         "Monthly": "Monthly",
@@ -855,11 +855,12 @@ class ContributionAmendmentRequest(Document):
                         "Annual": "Annual",
                         "Custom": "Custom",
                     }
-                    dues_schedule.billing_frequency = billing_period_map.get(
-                        membership_type_doc.billing_period, "Annual"
+                    billing_period = getattr(membership_type_doc, "billing_period", None)
+                    dues_schedule.billing_frequency = (
+                        billing_period_map.get(billing_period, "Monthly") if billing_period else "Monthly"
                     )
                     # Handle custom frequency
-                    if membership_type_doc.billing_period == "Custom" and hasattr(
+                    if billing_period == "Custom" and hasattr(
                         membership_type_doc, "billing_period_in_months"
                     ):
                         dues_schedule.custom_frequency_number = membership_type_doc.billing_period_in_months
@@ -915,73 +916,171 @@ class ContributionAmendmentRequest(Document):
         frappe.throw(_("Billing interval changes are not yet implemented"))
 
     def apply_membership_type_change(self, membership):
-        """Apply membership type change with optional fee change"""
+        """Apply membership type change with optional fee change.
+
+        This updates the existing dues schedule instead of cancelling and recreating,
+        records the type change in member history, and updates role profiles.
+        """
         try:
-            # Update the membership type
+            old_membership_type = membership.membership_type
+
+            # Update the membership type on the membership record
             membership.membership_type = self.requested_membership_type
             membership.save()
 
-            # Cancel existing dues schedule and create new one with proper billing frequency
+            # Get new membership type details for billing info
+            new_type_doc = frappe.get_doc("Membership Type", self.requested_membership_type)
+            # billing_period is optional - prefer template frequency or fall back to existing schedule frequency
+            new_billing_frequency = getattr(new_type_doc, "billing_period", None)
+            new_dues_rate = self.requested_amount or new_type_doc.minimum_amount
+
+            # Update existing dues schedule instead of cancel/recreate
             repo = DuesScheduleRepository()
-            existing_schedule_info = repo.get_active_or_paused_schedule(self.member, fields=["name"])
+            existing_schedule_info = repo.get_active_or_paused_schedule(
+                self.member, fields=["name", "dues_rate", "billing_frequency", "membership_type"]
+            )
 
             if existing_schedule_info:
-                cancel_result = repo.cancel_schedule(
-                    existing_schedule_info.name,
-                    f"Cancelled due to membership type change via amendment {self.name}",
+                update_result = repo.update_schedule_for_type_change(
+                    schedule_name=existing_schedule_info.name,
+                    new_membership_type=self.requested_membership_type,
+                    new_dues_rate=new_dues_rate,
+                    new_billing_frequency=new_billing_frequency,
+                    reason=f"Amendment {self.name}: {self.reason}",
                 )
-                if not cancel_result.success:
+                if not update_result.success:
                     frappe.throw(
-                        _("Failed to cancel existing dues schedule: {0}").format(
-                            "; ".join(cancel_result.errors)
-                        )
+                        _("Failed to update dues schedule: {0}").format("; ".join(update_result.errors))
                     )
+                self.new_dues_schedule = existing_schedule_info.name
+            else:
+                # No existing schedule - create new one
+                dues_schedule_name = self.create_dues_schedule_for_amendment()
+                self.new_dues_schedule = dues_schedule_name
 
-            # Create new dues schedule with new membership type settings
-            dues_schedule_name = self.create_dues_schedule_for_amendment()
-            self.new_dues_schedule = dues_schedule_name
+            # Update member record
+            member_doc = frappe.get_doc("Member", self.member)
+            member_doc.reload()
 
-            # Update legacy override fields if there's also a fee change
+            # Handle fee change FIRST if applicable
+            # NOTE: record_fee_change internally reloads the member document,
+            # so any in-memory changes made before it will be lost.
+            # We must call it BEFORE making other changes to member_doc.
             if self.requested_amount:
-                member_doc = frappe.get_doc("Member", self.member)
-                member_doc.reload()
-
-                # CRITICAL FIX: Use actual current member dues_rate, not amendment's stored current_amount
                 actual_current_rate = getattr(member_doc, "dues_rate", 0) or 0
 
-                # Record fee change in history before updating
+                # Record fee change in history (this reloads member_doc internally)
                 member_doc.record_fee_change(
                     {
                         "change_date": now_datetime(),
-                        "old_amount": actual_current_rate,  # Use actual current rate, not stored value
+                        "old_amount": actual_current_rate,
                         "new_amount": self.requested_amount,
                         "reason": f"Membership type change amendment {self.name}: {self.reason}",
                         "changed_by": frappe.session.user,
-                        "dues_schedule_action": f"Applied via {dues_schedule_name}",
-                        "amendment_request_name": self.name,  # For true idempotency
+                        "dues_schedule_action": f"Updated schedule {self.new_dues_schedule}",
+                        "amendment_request_name": self.name,
                     }
                 )
+
+                # Reload member_doc after record_fee_change to get latest state
+                member_doc.reload()
 
                 member_doc.dues_rate = self.requested_amount
                 member_doc.fee_override_reason = f"Amendment: {self.reason}"
                 member_doc.fee_override_date = today()
                 member_doc.fee_override_by = frappe.session.user
-                member_doc._system_update = True
-                member_result = secure_document_operation(
-                    operation="save",
-                    doc=member_doc,
-                    justification=f"Update member fee override for membership type change amendment {self.name}",
-                    required_permissions=["Member:write"],
-                )
-                if not member_result.success:
-                    frappe.throw(
-                        _("Failed to update member fee override: {0}").format("; ".join(member_result.errors))
-                    )
 
-            self.processing_notes = f"Membership type changed to {self.requested_membership_type}. New dues schedule {dues_schedule_name} created."
+            # Record membership type change in history AFTER fee change
+            # (because record_fee_change reloads the document)
+            self._record_membership_type_history(
+                member_doc=member_doc,
+                old_type=old_membership_type,
+                new_type=self.requested_membership_type,
+            )
+
+            # Update current_membership_type on member
+            member_doc.current_membership_type = self.requested_membership_type
+
+            member_doc._system_update = True
+            member_result = secure_document_operation(
+                operation="save",
+                doc=member_doc,
+                justification=f"Update member for membership type change amendment {self.name}",
+                required_permissions=["Member:write"],
+            )
+            if not member_result.success:
+                frappe.throw(_("Failed to update member: {0}").format("; ".join(member_result.errors)))
+
+            # Update role profile for the user (immediate effect)
+            self._update_member_role_profile(member_doc, old_membership_type, self.requested_membership_type)
+
+            self.processing_notes = f"Membership type changed from {old_membership_type} to {self.requested_membership_type}. Dues schedule {self.new_dues_schedule} updated."
 
         except Exception as e:
             frappe.throw(_("Error applying membership type change: {0}").format(str(e)))
+
+    def _record_membership_type_history(self, member_doc, old_type: str, new_type: str):
+        """Record membership type change in member's history table."""
+        try:
+            # Close the previous entry by setting to_date
+            for entry in member_doc.get("membership_type_history", []):
+                if not entry.to_date and entry.membership_type == old_type:
+                    entry.to_date = today()
+
+            # Add new entry for the new membership type
+            member_doc.append(
+                "membership_type_history",
+                {
+                    "membership_type": new_type,
+                    "from_date": today(),
+                    "to_date": None,  # Current type
+                    "changed_by": frappe.session.user,
+                    "reason": self.reason,
+                    "amendment_request": self.name,
+                },
+            )
+        except Exception as e:
+            frappe.log_error(
+                f"Error recording membership type history: {str(e)}", "Membership Type History Error"
+            )
+            # Don't fail the whole operation for history recording
+
+    def _update_member_role_profile(self, member_doc, old_type: str, new_type: str):
+        """Update the member's role profile based on new membership type."""
+        if not member_doc.user:
+            frappe.logger().info(
+                f"[Amendment {self.name}] Member {self.member} has no user account - skipping role profile update"
+            )
+            return
+
+        try:
+            from verenigingen.utils.membership_type_role_profile import update_membership_type_role_profile
+
+            result = update_membership_type_role_profile(
+                user=member_doc.user,
+                old_membership_type=old_type,
+                new_membership_type=new_type,
+            )
+
+            if result.get("success"):
+                frappe.logger().info(
+                    f"[Amendment {self.name}] Role profile updated for user {member_doc.user}: "
+                    f"{result.get('old_profile')} -> {result.get('new_profile')}"
+                )
+            elif result.get("no_change"):
+                frappe.logger().info(
+                    f"[Amendment {self.name}] No role profile change needed for user {member_doc.user}"
+                )
+            else:
+                frappe.logger().warning(
+                    f"[Amendment {self.name}] Failed to update role profile: {result.get('message')}"
+                )
+        except Exception as e:
+            frappe.log_error(
+                f"Error updating role profile for amendment {self.name}: {str(e)}",
+                "Membership Role Profile Error",
+            )
+            # Don't fail the whole operation for role profile update
 
     def cancel_conflicting_amendments(self):
         """Cancel conflicting amendments - only those that haven't taken effect yet"""
@@ -1159,7 +1258,7 @@ class ContributionAmendmentRequest(Document):
             elif self.membership:
                 try:
                     membership_type = frappe.get_doc("Membership Type", membership.membership_type)
-                    billing_period = getattr(membership_type, "billing_period", "Monthly")
+                    billing_period = getattr(membership_type, "billing_period", None) or "Monthly"
 
                     # Map billing period to display text and multiplier
                     period_mapping = {

@@ -444,10 +444,9 @@ def check_membership_type_billing_periods() -> OperationResult[Dict[str, Any]]:
         for mt in membership_types:
             mt_issues = []
 
-            # Check billing period
-            if not mt.billing_period:
-                mt_issues.append("No billing period set")
-            elif mt.billing_period not in ["Monthly", "Quarterly", "Annual", "Custom"]:
+            # Check billing period (optional field - only validate if set)
+            valid_periods = ["Daily", "Monthly", "Quarterly", "Biannual", "Annual", "Lifetime", "Custom"]
+            if mt.billing_period and mt.billing_period not in valid_periods:
                 mt_issues.append(f"Invalid billing period: {mt.billing_period}")
 
             # Check template

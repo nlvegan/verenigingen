@@ -639,6 +639,96 @@ class DuesScheduleRepository:
             frappe.logger().error(f"Failed to update next_invoice_date for {schedule_name}: {str(e)}")
             return False
 
+    def update_schedule_for_type_change(
+        self,
+        schedule_name: str,
+        new_membership_type: str,
+        new_dues_rate: float,
+        new_billing_frequency: str,
+        reason: str,
+    ) -> CancellationResult:
+        """
+        Update a dues schedule for membership type change.
+
+        Instead of cancelling and recreating, this updates the existing schedule
+        with new rate and billing frequency from the new membership type.
+        The change takes effect at the next billing cycle.
+
+        Args:
+            schedule_name: Schedule document name
+            new_membership_type: New membership type name
+            new_dues_rate: New dues rate amount
+            new_billing_frequency: New billing frequency
+            reason: Reason for the change (for audit trail)
+
+        Returns:
+            CancellationResult with success status and details
+        """
+        if not schedule_name:
+            return CancellationResult(
+                success=False,
+                schedule_name="",
+                message="No schedule name provided",
+                method_used="none",
+                errors=["No schedule name provided"],
+            )
+
+        try:
+            # Check write permission
+            if not frappe.has_permission(self.doctype, "write", schedule_name):
+                return CancellationResult(
+                    success=False,
+                    schedule_name=schedule_name,
+                    message="Permission denied: no write access to schedule",
+                    method_used="none",
+                    errors=["Permission denied"],
+                )
+
+            # Get the schedule document
+            schedule = frappe.get_doc(self.doctype, schedule_name)
+
+            # Store old values for logging
+            old_membership_type = schedule.membership_type
+            old_dues_rate = schedule.dues_rate
+            old_billing_frequency = schedule.billing_frequency
+
+            # Update the schedule
+            schedule.membership_type = new_membership_type
+            schedule.dues_rate = new_dues_rate
+            # Only update billing frequency if a new one is provided
+            # (billing_period is optional on membership type)
+            if new_billing_frequency:
+                schedule.billing_frequency = new_billing_frequency
+            old_freq = old_billing_frequency or "unchanged"
+            new_freq = new_billing_frequency or old_freq
+            schedule.notes = f"{schedule.notes or ''}\n[{today()}] Type change: {old_membership_type} -> {new_membership_type}. Rate: {old_dues_rate} -> {new_dues_rate}. Freq: {old_freq} -> {new_freq}. Reason: {reason}".strip()
+
+            schedule.save()
+
+            frappe.logger().info(
+                f"Updated schedule {schedule_name} for type change: "
+                f"{old_membership_type} -> {new_membership_type}, "
+                f"rate {old_dues_rate} -> {new_dues_rate}"
+            )
+
+            return CancellationResult(
+                success=True,
+                schedule_name=schedule_name,
+                message=f"Schedule updated for membership type change to {new_membership_type}",
+                method_used="update",
+                errors=[],
+            )
+
+        except Exception as e:
+            frappe.logger().error(f"Failed to update schedule {schedule_name} for type change: {str(e)}")
+            return CancellationResult(
+                success=False,
+                schedule_name=schedule_name,
+                message=str(e),
+                method_used="none",
+                errors=[str(e)],
+            )
+
     # ===== BATCH OPERATIONS =====
 
     def get_schedules_for_members(

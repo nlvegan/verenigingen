@@ -43,8 +43,8 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
 
         # Explicitly create user for treasurer
         if not frappe.db.exists("User", treasurer_member.email):
-            from verenigingen.utils.member_account_service import create_member_user_account
-            create_member_user_account(treasurer_member, send_welcome_email=False)
+            from verenigingen.services.member.account.member_user_account_service import get_member_user_account_service
+            get_member_user_account_service().create_member_user_account(treasurer_member.name, send_welcome_email=False)
             treasurer_member.reload()
 
         treasurer_volunteer = self.create_test_volunteer(
@@ -105,8 +105,8 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
 
         # Explicitly create user for treasurer
         if not frappe.db.exists("User", treasurer_member.email):
-            from verenigingen.utils.member_account_service import create_member_user_account
-            create_member_user_account(treasurer_member, send_welcome_email=False)
+            from verenigingen.services.member.account.member_user_account_service import get_member_user_account_service
+            get_member_user_account_service().create_member_user_account(treasurer_member.name, send_welcome_email=False)
             treasurer_member.reload()
 
         treasurer_volunteer = self.create_test_volunteer(
@@ -162,8 +162,8 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
 
         # Explicitly create user for treasurer
         if not frappe.db.exists("User", treasurer_member.email):
-            from verenigingen.utils.member_account_service import create_member_user_account
-            create_member_user_account(treasurer_member, send_welcome_email=False)
+            from verenigingen.services.member.account.member_user_account_service import get_member_user_account_service
+            get_member_user_account_service().create_member_user_account(treasurer_member.name, send_welcome_email=False)
             treasurer_member.reload()
 
         treasurer_volunteer = self.create_test_volunteer(
@@ -258,8 +258,8 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
 
         # Explicitly create user for treasurer
         if not frappe.db.exists("User", treasurer_member.email):
-            from verenigingen.utils.member_account_service import create_member_user_account
-            create_member_user_account(treasurer_member, send_welcome_email=False)
+            from verenigingen.services.member.account.member_user_account_service import get_member_user_account_service
+            get_member_user_account_service().create_member_user_account(treasurer_member.name, send_welcome_email=False)
             treasurer_member.reload()
 
         treasurer_volunteer = self.create_test_volunteer(
@@ -276,8 +276,8 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
 
         # Explicitly create user for secretary
         if not frappe.db.exists("User", secretary_member.email):
-            from verenigingen.utils.member_account_service import create_member_user_account
-            create_member_user_account(secretary_member, send_welcome_email=False)
+            from verenigingen.services.member.account.member_user_account_service import get_member_user_account_service
+            get_member_user_account_service().create_member_user_account(secretary_member.name, send_welcome_email=False)
             secretary_member.reload()
 
         secretary_volunteer = self.create_test_volunteer(

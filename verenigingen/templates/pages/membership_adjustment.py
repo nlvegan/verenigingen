@@ -171,7 +171,37 @@ def get_context(context):
         {"title": _("Fee Adjustment"), "route": "/membership_adjustment", "active": True},
     ]
 
+    # Add effective date for membership type changes (end of current billing period)
+    context.type_change_effective_date = _calculate_type_change_effective_date(member)
+
     return context
+
+
+def _calculate_type_change_effective_date(member_name):
+    """
+    Calculate the effective date for a membership type change.
+
+    Type changes take effect at the end of the current billing period,
+    which is the next_invoice_date on the member's active dues schedule.
+
+    Args:
+        member_name: Name of the Member record
+
+    Returns:
+        date: The effective date for the type change, or today if no schedule found
+    """
+    # Get the next_invoice_date from the member's active dues schedule
+    next_invoice_date = frappe.db.get_value(
+        "Membership Dues Schedule",
+        {"member": member_name, "status": "Active"},
+        "next_invoice_date",
+    )
+
+    if next_invoice_date:
+        return getdate(next_invoice_date)
+
+    # Fallback to today if no active schedule (edge case)
+    return getdate(today())
 
 
 def get_effective_fee_for_member(member, membership):
@@ -722,7 +752,11 @@ def get_available_membership_types():
 def submit_membership_type_change_request(
     new_membership_type, reason="", effective_date=None, requested_amount=None
 ):
-    """Submit a membership type change request from member portal"""
+    """Submit a membership type change request from member portal.
+
+    Note: effective_date parameter is ignored - type changes always take effect
+    at the end of the current billing period (next_invoice_date on dues schedule).
+    """
     if frappe.session.user == "Guest":
         frappe.throw(_("Please login"), frappe.PermissionError)
 
@@ -756,13 +790,8 @@ def submit_membership_type_change_request(
     if not reason.strip():
         frappe.throw(_("Please provide a reason for the membership type change"))
 
-    # Parse and validate effective date
-    if effective_date:
-        effective_date = getdate(effective_date)
-        if effective_date < getdate(today()):
-            frappe.throw(_("Effective date cannot be in the past"))
-    else:
-        effective_date = getdate(today())
+    # Auto-calculate effective date from dues schedule (end of current billing period)
+    effective_date = _calculate_type_change_effective_date(member)
 
     # Check if there's already a pending membership type change request
     pending_request = frappe.db.exists(

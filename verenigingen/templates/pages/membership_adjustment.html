@@ -248,8 +248,9 @@
                     <h6 class="font-medium text-info-800 mb-2">{{ _("About Membership Type Changes") }}</h6>
                     <ul class="text-sm text-info-700 space-y-1">
                         <li>{{ _("All membership type changes require approval") }}</li>
-                        <li>{{ _("Your request will be reviewed.") }}</li>
-                        <li>{{ _("Changes typically take effect at the next dues cycle") }}</li>
+                        <li>{{ _("Your request will be reviewed by staff") }}</li>
+                        <li><strong>{{ _("Effective Date:") }}</strong> {{ frappe.utils.formatdate(type_change_effective_date) }}</li>
+                        <li class="text-xs text-info-600">{{ _("Type changes take effect at the end of your current billing period") }}</li>
                     </ul>
                 </div>
 
@@ -683,10 +684,9 @@ $(document).ready(function() {
         dialogHtml += '<input type="number" id="change-requested-amount" class="form-control" step="0.01" min="0" placeholder="Leave empty to use minimum rate">';
         dialogHtml += '<small class="form-text text-muted">You can set a custom amount above the minimum rate for your chosen membership type</small>';
         dialogHtml += '</div>';
-        dialogHtml += '<div class="mt-4">';
-        dialogHtml += '<label for="change-effective-date">Effective Date <span class="text-danger">*</span></label>';
-        dialogHtml += '<input type="date" id="change-effective-date" class="form-control" required>';
-        dialogHtml += '<small class="form-text text-muted">Select when this change should take effect</small>';
+        dialogHtml += '<div class="mt-4 p-3 bg-light rounded">';
+        dialogHtml += '<strong>{{ _("Effective Date:") }}</strong> {{ frappe.utils.formatdate(type_change_effective_date) }}';
+        dialogHtml += '<br><small class="text-muted">{{ _("Type changes take effect at the end of your current billing period") }}</small>';
         dialogHtml += '</div>';
         dialogHtml += '<div class="mt-4">';
         dialogHtml += '<label for="change-reason">Reason for change <span class="text-danger">*</span></label>';
@@ -728,10 +728,6 @@ $(document).ready(function() {
 
         // Add click handlers for membership type selection
         setTimeout(function() {
-            // Set default and minimum date for the effective date field
-            const today = new Date().toISOString().split('T')[0];
-            $('#change-effective-date').val(today).attr('min', today);
-
             console.log('Setting up click handlers for membership type options');
             const options = $('#membershipTypeModal .membership-type-option');
             console.log('Found', options.length, 'membership type options');
@@ -766,13 +762,11 @@ $(document).ready(function() {
                 const selectedElement = $('#membershipTypeModal .membership-type-option.selected');
                 const selectedType = selectedElement.data('type');
                 const reason = $('#membershipTypeModal #change-reason').val();
-                const effectiveDate = $('#membershipTypeModal #change-effective-date').val();
                 const requestedAmount = $('#membershipTypeModal #change-requested-amount').val();
 
                 console.log('Selected element:', selectedElement.length);
                 console.log('Selected type:', selectedType);
                 console.log('Reason:', reason);
-                console.log('Effective date:', effectiveDate);
                 console.log('Requested amount:', requestedAmount);
 
                 if (!selectedType) {
@@ -787,26 +781,20 @@ $(document).ready(function() {
                     return;
                 }
 
-                if (!effectiveDate) {
-                    console.log('No effective date provided');
-                    showMessage('{{ _("Please select an effective date") }}', 'warning');
-                    return;
-                }
-
                 console.log('Submitting membership type change request');
                 $('#membershipTypeModal').modal('hide');
-                submitMembershipTypeChange(selectedType, reason, effectiveDate, requestedAmount);
+                submitMembershipTypeChange(selectedType, reason, requestedAmount);
             });
         }, 100);
     }
 
-    function submitMembershipTypeChange(newType, reason, effectiveDate, requestedAmount) {
-        console.log('submitMembershipTypeChange called with:', newType, reason, effectiveDate, requestedAmount);
+    function submitMembershipTypeChange(newType, reason, requestedAmount) {
+        console.log('submitMembershipTypeChange called with:', newType, reason, requestedAmount);
 
         const args = {
             new_membership_type: newType,
-            reason: reason,
-            effective_date: effectiveDate
+            reason: reason
+            // effective_date is auto-calculated on the server
         };
 
         // Only include requested_amount if it was provided and is a valid number

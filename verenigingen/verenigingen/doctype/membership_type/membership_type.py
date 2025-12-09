@@ -35,6 +35,8 @@ class MembershipType(Document):
     def validate_billing_period(self):
         # Legacy period fields have been removed
         # All references now use billing_period and billing_period_in_months directly
+        # Note: billing_period is now optional - if not set, the linked Dues Schedule Template
+        # defines the billing frequency
 
         # Skip validation during migration if new fields are not available
         if frappe.flags.in_migrate or not hasattr(self, "billing_period"):
@@ -45,7 +47,7 @@ class MembershipType(Document):
             frappe.throw(_("Billing Period in Months is required for Custom billing period"))
 
         # Clear billing_period_in_months for non-custom periods
-        if self.billing_period != "Custom":
+        if self.billing_period and self.billing_period != "Custom":
             self.billing_period_in_months = None
 
     def validate_amount(self):
