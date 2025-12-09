@@ -189,6 +189,14 @@ function loadFrappeController(controllerPath) {
 			display_chapter_join_requests:
         global.display_chapter_join_requests || jest.fn(),
 
+			// Verenigingen namespace and operation result helpers
+			verenigingen: global.verenigingen,
+			escapeHtml: global.escapeHtml,
+			unwrapOperationResult: global.unwrapOperationResult,
+			getErrorMessage: global.getErrorMessage,
+			isFailureResult: global.isFailureResult,
+			isOperationResultFailed: global.isOperationResultFailed,
+
 			global: {
 				_frappe_form_handlers: global._frappe_form_handlers
 			}

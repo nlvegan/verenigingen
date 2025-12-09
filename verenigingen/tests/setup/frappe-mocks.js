@@ -201,6 +201,25 @@ function createFrappeMock() {
 			get_new_doc: jest.fn(() => ({}))
 		},
 
+		// Get meta - top level shortcut (same as frappe.meta.get_meta)
+		// Returns DocType metadata including fields, permissions, etc.
+		get_meta: jest.fn((doctype) => ({
+			name: doctype,
+			doctype: 'DocType',
+			fields: [
+				{ fieldname: 'name', fieldtype: 'Data', label: 'ID' },
+				{ fieldname: 'first_name', fieldtype: 'Data', label: 'First Name' },
+				{ fieldname: 'last_name', fieldtype: 'Data', label: 'Last Name' },
+				{ fieldname: 'email', fieldtype: 'Data', label: 'Email', options: 'Email' },
+				{ fieldname: 'status', fieldtype: 'Select', label: 'Status' },
+				{ fieldname: 'customer', fieldtype: 'Link', label: 'Customer', options: 'Customer' },
+				{ fieldname: 'chapter', fieldtype: 'Link', label: 'Chapter', options: 'Chapter' }
+			],
+			permissions: [{ read: 1, write: 1, create: 1, delete: 1 }],
+			issingle: 0,
+			istable: 0
+		})),
+
 		// UI methods
 		show_alert: jest.fn(),
 		msgprint: jest.fn(),
@@ -494,6 +513,40 @@ function setupTestMocks() {
 	global.can_approve_request = jest.fn(() => true);
 	global.approve_request = jest.fn();
 	global.execute_termination = jest.fn();
+
+	// Setup verenigingen.utils namespace (operation result helpers)
+	// These are loaded via app_include_js in production
+	global.verenigingen = global.verenigingen || {};
+	global.verenigingen.utils = {
+		escapeHtml: jest.fn((str) => {
+			if (str == null) return '';
+			return String(str).replace(/[&<>"']/g, (m) => ({
+				'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+			}[m]));
+		}),
+		unwrapOperationResult: jest.fn((message) => {
+			if (message && typeof message === 'object' && 'success' in message && 'data' in message) {
+				return message.success ? message.data : null;
+			}
+			return message;
+		}),
+		getErrorMessage: jest.fn((message, defaultMsg) => {
+			if (message && typeof message === 'object' && 'success' in message && !message.success) {
+				return message.message || defaultMsg || 'Operation failed';
+			}
+			return defaultMsg || 'Unknown error';
+		}),
+		isFailureResult: jest.fn((message) => {
+			return message && typeof message === 'object' && 'success' in message && !message.success;
+		})
+	};
+
+	// Global shortcuts for operation result helpers (used by member.js)
+	global.escapeHtml = global.verenigingen.utils.escapeHtml;
+	global.unwrapOperationResult = global.verenigingen.utils.unwrapOperationResult;
+	global.getErrorMessage = global.verenigingen.utils.getErrorMessage;
+	global.isFailureResult = global.verenigingen.utils.isFailureResult;
+	global.isOperationResultFailed = global.verenigingen.utils.isFailureResult;
 
 	return {
 		frappe: global.frappe,
