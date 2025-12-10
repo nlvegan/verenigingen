@@ -32,13 +32,15 @@ def get_context(context):
 
     context.organization_logo = get_organization_logo()
 
-    # Get company name from Verenigingen Settings
+    # Get company name and abbreviation from Verenigingen Settings
     settings = frappe.get_single("Verenigingen Settings")
-    context.company_name = (
-        frappe.get_value("Company", settings.company, "company_name")
-        if settings.company
-        else _("Organization")
-    )
+    if settings.company:
+        company_data = frappe.get_value("Company", settings.company, ["company_name", "abbr"], as_dict=True)
+        context.company_name = company_data.get("company_name") if company_data else _("Organization")
+        context.organization_abbr = company_data.get("abbr") if company_data else None
+    else:
+        context.company_name = _("Organization")
+        context.organization_abbr = None
 
     # Get member record using standardized utility
     member = get_current_user_member_name()

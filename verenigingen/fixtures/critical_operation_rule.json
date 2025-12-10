@@ -41419,5 +41419,43 @@
     "apply_batch_limits_to": "Both",
     "audit_level": "minimal",
     "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "document_portal_get_browsable_documents",
+    "operation_name": "document_portal_get_browsable_documents",
+    "operation_type": "member_data",
+    "description": "Get all documents user has permission to view with filters and pagination",
+    "enabled": 1,
+    "security_level": "low",
+    "business_context": "Returns paginated document list based on view permissions (chapter membership, published chapters, national chapter, team/movement membership)",
+    "required_roles": "",
+    "rate_limit_calls": 60,
+    "rate_limit_period_seconds": 60,
+    "rate_limit_scope": "per_user",
+    "batch_rate_limit_calls": 1000,
+    "batch_rate_limit_period_seconds": 3600,
+    "apply_batch_limits_to": "Both",
+    "audit_level": "minimal",
+    "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "get_browsable_documents",
+    "operation_name": "get_browsable_documents",
+    "operation_type": "member_data",
+    "description": "Get all documents user has permission to view with filters and pagination",
+    "enabled": 1,
+    "security_level": "low",
+    "business_context": "Returns paginated document list based on view permissions (chapter membership, published chapters, national chapter, team/movement membership)",
+    "required_roles": "",
+    "rate_limit_calls": 60,
+    "rate_limit_period_seconds": 60,
+    "rate_limit_scope": "per_user",
+    "batch_rate_limit_calls": 1000,
+    "batch_rate_limit_period_seconds": 3600,
+    "apply_batch_limits_to": "Both",
+    "audit_level": "minimal",
+    "alert_on_execution": 0
   }
 ]

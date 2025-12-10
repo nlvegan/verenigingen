@@ -218,3 +218,77 @@ def can_upload_to_organization(organization_type, organization_name):
         "success": True,
         "can_upload": can_upload,
     }
+
+
+@frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
+def get_browsable_documents(
+    org_type=None,
+    organization=None,
+    category=None,
+    search_term=None,
+    limit=50,
+    offset=0,
+):
+    """
+    Get all documents the current user has permission to view.
+
+    View permissions are broader than upload permissions:
+    - Chapters: User is chapter member, OR chapter is published, OR national chapter
+    - Teams: User is team member
+    - Movements: User is movement member
+
+    Args:
+        org_type: Filter by organization type (Chapter/Team/Movement)
+        organization: Filter by specific organization name
+        category: Filter by document_type
+        search_term: Search in document_name
+        limit: Max results (default 50, max 100)
+        offset: Pagination offset
+
+    Returns:
+        dict: Documents list with pagination info and accessible organizations
+    """
+    user = frappe.session.user
+
+    if user == "Guest":
+        return {
+            "success": False,
+            "error": "authentication_required",
+            "message": _("Please log in to browse documents"),
+        }
+
+    # Validate and sanitize pagination
+    try:
+        limit = min(int(limit), 100)  # Cap at 100
+        offset = max(int(offset), 0)
+    except (ValueError, TypeError):
+        limit = 50
+        offset = 0
+
+    # Validate org_type if provided
+    if org_type and org_type not in ["Chapter", "Team", "Movement"]:
+        return {
+            "success": False,
+            "error": "invalid_org_type",
+            "message": _("Invalid organization type"),
+        }
+
+    # Validate search term length
+    if search_term and len(search_term) > MAX_NAME_LENGTH:
+        return {
+            "success": False,
+            "error": "search_term_too_long",
+            "message": _("Search term too long (max {0} characters)").format(MAX_NAME_LENGTH),
+        }
+
+    service = get_document_portal_service()
+    return service.get_all_accessible_documents(
+        user=user,
+        org_type=org_type,
+        organization=organization,
+        category=category,
+        search_term=search_term,
+        limit=limit,
+        offset=offset,
+    )

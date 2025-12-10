@@ -697,6 +697,333 @@ class DocumentPortalService(StatelessService):
             self._end_operation("get_organization_documents", start_time, success=False)
             return self.handle_error(e, "get_organization_documents", raise_error=False)
 
+    # =========================================================================
+    # Document Browsing Methods (View Permissions)
+    # =========================================================================
+
+    def get_all_accessible_documents(
+        self,
+        user: str,
+        org_type: Optional[str] = None,
+        organization: Optional[str] = None,
+        category: Optional[str] = None,
+        search_term: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        """
+        Get all documents the user has permission to view.
+
+        View Permission Model:
+        - Chapter: User is active chapter member, OR chapter is published, OR chapter is national
+        - Team: User is active team member
+        - Movement: User is movement member
+
+        Args:
+            user: User email/ID
+            org_type: Filter by organization type (Chapter/Team/Movement)
+            organization: Filter by specific organization name
+            category: Filter by document_type
+            search_term: Search in document_name
+            limit: Max results to return
+            offset: Results offset for pagination
+
+        Returns:
+            Dict containing:
+            - success: bool
+            - documents: List of document dicts
+            - total_count: Total count (for pagination)
+            - organizations: List of accessible organizations
+        """
+        start_time = self._start_operation("get_all_accessible_documents")
+
+        try:
+            # Get user's access context
+            member_name = self._get_member_for_user(user)
+            volunteer_name = self._get_volunteer_for_member(member_name) if member_name else None
+            user_roles = frappe.get_roles(user)
+            is_admin = "System Manager" in user_roles or "Verenigingen Administrator" in user_roles
+            is_member = "Verenigingen Member" in user_roles
+
+            # Get accessible organizations
+            accessible_orgs = self._get_viewable_organizations(
+                user=user,
+                member_name=member_name,
+                volunteer_name=volunteer_name,
+                is_admin=is_admin,
+                is_member=is_member,
+            )
+
+            # Build document query filters
+            filter_values = []
+
+            # Organization type filter
+            if org_type:
+                if org_type not in ["Chapter", "Team", "Movement"]:
+                    return {
+                        "success": False,
+                        "error": "invalid_org_type",
+                        "message": _("Invalid organization type"),
+                    }
+                # Filter accessible orgs by type
+                type_orgs = [o for o in accessible_orgs if o["organization_type"] == org_type]
+                if not type_orgs:
+                    self._end_operation("get_all_accessible_documents", start_time, success=True)
+                    return {
+                        "success": True,
+                        "documents": [],
+                        "total_count": 0,
+                        "organizations": accessible_orgs,
+                    }
+                accessible_orgs = type_orgs
+
+            # Specific organization filter
+            if organization:
+                org_match = [o for o in accessible_orgs if o["name"] == organization]
+                if not org_match:
+                    self._end_operation("get_all_accessible_documents", start_time, success=True)
+                    return {
+                        "success": True,
+                        "documents": [],
+                        "total_count": 0,
+                        "organizations": accessible_orgs,
+                    }
+                accessible_orgs = org_match
+
+            # Build OR conditions for accessible organizations
+            org_conditions = []
+            for org in accessible_orgs:
+                org_field = org["organization_type"].lower()
+                org_conditions.append(f"(organization_type = %s AND {org_field} = %s)")
+                filter_values.extend([org["organization_type"], org["name"]])
+
+            if not org_conditions:
+                self._end_operation("get_all_accessible_documents", start_time, success=True)
+                return {
+                    "success": True,
+                    "documents": [],
+                    "total_count": 0,
+                    "organizations": [],
+                }
+
+            where_clause = f"({' OR '.join(org_conditions)})"
+
+            # Category filter
+            if category:
+                where_clause += " AND document_type = %s"
+                filter_values.append(category)
+
+            # Search filter
+            if search_term:
+                where_clause += " AND document_name LIKE %s"
+                filter_values.append(f"%{search_term}%")
+
+            # Get total count
+            count_query = f"""
+                SELECT COUNT(*) as count
+                FROM `tabOrganization Document`
+                WHERE {where_clause}
+            """
+            total_count = frappe.db.sql(count_query, filter_values, as_dict=True)[0].count
+
+            # Get documents with pagination
+            doc_query = f"""
+                SELECT
+                    name,
+                    document_name,
+                    document_type,
+                    document_file,
+                    description,
+                    upload_date,
+                    uploaded_by,
+                    organization_type,
+                    chapter,
+                    team,
+                    movement
+                FROM `tabOrganization Document`
+                WHERE {where_clause}
+                ORDER BY upload_date DESC
+                LIMIT %s OFFSET %s
+            """
+            filter_values.extend([limit, offset])
+            documents = frappe.db.sql(doc_query, filter_values, as_dict=True)
+
+            # Add organization name and icon to each document
+            for doc in documents:
+                doc["organization_name"] = doc.get(doc["organization_type"].lower()) or ""
+                doc["category_icon"] = get_category_icon(doc.get("document_type") or "Other")
+
+            self._end_operation("get_all_accessible_documents", start_time, success=True)
+
+            return {
+                "success": True,
+                "documents": documents,
+                "total_count": total_count,
+                "organizations": accessible_orgs,
+            }
+
+        except Exception as e:
+            self._end_operation("get_all_accessible_documents", start_time, success=False)
+            return self.handle_error(e, "get_all_accessible_documents", raise_error=False)
+
+    def _get_viewable_organizations(
+        self,
+        user: str,
+        member_name: Optional[str],
+        volunteer_name: Optional[str],
+        is_admin: bool,
+        is_member: bool,
+    ) -> List[Dict[str, str]]:
+        """
+        Get all organizations the user can view documents from.
+
+        View permissions differ from upload permissions:
+        - Chapters: Any chapter member, OR published chapters for any member, OR national chapter
+        - Teams: Any team member
+        - Movements: Any movement member
+        - Admins: All organizations
+
+        Returns:
+            List of dicts with name, organization_type, display_name
+        """
+        organizations = []
+
+        # Get settings for national chapter
+        national_chapter = None
+        try:
+            national_chapter = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+        except Exception:
+            pass
+
+        if is_admin:
+            # Admins can view all
+            for org_type, table in [
+                ("Chapter", "Chapter"),
+                ("Team", "Team"),
+                ("Movement", "Movement"),
+            ]:
+                orgs = frappe.db.get_all(table, fields=["name"], pluck="name")
+                organizations.extend(
+                    [{"name": o, "organization_type": org_type, "display_name": o} for o in orgs]
+                )
+            return organizations
+
+        # Chapters: member's chapters + published chapters + national chapter
+        viewable_chapters = set()
+
+        # 1. Chapters where user is a member (via Chapter Member child table)
+        if member_name:
+            member_chapters = frappe.db.sql(
+                """
+                SELECT DISTINCT parent as name
+                FROM `tabChapter Member`
+                WHERE member = %s AND status = 'Active' AND enabled = 1
+                """,
+                (member_name,),
+                as_dict=True,
+            )
+            viewable_chapters.update(c.name for c in member_chapters)
+
+        # 2. Published chapters (if user has Verenigingen Member role)
+        if is_member:
+            published_chapters = frappe.db.get_all(
+                "Chapter",
+                filters={"published": 1},
+                fields=["name"],
+                pluck="name",
+            )
+            viewable_chapters.update(published_chapters)
+
+            # 3. National chapter (always visible to members)
+            if national_chapter:
+                viewable_chapters.add(national_chapter)
+
+        organizations.extend(
+            [{"name": c, "organization_type": "Chapter", "display_name": c} for c in viewable_chapters]
+        )
+
+        # Teams: where user is active team member
+        if volunteer_name:
+            teams = self._get_user_teams(volunteer_name)
+            organizations.extend([{"name": t, "organization_type": "Team", "display_name": t} for t in teams])
+
+        # Movements: where user is movement member
+        if member_name:
+            movements = self._get_user_movements(member_name)
+            organizations.extend(
+                [{"name": m, "organization_type": "Movement", "display_name": m} for m in movements]
+            )
+
+        return organizations
+
+    def can_view_organization_documents(
+        self, user: str, organization_type: str, organization_name: str
+    ) -> bool:
+        """
+        Check if user can view documents from an organization.
+
+        View permissions (broader than upload):
+        - Chapter: Member of chapter, OR chapter is published, OR chapter is national
+        - Team: Team member
+        - Movement: Movement member
+        - Admins: Always
+
+        Args:
+            user: User email/ID
+            organization_type: Chapter, Team, or Movement
+            organization_name: Name of the organization
+
+        Returns:
+            True if user can view, False otherwise
+        """
+        user_roles = frappe.get_roles(user)
+
+        # Admins can view anything
+        if "System Manager" in user_roles or "Verenigingen Administrator" in user_roles:
+            return True
+
+        member_name = self._get_member_for_user(user)
+        volunteer_name = self._get_volunteer_for_member(member_name) if member_name else None
+        is_member = "Verenigingen Member" in user_roles
+
+        if organization_type == "Chapter":
+            # Check if user is chapter member
+            if member_name:
+                is_chapter_member = frappe.db.exists(
+                    "Chapter Member",
+                    {
+                        "parent": organization_name,
+                        "member": member_name,
+                        "status": "Active",
+                        "enabled": 1,
+                    },
+                )
+                if is_chapter_member:
+                    return True
+
+            # Check if chapter is published (for any member)
+            if is_member:
+                is_published = frappe.db.get_value("Chapter", organization_name, "published")
+                if is_published:
+                    return True
+
+                # Check if it's the national chapter
+                national_chapter = frappe.db.get_single_value(
+                    "Verenigingen Settings", "national_board_chapter"
+                )
+                if organization_name == national_chapter:
+                    return True
+
+            return False
+
+        elif organization_type == "Team":
+            return self._is_team_member(volunteer_name, organization_name)
+
+        elif organization_type == "Movement":
+            return self._is_movement_member(member_name, organization_name)
+
+        return False
+
 
 # Singleton instance
 _document_portal_service: Optional[DocumentPortalService] = None

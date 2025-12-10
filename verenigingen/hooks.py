@@ -711,6 +711,12 @@ standard_portal_menu_items = [
         "reference_doctype": "",
         "role": "Verenigingen Chapter Board Member",
     },
+    {
+        "title": "Browse Documents",
+        "route": "/board/document_browser",
+        "reference_doctype": "",
+        "role": "Verenigingen Member",
+    },
 ]
 
 # Override functions removed - only affecting website/portal, not desk

@@ -38,7 +38,7 @@
                 <img src="{{ organization_logo }}" alt="Organization Logo" class="mx-auto h-16 md:h-20 lg:h-24 w-auto object-contain">
             </div>
             {% endif %}
-            <h1 class="text-4xl font-bold text-gray-900 mb-4">{{ _("Welcome to the internal website of the {0}").format(company_name) }}</h1>
+            <h1 class="text-4xl font-bold text-gray-900 mb-4">{{ _("Welcome to the {0}'s Member Portal").format(organization_abbr or company_name) }}</h1>
             <p class="text-xl text-gray-600 max-w-3xl mx-auto">{{ _("Manage your membership, update your details, and access member services") }}</p>
         </div>
 
@@ -441,6 +441,44 @@
                                 </div>
                             </div>
                         </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Documents -->
+            <div class="form-card hover:shadow-lg transition-shadow duration-300">
+                <div class="form-header">
+                    <h3 class="flex items-center">
+                        <span class="text-2xl mr-3">📚</span>{{ _("Documents") }}
+                    </h3>
+                </div>
+                <div class="form-body">
+                    <div class="space-y-3">
+                        <a href="/board/document_browser" class="portal-link-card">
+                            <div class="flex items-center">
+                                <div class="portal-link-icon">
+                                    <i class="fa fa-folder-open text-info-600"></i>
+                                </div>
+                                <div class="flex-1">
+                                    <div class="portal-link-title">{{ _("Browse Documents") }}</div>
+                                    <div class="portal-link-description">{{ _("View and download documents from your chapters, teams, and movements") }}</div>
+                                </div>
+                            </div>
+                        </a>
+
+                        {% if is_board_member %}
+                        <a href="/board/document_upload" class="portal-link-card">
+                            <div class="flex items-center">
+                                <div class="portal-link-icon">
+                                    <i class="fa fa-upload text-info-600"></i>
+                                </div>
+                                <div class="flex-1">
+                                    <div class="portal-link-title">{{ _("Upload Documents") }}</div>
+                                    <div class="portal-link-description">{{ _("Upload documents to your chapters, teams, or movements") }}</div>
+                                </div>
+                            </div>
+                        </a>
+                        {% endif %}
                     </div>
                 </div>
             </div>
