@@ -165,15 +165,10 @@ jobs:
         run: |
           cd /home/frappe/frappe-bench
           # Run only the contract validation tests (no external API calls)
-          python -c "
-          import sys
-          sys.path.insert(0, 'apps/verenigingen')
-          from verenigingen.integrations.mollie.tests.test_core_integration import TestMollieClientContractValidation
-          import unittest
-          suite = unittest.TestLoader().loadTestsFromTestCase(TestMollieClientContractValidation)
-          result = unittest.TextTestRunner(verbosity=2).run(suite)
-          sys.exit(0 if result.wasSuccessful() else 1)
-          "
+          # Use bench to ensure Frappe environment is properly loaded
+          bench --site ${{ env.FRAPPE_SITE }} run-tests \
+            --module verenigingen.integrations.mollie.tests.test_core_integration \
+            --test TestMollieClientContractValidation
 
   # Coverage report (runs after all tests)
   coverage:
