@@ -15,8 +15,23 @@ def authenticate_mollie_webhook():
     Mollie webhooks are unauthenticated HTTP POST requests, so we need to
     set a dedicated webhook user context for proper permission handling.
     """
-    # Use the dedicated webhook user account
-    webhook_user = "webhook.user@veganisme.org"
+    # Get webhook user from Verenigingen Payments Settings
+    webhook_user = None
+    try:
+        settings = frappe.get_single("Verenigingen Payments Settings")
+        webhook_user = getattr(settings, "webhook_user", None)
+    except Exception as e:
+        frappe.log_error(
+            f"Failed to load Verenigingen Payments Settings: {e}",
+            "Mollie Webhook Authentication Error",
+        )
+
+    if not webhook_user:
+        frappe.log_error(
+            "Webhook user not configured in Verenigingen Payments Settings",
+            "Mollie Webhook Authentication Error",
+        )
+        frappe.throw("Webhook user not configured in Verenigingen Payments Settings")
 
     # Verify the webhook user exists
     if not frappe.db.exists("User", webhook_user):

@@ -33,6 +33,16 @@ class MollieConfigurationService:
     """
 
     CACHE_KEY = "mollie_settings_cache"
+
+    # Roles allowed to access Mollie Settings (matches DocType permissions)
+    # Using role-based check instead of frappe.has_permission() because
+    # has_permission() doesn't work correctly for service accounts
+    # See: webhook_security.py comments for details
+    ALLOWED_ROLES = {
+        "System Manager",
+        "Verenigingen Administrator",
+        "Verenigingen Webhook User",
+    }
     CACHE_TTL_SECONDS = 300  # 5 minutes
 
     @classmethod
@@ -95,9 +105,13 @@ class MollieConfigurationService:
             test_mode = settings.get("test_mode")
         """
         # SECURITY: Validate user has permission to access financial configuration
-        if not frappe.has_permission("Mollie Settings", "read"):
+        # Using role-based check instead of frappe.has_permission() because
+        # has_permission() doesn't work correctly for service accounts (webhook users)
+        user_roles = set(frappe.get_roles())
+        if not user_roles.intersection(cls.ALLOWED_ROLES):
             frappe.logger().warning(
-                f"Unauthorized Mollie configuration access attempt by {frappe.session.user}"
+                f"Unauthorized Mollie configuration access attempt by {frappe.session.user} "
+                f"(roles: {user_roles})"
             )
             frappe.throw(_("Insufficient permissions to access Mollie configuration"), frappe.PermissionError)
 
