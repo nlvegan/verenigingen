@@ -514,9 +514,7 @@ class MijnroodCSVImport(Document):
                 # which would wipe out this unsaved field value
                 self.save(ignore_permissions=True)
                 frappe.db.commit()
-                frappe.logger().info(
-                    f"[CSV IMPORT] Saved bulk_operation_tracker link to database"
-                )
+                frappe.logger().info(f"[CSV IMPORT] Saved bulk_operation_tracker link to database")
 
             return summary
 
@@ -568,19 +566,19 @@ class MijnroodCSVImport(Document):
             # Use linked Bulk Operation Tracker if available
             tracker = None
             if self.bulk_operation_tracker:
-                frappe.logger().info(
-                    f"[CSV IMPORT] Using linked tracker: {self.bulk_operation_tracker}"
-                )
+                frappe.logger().info(f"[CSV IMPORT] Using linked tracker: {self.bulk_operation_tracker}")
                 try:
                     tracker_doc = frappe.get_doc("Bulk Operation Tracker", self.bulk_operation_tracker)
-                    tracker = [{
-                        "name": tracker_doc.name,
-                        "total_records": tracker_doc.total_records,
-                        "processed_records": tracker_doc.processed_records,
-                        "successful_records": tracker_doc.successful_records,
-                        "failed_records": tracker_doc.failed_records,
-                        "retry_queue": tracker_doc.retry_queue,
-                    }]
+                    tracker = [
+                        {
+                            "name": tracker_doc.name,
+                            "total_records": tracker_doc.total_records,
+                            "processed_records": tracker_doc.processed_records,
+                            "successful_records": tracker_doc.successful_records,
+                            "failed_records": tracker_doc.failed_records,
+                            "retry_queue": tracker_doc.retry_queue,
+                        }
+                    ]
                 except Exception as e:
                     frappe.logger().warning(
                         f"[CSV IMPORT] Linked tracker {self.bulk_operation_tracker} not found: {str(e)}"
@@ -588,19 +586,23 @@ class MijnroodCSVImport(Document):
 
             # Fallback: Search for most recent BOT if no linked tracker
             if not tracker:
-                frappe.logger().info(
-                    f"[CSV IMPORT] No linked tracker, searching by creation time"
-                )
+                frappe.logger().info(f"[CSV IMPORT] No linked tracker, searching by creation time")
                 tracker = frappe.get_all(
                     "Bulk Operation Tracker",
                     filters={
                         "operation_type": "Account Creation",
                         "creation": [">", frappe.utils.add_to_date(self.creation, hours=-1)],
                     },
-                    fields=["name", "total_records", "processed_records", "successful_records", "failed_records",
-                            "retry_queue"],
+                    fields=[
+                        "name",
+                        "total_records",
+                        "processed_records",
+                        "successful_records",
+                        "failed_records",
+                        "retry_queue",
+                    ],
                     order_by="creation desc",
-                    limit=1
+                    limit=1,
                 )
 
             if tracker:
@@ -625,10 +627,10 @@ class MijnroodCSVImport(Document):
                         "Account Creation Request",
                         filters={
                             "bulk_operation_tracker": self.bulk_operation_tracker,
-                            "status": "Completed"
+                            "status": "Completed",
                         },
                         fields=["created_user", "created_employee"],
-                        limit=1000  # Reasonable limit
+                        limit=1000,  # Reasonable limit
                     )
 
                     # Count actual created records
@@ -654,8 +656,7 @@ class MijnroodCSVImport(Document):
 
         except Exception as e:
             frappe.logger().error(
-                f"[CSV IMPORT] Error updating account creation tracking: {str(e)}",
-                exc_info=True
+                f"[CSV IMPORT] Error updating account creation tracking: {str(e)}", exc_info=True
             )
             frappe.log_error(
                 message=f"Error updating account creation tracking: {str(e)}\\n{frappe.get_traceback()}",
@@ -676,12 +677,9 @@ class MijnroodCSVImport(Document):
             # Get failed ACRs
             failed_acrs = frappe.get_all(
                 "Account Creation Request",
-                filters={
-                    "bulk_operation_tracker": tracker_name,
-                    "status": "Failed"
-                },
+                filters={"bulk_operation_tracker": tracker_name, "status": "Failed"},
                 fields=["name", "failure_reason"],
-                limit=500  # Get up to 500 failures
+                limit=500,  # Get up to 500 failures
             )
 
             if not failed_acrs:
@@ -689,6 +687,7 @@ class MijnroodCSVImport(Document):
 
             # Count error types
             from collections import Counter
+
             error_counts = Counter()
 
             for acr in failed_acrs:
@@ -735,7 +734,12 @@ class MijnroodCSVImport(Document):
 
             # Parse retry queue (it's stored as JSON)
             import json
-            retry_items = json.loads(tracker.retry_queue) if isinstance(tracker.retry_queue, str) else tracker.retry_queue
+
+            retry_items = (
+                json.loads(tracker.retry_queue)
+                if isinstance(tracker.retry_queue, str)
+                else tracker.retry_queue
+            )
 
             if not retry_items:
                 frappe.msgprint(_("No failed account creation requests to retry"))
@@ -744,12 +748,9 @@ class MijnroodCSVImport(Document):
             # Get member names from failed ACRs
             failed_acrs = frappe.get_all(
                 "Account Creation Request",
-                filters={
-                    "name": ["in", retry_items],
-                    "status": "Failed"
-                },
+                filters={"name": ["in", retry_items], "status": "Failed"},
                 fields=["source_record"],
-                limit=1000
+                limit=1000,
             )
 
             if not failed_acrs:
@@ -790,12 +791,14 @@ class MijnroodCSVImport(Document):
                     queue="short",
                     timeout=300,
                     import_doc_name=self.name,
-                    delay=60  # Wait 60 seconds for retry to process
+                    delay=60,  # Wait 60 seconds for retry to process
                 )
 
                 frappe.msgprint(
-                    _(f"Retry queued: {len(retry_items)} failed requests will be reprocessed. "
-                      f"Tracking fields will be updated automatically.")
+                    _(
+                        f"Retry queued: {len(retry_items)} failed requests will be reprocessed. "
+                        f"Tracking fields will be updated automatically."
+                    )
                 )
                 return {"success": True, "retry_count": len(retry_items)}
             else:
@@ -804,8 +807,7 @@ class MijnroodCSVImport(Document):
 
         except Exception as e:
             frappe.logger().error(
-                f"[CSV IMPORT] Error retrying failed account creations: {str(e)}",
-                exc_info=True
+                f"[CSV IMPORT] Error retrying failed account creations: {str(e)}", exc_info=True
             )
             frappe.log_error(
                 message=f"Error retrying failed account creations: {str(e)}\\n{frappe.get_traceback()}",
@@ -1149,8 +1151,13 @@ class MijnroodCSVImport(Document):
             # else: Use the explicit value from CSV (including 0 for free memberships)
 
         if dues_rate is not None:
-            # Store data for creating membership dues schedule after member creation
-            # Don't set member.dues_rate here - it will be set by the dues schedule creation
+            # Store custom fee on member record for dues schedule creation
+            # This persists to DB and is used by TemplateCreationService.create_from_template
+            member_doc.csv_import_custom_fee = dues_rate
+            member_doc.csv_import_custom_fee_reason = "MijnRood CSV import"
+
+            # Legacy: Store data for creating membership dues schedule after member creation
+            # TODO: Remove _pending_dues_schedule_data once confirmed csv_import_custom_fee works
             member_doc._pending_dues_schedule_data = {
                 "dues_rate": dues_rate,
                 "payment_period": row_data.get("payment_period"),
@@ -2280,10 +2287,7 @@ def update_import_tracking_after_retry(import_doc_name: str):
         frappe.logger().info(f"[CSV IMPORT] Tracking updated after retry for {import_doc_name}")
 
     except Exception as e:
-        frappe.logger().error(
-            f"[CSV IMPORT] Error updating tracking after retry: {str(e)}",
-            exc_info=True
-        )
+        frappe.logger().error(f"[CSV IMPORT] Error updating tracking after retry: {str(e)}", exc_info=True)
         frappe.log_error(
             message=f"Error updating tracking after retry: {str(e)}\\n{frappe.get_traceback()}",
             title=f"CSV Import Tracking Update After Retry Error: {import_doc_name}",

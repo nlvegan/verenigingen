@@ -262,6 +262,19 @@ class TemplateCreationService(StatelessService):
         member_doc = frappe.get_doc("Member", member_name)
         user_selected_rate = getattr(member_doc, "dues_rate", None)
 
+        # Check for CSV import custom fee stored on member record
+        # This is the primary source for CSV imports (persisted to DB)
+        member_csv_custom_fee = getattr(member_doc, "csv_import_custom_fee", None)
+        member_csv_custom_fee_reason = getattr(member_doc, "csv_import_custom_fee_reason", None)
+
+        # Use member's stored CSV fee if no custom_amount was passed as parameter
+        if not custom_amount and member_csv_custom_fee:
+            custom_amount = member_csv_custom_fee
+            custom_amount_reason = member_csv_custom_fee_reason or "CSV import"
+            self.logger.info(
+                f"[DUES SCHEDULE] Using csv_import_custom_fee from member record: €{custom_amount} for {member_name}"
+            )
+
         # Priority 1: User-selected rate from application (MOST AUTHORITATIVE)
         # User's explicit selection represents an active choice and should always win
         if user_selected_rate and user_selected_rate > 0:
@@ -279,7 +292,7 @@ class TemplateCreationService(StatelessService):
                     f"for {template.membership_type} membership (€{template_minimum:.2f}). "
                     f"Please contact support to resolve this discrepancy."
                 )
-        # Priority 2: CSV import custom amount (only if user didn't select)
+        # Priority 2: CSV import custom amount (from parameter or member record)
         # Historic data from imports, should not override active user choices
         elif custom_amount and custom_amount > 0:
             schedule.dues_rate = custom_amount
