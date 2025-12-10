@@ -705,6 +705,12 @@ standard_portal_menu_items = [
         "reference_doctype": "",
         "role": "Verenigingen Volunteer",
     },
+    {
+        "title": "Upload Documents",
+        "route": "/board/document_upload",
+        "reference_doctype": "",
+        "role": "Verenigingen Chapter Board Member",
+    },
 ]
 
 # Override functions removed - only affecting website/portal, not desk

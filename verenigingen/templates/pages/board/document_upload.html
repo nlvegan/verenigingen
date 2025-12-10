@@ -1,0 +1,535 @@
+{% extends "templates/base_portal.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block style %}
+<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+{% from "templates/macros/brand_css.html" import brand_css %}
+{{ brand_css() }}
+<style>
+/* Wide layout wrapper */
+.wide-layout-wrapper {
+    width: 90vw;
+    max-width: 1200px;
+    margin-left: calc(-45vw + 50%);
+    margin-right: calc(-45vw + 50%);
+    padding: 0 2rem;
+    box-sizing: border-box;
+}
+
+@media (max-width: 1200px) {
+    .wide-layout-wrapper {
+        width: 95vw;
+        margin-left: calc(-47.5vw + 50%);
+        margin-right: calc(-47.5vw + 50%);
+        padding: 0 1rem;
+    }
+}
+
+/* Drag and drop zone */
+.drop-zone {
+    border: 2px dashed #d1d5db;
+    border-radius: 0.5rem;
+    padding: 2rem;
+    text-align: center;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.drop-zone:hover,
+.drop-zone.drag-over {
+    border-color: var(--primary-color, #3b82f6);
+    background-color: rgba(59, 130, 246, 0.05);
+}
+
+.drop-zone.has-file {
+    border-color: #10b981;
+    background-color: rgba(16, 185, 129, 0.05);
+}
+
+/* Document tree styles */
+.document-tree {
+    font-size: 0.875rem;
+}
+
+.folder-toggle {
+    cursor: pointer;
+    user-select: none;
+}
+
+.folder-toggle:hover {
+    background-color: #f3f4f6;
+}
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div class="wide-layout-wrapper min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 py-8">
+    {% if error_message %}
+        <div class="bg-danger-100 border-2 border-danger-300 rounded-lg p-8 text-center max-w-2xl mx-auto">
+            <h4 class="text-2xl font-semibold text-danger-800 mb-4">Access Restricted</h4>
+            <p class="text-lg text-danger-700">{{ error_message }}</p>
+        </div>
+    {% elif has_organizations %}
+        <div id="document-upload-app">
+            <!-- Header -->
+            <div class="bg-primary-600 text-white px-8 py-6 mb-8 shadow-lg rounded-xl">
+                <h1 class="text-3xl font-bold m-0 flex items-center gap-3">
+                    <span class="text-4xl">📄</span>
+                    <span>Upload Documents</span>
+                </h1>
+                <p class="mt-2 text-primary-100">Upload documents to your chapters, teams, or movements</p>
+            </div>
+
+            <!-- Main Content Grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <!-- Upload Form -->
+                <div class="lg:col-span-2">
+                    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+                        <div class="px-6 py-4 border-b bg-gray-50">
+                            <h3 class="m-0 text-lg font-semibold text-gray-800">Upload New Document</h3>
+                        </div>
+                        <div class="p-6">
+                            <!-- Organization Selection -->
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                                        Organization Type <span class="text-danger-500">*</span>
+                                    </label>
+                                    <select v-model="form.organizationType" @change="onOrganizationTypeChange"
+                                            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                                        <option value="">Select type...</option>
+                                        <option value="Chapter" v-if="organizations.chapters.length > 0">Chapter</option>
+                                        <option value="Team" v-if="organizations.teams.length > 0">Team</option>
+                                        <option value="Movement" v-if="organizations.movements.length > 0">Movement</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                                        Organization <span class="text-danger-500">*</span>
+                                    </label>
+                                    <select v-model="form.organizationName" @change="loadOrganizationDocuments"
+                                            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                                            :disabled="!form.organizationType">
+                                        <option value="">Select organization...</option>
+                                        <option v-for="org in currentOrganizations" :key="org.name" :value="org.name">
+                                            [[ org.display_name ]]
+                                        </option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- Document Details -->
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                                        Document Name <span class="text-danger-500">*</span>
+                                    </label>
+                                    <input type="text" v-model="form.documentName"
+                                           placeholder="e.g., Board Minutes January 2025"
+                                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                                    <p class="text-xs text-gray-500 mt-1">Include the year in the name for automatic organization</p>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                                        Document Type <span class="text-danger-500">*</span>
+                                    </label>
+                                    <select v-model="form.documentType"
+                                            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                                        <option value="">Select type...</option>
+                                        <option v-for="cat in categories" :key="cat.name" :value="cat.name">
+                                            [[ cat.icon ]] [[ cat.name ]]
+                                        </option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- Description -->
+                            <div class="mb-6">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">
+                                    Description <span class="text-gray-400">(optional)</span>
+                                </label>
+                                <textarea v-model="form.description" rows="2"
+                                          placeholder="Brief description of the document..."
+                                          class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"></textarea>
+                            </div>
+
+                            <!-- File Upload -->
+                            <div class="mb-6">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Document File <span class="text-danger-500">*</span>
+                                </label>
+                                <div class="drop-zone"
+                                     :class="{'drag-over': isDragging, 'has-file': form.file}"
+                                     @dragover.prevent="isDragging = true"
+                                     @dragleave.prevent="isDragging = false"
+                                     @drop.prevent="handleFileDrop"
+                                     @click="$refs.fileInput.click()">
+                                    <input type="file" ref="fileInput" @change="handleFileSelect" class="hidden"
+                                           accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.txt,.odt,.ods">
+
+                                    <div v-if="!form.file" class="text-gray-500">
+                                        <i class="fa fa-cloud-upload text-4xl mb-3 block text-gray-400"></i>
+                                        <p class="font-medium">Drop file here or click to browse</p>
+                                        <p class="text-sm text-gray-400 mt-1">PDF, Word, Excel, PowerPoint, Images (max 10MB)</p>
+                                    </div>
+
+                                    <div v-else class="text-success-600">
+                                        <i class="fa fa-file text-4xl mb-3 block"></i>
+                                        <p class="font-medium">[[ form.file.name ]]</p>
+                                        <p class="text-sm text-gray-500 mt-1">[[ formatFileSize(form.file.size) ]]</p>
+                                        <button @click.stop="clearFile" class="mt-2 text-danger-500 hover:text-danger-700 text-sm">
+                                            <i class="fa fa-times"></i> Remove
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Submit Button -->
+                            <div class="flex justify-end gap-3">
+                                <button @click="clearForm" type="button"
+                                        class="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
+                                    Clear Form
+                                </button>
+                                <button @click="uploadDocument" type="button"
+                                        :disabled="!isFormValid || isUploading"
+                                        class="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+                                    <i v-if="isUploading" class="fa fa-spinner fa-spin"></i>
+                                    <i v-else class="fa fa-upload"></i>
+                                    [[ isUploading ? 'Uploading...' : 'Upload Document' ]]
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Existing Documents Sidebar -->
+                <div class="lg:col-span-1">
+                    <div class="bg-white rounded-xl shadow-sm overflow-hidden sticky top-4">
+                        <div class="px-6 py-4 border-b bg-gray-50 flex justify-between items-center">
+                            <h3 class="m-0 text-lg font-semibold text-gray-800">Existing Documents</h3>
+                            <span v-if="existingDocumentsCount > 0" class="bg-primary-100 text-primary-700 px-2 py-1 rounded-full text-xs font-semibold">
+                                [[ existingDocumentsCount ]]
+                            </span>
+                        </div>
+                        <div class="p-4 max-h-[60vh] overflow-y-auto">
+                            <div v-if="!form.organizationName" class="text-center text-gray-500 py-8">
+                                <i class="fa fa-folder-open text-3xl mb-3 block text-gray-300"></i>
+                                <p>Select an organization to view documents</p>
+                            </div>
+
+                            <div v-else-if="isLoadingDocuments" class="text-center py-8">
+                                <i class="fa fa-spinner fa-spin text-2xl text-primary-500"></i>
+                                <p class="text-gray-500 mt-2">Loading documents...</p>
+                            </div>
+
+                            <div v-else-if="existingDocumentsCount === 0" class="text-center text-gray-500 py-8">
+                                <i class="fa fa-file-o text-3xl mb-3 block text-gray-300"></i>
+                                <p>No documents uploaded yet</p>
+                            </div>
+
+                            <div v-else class="document-tree">
+                                <div v-for="(category, categoryName) in existingDocuments" :key="categoryName" class="mb-3">
+                                    <div class="folder-toggle flex items-center gap-2 py-2 px-2 rounded font-medium text-gray-700"
+                                         @click="toggleCategory(categoryName)">
+                                        <i :class="expandedCategories[categoryName] ? 'fa-folder-open' : 'fa-folder'"
+                                           class="fa text-warning-500"></i>
+                                        <span>[[ category.icon ]] [[ categoryName ]]</span>
+                                        <i :class="expandedCategories[categoryName] ? 'fa-chevron-down' : 'fa-chevron-right'"
+                                           class="fa text-gray-400 text-xs ml-auto"></i>
+                                    </div>
+
+                                    <div v-if="expandedCategories[categoryName]" class="ml-4">
+                                        <div v-for="(docs, year) in category.years" :key="year" class="mb-2">
+                                            <div class="folder-toggle flex items-center gap-2 py-1 px-2 rounded text-sm text-gray-600"
+                                                 @click="toggleYear(categoryName, year)">
+                                                <i class="fa fa-calendar-o text-gray-400"></i>
+                                                <span>[[ year ]]</span>
+                                                <span class="text-gray-400">([[ docs.length ]])</span>
+                                                <i :class="expandedYears[categoryName + '-' + year] ? 'fa-chevron-down' : 'fa-chevron-right'"
+                                                   class="fa text-gray-400 text-xs ml-auto"></i>
+                                            </div>
+
+                                            <div v-if="expandedYears[categoryName + '-' + year]" class="ml-4">
+                                                <a v-for="doc in docs" :key="doc.name"
+                                                   :href="doc.document_file" target="_blank"
+                                                   class="flex items-center gap-2 py-1 px-2 rounded text-sm text-gray-700 hover:bg-gray-100 no-underline">
+                                                    <i class="fa fa-file-pdf-o text-danger-500"></i>
+                                                    <span class="truncate">[[ doc.document_name ]]</span>
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% else %}
+        <div class="bg-warning-100 border border-warning-300 rounded-lg p-8 text-center max-w-2xl mx-auto">
+            <h4 class="text-2xl font-semibold text-warning-800 mb-4">No Organizations Available</h4>
+            <p class="text-lg text-warning-700">{{ error_message }}</p>
+        </div>
+    {% endif %}
+</div>
+
+<!-- Loading Overlay -->
+<div id="loading-overlay" class="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50" style="display: none;">
+    <div class="bg-white p-8 rounded-xl text-center">
+        <i class="fa fa-spinner fa-spin text-3xl text-primary-600 mb-4"></i>
+        <p class="text-gray-700">Uploading document...</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block script %}
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<script>
+{% if has_organizations %}
+const { createApp, ref, computed, onMounted } = Vue;
+
+createApp({
+    delimiters: ['[[', ']]'],
+    setup() {
+        // Form state
+        const form = ref({
+            organizationType: '{{ preselected_org_type | e }}' || '',
+            organizationName: '{{ preselected_org_name | e }}' || '',
+            documentName: '',
+            documentType: '',
+            description: '',
+            file: null,
+            fileContent: null
+        });
+
+        // UI state
+        const isDragging = ref(false);
+        const isUploading = ref(false);
+        const isLoadingDocuments = ref(false);
+
+        // Data
+        const organizations = ref({{ organizations | tojson | safe }});
+        const categories = ref({{ categories | tojson | safe }});
+        const existingDocuments = ref({{ existing_documents | tojson | safe if existing_documents else '{}' }});
+        const existingDocumentsCount = ref({{ existing_documents_count | default(0) }});
+
+        // Tree expansion state
+        const expandedCategories = ref({});
+        const expandedYears = ref({});
+
+        // Computed
+        const currentOrganizations = computed(() => {
+            if (form.value.organizationType === 'Chapter') return organizations.value.chapters || [];
+            if (form.value.organizationType === 'Team') return organizations.value.teams || [];
+            if (form.value.organizationType === 'Movement') return organizations.value.movements || [];
+            return [];
+        });
+
+        const isFormValid = computed(() => {
+            return form.value.organizationType &&
+                   form.value.organizationName &&
+                   form.value.documentName &&
+                   form.value.documentType &&
+                   form.value.file;
+        });
+
+        // Methods
+        function onOrganizationTypeChange() {
+            form.value.organizationName = '';
+            existingDocuments.value = {};
+            existingDocumentsCount.value = 0;
+        }
+
+        async function loadOrganizationDocuments() {
+            if (!form.value.organizationType || !form.value.organizationName) return;
+
+            isLoadingDocuments.value = true;
+            expandedCategories.value = {};
+            expandedYears.value = {};
+
+            try {
+                const response = await frappe.call({
+                    method: 'verenigingen.api.document_portal.get_organization_documents',
+                    args: {
+                        organization_type: form.value.organizationType,
+                        organization_name: form.value.organizationName
+                    }
+                });
+
+                if (response.message && response.message.success) {
+                    existingDocuments.value = response.message.documents || {};
+                    existingDocumentsCount.value = response.message.total_count || 0;
+
+                    // Auto-expand first category
+                    const firstCategory = Object.keys(existingDocuments.value)[0];
+                    if (firstCategory) {
+                        expandedCategories.value[firstCategory] = true;
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to load documents:', error);
+                frappe.msgprint(__('Failed to load existing documents'));
+            } finally {
+                isLoadingDocuments.value = false;
+            }
+        }
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file) processFile(file);
+        }
+
+        function handleFileDrop(event) {
+            isDragging.value = false;
+            const file = event.dataTransfer.files[0];
+            if (file) processFile(file);
+        }
+
+        function processFile(file) {
+            // Validate size (10MB)
+            if (file.size > 10 * 1024 * 1024) {
+                frappe.msgprint(__('File size exceeds 10MB limit'));
+                return;
+            }
+
+            // Validate extension
+            const allowedExtensions = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.jpg', '.jpeg', '.png', '.txt', '.odt', '.ods'];
+            const ext = '.' + file.name.split('.').pop().toLowerCase();
+            if (!allowedExtensions.includes(ext)) {
+                frappe.msgprint(__('File type not allowed. Accepted: PDF, Word, Excel, PowerPoint, Images'));
+                return;
+            }
+
+            form.value.file = file;
+
+            // Read file as base64
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                form.value.fileContent = e.target.result.split(',')[1]; // Remove data URL prefix
+            };
+            reader.readAsDataURL(file);
+
+            // Auto-fill document name if empty
+            if (!form.value.documentName) {
+                form.value.documentName = file.name.replace(/\.[^/.]+$/, ''); // Remove extension
+            }
+        }
+
+        function clearFile() {
+            form.value.file = null;
+            form.value.fileContent = null;
+            if (document.querySelector('input[type="file"]')) {
+                document.querySelector('input[type="file"]').value = '';
+            }
+        }
+
+        function clearForm() {
+            form.value.documentName = '';
+            form.value.documentType = '';
+            form.value.description = '';
+            clearFile();
+        }
+
+        async function uploadDocument() {
+            if (!isFormValid.value || isUploading.value) return;
+
+            isUploading.value = true;
+            document.getElementById('loading-overlay').style.display = 'flex';
+
+            try {
+                const response = await frappe.call({
+                    method: 'verenigingen.api.document_portal.upload_document',
+                    args: {
+                        organization_type: form.value.organizationType,
+                        organization_name: form.value.organizationName,
+                        document_name: form.value.documentName,
+                        document_type: form.value.documentType,
+                        file_name: form.value.file.name,
+                        file_content: form.value.fileContent,
+                        content_type: form.value.file.type,
+                        description: form.value.description
+                    }
+                });
+
+                if (response.message && response.message.success) {
+                    frappe.msgprint({
+                        title: __('Success'),
+                        indicator: 'green',
+                        message: __('Document uploaded successfully!')
+                    });
+
+                    clearForm();
+                    loadOrganizationDocuments(); // Refresh document list
+                } else {
+                    frappe.msgprint({
+                        title: __('Upload Failed'),
+                        indicator: 'red',
+                        message: response.message?.message || __('An error occurred')
+                    });
+                }
+            } catch (error) {
+                console.error('Upload failed:', error);
+                frappe.msgprint({
+                    title: __('Error'),
+                    indicator: 'red',
+                    message: __('Failed to upload document. Please try again.')
+                });
+            } finally {
+                isUploading.value = false;
+                document.getElementById('loading-overlay').style.display = 'none';
+            }
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+
+        function toggleCategory(categoryName) {
+            expandedCategories.value[categoryName] = !expandedCategories.value[categoryName];
+        }
+
+        function toggleYear(categoryName, year) {
+            const key = categoryName + '-' + year;
+            expandedYears.value[key] = !expandedYears.value[key];
+        }
+
+        // Load documents on mount if preselected
+        onMounted(() => {
+            if (form.value.organizationType && form.value.organizationName) {
+                loadOrganizationDocuments();
+            }
+        });
+
+        return {
+            form,
+            isDragging,
+            isUploading,
+            isLoadingDocuments,
+            organizations,
+            categories,
+            existingDocuments,
+            existingDocumentsCount,
+            expandedCategories,
+            expandedYears,
+            currentOrganizations,
+            isFormValid,
+            onOrganizationTypeChange,
+            loadOrganizationDocuments,
+            handleFileSelect,
+            handleFileDrop,
+            clearFile,
+            clearForm,
+            uploadDocument,
+            formatFileSize,
+            toggleCategory,
+            toggleYear
+        };
+    }
+}).mount('#document-upload-app');
+{% endif %}
+</script>
+{% endblock %}

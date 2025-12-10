@@ -41064,8 +41064,7 @@
     "rate_limit_scope": "per_ip",
     "audit_level": "minimal",
     "alert_on_execution": 0
-  }
-,
+  },
   {
     "doctype": "Critical Operation Rule",
     "name": "validate_custom_amount_endpoint",
@@ -41212,5 +41211,69 @@
     "audit_level": "comprehensive",
     "alert_on_execution": 1,
     "notification_recipients": "beheerder@veganisme.org"
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "document_portal_get_upload_context",
+    "operation_name": "document_portal_get_upload_context",
+    "operation_type": "member_data",
+    "description": "Get organizations where current user can upload documents",
+    "enabled": 1,
+    "security_level": "low",
+    "business_context": "Portal context loading for document upload feature - lists user's chapters/teams/movements",
+    "required_roles": "Verenigingen Member\nVerenigingen Chapter Board Member\nTeam Lead",
+    "rate_limit_calls": 60,
+    "rate_limit_period_seconds": 60,
+    "rate_limit_scope": "per_user",
+    "audit_level": "minimal",
+    "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "document_portal_upload_document",
+    "operation_name": "document_portal_upload_document",
+    "operation_type": "member_data",
+    "description": "Upload a document to a chapter, team, or movement",
+    "enabled": 1,
+    "security_level": "medium",
+    "business_context": "File upload operation for organization documents - requires board/team membership verification",
+    "required_roles": "Verenigingen Member\nVerenigingen Chapter Board Member\nTeam Lead",
+    "rate_limit_calls": 20,
+    "rate_limit_period_seconds": 3600,
+    "rate_limit_scope": "per_user",
+    "audit_level": "standard",
+    "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "document_portal_get_organization_documents",
+    "operation_name": "document_portal_get_organization_documents",
+    "operation_type": "member_data",
+    "description": "Get documents for a specific organization",
+    "enabled": 1,
+    "security_level": "low",
+    "business_context": "Document listing for portal sidebar - shows existing documents grouped by category/year",
+    "required_roles": "Verenigingen Member\nVerenigingen Chapter Board Member\nTeam Lead",
+    "rate_limit_calls": 60,
+    "rate_limit_period_seconds": 60,
+    "rate_limit_scope": "per_user",
+    "audit_level": "minimal",
+    "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "document_portal_can_upload_to_organization",
+    "operation_name": "document_portal_can_upload_to_organization",
+    "operation_type": "member_data",
+    "description": "Check if user can upload to a specific organization",
+    "enabled": 1,
+    "security_level": "low",
+    "business_context": "Permission check for document upload - validates board/team membership",
+    "required_roles": "Verenigingen Member\nVerenigingen Chapter Board Member\nTeam Lead",
+    "rate_limit_calls": 60,
+    "rate_limit_period_seconds": 60,
+    "rate_limit_scope": "per_user",
+    "audit_level": "minimal",
+    "alert_on_execution": 0
   }
 ]

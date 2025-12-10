@@ -1,0 +1,190 @@
+{
+  "actions": [],
+  "allow_rename": 0,
+  "app": "verenigingen",
+  "autoname": "format:DOC-{organization_type}-{####}",
+  "creation": "2025-12-10 12:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "organization_section",
+    "organization_type",
+    "chapter",
+    "team",
+    "movement",
+    "document_section",
+    "document_name",
+    "document_type",
+    "column_break_doc",
+    "document_file",
+    "description",
+    "metadata_section",
+    "upload_date",
+    "uploaded_by"
+  ],
+  "fields": [
+    {
+      "fieldname": "organization_section",
+      "fieldtype": "Section Break",
+      "label": "Organization"
+    },
+    {
+      "fieldname": "organization_type",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Organization Type",
+      "options": "Chapter\nTeam\nMovement",
+      "reqd": 1
+    },
+    {
+      "depends_on": "eval:doc.organization_type=='Chapter'",
+      "fieldname": "chapter",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Chapter",
+      "mandatory_depends_on": "eval:doc.organization_type=='Chapter'",
+      "options": "Chapter"
+    },
+    {
+      "depends_on": "eval:doc.organization_type=='Team'",
+      "fieldname": "team",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Team",
+      "mandatory_depends_on": "eval:doc.organization_type=='Team'",
+      "options": "Team"
+    },
+    {
+      "depends_on": "eval:doc.organization_type=='Movement'",
+      "fieldname": "movement",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Movement",
+      "mandatory_depends_on": "eval:doc.organization_type=='Movement'",
+      "options": "Movement"
+    },
+    {
+      "fieldname": "document_section",
+      "fieldtype": "Section Break",
+      "label": "Document Details"
+    },
+    {
+      "fieldname": "document_name",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Document Name",
+      "reqd": 1
+    },
+    {
+      "description": "Categories can be customized in Verenigingen Settings",
+      "fieldname": "document_type",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Document Type",
+      "options": "Policy\nMeeting Minutes\nFinancial Report\nOther",
+      "reqd": 1
+    },
+    {
+      "fieldname": "column_break_doc",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "document_file",
+      "fieldtype": "Attach",
+      "label": "Document File",
+      "reqd": 1
+    },
+    {
+      "fieldname": "description",
+      "fieldtype": "Small Text",
+      "label": "Description"
+    },
+    {
+      "fieldname": "metadata_section",
+      "fieldtype": "Section Break",
+      "label": "Upload Information"
+    },
+    {
+      "default": "Today",
+      "fieldname": "upload_date",
+      "fieldtype": "Date",
+      "label": "Upload Date",
+      "read_only": 1
+    },
+    {
+      "fieldname": "uploaded_by",
+      "fieldtype": "Link",
+      "label": "Uploaded By",
+      "options": "User",
+      "read_only": 1
+    }
+  ],
+  "index_web_pages_for_search": 1,
+  "links": [],
+  "modified": "2025-12-10 12:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Verenigingen",
+  "name": "Organization Document",
+  "naming_rule": "Expression",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Verenigingen Administrator",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Verenigingen Chapter Board Member",
+      "write": 1
+    },
+    {
+      "create": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Team Lead",
+      "write": 1
+    },
+    {
+      "read": 1,
+      "role": "Verenigingen Member"
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "title_field": "document_name",
+  "track_changes": 1
+}

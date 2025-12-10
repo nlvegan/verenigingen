@@ -555,7 +555,7 @@
                         {% endfor %}
 
                         <div class="mt-6 pt-6 border-t border-gray-200">
-                            <a href="/app/chapter/{{ chapter_name }}" class="inline-flex items-center justify-center px-4 py-2 text-sm rounded-lg font-medium bg-primary-600 text-white hover:bg-primary-700 shadow-sm no-underline">
+                            <a href="/board/document_upload?org_type=Chapter&org_name={{ chapter_name|urlencode }}" class="inline-flex items-center justify-center px-4 py-2 text-sm rounded-lg font-medium bg-primary-600 text-white hover:bg-primary-700 shadow-sm no-underline">
                                 <i class="fa fa-upload mr-2"></i> Upload New Document
                             </a>
                         </div>
