@@ -1,0 +1,218 @@
+name: 'Setup Verenigingen Environment'
+description: 'Sets up the environment for Verenigingen testing on GitHub hosted runners'
+
+inputs:
+  python-version:
+    description: 'Python version to use'
+    required: false
+    default: '3.12'
+  node-version:
+    description: 'Node.js version to use'
+    required: false
+    default: '18'
+  frappe-user:
+    description: 'GitHub user/org for Frappe repository'
+    required: false
+    default: 'frappe'
+  frappe-branch:
+    description: 'Frappe branch to use'
+    required: false
+    default: 'version-15'
+  erpnext-user:
+    description: 'GitHub user/org for ERPNext repository'
+    required: false
+    default: 'frappe'
+  erpnext-branch:
+    description: 'ERPNext branch to use'
+    required: false
+    default: 'version-15'
+  build-assets:
+    description: 'Whether to build frontend assets'
+    required: false
+    default: 'true'
+  enable-coverage:
+    description: 'Enable coverage collection'
+    required: false
+    default: 'false'
+
+runs:
+  using: "composite"
+  steps:
+    - name: Add test_site to hosts
+      shell: bash
+      run: |
+        echo "127.0.0.1 test_site" | sudo tee -a /etc/hosts
+        git config --global init.defaultBranch main
+        git config --global advice.detachedHead false
+
+    - name: Checkout Verenigingen
+      uses: actions/checkout@v4
+      with:
+        path: apps/${{ github.event.repository.name }}
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Validate Python Files
+      shell: bash
+      run: |
+        python -m compileall -q -f "${GITHUB_WORKSPACE}/apps/${{ github.event.repository.name }}"
+        if grep -lr --exclude-dir=node_modules "^<<<<<<< " "${GITHUB_WORKSPACE}/apps/${{ github.event.repository.name }}"; then
+          echo "Found merge conflicts"
+          exit 1
+        fi
+
+    - name: Checkout Frappe
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.frappe-user }}/frappe
+        ref: ${{ inputs.frappe-branch }}
+        path: apps/frappe
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        check-latest: true
+
+    - name: Cache pip
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/*requirements.txt', '**/pyproject.toml', '**/setup.py') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+          ${{ runner.os }}-
+
+    - name: Cache yarn
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/yarn
+        key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-yarn-
+
+    - name: Install System Dependencies
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get remove -y mysql-server mysql-client || true
+        sudo apt-get install -y \
+          libcups2-dev \
+          redis-server \
+          mariadb-client \
+          libmariadb-dev
+
+        # Install wkhtmltopdf
+        wget -q -O /tmp/wkhtmltox.deb https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-2/wkhtmltox_0.12.6.1-2.jammy_amd64.deb
+        sudo apt-get install -y /tmp/wkhtmltox.deb
+
+    - name: Initialize Bench Environment
+      shell: bash
+      run: |
+        mkdir -p ${GITHUB_WORKSPACE}/{sites,config,logs,config/pids,sites/test_site}
+        python -m venv ${GITHUB_WORKSPACE}/env
+        source ${GITHUB_WORKSPACE}/env/bin/activate
+        pip install --quiet --upgrade pip
+        pip install --quiet frappe-bench
+
+        # Generate bench configuration
+        python <<EOF
+        from bench.config.common_site_config import setup_config
+        from bench.config.redis import generate_config
+        from bench.config.procfile import setup_procfile
+
+        bench_path = "${GITHUB_WORKSPACE}"
+        setup_config(bench_path)
+        generate_config(bench_path)
+        setup_procfile(
+            bench_path,
+            skip_redis=False,
+            skip_web=False,
+            skip_watch=True,
+            skip_socketio=True,
+            skip_schedule=True,
+            with_coverage=${{ inputs.enable-coverage == 'true' && 'True' || 'False' }},
+        )
+        EOF
+
+        # Copy site configuration
+        cp "${GITHUB_WORKSPACE}/apps/${{ github.event.repository.name }}/.github/helper/db/mariadb.json" \
+           "${GITHUB_WORKSPACE}/sites/test_site/site_config.json"
+
+    - name: Configure MariaDB
+      shell: bash
+      run: |
+        mariadb --host 127.0.0.1 --port 3306 -u root -pdb_root -e "SET GLOBAL character_set_server = 'utf8mb4'"
+        mariadb --host 127.0.0.1 --port 3306 -u root -pdb_root -e "SET GLOBAL collation_server = 'utf8mb4_unicode_ci'"
+        mariadb --host 127.0.0.1 --port 3306 -u root -pdb_root -e "CREATE DATABASE IF NOT EXISTS test_frappe"
+        mariadb --host 127.0.0.1 --port 3306 -u root -pdb_root -e "CREATE USER IF NOT EXISTS 'test_frappe'@'localhost' IDENTIFIED BY 'test_frappe'"
+        mariadb --host 127.0.0.1 --port 3306 -u root -pdb_root -e "GRANT ALL PRIVILEGES ON \`test_frappe\`.* TO 'test_frappe'@'localhost'"
+        mariadb --host 127.0.0.1 --port 3306 -u root -pdb_root -e "FLUSH PRIVILEGES"
+
+    - name: Checkout ERPNext
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.erpnext-user }}/erpnext
+        ref: ${{ inputs.erpnext-branch }}
+        path: apps/erpnext
+
+    - name: Install Python Dependencies
+      shell: bash
+      run: |
+        source ${GITHUB_WORKSPACE}/env/bin/activate
+
+        for app in ${GITHUB_WORKSPACE}/apps/*/; do
+          app_name="$(basename $app)"
+          if [ -f "${app}setup.py" ] || [ -f "${app}pyproject.toml" ]; then
+            echo "Installing Python dependencies for ${app_name}"
+            pip install --upgrade -e "${app}[dev,test]" || pip install --upgrade -e "${app}"
+          fi
+          echo "$app_name" >> sites/apps.txt
+        done
+
+    - name: Install JS Dependencies
+      if: ${{ inputs.build-assets == 'true' }}
+      shell: bash
+      run: |
+        source ${GITHUB_WORKSPACE}/env/bin/activate
+        for app in ${GITHUB_WORKSPACE}/apps/*/; do
+          if [ -f "${app}package.json" ]; then
+            echo "Installing JS dependencies for $(basename $app)"
+            pushd "$app"
+            yarn --check-files || npm install
+            popd
+          fi
+        done
+
+    - name: Start Bench
+      shell: bash
+      run: |
+        source ${GITHUB_WORKSPACE}/env/bin/activate
+        bench start &> ${GITHUB_WORKSPACE}/bench_start.log &
+
+    - name: Build Assets and Setup Site
+      if: ${{ inputs.build-assets == 'true' }}
+      shell: bash
+      run: |
+        source ${GITHUB_WORKSPACE}/env/bin/activate
+        CI=Yes bench build --force --production &
+        build_pid=$!
+        bench --site test_site reinstall --yes
+        wait $build_pid
+
+    - name: Setup Site (No Assets)
+      if: ${{ inputs.build-assets != 'true' }}
+      shell: bash
+      run: |
+        source ${GITHUB_WORKSPACE}/env/bin/activate
+        bench --site test_site reinstall --yes
+
+    - name: Install Apps on Site
+      shell: bash
+      run: |
+        source ${GITHUB_WORKSPACE}/env/bin/activate
+        bench --site test_site install-app erpnext
+        bench --site test_site install-app ${{ github.event.repository.name }}

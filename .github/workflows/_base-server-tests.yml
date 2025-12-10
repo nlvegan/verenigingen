@@ -1,0 +1,203 @@
+name: Server Tests Base
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: 'Python version'
+        type: string
+        default: '3.12'
+      node-version:
+        description: 'Node.js version'
+        type: number
+        default: 18
+      frappe-user:
+        description: 'Frappe repo user/org'
+        type: string
+        default: 'frappe'
+      frappe-branch:
+        description: 'Frappe branch'
+        type: string
+        default: 'version-15'
+      erpnext-user:
+        description: 'ERPNext repo user/org'
+        type: string
+        default: 'frappe'
+      erpnext-branch:
+        description: 'ERPNext branch'
+        type: string
+        default: 'version-15'
+      parallel-runs:
+        description: 'Number of parallel test containers'
+        type: number
+        default: 2
+      enable-coverage:
+        description: 'Enable coverage collection'
+        type: boolean
+        default: false
+      test-modules:
+        description: 'Specific test modules to run (comma-separated, empty for all)'
+        type: string
+        default: ''
+
+jobs:
+  # Generate test indices for parallel execution
+  generate-matrix:
+    name: Generate Test Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      indices: ${{ steps.set-indices.outputs.indices }}
+    steps:
+      - id: set-indices
+        run: |
+          indices=$(seq -s ',' 1 ${{ inputs.parallel-runs }})
+          echo "indices=[${indices}]" >> $GITHUB_OUTPUT
+
+  # Main integration tests
+  integration-tests:
+    name: Tests (${{ matrix.index }}/${{ inputs.parallel-runs }})
+    needs: generate-matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    strategy:
+      fail-fast: false
+      matrix:
+        index: ${{ fromJSON(needs.generate-matrix.outputs.indices) }}
+
+    services:
+      mariadb:
+        image: mariadb:10.6
+        env:
+          MYSQL_ROOT_PASSWORD: db_root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+      redis-cache:
+        image: redis:alpine
+        ports:
+          - 6379:6379
+
+      redis-queue:
+        image: redis:alpine
+        ports:
+          - 6380:6379
+
+      smtp:
+        image: rnwood/smtp4dev:v3
+        ports:
+          - 2525:25
+          - 3000:80
+
+    steps:
+      - name: Setup Environment
+        uses: ./.github/actions/setup
+        with:
+          python-version: ${{ inputs.python-version }}
+          node-version: ${{ inputs.node-version }}
+          frappe-user: ${{ inputs.frappe-user }}
+          frappe-branch: ${{ inputs.frappe-branch }}
+          erpnext-user: ${{ inputs.erpnext-user }}
+          erpnext-branch: ${{ inputs.erpnext-branch }}
+          enable-coverage: ${{ inputs.enable-coverage }}
+
+      - name: Run Tests (Parallel)
+        if: ${{ inputs.test-modules == '' }}
+        run: |
+          source ${GITHUB_WORKSPACE}/env/bin/activate
+          bench --site test_site run-parallel-tests \
+            --app ${{ github.event.repository.name }} \
+            --total-builds ${{ inputs.parallel-runs }} \
+            --build-number ${{ matrix.index }} \
+            ${{ inputs.enable-coverage && '--with-coverage' || '' }}
+
+      - name: Run Tests (Specific Modules)
+        if: ${{ inputs.test-modules != '' }}
+        run: |
+          source ${GITHUB_WORKSPACE}/env/bin/activate
+          IFS=',' read -ra MODULES <<< "${{ inputs.test-modules }}"
+          for module in "${MODULES[@]}"; do
+            echo "Running tests for module: $module"
+            bench --site test_site run-tests \
+              --module "$module" \
+              ${{ inputs.enable-coverage && '--with-coverage' || '' }}
+          done
+
+      - name: Upload Coverage
+        if: ${{ inputs.enable-coverage }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.index }}
+          path: ${GITHUB_WORKSPACE}/sites/.coverage.*
+          include-hidden-files: true
+          retention-days: 1
+
+      - name: Upload Bench Logs on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-logs-${{ matrix.index }}
+          path: |
+            ${GITHUB_WORKSPACE}/bench_start.log
+            ${GITHUB_WORKSPACE}/logs/
+          retention-days: 7
+
+  # Aggregate test results
+  test-results:
+    name: Test Results
+    needs: integration-tests
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Check Test Results
+        run: |
+          if [ "${{ needs.integration-tests.result }}" == "success" ]; then
+            echo "All tests passed!"
+            exit 0
+          else
+            echo "Some tests failed"
+            exit 1
+          fi
+
+  # Coverage aggregation (optional)
+  coverage:
+    name: Aggregate Coverage
+    needs: integration-tests
+    runs-on: ubuntu-latest
+    if: ${{ inputs.enable-coverage && always() }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install Coverage Tool
+        run: pip install coverage
+
+      - name: Download Coverage Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-*
+          merge-multiple: true
+
+      - name: Combine Coverage
+        run: |
+          coverage combine
+          coverage xml -o coverage.xml
+          coverage report
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          fail_ci_if_error: false
+          verbose: true
