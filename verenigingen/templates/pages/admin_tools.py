@@ -323,6 +323,25 @@ def get_context(context):
             "warning": "This will delete version history older than 90 days",
         },
         {
+            "title": "TRUNCATE Preview: Version + Deleted (DRY RUN)",
+            "description": "Preview instant truncation of Version and Deleted Document tables",
+            "method": "verenigingen.utils.version_cleanup.nuclear_truncate_version_and_deleted_tables",
+            "icon": "fa fa-bolt",
+            "color": "brand-accent",
+            "args": {"confirm_nuclear_truncate": True, "dry_run": True},
+            "formatter": "cleanup",
+        },
+        {
+            "title": "NUCLEAR TRUNCATE: Version + Deleted Tables",
+            "description": "INSTANT truncation of Version history and Deleted Documents - reclaim disk space fast",
+            "method": "verenigingen.utils.version_cleanup.nuclear_truncate_version_and_deleted_tables",
+            "icon": "fa fa-bolt",
+            "color": "danger",
+            "warning": "⚡ INSTANT DESTRUCTION: This uses SQL TRUNCATE to instantly empty Version history AND Deleted Document tables! No undo possible. Only for Verenigingen Administrators!",
+            "args": {"confirm_nuclear_truncate": True, "dry_run": False},
+            "formatter": "cleanup",
+        },
+        {
             "title": "Security Configuration",
             "description": "Check and configure security settings including CSRF protection",
             "method": "verenigingen.setup.security_setup.check_current_security_status",
@@ -447,6 +466,25 @@ def get_context(context):
             "warning": "⚠️ EXTREME DANGER: This will permanently delete ALL members, memberships, dues schedules, volunteers, SEPA mandates, payment history, user accounts, and related records! Only use for import testing on development servers!",
             "args": {"confirm_nuclear_cleanup": True, "dry_run": False},
         },
+        {
+            "title": "⚡ TRUNCATE Preview (DRY RUN)",
+            "description": "Preview instant table truncation - shows what would be reset to zero",
+            "method": "verenigingen.utils.member_import_cleanup.nuclear_truncate_member_tables",
+            "icon": "fa fa-bolt",
+            "color": "brand-accent",
+            "args": {"confirm_nuclear_truncate": True, "dry_run": True},
+            "formatter": "cleanup",
+        },
+        {
+            "title": "⚡ NUCLEAR TRUNCATE: Reset ALL Tables",
+            "description": "INSTANT table truncation - bypasses all validations, much faster than sequential delete",
+            "method": "verenigingen.utils.member_import_cleanup.nuclear_truncate_member_tables",
+            "icon": "fa fa-bolt",
+            "color": "danger",
+            "warning": "⚡ INSTANT DESTRUCTION: This uses SQL TRUNCATE to instantly empty ALL member-related tables! No hooks, no validations, no undo. Settings and templates preserved. Only for Verenigingen Administrators!",
+            "args": {"confirm_nuclear_truncate": True, "dry_run": False},
+            "formatter": "cleanup",
+        },
     ]
 
     # Add command examples with dynamic site name
@@ -491,6 +529,22 @@ def get_context(context):
         {
             "description": "Nuclear cleanup ALL members (LIVE)",
             "command": f'bench --site {site_name} execute verenigingen.utils.member_import_cleanup.nuclear_cleanup_all_members --kwargs=\'{{"confirm_nuclear_cleanup": true, "dry_run": false}}\'',
+        },
+        {
+            "description": "Nuclear TRUNCATE tables (DRY RUN)",
+            "command": f'bench --site {site_name} execute verenigingen.utils.member_import_cleanup.nuclear_truncate_member_tables --kwargs=\'{{"confirm_nuclear_truncate": true, "dry_run": true}}\'',
+        },
+        {
+            "description": "Nuclear TRUNCATE tables (LIVE)",
+            "command": f'bench --site {site_name} execute verenigingen.utils.member_import_cleanup.nuclear_truncate_member_tables --kwargs=\'{{"confirm_nuclear_truncate": true, "dry_run": false}}\'',
+        },
+        {
+            "description": "Nuclear TRUNCATE Version + Deleted (DRY RUN)",
+            "command": f'bench --site {site_name} execute verenigingen.utils.version_cleanup.nuclear_truncate_version_and_deleted_tables --kwargs=\'{{"confirm_nuclear_truncate": true, "dry_run": true}}\'',
+        },
+        {
+            "description": "Nuclear TRUNCATE Version + Deleted (LIVE)",
+            "command": f'bench --site {site_name} execute verenigingen.utils.version_cleanup.nuclear_truncate_version_and_deleted_tables --kwargs=\'{{"confirm_nuclear_truncate": true, "dry_run": false}}\'',
         },
         {
             "description": "Complete partial payments (dry run)",
@@ -549,6 +603,7 @@ ALLOWED_ADMIN_METHODS = {
     "verenigingen.utils.member_import_cleanup.cleanup_test_members_only",
     "verenigingen.utils.member_import_cleanup.nuclear_cleanup_all_members",
     "verenigingen.utils.member_import_cleanup.force_cleanup_orphaned_schedules_and_invoices",
+    "verenigingen.utils.member_import_cleanup.nuclear_truncate_member_tables",
     # API Audit Log management
     "verenigingen.verenigingen.doctype.api_audit_log.api_audit_log.clear_all_audit_logs",
     # Version history management
@@ -556,6 +611,7 @@ ALLOWED_ADMIN_METHODS = {
     "verenigingen.utils.version_cleanup.clear_all_versions",
     "verenigingen.utils.version_cleanup.clear_versions_older_than_days",
     "verenigingen.utils.version_cleanup.clear_versions_by_doctype",
+    "verenigingen.utils.version_cleanup.nuclear_truncate_version_and_deleted_tables",
     # Deleted document management
     "verenigingen.utils.deleted_document_cleanup.get_deleted_document_statistics",
     "verenigingen.utils.deleted_document_cleanup.clear_all_deleted_documents",

@@ -1551,3 +1551,367 @@ def cleanup_test_members_only(email_patterns=None):
         results["errors"].append(str(e))
 
     return results
+
+
+def _validate_vereinigingen_admin_permissions():
+    """
+    Validate that current user has Verenigingen Administrator role.
+    Returns True if user has permission, throws otherwise.
+    """
+    user = frappe.session.user
+
+    if user == "Administrator":
+        return True
+
+    user_roles = frappe.get_roles()
+    if "Verenigingen Administrator" not in user_roles:
+        frappe.throw(
+            _("This operation requires Verenigingen Administrator role."),
+            frappe.PermissionError,
+        )
+
+    return True
+
+
+@frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
+def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True):
+    """
+    Nuclear TRUNCATE cleanup: Instantly reset ALL member-related tables to empty state.
+
+    Unlike the sequential delete cleanup, this function uses SQL TRUNCATE statements
+    to instantly empty all member-related tables. This is MUCH faster than row-by-row
+    deletion but is also more dangerous as it bypasses all Frappe hooks and validations.
+
+    IMPORTANT: This preserves all settings DocTypes - only operational/transactional
+    data is removed. Settings like Verenigingen Settings, Membership Types, etc. remain.
+
+    Tables that will be TRUNCATED (in safe dependency order):
+    - Member Payment History
+    - Chapter Member (child table)
+    - Chapter Board Member (child table)
+    - Volunteer Assignment, Volunteer Skill, Volunteer Interest Area, Volunteer Development Goal
+    - Volunteer
+    - SEPA Mandate
+    - Contribution Amendment Request
+    - Membership Dues Schedule (non-templates only - templates preserved)
+    - Membership
+    - Donor (if exists)
+    - Member
+
+    Tables that will be UPDATED (references cleared):
+    - Chapter (chapter_head cleared)
+    - Customer (custom_member cleared)
+    - Sales Invoice (member field cleared on membership invoices)
+
+    Child tables that will be cleaned:
+    - Dynamic Link (links to Member, Volunteer, Customer)
+    - Contact (linked to deleted members)
+    - Address (linked to deleted members)
+    - User (member-linked users except Administrator/Guest)
+
+    Args:
+        confirm_nuclear_truncate (bool): Must be True to proceed
+        dry_run (bool): If True, only shows what would be truncated
+
+    Returns:
+        dict: Results of the truncate operation
+
+    Security:
+        - Requires Verenigingen Administrator role
+        - Rate limited to 2 uses per hour per user (via COR)
+    """
+    # Security validation - Verenigingen Administrator only
+    _validate_vereinigingen_admin_permissions()
+
+    if not confirm_nuclear_truncate:
+        frappe.throw(
+            _("You must set confirm_nuclear_truncate=True to proceed with this destructive operation")
+        )
+
+    # Log the attempt for audit
+    frappe.logger("verenigingen.security").warning(
+        f"Nuclear TRUNCATE cleanup {'(DRY RUN)' if dry_run else 'EXECUTING'} "
+        f"initiated by {frappe.session.user}"
+    )
+
+    results = {
+        "dry_run": dry_run,
+        "tables_truncated": [],
+        "tables_updated": [],
+        "records_before": {},
+        "errors": [],
+        "warnings": [],
+        "summary": "",
+    }
+
+    try:
+        # Define tables to truncate in dependency order (children first, parents last)
+        # Each entry: (table_name, has_special_handling, description)
+        tables_to_truncate = [
+            # Child tables first
+            ("tabMember Payment History", False, "Member payment tracking records"),
+            ("tabChapter Member", False, "Chapter membership links"),
+            ("tabChapter Board Member", False, "Chapter board member links"),
+            ("tabVolunteer Assignment", False, "Volunteer team/chapter assignments"),
+            ("tabVolunteer Skill", False, "Volunteer skills"),
+            ("tabVolunteer Interest Area", False, "Volunteer interest areas"),
+            ("tabVolunteer Development Goal", False, "Volunteer development goals"),
+            # Main operational tables
+            ("tabSEPA Mandate", False, "SEPA direct debit mandates"),
+            ("tabContribution Amendment Request", False, "Contribution change requests"),
+            ("tabVolunteer", False, "Volunteer records"),
+            ("tabMembership", False, "Membership records"),
+            ("tabDonor", True, "Donor records (if DocType exists)"),
+            # Member table last
+            ("tabMember", False, "Core member records"),
+        ]
+
+        # Tables to update (clear references)
+        tables_to_update = [
+            ("tabChapter", "chapter_head", "Clear chapter head references"),
+            ("tabCustomer", "custom_member", "Clear customer-member links"),
+        ]
+
+        # Get record counts before operation
+        for table_name, has_special, desc in tables_to_truncate:
+            try:
+                # Check if table exists
+                if has_special and table_name == "tabDonor":
+                    if not frappe.db.exists("DocType", "Donor"):
+                        results["warnings"].append(f"Donor DocType does not exist - skipping")
+                        continue
+
+                count = frappe.db.sql(f"SELECT COUNT(*) FROM `{table_name}`")[0][0]
+                results["records_before"][table_name] = count
+            except Exception as e:
+                results["warnings"].append(f"Could not count {table_name}: {str(e)}")
+                results["records_before"][table_name] = "unknown"
+
+        # Special handling: Count Membership Dues Schedule templates to preserve
+        try:
+            template_count = frappe.db.count("Membership Dues Schedule", {"is_template": 1})
+            non_template_count = frappe.db.count("Membership Dues Schedule", {"is_template": 0})
+            results["records_before"]["tabMembership Dues Schedule (non-template)"] = non_template_count
+            results["records_before"]["tabMembership Dues Schedule (template - PRESERVED)"] = template_count
+        except Exception as e:
+            results["warnings"].append(f"Could not count Membership Dues Schedule: {str(e)}")
+
+        # Count users/contacts/addresses that would be affected
+        try:
+            member_linked_users = frappe.db.sql("""
+                SELECT COUNT(DISTINCT m.user)
+                FROM `tabMember` m
+                WHERE m.user IS NOT NULL AND m.user != ''
+                AND m.user NOT IN ('Administrator', 'Guest')
+            """)[0][0]
+            results["records_before"]["User (member-linked)"] = member_linked_users
+
+            member_addresses = frappe.db.sql("""
+                SELECT COUNT(DISTINCT dl.parent)
+                FROM `tabDynamic Link` dl
+                WHERE dl.parenttype = 'Address' AND dl.link_doctype = 'Member'
+            """)[0][0]
+            results["records_before"]["Address (member-linked)"] = member_addresses
+
+            member_contacts = frappe.db.sql("""
+                SELECT COUNT(DISTINCT dl.parent)
+                FROM `tabDynamic Link` dl
+                WHERE dl.parenttype = 'Contact' AND dl.link_doctype = 'Member'
+            """)[0][0]
+            results["records_before"]["Contact (member-linked)"] = member_contacts
+        except Exception as e:
+            results["warnings"].append(f"Could not count linked records: {str(e)}")
+
+        if dry_run:
+            total_records = sum(
+                v for v in results["records_before"].values()
+                if isinstance(v, int)
+            )
+            results["summary"] = (
+                f"DRY RUN: Would truncate {len(tables_to_truncate)} tables "
+                f"affecting approximately {total_records} records. "
+                f"Settings and templates will be preserved."
+            )
+            return results
+
+        # ========== ACTUAL TRUNCATE OPERATION ==========
+        frappe.db.begin()
+
+        try:
+            # PHASE 1: Clear references in related tables first
+            frappe.logger().info("Phase 1: Clearing foreign key references...")
+
+            # Clear chapter_head references
+            frappe.db.sql("UPDATE `tabChapter` SET chapter_head = NULL WHERE chapter_head IS NOT NULL")
+            results["tables_updated"].append("tabChapter.chapter_head cleared")
+
+            # Clear Customer.custom_member references (if field exists)
+            if frappe.db.has_column("Customer", "custom_member"):
+                frappe.db.sql("UPDATE `tabCustomer` SET custom_member = NULL WHERE custom_member IS NOT NULL")
+                results["tables_updated"].append("tabCustomer.custom_member cleared")
+
+            # Clear Member.user and Member.customer before deleting users
+            frappe.db.sql("UPDATE `tabMember` SET user = NULL, customer = NULL")
+            results["tables_updated"].append("tabMember.user and customer cleared")
+
+            # PHASE 2: Delete Dynamic Links to Members/Volunteers/Customers we're cleaning
+            frappe.logger().info("Phase 2: Cleaning up Dynamic Links...")
+            frappe.db.sql("DELETE FROM `tabDynamic Link` WHERE link_doctype = 'Member'")
+            frappe.db.sql("DELETE FROM `tabDynamic Link` WHERE link_doctype = 'Volunteer'")
+            results["tables_updated"].append("Dynamic Links to Member/Volunteer deleted")
+
+            # Get member-linked customers before deleting members
+            customer_names = frappe.db.sql("""
+                SELECT name FROM `tabCustomer` WHERE custom_member IS NOT NULL
+            """, as_list=True)
+            customer_names = [c[0] for c in customer_names] if customer_names else []
+
+            if customer_names:
+                placeholders = ", ".join(["%s"] * len(customer_names))
+                frappe.db.sql(
+                    f"DELETE FROM `tabDynamic Link` WHERE link_doctype = 'Customer' AND link_name IN ({placeholders})",
+                    customer_names
+                )
+                results["tables_updated"].append(f"Dynamic Links to {len(customer_names)} member-linked Customers deleted")
+
+            # PHASE 3: Delete member-linked Addresses and Contacts
+            frappe.logger().info("Phase 3: Cleaning up Addresses and Contacts...")
+
+            # Get addresses/contacts linked to members (via Dynamic Link)
+            member_addresses = frappe.db.sql("""
+                SELECT DISTINCT dl.parent FROM `tabDynamic Link` dl
+                WHERE dl.parenttype = 'Address' AND dl.link_doctype = 'Member'
+            """, as_list=True)
+            address_names = [a[0] for a in member_addresses] if member_addresses else []
+
+            member_contacts = frappe.db.sql("""
+                SELECT DISTINCT dl.parent FROM `tabDynamic Link` dl
+                WHERE dl.parenttype = 'Contact' AND dl.link_doctype = 'Member'
+            """, as_list=True)
+            contact_names = [c[0] for c in member_contacts] if member_contacts else []
+
+            # Delete contacts and their child tables
+            if contact_names:
+                placeholders = ", ".join(["%s"] * len(contact_names))
+                frappe.db.sql(f"DELETE FROM `tabContact Email` WHERE parent IN ({placeholders})", contact_names)
+                frappe.db.sql(f"DELETE FROM `tabContact Phone` WHERE parent IN ({placeholders})", contact_names)
+                frappe.db.sql(f"DELETE FROM `tabDynamic Link` WHERE parent IN ({placeholders}) AND parenttype = 'Contact'", contact_names)
+                frappe.db.sql(f"DELETE FROM `tabContact` WHERE name IN ({placeholders})", contact_names)
+                results["tables_updated"].append(f"Deleted {len(contact_names)} member-linked Contacts")
+
+            # Delete addresses and their dynamic links
+            if address_names:
+                placeholders = ", ".join(["%s"] * len(address_names))
+                frappe.db.sql(f"DELETE FROM `tabDynamic Link` WHERE parent IN ({placeholders}) AND parenttype = 'Address'", address_names)
+                frappe.db.sql(f"DELETE FROM `tabAddress` WHERE name IN ({placeholders})", address_names)
+                results["tables_updated"].append(f"Deleted {len(address_names)} member-linked Addresses")
+
+            # PHASE 4: Delete member-linked Users
+            frappe.logger().info("Phase 4: Cleaning up member-linked Users...")
+
+            member_users = frappe.db.sql("""
+                SELECT DISTINCT m.user FROM `tabMember` m
+                WHERE m.user IS NOT NULL AND m.user != ''
+                AND m.user NOT IN ('Administrator', 'Guest')
+            """, as_list=True)
+            user_names = [u[0] for u in member_users] if member_users else []
+
+            if user_names:
+                placeholders = ", ".join(["%s"] * len(user_names))
+                # Delete user child tables first
+                frappe.db.sql(f"DELETE FROM `tabHas Role` WHERE parent IN ({placeholders})", user_names)
+                frappe.db.sql(f"DELETE FROM `tabUser Email` WHERE parent IN ({placeholders})", user_names)
+                frappe.db.sql(f"DELETE FROM `tabUser Social Login` WHERE parent IN ({placeholders})", user_names)
+                frappe.db.sql(f"DELETE FROM `tabBlock Module` WHERE parent IN ({placeholders})", user_names)
+                frappe.db.sql(f"DELETE FROM `tabDefaultValue` WHERE parent IN ({placeholders})", user_names)
+                frappe.db.sql(f"DELETE FROM `tabUser Permission` WHERE user IN ({placeholders})", user_names)
+                frappe.db.sql(f"DELETE FROM `tabUser` WHERE name IN ({placeholders})", user_names)
+                results["tables_updated"].append(f"Deleted {len(user_names)} member-linked Users")
+
+            # PHASE 5: Delete Employees linked to member users
+            if user_names:
+                placeholders = ", ".join(["%s"] * len(user_names))
+                frappe.db.sql(f"UPDATE `tabEmployee` SET user_id = NULL WHERE user_id IN ({placeholders})", user_names)
+                frappe.db.sql(f"DELETE FROM `tabEmployee` WHERE user_id IN ({placeholders})", user_names)
+                results["tables_updated"].append("Member-linked Employees deleted")
+
+            # PHASE 6: TRUNCATE main operational tables
+            frappe.logger().info("Phase 6: Truncating main operational tables...")
+
+            for table_name, has_special, desc in tables_to_truncate:
+                try:
+                    # Special handling for Donor (check if exists)
+                    if has_special and table_name == "tabDonor":
+                        if not frappe.db.exists("DocType", "Donor"):
+                            continue
+
+                    # TRUNCATE is faster than DELETE as it doesn't log individual rows
+                    frappe.db.sql(f"TRUNCATE TABLE `{table_name}`")
+                    results["tables_truncated"].append(f"{table_name} ({desc})")
+                    frappe.logger().info(f"Truncated {table_name}")
+
+                except Exception as e:
+                    results["errors"].append(f"Failed to truncate {table_name}: {str(e)}")
+                    frappe.logger().error(f"Failed to truncate {table_name}: {str(e)}")
+
+            # PHASE 7: Special handling for Membership Dues Schedule (preserve templates)
+            frappe.logger().info("Phase 7: Cleaning Membership Dues Schedules (preserving templates)...")
+            try:
+                # Delete non-template schedules only
+                frappe.db.sql("DELETE FROM `tabMembership Dues Schedule` WHERE is_template = 0")
+                results["tables_truncated"].append("tabMembership Dues Schedule (non-templates only)")
+            except Exception as e:
+                results["errors"].append(f"Failed to clean Membership Dues Schedule: {str(e)}")
+
+            # PHASE 8: Clean up Sales Invoices membership references (but keep invoices)
+            frappe.logger().info("Phase 8: Clearing Sales Invoice membership references...")
+            try:
+                frappe.db.sql("""
+                    UPDATE `tabSales Invoice`
+                    SET member = NULL, membership_dues_schedule = NULL, membership_dues_schedule_display = NULL
+                    WHERE member IS NOT NULL OR membership_dues_schedule IS NOT NULL
+                """)
+                results["tables_updated"].append("Sales Invoice membership references cleared")
+            except Exception as e:
+                results["warnings"].append(f"Could not clear Sales Invoice references: {str(e)}")
+
+            # PHASE 9: Clean up Notification Settings and API Audit Logs for member emails
+            frappe.logger().info("Phase 9: Cleaning up related settings...")
+            # Note: We don't truncate these as they may have non-member data
+            # The nuclear_cleanup_all_members does this per-member, but here we skip it
+            # as the members table is now empty
+
+            # Commit the transaction
+            frappe.db.commit()
+
+            # Calculate summary
+            truncated_count = len(results["tables_truncated"])
+            updated_count = len(results["tables_updated"])
+            error_count = len(results["errors"])
+
+            results["summary"] = (
+                f"Nuclear TRUNCATE completed: {truncated_count} tables truncated, "
+                f"{updated_count} tables/references updated"
+            )
+            if error_count > 0:
+                results["summary"] += f", {error_count} errors encountered"
+
+            frappe.logger("verenigingen.security").info(
+                f"Nuclear TRUNCATE cleanup completed by {frappe.session.user}: {results['summary']}"
+            )
+
+        except Exception as e:
+            frappe.db.rollback()
+            results["summary"] = f"TRANSACTION ROLLED BACK - Critical error: {str(e)}"
+            results["transaction_rolled_back"] = True
+            frappe.log_error(
+                f"Nuclear TRUNCATE cleanup failed and rolled back: {str(e)}",
+                "Member Import Cleanup Error"
+            )
+
+    except Exception as e:
+        results["summary"] = f"Unexpected error during truncate cleanup: {str(e)}"
+        frappe.log_error(f"Nuclear TRUNCATE cleanup unexpected error: {str(e)}", "Member Import Cleanup Error")
+
+    return results

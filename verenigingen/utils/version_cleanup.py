@@ -6,6 +6,8 @@ Secure functions for managing version history storage
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
 def clear_all_versions():
@@ -187,6 +189,165 @@ def clear_versions_older_than_days(days=90):
         "size_freed_mb": round(size / (1024 * 1024), 2),
         "days_threshold": days,
     }
+
+
+@frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
+def nuclear_truncate_version_and_deleted_tables(confirm_nuclear_truncate=False, dry_run=True):
+    """
+    Nuclear TRUNCATE cleanup: Instantly reset Version and Deleted Document tables to empty state.
+
+    This function uses SQL TRUNCATE statements to instantly empty both the Version history
+    table and the Deleted Document table. This is much faster than row-by-row deletion
+    and is useful for development/testing environments or when you need to reclaim
+    significant disk space quickly.
+
+    Tables that will be TRUNCATED:
+    - tabVersion (document version history)
+    - tabDeleted Document (soft-deleted documents)
+
+    Args:
+        confirm_nuclear_truncate (bool): Must be True to proceed
+        dry_run (bool): If True, only shows what would be truncated
+
+    Returns:
+        dict: Results of the truncate operation including record counts and sizes freed
+
+    Security:
+        - Requires Verenigingen Administrator role
+        - Rate limited to 2 uses per hour per user (via COR)
+    """
+    # Security validation - Verenigingen Administrator only
+    user = frappe.session.user
+    if user != "Administrator":
+        user_roles = frappe.get_roles()
+        if "Verenigingen Administrator" not in user_roles:
+            frappe.throw(
+                _("This operation requires Verenigingen Administrator role."),
+                frappe.PermissionError,
+            )
+
+    if not confirm_nuclear_truncate:
+        frappe.throw(
+            _("You must set confirm_nuclear_truncate=True to proceed with this destructive operation")
+        )
+
+    # Log the attempt for audit
+    frappe.logger("verenigingen.security").warning(
+        f"Nuclear TRUNCATE (Version + Deleted Documents) {'(DRY RUN)' if dry_run else 'EXECUTING'} "
+        f"initiated by {frappe.session.user}"
+    )
+
+    results = {
+        "dry_run": dry_run,
+        "tables_truncated": [],
+        "records_before": {},
+        "size_freed_mb": {},
+        "errors": [],
+        "summary": "",
+    }
+
+    try:
+        # Get Version table statistics
+        version_stats = frappe.db.sql(
+            """
+            SELECT
+                COUNT(*) as total_count,
+                COALESCE(SUM(LENGTH(data)), 0) as total_size
+            FROM tabVersion
+        """,
+            as_dict=True,
+        )
+        version_count = version_stats[0].total_count if version_stats else 0
+        version_size = version_stats[0].total_size if version_stats else 0
+        results["records_before"]["tabVersion"] = version_count
+        results["size_freed_mb"]["tabVersion"] = round(version_size / (1024 * 1024), 2)
+
+        # Get Deleted Document table statistics
+        deleted_stats = frappe.db.sql(
+            """
+            SELECT
+                COUNT(*) as total_count,
+                ROUND(DATA_LENGTH / 1024 / 1024, 2) as size_mb
+            FROM information_schema.TABLES t
+            CROSS JOIN (SELECT COUNT(*) as total_count FROM `tabDeleted Document`) c
+            WHERE t.TABLE_SCHEMA = %s
+            AND t.TABLE_NAME = 'tabDeleted Document'
+        """,
+            (frappe.conf.db_name,),
+            as_dict=True,
+        )
+
+        if deleted_stats:
+            deleted_count = deleted_stats[0].total_count
+            deleted_size = deleted_stats[0].size_mb or 0
+        else:
+            # Fallback if information_schema query fails
+            deleted_count = frappe.db.count("Deleted Document")
+            deleted_size = 0
+
+        results["records_before"]["tabDeleted Document"] = deleted_count
+        results["size_freed_mb"]["tabDeleted Document"] = deleted_size
+
+        # Calculate totals
+        total_records = version_count + deleted_count
+        total_size_mb = results["size_freed_mb"]["tabVersion"] + deleted_size
+
+        if dry_run:
+            results["summary"] = (
+                f"DRY RUN: Would truncate 2 tables - "
+                f"tabVersion ({version_count:,} records, {results['size_freed_mb']['tabVersion']:.2f} MB), "
+                f"tabDeleted Document ({deleted_count:,} records, {deleted_size:.2f} MB). "
+                f"Total: {total_records:,} records, {total_size_mb:.2f} MB"
+            )
+            return results
+
+        # ========== ACTUAL TRUNCATE OPERATION ==========
+        frappe.db.begin()
+
+        try:
+            # Truncate Version table
+            frappe.db.sql("TRUNCATE TABLE `tabVersion`")
+            results["tables_truncated"].append("tabVersion")
+            frappe.logger().info(f"Truncated tabVersion ({version_count:,} records)")
+
+            # Truncate Deleted Document table
+            frappe.db.sql("TRUNCATE TABLE `tabDeleted Document`")
+            results["tables_truncated"].append("tabDeleted Document")
+            frappe.logger().info(f"Truncated tabDeleted Document ({deleted_count:,} records)")
+
+            # Commit the transaction
+            frappe.db.commit()
+
+            results["summary"] = (
+                f"Nuclear TRUNCATE completed: "
+                f"tabVersion ({version_count:,} records, {results['size_freed_mb']['tabVersion']:.2f} MB), "
+                f"tabDeleted Document ({deleted_count:,} records, {deleted_size:.2f} MB). "
+                f"Total freed: {total_records:,} records, {total_size_mb:.2f} MB"
+            )
+
+            frappe.logger("verenigingen.security").info(
+                f"Nuclear TRUNCATE (Version + Deleted Documents) completed by {frappe.session.user}: {results['summary']}"
+            )
+
+        except Exception as e:
+            frappe.db.rollback()
+            results["summary"] = f"TRANSACTION ROLLED BACK - Critical error: {str(e)}"
+            results["transaction_rolled_back"] = True
+            frappe.log_error(
+                f"Nuclear TRUNCATE (Version + Deleted Documents) failed and rolled back: {str(e)}",
+                "Version Cleanup Error"
+            )
+
+    except Exception as e:
+        results["summary"] = f"Unexpected error during truncate: {str(e)}"
+        results["errors"].append(str(e))
+        frappe.log_error(
+            f"Nuclear TRUNCATE (Version + Deleted Documents) unexpected error: {str(e)}",
+            "Version Cleanup Error"
+        )
+
+    return results
 
 
 @frappe.whitelist()
