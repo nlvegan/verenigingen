@@ -30,7 +30,11 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate
 
-from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.secure_operations import (
+    get_system_user_for_operation,
+    secure_document_operation,
+    secure_user_context,
+)
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -305,14 +309,16 @@ def get_or_create_donor(form_data):
         if form_data.get("donor_phone") and not donor_doc.phone:
             donor_doc.phone = form_data.donor_phone
 
-            # PUBLIC DONATION FLOW: Allow guest users to update donor records for donations
+            # PUBLIC DONATION FLOW: Use secure context for updating donor records
             try:
-                donor_doc.flags.ignore_permissions = True
-                donor_doc.save()
-                frappe.db.commit()
-                frappe.log_error(
-                    f"Updated donor {existing_donor} with phone information from public donation form",
-                    "Public Donation - Donor Update",
+                system_user = get_system_user_for_operation("public_donation_donor_update")
+                with secure_user_context(
+                    system_user, f"Updating donor phone for public donation: {existing_donor}"
+                ):
+                    donor_doc.save()
+                    frappe.db.commit()
+                frappe.logger().info(
+                    f"Updated donor {existing_donor} with phone information from public donation form"
                 )
             except Exception as e:
                 frappe.log_error(
@@ -348,24 +354,22 @@ def get_or_create_donor(form_data):
             }
         )
 
-        # PUBLIC DONATION FLOW: Use Administrator context for creating public donation records
-        # This ensures proper permissions and ownership for webhook processing
+        # PUBLIC DONATION FLOW: Use configured system user for creating public donation records
+        # This ensures proper permissions and ownership using the secure operations framework
         try:
-            # Use Administrator context to avoid permission issues with public donations
-            frappe.set_user("Administrator")
+            system_user = get_system_user_for_operation("public_donation_donor_creation")
+            with secure_user_context(
+                system_user, f"Creating donor for public donation: {form_data.donor_email}"
+            ):
+                donor_doc.insert()
+                frappe.db.commit()
 
-            # Set ignore_permissions for public donation flow
-            donor_doc.flags.ignore_permissions = True
-            donor_doc.insert()
-            frappe.db.commit()
+                # Set owner to system user for consistent ownership
+                frappe.db.set_value("Donor", donor_doc.name, "owner", system_user)
+                frappe.db.commit()
 
-            # Ensure the donor is owned by the webhook user for proper webhook processing
-            frappe.db.set_value("Donor", donor_doc.name, "owner", "webhook.user@veganisme.org")
-            frappe.db.commit()
-
-            frappe.log_error(
-                f"Created donor record for public donation: {form_data.donor_name} ({form_data.donor_email})",
-                "Public Donation - Donor Creation",
+            frappe.logger().info(
+                f"Created donor record for public donation: {form_data.donor_name} ({form_data.donor_email})"
             )
             return donor_doc
 
@@ -417,16 +421,18 @@ def create_draft_donation_for_payment(donor, form_data):
     # Validate the donation
     donation_doc.validate()
 
-    # PUBLIC DONATION FLOW: Save as DRAFT (do not submit - webhook will submit after payment)
+    # PUBLIC DONATION FLOW: Save as DRAFT using secure context (webhook will submit after payment)
     try:
-        donation_doc.flags.ignore_permissions = True
-        donation_doc.flags.ignore_mandatory = False  # Keep data validation
-        donation_doc.insert()
-        frappe.db.commit()
+        system_user = get_system_user_for_operation("public_donation_draft_creation")
+        with secure_user_context(
+            system_user, f"Creating draft donation for public donation: {donor.donor_email}"
+        ):
+            donation_doc.flags.ignore_mandatory = False  # Keep data validation
+            donation_doc.insert()
+            frappe.db.commit()
 
-        frappe.log_error(
-            f"Created draft donation for public donation: {donor.donor_name} amount €{form_data.amount}",
-            "Public Donation - Draft Creation",
+        frappe.logger().info(
+            f"Created draft donation for public donation: {donor.donor_name} amount €{form_data.amount}"
         )
     except Exception as e:
         frappe.log_error(

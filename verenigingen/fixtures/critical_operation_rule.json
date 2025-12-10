@@ -41457,5 +41457,27 @@
     "apply_batch_limits_to": "Both",
     "audit_level": "minimal",
     "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "nuclear_truncate_version_and_deleted_tables",
+    "operation_name": "nuclear_truncate_version_and_deleted_tables",
+    "operation_type": "admin",
+    "description": "Nuclear option to truncate version and deleted document tables",
+    "enabled": 1,
+    "security_level": "critical",
+    "rate_limit_calls": 1,
+    "rate_limit_period_seconds": 3600
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "version_cleanup_nuclear_truncate_version_and_deleted_tables",
+    "operation_name": "version_cleanup_nuclear_truncate_version_and_deleted_tables",
+    "operation_type": "admin",
+    "description": "Nuclear option to truncate version and deleted document tables (prefixed)",
+    "enabled": 1,
+    "security_level": "critical",
+    "rate_limit_calls": 1,
+    "rate_limit_period_seconds": 3600
   }
 ]

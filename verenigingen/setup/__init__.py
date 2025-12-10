@@ -332,6 +332,19 @@ def execute_after_install():
             print(f"⚠️ Webhook user setup failed: {str(e)}")
             frappe.logger().warning("Webhook user setup failed: %s", str(e))
 
+        # Set up public document creator user for secure public form processing
+        try:
+            from verenigingen.setup.public_document_creator_setup import setup_public_document_creator
+
+            creator_result = setup_public_document_creator()
+            if creator_result.get("success"):
+                print("✅ Public document creator setup completed successfully")
+            else:
+                print(f"⚠️ Public document creator setup failed: {creator_result.get('message')}")
+        except Exception as e:
+            print(f"⚠️ Public document creator setup failed: {str(e)}")
+            frappe.logger().warning("Public document creator setup failed: %s", str(e))
+
         # Log the successful setup
         frappe.logger().info("Verenigingen setup completed successfully")
         print("Verenigingen app setup completed successfully")

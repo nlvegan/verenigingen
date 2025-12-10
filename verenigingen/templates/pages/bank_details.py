@@ -416,8 +416,9 @@ def test_bank_details_api():
 
 
 @frappe.whitelist(allow_guest=False)
+@development_only_api(operation_type=OperationType.UTILITY)
 def debug_form_submission():
-    """Debug endpoint to test form submission"""
+    """Debug endpoint to test form submission - development only"""
     try:
         frappe.logger().info("=== DEBUG FORM SUBMISSION ===")
         frappe.logger().info(f"User: {frappe.session.user}")

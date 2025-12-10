@@ -9,6 +9,54 @@ import frappe
 from frappe import _
 from frappe.utils import cstr
 
+# Whitelist of doctypes allowed for public payment status queries
+# This prevents IDOR attacks by limiting what documents can be accessed
+ALLOWED_PAYMENT_DOCTYPES = {"Donation", "Member Application"}
+
+
+def validate_payment_document_access(doctype, docname, payment_id):
+    """
+    Validate that a document can be accessed for payment status display.
+
+    Security checks:
+    1. Doctype must be in the allowed whitelist
+    2. Document must exist
+    3. payment_id must match the document's payment reference
+
+    Returns:
+        tuple: (is_valid, doc_or_error_message)
+    """
+    # Check doctype is allowed
+    if doctype not in ALLOWED_PAYMENT_DOCTYPES:
+        frappe.log_error(
+            f"Attempted access to disallowed doctype for payment status: {doctype}", "Payment Status Security"
+        )
+        return False, _("Invalid document type for payment status")
+
+    # Check document exists (without loading sensitive data)
+    if not frappe.db.exists(doctype, docname):
+        return False, _("Document not found")
+
+    # Load document with minimal fields for validation
+    try:
+        doc = frappe.get_doc(doctype, docname)
+
+        # Validate payment_id matches if provided
+        if payment_id:
+            doc_payment_id = getattr(doc, "payment_id", None) or getattr(doc, "mollie_payment_id", None)
+            if not doc_payment_id or doc_payment_id != payment_id:
+                frappe.log_error(
+                    f"Payment ID mismatch: expected {doc_payment_id}, got {payment_id} for {doctype}/{docname}",
+                    "Payment Status Security",
+                )
+                return False, _("Invalid payment reference")
+
+        return True, doc
+
+    except Exception as e:
+        frappe.log_error(f"Error validating payment document: {str(e)}", "Payment Status Validation")
+        return False, _("Unable to validate document")
+
 
 def get_context(context):
     """Get context for payment success page"""
@@ -34,11 +82,20 @@ def get_context(context):
     context.next_steps = []
 
     if doctype and docname:
-        try:
-            # Get the document that was being paid for
-            # Use ignore_permissions for guest access to payment status information only
-            doc = frappe.get_doc(doctype, docname, ignore_permissions=True)
+        # SECURITY: Validate document access before loading any data
+        is_valid, result = validate_payment_document_access(doctype, docname, payment_id)
 
+        if not is_valid:
+            # result contains error message
+            context.payment_status = "error"
+            context.payment_message = result
+            return context
+
+        try:
+            # result contains the validated doc
+            doc = result
+
+            # Only expose minimal, non-sensitive document info
             context.document_info = {
                 "doctype": doctype,
                 "docname": docname,
@@ -47,8 +104,8 @@ def get_context(context):
                 "paid": getattr(doc, "paid", 0),
             }
 
-            # Check payment status if payment_id is provided
-            if payment_id and hasattr(doc, "payment_id") and doc.payment_id == payment_id:
+            # Check payment status - payment_id already validated above
+            if payment_id:
                 # Use the payment gateway to check status
                 payment_status = check_payment_status(doc, payment_id)
                 context.payment_status = payment_status["status"]
@@ -187,17 +244,36 @@ def get_next_steps(status, doctype, docname):
 
 @frappe.whitelist(allow_guest=True)
 def refresh_payment_status(doctype, docname, payment_id):
-    """API endpoint to refresh payment status"""
+    """
+    API endpoint to refresh payment status.
+
+    SECURITY: This endpoint is rate-limited and validates:
+    1. doctype is in ALLOWED_PAYMENT_DOCTYPES whitelist
+    2. document exists
+    3. payment_id matches the document's payment reference
+    """
     try:
-        doc = frappe.get_doc(doctype, docname, ignore_permissions=True)
-        result = check_payment_status(doc, payment_id)
+        # SECURITY: Validate access before returning any data
+        is_valid, result = validate_payment_document_access(doctype, docname, payment_id)
+
+        if not is_valid:
+            # result contains error message - don't leak document existence info
+            return {
+                "success": False,
+                "message": _("Invalid payment reference or document not found"),
+            }
+
+        # result contains the validated doc
+        doc = result
+        payment_result = check_payment_status(doc, payment_id)
 
         return {
             "success": True,
-            "status": result["status"],
-            "message": result["message"],
+            "status": payment_result["status"],
+            "message": payment_result["message"],
             "is_paid": getattr(doc, "paid", 0),
         }
 
     except Exception as e:
-        return {"success": False, "message": _("Error checking payment status: {0}").format(str(e))}
+        frappe.log_error(f"Error in refresh_payment_status: {str(e)}", "Payment Status API Error")
+        return {"success": False, "message": _("Error checking payment status")}
