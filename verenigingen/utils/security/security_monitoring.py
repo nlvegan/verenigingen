@@ -700,6 +700,45 @@ class SecurityMonitor:
 
         return all_alerts
 
+    def get_security_dashboard(self) -> Dict[str, Any]:
+        """Get current security dashboard data"""
+        current_metrics = self.metrics_history[-1] if self.metrics_history else None
+
+        return {
+            "current_metrics": asdict(current_metrics) if current_metrics else None,
+            "active_incidents": [asdict(incident) for incident in self.active_threats.values()],
+            "recent_incidents": [asdict(incident) for incident in self.incidents[-10:]],  # Last 10 incidents
+            "threat_summary": {
+                "critical": len(
+                    [i for i in self.active_threats.values() if i.threat_level == ThreatLevel.CRITICAL]
+                ),
+                "high": len([i for i in self.active_threats.values() if i.threat_level == ThreatLevel.HIGH]),
+                "medium": len(
+                    [i for i in self.active_threats.values() if i.threat_level == ThreatLevel.MEDIUM]
+                ),
+                "low": len([i for i in self.active_threats.values() if i.threat_level == ThreatLevel.LOW]),
+            },
+            "metrics_trend": [asdict(m) for m in list(self.metrics_history)[-20:]],  # Last 20 snapshots
+        }
+
+    def resolve_incident(self, incident_id: str, resolution_notes: str):
+        """Manually resolve security incident"""
+        if incident_id in self.active_threats:
+            incident = self.active_threats[incident_id]
+            incident.resolved = True
+            incident.resolution_notes = resolution_notes
+            del self.active_threats[incident_id]
+
+            self.audit_logger.log_event(
+                "other",  # Map to valid event type
+                AuditSeverity.INFO,
+                details={
+                    "incident_id": incident_id,
+                    "resolution_notes": resolution_notes,
+                    "resolver": frappe.session.user,
+                },
+            )
+
 
 # Global monitor instance
 _security_monitor = None
@@ -865,45 +904,6 @@ def analyze_security_trends(days: int = 7) -> Dict[str, Any]:
     except Exception as e:
         frappe.log_error(f"Security trends analysis failed: {str(e)}")
         return {"error": str(e)}
-
-    def get_security_dashboard(self) -> Dict[str, Any]:
-        """Get current security dashboard data"""
-        current_metrics = self.metrics_history[-1] if self.metrics_history else None
-
-        return {
-            "current_metrics": asdict(current_metrics) if current_metrics else None,
-            "active_incidents": [asdict(incident) for incident in self.active_threats.values()],
-            "recent_incidents": [asdict(incident) for incident in self.incidents[-10:]],  # Last 10 incidents
-            "threat_summary": {
-                "critical": len(
-                    [i for i in self.active_threats.values() if i.threat_level == ThreatLevel.CRITICAL]
-                ),
-                "high": len([i for i in self.active_threats.values() if i.threat_level == ThreatLevel.HIGH]),
-                "medium": len(
-                    [i for i in self.active_threats.values() if i.threat_level == ThreatLevel.MEDIUM]
-                ),
-                "low": len([i for i in self.active_threats.values() if i.threat_level == ThreatLevel.LOW]),
-            },
-            "metrics_trend": [asdict(m) for m in list(self.metrics_history)[-20:]],  # Last 20 snapshots
-        }
-
-    def resolve_incident(self, incident_id: str, resolution_notes: str):
-        """Manually resolve security incident"""
-        if incident_id in self.active_threats:
-            incident = self.active_threats[incident_id]
-            incident.resolved = True
-            incident.resolution_notes = resolution_notes
-            del self.active_threats[incident_id]
-
-            self.audit_logger.log_event(
-                "other",  # Map to valid event type
-                AuditSeverity.INFO,
-                details={
-                    "incident_id": incident_id,
-                    "resolution_notes": resolution_notes,
-                    "resolver": frappe.session.user,
-                },
-            )
 
 
 class SecurityTester:

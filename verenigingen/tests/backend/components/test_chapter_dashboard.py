@@ -56,7 +56,7 @@ class TestChapterDashboard(VereningingenTestCase):
         members = []
         
         # Create members with different statuses
-        statuses = ["Active", "Active", "Pending", "Inactive", "Suspended"]
+        statuses = ["Active", "Active", "Pending", "Expired", "Suspended"]
         
         for i, status in enumerate(statuses):
             member = frappe.get_doc({
@@ -108,10 +108,7 @@ class TestChapterDashboard(VereningingenTestCase):
         """Test dashboard data filtered by user permissions"""
         # Test as board member
         frappe.set_user(self.board_member_user.name)
-        
-        # Get dashboard data
-        from verenigingen.api.chapter_dashboard import get_chapter_dashboard_data
-        
+
         # Mock board member assignment
         with patch('frappe.db.get_value') as mock_get_value:
             mock_get_value.return_value = self.test_chapter.name
@@ -132,12 +129,12 @@ class TestChapterDashboard(VereningingenTestCase):
     def test_statistics_accuracy(self):
         """Test dashboard statistics calculation"""
         stats = self._get_chapter_stats()
-        
+
         # Verify member counts
         self.assertEqual(stats["total_members"], 5)
         self.assertEqual(stats["active_members"], 2)
         self.assertEqual(stats["pending_members"], 1)
-        self.assertEqual(stats["inactive_members"], 1)
+        self.assertEqual(stats["expired_members"], 1)
         self.assertEqual(stats["suspended_members"], 1)
         
         # Verify percentages
@@ -152,14 +149,14 @@ class TestChapterDashboard(VereningingenTestCase):
         total = len(self.test_members)
         active = len([m for m in self.test_members if m.status == "Active"])
         pending = len([m for m in self.test_members if m.status == "Pending"])
-        inactive = len([m for m in self.test_members if m.status == "Inactive"])
+        expired = len([m for m in self.test_members if m.status == "Expired"])
         suspended = len([m for m in self.test_members if m.status == "Suspended"])
         
         return {
             "total_members": total,
             "active_members": active,
             "pending_members": pending,
-            "inactive_members": inactive,
+            "expired_members": expired,
             "suspended_members": suspended,
             "active_percentage": (active / total * 100) if total > 0 else 0,
             "new_members_this_month": 0,
@@ -217,24 +214,33 @@ class TestChapterDashboard(VereningingenTestCase):
         """Test quick approval functionality from dashboard"""
         # Get pending member
         pending_member = next(m for m in self.test_members if m.status == "Pending")
-        
+        original_status = pending_member.status
+        original_application_status = getattr(pending_member, 'application_status', None)
+
         # Simulate quick approval
         approval_data = {
             "member": pending_member.name,
             "action": "approve",
             "notes": "Approved via dashboard"
         }
-        
-        # Process approval
-        pending_member.reload()
-        pending_member.status = "Active"
-        pending_member.application_status = "Approved"
-        pending_member.save() # VereningingenTestCase handles permissions
-        
-        # Verify approval
-        pending_member.reload()
-        self.assertEqual(pending_member.status, "Active")
-        self.assertEqual(pending_member.application_status, "Approved")
+
+        try:
+            # Process approval
+            pending_member.reload()
+            pending_member.status = "Active"
+            pending_member.application_status = "Approved"
+            pending_member.save() # VereningingenTestCase handles permissions
+
+            # Verify approval
+            pending_member.reload()
+            self.assertEqual(pending_member.status, "Active")
+            self.assertEqual(pending_member.application_status, "Approved")
+        finally:
+            # Restore original status to not affect other tests
+            pending_member.status = original_status
+            pending_member.application_status = original_application_status
+            pending_member.save()
+            pending_member.reload()
         
     def test_dashboard_performance_with_large_chapters(self):
         """Test dashboard performance with many members"""
@@ -352,30 +358,54 @@ class TestChapterDashboard(VereningingenTestCase):
         
     def test_bulk_actions(self):
         """Test bulk actions from dashboard"""
-        # Test bulk status update
-        member_ids = [m.name for m in self.test_members[:2]]
-        
+        # Get members that are NOT Active to test bulk activation
+        non_active_members = [m for m in self.test_members if m.status != "Active"]
+        if not non_active_members:
+            self.skipTest("No non-Active members available for bulk action test")
+
+        member_ids = [m.name for m in non_active_members[:2]]
+
+        # Store original statuses to restore after test
+        original_statuses = {}
+        for member_id in member_ids:
+            member = frappe.get_doc("Member", member_id)
+            original_statuses[member_id] = member.status
+
         bulk_update = {
             "action": "update_status",
             "member_ids": member_ids,
             "new_status": "Active",
             "reason": "Bulk activation"
         }
-        
-        # Simulate bulk update
-        updated_count = 0
-        for member_id in bulk_update["member_ids"]:
-            try:
-                member = frappe.get_doc("Member", member_id)
-                if member.status != bulk_update["new_status"]:
-                    member.status = bulk_update["new_status"]
-                    member.save() # VereningingenTestCase handles permissions
-                    updated_count += 1
-            except Exception:
-                pass
-                
-        # Verify updates
-        self.assertGreater(updated_count, 0)
+
+        try:
+            # Simulate bulk update
+            updated_count = 0
+            for member_id in bulk_update["member_ids"]:
+                try:
+                    member = frappe.get_doc("Member", member_id)
+                    if member.status != bulk_update["new_status"]:
+                        member.status = bulk_update["new_status"]
+                        member.save() # VereningingenTestCase handles permissions
+                        updated_count += 1
+                except Exception:
+                    pass
+
+            # Verify updates
+            self.assertGreater(updated_count, 0)
+        finally:
+            # Restore original statuses to not affect other tests
+            for member_id, original_status in original_statuses.items():
+                try:
+                    member = frappe.get_doc("Member", member_id)
+                    member.status = original_status
+                    member.save()
+                    # Also update the test_members list
+                    for m in self.test_members:
+                        if m.name == member_id:
+                            m.reload()
+                except Exception:
+                    pass
         
     @classmethod
     def tearDownClass(cls):
