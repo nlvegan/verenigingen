@@ -166,9 +166,9 @@ class DocumentPortalService(StatelessService):
                     {"name": t, "display_name": t, "organization_type": "Team"} for t in teams
                 ]
 
-            # Get movements where user is member
-            if member_name:
-                movements = self._get_user_movements(member_name)
+            # Get movements where user is member (via volunteer record)
+            if volunteer_name:
+                movements = self._get_user_movements(volunteer_name)
                 organizations["movements"] = [
                     {"name": m, "display_name": m, "organization_type": "Movement"} for m in movements
                 ]
@@ -218,7 +218,7 @@ class DocumentPortalService(StatelessService):
         elif organization_type == "Team":
             return self._is_team_member(volunteer_name, organization_name)
         elif organization_type == "Movement":
-            return self._is_movement_member(member_name, organization_name)
+            return self._is_movement_member(volunteer_name, organization_name)
 
         return False
 
@@ -264,18 +264,18 @@ class DocumentPortalService(StatelessService):
         )
         return [r.name for r in results]
 
-    def _get_user_movements(self, member_name: str) -> List[str]:
-        """Get movements where user is a member"""
-        if not member_name:
+    def _get_user_movements(self, volunteer_name: str) -> List[str]:
+        """Get movements where user is a member (via volunteer record)"""
+        if not volunteer_name:
             return []
 
         results = frappe.db.sql(
             """
             SELECT DISTINCT parent as name
             FROM `tabMovement Member`
-            WHERE member = %s
+            WHERE volunteer = %s
             """,
-            (member_name,),
+            (volunteer_name,),
             as_dict=True,
         )
         return [r.name for r in results]
@@ -304,12 +304,12 @@ class DocumentPortalService(StatelessService):
             )
         )
 
-    def _is_movement_member(self, member_name: str, movement_name: str) -> bool:
-        """Check if member is a member of the movement"""
-        if not member_name:
+    def _is_movement_member(self, volunteer_name: str, movement_name: str) -> bool:
+        """Check if volunteer is a member of the movement"""
+        if not volunteer_name:
             return False
 
-        return bool(frappe.db.exists("Movement Member", {"parent": movement_name, "member": member_name}))
+        return bool(frappe.db.exists("Movement Member", {"parent": movement_name, "volunteer": volunteer_name}))
 
     # =========================================================================
     # Document Upload Methods
@@ -947,9 +947,9 @@ class DocumentPortalService(StatelessService):
             teams = self._get_user_teams(volunteer_name)
             organizations.extend([{"name": t, "organization_type": "Team", "display_name": t} for t in teams])
 
-        # Movements: where user is movement member
-        if member_name:
-            movements = self._get_user_movements(member_name)
+        # Movements: where user is movement member (via volunteer record)
+        if volunteer_name:
+            movements = self._get_user_movements(volunteer_name)
             organizations.extend(
                 [{"name": m, "organization_type": "Movement", "display_name": m} for m in movements]
             )
@@ -1020,7 +1020,7 @@ class DocumentPortalService(StatelessService):
             return self._is_team_member(volunteer_name, organization_name)
 
         elif organization_type == "Movement":
-            return self._is_movement_member(member_name, organization_name)
+            return self._is_movement_member(volunteer_name, organization_name)
 
         return False
 
