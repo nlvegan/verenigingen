@@ -26,6 +26,9 @@ class DonationHistoryManager:
         try:
             donor = self.get_donor_doc()
 
+            # Self-healing: Fix any existing broken entries before sync
+            self._fix_broken_entries(donor)
+
             # Get all donations for this donor
             donations = frappe.get_all(
                 "Donation",
@@ -95,6 +98,9 @@ class DonationHistoryManager:
         """Add a single donation entry to history"""
         try:
             donor = self.get_donor_doc()
+
+            # Self-healing: Fix any existing broken entries missing mandatory donation_date
+            self._fix_broken_entries(donor)
 
             # Check if entry already exists
             existing_entry = None
@@ -242,6 +248,27 @@ class DonationHistoryManager:
         except Exception as e:
             frappe.log_error(f"Error getting donation summary: {str(e)}")
             return {"error": str(e)}
+
+    def _fix_broken_entries(self, donor):
+        """
+        Self-healing: Fix any existing broken entries missing mandatory donation_date.
+        This handles legacy entries created with wrong field names.
+        """
+        broken_entries_fixed = 0
+        for entry in donor.donor_history or []:
+            if not entry.donation_date:
+                # Try to get date from linked donation, fall back to today
+                if entry.donation_reference:
+                    linked_date = frappe.db.get_value("Donation", entry.donation_reference, "donation_date")
+                    entry.donation_date = linked_date or frappe.utils.nowdate()
+                else:
+                    entry.donation_date = frappe.utils.nowdate()
+                broken_entries_fixed += 1
+
+        if broken_entries_fixed > 0:
+            frappe.logger().info(
+                f"🔧 Fixed {broken_entries_fixed} broken donor_history entries for {donor.name}"
+            )
 
 
 @frappe.whitelist()

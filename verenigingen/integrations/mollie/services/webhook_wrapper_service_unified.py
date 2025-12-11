@@ -1097,7 +1097,7 @@ class UnifiedWebhookWrapperService:
             self.logger.info(f"✅ Updated donation {donation.name} status")
 
         except Exception as e:
-            self.logger.error(f"Error updating donation status", error=e)
+            self.logger.error("Error updating donation status", error=e)
 
     def _update_donation_payment_history(self, donation, payment_data, payment_entry_name):
         """Update donation payment history with payment details."""
@@ -1150,7 +1150,7 @@ class UnifiedWebhookWrapperService:
             return True
 
         except Exception as e:
-            self.logger.error(f"Error updating payment history", error=e)
+            self.logger.error("Error updating payment history", error=e)
             return False
 
     # =========================================================================
@@ -1179,11 +1179,11 @@ class UnifiedWebhookWrapperService:
 
         try:
             # Step 1: Create Bank Transaction
-            self.logger.info(f"  Step 1: Getting bank transaction creator...")
+            self.logger.info("  Step 1: Getting bank transaction creator...")
             bt_creator = get_bank_transaction_creator()
 
             # Get Mollie bank account configuration
-            self.logger.info(f"  Step 1a: Getting Mollie bank account config...")
+            self.logger.info("  Step 1a: Getting Mollie bank account config...")
             config = bt_creator.get_mollie_bank_account_config()
             if config.get("error"):
                 self.logger.error(f"❌ Mollie config error: {config['error']}")
@@ -1201,7 +1201,7 @@ class UnifiedWebhookWrapperService:
             )
 
             # Fetch full payment object from Mollie for Bank Transaction creation
-            self.logger.info(f"  Step 1c: Fetching payment object from Mollie API...")
+            self.logger.info("  Step 1c: Fetching payment object from Mollie API...")
             try:
                 mollie_settings = frappe.get_single("Mollie Settings")
                 from mollie.api.client import Client as MollieClient
@@ -1217,7 +1217,7 @@ class UnifiedWebhookWrapperService:
                     f"  Step 1c: Got payment object, status={getattr(payment_obj, 'status', 'unknown')}"
                 )
             except Exception as mollie_err:
-                self.logger.error(f"❌ Failed to fetch payment from Mollie API", error=mollie_err)
+                self.logger.error("❌ Failed to fetch payment from Mollie API", error=mollie_err)
                 self._log_webhook_event(
                     payment_id,
                     "financial_entry_error",
@@ -1227,16 +1227,34 @@ class UnifiedWebhookWrapperService:
                 return None
 
             # Create Bank Transaction
-            self.logger.info(f"  Step 1d: Creating Bank Transaction...")
+            self.logger.info("  Step 1d: Creating Bank Transaction...")
             try:
+                # Get party info for Bank Transaction (Customer linked to Donor)
+                party_type = None
+                party = None
+                bank_party_name = None
+                if donation.donor:
+                    # Get donor name for bank_party_name
+                    donor_doc = frappe.db.get_value(
+                        "Donor", donation.donor, ["donor_name", "customer"], as_dict=True
+                    )
+                    if donor_doc:
+                        bank_party_name = donor_doc.get("donor_name")
+                        if donor_doc.get("customer"):
+                            party_type = "Customer"
+                            party = donor_doc.get("customer")
+
                 bank_transaction_name = bt_creator.create_from_mollie_payment(
                     payment=payment_obj,
                     bank_account=config["bank_account"],
                     company=config["company"],
                     additional_description=f"Donation: {donation.name}",
+                    party_type=party_type,
+                    party=party,
+                    bank_party_name=bank_party_name,
                 )
             except Exception as bt_err:
-                self.logger.error(f"❌ Exception creating Bank Transaction", error=bt_err)
+                self.logger.error("❌ Exception creating Bank Transaction", error=bt_err)
                 self._log_webhook_event(
                     payment_id,
                     "financial_entry_error",
@@ -1260,7 +1278,7 @@ class UnifiedWebhookWrapperService:
             self.logger.info(f"✅ Created Bank Transaction: {bank_transaction_name}")
 
             # Step 2: Create Journal Entry
-            self.logger.info(f"  Step 2: Creating Journal Entry...")
+            self.logger.info("  Step 2: Creating Journal Entry...")
             try:
                 je_creator = get_donation_journal_entry_creator()
                 journal_entry_name = je_creator.create_from_mollie_payment(
@@ -1269,7 +1287,7 @@ class UnifiedWebhookWrapperService:
                     bank_transaction_name=bank_transaction_name,
                 )
             except Exception as je_err:
-                self.logger.error(f"❌ Exception creating Journal Entry", error=je_err)
+                self.logger.error("❌ Exception creating Journal Entry", error=je_err)
                 self._log_webhook_event(
                     payment_id,
                     "financial_entry_error",
@@ -1359,7 +1377,7 @@ class UnifiedWebhookWrapperService:
 
         try:
             donor = frappe.get_doc("Donor", donation.donor)
-            payment_id = payment_data.get("id")
+            _payment_id = payment_data.get("id")  # noqa: F841
             metadata = payment_data.get("metadata", {}) or {}
 
             # Check for subscription details
@@ -1389,6 +1407,29 @@ class UnifiedWebhookWrapperService:
             if hasattr(donor, "donor_history"):
                 from verenigingen.utils.member_financial_history_manager import MemberFinancialHistoryManager
 
+                # Self-healing: Fix any existing broken entries missing mandatory donation_date
+                # This handles legacy entries created with wrong field names
+                broken_entries_fixed = 0
+                for entry in donor.donor_history or []:
+                    if not entry.donation_date:
+                        # Try to get date from linked donation, fall back to today
+                        if entry.donation_reference:
+                            linked_date = frappe.db.get_value(
+                                "Donation", entry.donation_reference, "donation_date"
+                            )
+                            entry.donation_date = linked_date or frappe.utils.nowdate()
+                        else:
+                            entry.donation_date = frappe.utils.nowdate()
+                        broken_entries_fixed += 1
+
+                if broken_entries_fixed > 0:
+                    self.logger.info(
+                        f"🔧 Fixed {broken_entries_fixed} broken donor_history entries for {donor.name}"
+                    )
+                    # Save the fixes before proceeding
+                    donor.flags.ignore_validate_update_after_submit = True
+                    donor.save()
+
                 # Use centralized history manager for atomic child table updates
                 history_manager = MemberFinancialHistoryManager(
                     member_doc=donor,
@@ -1402,18 +1443,22 @@ class UnifiedWebhookWrapperService:
                 def build_donor_history_entry():
                     amount = extractor.extract_amount(payment_data, allow_zero=True)
                     paid_date = extractor.extract_payment_date(payment_data)
+                    # Field names must match Donation History child table schema
                     return {
-                        "payment_id": payment_id,
-                        "donation": donation.name,
-                        "amount": amount,
-                        "payment_date": paid_date,
-                        "payment_status": "Completed",
+                        "donation_reference": donation.name,
+                        "donation_date": paid_date or donation.donation_date or frappe.utils.nowdate(),
+                        "donation_amount": amount,
+                        "donation_status": "One-time"
+                        if not payment_data.get("subscription_id")
+                        else "Recurring",
+                        "payment_method": "Mollie",
+                        "paid": 1,
                     }
 
                 success = history_manager.add_or_update_entry(
-                    entry_id=payment_id,
+                    entry_id=donation.name,
                     entry_builder=build_donor_history_entry,
-                    id_field_name="payment_id",
+                    id_field_name="donation_reference",
                 )
 
                 if success:
@@ -1423,7 +1468,7 @@ class UnifiedWebhookWrapperService:
             return True
 
         except Exception as e:
-            self.logger.error(f"Error updating Donor record", error=e)
+            self.logger.error("Error updating Donor record", error=e)
             return False
 
     def _update_member_payment_history(self, donation, payment_data, journal_entry_name):
@@ -1496,7 +1541,7 @@ class UnifiedWebhookWrapperService:
             return success
 
         except Exception as e:
-            self.logger.error(f"Error updating Member payment history", error=e)
+            self.logger.error("Error updating Member payment history", error=e)
             return False
 
     def _update_donation_payment_history_atomic(self, donation, payment_data, journal_entry_name):
@@ -1552,7 +1597,7 @@ class UnifiedWebhookWrapperService:
             return True
 
         except Exception as e:
-            self.logger.error(f"Error updating donation payment history (atomic)", error=e)
+            self.logger.error("Error updating donation payment history (atomic)", error=e)
             return False
 
     def _log_webhook_event(

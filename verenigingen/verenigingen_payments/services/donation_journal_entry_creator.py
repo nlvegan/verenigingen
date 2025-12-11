@@ -78,6 +78,15 @@ class DonationJournalEntryCreator:
         existing_je = self._check_existing_by_reference(payment_id)
         if existing_je:
             frappe.logger().info(f"Journal Entry already exists for {payment_id}: {existing_je}")
+            # Still attempt reconciliation in case it wasn't done previously
+            if bank_transaction_name:
+                from verenigingen.verenigingen_payments.utils.payment_data_extractor import (
+                    get_payment_data_extractor,
+                )
+
+                extractor = get_payment_data_extractor()
+                amount = extractor.extract_amount(payment_data, allow_zero=False) or 0
+                self._reconcile_bank_transaction(bank_transaction_name, existing_je, flt(amount))
             return existing_je
 
         # Resolve company
@@ -113,12 +122,9 @@ class DonationJournalEntryCreator:
         if not posting_date:
             posting_date = donation_doc.donation_date or nowdate()
 
-        # Get Customer linked to Donor (for party data in Journal Entry)
-        customer = None
-        if donation_doc.donor:
-            customer = frappe.db.get_value("Donor", donation_doc.donor, "customer")
-
         # Create Journal Entry
+        # NOTE: Customer/party info is tracked on Bank Transaction, not Journal Entry
+        # (ERPNext only allows party on Receivable/Payable accounts)
         return self._create_journal_entry(
             posting_date=posting_date,
             company=company,
@@ -130,7 +136,6 @@ class DonationJournalEntryCreator:
             income_account=config["income_account"],
             cost_center=config.get("cost_center"),
             bank_transaction_name=bank_transaction_name,
-            customer=customer,
         )
 
     def create_from_dict(
@@ -179,11 +184,7 @@ class DonationJournalEntryCreator:
         if not posting_date:
             posting_date = donation_doc.donation_date or nowdate()
 
-        # Get Customer linked to Donor (for party data in Journal Entry)
-        customer = None
-        if donation_doc.donor:
-            customer = frappe.db.get_value("Donor", donation_doc.donor, "customer")
-
+        # NOTE: Customer/party info is tracked on Bank Transaction, not Journal Entry
         return self._create_journal_entry(
             posting_date=posting_date,
             company=company,
@@ -194,7 +195,6 @@ class DonationJournalEntryCreator:
             clearing_account=config["clearing_account"],
             income_account=config["income_account"],
             cost_center=config.get("cost_center"),
-            customer=customer,
         )
 
     def _check_existing_by_reference(self, reference_number: str) -> Optional[str]:
@@ -278,7 +278,6 @@ class DonationJournalEntryCreator:
         income_account: str,
         cost_center: Optional[str] = None,
         bank_transaction_name: Optional[str] = None,
-        customer: Optional[str] = None,
     ) -> Optional[str]:
         """
         Create and submit Journal Entry using secure operations framework.
@@ -317,20 +316,18 @@ class DonationJournalEntryCreator:
             je.append("accounts", debit_entry)
 
             # Credit entry - Donation Income (income recognized)
+            # NOTE: Party Type and Party are NOT set on income accounts - ERPNext only
+            # allows party data on Receivable/Payable accounts. The donor reference is
+            # tracked via user_remark and the Bank Transaction party fields instead.
             credit_entry = {
                 "account": income_account,
                 "debit_in_account_currency": 0,
                 "credit_in_account_currency": flt(amount),
-                "user_remark": f"Donation income: {donation_name}",
-                # Note: "Donation" is not a valid reference_type in ERPNext Journal Entry
-                # The donation reference is tracked in user_remark instead
+                "user_remark": f"Donation income: {donation_name}"
+                + (f" | Donor: {donor_name}" if donor_name else ""),
             }
             if cost_center:
                 credit_entry["cost_center"] = cost_center
-            # Add party data if Customer is linked to the Donor
-            if customer:
-                credit_entry["party_type"] = "Customer"
-                credit_entry["party"] = customer
             je.append("accounts", credit_entry)
 
             # Create using secure operations framework

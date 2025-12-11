@@ -30,6 +30,9 @@ class BankTransactionCreator:
         bank_account: str,
         company: Optional[str] = None,
         additional_description: Optional[str] = None,
+        party_type: Optional[str] = None,
+        party: Optional[str] = None,
+        bank_party_name: Optional[str] = None,
     ) -> Optional[str]:
         """
         Create Bank Transaction from Mollie payment object.
@@ -39,6 +42,9 @@ class BankTransactionCreator:
             bank_account: ERPNext Bank Account name
             company: Company name (auto-detected if not provided)
             additional_description: Optional text to append to description
+            party_type: Optional party type (e.g., "Customer") for linking
+            party: Optional party name (e.g., Customer name linked to Donor)
+            bank_party_name: Optional counterparty name (e.g., donor name)
 
         Returns:
             Bank Transaction name if created/exists, None on failure
@@ -80,6 +86,9 @@ class BankTransactionCreator:
             currency=currency,
             reference_number=payment_id,
             description=bt_description,
+            party_type=party_type,
+            party=party,
+            bank_party_name=bank_party_name,
         )
 
     def create_from_settlement(
