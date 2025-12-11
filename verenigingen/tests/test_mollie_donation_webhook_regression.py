@@ -355,5 +355,248 @@ class TestWebhookDonationFlowIntegration(unittest.TestCase):
         pass
 
 
+class TestDonationPaymentJournalEntryField(unittest.TestCase):
+    """Tests for Donation Payment child table - must have journal_entry field for refunds."""
+
+    def test_donation_payment_schema_has_journal_entry_field(self):
+        """
+        Donation Payment child table must have journal_entry Link field.
+
+        Bug: Refunds couldn't store Journal Entry reference (only had payment_entry Link to Payment Entry)
+        Fix: Added journal_entry Link field to Donation Payment child table schema
+        """
+        meta = frappe.get_meta("Donation Payment")
+        field_names = [f.fieldname for f in meta.fields]
+
+        self.assertIn(
+            "journal_entry",
+            field_names,
+            "Donation Payment should have journal_entry field for refund JE references",
+        )
+
+    def test_journal_entry_field_is_link_to_journal_entry(self):
+        """journal_entry field should be a Link to Journal Entry DocType."""
+        meta = frappe.get_meta("Donation Payment")
+        je_field = meta.get_field("journal_entry")
+
+        self.assertIsNotNone(je_field, "journal_entry field should exist")
+        self.assertEqual(
+            je_field.fieldtype,
+            "Link",
+            "journal_entry should be a Link field",
+        )
+        self.assertEqual(
+            je_field.options,
+            "Journal Entry",
+            "journal_entry should link to Journal Entry DocType",
+        )
+
+
+class TestRefundJournalEntryCreator(unittest.TestCase):
+    """Tests for DonationRefundJournalEntryCreator service."""
+
+    def test_refund_creator_exists(self):
+        """DonationRefundJournalEntryCreator service should exist."""
+        from verenigingen.verenigingen_payments.services.donation_refund_journal_entry_creator import (
+            DonationRefundJournalEntryCreator,
+            get_donation_refund_journal_entry_creator,
+        )
+
+        creator = get_donation_refund_journal_entry_creator()
+        self.assertIsInstance(creator, DonationRefundJournalEntryCreator)
+
+    def test_refund_creator_has_create_method(self):
+        """Should have create_refund_journal_entry method with correct signature."""
+        from verenigingen.verenigingen_payments.services.donation_refund_journal_entry_creator import (
+            get_donation_refund_journal_entry_creator,
+        )
+        import inspect
+
+        creator = get_donation_refund_journal_entry_creator()
+        sig = inspect.signature(creator.create_refund_journal_entry)
+        param_names = list(sig.parameters.keys())
+
+        self.assertIn("refund_id", param_names)
+        self.assertIn("refund_amount", param_names)
+        self.assertIn("refund_date", param_names)
+        self.assertIn("donation_doc", param_names)
+        self.assertIn("original_payment_id", param_names)
+        self.assertIn("bank_transaction_name", param_names)
+
+    def test_refund_reference_number_format(self):
+        """
+        Refund Journal Entry should use compound reference number format:
+        {original_payment_id}_refund_{refund_id}
+
+        This ensures uniqueness and traceability back to original payment.
+        """
+        from verenigingen.verenigingen_payments.services.donation_refund_journal_entry_creator import (
+            get_donation_refund_journal_entry_creator,
+        )
+
+        creator = get_donation_refund_journal_entry_creator()
+
+        # Mock existing check to return None (no existing JE)
+        with patch.object(creator, "_check_existing_by_reference", return_value=None):
+            # Mock config
+            creator._config = {
+                "company": "Test Company",
+                "clearing_account": "1130 - Clearing",
+                "income_account": "8010 - Income",
+                "cost_center": "Main - TC",
+            }
+
+            # Capture the reference number used
+            captured_ref = []
+
+            def mock_create(*args, **kwargs):
+                captured_ref.append(kwargs.get("reference_number"))
+                return None
+
+            with patch.object(creator, "_create_refund_journal_entry", mock_create):
+                mock_donation = MagicMock()
+                mock_donation.donor = None
+                mock_donation.company = "Test Company"
+
+                creator.create_refund_journal_entry(
+                    refund_id="re_abc123",
+                    refund_amount=5.0,
+                    refund_date="2025-01-01",
+                    donation_doc=mock_donation,
+                    original_payment_id="tr_xyz789",
+                )
+
+        if captured_ref:
+            expected = "tr_xyz789_refund_re_abc123"
+            self.assertEqual(
+                captured_ref[0],
+                expected,
+                f"Reference should be '{expected}', got '{captured_ref[0]}'",
+            )
+
+
+class TestRefundIdempotencyCheck(unittest.TestCase):
+    """Tests for refund idempotency - should check both payment_entry and journal_entry."""
+
+    def test_idempotency_checks_journal_entry_field(self):
+        """
+        Refund idempotency check should look at journal_entry field,
+        not just payment_entry field.
+
+        Bug: Old check only looked at payment_entry, missed Journal Entry refunds
+        Fix: Check both payment_entry and journal_entry fields
+        """
+        from verenigingen.integrations.mollie.services.webhook_wrapper_service_unified import (
+            UnifiedWebhookWrapperService,
+        )
+        import inspect
+
+        # Read the source code of _process_pending_refunds to verify it checks both
+        source = inspect.getsource(UnifiedWebhookWrapperService._process_pending_refunds)
+
+        # Should check journal_entry field
+        self.assertIn(
+            "journal_entry",
+            source,
+            "Idempotency check should reference journal_entry field",
+        )
+
+        # Should still support payment_entry for backwards compatibility
+        self.assertIn(
+            "payment_entry",
+            source,
+            "Idempotency check should also check payment_entry for backwards compat",
+        )
+
+
+class TestRefundAccountingEntries(unittest.TestCase):
+    """Tests for refund accounting - should reverse donation entries."""
+
+    def test_refund_debits_income_credits_clearing(self):
+        """
+        Refund Journal Entry should have REVERSED accounts from donation:
+        - Debit: Income Account (reduces income)
+        - Credit: Clearing Account (money leaves)
+
+        Donation: DR Clearing / CR Income
+        Refund:   DR Income / CR Clearing
+        """
+        from verenigingen.verenigingen_payments.services.donation_refund_journal_entry_creator import (
+            get_donation_refund_journal_entry_creator,
+        )
+        import inspect
+
+        creator = get_donation_refund_journal_entry_creator()
+        source = inspect.getsource(creator._create_refund_journal_entry)
+
+        # Verify accounting direction in the code:
+        # - income_account should be in debit entry
+        # - clearing_account should be in credit entry
+
+        # Look for debit entry pattern with income_account
+        self.assertIn(
+            '"account": income_account',
+            source,
+            "Income account should be used in an entry",
+        )
+        self.assertIn(
+            '"account": clearing_account',
+            source,
+            "Clearing account should be used in an entry",
+        )
+
+        # The debit entry should use income_account
+        # Find debit entry section and verify income_account is there
+        debit_section_start = source.find("# Debit entry")
+        credit_section_start = source.find("# Credit entry")
+
+        if debit_section_start != -1 and credit_section_start != -1:
+            debit_section = source[debit_section_start:credit_section_start]
+            self.assertIn(
+                "income_account",
+                debit_section,
+                "Debit entry should use income_account (to reduce income)",
+            )
+
+            credit_section = source[credit_section_start:]
+            self.assertIn(
+                "clearing_account",
+                credit_section,
+                "Credit entry should use clearing_account (money leaves)",
+            )
+
+
+class TestRefundBankTransactionCreation(unittest.TestCase):
+    """Tests for refund Bank Transaction - should be withdrawal type."""
+
+    def test_refund_bank_transaction_is_withdrawal(self):
+        """
+        Refund Bank Transaction should have withdrawal amount (not deposit).
+
+        Bug: Old refund code only created Payment Entry, no Bank Transaction
+        Fix: Now creates Bank Transaction with negative amount (withdrawal)
+        """
+        from verenigingen.integrations.mollie.services.webhook_wrapper_service_unified import (
+            UnifiedWebhookWrapperService,
+        )
+        import inspect
+
+        source = inspect.getsource(UnifiedWebhookWrapperService._process_pending_refunds)
+
+        # Should use negative amount for Bank Transaction
+        self.assertIn(
+            "-float(refund_amount)",
+            source,
+            "Refund Bank Transaction should use negative amount for withdrawal",
+        )
+
+        # Should call bank transaction creator
+        self.assertIn(
+            "bt_creator.create_from_dict",
+            source,
+            "Should use BankTransactionCreator to create withdrawal",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -57,6 +57,10 @@ class UnifiedWebhookWrapperService:
         Extracted method to avoid duplication between new payment and fully processed paths.
         Both paths can have pending refunds that need processing.
 
+        Architecture (mirrors donation processing):
+            Mollie Refund → Bank Transaction → Journal Entry → Record Updates
+                            (withdrawal)       (Debit: Income, Credit: Clearing)
+
         Args:
             donation: Donation document
             payment_id: Mollie payment ID
@@ -72,6 +76,35 @@ class UnifiedWebhookWrapperService:
 
         self.logger.info(f"🔄 Processing {len(pending_refunds)} pending refunds for {payment_id}")
 
+        # Get configuration for Bank Transaction creation
+        from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+            get_bank_transaction_creator,
+        )
+        from verenigingen.verenigingen_payments.services.donation_refund_journal_entry_creator import (
+            get_donation_refund_journal_entry_creator,
+        )
+
+        bt_creator = get_bank_transaction_creator()
+        je_creator = get_donation_refund_journal_entry_creator()
+
+        # Get Mollie config for bank account
+        config = bt_creator.get_mollie_bank_account_config()
+        if config.get("error"):
+            self.logger.error(f"❌ Mollie config error for refunds: {config['error']}")
+            return [{"status": "error", "refund_id": "all", "message": config["error"]}]
+
+        # Get party info for Bank Transaction (Customer linked to Donor)
+        party_type = None
+        party = None
+        bank_party_name = None
+        if donation.donor:
+            donor_doc = frappe.db.get_value("Donor", donation.donor, ["donor_name", "customer"], as_dict=True)
+            if donor_doc:
+                bank_party_name = donor_doc.get("donor_name")
+                if donor_doc.get("customer"):
+                    party_type = "Customer"
+                    party = donor_doc.get("customer")
+
         # Collect all payment history entries first (don't save in loop)
         payment_history_entries = []
 
@@ -81,63 +114,100 @@ class UnifiedWebhookWrapperService:
                 refund_amount = pending_refund["amount"]
                 refund_date = pending_refund.get("refund_date")
 
-                # Create refund Payment Entry using unified creator
-                from ..utils.unified_payment_entry_creator import create_refund_payment_entry
+                # Parse refund_date to proper date format
+                parsed_date = refund_date
+                if isinstance(refund_date, str):
+                    try:
+                        from dateutil import parser
 
-                refund_pe = create_refund_payment_entry(
-                    donation_doc=donation,
-                    mollie_payment_id=payment_id,
-                    refund_id=refund_id,
-                    refund_amount=refund_amount,
-                    refund_date=refund_date,
+                        parsed_date = parser.parse(refund_date).date()
+                    except (ValueError, TypeError, ImportError):
+                        parsed_date = frappe.utils.getdate()
+                elif not parsed_date:
+                    parsed_date = frappe.utils.getdate()
+
+                # Build unique reference number for this refund
+                refund_reference = f"{payment_id}_refund_{refund_id}"
+
+                # Step 1: Create Bank Transaction (withdrawal)
+                self.logger.info(f"  Creating Bank Transaction for refund {refund_id}...")
+                bank_transaction_name = bt_creator.create_from_dict(
+                    transaction_data={
+                        "date": parsed_date,
+                        "amount": -float(refund_amount),  # Negative for withdrawal
+                        "currency": "EUR",
+                        "reference_number": refund_reference,
+                        "description": f"Mollie Refund: {donation.name} | Refund ID: {refund_id}",
+                        "party_type": party_type,
+                        "party": party,
+                        "bank_party_name": bank_party_name,
+                    },
+                    bank_account=config["bank_account"],
+                    company=config["company"],
+                    source_type="Mollie Refund",
                 )
 
-                if refund_pe:
-                    self.logger.info(f"✅ Created refund Payment Entry: {refund_pe.name}")
-
-                    # Parse refund_date to proper date format
-                    parsed_date = refund_date
-                    if isinstance(refund_date, str):
-                        try:
-                            from dateutil import parser
-
-                            parsed_date = parser.parse(refund_date).date()
-                        except (ValueError, TypeError, ImportError):
-                            parsed_date = frappe.utils.getdate()
-                    elif not parsed_date:
-                        parsed_date = frappe.utils.getdate()
-
-                    # Collect payment history entry (don't save yet)
-                    payment_history_entries.append(
-                        {
-                            "payment_entry": refund_pe.name,
-                            "amount": -float(refund_amount),  # Negative for refunds
-                            "payment_date": parsed_date,
-                            "mollie_payment_id": refund_id,  # Store refund ID for idempotency
-                            "payment_status": "Refunded",
-                            "payment_method": "Mollie",
-                        }
-                    )
-
-                    refund_results.append(
-                        {
-                            "status": "success",
-                            "refund_id": refund_id,
-                            "payment_entry": refund_pe.name,
-                            "amount": refund_amount,
-                        }
-                    )
-                    # Mark as processed in unified manager
-                    self.idempotency_manager.mark_refund_processed(payment_id, refund_id, refund_pe.name)
-                else:
-                    self.logger.error(f"Failed to create refund Payment Entry for {refund_id}")
+                if not bank_transaction_name:
+                    self.logger.error(f"❌ Failed to create Bank Transaction for refund {refund_id}")
                     refund_results.append(
                         {
                             "status": "error",
                             "refund_id": refund_id,
-                            "message": "Failed to create refund Payment Entry",
+                            "message": "Failed to create Bank Transaction",
                         }
                     )
+                    continue
+
+                self.logger.info(f"✅ Created Bank Transaction: {bank_transaction_name}")
+
+                # Step 2: Create Journal Entry (reverses donation income)
+                self.logger.info(f"  Creating Journal Entry for refund {refund_id}...")
+                journal_entry_name = je_creator.create_refund_journal_entry(
+                    refund_id=refund_id,
+                    refund_amount=refund_amount,
+                    refund_date=refund_date,
+                    donation_doc=donation,
+                    original_payment_id=payment_id,
+                    bank_transaction_name=bank_transaction_name,
+                )
+
+                if not journal_entry_name:
+                    self.logger.error(f"❌ Failed to create Journal Entry for refund {refund_id}")
+                    refund_results.append(
+                        {
+                            "status": "error",
+                            "refund_id": refund_id,
+                            "bank_transaction": bank_transaction_name,
+                            "message": "Failed to create Journal Entry",
+                        }
+                    )
+                    continue
+
+                self.logger.info(f"✅ Created Journal Entry: {journal_entry_name}")
+
+                # Collect payment history entry (don't save yet)
+                payment_history_entries.append(
+                    {
+                        "journal_entry": journal_entry_name,  # Link to Journal Entry
+                        "amount": -float(refund_amount),  # Negative for refunds
+                        "payment_date": parsed_date,
+                        "mollie_payment_id": refund_id,  # Store refund ID for idempotency
+                        "payment_status": "Refunded",
+                        "payment_method": "Mollie",
+                    }
+                )
+
+                refund_results.append(
+                    {
+                        "status": "success",
+                        "refund_id": refund_id,
+                        "bank_transaction": bank_transaction_name,
+                        "journal_entry": journal_entry_name,
+                        "amount": refund_amount,
+                    }
+                )
+                # Mark as processed in unified manager (use JE name for tracking)
+                self.idempotency_manager.mark_refund_processed(payment_id, refund_id, journal_entry_name)
 
             except Exception as e:
                 self.logger.error(f"Failed to process pending refund {pending_refund.get('refund_id')}: {e}")
@@ -151,16 +221,25 @@ class UnifiedWebhookWrapperService:
                 donation.reload()  # Single reload before batch update
 
                 # Filter out entries that already exist (idempotency check)
+                # Check both payment_entry (for Payment Entries) and journal_entry (for Journal Entries)
                 entries_to_add = []
                 for entry in payment_history_entries:
-                    already_exists = any(
-                        p.payment_entry == entry["payment_entry"] for p in (donation.payments or [])
-                    )
+                    # Check which type of entry this is
+                    pe_name = entry.get("payment_entry")
+                    je_name = entry.get("journal_entry")
+
+                    already_exists = False
+                    for p in donation.payments or []:
+                        if pe_name and getattr(p, "payment_entry", None) == pe_name:
+                            already_exists = True
+                            break
+                        if je_name and getattr(p, "journal_entry", None) == je_name:
+                            already_exists = True
+                            break
 
                     if already_exists:
-                        self.logger.info(
-                            f"⏭️ Payment history entry already exists for PE {entry['payment_entry']}, skipping"
-                        )
+                        doc_name = pe_name or je_name
+                        self.logger.info(f"⏭️ Payment history entry already exists for {doc_name}, skipping")
                         continue
 
                     entries_to_add.append(entry)
