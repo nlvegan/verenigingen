@@ -450,6 +450,25 @@ def get_context(context):
             "warning": "This will delete test members and their related records!",
         },
         {
+            "title": "Cleanup ALL Test Data (DRY RUN)",
+            "description": "Preview cleanup of ALL test data: Teams, Chapters, Volunteers, Members with 'test' in name",
+            "method": "verenigingen.utils.member_import_cleanup.cleanup_all_test_data",
+            "icon": "fa fa-eye",
+            "color": "brand-accent",
+            "args": {"dry_run": True},
+            "formatter": "cleanup",
+        },
+        {
+            "title": "Cleanup ALL Test Data (LIVE)",
+            "description": "Delete ALL test data: Teams, Chapters, Volunteers, Members where name contains 'test'",
+            "method": "verenigingen.utils.member_import_cleanup.cleanup_all_test_data",
+            "icon": "fa fa-trash",
+            "color": "warning",
+            "warning": "This will permanently delete ALL test Teams, Chapters, Volunteers, and Members!",
+            "args": {"dry_run": False},
+            "formatter": "cleanup",
+        },
+        {
             "title": "Nuclear Cleanup All Members (DRY RUN)",
             "description": "Preview what would be deleted in nuclear cleanup of ALL members",
             "method": "verenigingen.utils.member_import_cleanup.nuclear_cleanup_all_members",
@@ -504,15 +523,15 @@ def get_context(context):
         },
         {
             "description": "Cleanup orphaned schedules (dry run)",
-            "command": f"bench --site {site_name} execute verenigingen.utils.invoice_management.cleanup_orphaned_schedules --kwargs='{{\"dry_run\": true}}'",
+            "command": f"bench --site {site_name} execute verenigingen.utils.invoice_management.cleanup_orphaned_schedules --kwargs='{{\"dry_run\": True}}'",
         },
         {
             "description": "Enhanced membership cleanup (dry run)",
-            "command": f'bench --site {site_name} execute verenigingen.utils.invoice_management.cleanup_orphaned_membership_data --kwargs=\'{{"dry_run": true, "max_cleanup": 20}}\'',
+            "command": f'bench --site {site_name} execute verenigingen.utils.invoice_management.cleanup_orphaned_membership_data --kwargs=\'{{"dry_run": True, "max_cleanup": 20}}\'',
         },
         {
             "description": "Enhanced membership cleanup (live)",
-            "command": f'bench --site {site_name} execute verenigingen.utils.invoice_management.cleanup_orphaned_membership_data --kwargs=\'{{"dry_run": false, "max_cleanup": 20}}\'',
+            "command": f'bench --site {site_name} execute verenigingen.utils.invoice_management.cleanup_orphaned_membership_data --kwargs=\'{{"dry_run": False, "max_cleanup": 20}}\'',
         },
         {
             "description": "Preview member cleanup (safe)",
@@ -523,36 +542,44 @@ def get_context(context):
             "command": f"bench --site {site_name} execute verenigingen.utils.member_import_cleanup.cleanup_test_members_only",
         },
         {
+            "description": "Cleanup ALL test data (DRY RUN)",
+            "command": f"bench --site {site_name} execute verenigingen.utils.member_import_cleanup.cleanup_all_test_data",
+        },
+        {
+            "description": "Cleanup ALL test data (LIVE)",
+            "command": f"bench --site {site_name} execute verenigingen.utils.member_import_cleanup.cleanup_all_test_data --kwargs '{{\"dry_run\": False}}'",
+        },
+        {
             "description": "Nuclear cleanup ALL members (DRY RUN)",
-            "command": f'bench --site {site_name} execute verenigingen.utils.member_import_cleanup.nuclear_cleanup_all_members --kwargs=\'{{"confirm_nuclear_cleanup": true, "dry_run": true}}\'',
+            "command": f'bench --site {site_name} execute verenigingen.utils.member_import_cleanup.nuclear_cleanup_all_members --kwargs=\'{{"confirm_nuclear_cleanup": True, "dry_run": True}}\'',
         },
         {
             "description": "Nuclear cleanup ALL members (LIVE)",
-            "command": f'bench --site {site_name} execute verenigingen.utils.member_import_cleanup.nuclear_cleanup_all_members --kwargs=\'{{"confirm_nuclear_cleanup": true, "dry_run": false}}\'',
+            "command": f'bench --site {site_name} execute verenigingen.utils.member_import_cleanup.nuclear_cleanup_all_members --kwargs=\'{{"confirm_nuclear_cleanup": True, "dry_run": False}}\'',
         },
         {
             "description": "Nuclear TRUNCATE tables (DRY RUN)",
-            "command": f'bench --site {site_name} execute verenigingen.utils.member_import_cleanup.nuclear_truncate_member_tables --kwargs=\'{{"confirm_nuclear_truncate": true, "dry_run": true}}\'',
+            "command": f'bench --site {site_name} execute verenigingen.utils.member_import_cleanup.nuclear_truncate_member_tables --kwargs=\'{{"confirm_nuclear_truncate": True, "dry_run": True}}\'',
         },
         {
             "description": "Nuclear TRUNCATE tables (LIVE)",
-            "command": f'bench --site {site_name} execute verenigingen.utils.member_import_cleanup.nuclear_truncate_member_tables --kwargs=\'{{"confirm_nuclear_truncate": true, "dry_run": false}}\'',
+            "command": f'bench --site {site_name} execute verenigingen.utils.member_import_cleanup.nuclear_truncate_member_tables --kwargs=\'{{"confirm_nuclear_truncate": True, "dry_run": False}}\'',
         },
         {
             "description": "Nuclear TRUNCATE Version + Deleted (DRY RUN)",
-            "command": f'bench --site {site_name} execute verenigingen.utils.version_cleanup.nuclear_truncate_version_and_deleted_tables --kwargs=\'{{"confirm_nuclear_truncate": true, "dry_run": true}}\'',
+            "command": f'bench --site {site_name} execute verenigingen.utils.version_cleanup.nuclear_truncate_version_and_deleted_tables --kwargs=\'{{"confirm_nuclear_truncate": True, "dry_run": True}}\'',
         },
         {
             "description": "Nuclear TRUNCATE Version + Deleted (LIVE)",
-            "command": f'bench --site {site_name} execute verenigingen.utils.version_cleanup.nuclear_truncate_version_and_deleted_tables --kwargs=\'{{"confirm_nuclear_truncate": true, "dry_run": false}}\'',
+            "command": f'bench --site {site_name} execute verenigingen.utils.version_cleanup.nuclear_truncate_version_and_deleted_tables --kwargs=\'{{"confirm_nuclear_truncate": True, "dry_run": False}}\'',
         },
         {
             "description": "Complete partial payments (dry run)",
-            "command": f'bench --site {site_name} execute verenigingen.utils.payment_processing_recovery.complete_partial_payments --kwargs=\'{{"dry_run": true, "max_payments": 300}}\'',
+            "command": f'bench --site {site_name} execute verenigingen.utils.payment_processing_recovery.complete_partial_payments --kwargs=\'{{"dry_run": True, "max_payments": 300}}\'',
         },
         {
             "description": "Complete partial payments (LIVE)",
-            "command": f'bench --site {site_name} execute verenigingen.utils.payment_processing_recovery.complete_partial_payments --kwargs=\'{{"dry_run": false, "max_payments": 300}}\'',
+            "command": f'bench --site {site_name} execute verenigingen.utils.payment_processing_recovery.complete_partial_payments --kwargs=\'{{"dry_run": False, "max_payments": 300}}\'',
         },
     ]
 
@@ -601,6 +628,7 @@ ALLOWED_ADMIN_METHODS = {
     # Member import cleanup
     "verenigingen.utils.member_import_cleanup.preview_member_cleanup",
     "verenigingen.utils.member_import_cleanup.cleanup_test_members_only",
+    "verenigingen.utils.member_import_cleanup.cleanup_all_test_data",
     "verenigingen.utils.member_import_cleanup.nuclear_cleanup_all_members",
     "verenigingen.utils.member_import_cleanup.force_cleanup_orphaned_schedules_and_invoices",
     "verenigingen.utils.member_import_cleanup.nuclear_truncate_member_tables",

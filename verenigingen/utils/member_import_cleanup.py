@@ -1428,6 +1428,309 @@ def cleanup_orphaned_addresses_and_contacts(dry_run=True):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
+def cleanup_all_test_data(dry_run=True):
+    """
+    Comprehensive cleanup of ALL test data across the system.
+
+    Deletes records where name contains 'test', 'Test', or 'TEST' for:
+    - Teams (and Team Members)
+    - Chapters (and Chapter Members, Chapter Board Members)
+    - Volunteers (and child tables: Skills, Assignments, Interest Areas, Development Goals)
+    - Members (and related records)
+
+    Args:
+        dry_run (bool): If True, only shows what would be deleted
+
+    Returns:
+        dict: Results of cleanup with counts per record type
+
+    Usage:
+        # Preview what would be deleted
+        bench --site dev.veganisme.net execute verenigingen.utils.member_import_cleanup.cleanup_all_test_data
+
+        # Actually delete
+        bench --site dev.veganisme.net execute verenigingen.utils.member_import_cleanup.cleanup_all_test_data --kwargs '{"dry_run": False}'
+    """
+    validate_cleanup_permissions()
+
+    results = {
+        "dry_run": dry_run,
+        "teams": {"count": 0, "deleted": 0, "errors": []},
+        "team_members": {"count": 0, "deleted": 0, "errors": []},
+        "chapters": {"count": 0, "deleted": 0, "errors": []},
+        "chapter_members": {"count": 0, "deleted": 0, "errors": []},
+        "chapter_board_members": {"count": 0, "deleted": 0, "errors": []},
+        "volunteers": {"count": 0, "deleted": 0, "errors": []},
+        "volunteer_skills": {"count": 0, "deleted": 0, "errors": []},
+        "volunteer_assignments": {"count": 0, "deleted": 0, "errors": []},
+        "volunteer_interest_areas": {"count": 0, "deleted": 0, "errors": []},
+        "volunteer_development_goals": {"count": 0, "deleted": 0, "errors": []},
+        "members": {"count": 0, "deleted": 0, "errors": []},
+        "movement_members": {"count": 0, "deleted": 0, "errors": []},
+        "summary": "",
+    }
+
+    try:
+        # ========== PHASE 1: COUNT ALL TEST DATA ==========
+
+        # Test Teams
+        test_teams = frappe.db.sql(
+            """
+            SELECT name FROM `tabTeam`
+            WHERE name LIKE '%test%' OR name LIKE '%Test%' OR name LIKE '%TEST%'
+            """,
+            as_dict=True,
+        )
+        results["teams"]["count"] = len(test_teams)
+        team_names = [t.name for t in test_teams]
+
+        # Team Members for test teams
+        if team_names:
+            placeholders = ", ".join(["%s"] * len(team_names))
+            team_members = frappe.db.sql(
+                f"SELECT COUNT(*) as cnt FROM `tabTeam Member` WHERE parent IN ({placeholders})",
+                team_names,
+            )
+            results["team_members"]["count"] = team_members[0][0] if team_members else 0
+
+        # Test Chapters
+        test_chapters = frappe.db.sql(
+            """
+            SELECT name FROM `tabChapter`
+            WHERE name LIKE '%test%' OR name LIKE '%Test%' OR name LIKE '%TEST%'
+            """,
+            as_dict=True,
+        )
+        results["chapters"]["count"] = len(test_chapters)
+        chapter_names = [c.name for c in test_chapters]
+
+        # Chapter Members for test chapters
+        if chapter_names:
+            placeholders = ", ".join(["%s"] * len(chapter_names))
+            chapter_members = frappe.db.sql(
+                f"SELECT COUNT(*) as cnt FROM `tabChapter Member` WHERE parent IN ({placeholders})",
+                chapter_names,
+            )
+            results["chapter_members"]["count"] = chapter_members[0][0] if chapter_members else 0
+
+            chapter_board_members = frappe.db.sql(
+                f"SELECT COUNT(*) as cnt FROM `tabChapter Board Member` WHERE parent IN ({placeholders})",
+                chapter_names,
+            )
+            results["chapter_board_members"]["count"] = (
+                chapter_board_members[0][0] if chapter_board_members else 0
+            )
+
+        # Test Volunteers
+        test_volunteers = frappe.db.sql(
+            """
+            SELECT name FROM `tabVolunteer`
+            WHERE name LIKE '%test%' OR name LIKE '%Test%' OR name LIKE '%TEST%'
+               OR volunteer_name LIKE '%test%' OR volunteer_name LIKE '%Test%' OR volunteer_name LIKE '%TEST%'
+            """,
+            as_dict=True,
+        )
+        results["volunteers"]["count"] = len(test_volunteers)
+        volunteer_names = [v.name for v in test_volunteers]
+
+        # Volunteer child tables
+        if volunteer_names:
+            placeholders = ", ".join(["%s"] * len(volunteer_names))
+
+            vol_skills = frappe.db.sql(
+                f"SELECT COUNT(*) as cnt FROM `tabVolunteer Skill` WHERE parent IN ({placeholders})",
+                volunteer_names,
+            )
+            results["volunteer_skills"]["count"] = vol_skills[0][0] if vol_skills else 0
+
+            vol_assignments = frappe.db.sql(
+                f"SELECT COUNT(*) as cnt FROM `tabVolunteer Assignment` WHERE parent IN ({placeholders})",
+                volunteer_names,
+            )
+            results["volunteer_assignments"]["count"] = vol_assignments[0][0] if vol_assignments else 0
+
+            vol_interests = frappe.db.sql(
+                f"SELECT COUNT(*) as cnt FROM `tabVolunteer Interest Area` WHERE parent IN ({placeholders})",
+                volunteer_names,
+            )
+            results["volunteer_interest_areas"]["count"] = vol_interests[0][0] if vol_interests else 0
+
+            vol_goals = frappe.db.sql(
+                f"SELECT COUNT(*) as cnt FROM `tabVolunteer Development Goal` WHERE parent IN ({placeholders})",
+                volunteer_names,
+            )
+            results["volunteer_development_goals"]["count"] = vol_goals[0][0] if vol_goals else 0
+
+            # Chapter Board Members for test volunteers
+            cbm_for_vols = frappe.db.sql(
+                f"SELECT COUNT(*) as cnt FROM `tabChapter Board Member` WHERE volunteer IN ({placeholders})",
+                volunteer_names,
+            )
+            results["chapter_board_members"]["count"] += cbm_for_vols[0][0] if cbm_for_vols else 0
+
+            # Team Members for test volunteers
+            tm_for_vols = frappe.db.sql(
+                f"SELECT COUNT(*) as cnt FROM `tabTeam Member` WHERE volunteer IN ({placeholders})",
+                volunteer_names,
+            )
+            results["team_members"]["count"] += tm_for_vols[0][0] if tm_for_vols else 0
+
+            # Movement Members for test volunteers
+            mm_for_vols = frappe.db.sql(
+                f"SELECT COUNT(*) as cnt FROM `tabMovement Member` WHERE volunteer IN ({placeholders})",
+                volunteer_names,
+            )
+            results["movement_members"]["count"] = mm_for_vols[0][0] if mm_for_vols else 0
+
+        # Test Members
+        test_members = frappe.db.sql(
+            """
+            SELECT name FROM `tabMember`
+            WHERE name LIKE '%test%' OR name LIKE '%Test%' OR name LIKE '%TEST%'
+               OR first_name LIKE '%test%' OR first_name LIKE '%Test%' OR first_name LIKE '%TEST%'
+            """,
+            as_dict=True,
+        )
+        results["members"]["count"] = len(test_members)
+        member_names = [m.name for m in test_members]
+
+        # Calculate total
+        total_count = sum(
+            results[key]["count"]
+            for key in results
+            if isinstance(results[key], dict) and "count" in results[key]
+        )
+
+        if dry_run:
+            results["summary"] = f"DRY RUN: Would delete {total_count} total test records"
+            return results
+
+        # ========== PHASE 2: ACTUAL DELETION ==========
+        frappe.db.begin()
+
+        try:
+            # Delete Team Members for test teams
+            if team_names:
+                placeholders = ", ".join(["%s"] * len(team_names))
+                frappe.db.sql(f"DELETE FROM `tabTeam Member` WHERE parent IN ({placeholders})", team_names)
+                results["team_members"]["deleted"] = results["team_members"]["count"]
+
+            # Delete Team Members for test volunteers
+            if volunteer_names:
+                placeholders = ", ".join(["%s"] * len(volunteer_names))
+                frappe.db.sql(
+                    f"DELETE FROM `tabTeam Member` WHERE volunteer IN ({placeholders})", volunteer_names
+                )
+
+            # Delete Test Teams
+            if team_names:
+                placeholders = ", ".join(["%s"] * len(team_names))
+                frappe.db.sql(f"DELETE FROM `tabTeam` WHERE name IN ({placeholders})", team_names)
+                results["teams"]["deleted"] = len(team_names)
+
+            # Delete Chapter Board Members for test chapters
+            if chapter_names:
+                placeholders = ", ".join(["%s"] * len(chapter_names))
+                frappe.db.sql(
+                    f"DELETE FROM `tabChapter Board Member` WHERE parent IN ({placeholders})",
+                    chapter_names,
+                )
+
+            # Delete Chapter Board Members for test volunteers
+            if volunteer_names:
+                placeholders = ", ".join(["%s"] * len(volunteer_names))
+                frappe.db.sql(
+                    f"DELETE FROM `tabChapter Board Member` WHERE volunteer IN ({placeholders})",
+                    volunteer_names,
+                )
+                results["chapter_board_members"]["deleted"] = results["chapter_board_members"]["count"]
+
+            # Delete Chapter Members for test chapters
+            if chapter_names:
+                placeholders = ", ".join(["%s"] * len(chapter_names))
+                frappe.db.sql(
+                    f"DELETE FROM `tabChapter Member` WHERE parent IN ({placeholders})", chapter_names
+                )
+                results["chapter_members"]["deleted"] = results["chapter_members"]["count"]
+
+            # Delete Test Chapters
+            if chapter_names:
+                placeholders = ", ".join(["%s"] * len(chapter_names))
+                frappe.db.sql(f"DELETE FROM `tabChapter` WHERE name IN ({placeholders})", chapter_names)
+                results["chapters"]["deleted"] = len(chapter_names)
+
+            # Delete Movement Members for test volunteers
+            if volunteer_names:
+                placeholders = ", ".join(["%s"] * len(volunteer_names))
+                frappe.db.sql(
+                    f"DELETE FROM `tabMovement Member` WHERE volunteer IN ({placeholders})",
+                    volunteer_names,
+                )
+                results["movement_members"]["deleted"] = results["movement_members"]["count"]
+
+            # Delete Volunteer child tables
+            if volunteer_names:
+                placeholders = ", ".join(["%s"] * len(volunteer_names))
+                frappe.db.sql(
+                    f"DELETE FROM `tabVolunteer Skill` WHERE parent IN ({placeholders})", volunteer_names
+                )
+                results["volunteer_skills"]["deleted"] = results["volunteer_skills"]["count"]
+
+                frappe.db.sql(
+                    f"DELETE FROM `tabVolunteer Assignment` WHERE parent IN ({placeholders})",
+                    volunteer_names,
+                )
+                results["volunteer_assignments"]["deleted"] = results["volunteer_assignments"]["count"]
+
+                frappe.db.sql(
+                    f"DELETE FROM `tabVolunteer Interest Area` WHERE parent IN ({placeholders})",
+                    volunteer_names,
+                )
+                results["volunteer_interest_areas"]["deleted"] = results["volunteer_interest_areas"]["count"]
+
+                frappe.db.sql(
+                    f"DELETE FROM `tabVolunteer Development Goal` WHERE parent IN ({placeholders})",
+                    volunteer_names,
+                )
+                results["volunteer_development_goals"]["deleted"] = results["volunteer_development_goals"][
+                    "count"
+                ]
+
+            # Delete Test Volunteers
+            if volunteer_names:
+                placeholders = ", ".join(["%s"] * len(volunteer_names))
+                frappe.db.sql(f"DELETE FROM `tabVolunteer` WHERE name IN ({placeholders})", volunteer_names)
+                results["volunteers"]["deleted"] = len(volunteer_names)
+
+            # Delete Test Members (simplified - just the member records)
+            if member_names:
+                placeholders = ", ".join(["%s"] * len(member_names))
+                frappe.db.sql(f"DELETE FROM `tabMember` WHERE name IN ({placeholders})", member_names)
+                results["members"]["deleted"] = len(member_names)
+
+            frappe.db.commit()
+
+            total_deleted = sum(
+                results[key]["deleted"]
+                for key in results
+                if isinstance(results[key], dict) and "deleted" in results[key]
+            )
+            results["summary"] = f"Successfully deleted {total_deleted} test records"
+
+        except Exception as e:
+            frappe.db.rollback()
+            results["summary"] = f"ROLLED BACK: {str(e)}"
+            frappe.log_error(f"Test data cleanup failed: {str(e)}", "Test Data Cleanup Error")
+
+    except Exception as e:
+        results["summary"] = f"Error: {str(e)}"
+        frappe.log_error(f"Test data cleanup error: {str(e)}", "Test Data Cleanup Error")
+
+    return results
+
+
+@frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def cleanup_test_members_only(email_patterns=None):
     """
     Safer cleanup that only deletes members matching test email patterns.
@@ -1699,35 +2002,38 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
 
         # Count users/contacts/addresses that would be affected
         try:
-            member_linked_users = frappe.db.sql("""
+            member_linked_users = frappe.db.sql(
+                """
                 SELECT COUNT(DISTINCT m.user)
                 FROM `tabMember` m
                 WHERE m.user IS NOT NULL AND m.user != ''
                 AND m.user NOT IN ('Administrator', 'Guest')
-            """)[0][0]
+            """
+            )[0][0]
             results["records_before"]["User (member-linked)"] = member_linked_users
 
-            member_addresses = frappe.db.sql("""
+            member_addresses = frappe.db.sql(
+                """
                 SELECT COUNT(DISTINCT dl.parent)
                 FROM `tabDynamic Link` dl
                 WHERE dl.parenttype = 'Address' AND dl.link_doctype = 'Member'
-            """)[0][0]
+            """
+            )[0][0]
             results["records_before"]["Address (member-linked)"] = member_addresses
 
-            member_contacts = frappe.db.sql("""
+            member_contacts = frappe.db.sql(
+                """
                 SELECT COUNT(DISTINCT dl.parent)
                 FROM `tabDynamic Link` dl
                 WHERE dl.parenttype = 'Contact' AND dl.link_doctype = 'Member'
-            """)[0][0]
+            """
+            )[0][0]
             results["records_before"]["Contact (member-linked)"] = member_contacts
         except Exception as e:
             results["warnings"].append(f"Could not count linked records: {str(e)}")
 
         if dry_run:
-            total_records = sum(
-                v for v in results["records_before"].values()
-                if isinstance(v, int)
-            )
+            total_records = sum(v for v in results["records_before"].values() if isinstance(v, int))
             results["summary"] = (
                 f"DRY RUN: Would truncate {len(tables_to_truncate)} tables "
                 f"affecting approximately {total_records} records. "
@@ -1762,59 +2068,83 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
             results["tables_updated"].append("Dynamic Links to Member/Volunteer deleted")
 
             # Get member-linked customers before deleting members
-            customer_names = frappe.db.sql("""
+            customer_names = frappe.db.sql(
+                """
                 SELECT name FROM `tabCustomer` WHERE custom_member IS NOT NULL
-            """, as_list=True)
+            """,
+                as_list=True,
+            )
             customer_names = [c[0] for c in customer_names] if customer_names else []
 
             if customer_names:
                 placeholders = ", ".join(["%s"] * len(customer_names))
                 frappe.db.sql(
                     f"DELETE FROM `tabDynamic Link` WHERE link_doctype = 'Customer' AND link_name IN ({placeholders})",
-                    customer_names
+                    customer_names,
                 )
-                results["tables_updated"].append(f"Dynamic Links to {len(customer_names)} member-linked Customers deleted")
+                results["tables_updated"].append(
+                    f"Dynamic Links to {len(customer_names)} member-linked Customers deleted"
+                )
 
             # PHASE 3: Delete member-linked Addresses and Contacts
             frappe.logger().info("Phase 3: Cleaning up Addresses and Contacts...")
 
             # Get addresses/contacts linked to members (via Dynamic Link)
-            member_addresses = frappe.db.sql("""
+            member_addresses = frappe.db.sql(
+                """
                 SELECT DISTINCT dl.parent FROM `tabDynamic Link` dl
                 WHERE dl.parenttype = 'Address' AND dl.link_doctype = 'Member'
-            """, as_list=True)
+            """,
+                as_list=True,
+            )
             address_names = [a[0] for a in member_addresses] if member_addresses else []
 
-            member_contacts = frappe.db.sql("""
+            member_contacts = frappe.db.sql(
+                """
                 SELECT DISTINCT dl.parent FROM `tabDynamic Link` dl
                 WHERE dl.parenttype = 'Contact' AND dl.link_doctype = 'Member'
-            """, as_list=True)
+            """,
+                as_list=True,
+            )
             contact_names = [c[0] for c in member_contacts] if member_contacts else []
 
             # Delete contacts and their child tables
             if contact_names:
                 placeholders = ", ".join(["%s"] * len(contact_names))
-                frappe.db.sql(f"DELETE FROM `tabContact Email` WHERE parent IN ({placeholders})", contact_names)
-                frappe.db.sql(f"DELETE FROM `tabContact Phone` WHERE parent IN ({placeholders})", contact_names)
-                frappe.db.sql(f"DELETE FROM `tabDynamic Link` WHERE parent IN ({placeholders}) AND parenttype = 'Contact'", contact_names)
+                frappe.db.sql(
+                    f"DELETE FROM `tabContact Email` WHERE parent IN ({placeholders})", contact_names
+                )
+                frappe.db.sql(
+                    f"DELETE FROM `tabContact Phone` WHERE parent IN ({placeholders})", contact_names
+                )
+                frappe.db.sql(
+                    f"DELETE FROM `tabDynamic Link` WHERE parent IN ({placeholders}) AND parenttype = 'Contact'",
+                    contact_names,
+                )
                 frappe.db.sql(f"DELETE FROM `tabContact` WHERE name IN ({placeholders})", contact_names)
                 results["tables_updated"].append(f"Deleted {len(contact_names)} member-linked Contacts")
 
             # Delete addresses and their dynamic links
             if address_names:
                 placeholders = ", ".join(["%s"] * len(address_names))
-                frappe.db.sql(f"DELETE FROM `tabDynamic Link` WHERE parent IN ({placeholders}) AND parenttype = 'Address'", address_names)
+                frappe.db.sql(
+                    f"DELETE FROM `tabDynamic Link` WHERE parent IN ({placeholders}) AND parenttype = 'Address'",
+                    address_names,
+                )
                 frappe.db.sql(f"DELETE FROM `tabAddress` WHERE name IN ({placeholders})", address_names)
                 results["tables_updated"].append(f"Deleted {len(address_names)} member-linked Addresses")
 
             # PHASE 4: Delete member-linked Users
             frappe.logger().info("Phase 4: Cleaning up member-linked Users...")
 
-            member_users = frappe.db.sql("""
+            member_users = frappe.db.sql(
+                """
                 SELECT DISTINCT m.user FROM `tabMember` m
                 WHERE m.user IS NOT NULL AND m.user != ''
                 AND m.user NOT IN ('Administrator', 'Guest')
-            """, as_list=True)
+            """,
+                as_list=True,
+            )
             user_names = [u[0] for u in member_users] if member_users else []
 
             if user_names:
@@ -1822,7 +2152,9 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
                 # Delete user child tables first
                 frappe.db.sql(f"DELETE FROM `tabHas Role` WHERE parent IN ({placeholders})", user_names)
                 frappe.db.sql(f"DELETE FROM `tabUser Email` WHERE parent IN ({placeholders})", user_names)
-                frappe.db.sql(f"DELETE FROM `tabUser Social Login` WHERE parent IN ({placeholders})", user_names)
+                frappe.db.sql(
+                    f"DELETE FROM `tabUser Social Login` WHERE parent IN ({placeholders})", user_names
+                )
                 frappe.db.sql(f"DELETE FROM `tabBlock Module` WHERE parent IN ({placeholders})", user_names)
                 frappe.db.sql(f"DELETE FROM `tabDefaultValue` WHERE parent IN ({placeholders})", user_names)
                 frappe.db.sql(f"DELETE FROM `tabUser Permission` WHERE user IN ({placeholders})", user_names)
@@ -1832,7 +2164,9 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
             # PHASE 5: Delete Employees linked to member users
             if user_names:
                 placeholders = ", ".join(["%s"] * len(user_names))
-                frappe.db.sql(f"UPDATE `tabEmployee` SET user_id = NULL WHERE user_id IN ({placeholders})", user_names)
+                frappe.db.sql(
+                    f"UPDATE `tabEmployee` SET user_id = NULL WHERE user_id IN ({placeholders})", user_names
+                )
                 frappe.db.sql(f"DELETE FROM `tabEmployee` WHERE user_id IN ({placeholders})", user_names)
                 results["tables_updated"].append("Member-linked Employees deleted")
 
@@ -1867,11 +2201,13 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
             # PHASE 8: Clean up Sales Invoices membership references (but keep invoices)
             frappe.logger().info("Phase 8: Clearing Sales Invoice membership references...")
             try:
-                frappe.db.sql("""
+                frappe.db.sql(
+                    """
                     UPDATE `tabSales Invoice`
                     SET member = NULL, membership_dues_schedule = NULL, membership_dues_schedule_display = NULL
                     WHERE member IS NOT NULL OR membership_dues_schedule IS NOT NULL
-                """)
+                """
+                )
                 results["tables_updated"].append("Sales Invoice membership references cleared")
             except Exception as e:
                 results["warnings"].append(f"Could not clear Sales Invoice references: {str(e)}")
@@ -1906,12 +2242,13 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
             results["summary"] = f"TRANSACTION ROLLED BACK - Critical error: {str(e)}"
             results["transaction_rolled_back"] = True
             frappe.log_error(
-                f"Nuclear TRUNCATE cleanup failed and rolled back: {str(e)}",
-                "Member Import Cleanup Error"
+                f"Nuclear TRUNCATE cleanup failed and rolled back: {str(e)}", "Member Import Cleanup Error"
             )
 
     except Exception as e:
         results["summary"] = f"Unexpected error during truncate cleanup: {str(e)}"
-        frappe.log_error(f"Nuclear TRUNCATE cleanup unexpected error: {str(e)}", "Member Import Cleanup Error")
+        frappe.log_error(
+            f"Nuclear TRUNCATE cleanup unexpected error: {str(e)}", "Member Import Cleanup Error"
+        )
 
     return results

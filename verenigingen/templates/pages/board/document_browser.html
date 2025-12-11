@@ -151,20 +151,8 @@
 
             <!-- Filters Bar -->
             <div class="bg-white rounded-xl shadow-sm p-4 mb-6">
-                <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
-                    <!-- Search -->
-                    <div class="md:col-span-2">
-                        <label class="block text-xs font-medium text-gray-500 mb-1">{{ _("Search") }}</label>
-                        <div class="relative">
-                            <input type="text" v-model="filters.searchTerm" @input="debouncedSearch"
-                                   placeholder="{{ _('Search documents...') }}"
-                                   class="search-input w-full px-3 py-2 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent">
-                            <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-                            </svg>
-                        </div>
-                    </div>
-
+                <!-- Row 1: Filter dropdowns -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                     <!-- Organization Type Filter -->
                     <div>
                         <label class="block text-xs font-medium text-gray-500 mb-1">{{ _("Type") }}</label>
@@ -187,9 +175,9 @@
                         </select>
                     </div>
 
-                    <!-- Category Filter -->
+                    <!-- Document Category Filter -->
                     <div>
-                        <label class="block text-xs font-medium text-gray-500 mb-1">{{ _("Category") }}</label>
+                        <label class="block text-xs font-medium text-gray-500 mb-1">{{ _("Document Category") }}</label>
                         <select v-model="filters.category" @change="loadDocuments"
                                 class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent">
                             <option value="">{{ _("All Categories") }}</option>
@@ -197,6 +185,19 @@
                                 [[ cat.icon ]] [[ cat.name ]]
                             </option>
                         </select>
+                    </div>
+                </div>
+
+                <!-- Row 2: Search (full width) -->
+                <div>
+                    <label class="block text-xs font-medium text-gray-500 mb-1">{{ _("Search") }}</label>
+                    <div class="relative">
+                        <input type="text" v-model="filters.searchTerm" @input="debouncedSearch"
+                               placeholder="{{ _('Search documents...') }}"
+                               class="search-input w-full px-3 py-2 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                        <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                        </svg>
                     </div>
                 </div>
 
@@ -237,45 +238,45 @@
 
             <!-- Documents Grid -->
             <div v-if="!loading && documents.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-                <div v-for="doc in documents" :key="doc.name" class="document-card bg-white rounded-lg p-4">
-                    <div class="flex items-start gap-3">
-                        <!-- Document Icon -->
-                        <div class="flex-shrink-0 w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center text-2xl">
+                <div v-for="doc in documents" :key="doc.name" class="document-card bg-white rounded-lg p-4 overflow-hidden">
+                    <!-- Centered Icon -->
+                    <div class="flex justify-center mb-3">
+                        <div class="w-14 h-14 bg-gray-100 rounded-lg flex items-center justify-center text-3xl">
                             [[ doc.category_icon || '📄' ]]
                         </div>
+                    </div>
 
-                        <!-- Document Info -->
-                        <div class="flex-1 min-w-0">
-                            <h4 class="font-medium text-gray-900 truncate mb-1" :title="doc.document_name">
-                                [[ doc.document_name ]]
-                            </h4>
+                    <!-- Document Info -->
+                    <div class="text-center mb-3">
+                        <h4 class="font-medium text-gray-900 line-clamp-2 mb-2" :title="doc.document_name">
+                            [[ doc.document_name ]]
+                        </h4>
 
-                            <div class="flex items-center gap-2 flex-wrap mb-2">
-                                <span class="category-badge">
-                                    [[ doc.category_icon ]] [[ doc.document_type || 'Other' ]]
-                                </span>
-                                <span :class="['org-badge', doc.organization_type.toLowerCase()]">
-                                    [[ doc.organization_type ]]: [[ doc.organization_name ]]
-                                </span>
-                            </div>
-
-                            <p v-if="doc.description" class="text-sm text-gray-500 line-clamp-2 mb-2">
-                                [[ doc.description ]]
-                            </p>
-
-                            <div class="flex items-center justify-between">
-                                <span class="text-xs text-gray-400">
-                                    [[ formatDate(doc.upload_date) ]]
-                                </span>
-                                <a :href="doc.document_file" target="_blank"
-                                   class="inline-flex items-center gap-1 text-sm text-primary-600 hover:text-primary-700 font-medium">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-                                    </svg>
-                                    {{ _("Open") }}
-                                </a>
-                            </div>
+                        <div class="flex items-center justify-center gap-2 flex-wrap">
+                            <span class="category-badge">
+                                [[ doc.category_icon ]] [[ doc.document_type || 'Other' ]]
+                            </span>
+                            <span :class="['org-badge', doc.organization_type.toLowerCase()]">
+                                [[ doc.organization_type ]]: [[ doc.organization_name ]]
+                            </span>
                         </div>
+                    </div>
+
+                    <p v-if="doc.description" class="text-sm text-gray-500 line-clamp-2 mb-3 text-center">
+                        [[ doc.description ]]
+                    </p>
+
+                    <div class="flex items-center justify-between pt-3 border-t border-gray-100">
+                        <span class="text-xs text-gray-400">
+                            [[ formatDate(doc.upload_date) ]]
+                        </span>
+                        <a :href="doc.document_file" target="_blank"
+                           class="inline-flex items-center gap-1 text-sm text-primary-600 hover:text-primary-700 font-medium">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                            </svg>
+                            {{ _("Open") }}
+                        </a>
                     </div>
                 </div>
             </div>

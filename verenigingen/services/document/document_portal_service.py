@@ -309,7 +309,9 @@ class DocumentPortalService(StatelessService):
         if not volunteer_name:
             return False
 
-        return bool(frappe.db.exists("Movement Member", {"parent": movement_name, "volunteer": volunteer_name}))
+        return bool(
+            frappe.db.exists("Movement Member", {"parent": movement_name, "volunteer": volunteer_name})
+        )
 
     # =========================================================================
     # Document Upload Methods
@@ -813,10 +815,13 @@ class DocumentPortalService(StatelessService):
                 where_clause += " AND document_type = %s"
                 filter_values.append(category)
 
-            # Search filter
+            # Search filter - searches document name and organization names
             if search_term:
-                where_clause += " AND document_name LIKE %s"
-                filter_values.append(f"%{search_term}%")
+                search_pattern = f"%{search_term}%"
+                where_clause += (
+                    " AND (document_name LIKE %s OR chapter LIKE %s OR team LIKE %s OR movement LIKE %s)"
+                )
+                filter_values.extend([search_pattern, search_pattern, search_pattern, search_pattern])
 
             # Get total count
             count_query = f"""
