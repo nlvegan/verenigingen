@@ -22,15 +22,8 @@ OVERDUE_THRESHOLD_MODERATE = 30  # Days overdue: moderate (30-59 days)
 OVERDUE_APPLICATION_DAYS = 7  # Applications pending > 7 days are considered overdue
 
 
-def serialize_dates(obj):
-    """Recursively convert date/datetime objects to strings for JSON serialization"""
-    if isinstance(obj, (datetime, date)):
-        return obj.strftime("%Y-%m-%d %H:%M:%S") if isinstance(obj, datetime) else obj.strftime("%Y-%m-%d")
-    elif isinstance(obj, dict):
-        return {k: serialize_dates(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [serialize_dates(item) for item in obj]
-    return obj
+# Import shared serialize_dates utility
+from verenigingen.templates.pages import serialize_dates
 
 
 def get_context(context):
@@ -944,10 +937,21 @@ def get_chapter_board_documents(chapter_name: str) -> Dict[str, Any]:
 
         # Use DocumentPortalService to get documents from Organization Document
         service = DocumentPortalService()
-        result = service.get_organization_documents(
-            organization_type="Chapter",
-            organization_name=chapter_name,
-        )
+        try:
+            result = service.get_organization_documents(
+                organization_type="Chapter",
+                organization_name=chapter_name,
+            )
+        except Exception as service_error:
+            frappe.log_error(
+                f"DocumentPortalService error for {chapter_name}: {str(service_error)}",
+                "Chapter Board Documents Service Error",
+            )
+            return {
+                "by_type_and_year": {cat: {} for cat in available_categories.keys()},
+                "total_count": 0,
+                "category_icons": available_categories,
+            }
 
         if not result.get("success"):
             frappe.log_error(f"Failed to fetch documents for {chapter_name}: {result.get('message')}")

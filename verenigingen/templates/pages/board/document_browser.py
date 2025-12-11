@@ -54,14 +54,13 @@ def get_context(context):
 
     # Set context variables
     context.organizations = browse_result.get("organizations", [])
-    context.documents = browse_result.get("documents", [])
     context.total_count = browse_result.get("total_count", 0)
-
-    # Convert dates to strings for JSON serialization in template
-    for doc in context.documents:
-        if doc.get("upload_date"):
-            doc["upload_date"] = str(doc["upload_date"])
     context.has_documents = context.total_count > 0
+
+    # Serialize dates for JSON in template
+    from verenigingen.templates.pages import serialize_dates
+
+    context.documents = serialize_dates(browse_result.get("documents", []))
 
     # Get document categories for filter dropdown
     categories_raw = get_document_category_options()

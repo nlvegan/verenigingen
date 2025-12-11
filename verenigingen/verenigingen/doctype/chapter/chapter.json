@@ -119,15 +119,17 @@
    "options": "Chapter Board Member"
   },
   {
-   "description": "Board documents including policies, meeting minutes, and financial reports",
+   "description": "Deprecated - Use Organization Document instead via Document Browser",
    "fieldname": "board_documents_section",
    "fieldtype": "Section Break",
-   "label": "Board Documents"
+   "hidden": 1,
+   "label": "Board Documents (Deprecated)"
   },
   {
    "fieldname": "board_documents",
    "fieldtype": "Table",
-   "label": "Board Documents",
+   "hidden": 1,
+   "label": "Board Documents (Deprecated)",
    "options": "Chapter Board Document"
   },
   {
@@ -238,7 +240,8 @@
   {
    "fieldname": "chapter_documents_tab",
    "fieldtype": "Tab Break",
-   "label": "Chapter Documents"
+   "hidden": 1,
+   "label": "Chapter Documents (Deprecated)"
   },
   {
    "fieldname": "chapter_configuration_tab",
