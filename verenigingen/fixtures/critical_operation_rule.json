@@ -41479,5 +41479,53 @@
     "security_level": "critical",
     "rate_limit_calls": 1,
     "rate_limit_period_seconds": 3600
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "delete_document",
+    "operation_name": "delete_document",
+    "operation_type": "member_data",
+    "description": "Delete an organization document from chapter/team/movement",
+    "enabled": 1,
+    "security_level": "medium",
+    "business_context": "Document deletion for organization documents - requires board/team membership verification (same as upload permission)",
+    "required_roles": "Verenigingen Member\nVerenigingen Chapter Board Member\nTeam Lead",
+    "rate_limit_calls": 20,
+    "rate_limit_period_seconds": 3600,
+    "rate_limit_scope": "per_user",
+    "audit_level": "standard",
+    "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "document_portal_delete_document",
+    "operation_name": "document_portal_delete_document",
+    "operation_type": "member_data",
+    "description": "Delete an organization document via document portal API",
+    "enabled": 1,
+    "security_level": "medium",
+    "business_context": "Document deletion endpoint for document browser portal - removes Organization Document and attached file",
+    "required_roles": "Verenigingen Member\nVerenigingen Chapter Board Member\nTeam Lead",
+    "rate_limit_calls": 20,
+    "rate_limit_period_seconds": 3600,
+    "rate_limit_scope": "per_user",
+    "audit_level": "standard",
+    "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "api_delete_document",
+    "operation_name": "api_delete_document",
+    "operation_type": "member_data",
+    "description": "API endpoint for deleting organization documents",
+    "enabled": 1,
+    "security_level": "medium",
+    "business_context": "Generic API endpoint pattern for document deletion operations",
+    "required_roles": "Verenigingen Member\nVerenigingen Chapter Board Member\nTeam Lead",
+    "rate_limit_calls": 20,
+    "rate_limit_period_seconds": 3600,
+    "rate_limit_scope": "per_user",
+    "audit_level": "standard",
+    "alert_on_execution": 0
   }
 ]

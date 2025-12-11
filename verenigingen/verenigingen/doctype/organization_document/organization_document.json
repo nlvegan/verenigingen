@@ -20,7 +20,8 @@
     "description",
     "metadata_section",
     "upload_date",
-    "uploaded_by"
+    "uploaded_by",
+    "file_hash"
   ],
   "fields": [
     {
@@ -122,6 +123,15 @@
       "label": "Uploaded By",
       "options": "User",
       "read_only": 1
+    },
+    {
+      "description": "SHA256 hash of file content for duplicate detection",
+      "fieldname": "file_hash",
+      "fieldtype": "Data",
+      "hidden": 1,
+      "label": "File Hash",
+      "read_only": 1,
+      "search_index": 1
     }
   ],
   "index_web_pages_for_search": 1,

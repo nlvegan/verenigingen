@@ -270,13 +270,28 @@
                         <span class="text-xs text-gray-400">
                             [[ formatDate(doc.upload_date) ]]
                         </span>
-                        <a :href="doc.document_file" target="_blank"
-                           class="inline-flex items-center gap-1 text-sm text-primary-600 hover:text-primary-700 font-medium">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-                            </svg>
-                            {{ _("Open") }}
-                        </a>
+                        <div class="flex items-center gap-3">
+                            <button v-if="canDeleteDocument(doc)"
+                                    @click.prevent="deleteDocument(doc)"
+                                    :disabled="deleting === doc.name"
+                                    class="inline-flex items-center gap-1 text-sm text-red-500 hover:text-red-700 font-medium disabled:opacity-50"
+                                    :title="__('Delete document')">
+                                <svg v-if="deleting !== doc.name" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                </svg>
+                                <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                            </button>
+                            <a :href="doc.document_file" target="_blank"
+                               class="inline-flex items-center gap-1 text-sm text-primary-600 hover:text-primary-700 font-medium">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                </svg>
+                                {{ _("Open") }}
+                            </a>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -334,6 +349,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     organizationsByType: {{ organizations_by_type | tojson if organizations_by_type else '{}' }},
                     orgTypes: {{ org_types | tojson if org_types else '[]' }},
                     categories: {{ categories | tojson if categories else '[]' }},
+                    uploadableOrgs: {{ uploadable_orgs | tojson if uploadable_orgs else '{}' }},
                     totalCount: {{ total_count | int if total_count else 0 }},
                     filters: {
                         searchTerm: '{{ preselected_category | e }}' || '',
@@ -342,6 +358,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         category: '{{ preselected_category | e }}' || ''
                     },
                     loading: false,
+                    deleting: null,
                     currentPage: 1,
                     pageSize: 50,
                     searchTimeout: null
@@ -459,6 +476,58 @@ document.addEventListener('DOMContentLoaded', function() {
                     } catch (e) {
                         return dateStr;
                     }
+                },
+
+                canDeleteDocument(doc) {
+                    // Check if user can delete this document (same as upload permission)
+                    const orgType = doc.organization_type;
+                    const orgName = doc.organization_name;
+                    const uploadable = this.uploadableOrgs[orgType] || [];
+                    return uploadable.includes(orgName);
+                },
+
+                deleteDocument(doc) {
+                    if (this.deleting) return;
+
+                    frappe.confirm(
+                        __('Are you sure you want to delete "{0}"? This cannot be undone.', [doc.document_name]),
+                        () => {
+                            this.deleting = doc.name;
+
+                            frappe.call({
+                                method: 'verenigingen.api.document_portal.delete_document',
+                                args: {
+                                    document_name: doc.name
+                                },
+                                callback: (r) => {
+                                    this.deleting = null;
+                                    if (r.message && r.message.success) {
+                                        frappe.show_alert({
+                                            message: r.message.message,
+                                            indicator: 'green'
+                                        });
+                                        // Remove from local list
+                                        this.documents = this.documents.filter(d => d.name !== doc.name);
+                                        this.totalCount--;
+                                    } else {
+                                        frappe.msgprint({
+                                            title: __('Delete Failed'),
+                                            indicator: 'red',
+                                            message: r.message?.message || __('Failed to delete document')
+                                        });
+                                    }
+                                },
+                                error: () => {
+                                    this.deleting = null;
+                                    frappe.msgprint({
+                                        title: __('Error'),
+                                        indicator: 'red',
+                                        message: __('Failed to delete document. Please try again.')
+                                    });
+                                }
+                            });
+                        }
+                    );
                 }
             },
             mounted() {

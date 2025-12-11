@@ -60,6 +60,40 @@
 .folder-toggle:hover {
     background-color: #f3f4f6;
 }
+
+/* File list styles */
+.file-list {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.file-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    border-radius: 0.375rem;
+    background: rgba(16, 185, 129, 0.1);
+    margin-bottom: 0.5rem;
+}
+
+.file-item:last-child {
+    margin-bottom: 0;
+}
+
+/* Progress bar */
+.progress-bar {
+    height: 8px;
+    background: #e5e7eb;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: var(--primary-color, #3b82f6);
+    transition: width 0.3s ease;
+}
 </style>
 {% endblock %}
 
@@ -157,29 +191,45 @@
                             <!-- File Upload -->
                             <div class="mb-6">
                                 <label class="block text-sm font-medium text-gray-700 mb-2">
-                                    Document File <span class="text-danger-500">*</span>
+                                    Document Files <span class="text-danger-500">*</span>
+                                    <span class="text-gray-400 font-normal ml-2">(select multiple files at once)</span>
                                 </label>
                                 <div class="drop-zone"
-                                     :class="{'drag-over': isDragging, 'has-file': form.file}"
+                                     :class="{'drag-over': isDragging, 'has-file': form.files.length > 0}"
                                      @dragover.prevent="isDragging = true"
                                      @dragleave.prevent="isDragging = false"
                                      @drop.prevent="handleFileDrop"
                                      @click="$refs.fileInput.click()">
-                                    <input type="file" ref="fileInput" @change="handleFileSelect" class="hidden"
+                                    <input type="file" ref="fileInput" @change="handleFileSelect" class="hidden" multiple
                                            accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.txt,.odt,.ods">
 
-                                    <div v-if="!form.file" class="text-gray-500">
+                                    <div v-if="form.files.length === 0" class="text-gray-500">
                                         <i class="fa fa-cloud-upload text-4xl mb-3 block text-gray-400"></i>
-                                        <p class="font-medium">Drop file here or click to browse</p>
-                                        <p class="text-sm text-gray-400 mt-1">PDF, Word, Excel, PowerPoint, Images (max 10MB)</p>
+                                        <p class="font-medium">Drop files here or click to browse</p>
+                                        <p class="text-sm text-gray-400 mt-1">PDF, Word, Excel, PowerPoint, Images (max 10MB each)</p>
                                     </div>
 
-                                    <div v-else class="text-success-600">
-                                        <i class="fa fa-file text-4xl mb-3 block"></i>
-                                        <p class="font-medium">[[ form.file.name ]]</p>
-                                        <p class="text-sm text-gray-500 mt-1">[[ formatFileSize(form.file.size) ]]</p>
-                                        <button @click.stop="clearFile" class="mt-2 text-danger-500 hover:text-danger-700 text-sm">
-                                            <i class="fa fa-times"></i> Remove
+                                    <div v-else class="text-left" @click.stop>
+                                        <div class="flex items-center justify-between mb-3">
+                                            <span class="text-success-600 font-medium">
+                                                <i class="fa fa-check-circle"></i> [[ form.files.length ]] file[[ form.files.length > 1 ? 's' : '' ]] selected
+                                            </span>
+                                            <button @click="clearAllFiles" class="text-danger-500 hover:text-danger-700 text-sm">
+                                                <i class="fa fa-times"></i> Clear all
+                                            </button>
+                                        </div>
+                                        <div class="file-list">
+                                            <div v-for="(file, index) in form.files" :key="index" class="file-item">
+                                                <i class="fa fa-file text-success-600"></i>
+                                                <span class="flex-1 truncate text-sm">[[ file.name ]]</span>
+                                                <span class="text-xs text-gray-500">[[ formatFileSize(file.size) ]]</span>
+                                                <button @click="removeFile(index)" class="text-danger-500 hover:text-danger-700">
+                                                    <i class="fa fa-times"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <button @click="$refs.fileInput.click()" class="mt-3 text-primary-600 hover:text-primary-700 text-sm">
+                                            <i class="fa fa-plus"></i> Add more files
                                         </button>
                                     </div>
                                 </div>
@@ -277,9 +327,14 @@
 
 <!-- Loading Overlay -->
 <div id="loading-overlay" class="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50" style="display: none;">
-    <div class="bg-white p-8 rounded-xl text-center">
+    <div class="bg-white p-8 rounded-xl text-center min-w-80">
         <i class="fa fa-spinner fa-spin text-3xl text-primary-600 mb-4"></i>
-        <p class="text-gray-700">Uploading document...</p>
+        <p class="text-gray-700 mb-2" id="upload-status">Uploading documents...</p>
+        <p class="text-sm text-gray-500 mb-3" id="upload-filename"></p>
+        <div class="progress-bar mb-2">
+            <div class="progress-fill" id="upload-progress-bar" style="width: 0%"></div>
+        </div>
+        <p class="text-xs text-gray-400" id="upload-counter"></p>
     </div>
 </div>
 {% endblock %}
@@ -300,14 +355,21 @@ createApp({
             documentName: '',
             documentType: '',
             description: '',
-            file: null,
-            fileContent: null
+            files: [],
+            fileContents: []
         });
 
         // UI state
         const isDragging = ref(false);
         const isUploading = ref(false);
         const isLoadingDocuments = ref(false);
+
+        // Upload progress tracking
+        const uploadProgress = ref({
+            current: 0,
+            total: 0,
+            currentFileName: ''
+        });
 
         // Data
         const organizations = ref({{ organizations | tojson | safe }});
@@ -330,12 +392,17 @@ createApp({
         const isFormValid = computed(() => {
             return form.value.organizationType &&
                    form.value.organizationName &&
-                   form.value.documentName &&
                    form.value.documentType &&
-                   form.value.file;
+                   form.value.files.length > 0;
         });
 
         // Methods
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
         function onOrganizationTypeChange() {
             form.value.organizationName = '';
             existingDocuments.value = {};
@@ -377,49 +444,121 @@ createApp({
         }
 
         function handleFileSelect(event) {
-            const file = event.target.files[0];
-            if (file) processFile(file);
+            const files = Array.from(event.target.files);
+            if (files.length > 0) processFiles(files);
         }
 
         function handleFileDrop(event) {
             isDragging.value = false;
-            const file = event.dataTransfer.files[0];
-            if (file) processFile(file);
+            const files = Array.from(event.dataTransfer.files);
+            if (files.length > 0) processFiles(files);
         }
 
-        function processFile(file) {
-            // Validate size (10MB)
-            if (file.size > 10 * 1024 * 1024) {
-                frappe.msgprint(__('File size exceeds 10MB limit'));
-                return;
-            }
-
-            // Validate extension
+        function processFiles(files) {
             const allowedExtensions = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.jpg', '.jpeg', '.png', '.txt', '.odt', '.ods'];
-            const ext = '.' + file.name.split('.').pop().toLowerCase();
-            if (!allowedExtensions.includes(ext)) {
-                frappe.msgprint(__('File type not allowed. Accepted: PDF, Word, Excel, PowerPoint, Images'));
+            const allowedMimeTypes = [
+                'application/pdf',
+                'application/msword',
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'application/vnd.ms-excel',
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'application/vnd.ms-powerpoint',
+                'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                'image/jpeg',
+                'image/png',
+                'text/plain',
+                'application/vnd.oasis.opendocument.text',
+                'application/vnd.oasis.opendocument.spreadsheet',
+                '' // Allow empty MIME type (some browsers don't detect it)
+            ];
+            const maxSize = 10 * 1024 * 1024; // 10MB per file
+            const maxTotalSize = 50 * 1024 * 1024; // 50MB total
+            const errors = [];
+
+            // Check total size including existing files
+            const existingSize = form.value.files.reduce((sum, f) => sum + f.size, 0);
+            const newFilesSize = files.reduce((sum, f) => sum + f.size, 0);
+            if (existingSize + newFilesSize > maxTotalSize) {
+                frappe.msgprint({
+                    title: __('Upload Limit Exceeded'),
+                    indicator: 'red',
+                    message: __(`Total upload size cannot exceed 50MB. Current: ${formatFileSize(existingSize)}, trying to add: ${formatFileSize(newFilesSize)}`)
+                });
                 return;
             }
 
-            form.value.file = file;
+            files.forEach(file => {
+                // Validate size
+                if (file.size > maxSize) {
+                    errors.push(`${file.name}: exceeds 10MB limit`);
+                    return;
+                }
 
-            // Read file as base64
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                form.value.fileContent = e.target.result.split(',')[1]; // Remove data URL prefix
-            };
-            reader.readAsDataURL(file);
+                // Validate extension
+                const ext = '.' + file.name.split('.').pop().toLowerCase();
+                if (!allowedExtensions.includes(ext)) {
+                    errors.push(`${file.name}: file type not allowed`);
+                    return;
+                }
 
-            // Auto-fill document name if empty
-            if (!form.value.documentName) {
-                form.value.documentName = file.name.replace(/\.[^/.]+$/, ''); // Remove extension
+                // Validate MIME type (defense in depth)
+                if (file.type && !allowedMimeTypes.includes(file.type)) {
+                    errors.push(`${file.name}: invalid file format detected`);
+                    return;
+                }
+
+                // Check for duplicate
+                if (form.value.files.some(f => f.name === file.name)) {
+                    errors.push(`${file.name}: already added`);
+                    return;
+                }
+
+                // Add file to array
+                const fileIndex = form.value.files.length;
+                form.value.files.push(file);
+                form.value.fileContents.push(null); // Placeholder
+
+                // Read file as base64
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    form.value.fileContents[fileIndex] = e.target.result.split(',')[1];
+                };
+                reader.onerror = (error) => {
+                    console.error(`Failed to read file ${file.name}:`, error);
+                    // Mark as failed by setting to error string
+                    form.value.fileContents[fileIndex] = '__READ_ERROR__';
+                    frappe.msgprint({
+                        title: __('File Read Error'),
+                        indicator: 'red',
+                        message: __(`Failed to read ${escapeHtml(file.name)}. The file may be corrupted.`)
+                    });
+                };
+                reader.readAsDataURL(file);
+            });
+
+            // Show errors if any
+            if (errors.length > 0) {
+                frappe.msgprint({
+                    title: __('Some files could not be added'),
+                    indicator: 'orange',
+                    message: errors.map(e => escapeHtml(e)).join('<br>')
+                });
+            }
+
+            // Reset file input so same files can be re-selected
+            if (document.querySelector('input[type="file"]')) {
+                document.querySelector('input[type="file"]').value = '';
             }
         }
 
-        function clearFile() {
-            form.value.file = null;
-            form.value.fileContent = null;
+        function removeFile(index) {
+            form.value.files.splice(index, 1);
+            form.value.fileContents.splice(index, 1);
+        }
+
+        function clearAllFiles() {
+            form.value.files = [];
+            form.value.fileContents = [];
             if (document.querySelector('input[type="file"]')) {
                 document.querySelector('input[type="file"]').value = '';
             }
@@ -429,57 +568,134 @@ createApp({
             form.value.documentName = '';
             form.value.documentType = '';
             form.value.description = '';
-            clearFile();
+            clearAllFiles();
         }
 
         async function uploadDocument() {
             if (!isFormValid.value || isUploading.value) return;
 
+            // Wait for all file contents to be read
+            const unreadFiles = form.value.fileContents.filter(c => c === null);
+            if (unreadFiles.length > 0) {
+                frappe.msgprint(__('Please wait for all files to finish loading'));
+                return;
+            }
+
+            // Check for files that failed to read
+            const readErrorIndices = form.value.fileContents
+                .map((c, i) => c === '__READ_ERROR__' ? i : -1)
+                .filter(i => i !== -1);
+            if (readErrorIndices.length > 0) {
+                const errorFileNames = readErrorIndices.map(i => form.value.files[i]?.name).filter(Boolean);
+                frappe.msgprint({
+                    title: __('Cannot Upload'),
+                    indicator: 'red',
+                    message: __(`Some files failed to load: ${errorFileNames.map(n => escapeHtml(n)).join(', ')}. Please remove them and try again.`)
+                });
+                return;
+            }
+
             isUploading.value = true;
             document.getElementById('loading-overlay').style.display = 'flex';
 
-            try {
-                const response = await frappe.call({
-                    method: 'verenigingen.api.document_portal.upload_document',
-                    args: {
-                        organization_type: form.value.organizationType,
-                        organization_name: form.value.organizationName,
-                        document_name: form.value.documentName,
-                        document_type: form.value.documentType,
-                        file_name: form.value.file.name,
-                        file_content: form.value.fileContent,
-                        content_type: form.value.file.type,
-                        description: form.value.description
-                    }
-                });
+            const totalFiles = form.value.files.length;
+            uploadProgress.value.total = totalFiles;
+            uploadProgress.value.current = 0;
 
-                if (response.message && response.message.success) {
-                    frappe.msgprint({
-                        title: __('Success'),
-                        indicator: 'green',
-                        message: __('Document uploaded successfully!')
+            const results = { success: [], failed: [] };
+
+            for (let i = 0; i < totalFiles; i++) {
+                const file = form.value.files[i];
+                const fileContent = form.value.fileContents[i];
+
+                // Update progress
+                uploadProgress.value.current = i + 1;
+                uploadProgress.value.currentFileName = file.name;
+
+                // Update UI
+                const progressPercent = Math.round((i / totalFiles) * 100);
+                document.getElementById('upload-progress-bar').style.width = progressPercent + '%';
+                document.getElementById('upload-filename').textContent = file.name;
+                document.getElementById('upload-counter').textContent = `File ${i + 1} of ${totalFiles}`;
+
+                // Derive document name from filename (remove extension)
+                const documentName = file.name.replace(/\.[^/.]+$/, '');
+
+                try {
+                    const response = await frappe.call({
+                        method: 'verenigingen.api.document_portal.upload_document',
+                        args: {
+                            organization_type: form.value.organizationType,
+                            organization_name: form.value.organizationName,
+                            document_name: documentName,
+                            document_type: form.value.documentType,
+                            file_name: file.name,
+                            file_content: fileContent,
+                            content_type: file.type,
+                            description: form.value.description
+                        }
                     });
 
-                    clearForm();
-                    loadOrganizationDocuments(); // Refresh document list
-                } else {
-                    frappe.msgprint({
-                        title: __('Upload Failed'),
-                        indicator: 'red',
-                        message: response.message?.message || __('An error occurred')
+                    if (response.message && response.message.success) {
+                        results.success.push(file.name);
+                    } else {
+                        results.failed.push({
+                            name: file.name,
+                            error: response.message?.message || 'Unknown error'
+                        });
+                    }
+                } catch (error) {
+                    console.error(`Upload failed for ${file.name}:`, error);
+                    results.failed.push({
+                        name: file.name,
+                        error: 'Network or server error'
                     });
                 }
-            } catch (error) {
-                console.error('Upload failed:', error);
-                frappe.msgprint({
-                    title: __('Error'),
-                    indicator: 'red',
-                    message: __('Failed to upload document. Please try again.')
-                });
-            } finally {
-                isUploading.value = false;
-                document.getElementById('loading-overlay').style.display = 'none';
             }
+
+            // Show results summary
+            if (results.failed.length === 0) {
+                frappe.msgprint({
+                    title: __('Success'),
+                    indicator: 'green',
+                    message: __(`All ${results.success.length} document(s) uploaded successfully!`)
+                });
+                clearForm();
+            } else if (results.success.length === 0) {
+                frappe.msgprint({
+                    title: __('Upload Failed'),
+                    indicator: 'red',
+                    message: __('All uploads failed. Please try again.')
+                });
+            } else {
+                const failedNames = results.failed.map(f => `${escapeHtml(f.name)}: ${escapeHtml(f.error)}`).join('<br>');
+                frappe.msgprint({
+                    title: __('Partial Success'),
+                    indicator: 'orange',
+                    message: `${results.success.length} uploaded, ${results.failed.length} failed:<br><br>${failedNames}`
+                });
+                // Remove successful files from form, keep failed ones
+                // Must filter both arrays together to maintain index alignment
+                const failedFileNames = new Set(results.failed.map(f => f.name));
+                const newFiles = [];
+                const newContents = [];
+                form.value.files.forEach((file, i) => {
+                    if (failedFileNames.has(file.name)) {
+                        newFiles.push(file);
+                        newContents.push(form.value.fileContents[i]);
+                    }
+                });
+                form.value.files = newFiles;
+                form.value.fileContents = newContents;
+            }
+
+            loadOrganizationDocuments(); // Refresh document list
+
+            isUploading.value = false;
+            uploadProgress.value.current = 0;
+            uploadProgress.value.total = 0;
+            uploadProgress.value.currentFileName = '';
+            document.getElementById('loading-overlay').style.display = 'none';
         }
 
         function formatFileSize(bytes) {
@@ -509,6 +725,7 @@ createApp({
             isDragging,
             isUploading,
             isLoadingDocuments,
+            uploadProgress,
             organizations,
             categories,
             existingDocuments,
@@ -521,7 +738,8 @@ createApp({
             loadOrganizationDocuments,
             handleFileSelect,
             handleFileDrop,
-            clearFile,
+            removeFile,
+            clearAllFiles,
             clearForm,
             uploadDocument,
             formatFileSize,

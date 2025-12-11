@@ -18,6 +18,7 @@ Architecture Notes:
 """
 
 import base64
+import hashlib
 import os
 import re
 from dataclasses import dataclass
@@ -116,6 +117,9 @@ class DocumentPortalService(StatelessService):
         ".odt": ["application/vnd.oasis.opendocument.text"],
         ".ods": ["application/vnd.oasis.opendocument.spreadsheet"],
     }
+
+    # Whitelist of allowed organization field names (SQL injection prevention)
+    ALLOWED_ORG_FIELDS = {"chapter", "team", "movement"}
 
     def __init__(self) -> None:
         """Initialize the document portal service."""
@@ -406,10 +410,41 @@ class DocumentPortalService(StatelessService):
                     "message": _("File content could not be decoded"),
                 }
 
-            # 5. Extract year from document name
+            # 5. Compute file hash and check for content duplicates
+            file_hash = self._compute_file_hash(file_content)
+
+            # Validate hash integrity (defensive check)
+            if not file_hash or not re.match(r"^[a-f0-9]{64}$", file_hash):
+                self._end_operation("upload_document", start_time, success=False)
+                self._log_security_event(
+                    "invalid_file_hash",
+                    user=user,
+                    organization_type=request.organization_type,
+                    organization_name=request.organization_name,
+                    details={"file_name": request.file_name, "hash": file_hash},
+                )
+                return {
+                    "success": False,
+                    "error": "hash_computation_failed",
+                    "message": _("File integrity check failed"),
+                }
+
+            duplicate_by_hash = self._check_duplicate_hash(
+                file_hash, request.organization_type, request.organization_name
+            )
+            if duplicate_by_hash:
+                self._end_operation("upload_document", start_time, success=False)
+                return {
+                    "success": False,
+                    "error": "duplicate_content",
+                    "message": _("This file has already been uploaded as '{0}'").format(duplicate_by_hash),
+                    "existing_document": duplicate_by_hash,
+                }
+
+            # 6. Extract year from document name
             year = request.year or self._extract_year(request.document_name)
 
-            # 6. Save file to hierarchical storage
+            # 7. Save file to hierarchical storage
             from verenigingen.utils.file_storage import save_organization_document
 
             file_result = save_organization_document(
@@ -422,18 +457,20 @@ class DocumentPortalService(StatelessService):
                 is_private=1,
             )
 
-            # 7. Create Organization Document record
+            # 8. Clean document title and create Organization Document record
+            cleaned_title = self._clean_document_title(request.document_name)
             org_doc = frappe.get_doc(
                 {
                     "doctype": "Organization Document",
                     "organization_type": request.organization_type,
                     request.organization_type.lower(): request.organization_name,
-                    "document_name": request.document_name,
+                    "document_name": cleaned_title,
                     "document_type": request.document_type,
                     "document_file": file_result["file_url"],
                     "description": request.description,
                     "upload_date": today(),
                     "uploaded_by": user,
+                    "file_hash": file_hash,
                 }
             )
             org_doc.insert()
@@ -460,6 +497,91 @@ class DocumentPortalService(StatelessService):
                 "success": False,
                 "error": "server_error",
                 "message": _("An error occurred while uploading the document"),
+            }
+
+    def delete_document(self, document_name: str) -> Dict[str, Any]:
+        """
+        Delete an organization document.
+
+        Args:
+            document_name: Name of the Organization Document to delete
+
+        Returns:
+            Dict containing:
+            - success: bool
+            - message: Success or error message
+        """
+        start_time = self._start_operation("delete_document")
+
+        try:
+            user = frappe.session.user
+
+            # 1. Get the document
+            if not frappe.db.exists("Organization Document", document_name):
+                self._end_operation("delete_document", start_time, success=False)
+                return {
+                    "success": False,
+                    "error": "not_found",
+                    "message": _("Document not found"),
+                }
+
+            doc = frappe.get_doc("Organization Document", document_name)
+
+            # 2. Get organization details from document
+            org_type = doc.organization_type
+            if org_type == "Chapter":
+                org_name = doc.chapter
+            elif org_type == "Team":
+                org_name = doc.team
+            elif org_type == "Movement":
+                org_name = doc.movement
+            else:
+                org_name = None
+
+            # 3. Check permission (same as upload permission)
+            if not self.can_upload_to(user, org_type, org_name):
+                self._end_operation("delete_document", start_time, success=False)
+                self._log_security_event(
+                    "delete_permission_denied",
+                    user=user,
+                    organization_type=org_type,
+                    organization_name=org_name,
+                    details={"document_name": document_name},
+                )
+                return {
+                    "success": False,
+                    "error": "permission_denied",
+                    "message": _("You do not have permission to delete documents from this organization"),
+                }
+
+            # 4. Delete the associated file
+            if doc.document_file:
+                file_doc = frappe.db.get_value("File", {"file_url": doc.document_file}, "name")
+                if file_doc:
+                    frappe.delete_doc("File", file_doc, ignore_permissions=True)
+
+            # 5. Delete the Organization Document
+            doc_display_name = doc.document_name  # Store for message before deletion
+            frappe.delete_doc("Organization Document", document_name, ignore_permissions=True)
+
+            self._end_operation("delete_document", start_time, success=True)
+
+            return {
+                "success": True,
+                "message": _("Document '{0}' deleted successfully").format(doc_display_name),
+            }
+
+        except Exception as e:
+            self._end_operation("delete_document", start_time, success=False)
+            self._log_security_event(
+                "delete_failed",
+                user=frappe.session.user,
+                details={"document_name": document_name, "error": str(e)},
+            )
+            return {
+                "success": False,
+                "error": "server_error",
+                "message": _("An error occurred while deleting the document"),
             }
 
     def _validate_file(self, request: DocumentUploadRequest) -> Dict[str, Any]:
@@ -520,8 +642,18 @@ class DocumentPortalService(StatelessService):
         return {"valid": True}
 
     def _extract_year(self, document_name: str) -> str:
-        """Extract year from document name, or return current year"""
+        """Extract year from document name, or return current year.
+
+        Handles multiple formats:
+        - YYYYMMDD at start of filename (e.g., 20230128-document.pdf)
+        - Standalone year with word boundaries (e.g., Report 2023.pdf)
+        """
         if document_name:
+            # First try YYYYMMDD format at start of filename
+            date_match = re.search(r"^(20\d{2})\d{4}", document_name)
+            if date_match:
+                return date_match.group(1)
+            # Then try standalone year with word boundaries
             year_match = re.search(r"\b(20\d{2})\b", document_name)
             if year_match:
                 return year_match.group(1)
@@ -580,6 +712,100 @@ class DocumentPortalService(StatelessService):
             return ""
         # Lowercase, collapse whitespace, strip
         return " ".join(name.lower().split())
+
+    def _clean_document_title(self, title: str) -> str:
+        """
+        Clean document title by replacing obvious space replacements.
+
+        If the title contains only dashes or underscores as separators (no actual spaces),
+        replace them with regular spaces for readability. Only applies to Latin-script
+        filenames to preserve CJK and other scripts where separators may be intentional.
+
+        Examples:
+            "20250524-Intern-Bulletin-39" → "20250524 Intern Bulletin 39"
+            "Annual_Report_2024" → "Annual Report 2024"
+            "Report - 2024" → "Report - 2024" (unchanged - already has spaces)
+            "年度報告_2024" → "年度報告_2024" (unchanged - non-Latin script)
+            "---" → "---" (unchanged - would produce empty result)
+
+        Args:
+            title: Original document title
+
+        Returns:
+            Cleaned title with space replacements normalized
+        """
+        if not title:
+            return title
+
+        # Check for ANY whitespace (Unicode-aware), not just ASCII space
+        # This preserves intentional formatting in titles that already have spacing
+        if any(c.isspace() for c in title):
+            return title
+
+        # Only apply cleanup to titles containing ASCII letters (Latin script)
+        # Preserves CJK and other scripts where - or _ may be intentional separators
+        if not re.search(r"[a-zA-Z]", title):
+            return title
+
+        # Only clean if title contains separators
+        if "-" not in title and "_" not in title:
+            return title
+
+        # Replace dashes and underscores with spaces
+        cleaned = title.replace("-", " ").replace("_", " ")
+
+        # Collapse multiple spaces to single space and strip
+        cleaned = " ".join(cleaned.split())
+
+        # If cleanup produces empty result, preserve original (edge case: "---" or "___")
+        if not cleaned:
+            return title
+
+        return cleaned
+
+    def _compute_file_hash(self, file_content: bytes) -> str:
+        """
+        Compute SHA256 hash of file content for duplicate detection.
+
+        Args:
+            file_content: Raw file bytes
+
+        Returns:
+            Hex-encoded SHA256 hash string
+        """
+        return hashlib.sha256(file_content).hexdigest()
+
+    def _check_duplicate_hash(
+        self, file_hash: str, organization_type: str, organization_name: str
+    ) -> Optional[str]:
+        """
+        Check if a document with the same file hash already exists for this organization.
+
+        Args:
+            file_hash: SHA256 hash of the file content
+            organization_type: Chapter, Team, or Movement
+            organization_name: Name of the organization
+
+        Returns:
+            Existing document name if duplicate found, None otherwise
+        """
+        org_field = organization_type.lower()
+
+        existing_doc = frappe.db.get_value(
+            "Organization Document",
+            filters={
+                "organization_type": organization_type,
+                org_field: organization_name,
+                "file_hash": file_hash,
+            },
+            fieldname=["name", "document_name"],
+            as_dict=True,
+        )
+
+        if existing_doc:
+            return existing_doc.document_name
+
+        return None
 
     def _log_security_event(
         self,
@@ -796,6 +1022,9 @@ class DocumentPortalService(StatelessService):
             org_conditions = []
             for org in accessible_orgs:
                 org_field = org["organization_type"].lower()
+                # Whitelist validation to prevent SQL injection
+                if org_field not in self.ALLOWED_ORG_FIELDS:
+                    continue
                 org_conditions.append(f"(organization_type = %s AND {org_field} = %s)")
                 filter_values.extend([org["organization_type"], org["name"]])
 

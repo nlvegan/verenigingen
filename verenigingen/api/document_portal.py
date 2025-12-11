@@ -47,7 +47,9 @@ def get_upload_context():
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.MEMBER_DATA)
+@standard_api(
+    operation_type=OperationType.MEMBER_DATA, max_request_size=15 * 1024 * 1024
+)  # 15MB for 10MB file + base64 overhead
 def upload_document(
     organization_type,
     organization_name,
@@ -292,3 +294,42 @@ def get_browsable_documents(
         limit=limit,
         offset=offset,
     )
+
+
+@frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
+def delete_document(document_name):
+    """
+    Delete an organization document.
+
+    Args:
+        document_name: Name of the Organization Document to delete
+
+    Returns:
+        dict: Result with success status and message
+    """
+    user = frappe.session.user
+
+    if user == "Guest":
+        return {
+            "success": False,
+            "error": "authentication_required",
+            "message": _("Please log in to delete documents"),
+        }
+
+    if not document_name:
+        return {
+            "success": False,
+            "error": "missing_document_name",
+            "message": _("Document name is required"),
+        }
+
+    if len(document_name) > MAX_NAME_LENGTH:
+        return {
+            "success": False,
+            "error": "document_name_too_long",
+            "message": _("Document name too long"),
+        }
+
+    service = get_document_portal_service()
+    return service.delete_document(document_name)

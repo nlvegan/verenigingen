@@ -79,7 +79,7 @@ def get_context(context):
         org_by_type[org_type].append(org)
     context.organizations_by_type = org_by_type
 
-    # Check if user can upload to any organization (for showing upload link)
+    # Check if user can upload to any organization (for showing upload link and delete buttons)
     upload_context = service.get_upload_context(frappe.session.user)
     if upload_context.get("success"):
         upload_orgs = upload_context.get("organizations", {})
@@ -88,8 +88,15 @@ def get_context(context):
             + len(upload_orgs.get("teams", []))
             + len(upload_orgs.get("movements", []))
         ) > 0
+        # Pass uploadable org names for delete permission checking in Vue
+        context.uploadable_orgs = {
+            "Chapter": [org.get("name") for org in upload_orgs.get("chapters", [])],
+            "Team": [org.get("name") for org in upload_orgs.get("teams", [])],
+            "Movement": [org.get("name") for org in upload_orgs.get("movements", [])],
+        }
     else:
         context.can_upload = False
+        context.uploadable_orgs = {"Chapter": [], "Team": [], "Movement": []}
 
     # Get preselected filters from query params
     context.preselected_org_type = frappe.form_dict.get("org_type", "")

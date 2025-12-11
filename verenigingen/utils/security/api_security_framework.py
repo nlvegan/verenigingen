@@ -1417,6 +1417,7 @@ def api_security_framework(
     custom_validators: List[Callable] = None,
     allowed_environments: List[EnvironmentLevel] = None,
     self_service_only: bool = False,
+    max_request_size: int = None,
 ):
     """
     Comprehensive API Security Decorator
@@ -1445,6 +1446,7 @@ def api_security_framework(
         validation_schema: Custom validation schema
         audit_level: Audit logging level (standard, detailed, minimal)
         custom_validators: Additional custom validation functions
+        max_request_size: Override maximum request size in bytes (e.g., 10*1024*1024 for 10MB)
     """
 
     def decorator(func: Callable) -> Callable:
@@ -1462,6 +1464,8 @@ def api_security_framework(
                 profile.required_roles.extend(roles)
             if allowed_environments:
                 profile.allowed_environments = allowed_environments
+            if max_request_size is not None:
+                profile.max_request_size = max_request_size
 
             try:
                 # Environment validation (first check - blocks early if environment not allowed)
@@ -1713,6 +1717,7 @@ def standard_api(
     *,
     operation_type: OperationType = OperationType.REPORTING,
     self_service_only: bool = False,
+    max_request_size: int = None,
 ):
     """
     Decorator for standard security APIs (reporting, read operations)
@@ -1722,6 +1727,7 @@ def standard_api(
     - @standard_api()
     - @standard_api(operation_type=OperationType.PUBLIC)
     - @standard_api(operation_type=OperationType.REPORTING, self_service_only=True)
+    - @standard_api(operation_type=OperationType.MEMBER_DATA, max_request_size=10*1024*1024)
     """
     # Handle both @standard_api and @standard_api() usage patterns
     if func_or_operation_type is None:
@@ -1731,6 +1737,7 @@ def standard_api(
             operation_type=operation_type,
             audit_level="standard",
             self_service_only=self_service_only,
+            max_request_size=max_request_size,
         )
     elif callable(func_or_operation_type):
         # Called as @standard_api (without parentheses)
@@ -1739,6 +1746,7 @@ def standard_api(
             operation_type=operation_type,
             audit_level="standard",
             self_service_only=self_service_only,
+            max_request_size=max_request_size,
         )(func_or_operation_type)
     else:
         # Called as @standard_api(operation_type=...) - func_or_operation_type is the operation_type
@@ -1747,6 +1755,7 @@ def standard_api(
             operation_type=func_or_operation_type,
             audit_level="standard",
             self_service_only=self_service_only,
+            max_request_size=max_request_size,
         )
 
 
