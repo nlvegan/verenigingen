@@ -772,11 +772,16 @@ def get_member_dues_schedule(
         repo = DuesScheduleRepository()
 
         # Handle status filtering
-        if status_filter == "Active":
+        # Note: Only use repository shortcut when include_template=False (the default)
+        # because repo.get_active_schedule() always excludes templates
+        if status_filter == "Active" and not include_template:
             schedule_info = repo.get_active_schedule(member_name, fields=valid_fields)
+            # Convert ScheduleInfo dataclass to dict for backward compatibility
+            if schedule_info:
+                return {field: getattr(schedule_info, field, None) for field in valid_fields}
+            return None
         else:
-            # For other status values or None, use direct query
-            # Repository doesn't have methods for Paused/Cancelled/None status yet
+            # For other status values, None, or include_template=True, use direct query
             filters = {"member": member_name}
             if not include_template:
                 filters["is_template"] = 0
@@ -787,12 +792,6 @@ def get_member_dues_schedule(
                 "Membership Dues Schedule", filters, valid_fields, as_dict=True
             )
             return schedule_result
-
-        # Convert ScheduleInfo dataclass to dict for backward compatibility
-        if schedule_info:
-            return {field: getattr(schedule_info, field, None) for field in valid_fields}
-
-        return None
 
     except Exception as e:
         # Log error with context for debugging
