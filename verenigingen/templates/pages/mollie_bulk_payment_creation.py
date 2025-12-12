@@ -233,7 +233,7 @@ def validate_csv_members(
             member = frappe.db.get_value(
                 "Member",
                 {"mollie_customer_id": customer_id},
-                ["name", "full_name", "status", "mollie_mandate_id"],
+                ["name", "member_id", "full_name", "status", "mollie_mandate_id"],
                 as_dict=True,
             )
 
@@ -250,7 +250,7 @@ def validate_csv_members(
 
             # Append member ID suffix to description if enabled
             if include_suffix:
-                result["description"] = f"{result['description']} voor lidnummer {member.name}"
+                result["description"] = f"{result['description']} voor lidnummer {member.member_id}"
 
             # Check member status
             if member.status != "Active":

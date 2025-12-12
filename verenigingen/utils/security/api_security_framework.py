@@ -1014,7 +1014,7 @@ class APISecurityFramework:
 
                 decoded_value = html.unescape(value)
 
-                # Check if this looks like a JSON array or object - if so, use higher limit
+                # Check if this looks like a JSON array or object
                 # This handles bulk operations that pass arrays as JSON strings
                 is_json_payload = False
                 if decoded_value.strip().startswith(("[", "{")):
@@ -1024,11 +1024,21 @@ class APISecurityFramework:
                     except (json.JSONDecodeError, ValueError):
                         pass
 
-                # Use higher limit for JSON payloads in bulk operations
-                effective_max_length = 100000 if is_json_payload else max_length
-                validated_data[key] = APIValidator.sanitize_text(
-                    decoded_value, max_length=effective_max_length
-                )
+                # Skip text sanitization for valid JSON payloads
+                # json.loads() already validates the input safely, and sanitize_text()
+                # would corrupt JSON by escaping double quotes to &quot;
+                if is_json_payload:
+                    # Just validate length for JSON payloads
+                    effective_max_length = 100000
+                    if len(decoded_value) > effective_max_length:
+                        raise VValidationError(
+                            f"JSON payload too long (max {effective_max_length} characters)"
+                        )
+                    validated_data[key] = decoded_value
+                else:
+                    validated_data[key] = APIValidator.sanitize_text(
+                        decoded_value, max_length=max_length
+                    )
             elif isinstance(value, dict):
                 # Recursively validate dict inputs
                 validated_data[key] = self._validate_dict_input(value, max_length)
