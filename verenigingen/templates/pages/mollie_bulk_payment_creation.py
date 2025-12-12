@@ -95,6 +95,7 @@ def validate_csv_members(
     global_charge_date: str = "",
     global_amount: str = "",
     global_description: str = "",
+    include_member_id_suffix: bool = False,
 ) -> Dict:
     """
     Parse CSV file and validate member data for bulk payment creation.
@@ -114,6 +115,9 @@ def validate_csv_members(
     try:
         if not has_admin_access():
             frappe.throw(_("Access denied - Administrator role required"))
+
+        # Convert boolean parameter (may come as string from JS)
+        include_suffix = include_member_id_suffix in (True, "true", "1", 1)
 
         # Validate CSV size to prevent DoS
         if len(csv_content) > MAX_CSV_SIZE:
@@ -243,6 +247,10 @@ def validate_csv_members(
             result["member_name"] = member.full_name or member.name
             result["member_status"] = member.status
             result["mandate_id"] = member.mollie_mandate_id
+
+            # Append member ID suffix to description if enabled
+            if include_suffix:
+                result["description"] = f"{result['description']} voor lidnummer {member.name}"
 
             # Check member status
             if member.status != "Active":
