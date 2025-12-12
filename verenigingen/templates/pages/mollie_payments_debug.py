@@ -149,6 +149,36 @@ def admin_revoke_mandate(customer_id, mandate_id, reason="Administrative revocat
         frappe.throw(_(f"Failed to revoke mandate: {str(e)}"))
 
 
+@frappe.whitelist(allow_guest=False)
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def create_mandate(
+    customer_id,
+    consumer_name,
+    consumer_account,
+    consumer_bic=None,
+    signature_date=None,
+    mandate_reference=None,
+):
+    """Create a new SEPA Direct Debit mandate for a customer"""
+    try:
+        if not has_mollie_debug_access():
+            frappe.throw(_("Access denied"))
+
+        service = MollieDebugService()
+        return service.create_mandate(
+            customer_id=customer_id,
+            consumer_name=consumer_name,
+            consumer_account=consumer_account,
+            consumer_bic=consumer_bic,
+            signature_date=signature_date,
+            mandate_reference=mandate_reference,
+        )
+
+    except Exception as e:
+        frappe.log_error(f"Create mandate error: {str(e)}")
+        frappe.throw(_(f"Failed to create mandate: {str(e)}"))
+
+
 def has_customer_deletion_access():
     """Check if current user has access to customer deletion (most restrictive)"""
     allowed_roles = ["Verenigingen Administrator"]

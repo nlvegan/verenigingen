@@ -508,6 +508,25 @@
     background-color: #fff;
     color: #000;
 }
+
+/* Fix text colors in white containers inside result-area */
+.result-area [style*="background: white"],
+.result-area [style*="background: #fff"],
+.result-area [style*="background:#fff"] {
+    color: #000 !important;
+}
+
+.result-area [style*="background: white"] *,
+.result-area [style*="background: #fff"] *,
+.result-area [style*="background:#fff"] * {
+    color: inherit;
+}
+
+/* Preserve semantic colors in white result containers */
+.result-area [style*="background"] .text-green-600 { color: #16a34a !important; }
+.result-area [style*="background"] .text-red-600,
+.result-area [style*="background"] .text-red-700 { color: #dc2626 !important; }
+.result-area [style*="background"] .text-blue-600 { color: #2563eb !important; }
 </style>
 {% endblock %}
 
@@ -937,6 +956,51 @@
                 </button>
 
                 <div id="mandate-result" class="result-area" style="display: none;"></div>
+            </div>
+
+            <!-- Create Mandate Section -->
+            <div class="debug-card debug-section--success">
+                <h3 class="text-lg font-medium mb-3">{{ _("Create SEPA Direct Debit Mandate") }}</h3>
+                <p class="text-gray-700 mb-4">{{ _("Create a new SEPA Direct Debit mandate for a customer. The customer must already exist in Mollie.") }}</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Customer ID") }} <span class="text-danger-600">*</span></label>
+                        <input type="text" id="create-mandate-customer-id" class="debug-input"
+                               placeholder="cst_xxxxxxxxxx">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Consumer Name") }} <span class="text-danger-600">*</span></label>
+                        <input type="text" id="create-mandate-consumer-name" class="debug-input"
+                               placeholder="{{ _('Account holder name') }}">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("IBAN") }} <span class="text-danger-600">*</span></label>
+                        <input type="text" id="create-mandate-iban" class="debug-input"
+                               placeholder="NL91ABNA0417164300">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("BIC (optional)") }}</label>
+                        <input type="text" id="create-mandate-bic" class="debug-input"
+                               placeholder="ABNANL2A">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Signature Date (optional)") }}</label>
+                        <input type="date" id="create-mandate-signature-date" class="debug-input">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Mandate Reference (optional)") }}</label>
+                        <input type="text" id="create-mandate-reference" class="debug-input"
+                               placeholder="{{ _('Leave empty for auto-generated') }}">
+                        <p class="text-xs text-gray-600 mt-1">{{ _("Must be unique - some banks reject duplicate references") }}</p>
+                    </div>
+                </div>
+
+                <button onclick="createMandate()" class="btn-brutal btn-brutal--success">
+                    <i class="fa fa-plus mr-1"></i>{{ _("Create Mandate") }}
+                </button>
+
+                <div id="create-mandate-result" class="result-area" style="display: none;"></div>
             </div>
 
             <!-- Revoke Mandate Section (Danger) -->
@@ -1801,6 +1865,91 @@ function executeRevokeMandate(customerId, mandateId, reason) {
     });
 }
 
+// Create Mandate
+function createMandate() {
+    const customerId = document.getElementById('create-mandate-customer-id').value.trim();
+    const consumerName = document.getElementById('create-mandate-consumer-name').value.trim();
+    const iban = document.getElementById('create-mandate-iban').value.trim().replace(/\s/g, '');
+    const bic = document.getElementById('create-mandate-bic').value.trim();
+    const signatureDate = document.getElementById('create-mandate-signature-date').value;
+    const mandateReference = document.getElementById('create-mandate-reference').value.trim();
+
+    if (!customerId) {
+        alert('{{ _("Please enter a Customer ID") }}');
+        return;
+    }
+    if (!consumerName) {
+        alert('{{ _("Please enter the Consumer Name (account holder)") }}');
+        return;
+    }
+    if (!iban) {
+        alert('{{ _("Please enter the IBAN") }}');
+        return;
+    }
+
+    showLoading('create-mandate-result', '{{ _("Creating mandate...") }}');
+
+    const formData = new FormData();
+    formData.append('customer_id', customerId);
+    formData.append('consumer_name', consumerName);
+    formData.append('consumer_account', iban);
+    if (bic) formData.append('consumer_bic', bic);
+    if (signatureDate) formData.append('signature_date', signatureDate);
+    if (mandateReference) formData.append('mandate_reference', mandateReference);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.create_mandate', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            displayResult('create-mandate-result', formatCreateMandateResult(data.message), data.message.error ? 'error' : 'success');
+        } else {
+            displayResult('create-mandate-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('create-mandate-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+function formatCreateMandateResult(data) {
+    let html = `<h3>Create Mandate Result</h3>`;
+    html += `<p><strong>Customer ID:</strong> ${escapeHtml(data.customer_id)}</p>`;
+    html += `<p><strong>Test Mode:</strong> ${escapeHtml(data.test_mode)}</p>`;
+
+    if (data.error) {
+        html += `<div style="color: #dc3545; background: #fff; border-left: 6px solid #dc3545; padding: 1rem; margin: 1rem 0;">`;
+        html += `<strong>Error:</strong> ${escapeHtml(data.error)}`;
+        html += `</div>`;
+        return html;
+    }
+
+    if (data.mandate) {
+        const mandate = data.mandate;
+        html += `<div style="background: #fff; border-left: 6px solid #28a745; padding: 1rem; margin: 1rem 0;">`;
+        html += `<h4>Mandate Created Successfully</h4>`;
+        html += `<p><strong>Mandate ID:</strong> ${escapeHtml(mandate.id)}</p>`;
+        html += `<p><strong>Status:</strong> <span class="status-badge status-${escapeHtml(mandate.status)}">${escapeHtml(mandate.status)}</span></p>`;
+        html += `<p><strong>Method:</strong> ${escapeHtml(mandate.method)}</p>`;
+        if (mandate.details) {
+            if (mandate.details.consumerName) html += `<p><strong>Consumer Name:</strong> ${escapeHtml(mandate.details.consumerName)}</p>`;
+            if (mandate.details.consumerAccount) html += `<p><strong>IBAN:</strong> ${escapeHtml(mandate.details.consumerAccount)}</p>`;
+            if (mandate.details.consumerBic) html += `<p><strong>BIC:</strong> ${escapeHtml(mandate.details.consumerBic)}</p>`;
+        }
+        html += `<p><strong>Signature Date:</strong> ${escapeHtml(mandate.signatureDate || 'N/A')}</p>`;
+        html += `<p><strong>Mandate Reference:</strong> ${escapeHtml(mandate.mandateReference || 'N/A')}</p>`;
+        html += `<p><strong>Created:</strong> ${mandate.createdAt ? new Date(mandate.createdAt).toLocaleString() : 'N/A'}</p>`;
+        html += `</div>`;
+    }
+
+    return html;
+}
+
 // Customer Search
 function searchCustomers() {
     const searchTerm = document.getElementById('customer-search-term').value.trim();
@@ -2376,6 +2525,16 @@ function showLoading(elementId, message) {
     element.style.display = 'block';
     element.className = 'result-area';
     element.textContent = message;
+}
+
+function escapeHtml(unsafe) {
+    if (unsafe === null || unsafe === undefined) return '';
+    return String(unsafe)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
 }
 
 function displayResult(elementId, content, type) {

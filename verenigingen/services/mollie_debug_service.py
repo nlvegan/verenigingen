@@ -380,6 +380,143 @@ class MollieDebugService(StatelessService):
             else:
                 raise api_error
 
+    def create_mandate(
+        self,
+        customer_id,
+        consumer_name,
+        consumer_account,
+        consumer_bic=None,
+        signature_date=None,
+        mandate_reference=None,
+    ):
+        """
+        Create a new SEPA Direct Debit mandate for a customer.
+
+        Args:
+            customer_id: Mollie customer ID (cst_xxx)
+            consumer_name: Account holder name (max 70 chars per SEPA specs)
+            consumer_account: IBAN number
+            consumer_bic: BIC code (optional)
+            signature_date: Date mandate was signed in YYYY-MM-DD format (optional)
+            mandate_reference: Custom mandate reference (optional, max 35 chars, must be unique)
+
+        Returns:
+            dict with created mandate details
+        """
+        from verenigingen.utils.validation.iban_validator import validate_iban
+        from verenigingen.verenigingen_payments.utils.sepa_input_validation import SEPAInputValidator
+
+        # Required field validation
+        if not customer_id:
+            raise ValueError(_("Customer ID is required"))
+        if not consumer_name:
+            raise ValueError(_("Consumer name is required"))
+        if not consumer_account:
+            raise ValueError(_("IBAN is required"))
+
+        # Input length validation per SEPA specifications
+        if len(consumer_name) > 70:
+            raise ValueError(_("Consumer name must not exceed 70 characters"))
+        if mandate_reference and len(mandate_reference) > 35:
+            raise ValueError(_("Mandate reference must not exceed 35 characters"))
+
+        # IBAN validation using existing validator
+        iban_validation = validate_iban(consumer_account)
+        if not iban_validation.get("valid"):
+            raise ValueError(_("Invalid IBAN: {0}").format(iban_validation.get("message")))
+
+        # BIC validation if provided
+        if consumer_bic:
+            bic_validation = SEPAInputValidator.validate_bic(consumer_bic)
+            if not bic_validation.get("valid"):
+                raise ValueError(_("Invalid BIC: {0}").format(", ".join(bic_validation.get("errors", []))))
+
+        # Signature date validation if provided
+        if signature_date:
+            try:
+                from frappe.utils import getdate
+
+                parsed_date = getdate(signature_date)
+                if parsed_date > getdate():
+                    raise ValueError(_("Signature date cannot be in the future"))
+                signature_date = str(parsed_date)
+            except ValueError:
+                raise
+            except Exception:
+                raise ValueError(_("Invalid signature date format - use YYYY-MM-DD"))
+
+        try:
+            client = self.mollie_client.sdk_client
+            customer_obj = client.customers.get(customer_id)
+
+            # Build mandate data with cleaned values
+            cleaned_iban = consumer_account.replace(" ", "").upper()
+            mandate_data = {
+                "method": "directdebit",
+                "consumerName": consumer_name,
+                "consumerAccount": cleaned_iban,
+            }
+
+            if consumer_bic:
+                mandate_data["consumerBic"] = consumer_bic.replace(" ", "").upper()
+            if signature_date:
+                mandate_data["signatureDate"] = signature_date
+            if mandate_reference:
+                mandate_data["mandateReference"] = mandate_reference
+
+            # Create the mandate
+            mandate = customer_obj.mandates.create(mandate_data)
+
+            self.logger.info(
+                f"MANDATE CREATED: User {frappe.session.user} created mandate {mandate.id} "
+                f"for customer {customer_id}. IBAN: {cleaned_iban[-4:].rjust(len(cleaned_iban), '*')}"
+            )
+
+            # Build response with mandate details
+            mandate_response = {
+                "id": mandate.id,
+                "status": mandate.status,
+                "method": mandate.method,
+                "signatureDate": str(mandate.signature_date) if mandate.signature_date else None,
+                "mandateReference": mandate.mandate_reference
+                if hasattr(mandate, "mandate_reference")
+                else None,
+                "createdAt": str(mandate.created_at),
+            }
+
+            # Add consumer details if available
+            if hasattr(mandate, "details") and mandate.details:
+                mandate_response["details"] = {
+                    "consumerName": mandate.details.get("consumerName"),
+                    "consumerAccount": mandate.details.get("consumerAccount"),
+                    "consumerBic": mandate.details.get("consumerBic"),
+                }
+
+            return {
+                "status": "success",
+                "message": _("Mandate created successfully"),
+                "customer_id": customer_id,
+                "test_mode": self.test_mode,
+                "mandate": mandate_response,
+                "created_by": frappe.session.user,
+                "timestamp": frappe.utils.now(),
+            }
+
+        except Exception as api_error:
+            sanitized_error = self._sanitize_error_message(str(api_error))
+            self.logger.error(
+                f"MANDATE CREATION FAILED: User {frappe.session.user} failed to create mandate "
+                f"for customer {customer_id}. Error: {sanitized_error}"
+            )
+
+            return {
+                "status": "error",
+                "error": sanitized_error,
+                "customer_id": customer_id,
+                "test_mode": self.test_mode,
+                "timestamp": frappe.utils.now(),
+            }
+
     def admin_delete_customer(self, customer_id, reason="Administrative deletion", confirmation_text=None):
         """Admin function to delete entire customer (DANGEROUS - cascades to all subscriptions/mandates)"""
         if not customer_id:
