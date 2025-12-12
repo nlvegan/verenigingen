@@ -939,84 +939,16 @@ def get_available_document_categories() -> Dict[str, str]:
 
 
 def get_chapter_board_documents(chapter_name: str) -> Dict[str, Any]:
-    """Get board documents from Organization Document doctype, organized by type and year"""
-    from collections import defaultdict
+    """Get board documents from Organization Document doctype, organized by type and year.
 
-    from verenigingen.services.document.document_portal_service import DocumentPortalService
+    This is a thin wrapper around the service layer function for backward compatibility.
+    """
+    from verenigingen.services.document.document_portal_service import get_organization_documents_for_template
 
-    try:
-        # Get available categories (default + custom)
-        available_categories = get_available_document_categories()
-
-        # Use DocumentPortalService to get documents from Organization Document
-        service = DocumentPortalService()
-        try:
-            result = service.get_organization_documents(
-                organization_type="Chapter",
-                organization_name=chapter_name,
-            )
-        except Exception as service_error:
-            frappe.log_error(
-                f"DocumentPortalService error for {chapter_name}: {str(service_error)}",
-                "Chapter Board Documents Service Error",
-            )
-            return {
-                "by_type_and_year": {cat: {} for cat in available_categories.keys()},
-                "total_count": 0,
-                "category_icons": available_categories,
-            }
-
-        if not result.get("success"):
-            frappe.log_error(f"Failed to fetch documents for {chapter_name}: {result.get('message')}")
-            return {
-                "by_type_and_year": {cat: {} for cat in available_categories.keys()},
-                "total_count": 0,
-                "category_icons": available_categories,
-            }
-
-        # Transform service response to template-expected structure
-        # Service returns: {category: {icon: "📋", years: {year: [docs]}}}
-        # Template expects: by_type_and_year: {category: {year: [docs]}}, category_icons: {category: icon}
-        service_docs = result.get("documents", {})
-        organized_docs = defaultdict(dict)
-        category_icons = dict(available_categories)  # Start with defaults
-
-        for category, category_data in service_docs.items():
-            # Extract icon if provided by service
-            if isinstance(category_data, dict) and "icon" in category_data:
-                category_icons[category] = category_data["icon"]
-                years_dict = category_data.get("years", {})
-            else:
-                years_dict = category_data if isinstance(category_data, dict) else {}
-
-            # Sort years descending (newest first)
-            for year in sorted(years_dict.keys(), reverse=True):
-                docs = years_dict[year]
-                # Sort documents within year by name (descending)
-                organized_docs[category][year] = sorted(
-                    docs, key=lambda x: x.get("document_name", ""), reverse=True
-                )
-
-        # Ensure all available categories are present (even if empty)
-        for cat in available_categories.keys():
-            if cat not in organized_docs:
-                organized_docs[cat] = {}
-
-        return {
-            "by_type_and_year": dict(organized_docs),
-            "total_count": result.get("total_count", 0),
-            "category_icons": category_icons,
-        }
-
-    except Exception as e:
-        frappe.log_error(f"Error fetching board documents for {chapter_name}: {str(e)}")
-        # Get available categories for error case too
-        available_categories = get_available_document_categories()
-        return {
-            "by_type_and_year": {cat: {} for cat in available_categories.keys()},
-            "total_count": 0,
-            "category_icons": available_categories,
-        }
+    return get_organization_documents_for_template(
+        organization_type="Chapter",
+        organization_name=chapter_name,
+    )
 
 
 def get_recent_activity(chapter_name: str) -> List[Dict[str, Any]]:

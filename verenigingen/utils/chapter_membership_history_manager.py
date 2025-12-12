@@ -4,7 +4,17 @@ from typing import Dict
 import frappe
 from frappe.utils import now
 
-from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.history_manager_utils import (
+    HistoryOperationResult,
+    check_duplicate_entry,
+    ensure_doc_exists,
+    find_entry_by_criteria,
+    get_request_cache,
+    log_history_error,
+    make_cache_key,
+    recursion_guard,
+    safe_child_table_update,
+)
 
 
 class ChapterMembershipHistoryManager:
@@ -14,6 +24,9 @@ class ChapterMembershipHistoryManager:
     Handles chapter membership history for both regular members and board members
     in a consistent way, similar to volunteer assignment history.
     """
+
+    CHILD_TABLE = "chapter_membership_history"
+    CACHE_NAME = "chapter_history_cache"
 
     @staticmethod
     def add_membership_history(
@@ -39,99 +52,96 @@ class ChapterMembershipHistoryManager:
             bool: Success status
         """
         try:
-            # Check for duplicates within same request using frappe.local cache
-            # This prevents duplicates when multiple code paths call add_membership_history
-            # in the same transaction before DB commits
-            if not hasattr(frappe.local, "chapter_history_cache"):
-                frappe.local.chapter_history_cache = set()
-
-            history_key = f"{member_id}|{chapter_name}|{assignment_type}|{status}|{start_date}"
-            if history_key in frappe.local.chapter_history_cache:
+            # Check for duplicates within same request using request-level cache
+            cache = get_request_cache(ChapterMembershipHistoryManager.CACHE_NAME)
+            history_key = make_cache_key(member_id, chapter_name, assignment_type, status, start_date)
+            if history_key in cache:
                 frappe.logger().debug(
                     f"Skipping duplicate membership history within same request: {member_id} at {chapter_name}"
                 )
-                return True  # Already added in this request
+                return True
 
-            # Check if member still exists before attempting to update
-            if not frappe.db.exists("Member", member_id):
-                frappe.logger().warning(
-                    f"Cannot add chapter membership history - Member {member_id} no longer exists"
-                )
+            # Check if member still exists
+            if not ensure_doc_exists("Member", member_id, "add chapter membership history"):
                 return False
 
             member = frappe.get_doc("Member", member_id)
 
-            # Check if this exact membership already exists with the same status
-            for membership in member.chapter_membership_history or []:
-                if (
-                    membership.chapter_name == chapter_name
-                    and membership.assignment_type == assignment_type
-                    and membership.status == status
-                    and str(membership.start_date) == str(start_date)
-                ):
-                    # Duplicate detected - this is expected when both explicit calls and hooks try to add history
+            # Recursion guard - prevent infinite loops from hooks
+            with recursion_guard(member, "_updating_chapter_membership_history") as should_proceed:
+                if not should_proceed:
+                    return True
+
+                # Check for existing duplicate in database
+                match_fields = {
+                    "chapter_name": chapter_name,
+                    "assignment_type": assignment_type,
+                    "status": status,
+                    "start_date": start_date,
+                }
+                existing = check_duplicate_entry(member.chapter_membership_history, match_fields)
+                if existing:
                     frappe.logger().debug(
                         f"Skipping duplicate membership history for member {member_id} at {chapter_name}"
                     )
-                    return True  # This exact membership already exists
+                    return True
 
-            # ENHANCED: Check if we're trying to add an "Active" record when a "Pending" one exists
-            # This should not happen - use update_membership_status() instead
-            if status == "Active":
-                for membership in member.chapter_membership_history or []:
-                    if (
-                        membership.chapter_name == chapter_name
-                        and membership.assignment_type == assignment_type
-                        and membership.status == "Pending"
-                    ):
-                        print(
-                            f"WARNING: Attempted to add Active membership when Pending exists for member {member_id} in {chapter_name}"
+                # Check if we're trying to add "Active" when "Pending" exists
+                if status == "Active":
+                    pending_match = {
+                        "chapter_name": chapter_name,
+                        "assignment_type": assignment_type,
+                        "status": "Pending",
+                    }
+                    if check_duplicate_entry(member.chapter_membership_history, pending_match):
+                        frappe.logger().warning(
+                            f"Attempted to add Active membership when Pending exists for member {member_id} in {chapter_name}. "
+                            "Use update_membership_status() instead."
                         )
-                        print(
-                            "Use update_membership_status() instead of add_membership_history() to activate pending memberships"
-                        )
-                        return False  # Prevent duplicate creation
+                        return False
 
-            # Add new membership with specified status
-            member.append(
-                "chapter_membership_history",
-                {
-                    "chapter_name": chapter_name,
-                    "assignment_type": assignment_type,
-                    "start_date": start_date,
-                    "status": status,
-                    "reason": reason or f"Assigned to {chapter_name} as {assignment_type}",
-                },
-            )
-
-            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-            save_result = secure_document_operation(
-                operation="save",
-                doc=member,
-                justification=f"Add membership history for member {member_id} joining {chapter_name} as {assignment_type}",
-                required_permissions=["Member:write"],
-            )
-
-            if not save_result.success:
-                frappe.log_error(
-                    f"Failed to save membership history for member {member_id}: {'; '.join(save_result.errors)}",
-                    "Chapter Membership History Security Error",
+                # Add new membership
+                member.append(
+                    ChapterMembershipHistoryManager.CHILD_TABLE,
+                    {
+                        "chapter_name": chapter_name,
+                        "assignment_type": assignment_type,
+                        "start_date": start_date,
+                        "status": status,
+                        "reason": reason or f"Assigned to {chapter_name} as {assignment_type}",
+                    },
                 )
-                return False
 
-            # Add to cache to prevent duplicates within same request
-            frappe.local.chapter_history_cache.add(history_key)
+                # Use safe child table update - avoids validating unrelated child tables
+                result = safe_child_table_update(
+                    doc=member,
+                    child_table_name=ChapterMembershipHistoryManager.CHILD_TABLE,
+                    justification=f"Add membership history for member {member_id} joining {chapter_name} as {assignment_type}",
+                    doctype_permission="Member:write",
+                    auto_cleanup=True,
+                )
 
-            frappe.logger().info(
-                f"Added membership history for member {member_id}: {assignment_type} at {chapter_name} with status {status}"
-            )
-            return True
+                if not result.success:
+                    log_history_error(
+                        title="Chapter Membership History Add Failed",
+                        message=f"Failed to save membership history for member {member_id}: {'; '.join(result.errors)}",
+                    )
+                    return False
+
+                # Add to cache to prevent duplicates within same request
+                cache.add(history_key)
+
+                frappe.logger().info(
+                    f"Added membership history for member {member_id}: {assignment_type} at {chapter_name} with status {status}"
+                )
+                return True
 
         except Exception as e:
-            print(f"Error adding membership history for member {member_id}: {str(e)}")
-            import traceback
-
-            traceback.print_exc()
+            log_history_error(
+                title="Chapter Membership History Error",
+                message=f"Error adding membership history for member {member_id}: {str(e)}",
+                include_traceback=True,
+            )
             return False
 
     @staticmethod
@@ -161,114 +171,110 @@ class ChapterMembershipHistoryManager:
             bool: Success status
         """
         try:
-            # Check if member still exists before attempting to update
-            if not frappe.db.exists("Member", member_id):
-                frappe.logger().warning(
-                    f"Cannot end chapter membership - Member {member_id} no longer exists"
-                )
+            if not ensure_doc_exists("Member", member_id, "end chapter membership"):
                 return False
 
             member = frappe.get_doc("Member", member_id)
 
-            # Look for the specific membership that matches all criteria (Active or Pending)
-            target_membership = None
-            for membership in member.chapter_membership_history or []:
-                if (
-                    membership.chapter_name == chapter_name
-                    and membership.assignment_type == assignment_type
-                    and str(membership.start_date) == str(start_date)
-                    and membership.status in ("Active", "Pending")
-                ):
-                    target_membership = membership
-                    break
+            # Recursion guard - prevent infinite loops from hooks
+            with recursion_guard(member, "_updating_chapter_membership_history") as should_proceed:
+                if not should_proceed:
+                    return True
 
-            if target_membership:
-                # Update the specific membership to terminated
-                original_status = target_membership.status
-                target_membership.end_date = end_date
-                target_membership.status = "Terminated"
-                if reason:
-                    target_membership.reason = reason
-
-                frappe.logger().info(
-                    f"Updated membership history for member {member_id}: {assignment_type} at {chapter_name} "
-                    f"(was {original_status})"
+                # Look for matching membership (Active or Pending)
+                criteria = {
+                    "chapter_name": chapter_name,
+                    "assignment_type": assignment_type,
+                    "start_date": start_date,
+                }
+                target = find_entry_by_criteria(
+                    member.chapter_membership_history, criteria, status_values=["Active", "Pending"]
                 )
-            else:
-                # If we can't find the exact membership, look for any Active or Pending one
-                fallback_membership = None
-                for membership in member.chapter_membership_history or []:
-                    if (
-                        membership.chapter_name == chapter_name
-                        and membership.assignment_type == assignment_type
-                        and membership.status in ("Active", "Pending")
-                    ):
-                        fallback_membership = membership
-                        break
 
-                if fallback_membership:
-                    original_status = fallback_membership.status
-                    fallback_membership.end_date = end_date
-                    fallback_membership.status = "Terminated"
+                if target:
+                    original_status = target.status
+                    target.end_date = end_date
+                    target.status = "Terminated"
                     if reason:
-                        fallback_membership.reason = reason
+                        target.reason = reason
 
                     frappe.logger().info(
-                        f"Updated fallback membership history for member {member_id}: {assignment_type} at {chapter_name} "
+                        f"Updated membership history for member {member_id}: {assignment_type} at {chapter_name} "
                         f"(was {original_status})"
                     )
                 else:
-                    # Check if already terminated/completed (idempotency)
-                    for membership in member.chapter_membership_history or []:
-                        if (
-                            membership.chapter_name == chapter_name
-                            and membership.assignment_type == assignment_type
-                            and membership.status in ("Terminated", "Completed")
-                        ):
+                    # Fallback: look for any Active/Pending membership at this chapter
+                    fallback_criteria = {"chapter_name": chapter_name, "assignment_type": assignment_type}
+                    fallback = find_entry_by_criteria(
+                        member.chapter_membership_history,
+                        fallback_criteria,
+                        status_values=["Active", "Pending"],
+                    )
+
+                    if fallback:
+                        original_status = fallback.status
+                        fallback.end_date = end_date
+                        fallback.status = "Terminated"
+                        if reason:
+                            fallback.reason = reason
+
+                        frappe.logger().info(
+                            f"Updated fallback membership history for member {member_id}: {assignment_type} at {chapter_name} "
+                            f"(was {original_status})"
+                        )
+                    else:
+                        # Check if already terminated (idempotency)
+                        terminated = find_entry_by_criteria(
+                            member.chapter_membership_history,
+                            fallback_criteria,
+                            status_values=["Terminated", "Completed"],
+                        )
+                        if terminated:
                             frappe.logger().info(
                                 f"Membership already ended for member {member_id}: {assignment_type} at {chapter_name} "
-                                f"(status={membership.status})"
+                                f"(status={terminated.status})"
                             )
-                            return True  # Already in desired state
+                            return True
 
-                    # Create a new completed membership if nothing exists
-                    member.append(
-                        "chapter_membership_history",
-                        {
-                            "chapter_name": chapter_name,
-                            "assignment_type": assignment_type,
-                            "start_date": start_date,
-                            "end_date": end_date,
-                            "status": "Completed",
-                            "reason": reason or f"Left {chapter_name} as {assignment_type}",
-                        },
-                    )
+                        # Create new completed entry
+                        member.append(
+                            ChapterMembershipHistoryManager.CHILD_TABLE,
+                            {
+                                "chapter_name": chapter_name,
+                                "assignment_type": assignment_type,
+                                "start_date": start_date,
+                                "end_date": end_date,
+                                "status": "Completed",
+                                "reason": reason or f"Left {chapter_name} as {assignment_type}",
+                            },
+                        )
+                        frappe.logger().info(
+                            f"Created new completed membership history for member {member_id}: {assignment_type} at {chapter_name}"
+                        )
 
-                    frappe.logger().info(
-                        f"Created new completed membership history for member {member_id}: {assignment_type} at {chapter_name}"
-                    )
-
-            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-            save_result = secure_document_operation(
-                operation="save",
-                doc=member,
-                justification=f"Complete membership history for member {member_id} leaving {chapter_name} as {assignment_type}",
-                required_permissions=["Member:write"],
-            )
-
-            if not save_result.success:
-                frappe.log_error(
-                    f"Failed to save membership completion for member {member_id}: {'; '.join(save_result.errors)}",
-                    "Chapter Membership History Security Error",
+                # Use safe child table update
+                result = safe_child_table_update(
+                    doc=member,
+                    child_table_name=ChapterMembershipHistoryManager.CHILD_TABLE,
+                    justification=f"Complete membership history for member {member_id} leaving {chapter_name} as {assignment_type}",
+                    doctype_permission="Member:write",
+                    auto_cleanup=True,
                 )
-                return False
 
-            return True
+                if not result.success:
+                    log_history_error(
+                        title="Chapter Membership End Failed",
+                        message=f"Failed to save membership completion for member {member_id}: {'; '.join(result.errors)}",
+                    )
+                    return False
+
+                return True
 
         except Exception as e:
-            frappe.log_error(
-                f"Error completing membership history for member {member_id}: {str(e)}",
-                "Chapter Membership History Manager",
+            log_history_error(
+                title="Chapter Membership History Error",
+                message=f"Error completing membership history for member {member_id}: {str(e)}",
+                include_traceback=True,
             )
             return False
 
@@ -286,11 +292,7 @@ class ChapterMembershipHistoryManager:
             list: List of active memberships
         """
         try:
-            # Check if member still exists before attempting to query
-            if not frappe.db.exists("Member", member_id):
-                frappe.logger().warning(
-                    f"Cannot get active memberships - Member {member_id} no longer exists"
-                )
+            if not ensure_doc_exists("Member", member_id, "get active memberships"):
                 return []
 
             member = frappe.get_doc("Member", member_id)
@@ -307,9 +309,9 @@ class ChapterMembershipHistoryManager:
             return active_memberships
 
         except Exception as e:
-            frappe.log_error(
-                f"Error getting active memberships for member {member_id}: {str(e)}",
-                "Chapter Membership History Manager",
+            log_history_error(
+                title="Chapter Membership Query Error",
+                message=f"Error getting active memberships for member {member_id}: {str(e)}",
             )
             return []
 
@@ -330,59 +332,59 @@ class ChapterMembershipHistoryManager:
             bool: Success status
         """
         try:
-            # Check if member still exists before attempting to update
-            if not frappe.db.exists("Member", member_id):
-                frappe.logger().warning(
-                    f"Cannot cancel chapter membership - Member {member_id} no longer exists"
-                )
+            if not ensure_doc_exists("Member", member_id, "cancel chapter membership"):
                 return False
 
             member = frappe.get_doc("Member", member_id)
 
-            # Find and remove the specific membership
-            membership_to_remove = None
-            for membership in member.chapter_membership_history or []:
-                if (
-                    membership.chapter_name == chapter_name
-                    and membership.assignment_type == assignment_type
-                    and str(membership.start_date) == str(start_date)
-                    and membership.status == "Active"
-                ):
-                    membership_to_remove = membership
-                    break
+            # Recursion guard - prevent infinite loops from hooks
+            with recursion_guard(member, "_updating_chapter_membership_history") as should_proceed:
+                if not should_proceed:
+                    return True
 
-            if membership_to_remove:
-                member.chapter_membership_history.remove(membership_to_remove)
-
-                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-                save_result = secure_document_operation(
-                    operation="save",
-                    doc=member,
-                    justification=f"Remove membership history for member {member_id} from {chapter_name} as {assignment_type}",
-                    required_permissions=["Member:write"],
+                # Find the specific membership to remove
+                criteria = {
+                    "chapter_name": chapter_name,
+                    "assignment_type": assignment_type,
+                    "start_date": start_date,
+                }
+                membership_to_remove = find_entry_by_criteria(
+                    member.chapter_membership_history, criteria, status_values=["Active"]
                 )
 
-                if not save_result.success:
-                    frappe.log_error(
-                        f"Failed to save membership history removal for member {member_id}: {'; '.join(save_result.errors)}",
-                        "Chapter Membership History Security Error",
+                if membership_to_remove:
+                    member.chapter_membership_history.remove(membership_to_remove)
+
+                    result = safe_child_table_update(
+                        doc=member,
+                        child_table_name=ChapterMembershipHistoryManager.CHILD_TABLE,
+                        justification=f"Remove membership history for member {member_id} from {chapter_name} as {assignment_type}",
+                        doctype_permission="Member:write",
+                        auto_cleanup=True,
+                    )
+
+                    if not result.success:
+                        log_history_error(
+                            title="Chapter Membership Cancel Failed",
+                            message=f"Failed to save membership history removal for member {member_id}: {'; '.join(result.errors)}",
+                        )
+                        return False
+
+                    frappe.logger().info(
+                        f"Removed membership history for member {member_id}: {assignment_type} at {chapter_name}"
+                    )
+                    return True
+                else:
+                    frappe.logger().info(
+                        f"Membership to remove not found for member {member_id}: {assignment_type} at {chapter_name}"
                     )
                     return False
 
-                frappe.logger().info(
-                    f"Removed membership history for member {member_id}: {assignment_type} at {chapter_name}"
-                )
-                return True
-            else:
-                frappe.logger().info(
-                    f"Membership to remove not found for member {member_id}: {assignment_type} at {chapter_name}"
-                )
-                return False
-
         except Exception as e:
-            frappe.log_error(
-                f"Error removing membership history for member {member_id}: {str(e)}",
-                "Chapter Membership History Manager",
+            log_history_error(
+                title="Chapter Membership History Error",
+                message=f"Error removing membership history for member {member_id}: {str(e)}",
+                include_traceback=True,
             )
             return False
 
@@ -407,74 +409,69 @@ class ChapterMembershipHistoryManager:
             bool: Success status
         """
         try:
-            # Check if member still exists before attempting to update
-            if not frappe.db.exists("Member", member_id):
-                frappe.logger().warning(
-                    f"Cannot terminate chapter membership - Member {member_id} no longer exists"
-                )
+            if not ensure_doc_exists("Member", member_id, "terminate chapter membership"):
                 return False
 
             member = frappe.get_doc("Member", member_id)
 
-            # Find membership to terminate (Active or Pending - both should be terminated)
-            target_membership = None
-            for membership in member.chapter_membership_history or []:
-                if (
-                    membership.chapter_name == chapter_name
-                    and membership.assignment_type == assignment_type
-                    and membership.status in ("Active", "Pending")
-                ):
-                    target_membership = membership
-                    break
+            # Recursion guard - prevent infinite loops from hooks
+            with recursion_guard(member, "_updating_chapter_membership_history") as should_proceed:
+                if not should_proceed:
+                    return True
 
-            if target_membership:
-                original_status = target_membership.status
-                target_membership.end_date = end_date
-                target_membership.status = "Terminated"
-                target_membership.reason = reason
-
-                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-                save_result = secure_document_operation(
-                    operation="save",
-                    doc=member,
-                    justification=f"Terminate membership history for member {member_id} leaving {chapter_name} as {assignment_type}",
-                    required_permissions=["Member:write"],
+                # Find membership to terminate (Active or Pending)
+                criteria = {"chapter_name": chapter_name, "assignment_type": assignment_type}
+                target = find_entry_by_criteria(
+                    member.chapter_membership_history, criteria, status_values=["Active", "Pending"]
                 )
 
-                if not save_result.success:
-                    frappe.log_error(
-                        f"Failed to save membership termination for member {member_id}: {'; '.join(save_result.errors)}",
-                        "Chapter Membership History Security Error",
+                if target:
+                    original_status = target.status
+                    target.end_date = end_date
+                    target.status = "Terminated"
+                    target.reason = reason
+
+                    result = safe_child_table_update(
+                        doc=member,
+                        child_table_name=ChapterMembershipHistoryManager.CHILD_TABLE,
+                        justification=f"Terminate membership history for member {member_id} leaving {chapter_name} as {assignment_type}",
+                        doctype_permission="Member:write",
+                        auto_cleanup=True,
                     )
-                    return False
 
-                frappe.logger().info(
-                    f"Terminated membership history for member {member_id}: {assignment_type} at {chapter_name} "
-                    f"(was {original_status})"
-                )
-                return True
-            else:
-                # Check if already terminated (idempotency)
-                for membership in member.chapter_membership_history or []:
-                    if (
-                        membership.chapter_name == chapter_name
-                        and membership.assignment_type == assignment_type
-                        and membership.status == "Terminated"
-                    ):
+                    if not result.success:
+                        log_history_error(
+                            title="Chapter Membership Terminate Failed",
+                            message=f"Failed to save membership termination for member {member_id}: {'; '.join(result.errors)}",
+                        )
+                        return False
+
+                    frappe.logger().info(
+                        f"Terminated membership history for member {member_id}: {assignment_type} at {chapter_name} "
+                        f"(was {original_status})"
+                    )
+                    return True
+                else:
+                    # Check if already terminated (idempotency)
+                    terminated = find_entry_by_criteria(
+                        member.chapter_membership_history, criteria, status_values=["Terminated"]
+                    )
+                    if terminated:
                         frappe.logger().info(
                             f"Membership already terminated for member {member_id}: {assignment_type} at {chapter_name}"
                         )
-                        return True  # Already in desired state
+                        return True
 
-                frappe.logger().info(
-                    f"No active/pending membership found to terminate for member {member_id}: {assignment_type} at {chapter_name}"
-                )
-                return False
+                    frappe.logger().info(
+                        f"No active/pending membership found to terminate for member {member_id}: {assignment_type} at {chapter_name}"
+                    )
+                    return False
 
         except Exception as e:
-            frappe.log_error(
-                f"Error terminating membership history for member {member_id}: {str(e)}",
-                "Chapter Membership History Manager",
+            log_history_error(
+                title="Chapter Membership History Error",
+                message=f"Error terminating membership history for member {member_id}: {str(e)}",
+                include_traceback=True,
             )
             return False
 
@@ -490,11 +487,7 @@ class ChapterMembershipHistoryManager:
             Dict: Summary information
         """
         try:
-            # Check if member still exists before attempting to query
-            if not frappe.db.exists("Member", member_id):
-                frappe.logger().warning(
-                    f"Cannot get membership history summary - Member {member_id} no longer exists"
-                )
+            if not ensure_doc_exists("Member", member_id, "get membership history summary"):
                 return {
                     "total_memberships": 0,
                     "active_memberships": 0,
@@ -543,9 +536,9 @@ class ChapterMembershipHistoryManager:
             }
 
         except Exception as e:
-            frappe.log_error(
-                f"Error getting membership history summary for member {member_id}: {str(e)}",
-                "Chapter Membership History Manager",
+            log_history_error(
+                title="Chapter Membership Summary Error",
+                message=f"Error getting membership history summary for member {member_id}: {str(e)}",
             )
             return {
                 "total_memberships": 0,
@@ -574,75 +567,68 @@ class ChapterMembershipHistoryManager:
             bool: Success status
         """
         try:
-            # Check if member still exists before attempting to update
-            if not frappe.db.exists("Member", member_id):
-                frappe.logger().warning(
-                    f"Cannot update membership status - Member {member_id} no longer exists"
-                )
+            if not ensure_doc_exists("Member", member_id, "update membership status"):
                 return False
 
             member = frappe.get_doc("Member", member_id)
 
-            # Look for existing pending membership to update
-            target_membership = None
-            for membership in member.chapter_membership_history or []:
-                if (
-                    membership.chapter_name == chapter_name
-                    and membership.assignment_type == assignment_type
-                    and membership.status == "Pending"
-                ):
-                    target_membership = membership
-                    break
+            # Recursion guard - prevent infinite loops from hooks
+            with recursion_guard(member, "_updating_chapter_membership_history") as should_proceed:
+                if not should_proceed:
+                    return True
 
-            if target_membership:
-                # Update the existing pending membership to new status
-                target_membership.status = new_status
-                if reason:
-                    target_membership.reason = reason
-
-                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-                save_result = secure_document_operation(
-                    operation="save",
-                    doc=member,
-                    justification=f"Update membership status for member {member_id} in {chapter_name} as {assignment_type} to {new_status}",
-                    required_permissions=["Member:write"],
+                # Look for existing pending membership to update
+                criteria = {"chapter_name": chapter_name, "assignment_type": assignment_type}
+                target = find_entry_by_criteria(
+                    member.chapter_membership_history, criteria, status_values=["Pending"]
                 )
 
-                if not save_result.success:
-                    frappe.log_error(
-                        f"Failed to save membership status update for member {member_id}: {'; '.join(save_result.errors)}",
-                        "Chapter Membership History Security Error",
+                if target:
+                    target.status = new_status
+                    if reason:
+                        target.reason = reason
+
+                    result = safe_child_table_update(
+                        doc=member,
+                        child_table_name=ChapterMembershipHistoryManager.CHILD_TABLE,
+                        justification=f"Update membership status for member {member_id} in {chapter_name} as {assignment_type} to {new_status}",
+                        doctype_permission="Member:write",
+                        auto_cleanup=True,
                     )
-                    return False
 
-                frappe.logger().info(
-                    f"Updated membership status for member {member_id}: {assignment_type} at {chapter_name} from Pending to {new_status}"
-                )
-                return True
-            else:
-                # No pending entry found - check if there's already an Active entry with same chapter/type
-                # This prevents creating duplicates when activation happens in multiple places
-                for membership in member.chapter_membership_history or []:
-                    if (
-                        membership.chapter_name == chapter_name
-                        and membership.assignment_type == assignment_type
-                        and membership.status == new_status
-                    ):
+                    if not result.success:
+                        log_history_error(
+                            title="Chapter Membership Status Update Failed",
+                            message=f"Failed to save membership status update for member {member_id}: {'; '.join(result.errors)}",
+                        )
+                        return False
+
+                    frappe.logger().info(
+                        f"Updated membership status for member {member_id}: {assignment_type} at {chapter_name} from Pending to {new_status}"
+                    )
+                    return True
+                else:
+                    # Check if there's already an entry with the desired status
+                    existing = find_entry_by_criteria(
+                        member.chapter_membership_history, criteria, status_values=[new_status]
+                    )
+                    if existing:
                         frappe.logger().info(
                             f"Membership already has status {new_status} for member {member_id} in {chapter_name} - no update needed"
                         )
-                        return True  # Already in desired state
+                        return True
 
-                frappe.logger().warning(
-                    f"No pending membership found to update for member {member_id} in {chapter_name} "
-                    f"(assignment_type={assignment_type}). Available entries: "
-                    f"{[(m.chapter_name, m.assignment_type, m.status) for m in member.chapter_membership_history or []]}"
-                )
-                return False
+                    frappe.logger().warning(
+                        f"No pending membership found to update for member {member_id} in {chapter_name} "
+                        f"(assignment_type={assignment_type}). Available entries: "
+                        f"{[(m.chapter_name, m.assignment_type, m.status) for m in member.chapter_membership_history or []]}"
+                    )
+                    return False
 
         except Exception as e:
-            frappe.logger().error(f"Error updating membership status for member {member_id}: {str(e)}")
-            import traceback
-
-            traceback.print_exc()
+            log_history_error(
+                title="Chapter Membership Status Error",
+                message=f"Error updating membership status for member {member_id}: {str(e)}",
+                include_traceback=True,
+            )
             return False

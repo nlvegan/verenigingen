@@ -118,67 +118,191 @@
         </div>
         {% endif %}
 
-        <!-- Payment Status Section -->
-        {% if payment_status %}
-        <div class="form-card hover:shadow-lg transition-shadow duration-300 mb-8">
-            <div class="form-header">
-                <h3 class="flex items-center">
-                    <span class="text-2xl mr-3">💳</span>{{ _("Contribution & Payment Status") }}
-                </h3>
-            </div>
-            <div class="form-body">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
-                    <div>
-                        <h4 class="text-lg font-semibold mb-4 text-gray-800">{{ _("Current Contribution") }}</h4>
-                        <div class="space-y-2">
-                            <p><span class="font-medium">{{ _("Amount") }}:</span> {{ frappe.format_value(payment_status.current_fee, {"fieldtype": "Currency"}) }} {{ _(payment_status.billing_frequency.lower()) }}</p>
-                            <p><span class="font-medium">{{ _("Billing") }}:</span> {{ _(payment_status.billing_frequency) }}</p>
-                            {% if payment_status.next_invoice_date %}
-                            <p><span class="font-medium">{{ _("Next Payment Request") }}:</span> {{ frappe.utils.formatdate(payment_status.next_invoice_date) }}</p>
+        <!-- Payment Status and Chapter Board Section - 60/40 split -->
+        <div class="flex flex-col lg:flex-row gap-6 mb-8">
+            <!-- Payment Status Section - 60% width -->
+            {% if payment_status %}
+            <div class="form-card hover:shadow-lg transition-shadow duration-300 w-full lg:w-[60%]">
+                <div class="form-header">
+                    <h3 class="flex items-center">
+                        <span class="text-2xl mr-3">💳</span>{{ _("Contribution & Payment Status") }}
+                    </h3>
+                </div>
+                <div class="form-body">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <h4 class="text-lg font-semibold mb-4 text-gray-800">{{ _("Current Contribution") }}</h4>
+                            <div class="space-y-2">
+                                <p><span class="font-medium">{{ _("Amount") }}:</span> {{ frappe.format_value(payment_status.current_fee, {"fieldtype": "Currency"}) }} {{ _(payment_status.billing_frequency.lower()) }}</p>
+                                <p><span class="font-medium">{{ _("Billing") }}:</span> {{ _(payment_status.billing_frequency) }}</p>
+                                {% if payment_status.next_invoice_date %}
+                                <p><span class="font-medium">{{ _("Next Payment Request") }}:</span> {{ frappe.utils.formatdate(payment_status.next_invoice_date) }}</p>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div>
+                            <h4 class="text-lg font-semibold mb-4 text-gray-800">{{ _("Payment Status") }}</h4>
+                            {% if payment_status.payment_up_to_date %}
+                            <div class="inline-flex items-center px-4 py-2 bg-success-100 text-success-800 rounded-full text-sm font-semibold mb-3">
+                                <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+                                </svg>
+                                {{ _("Payments Up to Date") }}
+                            </div>
+                            {% else %}
+                            <div class="inline-flex items-center px-4 py-2 {% if payment_status.has_overdue %}bg-danger-100 text-danger-800{% else %}bg-warning-100 text-warning-800{% endif %} rounded-full text-sm font-semibold mb-3">
+                                <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+                                </svg>
+                                {{ _("Outstanding: {0}").format(frappe.format_value(payment_status.outstanding_amount, {"fieldtype": "Currency"})) }}
+                            </div>
+                            {% endif %}
+
+                            {% if payment_status.outstanding_invoices %}
+                            <div class="mt-4">
+                                <h5 class="font-medium text-gray-700 mb-2">{{ _("Unpaid dues") }}:</h5>
+                                <div class="space-y-2">
+                                    {% for invoice in payment_status.outstanding_invoices %}
+                                    <div class="p-3 bg-gray-50 rounded-lg text-sm">
+                                        <div class="flex justify-between items-center">
+                                            <span>{{ invoice.coverage_period if invoice.coverage_period else (frappe.utils.formatdate(invoice.due_date) if invoice.due_date else _("No due date")) }}</span>
+                                            <span class="font-medium">{{ frappe.format_value(invoice.outstanding, {"fieldtype": "Currency"}) }}</span>
+                                        </div>
+                                        {% if invoice.is_overdue %}
+                                        <div class="text-danger-600 font-medium mt-1">{{ _("(Overdue)") }}</div>
+                                        {% endif %}
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
                             {% endif %}
                         </div>
                     </div>
-                    <div>
-                        <h4 class="text-lg font-semibold mb-4 text-gray-800">{{ _("Payment Status") }}</h4>
-                        {% if payment_status.payment_up_to_date %}
-                        <div class="inline-flex items-center px-4 py-2 bg-success-100 text-success-800 rounded-full text-sm font-semibold mb-3">
-                            <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
-                            </svg>
-                            {{ _("Payments Up to Date") }}
-                        </div>
-                        {% else %}
-                        <div class="inline-flex items-center px-4 py-2 {% if payment_status.has_overdue %}bg-danger-100 text-danger-800{% else %}bg-warning-100 text-warning-800{% endif %} rounded-full text-sm font-semibold mb-3">
-                            <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
-                            </svg>
-                            {{ _("Outstanding: {0}").format(frappe.format_value(payment_status.outstanding_amount, {"fieldtype": "Currency"})) }}
-                        </div>
-                        {% endif %}
+                </div>
+            </div>
+            {% endif %}
 
-                        {% if payment_status.outstanding_invoices %}
-                        <div class="mt-4">
-                            <h5 class="font-medium text-gray-700 mb-2">{{ _("Unpaid dues") }}:</h5>
-                            <div class="space-y-2">
-                                {% for invoice in payment_status.outstanding_invoices %}
-                                <div class="p-3 bg-gray-50 rounded-lg text-sm">
-                                    <div class="flex justify-between items-center">
-                                        <span>{{ invoice.coverage_period if invoice.coverage_period else (frappe.utils.formatdate(invoice.due_date) if invoice.due_date else _("No due date")) }}</span>
-                                        <span class="font-medium">{{ frappe.format_value(invoice.outstanding, {"fieldtype": "Currency"}) }}</span>
+            <!-- Your Chapter Section - 40% width -->
+            {% if chapter_info %}
+            <div class="form-card hover:shadow-lg transition-shadow duration-300 w-full lg:w-[40%]">
+                <div class="form-header">
+                    <h3 class="flex items-center">
+                        <span class="text-2xl mr-3">🏛️</span>
+                        {{ _("Your Chapter:") }}&nbsp;
+                        <a href="/chapter_dashboard?chapter={{ chapter_info.chapter_name }}" class="hover:text-primary-600 hover:underline transition-colors">
+                            {{ chapter_info.chapter_display_name }}
+                        </a>
+                        {% if chapter_info.is_national %}
+                        <span class="ml-2 text-xs bg-primary-100 text-primary-700 px-2 py-1 rounded-full">{{ _("National") }}</span>
+                        {% endif %}
+                    </h3>
+                </div>
+                <div class="form-body">
+                    <div class="flex flex-col md:flex-row gap-6">
+                        <!-- Board Members - Half width -->
+                        <div class="w-full md:w-1/2">
+                            {% if chapter_info.board_members %}
+                            <h4 class="text-lg font-semibold mb-4 text-gray-800">{{ _("Board Members") }}</h4>
+                            <div class="space-y-3">
+                                {% for board_member in chapter_info.board_members %}
+                                <div class="flex items-center p-3 bg-gray-50 rounded-lg">
+                                    <div class="flex-shrink-0 w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center mr-3">
+                                        <i class="fa fa-user text-primary-500"></i>
                                     </div>
-                                    {% if invoice.is_overdue %}
-                                    <div class="text-danger-600 font-medium mt-1">{{ _("(Overdue)") }}</div>
-                                    {% endif %}
+                                    <div class="flex-1 min-w-0">
+                                        <div class="font-medium text-gray-900 truncate">{{ board_member.member_name }}</div>
+                                        <div class="text-sm text-gray-600">{{ board_member.role }}</div>
+                                    </div>
                                 </div>
                                 {% endfor %}
                             </div>
+                            {% else %}
+                            <div class="text-center py-6 text-gray-500">
+                                <i class="fa fa-users text-3xl mb-2"></i>
+                                <p>{{ _("No board members listed") }}</p>
+                            </div>
+                            {% endif %}
                         </div>
-                        {% endif %}
+                        <!-- Documents - Half width -->
+                        <div class="w-full md:w-1/2">
+                            <h4 class="text-lg font-semibold mb-4 text-gray-800">{{ _("Documents") }}</h4>
+                            {% if chapter_documents and chapter_documents.total_count > 0 %}
+                            <div class="space-y-2">
+                                {% for doc_type, years_dict in chapter_documents.by_type_and_year.items() %}
+                                {% if years_dict %}
+                                <div class="border border-gray-200 rounded-lg overflow-hidden">
+                                    <button onclick="toggleChapterFolder('chapter-folder-{{ doc_type|replace(' ', '-')|lower }}')"
+                                            class="w-full px-3 py-2 bg-gray-50 hover:bg-gray-100 transition-colors flex items-center justify-between cursor-pointer border-none text-left text-sm">
+                                        <span class="font-medium text-gray-800 flex items-center gap-2">
+                                            <i class="fa fa-folder text-warning-600"></i>
+                                            {% if chapter_documents.category_icons %}
+                                                {{ chapter_documents.category_icons.get(doc_type, '📎') }}
+                                            {% else %}
+                                                {% if doc_type == "Policy" %}📋
+                                                {% elif doc_type == "Meeting Minutes" %}📝
+                                                {% elif doc_type == "Financial Report" %}💰
+                                                {% else %}📎{% endif %}
+                                            {% endif %}
+                                            {{ doc_type }}
+                                            {% set doc_count = namespace(total=0) %}
+                                            {% for year, docs in years_dict.items() %}
+                                                {% set doc_count.total = doc_count.total + docs|length %}
+                                            {% endfor %}
+                                            <span class="text-xs text-gray-500 font-normal">({{ doc_count.total }})</span>
+                                        </span>
+                                        <i class="fa fa-chevron-down text-gray-500 transition-transform text-xs" id="icon-chapter-folder-{{ doc_type|replace(' ', '-')|lower }}"></i>
+                                    </button>
+                                    <div id="chapter-folder-{{ doc_type|replace(' ', '-')|lower }}" class="chapter-folder-content" style="display: none;">
+                                        {% for year, documents in years_dict.items() %}
+                                        <div class="border-t border-gray-100 px-3 py-2">
+                                            <div class="text-xs font-medium text-gray-600 mb-1">{{ year }}</div>
+                                            <ul class="list-none p-0 m-0 space-y-1">
+                                                {% for doc in documents %}
+                                                <li>
+                                                    <a href="{{ doc.document_file }}" target="_blank" class="text-sm text-gray-700 hover:text-primary-600 no-underline flex items-center gap-1">
+                                                        <i class="fa fa-file-pdf-o text-danger-500 text-xs"></i>
+                                                        {{ doc.document_name }}
+                                                    </a>
+                                                </li>
+                                                {% endfor %}
+                                            </ul>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                                {% endif %}
+                                {% endfor %}
+                            </div>
+                            {% else %}
+                            <div class="text-center py-6 text-gray-500">
+                                <i class="fa fa-file-o text-3xl mb-2"></i>
+                                <p>{{ _("No documents available") }}</p>
+                            </div>
+                            {% endif %}
+                        </div>
                     </div>
                 </div>
             </div>
+            {% elif payment_status %}
+            <!-- Placeholder when no chapter info but payment status exists -->
+            <div class="form-card hover:shadow-lg transition-shadow duration-300 w-full lg:w-[40%]">
+                <div class="form-header">
+                    <h3 class="flex items-center">
+                        <span class="text-2xl mr-3">🏛️</span>{{ _("Your Chapter") }}
+                    </h3>
+                </div>
+                <div class="form-body">
+                    <div class="text-center py-6 text-gray-500">
+                        <i class="fa fa-map-marker text-3xl mb-2"></i>
+                        <p class="mb-4">{{ _("You're not yet assigned to a chapter") }}</p>
+                        <a href="/chapter" class="btn-secondary">
+                            <i class="fa fa-plus mr-2"></i>{{ _("Join a Chapter") }}
+                        </a>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
         </div>
-        {% endif %}
 
         <!-- Portal Sections -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
@@ -557,4 +681,22 @@
     animation: slideUp 0.8s ease-out;
 }
 </style>
+
+<script>
+// Toggle chapter document folders
+function toggleChapterFolder(folderId) {
+    const folder = document.getElementById(folderId);
+    const icon = document.getElementById('icon-' + folderId);
+
+    if (folder && icon) {
+        if (folder.style.display === 'none' || folder.style.display === '') {
+            folder.style.display = 'block';
+            icon.style.transform = 'rotate(180deg)';
+        } else {
+            folder.style.display = 'none';
+            icon.style.transform = 'rotate(0deg)';
+        }
+    }
+}
+</script>
 {% endblock %}

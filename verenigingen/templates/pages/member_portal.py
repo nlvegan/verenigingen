@@ -119,6 +119,22 @@ def get_context(context):
     # Check if user is a board member of any chapter
     context.is_board_member = is_user_board_member()
 
+    # Get chapter info with board members for display
+    context.chapter_info = get_member_chapter_info(member)
+
+    # Get chapter documents if member has a chapter
+    if context.chapter_info:
+        from verenigingen.services.document.document_portal_service import (
+            get_organization_documents_for_template,
+        )
+
+        context.chapter_documents = get_organization_documents_for_template(
+            organization_type="Chapter",
+            organization_name=context.chapter_info.get("chapter_name"),
+        )
+    else:
+        context.chapter_documents = None
+
     return context
 
 
@@ -255,6 +271,21 @@ def get_member_activity(member_name):
 def get_quick_actions(member, membership, volunteer):
     """Get quick actions based on member status"""
     actions = []
+
+    # National chapter link - always show if configured
+    try:
+        national_chapter = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+        if national_chapter:
+            actions.append(
+                {
+                    "title": _("National Chapter"),
+                    "route": f"/chapter?chapter={national_chapter}",
+                    "class": "btn-secondary",
+                    "icon": "fa-globe",
+                }
+            )
+    except Exception as e:
+        frappe.log_error(f"Error getting national chapter: {str(e)}")
 
     # Chapter board member dashboard access - show first for board members
     if volunteer:
@@ -612,3 +643,70 @@ def is_user_board_member():
     )
 
     return board_positions and board_positions[0].count > 0
+
+
+def get_member_chapter_info(member_name):
+    """Get the member's primary chapter and its board members.
+
+    Falls back to national chapter if member has no chapter assignment.
+
+    Returns:
+        dict: {
+            'chapter_name': str,
+            'chapter_display_name': str,
+            'is_national': bool,
+            'board_members': list of dicts with volunteer_name, role, from_date, is_current_user
+        }
+    """
+    try:
+        # Try to get member's primary chapter first
+        member_chapter = frappe.db.get_value(
+            "Chapter Member",
+            {"member": member_name, "enabled": 1, "status": "Active"},
+            "parent",
+            order_by="chapter_join_date desc",
+        )
+
+        # Fall back to national chapter if no active chapter membership
+        if not member_chapter:
+            member_chapter = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+
+        if not member_chapter:
+            return None
+
+        # Check if this is the national chapter
+        national_chapter = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+        is_national = member_chapter == national_chapter
+
+        # Get chapter doc for board members
+        chapter = frappe.get_doc("Chapter", member_chapter)
+
+        # Build board members list
+        board_members = []
+        current_user_email = frappe.session.user
+
+        for board_member in chapter.board_members:
+            if board_member.is_active:
+                board_members.append(
+                    {
+                        "volunteer": board_member.volunteer,
+                        "volunteer_name": board_member.volunteer_name,
+                        "member_name": board_member.volunteer_name,  # Template uses member_name
+                        "role": board_member.chapter_role,
+                        "email": board_member.email,
+                        "from_date": board_member.from_date,
+                        "is_current_user": board_member.email == current_user_email,
+                    }
+                )
+
+        return {
+            "chapter_name": member_chapter,
+            "chapter_display_name": chapter.name,
+            "is_national": is_national,
+            "board_members": board_members,
+            "total_count": len(board_members),
+        }
+
+    except Exception as e:
+        frappe.log_error(f"Error getting member chapter info: {str(e)}")
+        return None
