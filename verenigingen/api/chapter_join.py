@@ -27,6 +27,7 @@ from typing import Any, Dict
 import frappe
 from frappe import _
 
+from verenigingen.utils.member_utils import get_current_user_member_name
 from verenigingen.utils.operation_result import OperationResult
 
 # Import security decorators
@@ -96,7 +97,7 @@ def get_chapter_join_context(chapter_name) -> OperationResult[Dict[str, Any]]:
             return OperationResult.ok(data, message=_("Chapter information retrieved"))
 
         # For authenticated users, check existing chapter membership
-        member = frappe.db.get_value("Member", {"email": frappe.session.user})
+        member = get_current_user_member_name()
         already_member = False
 
         if member:
@@ -169,7 +170,7 @@ def join_chapter(chapter_name, introduction) -> OperationResult[Dict[str, Any]]:
             frappe.throw(_("Please login to join a chapter"), frappe.PermissionError)
 
         # Verify that user has a valid member record
-        member = frappe.db.get_value("Member", {"email": frappe.session.user})
+        member = get_current_user_member_name()
         if not member:
             frappe.throw(_("No member record found for your account"), frappe.DoesNotExistError)
 
@@ -235,7 +236,7 @@ def get_user_chapter_requests() -> OperationResult[Dict[str, Any]]:
         user = frappe.session.user
 
         # Get member record for current user
-        member = frappe.db.get_value("Member", {"email": user})
+        member = get_current_user_member_name()
         if not member:
             data = {"chapters": []}
             return OperationResult.ok(data, message=_("No member record found"))

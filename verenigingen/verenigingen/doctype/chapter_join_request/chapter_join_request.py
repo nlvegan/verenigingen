@@ -268,9 +268,10 @@ class ChapterJoinRequest(Document):
             ChapterMembershipHistoryManager.add_membership_history(
                 member_id=self.member,
                 chapter_name=self.chapter,
-                action="joined",
-                details=f"Joined via approved join request {self.name}",
-                user_email=self.reviewed_by,
+                assignment_type="Member",
+                start_date=frappe.utils.today(),
+                reason=f"Joined via approved join request {self.name}",
+                status="Active",
             )
         except Exception as e:
             frappe.log_error(f"Failed to add membership history: {str(e)}")

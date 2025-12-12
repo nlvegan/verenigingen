@@ -10,6 +10,7 @@ from frappe import _
 from frappe.query_builder import DocType, Order
 from frappe.utils import now_datetime
 
+from verenigingen.templates.pages import serialize_dates
 from verenigingen.utils.api_response import api_response_handler
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import cache_with_ttl, validate_user_logged_in
@@ -20,10 +21,6 @@ OVERDUE_THRESHOLD_CRITICAL = 90  # Days overdue: critical (90+ days)
 OVERDUE_THRESHOLD_SEVERE = 60  # Days overdue: severe (60-89 days)
 OVERDUE_THRESHOLD_MODERATE = 30  # Days overdue: moderate (30-59 days)
 OVERDUE_APPLICATION_DAYS = 7  # Applications pending > 7 days are considered overdue
-
-
-# Import shared serialize_dates utility
-from verenigingen.templates.pages import serialize_dates
 
 
 def get_context(context):
@@ -441,9 +438,17 @@ def get_member_overview(chapter_name: str) -> Dict[str, Any]:
         else:
             member_names = {}
 
-        # Combine the data
+        # Combine the data, skipping orphaned records
         recent_members = []
         for rcm in recent_chapter_members:
+            # Skip orphaned Chapter Member records (Member was deleted)
+            if rcm.member not in member_names:
+                frappe.logger().warning(
+                    f"Orphaned Chapter Member record found: {rcm.member} in chapter {chapter_name}. "
+                    f"The linked Member record no longer exists."
+                )
+                continue
+
             recent_members.append(
                 {
                     "member": rcm.member,
@@ -488,6 +493,14 @@ def get_member_overview(chapter_name: str) -> Dict[str, Any]:
         pending_applications = []
         for pcm in pending_chapter_members:
             member_data = member_details.get(pcm.member, {})
+
+            # Skip orphaned Chapter Member records (Member was deleted)
+            if not member_data:
+                frappe.logger().warning(
+                    f"Orphaned Chapter Member record found: {pcm.member} in chapter {chapter_name}. "
+                    f"The linked Member record no longer exists."
+                )
+                continue
 
             # Calculate days pending using frappe utilities
             reference_date = member_data.get("application_date") or pcm.chapter_join_date

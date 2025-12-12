@@ -62,10 +62,10 @@ class PaymentHistoryEntryBuilder:
         reference_doctype = None
         reference_name = None
 
-        if hasattr(invoice_doc, "membership") and invoice_doc.membership:
+        if hasattr(invoice_doc, "membership") and invoice_doc.membership:  # ast-skip: custom field
             transaction_type = "Membership Invoice"
             reference_doctype = "Membership"
-            reference_name = invoice_doc.membership
+            reference_name = invoice_doc.membership  # ast-skip: custom field checked with hasattr
 
         # Find linked payment entries
         payment_entries = frappe.get_all(
@@ -221,6 +221,7 @@ class PaymentHistoryEntryBuilder:
 
         entry = {
             "invoice": row["invoice_name"],
+            "invoice_doctype": "Sales Invoice",  # Required for Dynamic Link
             "posting_date": row["posting_date"],
             "due_date": row.get("due_date"),
             "transaction_type": transaction_type,
@@ -232,6 +233,10 @@ class PaymentHistoryEntryBuilder:
             "payment_status": row.get("payment_status", "Unpaid"),
             "payment_date": row.get("payment_date"),
             "paid_amount": flt(row.get("allocated_amount", 0)),
+            "payment_entry": row.get("payment_entry"),
+            "payment_entry_doctype": "Payment Entry" if row.get("payment_entry") else None,
+            "sepa_mandate": row.get("sepa_mandate"),
+            "sepa_mandate_doctype": "SEPA Mandate" if row.get("sepa_mandate") else None,
         }
 
         return entry

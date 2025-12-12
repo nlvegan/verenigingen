@@ -53,15 +53,15 @@ def get_member_name_for_user(user_email: str) -> Optional[str]:
     Get member name/ID for a specific user with standardized lookup pattern.
 
     Args:
-        user_email: Email address of the user
+        user_email: Email address of the user (or username)
 
     Returns:
         Member name/ID if found, None otherwise
 
     Note:
         This function tries two lookup strategies:
-        1. By email field (primary)
-        2. By user field (fallback for older records)
+        1. By user field (primary - explicit User link)
+        2. By email field (fallback for legacy records)
 
     Error Handling:
         Returns None if no member found - caller should handle explicitly.
@@ -71,12 +71,12 @@ def get_member_name_for_user(user_email: str) -> Optional[str]:
         return None
 
     try:
-        # Primary lookup: by email field
-        member_name = frappe.db.get_value("Member", {"email": user_email})
+        # Primary lookup: by user field (explicit User link)
+        member_name = frappe.db.get_value("Member", {"user": user_email})
 
         if not member_name:
-            # Fallback lookup: by user field (for compatibility)
-            member_name = frappe.db.get_value("Member", {"user": user_email})
+            # Fallback lookup: by email field (for legacy records)
+            member_name = frappe.db.get_value("Member", {"email": user_email})
 
         return member_name
     except Exception as e:
@@ -93,8 +93,8 @@ def get_current_user_member_name() -> Optional[str]:
 
     Note:
         This function tries two lookup strategies:
-        1. By email field (primary)
-        2. By user field (fallback for older records)
+        1. By user field (primary - explicit User link)
+        2. By email field (fallback for legacy records)
 
     Error Handling:
         Returns None if no member found - caller should handle explicitly.
