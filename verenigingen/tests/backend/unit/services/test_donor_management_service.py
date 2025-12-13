@@ -24,7 +24,7 @@ class TestDonorManagementService(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
-        self.service = DonorManagementService
+        self.service = DonorManagementService()
         # Set user to Administrator for donor creation permissions
         frappe.set_user("Administrator")
 

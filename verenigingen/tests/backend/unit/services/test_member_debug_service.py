@@ -25,7 +25,7 @@ class TestMemberDebugService(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
-        self.service = MemberDebugService
+        self.service = MemberDebugService()
         # Set user to Administrator for debug operations
         frappe.set_user("Administrator")
 

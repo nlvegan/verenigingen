@@ -19,7 +19,7 @@ class TestChapterManagementService(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
-        self.service = ChapterManagementService
+        self.service = ChapterManagementService()
 
     def test_is_chapter_management_enabled_true(self):
         """Test that chapter management check returns True when enabled"""

@@ -24,7 +24,7 @@ class TestMemberIDService(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
-        self.service = MemberIDService
+        self.service = MemberIDService()
         # Set user to Administrator for member ID assignment permissions
         frappe.set_user("Administrator")
 

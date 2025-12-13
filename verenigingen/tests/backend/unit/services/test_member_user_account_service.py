@@ -24,7 +24,7 @@ class TestMemberUserAccountService(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
-        self.service = MemberUserAccountService
+        self.service = MemberUserAccountService()
         # Set user to Administrator for user creation permissions
         frappe.set_user("Administrator")
 
