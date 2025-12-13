@@ -2442,22 +2442,21 @@ class MollieDebugService(StatelessService):
 
         return result
 
-    def bulk_process_member_payments(
-        self, payment_ids: list, docstatus: int = 0, create_bank_transactions: bool = True
-    ):
+    def bulk_process_member_payments(self, payment_ids: list, docstatus: int = 0, payment_modes: dict = None):
         """
-        Bulk process selected payments with deadlock prevention through member grouping.
+        Bulk process selected payments with intelligent per-payment mode selection.
 
         Strategy:
         1. Group payments by member to avoid concurrent updates to same customer
         2. Process each member's payments sequentially
-        3. Remove explicit transaction management (let Frappe handle it)
+        3. Use payment_modes to determine per-payment processing (BT only vs BT+PE+reconcile)
         4. Add deadlock retry with exponential backoff
 
         Args:
             payment_ids: List of Mollie payment IDs to process
             docstatus: 0 for Draft, 1 for Submitted (default: 0)
-            create_bank_transactions: Whether to create Bank Transactions (default: True)
+            payment_modes: Dict mapping payment_id to {mode, matching_invoice}
+                          Modes: 'bt_pe_reconcile' or 'bt_only' (default)
 
         Returns:
             Dict with processing results
@@ -2466,8 +2465,16 @@ class MollieDebugService(StatelessService):
         import time
         from collections import defaultdict
 
+        # Default to empty dict if not provided
+        if payment_modes is None:
+            payment_modes = {}
+
         # Auto-batch large requests to prevent deadlocks and timeouts
         SAFE_BATCH_SIZE = 250  # Safe batch size to prevent MySQL deadlocks
+
+        # Count modes for stats
+        bt_pe_count = sum(1 for pm in payment_modes.values() if pm and pm.get("mode") == "bt_pe_reconcile")
+        bt_only_count = len(payment_ids) - bt_pe_count
 
         result = {
             "total_requested": len(payment_ids),
@@ -2477,7 +2484,9 @@ class MollieDebugService(StatelessService):
             "results": [],
             "timestamp": frappe.utils.now(),
             "docstatus": docstatus,
-            "create_bank_transactions": create_bank_transactions,
+            "intelligent_processing": True,
+            "bt_pe_reconcile_count": bt_pe_count,
+            "bt_only_count": bt_only_count,
             "batches_processed": 0,
             "total_batches": 0,
         }
@@ -2499,6 +2508,11 @@ class MollieDebugService(StatelessService):
                 end_idx = min(start_idx + SAFE_BATCH_SIZE, len(payment_ids))
                 batch_payment_ids = payment_ids[start_idx:end_idx]
 
+                # Extract payment_modes for this batch
+                batch_payment_modes = {
+                    pid: payment_modes.get(pid) for pid in batch_payment_ids if pid in payment_modes
+                }
+
                 self.logger.info(
                     f"Processing batch {batch_num + 1}/{total_batches}: "
                     f"payments {start_idx + 1}-{end_idx} of {len(payment_ids)}"
@@ -2506,7 +2520,7 @@ class MollieDebugService(StatelessService):
 
                 # Recursively call this function with smaller batch
                 batch_result = self.bulk_process_member_payments(
-                    batch_payment_ids, docstatus, create_bank_transactions
+                    batch_payment_ids, docstatus, batch_payment_modes
                 )
 
                 # Aggregate results
@@ -2571,16 +2585,27 @@ class MollieDebugService(StatelessService):
                     retry_count = 0
                     payment_result = None
 
+                    # Get per-payment processing mode
+                    payment_mode_info = payment_modes.get(payment_id, {})
+                    processing_mode = (
+                        payment_mode_info.get("mode", "bt_only") if payment_mode_info else "bt_only"
+                    )
+                    matching_invoice = (
+                        payment_mode_info.get("matching_invoice") if payment_mode_info else None
+                    )
+
                     while retry_count < max_retries:
                         try:
                             # Process payment (Frappe handles transactions automatically)
-                            if create_bank_transactions:
-                                # Strategy 1: Bank Transaction only
+                            if processing_mode == "bt_only":
+                                # Strategy 1: Bank Transaction only (no matching invoice)
                                 payment_result = dues_processor.process_dues_payment(
                                     payment_id, creation_mode="Bank Transaction"
                                 )
+                                if payment_result.get("status") == "success":
+                                    payment_result["processing_mode"] = "bt_only"
                             else:
-                                # Strategy 2: Both BT and PE
+                                # Strategy 2: BT + PE + Reconcile (matching invoice found)
                                 # IMPORTANT: PE creation is INSIDE the retry loop to handle deadlocks
                                 bt_result = dues_processor.process_dues_payment(
                                     payment_id, creation_mode="Bank Transaction"
@@ -2612,9 +2637,13 @@ class MollieDebugService(StatelessService):
                                             "payment_entry": pe_name,
                                             "payment_type": bt_result.get("payment_type"),
                                             "member": member_name,
+                                            "processing_mode": "bt_pe_reconcile",
+                                            "matching_invoice": matching_invoice,
                                         }
                                     else:
                                         payment_result = bt_result
+                                        payment_result["processing_mode"] = "bt_only"
+                                        payment_result["note"] = "No member found, fell back to BT only"
                                 else:
                                     payment_result = bt_result
 
@@ -2696,7 +2725,7 @@ class MollieDebugService(StatelessService):
         return result
 
     def process_payment_batch_background(
-        self, batch_num: int, payment_ids: list, docstatus: int, create_bank_transactions: bool, job_id: str
+        self, batch_num: int, payment_ids: list, docstatus: int, payment_modes: dict, job_id: str
     ):
         """
         Background job handler for processing a batch of payments.
@@ -2708,7 +2737,7 @@ class MollieDebugService(StatelessService):
             batch_num: Batch number (for logging/tracking)
             payment_ids: List of payment IDs for this batch
             docstatus: 0 for Draft, 1 for Submitted
-            create_bank_transactions: Whether to create Bank Transactions
+            payment_modes: Dict mapping payment_id to {mode, matching_invoice}
             job_id: Unique job identifier for tracking
 
         Returns:
@@ -2720,7 +2749,7 @@ class MollieDebugService(StatelessService):
 
         try:
             # Process the batch using existing method
-            result = self.bulk_process_member_payments(payment_ids, docstatus, create_bank_transactions)
+            result = self.bulk_process_member_payments(payment_ids, docstatus, payment_modes)
 
             # Add batch metadata
             result["batch_num"] = batch_num

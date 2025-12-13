@@ -8,7 +8,7 @@ Designed as a two-stage manual function with the aim to become a scheduled task.
 """
 
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import frappe
@@ -41,6 +41,15 @@ class BulkPaymentCheckerConfig:
     API_CALL_DELAY_MS = 600  # 600ms delay between Mollie API calls (matches Mollie's 100 req/min limit)
     MAX_REQUESTS_PER_MINUTE = 80  # Safety margin below Mollie's 100/min
 
+    # Invoice matching constants
+    # Allow payment matching within 3 months before/after coverage period
+    # Business rule: Members may pay early or late, we still want to match
+    INVOICE_MATCH_BUFFER_MONTHS = 3
+
+    # Amount matching tolerance in EUR (1 cent)
+    # Prevents floating-point comparison issues while ensuring exact matches
+    INVOICE_AMOUNT_TOLERANCE_EUR = 0.01
+
 
 class BulkPaymentChecker:
     """
@@ -54,6 +63,103 @@ class BulkPaymentChecker:
     def __init__(self):
         self.mollie_client = MollieClient()
         self.dues_processor = DuesPaymentProcessor()
+
+    def find_matching_unpaid_dues_invoice(
+        self,
+        member_name: str,
+        payment_amount: float,
+        payment_date: datetime,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Find a matching unpaid dues invoice for a member and payment.
+
+        Matching criteria:
+        1. is_membership_invoice = 1
+        2. Has coverage_start_date and coverage_end_date
+        3. Amount matches exactly
+        4. Invoice is unpaid (outstanding_amount > 0, docstatus = 1)
+        5. Payment date within coverage period OR within 3-month buffer
+
+        Priority:
+        1. Primary: Payment date falls within coverage period
+        2. Fallback: Payment date within 3-month buffer of coverage period
+
+        Args:
+            member_name: Member record name
+            payment_amount: Payment amount in EUR
+            payment_date: Payment date (datetime)
+
+        Returns:
+            Dict with invoice details if found, None otherwise
+        """
+        # Get member's customer
+        customer = frappe.db.get_value("Member", member_name, "customer")
+        if not customer:
+            return None
+
+        # Validate and convert payment_date to date
+        if isinstance(payment_date, datetime):
+            payment_date_only = payment_date.date()
+        elif isinstance(payment_date, date):
+            payment_date_only = payment_date
+        else:
+            raise ValueError(f"payment_date must be date or datetime, got {type(payment_date).__name__}")
+
+        # Query for matching unpaid dues invoices
+        # Uses CASE to prioritize invoices where payment falls within coverage period
+        #
+        # Field validation note: This query uses custom fields on Sales Invoice:
+        # - custom_coverage_start_date, custom_coverage_end_date: Created via fixtures (custom_field.json)
+        # - is_membership_invoice: Standard field from verenigingen customizations
+        # Constants: INVOICE_AMOUNT_TOLERANCE_EUR (0.01), INVOICE_MATCH_BUFFER_MONTHS (3)
+        amount_tolerance = BulkPaymentCheckerConfig.INVOICE_AMOUNT_TOLERANCE_EUR
+        buffer_months = BulkPaymentCheckerConfig.INVOICE_MATCH_BUFFER_MONTHS
+
+        invoices = frappe.db.sql(
+            f"""
+            SELECT
+                name,
+                grand_total,
+                outstanding_amount,
+                custom_coverage_start_date,
+                custom_coverage_end_date,
+                posting_date,
+                CASE
+                    WHEN %s BETWEEN custom_coverage_start_date AND custom_coverage_end_date
+                    THEN 0
+                    ELSE 1
+                END as match_priority
+            FROM `tabSales Invoice`
+            WHERE customer = %s
+              AND is_membership_invoice = 1
+              AND docstatus = 1
+              AND outstanding_amount > 0
+              AND ABS(grand_total - %s) < {amount_tolerance}
+              AND custom_coverage_start_date IS NOT NULL
+              AND custom_coverage_end_date IS NOT NULL
+              AND %s BETWEEN
+                  DATE_SUB(custom_coverage_start_date, INTERVAL {buffer_months} MONTH)
+                  AND DATE_ADD(custom_coverage_end_date, INTERVAL {buffer_months} MONTH)
+            ORDER BY match_priority ASC, custom_coverage_start_date DESC
+            LIMIT 1
+            """,
+            (payment_date_only, customer, payment_amount, payment_date_only),
+            as_dict=True,
+        )
+
+        if invoices:
+            invoice = invoices[0]
+            return {
+                "invoice_name": invoice.name,
+                "invoice_amount": float(invoice.grand_total),
+                "outstanding_amount": float(invoice.outstanding_amount),
+                "coverage_start": str(invoice.custom_coverage_start_date),
+                "coverage_end": str(invoice.custom_coverage_end_date),
+                "posting_date": str(invoice.posting_date),
+                "match_type": "within_coverage" if invoice.match_priority == 0 else "within_buffer",
+            }
+
+        return None
 
     def get_members_with_mollie_customers(
         self, limit: Optional[int] = None, offset: int = 0
@@ -285,6 +391,29 @@ class BulkPaymentChecker:
                         f"Member: {member_name}. Manual review may be needed."
                     )
 
+                # Check for matching unpaid dues invoice (for intelligent processing)
+                matching_invoice = None
+                if (
+                    payment.status == "paid"
+                    and payment_type == "dues"
+                    and not idempotency_check["already_processed"]
+                    and currency_warning is None
+                    and amount_value != "Unknown"
+                ):
+                    try:
+                        # Get payment date (prefer paid_at for accuracy)
+                        invoice_check_date = getattr(payment, "paid_at", None) or payment.created_at
+                        payment_amount_float = float(amount_value)
+                        matching_invoice = self.find_matching_unpaid_dues_invoice(
+                            member_name=member_name,
+                            payment_amount=payment_amount_float,
+                            payment_date=invoice_check_date,
+                        )
+                    except (ValueError, TypeError) as e:
+                        frappe.logger().warning(
+                            f"Could not check for matching invoice for payment {payment.id}: {e}"
+                        )
+
                 payment_info = {
                     "id": payment.id,
                     "status": payment.status,
@@ -310,6 +439,15 @@ class BulkPaymentChecker:
                         and not idempotency_check["already_processed"]
                         and currency_warning is None  # Don't auto-process non-EUR payments
                     ),
+                    # Intelligent processing: matching invoice info
+                    "matching_invoice": matching_invoice,
+                    "processing_mode": ("bt_pe_reconcile" if matching_invoice else "bt_only")
+                    if (
+                        payment.status == "paid"
+                        and payment_type == "dues"
+                        and not idempotency_check["already_processed"]
+                    )
+                    else None,
                 }
 
                 result["payments"].append(payment_info)
@@ -525,9 +663,9 @@ class BulkPaymentChecker:
                     # Circuit breaker: Stop after consecutive errors
                     if consecutive_errors >= BulkPaymentCheckerConfig.MAX_CONSECUTIVE_ERRORS:
                         result["circuit_breaker_triggered"] = True
-                        result["summary"] = (
-                            f"STOPPED: {BulkPaymentCheckerConfig.MAX_CONSECUTIVE_ERRORS} consecutive API errors"
-                        )
+                        result[
+                            "summary"
+                        ] = f"STOPPED: {BulkPaymentCheckerConfig.MAX_CONSECUTIVE_ERRORS} consecutive API errors"
                         frappe.logger().warning(
                             f"Circuit breaker triggered: {consecutive_errors} consecutive errors"
                         )
@@ -536,9 +674,9 @@ class BulkPaymentChecker:
                     # Circuit breaker: Stop if error budget exceeded
                     if result["errors"] > error_budget:
                         result["circuit_breaker_triggered"] = True
-                        result["summary"] = (
-                            f"STOPPED: Error rate exceeded {BulkPaymentCheckerConfig.ERROR_BUDGET_PERCENTAGE}% threshold"
-                        )
+                        result[
+                            "summary"
+                        ] = f"STOPPED: Error rate exceeded {BulkPaymentCheckerConfig.ERROR_BUDGET_PERCENTAGE}% threshold"
                         frappe.logger().warning(
                             f"Circuit breaker triggered: {result['errors']} total errors (budget: {error_budget})"
                         )

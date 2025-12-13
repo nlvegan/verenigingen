@@ -200,26 +200,58 @@ class Chapter(Document):
             self._emit_chapter_change_events(old_doc)
 
     def after_rename(self, old_name, new_name, merge=False):
-        """Handle department renaming when chapter is renamed"""
+        """Handle department renaming when chapter is renamed.
+
+        Note: Department names use the format "{department_name} - {company_abbr}"
+        so we must look up by department_name field, not by the primary key name.
+        """
         if merge:
             return  # Don't sync departments during merge operations
 
         try:
-            # Check if old department exists
-            if frappe.db.exists("Department", old_name):
-                # Rename the department to match new chapter name
-                frappe.rename_doc("Department", old_name, new_name, force=True)
-                frappe.logger().info(
-                    f"Renamed Department from {old_name} to {new_name} to match chapter rename"
+            # Get company to find the department (same pattern as DepartmentSyncService)
+            company = frappe.db.get_single_value("Verenigingen Settings", "company")
+            if not company:
+                company = frappe.db.get_single_value("Global Defaults", "default_company")
+
+            # Look up department by department_name field, not by name
+            # Department name format is "{department_name} - {company_abbr}"
+            old_dept_name = frappe.db.get_value(
+                "Department", {"department_name": old_name, "company": company}, "name"
+            )
+
+            if old_dept_name:
+                # Update the department_name field - ERPNext's before_rename hook
+                # will handle adding the company abbreviation to the new name
+                frappe.rename_doc("Department", old_dept_name, new_name, force=True)
+
+                # Get the new department name after rename (includes company abbr)
+                new_dept_name = frappe.db.get_value(
+                    "Department", {"department_name": new_name, "company": company}, "name"
                 )
 
-                # Update the chapter's department field link
-                frappe.db.set_value("Chapter", new_name, "department", new_name, update_modified=False)
+                frappe.logger().info(
+                    f"Renamed Department from {old_dept_name} to {new_dept_name} to match chapter rename"
+                )
+
+                # Update the chapter's department field link with actual department name
+                if new_dept_name:
+                    frappe.db.set_value(
+                        "Chapter", new_name, "department", new_dept_name, update_modified=False
+                    )
         except Exception as e:
-            # Don't block rename if department sync fails
+            # Don't block rename if department sync fails, but notify user
             frappe.log_error(
-                f"Failed to rename Department from {old_name} to {new_name}: {str(e)}",
+                f"Failed to rename Department for chapter {old_name} -> {new_name}: {str(e)}",
                 "Chapter Department Rename Error",
+            )
+            frappe.msgprint(
+                _(
+                    "Chapter renamed successfully, but the linked Department could not be updated. "
+                    "You may need to manually rename the Department in ERPNext."
+                ),
+                indicator="orange",
+                title=_("Department Sync Warning"),
             )
 
     # ========================================================================

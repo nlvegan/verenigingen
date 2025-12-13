@@ -820,14 +820,16 @@ def bulk_retrieve_all_member_payments(days_back=30, max_payments=5000, payment_s
 
 @frappe.whitelist(allow_guest=False, methods=["POST"])
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def bulk_process_member_payments(payment_ids, docstatus=0, create_bank_transactions=True):
+def bulk_process_member_payments(payment_ids, docstatus=0, payment_modes=None, create_bank_transactions=None):
     """
-    Bulk process selected payments to create Payment Entries and/or Bank Transactions.
+    Bulk process selected payments with intelligent per-payment mode selection.
 
     Args:
         payment_ids: JSON string or list of Mollie payment IDs
         docstatus: 0 for Draft, 1 for Submitted (default: 0)
-        create_bank_transactions: Whether to create Bank Transactions (default: True)
+        payment_modes: JSON string or dict mapping payment_id to {mode, matching_invoice}
+                      Modes: 'bt_pe_reconcile' (BT + PE + reconcile) or 'bt_only' (BT only)
+        create_bank_transactions: DEPRECATED - kept for backward compatibility, ignored if payment_modes provided
 
     Returns:
         Dict with processing results
@@ -851,6 +853,24 @@ def bulk_process_member_payments(payment_ids, docstatus=0, create_bank_transacti
         if not payment_ids or not isinstance(payment_ids, list):
             frappe.throw(_("Invalid payment_ids - must be a list"))
 
+        # Parse payment_modes if it's a JSON string
+        if isinstance(payment_modes, str):
+            import html
+
+            try:
+                payment_modes_decoded = html.unescape(payment_modes)
+                payment_modes = frappe.parse_json(payment_modes_decoded)
+            except (ValueError, TypeError) as e:
+                frappe.log_error(f"Could not parse payment_modes: {e}")
+                payment_modes = None
+
+        # Log deprecation warning if old parameter is used
+        if create_bank_transactions is not None:
+            frappe.logger().warning(
+                "DEPRECATION: create_bank_transactions parameter is deprecated. "
+                "Use payment_modes parameter instead. This parameter will be removed in a future version."
+            )
+
         # Validate payment ID format
         import re
 
@@ -860,10 +880,6 @@ def bulk_process_member_payments(payment_ids, docstatus=0, create_bank_transacti
                 frappe.throw(_("Payment ID must be a string: {0}").format(pid))
             if not mollie_payment_pattern.match(pid):
                 frappe.throw(_("Invalid Mollie payment ID format: {0}").format(pid))
-
-        # Convert string boolean from form data
-        if isinstance(create_bank_transactions, str):
-            create_bank_transactions = create_bank_transactions.lower() in ("true", "1", "yes")
 
         # Validate docstatus
         try:
@@ -895,6 +911,13 @@ def bulk_process_member_payments(payment_ids, docstatus=0, create_bank_transacti
                 end_idx = min((i + 1) * MAX_BATCH_SIZE, len(payment_ids))
                 batch_payment_ids = payment_ids[start_idx:end_idx]
 
+                # Extract payment_modes for this batch
+                batch_payment_modes = None
+                if payment_modes:
+                    batch_payment_modes = {
+                        pid: payment_modes.get(pid) for pid in batch_payment_ids if pid in payment_modes
+                    }
+
                 # Queue background job
                 # Note: job_id is a reserved parameter in frappe.enqueue, so we use tracking_id instead
                 job_name = frappe.enqueue(
@@ -904,7 +927,7 @@ def bulk_process_member_payments(payment_ids, docstatus=0, create_bank_transacti
                     batch_num=i + 1,
                     payment_ids=batch_payment_ids,
                     docstatus=docstatus,
-                    create_bank_transactions=create_bank_transactions,
+                    payment_modes=batch_payment_modes,
                     tracking_id=job_id,  # Use tracking_id instead of job_id
                 )
 
@@ -931,14 +954,14 @@ def bulk_process_member_payments(payment_ids, docstatus=0, create_bank_transacti
 
         # Small batch - process synchronously
         service = MollieDebugService()
-        return service.bulk_process_member_payments(payment_ids, docstatus, create_bank_transactions)
+        return service.bulk_process_member_payments(payment_ids, docstatus, payment_modes)
 
     except Exception as e:
         frappe.log_error(f"Bulk process member payments error: {str(e)}")
         return {"error": str(e), "payment_ids": payment_ids if isinstance(payment_ids, list) else []}
 
 
-def process_payment_batch_job(batch_num, payment_ids, docstatus, create_bank_transactions, tracking_id):
+def process_payment_batch_job(batch_num, payment_ids, docstatus, payment_modes, tracking_id):
     """
     Background job worker function for processing payment batches.
 
@@ -949,7 +972,7 @@ def process_payment_batch_job(batch_num, payment_ids, docstatus, create_bank_tra
         batch_num: Batch number for tracking
         payment_ids: List of payment IDs to process
         docstatus: 0 for Draft, 1 for Submitted
-        create_bank_transactions: Whether to create Bank Transactions
+        payment_modes: Dict mapping payment_id to {mode, matching_invoice}
         tracking_id: Unique job identifier (using tracking_id because job_id is reserved by frappe.enqueue)
 
     Returns:
@@ -960,7 +983,7 @@ def process_payment_batch_job(batch_num, payment_ids, docstatus, create_bank_tra
         batch_num=batch_num,
         payment_ids=payment_ids,
         docstatus=docstatus,
-        create_bank_transactions=create_bank_transactions,
+        payment_modes=payment_modes,
         job_id=tracking_id,  # Pass as job_id to the service method
     )
 

@@ -810,13 +810,161 @@ def calculate_catchup_requirements(member_name, gaps):
     }
 
 
+def get_book_year_boundaries():
+    """
+    Get book year start and end month/day from Verenigingen Settings.
+
+    Returns:
+        tuple: (start_month, start_day, end_month, end_day)
+    """
+    settings = frappe.get_single("Verenigingen Settings")
+    # ast-skip: Fields verified in verenigingen_settings.json (book_year_start_month, etc.)
+    start_month = cint(getattr(settings, "book_year_start_month", 1)) or 1
+    start_day = cint(getattr(settings, "book_year_start_day", 1)) or 1
+    end_month = cint(getattr(settings, "book_year_end_month", 12)) or 12
+    end_day = cint(getattr(settings, "book_year_end_day", 31)) or 31
+
+    return (start_month, start_day, end_month, end_day)
+
+
+def get_book_year_for_date(ref_date, start_month, start_day):
+    """
+    Determine which book year a date belongs to.
+
+    For a calendar year book year (Jan 1 - Dec 31), the book year equals the calendar year.
+    For a non-calendar book year (e.g., Apr 1 - Mar 31), dates before the start
+    belong to the previous book year.
+
+    Args:
+        ref_date: The date to check
+        start_month: Book year start month (1-12)
+        start_day: Book year start day (1-31)
+
+    Returns:
+        int: The book year (year number when the book year started)
+    """
+    ref_date = getdate(ref_date)
+
+    # Create the book year start date for the current calendar year
+    try:
+        book_year_start_this_year = ref_date.replace(month=start_month, day=start_day)
+    except ValueError:
+        # Handle edge cases like Feb 30
+        import calendar
+
+        max_day = calendar.monthrange(ref_date.year, start_month)[1]
+        book_year_start_this_year = ref_date.replace(month=start_month, day=min(start_day, max_day))
+
+    # If ref_date is before the book year start in this calendar year,
+    # it belongs to the previous book year
+    if ref_date < book_year_start_this_year:
+        return ref_date.year - 1
+    else:
+        return ref_date.year
+
+
+def get_book_year_end_date(book_year, end_month, end_day):
+    """
+    Get the end date for a specific book year.
+
+    Args:
+        book_year: The book year (year when book year started)
+        end_month: Book year end month (1-12)
+        end_day: Book year end day (1-31)
+
+    Returns:
+        date: The end date of the book year
+    """
+    import calendar
+    from datetime import date as date_type
+
+    # For calendar year (end in Dec), end is same year
+    # For non-calendar (e.g., end in Mar), end is next year
+    if end_month >= 1 and end_month <= 12:
+        # Determine if end month is in same calendar year or next
+        # If book year starts in Jan and ends in Dec -> same year
+        # If book year starts in Apr and ends in Mar -> next year
+        start_month, start_day, _, _ = get_book_year_boundaries()
+
+        if end_month < start_month:
+            # End is in next calendar year (e.g., Apr start, Mar end)
+            end_year = book_year + 1
+        else:
+            # End is in same calendar year
+            end_year = book_year
+
+        # Handle day overflow
+        max_day = calendar.monthrange(end_year, end_month)[1]
+        actual_end_day = min(end_day, max_day)
+
+        return date_type(end_year, end_month, actual_end_day)
+
+    # Fallback to Dec 31
+    return date_type(book_year, 12, 31)
+
+
+def split_gap_by_book_year(gap_start, gap_end):
+    """
+    Split a coverage gap into segments by book year boundaries.
+
+    Args:
+        gap_start: Start date of the gap
+        gap_end: End date of the gap
+
+    Returns:
+        list: List of (segment_start, segment_end, book_year) tuples
+    """
+    gap_start = getdate(gap_start)
+    gap_end = getdate(gap_end)
+
+    start_month, start_day, end_month, end_day = get_book_year_boundaries()
+
+    segments = []
+    current_start = gap_start
+
+    while current_start <= gap_end:
+        # Determine which book year current_start belongs to
+        book_year = get_book_year_for_date(current_start, start_month, start_day)
+
+        # Get the end date of this book year
+        book_year_end = get_book_year_end_date(book_year, end_month, end_day)
+
+        # The segment ends at either the book year end or the gap end, whichever is earlier
+        segment_end = min(book_year_end, gap_end)
+
+        segments.append((current_start, segment_end, book_year))
+
+        # Move to the next day after this segment
+        current_start = add_days(segment_end, 1)
+
+    return segments
+
+
 def calculate_billing_periods_for_gap(gap_start, gap_end, billing_frequency, dues_rate):
-    """Calculate billing periods needed to fill a specific gap"""
+    """Calculate billing periods needed to fill a specific gap, split by book year first"""
 
     periods = []
-    current_date = gap_start
 
-    while current_date <= gap_end:
+    # First, split the gap by book year boundaries
+    book_year_segments = split_gap_by_book_year(gap_start, gap_end)
+
+    for segment_start, segment_end, book_year in book_year_segments:
+        # Now apply billing frequency logic within each book year segment
+        segment_periods = _calculate_periods_within_segment(
+            segment_start, segment_end, billing_frequency, dues_rate, book_year
+        )
+        periods.extend(segment_periods)
+
+    return periods
+
+
+def _calculate_periods_within_segment(segment_start, segment_end, billing_frequency, dues_rate, book_year):
+    """Calculate billing periods within a single book year segment"""
+
+    periods = []
+    current_date = segment_start
+
+    while current_date <= segment_end:
         if billing_frequency == "Monthly":
             # Monthly billing - bill by calendar month
             period_start = current_date.replace(day=1)
@@ -827,9 +975,9 @@ def calculate_billing_periods_for_gap(gap_start, gap_end, billing_frequency, due
             else:
                 period_end = period_start.replace(month=period_start.month + 1, day=1) - timedelta(days=1)
 
-            # Clip to gap boundaries
-            period_start = max(period_start, gap_start)
-            period_end = min(period_end, gap_end)
+            # Clip to segment boundaries
+            period_start = max(period_start, segment_start)
+            period_end = min(period_end, segment_end)
 
             periods.append(
                 {
@@ -837,6 +985,7 @@ def calculate_billing_periods_for_gap(gap_start, gap_end, billing_frequency, due
                     "end": period_end,
                     "amount": dues_rate,
                     "billing_frequency": billing_frequency,
+                    "book_year": book_year,
                 }
             )
 
@@ -855,9 +1004,9 @@ def calculate_billing_periods_for_gap(gap_start, gap_end, billing_frequency, due
             else:
                 period_end = period_start.replace(month=quarter_start_month + 3, day=1) - timedelta(days=1)
 
-            # Clip to gap boundaries
-            period_start = max(period_start, gap_start)
-            period_end = min(period_end, gap_end)
+            # Clip to segment boundaries
+            period_start = max(period_start, segment_start)
+            period_end = min(period_end, segment_end)
 
             periods.append(
                 {
@@ -865,39 +1014,35 @@ def calculate_billing_periods_for_gap(gap_start, gap_end, billing_frequency, due
                     "end": period_end,
                     "amount": dues_rate,
                     "billing_frequency": billing_frequency,
+                    "book_year": book_year,
                 }
             )
 
             current_date = period_end + timedelta(days=1)
 
         elif billing_frequency == "Annual":
-            # Annual billing - calendar year
-            period_start = current_date.replace(month=1, day=1)
-            period_end = current_date.replace(month=12, day=31)
-
-            # Clip to gap boundaries
-            period_start = max(period_start, gap_start)
-            period_end = min(period_end, gap_end)
-
+            # Annual billing - use the segment as is (already split by book year)
+            # The segment IS the book year portion, so just use segment boundaries
             periods.append(
                 {
-                    "start": period_start,
-                    "end": period_end,
+                    "start": segment_start,
+                    "end": segment_end,
                     "amount": dues_rate,
                     "billing_frequency": billing_frequency,
+                    "book_year": book_year,
                 }
             )
-
-            current_date = period_end + timedelta(days=1)
+            break  # Only one period per segment for annual billing
 
         else:
-            # Custom or daily billing - treat as single period
+            # Custom or daily billing - treat segment as single period
             periods.append(
                 {
-                    "start": gap_start,
-                    "end": gap_end,
+                    "start": segment_start,
+                    "end": segment_end,
                     "amount": dues_rate,
                     "billing_frequency": billing_frequency,
+                    "book_year": book_year,
                 }
             )
             break

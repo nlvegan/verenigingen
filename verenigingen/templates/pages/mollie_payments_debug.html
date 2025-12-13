@@ -1283,10 +1283,10 @@
 
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                             <div>
-                                <label class="block text-sm font-medium mb-1">{{ _("Days Back") }}</label>
-                                <input type="number" id="bulk-days-back" class="w-full px-3 py-2 border-2 border-black rounded-md bg-white"
-                                       value="30" min="1" max="{{ mollie_settings.payment_retrieval_days_back_limit or 1825 }}">
-                                <p class="brutal-help">{{ _("Max: {0} days (configurable in Mollie Settings)").format(mollie_settings.payment_retrieval_days_back_limit or 1825) }}</p>
+                                <label class="block text-sm font-medium mb-1">{{ _("From Date") }}</label>
+                                <input type="date" id="bulk-from-date" class="w-full px-3 py-2 border-2 border-black rounded-md bg-white"
+                                       data-max-days="{{ mollie_settings.payment_retrieval_days_back_limit or 1825 }}">
+                                <p class="brutal-help">{{ _("Max: {0} days back (configurable in Mollie Settings)").format(mollie_settings.payment_retrieval_days_back_limit or 1825) }}</p>
                             </div>
                             <div>
                                 <label class="block text-sm font-medium mb-1">{{ _("Max Payments") }}</label>
@@ -1324,23 +1324,20 @@
                             </div>
                         </div>
 
-                        <!-- Processing Options -->
-                        <div class="mb-4 p-3 bg-amber-400 border-2 border-black rounded-lg">
-                            <h5 class="font-semibold text-black mb-2">{{ _("Processing Options") }}</h5>
-                            <div class="grid grid-cols-1 gap-4">
-                                <div>
-                                    <div class="flex items-center">
-                                        <input type="checkbox" id="bulk-create-bank-transactions" class="mr-2" checked>
-                                        <label for="bulk-create-bank-transactions" class="text-sm font-medium text-black">
-                                            {{ _("Bank Transaction Only") }}
-                                        </label>
-                                    </div>
-                                    <p class="text-xs text-gray-900 mt-1 ml-6">
-                                        {{ _("Unchecked: Creates both Bank Transaction + Payment Entry (complete audit trail)") }}<br>
-                                        {{ _("Checked: Creates only Bank Transaction (for manual reconciliation later)") }}
-                                    </p>
-                                </div>
-                            </div>
+                        <!-- Intelligent Processing Info -->
+                        <div class="mb-4 p-3 bg-blue-100 border-2 border-black rounded-lg">
+                            <h5 class="font-semibold text-black mb-2"><i class="fa fa-magic mr-2"></i>{{ _("Intelligent Processing") }}</h5>
+                            <p class="text-xs text-gray-900">
+                                {{ _("Processing mode is determined automatically per payment:") }}<br>
+                                <span class="inline-block mt-1">
+                                    <span class="px-2 py-0.5 bg-green-600 text-white text-xs font-bold border border-black rounded">BT+PE</span>
+                                    {{ _("Matching unpaid dues invoice found → Bank Transaction + Payment Entry + Reconcile") }}
+                                </span><br>
+                                <span class="inline-block mt-1">
+                                    <span class="px-2 py-0.5 bg-amber-400 text-black text-xs font-bold border border-black rounded">BT Only</span>
+                                    {{ _("No matching invoice → Bank Transaction only (manual reconciliation)") }}
+                                </span>
+                            </p>
                         </div>
 
                         <!-- Quick Selection Buttons -->
@@ -1369,6 +1366,7 @@
                                         <th class="px-2 py-2 text-left border-b-2 border-black">{{ _("Status") }}</th>
                                         <th class="px-2 py-2 text-left border-b-2 border-black">{{ _("Amount") }}</th>
                                         <th class="px-2 py-2 text-left border-b-2 border-black">{{ _("Date") }}</th>
+                                        <th class="px-2 py-2 text-left border-b-2 border-black">{{ _("Mode") }}</th>
                                         <th class="px-2 py-2 text-left border-b-2 border-black">{{ _("Processed?") }}</th>
                                     </tr>
                                 </thead>
@@ -3986,18 +3984,43 @@ function formatSearchResults(data) {
 let bulkPaymentsData = null;
 
 function bulkRetrieveAllMemberPayments() {
-    const daysBack = document.getElementById('bulk-days-back').value;
+    const fromDateInput = document.getElementById('bulk-from-date');
+    const fromDate = fromDateInput.value;
     const maxPayments = document.getElementById('bulk-max-payments').value;
     const paymentStatus = document.getElementById('bulk-payment-status').value;
 
+    if (!fromDate) {
+        alert('Please select a From Date');
+        return;
+    }
+
+    // Calculate days back from the selected date
+    const selectedDate = new Date(fromDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diffTime = today - selectedDate;
+    const daysBack = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    // Validate against max days limit
+    const maxDays = parseInt(fromDateInput.dataset.maxDays) || 1825;
+    if (daysBack > maxDays) {
+        alert(`Selected date is ${daysBack} days ago, which exceeds the maximum of ${maxDays} days.`);
+        return;
+    }
+
+    if (daysBack < 1) {
+        alert('Please select a date in the past');
+        return;
+    }
+
     const estimatedApiCalls = Math.ceil(maxPayments / 250);
-    if (!confirm(`This will retrieve payments for ALL active members with Mollie IDs using the global payments endpoint.\n\nDays back: ${daysBack}\nMax payments: ${maxPayments}\nStatus: ${paymentStatus}\nEstimated API calls: ~${estimatedApiCalls}\n\nContinue?`)) {
+    if (!confirm(`This will retrieve payments for ALL active members with Mollie IDs using the global payments endpoint.\n\nFrom date: ${fromDate} (${daysBack} days ago)\nMax payments: ${maxPayments}\nStatus: ${paymentStatus}\nEstimated API calls: ~${estimatedApiCalls}\n\nContinue?`)) {
         return;
     }
 
     // Show loading in results area
     document.getElementById('bulk-payments-list').style.display = 'block';
-    document.getElementById('bulk-payments-table-body').innerHTML = '<tr><td colspan="7" class="text-center py-4"><i class="fa fa-spinner fa-spin mr-2"></i>Fetching payments via BulkPaymentChecker (with deduplication)...</td></tr>';
+    document.getElementById('bulk-payments-table-body').innerHTML = '<tr><td colspan="8" class="text-center py-4"><i class="fa fa-spinner fa-spin mr-2"></i>Fetching payments via BulkPaymentChecker (with deduplication)...</td></tr>';
 
     const formData = new FormData();
     formData.append('days_back', daysBack);
@@ -4089,7 +4112,7 @@ function displayBulkPaymentsResults(data) {
         } else if (totalFound === 0) {
             emptyMessage = 'No payments found from Mollie API for the selected date range.';
         }
-        tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-gray-600">${emptyMessage}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-gray-600">${emptyMessage}</td></tr>`;
         return;
     }
 
@@ -4110,8 +4133,13 @@ function displayBulkPaymentsResults(data) {
             // BulkPaymentChecker uses 'id', old service used 'payment_id'
             const paymentId = payment.id || payment.payment_id;
 
+            // Get processing mode from payment data
+            const processingMode = payment.processing_mode || null;
+            const matchingInvoice = payment.matching_invoice || null;
+
+            // Store mode and invoice info as data attributes on checkbox
             const checkbox = !isProcessed ?
-                `<input type="checkbox" class="bulk-payment-checkbox" data-payment-id="${paymentId}" onchange="bulkUpdateSelectedCount()">` :
+                `<input type="checkbox" class="bulk-payment-checkbox" data-payment-id="${paymentId}" data-processing-mode="${processingMode || ''}" data-matching-invoice="${matchingInvoice ? matchingInvoice.invoice_name : ''}" onchange="bulkUpdateSelectedCount()">` :
                 `<span class="text-black">—</span>`;
 
             const memberDisplay = index === 0 ?
@@ -4121,6 +4149,17 @@ function displayBulkPaymentsResults(data) {
             const processedBadge = isProcessed ?
                 '<span class="px-2 py-1 bg-green-600 text-white text-xs font-bold border-2 border-black rounded">✓ Processed</span>' :
                 '<span class="px-2 py-1 bg-amber-400 text-black text-xs font-bold border-2 border-black rounded">Unprocessed</span>';
+
+            // Processing mode badge (only for unprocessed, processable payments)
+            let modeBadge = '<span class="text-gray-400">—</span>';
+            if (!isProcessed && processingMode) {
+                if (processingMode === 'bt_pe_reconcile') {
+                    const invoiceName = matchingInvoice ? matchingInvoice.invoice_name : '';
+                    modeBadge = `<span class="px-2 py-0.5 bg-green-600 text-white text-xs font-bold border border-black rounded cursor-help" title="Will reconcile with ${invoiceName}">BT+PE</span>`;
+                } else {
+                    modeBadge = '<span class="px-2 py-0.5 bg-amber-400 text-black text-xs font-bold border border-black rounded cursor-help" title="No matching invoice found">BT Only</span>';
+                }
+            }
 
             // BulkPaymentChecker uses 'amount_display', old service used 'amount'
             const amountDisplay = payment.amount_display || payment.amount;
@@ -4132,6 +4171,7 @@ function displayBulkPaymentsResults(data) {
                 <td class="px-2 py-2"><span class="px-2 py-1 bg-blue-600 text-white text-xs font-bold border-2 border-black rounded">${payment.status}</span></td>
                 <td class="px-2 py-2 font-mono">${amountDisplay}</td>
                 <td class="px-2 py-2 text-xs">${payment.created_at ? new Date(payment.created_at).toLocaleDateString() : 'N/A'}</td>
+                <td class="px-2 py-2">${modeBadge}</td>
                 <td class="px-2 py-2">${processedBadge}</td>
             `;
 
@@ -4210,20 +4250,46 @@ function bulkProcessSelectedPayments() {
         return;
     }
 
-    const paymentIds = Array.from(checkboxes).map(cb => cb.dataset.paymentId);
-    const docstatus = '1';  // Always submit documents
-    const createBankTransactions = document.getElementById('bulk-create-bank-transactions').checked;
+    // Collect payment IDs and their processing modes
+    const paymentIds = [];
+    const paymentModes = {};  // {payment_id: {mode: 'bt_pe_reconcile'|'bt_only', matching_invoice: 'INV-xxx'|null}}
+    let btPeCount = 0;
+    let btOnlyCount = 0;
 
-    // Warn about timeout risk when creating both BT+PE with large batches
-    if (!createBankTransactions && paymentIds.length > 250) {
-        alert(`⚠️ Large Batch Warning\n\nYou're processing ${paymentIds.length} payments with Bank Transaction + Payment Entry creation.\n\nThis may take several minutes and could timeout.\n\nRecommendation: Use "Bank Transaction Only" mode for batches over 250 payments.`);
+    Array.from(checkboxes).forEach(cb => {
+        const paymentId = cb.dataset.paymentId;
+        const mode = cb.dataset.processingMode || 'bt_only';
+        const matchingInvoice = cb.dataset.matchingInvoice || null;
+
+        paymentIds.push(paymentId);
+        paymentModes[paymentId] = {
+            mode: mode,
+            matching_invoice: matchingInvoice
+        };
+
+        if (mode === 'bt_pe_reconcile') {
+            btPeCount++;
+        } else {
+            btOnlyCount++;
+        }
+    });
+
+    const docstatus = '1';  // Always submit documents
+
+    // Warn about timeout risk when creating many BT+PE
+    if (btPeCount > 250) {
+        alert(`⚠️ Large Batch Warning\n\nYou're processing ${btPeCount} payments that will create Bank Transaction + Payment Entry.\n\nThis may take several minutes and could timeout.\n\nConsider processing in smaller batches.`);
     }
 
-    const modeText = createBankTransactions ? 'Bank Transaction Only' : 'Bank Transaction + Payment Entry';
-    const modeDescription = createBankTransactions
-        ? 'Creates only Bank Transactions (for manual reconciliation later)'
-        : 'Creates both Bank Transactions and Payment Entries (complete audit trail)';
-    const message = `Process ${paymentIds.length} payment(s)?\n\nCreation Mode: ${modeText}\n\n${modeDescription}\n\nDocuments will be auto-submitted.\n\nContinue?`;
+    // Build confirmation message with mode breakdown
+    let modeBreakdown = `Intelligent Processing:\n`;
+    if (btPeCount > 0) {
+        modeBreakdown += `• ${btPeCount} payment(s) → BT + PE + Reconcile (matching invoice found)\n`;
+    }
+    if (btOnlyCount > 0) {
+        modeBreakdown += `• ${btOnlyCount} payment(s) → BT Only (no matching invoice)\n`;
+    }
+    const message = `Process ${paymentIds.length} payment(s)?\n\n${modeBreakdown}\nDocuments will be auto-submitted.\n\nContinue?`;
 
     if (!confirm(message)) {
         return;
@@ -4236,7 +4302,7 @@ function bulkProcessSelectedPayments() {
     const formData = new FormData();
     formData.append('payment_ids', JSON.stringify(paymentIds));
     formData.append('docstatus', docstatus);
-    formData.append('create_bank_transactions', createBankTransactions ? 'true' : 'false');
+    formData.append('payment_modes', JSON.stringify(paymentModes));  // New: per-payment mode info
 
     fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.bulk_process_member_payments', {
         method: 'POST',
@@ -4285,8 +4351,7 @@ function bulkProcessSelectedPayments() {
             errorText += '\n\n⚠️ This is likely a timeout issue.\n\n';
             errorText += 'The processing may still be running in the background.\n';
             errorText += 'Check the Error Log in Frappe or wait a few minutes and refresh to see if documents were created.\n\n';
-            errorText += 'For large batches with PE creation, consider:\n';
-            errorText += '• Using "Bank Transaction Only" mode\n';
+            errorText += 'For large batches, consider:\n';
             errorText += '• Processing in smaller batches (< 250 payments)\n';
             errorText += '• Using the single-member processor for individual members';
         } else {
@@ -4380,5 +4445,15 @@ function displayBulkProcessingResults(data) {
         }, 1000);
     }
 }
+
+// Initialize default date for bulk payment processor (30 days ago)
+document.addEventListener('DOMContentLoaded', function() {
+    const bulkFromDate = document.getElementById('bulk-from-date');
+    if (bulkFromDate && !bulkFromDate.value) {
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        bulkFromDate.value = thirtyDaysAgo.toISOString().split('T')[0];
+    }
+});
 </script>
 {% endblock %}
