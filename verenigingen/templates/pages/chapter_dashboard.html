@@ -348,6 +348,13 @@
                                     <span class="text-gray-600">Chapter Portion:</span>
                                     <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.dues_income.ytd_chapter) if dashboard_data.financial_summary.dues_income else "0.00" }}</strong>
                                 </li>
+                                <li class="flex justify-between text-sm pt-3 border-t border-gray-300">
+                                    <span class="text-gray-600">Unpaid dues invoices:</span>
+                                    <strong class="{% if dashboard_data.dues_payment_status.unpaid > 0 %}text-yellow-600{% else %}text-gray-900{% endif %}">
+                                        {{ dashboard_data.dues_payment_status.unpaid if dashboard_data.dues_payment_status else 0 }}
+                                        (€{{ "%.2f"|format(dashboard_data.dues_payment_status.unpaid_amount) if dashboard_data.dues_payment_status else "0.00" }})
+                                    </strong>
+                                </li>
                             </ul>
                         </div>
                     </div>

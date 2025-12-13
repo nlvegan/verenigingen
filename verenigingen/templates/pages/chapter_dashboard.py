@@ -753,9 +753,13 @@ def get_dues_payment_status(chapter_name: str) -> Dict[str, Any]:
 
         today = getdate()
 
+        # Get company from Verenigingen Settings for consistent filtering
+        company = frappe.db.get_single_value("Verenigingen Settings", "company")
+
         # Get all chapter members with their payment status, membership, and dues schedule info
         # Note: Sales Invoices link via 'member' field (custom field on Sales Invoice)
         # We use custom_coverage_end_date IS NOT NULL as indicator for membership invoices
+        # Company filter ensures we only count invoices from the configured company
         result = frappe.db.sql(
             """
             SELECT
@@ -781,12 +785,13 @@ def get_dues_payment_status(chapter_name: str) -> Dict[str, Any]:
             FROM `tabChapter Member` cm
             INNER JOIN `tabMember` m ON m.name = cm.member
             LEFT JOIN `tabSales Invoice` si ON si.member = cm.member AND si.docstatus = 1
+                AND (%(company)s IS NULL OR si.company = %(company)s)
             LEFT JOIN `tabMembership` mem ON mem.member = cm.member
             LEFT JOIN `tabMembership Dues Schedule` mds ON mds.member = cm.member
             WHERE cm.parent = %(chapter)s AND cm.enabled = 1
             GROUP BY cm.member, m.full_name, m.status
         """,
-            {"chapter": chapter_name},
+            {"chapter": chapter_name, "company": company},
             as_dict=True,
         )
 

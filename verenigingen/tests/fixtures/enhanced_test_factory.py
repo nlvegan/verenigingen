@@ -1654,6 +1654,14 @@ class EnhancedTestCase(FrappeTestCase):
         except Exception as e:
             frappe.logger().warning(f"Rollback failed in tearDown: {e}")
 
+        # SETTINGS RESTORATION: Restore Verenigingen Settings to original values
+        # This undoes changes made by _ensure_verenigingen_settings() which commits
+        # and therefore survives the rollback above
+        try:
+            self.factory._restore_verenigingen_settings()
+        except Exception as e:
+            frappe.logger().warning(f"Settings restoration failed in tearDown: {e}")
+
         super().tearDown()
 
     def _cleanup_document_with_retry(self, doc_info, max_retries=3, retry_delay=0.5, is_team_role=False, use_secure_operations=False):
@@ -3625,7 +3633,18 @@ class EnhancedTestCase(FrappeTestCase):
         This prevents company/account mismatch errors in invoice generation tests
         by ensuring the dues_income_account and cost center belong to the same
         company used for test members and invoices.
+
+        Note: Original settings are saved and should be restored after tests
+        via _restore_verenigingen_settings() in tearDown.
         """
+        # Save original settings for restoration after tests
+        # Store on frappe.local to survive across test methods in same class
+        if not hasattr(frappe.local, '_original_verenigingen_settings'):
+            frappe.local._original_verenigingen_settings = {
+                'company': frappe.db.get_value("Verenigingen Settings", None, "company"),
+                'dues_income_account': frappe.db.get_value("Verenigingen Settings", None, "dues_income_account"),
+            }
+
         # Get or create income account for test company
         income_account = self._get_or_create_income_account(test_company)
 
@@ -3660,6 +3679,29 @@ class EnhancedTestCase(FrappeTestCase):
             )
 
         frappe.db.commit()
+
+    def _restore_verenigingen_settings(self):
+        """
+        Restore original Verenigingen Settings after tests.
+
+        Called from tearDown to ensure production settings are not permanently
+        modified by test runs.
+        """
+        if hasattr(frappe.local, '_original_verenigingen_settings'):
+            original = frappe.local._original_verenigingen_settings
+            if original.get('company'):
+                frappe.db.set_value(
+                    "Verenigingen Settings", None, "company",
+                    original['company'], update_modified=False
+                )
+            if original.get('dues_income_account'):
+                frappe.db.set_value(
+                    "Verenigingen Settings", None, "dues_income_account",
+                    original['dues_income_account'], update_modified=False
+                )
+            frappe.db.commit()
+            # Clear the stored original to prevent double-restore
+            delattr(frappe.local, '_original_verenigingen_settings')
 
     def _get_or_create_cost_center(self, company):
         """Get or create a Main cost center for testing"""
