@@ -881,6 +881,9 @@ def get_dues_payment_status(chapter_name: str) -> Dict[str, Any]:
                 "overdue_90_plus_days": overdue_90_plus_days,
             },
             "total_overdue_amount": total_overdue_amount,
+            # Combined totals for display (includes both unpaid and overdue)
+            "all_outstanding": unpaid + overdue,
+            "all_outstanding_amount": total_unpaid_amount + total_overdue_amount,
         }
     except Exception as e:
         frappe.log_error(f"Error calculating dues payment status for {chapter_name}: {str(e)}")
@@ -901,6 +904,8 @@ def get_dues_payment_status(chapter_name: str) -> Dict[str, Any]:
                 "overdue_90_plus_days": 0,
             },
             "total_overdue_amount": 0,
+            "all_outstanding": 0,
+            "all_outstanding_amount": 0,
         }
 
 
