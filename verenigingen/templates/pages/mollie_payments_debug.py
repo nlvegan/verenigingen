@@ -174,9 +174,12 @@ def create_mandate(
             mandate_reference=mandate_reference,
         )
 
+    except ValueError as validation_error:
+        # Validation errors have user-friendly messages, pass them through
+        frappe.throw(str(validation_error))
     except Exception as e:
         frappe.log_error(f"Create mandate error: {str(e)}")
-        frappe.throw(_(f"Failed to create mandate: {str(e)}"))
+        frappe.throw(_("Failed to create mandate. Please contact support."))
 
 
 def has_customer_deletion_access():

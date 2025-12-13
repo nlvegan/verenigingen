@@ -41,18 +41,22 @@ def get_columns(filters: Optional[Dict]) -> List[Dict]:
             "options": "Chapter",
             "width": 180,
         },
-        {"fieldname": "total_invoices", "label": _("Invoice Count"), "fieldtype": "Int", "width": 100},
-        {"fieldname": "total_amount", "label": _("Total Dues"), "fieldtype": "Currency", "width": 130},
-        {"fieldname": "chapter_percentage", "label": _("Chapter %"), "fieldtype": "Percent", "width": 100},
-        {"fieldname": "chapter_amount", "label": _("Chapter Amount"), "fieldtype": "Currency", "width": 140},
-        {"fieldname": "national_percentage", "label": _("National %"), "fieldtype": "Percent", "width": 100},
+        {"fieldname": "total_invoices", "label": _("Invoice Count"), "fieldtype": "Int", "width": 90},
+        {"fieldname": "total_amount", "label": _("Total Dues"), "fieldtype": "Currency", "width": 120},
+        {"fieldname": "paid_count", "label": _("Paid Count"), "fieldtype": "Int", "width": 80},
+        {"fieldname": "paid_amount", "label": _("Paid Amount"), "fieldtype": "Currency", "width": 110},
+        {"fieldname": "unpaid_count", "label": _("Unpaid Count"), "fieldtype": "Int", "width": 90},
+        {"fieldname": "unpaid_amount", "label": _("Unpaid Amount"), "fieldtype": "Currency", "width": 115},
+        {"fieldname": "chapter_percentage", "label": _("Chapter %"), "fieldtype": "Percent", "width": 85},
+        {"fieldname": "chapter_amount", "label": _("Chapter Amount"), "fieldtype": "Currency", "width": 120},
+        {"fieldname": "national_percentage", "label": _("National %"), "fieldtype": "Percent", "width": 85},
         {
             "fieldname": "national_amount",
             "label": _("National Amount"),
             "fieldtype": "Currency",
-            "width": 140,
+            "width": 120,
         },
-        {"fieldname": "uses_custom_split", "label": _("Custom Split"), "fieldtype": "Check", "width": 100},
+        {"fieldname": "uses_custom_split", "label": _("Custom Split"), "fieldtype": "Check", "width": 90},
     ]
 
 
@@ -90,12 +94,17 @@ def get_data(filters: Optional[Dict]) -> List[Dict]:
 
     where_clause = " AND ".join(conditions)
 
-    # Query aggregated data by chapter
+    # Query aggregated data by chapter with paid/unpaid breakdown
+    # An invoice is considered "paid" if outstanding_amount = 0
     query = f"""
         SELECT
             si.custom_member_chapter as chapter,
             COUNT(si.name) as total_invoices,
-            SUM(si.grand_total) as total_amount
+            SUM(si.grand_total) as total_amount,
+            SUM(CASE WHEN IFNULL(si.outstanding_amount, 0) = 0 THEN 1 ELSE 0 END) as paid_count,
+            SUM(CASE WHEN IFNULL(si.outstanding_amount, 0) = 0 THEN si.grand_total ELSE 0 END) as paid_amount,
+            SUM(CASE WHEN IFNULL(si.outstanding_amount, 0) > 0 THEN 1 ELSE 0 END) as unpaid_count,
+            SUM(CASE WHEN IFNULL(si.outstanding_amount, 0) > 0 THEN si.grand_total ELSE 0 END) as unpaid_amount
         FROM `tabSales Invoice` si
         WHERE {where_clause}
         GROUP BY si.custom_member_chapter
@@ -136,6 +145,10 @@ def get_data(filters: Optional[Dict]) -> List[Dict]:
             {
                 "chapter": chapter_name,
                 "total_invoices": row["total_invoices"],
+                "paid_count": row["paid_count"] or 0,
+                "paid_amount": flt(row["paid_amount"]),
+                "unpaid_count": row["unpaid_count"] or 0,
+                "unpaid_amount": flt(row["unpaid_amount"]),
                 **allocation.to_dict(),
                 "uses_custom_split": 1 if has_custom_split else 0,
             }

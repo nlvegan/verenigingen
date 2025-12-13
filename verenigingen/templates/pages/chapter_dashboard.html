@@ -414,7 +414,11 @@
                         {% if dashboard_data.dues_payment_status.overdue > 0 %}
                         <div class="bg-gray-50 rounded-lg p-4">
                             <h4 class="m-0 mb-4 text-base font-semibold text-gray-800">Overdue Breakdown</h4>
-                            <div class="grid grid-cols-3 gap-4">
+                            <div class="grid grid-cols-4 gap-4">
+                                <div class="text-center">
+                                    <span class="block text-xs text-gray-600 mb-1">0-30 days:</span>
+                                    <strong class="text-lg text-yellow-500">{{ dashboard_data.dues_payment_status.overdue_breakdown.overdue_under_30_days }}</strong>
+                                </div>
                                 <div class="text-center">
                                     <span class="block text-xs text-gray-600 mb-1">30-60 days:</span>
                                     <strong class="text-lg text-warning-600">{{ dashboard_data.dues_payment_status.overdue_breakdown.overdue_30_days }}</strong>

@@ -611,6 +611,10 @@ def get_financial_summary(chapter_name: str) -> Dict[str, Any]:
         ytd_dues_chapter = 0
 
         if frappe.db.has_column("Sales Invoice", "custom_member_chapter"):
+            # Get company from Verenigingen Settings to exclude test company invoices
+            verenigingen_settings = frappe.get_single("Verenigingen Settings")
+            company = verenigingen_settings.company
+
             ytd_dues_result = frappe.db.sql(
                 """
                 SELECT SUM(si.grand_total) as total_amount
@@ -618,8 +622,9 @@ def get_financial_summary(chapter_name: str) -> Dict[str, Any]:
                 WHERE si.docstatus = 1
                 AND si.custom_member_chapter = %(chapter)s
                 AND si.posting_date >= %(year_start)s
+                AND si.company = %(company)s
                 """,
-                {"chapter": chapter_name, "year_start": year_start},
+                {"chapter": chapter_name, "year_start": year_start, "company": company},
                 as_dict=True,
             )
 
@@ -792,6 +797,7 @@ def get_dues_payment_status(chapter_name: str) -> Dict[str, Any]:
         unpaid = 0
         overdue = 0
         lapsed = 0  # Members with expired coverage and no unpaid/overdue invoices
+        overdue_under_30_days = 0
         overdue_30_days = 0
         overdue_60_days = 0
         overdue_90_plus_days = 0
@@ -821,6 +827,8 @@ def get_dues_payment_status(chapter_name: str) -> Dict[str, Any]:
                         overdue_60_days += 1
                     elif days_overdue > OVERDUE_THRESHOLD_MODERATE:
                         overdue_30_days += 1
+                    else:
+                        overdue_under_30_days += 1
             # 3. Has unpaid invoices (important)
             elif member.unpaid_invoice_count > 0:
                 unpaid += 1
@@ -862,6 +870,7 @@ def get_dues_payment_status(chapter_name: str) -> Dict[str, Any]:
             "lapsed": lapsed,
             "missing_payment_info": missing_payment_info_count,
             "overdue_breakdown": {
+                "overdue_under_30_days": overdue_under_30_days,
                 "overdue_30_days": overdue_30_days,
                 "overdue_60_days": overdue_60_days,
                 "overdue_90_plus_days": overdue_90_plus_days,
@@ -881,6 +890,7 @@ def get_dues_payment_status(chapter_name: str) -> Dict[str, Any]:
             "lapsed": 0,
             "missing_payment_info": 0,
             "overdue_breakdown": {
+                "overdue_under_30_days": 0,
                 "overdue_30_days": 0,
                 "overdue_60_days": 0,
                 "overdue_90_plus_days": 0,
