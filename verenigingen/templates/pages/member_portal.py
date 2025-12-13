@@ -119,21 +119,9 @@ def get_context(context):
     # Check if user is a board member of any chapter
     context.is_board_member = is_user_board_member()
 
-    # Get chapter info with board members for display
-    context.chapter_info = get_member_chapter_info(member)
-
-    # Get chapter documents if member has a chapter
-    if context.chapter_info:
-        from verenigingen.services.document.document_portal_service import (
-            get_organization_documents_for_template,
-        )
-
-        context.chapter_documents = get_organization_documents_for_template(
-            organization_type="Chapter",
-            organization_name=context.chapter_info.get("chapter_name"),
-        )
-    else:
-        context.chapter_documents = None
+    # Get all chapters for member (includes national chapter + member's chapters)
+    # Each chapter includes board members and documents
+    context.chapters_info = get_all_member_chapters(member)
 
     return context
 
@@ -709,4 +697,170 @@ def get_member_chapter_info(member_name):
 
     except Exception as e:
         frappe.log_error(f"Error getting member chapter info: {str(e)}")
+        return None
+
+
+def get_all_member_chapters(member_name):
+    """Get all chapters the member belongs to, plus the national chapter.
+
+    The national chapter is intentionally visible to ALL members per business rules,
+    as it contains organization-wide information (see DocumentPortalService._get_viewable_organizations).
+
+    Returns a list of chapter info dictionaries, each containing board members and documents.
+
+    Returns:
+        list: List of dicts, each with:
+            - chapter_name: str
+            - chapter_display_name: str
+            - is_national: bool
+            - board_members: list
+            - documents: dict (from document_portal_service)
+    """
+    chapters_info = []
+    seen_chapters = set()
+    current_user_email = frappe.session.user
+
+    try:
+        # Get national chapter first
+        national_chapter = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+
+        # Get all active chapter memberships for this member
+        member_chapters = frappe.get_all(
+            "Chapter Member",
+            filters={"member": member_name, "enabled": 1, "status": "Active"},
+            fields=["parent"],
+            order_by="chapter_join_date desc",
+        )
+
+        # National chapter is intentionally shown to ALL members (organization-wide info)
+        if national_chapter:
+            seen_chapters.add(national_chapter)
+            _add_chapter_with_documents(
+                chapters_info, national_chapter, is_national=True, current_user_email=current_user_email
+            )
+
+        # Add member's chapters (excluding national if already added)
+        # Note: Members typically belong to 1-2 chapters max, so N+1 query pattern
+        # is acceptable here. If usage grows, consider bulk fetching chapters.
+        for cm in member_chapters:
+            chapter_name = cm.parent
+            if chapter_name not in seen_chapters:
+                seen_chapters.add(chapter_name)
+                _add_chapter_with_documents(
+                    chapters_info,
+                    chapter_name,
+                    is_national=(chapter_name == national_chapter),
+                    current_user_email=current_user_email,
+                )
+
+        return chapters_info
+
+    except Exception as e:
+        frappe.log_error(f"Error getting all member chapters: {str(e)}")
+        return []
+
+
+def _add_chapter_with_documents(chapters_info, chapter_name, is_national, current_user_email):
+    """Add chapter with documents to chapters_info list.
+
+    Includes permission check and error handling for document fetching.
+
+    Args:
+        chapters_info: List to append chapter data to
+        chapter_name: Name of the chapter
+        is_national: Whether this is the national chapter
+        current_user_email: Current user's email for highlighting
+    """
+    from verenigingen.services.document.document_portal_service import (
+        DocumentPortalService,
+        get_organization_documents_for_template,
+    )
+
+    try:
+        chapter_data = _build_chapter_info(chapter_name, is_national, current_user_email)
+        if not chapter_data:
+            return
+
+        # Explicit permission check before fetching documents (defense in depth)
+        doc_service = DocumentPortalService()
+        if doc_service.can_view_organization_documents(
+            user=current_user_email,
+            organization_type="Chapter",
+            organization_name=chapter_name,
+        ):
+            try:
+                chapter_data["documents"] = get_organization_documents_for_template(
+                    organization_type="Chapter",
+                    organization_name=chapter_name,
+                )
+            except Exception as e:
+                frappe.log_error(f"Failed to load documents for chapter {chapter_name}: {str(e)}")
+                # Graceful fallback - show chapter without documents
+                chapter_data["documents"] = {
+                    "by_type_and_year": {},
+                    "total_count": 0,
+                    "category_icons": {},
+                }
+        else:
+            # User doesn't have permission to view documents
+            chapter_data["documents"] = {
+                "by_type_and_year": {},
+                "total_count": 0,
+                "category_icons": {},
+            }
+
+        chapters_info.append(chapter_data)
+
+    except Exception as e:
+        frappe.log_error(f"Error processing chapter {chapter_name}: {str(e)}")
+
+
+def _build_chapter_info(chapter_name, is_national, current_user_email):
+    """Build chapter info dict with board members.
+
+    Expects Chapter DocType to have:
+    - board_members: Table field (Chapter Board Member child table)
+
+    Args:
+        chapter_name: Name of the chapter
+        is_national: Whether this is the national chapter
+        current_user_email: Current user's email for highlighting
+
+    Returns:
+        dict: Chapter info with board members, or None if chapter not found
+    """
+    try:
+        chapter = frappe.get_doc("Chapter", chapter_name)
+
+        # Defensive check for board_members field
+        if not hasattr(chapter, "board_members"):
+            frappe.log_error(f"Chapter {chapter_name} missing board_members field")
+            return None
+
+        # Build board members list
+        board_members = []
+        for board_member in chapter.board_members:
+            if board_member.is_active:
+                board_members.append(
+                    {
+                        "volunteer": board_member.volunteer,
+                        "volunteer_name": board_member.volunteer_name,
+                        "role": board_member.chapter_role,
+                        "email": board_member.email,
+                        "from_date": board_member.from_date,
+                        "is_current_user": board_member.email == current_user_email,
+                    }
+                )
+
+        # chapter_name is used for both the identifier and display
+        # (Chapter doctype uses name as the display name)
+        return {
+            "chapter_name": chapter_name,
+            "is_national": is_national,
+            "board_members": board_members,
+            "total_count": len(board_members),
+        }
+
+    except Exception as e:
+        frappe.log_error(f"Error building chapter info for {chapter_name}: {str(e)}")
         return None
