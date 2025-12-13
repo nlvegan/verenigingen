@@ -318,8 +318,22 @@ def complete_partial_payments(
 
     result["total_requested"] = len(payment_ids)
 
+    # Mollie payment ID format: tr_ followed by alphanumeric characters
+    import re
+
+    mollie_payment_pattern = re.compile(r"^tr_[a-zA-Z0-9]+$")
+
     for payment_id in payment_ids:
         payment_result = {"payment_id": payment_id, "status": "pending", "actions_taken": [], "error": None}
+
+        # Validate payment ID format before processing
+        if not mollie_payment_pattern.match(payment_id):
+            payment_result["status"] = "skipped"
+            payment_result["reason"] = f"Invalid payment ID format (not a Mollie payment ID)"
+            result["skipped"] += 1
+            result["results"].append(payment_result)
+            frappe.logger().warning(f"Skipping invalid payment ID: {payment_id[:50]}...")
+            continue
 
         try:
             # Check current status
@@ -511,34 +525,28 @@ def complete_partial_payments(
                     bt_doc = frappe.get_doc("Bank Transaction", status["bank_transaction"])
                     pe_doc = frappe.get_doc("Payment Entry", status["payment_entry"])
 
-                    # Calculate allocation amount
-                    # Use PE's paid_amount or BT's unallocated_amount, whichever is smaller
-                    bt_amount = abs(bt_doc.unallocated_amount or bt_doc.deposit or bt_doc.withdrawal)
-                    pe_amount = abs(pe_doc.paid_amount)
-                    allocated_amount = min(bt_amount, pe_amount)
-
-                    # Add link from BT to PE
-                    bt_doc.append(
-                        "payment_entries",
-                        {
-                            "payment_document": "Payment Entry",
-                            "payment_entry": status["payment_entry"],
-                            "allocated_amount": allocated_amount,
-                        },
-                    )
-
-                    # Save BT (submitted doc requires special flags)
-                    # Use the ERPNext add_payment_entries pattern but with manual save
-                    if bt_doc.docstatus == 1:
-                        # For submitted Bank Transactions, we need to allow update
-                        bt_doc.flags.ignore_validate_update_after_submit = True
-                        bt_doc.save()
-                    else:
-                        # For draft BTs, regular save
-                        bt_doc.save()
+                    # Use ERPNext's standard reconciliation pattern (same as Bank Reconciliation Tool)
+                    # This properly handles submitted Bank Transactions
+                    voucher = {
+                        "payment_doctype": "Payment Entry",
+                        "payment_name": status["payment_entry"],
+                    }
+                    bt_doc.add_payment_entries([voucher])  # Adds with allocated_amount=0
+                    bt_doc.validate_duplicate_references()
+                    bt_doc.allocate_payment_entries()  # Calculates actual allocation
+                    bt_doc.update_allocated_amount()
+                    bt_doc.set_status()
+                    bt_doc.save()
 
                     # Reload to get updated status after save hooks run
                     bt_doc.reload()
+
+                    # Get actual allocated amount for logging
+                    allocated_amount = 0
+                    for pe in bt_doc.payment_entries:
+                        if pe.payment_entry == status["payment_entry"]:
+                            allocated_amount = pe.allocated_amount
+                            break
 
                     # Set clearance date on PE if not already set
                     if not pe_doc.clearance_date and bt_doc.date:
@@ -616,7 +624,12 @@ def complete_partial_payments(
             payment_result["status"] = "error"
             payment_result["error"] = str(e)
             result["errors"] += 1
-            frappe.log_error(f"Error completing payment {payment_id}: {e}", "Payment Recovery Error")
+            # Truncate payment_id in title to stay under 140 char limit
+            short_id = payment_id[:30] + "..." if len(payment_id) > 30 else payment_id
+            frappe.log_error(
+                message=f"Error completing payment {payment_id}: {e}",
+                title=f"Payment Recovery Error: {short_id}",
+            )
 
         result["results"].append(payment_result)
 

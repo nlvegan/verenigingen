@@ -585,7 +585,11 @@ class DuesPaymentProcessor:
             return "Membership Dues"  # Fallback to generic name
 
     def process_dues_payment(
-        self, payment_id: str, payment=None, creation_mode: Optional[str] = None
+        self,
+        payment_id: str,
+        payment=None,
+        creation_mode: Optional[str] = None,
+        invoice_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Process a membership dues payment from Mollie.
@@ -600,6 +604,7 @@ class DuesPaymentProcessor:
                          "Payment Entry" to create Payment Entry directly
                          "Bank Transaction" to create Bank Transaction for reconciliation
                          None (default) to use centralized configuration
+            invoice_name: Optional pre-matched invoice name to allocate PE against
 
         Returns:
             dict: Processing result with status, payment_entry, member, etc.
@@ -692,13 +697,19 @@ class DuesPaymentProcessor:
                 mollie_config = get_mollie_config()
                 creation_mode = mollie_config.get_dues_payment_creation_mode()
 
+            # Initialize tracking variables
+            record_name = None
+            bt_name = None
+
             # Handle partial processing: if Bank Transaction exists, only create Payment Entry
             if partial_processing:
                 frappe.logger().info(
                     f"⚠️ Partial processing for {payment_id}: Bank Transaction {idempotency_check['bank_transaction']} "
                     f"exists but no Payment Entry. Creating Payment Entry only."
                 )
-                record_name = self._create_payment_entry_for_dues(member_name, payment)
+                record_name = self._create_payment_entry_for_dues(
+                    member_name, payment, invoice_name=invoice_name
+                )
                 record_type = "Payment Entry"
 
                 if record_name:
@@ -723,16 +734,50 @@ class DuesPaymentProcessor:
                     result["record_type"] = record_type
             else:
                 # Default mode: Create Bank Transaction for reconciliation
-                record_name = self._create_bank_transaction_for_dues(member_name, payment)
+                bt_name = self._create_bank_transaction_for_dues(member_name, payment)
                 record_type = "Bank Transaction"
 
-                if record_name:
+                if bt_name:
                     result["status"] = "success"
-                    result["payment_entry"] = None
-                    result["bank_transaction"] = record_name
-                    result["record_type"] = record_type
+                    result["bank_transaction"] = bt_name
 
-            if record_name:
+                    # If invoice_name provided, also create PE and reconcile
+                    if invoice_name:
+                        pe_name = self._create_payment_entry_for_dues(
+                            member_name, payment, invoice_name=invoice_name
+                        )
+                        if pe_name:
+                            result["payment_entry"] = pe_name
+                            result["record_type"] = "Bank Transaction + Payment Entry"
+
+                            # Link BT to PE using ERPNext's reconciliation pattern
+                            try:
+                                bt_doc = frappe.get_doc("Bank Transaction", bt_name)
+                                voucher = {
+                                    "payment_doctype": "Payment Entry",
+                                    "payment_name": pe_name,
+                                }
+                                bt_doc.add_payment_entries([voucher])
+                                bt_doc.validate_duplicate_references()
+                                bt_doc.allocate_payment_entries()
+                                bt_doc.update_allocated_amount()
+                                bt_doc.set_status()
+                                bt_doc.save()
+                                result["reconciled"] = True
+                                frappe.logger().info(f"✅ Reconciled BT {bt_name} with PE {pe_name}")
+                            except Exception as e:
+                                frappe.logger().warning(
+                                    f"Could not reconcile BT {bt_name} with PE {pe_name}: {e}"
+                                )
+                                result["reconciled"] = False
+                        else:
+                            result["payment_entry"] = None
+                    else:
+                        result["payment_entry"] = None
+                        result["record_type"] = record_type
+
+            # Check if any record was created
+            if record_name or bt_name or result.get("status") == "success":
                 # Get linked Sales Invoices - check both Payment Entry references and member's unpaid invoices
                 try:
                     sales_invoices = []
@@ -802,16 +847,20 @@ class DuesPaymentProcessor:
 
         return result
 
-    def _create_payment_entry_for_dues(self, member_name: str, payment) -> Optional[str]:
+    def _create_payment_entry_for_dues(
+        self, member_name: str, payment, invoice_name: Optional[str] = None
+    ) -> Optional[str]:
         """
         Create a Payment Entry for a membership dues payment from Mollie.
 
-        Creates an unallocated payment entry - reconciliation with Sales Invoices
-        happens separately (either automatically via payment hooks or manually).
+        Creates a payment entry, optionally allocated to a specific invoice.
+        If invoice_name is provided, uses that invoice directly instead of
+        doing a lookup via _get_or_create_historical_invoice.
 
         Args:
             member_name: Member document name
             payment: Mollie payment object
+            invoice_name: Optional specific invoice to allocate to (skips lookup)
 
         Returns:
             str: Payment Entry name if created, None otherwise
@@ -823,9 +872,8 @@ class DuesPaymentProcessor:
         if not customer:
             frappe.throw(f"Member {member_name} has no linked Customer record")
 
-        # Get company first (needed for currency validation)
+        # Get settings
         verenigingen_settings = frappe.get_single("Verenigingen Settings")
-        company = verenigingen_settings.company or frappe.defaults.get_global_default("company")
 
         # Extract payment data using centralized extractor
         from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
@@ -834,7 +882,6 @@ class DuesPaymentProcessor:
         extractor = get_payment_data_extractor()
         payment_id = extractor.extract_payment_id(payment)
         amount = extractor.extract_amount(payment)
-        currency = extractor.extract_currency(payment, company)
         payment_date = extractor.extract_date(payment, field_name="paid_at")
         mode_of_payment = getattr(verenigingen_settings, "mode_of_payment", None) or "Mollie"
 
@@ -843,6 +890,17 @@ class DuesPaymentProcessor:
         if existing_pe:
             frappe.logger().info(f"⏭️ Payment Entry already exists for payment {payment_id}: {existing_pe}")
             return existing_pe
+
+        # Determine company - prioritize invoice's company if available
+        # This prevents company/account mismatches
+        company = None
+        if invoice_name:
+            company = frappe.db.get_value("Sales Invoice", invoice_name, "company")
+        if not company:
+            company = verenigingen_settings.company or frappe.defaults.get_global_default("company")
+
+        # Get currency after company is determined
+        currency = extractor.extract_currency(payment, company)
 
         # Ensure fiscal year exists for the payment date (prevents submission failures)
         from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_exists
@@ -858,71 +916,104 @@ class DuesPaymentProcessor:
             )
             return None
 
-        # Get Mollie clearing account from centralized configuration (throws if not configured)
+        # Get Mollie clearing account - must belong to same company
         mollie_config = get_mollie_config()
         mollie_clearing_account = mollie_config.get_clearing_account()
 
-        # Get customer receivable account (customer's outstanding balance)
-        # Use dues-specific receivable account from settings, fallback to company default
-        customer_account = getattr(verenigingen_settings, "dues_payments_receivable_account", None)
-        if not customer_account:
-            customer_account = frappe.get_cached_value("Company", company, "default_receivable_account")
+        # Validate clearing account belongs to the same company
+        clearing_account_company = frappe.db.get_value("Account", mollie_clearing_account, "company")
+        if clearing_account_company and clearing_account_company != company:
+            # Try to find a compatible clearing account for this company
+            # Look for an account with "Mollie" in name for this company
+            compatible_account = frappe.db.get_value(
+                "Account", {"company": company, "account_name": ["like", "%Mollie%"], "is_group": 0}, "name"
+            )
+            if compatible_account:
+                frappe.logger().info(
+                    f"Using company-specific clearing account {compatible_account} instead of {mollie_clearing_account}"
+                )
+                mollie_clearing_account = compatible_account
+            else:
+                # Fall back to company's default bank account
+                mollie_clearing_account = frappe.get_cached_value("Company", company, "default_bank_account")
+                if not mollie_clearing_account:
+                    frappe.throw(
+                        f"No compatible Mollie clearing account found for company {company}. "
+                        f"Configured account {mollie_config.get_clearing_account()} belongs to {clearing_account_company}."
+                    )
+                frappe.logger().warning(
+                    f"Using company default bank account {mollie_clearing_account} as clearing account fallback"
+                )
 
-        if not customer_account:
-            frappe.throw(f"Missing customer receivable account for company {company}")
+        # Use provided invoice_name if given, otherwise try to get or create one
+        if invoice_name is None:
+            invoice_name = self._get_or_create_historical_invoice(member_name, payment_date, amount)
 
-        # Try to get or create historical invoice for this payment
-        invoice_name = self._get_or_create_historical_invoice(member_name, payment_date, amount)
-
-        # Create Payment Entry
-        payment_entry = frappe.get_doc(
-            {
-                "doctype": "Payment Entry",
-                "payment_type": "Receive",
-                "party_type": "Customer",
-                "party": customer,
-                "company": company,
-                "paid_from": customer_account,
-                "paid_to": mollie_clearing_account,  # Use clearing account, not bank account
-                "paid_amount": amount,
-                "received_amount": amount,
-                "reference_no": payment_id,
-                "reference_date": payment_date,
-                "posting_date": payment_date,
-                "mode_of_payment": mode_of_payment,
-                "remarks": f"Membership dues payment via Mollie for {member.full_name} (awaiting settlement). "
-                + (
-                    f"Linked to invoice {invoice_name}"
-                    if invoice_name
-                    else "Manual reconciliation may be required."
-                ),
-                "custom_member": member_name,  # Link to member for payment history tracking
-            }
-        )
-
-        # If we have an invoice with outstanding amount, link it to the payment entry
+        # If we have a valid invoice, use ERPNext's get_payment_entry for proper account handling
+        # This ensures paid_from matches the invoice's debit_to account (critical for validation)
         if invoice_name:
             invoice_doc = frappe.get_doc("Sales Invoice", invoice_name)
             if invoice_doc.outstanding_amount > 0:
-                allocated = min(amount, invoice_doc.outstanding_amount)
-                payment_entry.append(
-                    "references",
-                    {
-                        "reference_doctype": "Sales Invoice",
-                        "reference_name": invoice_name,
-                        "total_amount": invoice_doc.grand_total,
-                        "outstanding_amount": invoice_doc.outstanding_amount,
-                        "allocated_amount": allocated,
-                    },
+                # Use ERPNext's standard get_payment_entry which properly handles accounts
+                from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
+                payment_entry = get_payment_entry(
+                    dt="Sales Invoice",
+                    dn=invoice_name,
+                    party_amount=min(amount, invoice_doc.outstanding_amount),
+                    bank_account=mollie_clearing_account,
                 )
+                # Override/set additional fields for Mollie tracking
+                payment_entry.posting_date = payment_date
+                payment_entry.reference_no = payment_id
+                payment_entry.reference_date = payment_date
+                payment_entry.mode_of_payment = mode_of_payment
+                payment_entry.paid_to = mollie_clearing_account
+                payment_entry.remarks = (
+                    f"Membership dues payment via Mollie for {member.full_name} (awaiting settlement). "
+                    f"Linked to invoice {invoice_name}"
+                )
+                payment_entry.custom_member = member_name
+
                 frappe.logger().info(
-                    f"Linking PE to invoice {invoice_name} (outstanding: {invoice_doc.outstanding_amount}, allocated: {allocated})"
+                    f"Using get_payment_entry for invoice {invoice_name} "
+                    f"(outstanding: {invoice_doc.outstanding_amount}, paid_from: {payment_entry.paid_from})"
                 )
             else:
                 frappe.logger().warning(
                     f"Invoice {invoice_name} has no outstanding amount ({invoice_doc.outstanding_amount}), "
-                    f"PE will be created unallocated for manual reconciliation"
+                    f"creating unallocated PE"
                 )
+                invoice_name = None  # Fall through to unallocated PE creation
+
+        # Fallback: Create unallocated PE if no valid invoice
+        if not invoice_name:
+            customer_account = getattr(verenigingen_settings, "dues_payments_receivable_account", None)
+            if not customer_account:
+                customer_account = frappe.get_cached_value("Company", company, "default_receivable_account")
+            if not customer_account:
+                frappe.throw(f"Missing customer receivable account for company {company}")
+
+            payment_entry = frappe.get_doc(
+                {
+                    "doctype": "Payment Entry",
+                    "payment_type": "Receive",
+                    "party_type": "Customer",
+                    "party": customer,
+                    "company": company,
+                    "paid_from": customer_account,
+                    "paid_to": mollie_clearing_account,
+                    "paid_amount": amount,
+                    "received_amount": amount,
+                    "reference_no": payment_id,
+                    "reference_date": payment_date,
+                    "posting_date": payment_date,
+                    "mode_of_payment": mode_of_payment,
+                    "remarks": f"Membership dues payment via Mollie for {member.full_name} (awaiting settlement). "
+                    "Manual reconciliation may be required.",
+                    "custom_member": member_name,
+                }
+            )
 
         payment_entry.insert()
         payment_entry.submit()

@@ -1837,7 +1837,7 @@ class MollieDebugService(StatelessService):
 
     def batch_process_dues_payments(self, payment_ids: list, customer_id: str = None):
         """
-        Process multiple membership dues payments in batch.
+        Process multiple membership dues payments in batch with intelligent invoice matching.
 
         Args:
             payment_ids: List of Mollie payment IDs to process
@@ -1860,13 +1860,36 @@ class MollieDebugService(StatelessService):
         }
 
         try:
+            from verenigingen.integrations.mollie.services.bulk_payment_checker import BulkPaymentChecker
             from verenigingen.integrations.mollie.services.dues_payment_processor import DuesPaymentProcessor
 
             dues_processor = DuesPaymentProcessor()
+            invoice_checker = BulkPaymentChecker()
 
             for payment_id in payment_ids:
                 try:
-                    payment_result = dues_processor.process_dues_payment(payment_id)
+                    # Fetch payment from Mollie to check for invoice matching
+                    payment = dues_processor.mollie_client.sdk_client.payments.get(payment_id)
+
+                    # Find member for this payment
+                    member_name = dues_processor.find_member_for_payment(payment)
+
+                    # Check for matching unpaid invoice
+                    invoice_name = None
+                    if member_name and payment.status == "paid":
+                        matching_invoice = invoice_checker.check_invoice_match_for_payment(
+                            sdk_payment=payment, member_name=member_name
+                        )
+                        if matching_invoice:
+                            invoice_name = matching_invoice.get("invoice_name")
+                            self.logger.info(
+                                f"Found matching invoice {invoice_name} for payment {payment_id}"
+                            )
+
+                    # Process with invoice_name if found (enables PE creation + reconciliation)
+                    payment_result = dues_processor.process_dues_payment(
+                        payment_id, payment=payment, invoice_name=invoice_name
+                    )
                     result["results"].append(payment_result)
 
                     if payment_result["status"] == "success":
@@ -2264,6 +2287,7 @@ class MollieDebugService(StatelessService):
             "total_filtered_by_duplicate": 0,
             "total_filtered_by_date": 0,  # Payments outside date range
             "total_filtered_by_customer": 0,  # Payments without matching customer_id
+            "early_termination": False,  # True if stopped due to old payments
         }
 
         try:
@@ -2306,11 +2330,13 @@ class MollieDebugService(StatelessService):
                 }
 
             # Get bank transaction creator for idempotency checks (outside loop for efficiency)
+            from verenigingen.integrations.mollie.services.bulk_payment_checker import BulkPaymentChecker
             from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
                 get_bank_transaction_creator,
             )
 
             bank_tx_creator = get_bank_transaction_creator()
+            invoice_checker = BulkPaymentChecker()  # Reuse for all payments
 
             # Fetch ALL payments using global endpoint with pagination
             has_next = True
@@ -2318,6 +2344,7 @@ class MollieDebugService(StatelessService):
             limit = 250
             total_fetched = 0
             seen_payment_ids = set()  # Track payment IDs to detect duplicates
+            consecutive_old_payments = 0  # Track consecutive out-of-range payments for early termination
 
             while has_next and total_fetched < max_payments:
                 try:
@@ -2363,9 +2390,26 @@ class MollieDebugService(StatelessService):
                             payment_date_str = payment.created_at[:10]  # YYYY-MM-DD
 
                             # Skip if outside date range
+                            # OPTIMIZATION: Mollie returns payments newest-first.
+                            # Once we hit a payment older than start_date, all subsequent
+                            # payments will also be older. We can stop pagination early.
                             if payment_date_str < start_date_str:
                                 result["total_filtered_by_date"] += 1
+                                consecutive_old_payments += 1
+                                # After 50 consecutive old payments, stop pagination
+                                # (allows for some date ordering variance in API response)
+                                if consecutive_old_payments >= 50:
+                                    self.logger.info(
+                                        f"Early termination: {consecutive_old_payments} consecutive "
+                                        f"payments older than {start_date_str}. Stopping pagination."
+                                    )
+                                    result["early_termination"] = True
+                                    has_next = False
+                                    break
                                 continue
+                            else:
+                                # Reset counter when we see an in-range payment
+                                consecutive_old_payments = 0
 
                             # Filter by status if specified
                             if payment_status_filter and payment_status_filter != "all":
@@ -2380,6 +2424,26 @@ class MollieDebugService(StatelessService):
                             is_processed = idempotency_check["already_processed"]
                             payment_entry_exists = idempotency_check.get("payment_entry")
                             bank_transaction_exists = idempotency_check.get("bank_transaction")
+
+                            # Check for matching unpaid dues invoice (for intelligent processing)
+                            matching_invoice = None
+                            processing_mode = None
+                            member_info = customer_id_to_member.get(customer_id)
+
+                            if (
+                                payment.status == "paid"
+                                and not is_processed
+                                and member_info
+                                and payment.amount
+                            ):
+                                try:
+                                    matching_invoice = invoice_checker.check_invoice_match_for_payment(
+                                        sdk_payment=payment, member_name=member_info.name
+                                    )
+                                    processing_mode = "bt_pe_reconcile" if matching_invoice else "bt_only"
+                                except Exception as e:
+                                    self.logger.warning(f"Could not check for matching invoice: {e}")
+                                    processing_mode = "bt_only"
 
                             # Build payment info
                             payment_info = {
@@ -2400,6 +2464,9 @@ class MollieDebugService(StatelessService):
                                 "is_processed": is_processed,
                                 "payment_entry": payment_entry_exists if is_processed else None,
                                 "bank_transaction": bank_transaction_exists if is_processed else None,
+                                # Intelligent processing fields
+                                "matching_invoice": matching_invoice,
+                                "processing_mode": processing_mode,
                             }
 
                             # Add to member's payment list
@@ -2607,43 +2674,66 @@ class MollieDebugService(StatelessService):
                             else:
                                 # Strategy 2: BT + PE + Reconcile (matching invoice found)
                                 # IMPORTANT: PE creation is INSIDE the retry loop to handle deadlocks
+                                # Pass invoice_name so partial_processing uses our matched invoice
+                                # Handle both dict (from retrieval) and string (from frontend data-attr)
+                                if matching_invoice:
+                                    if isinstance(matching_invoice, dict):
+                                        invoice_to_use = matching_invoice.get("invoice_name")
+                                    else:
+                                        # Frontend passes just the invoice name as a string
+                                        invoice_to_use = matching_invoice
+                                else:
+                                    invoice_to_use = None
                                 bt_result = dues_processor.process_dues_payment(
-                                    payment_id, creation_mode="Bank Transaction"
+                                    payment_id, creation_mode="Bank Transaction", invoice_name=invoice_to_use
                                 )
 
                                 if bt_result.get("status") == "success" and bt_result.get("bank_transaction"):
-                                    payment = dues_processor.mollie_client.sdk_client.payments.get(payment_id)
-                                    member_name = bt_result.get("member")
-
-                                    if member_name:
-                                        pe_name = dues_processor._create_payment_entry_for_dues(
-                                            member_name, payment
-                                        )
-                                        bt_name = bt_result.get("bank_transaction")
-                                        bt_doc = frappe.get_doc("Bank Transaction", bt_name)
-                                        bt_doc.append(
-                                            "payment_entries",
-                                            {
-                                                "payment_document": "Payment Entry",
-                                                "payment_entry": pe_name,
-                                                "allocated_amount": abs(bt_doc.unallocated_amount),
-                                            },
-                                        )
-                                        bt_doc.save()
-                                        payment_result = {
-                                            "payment_id": payment_id,
-                                            "status": "success",
-                                            "bank_transaction": bt_name,
-                                            "payment_entry": pe_name,
-                                            "payment_type": bt_result.get("payment_type"),
-                                            "member": member_name,
-                                            "processing_mode": "bt_pe_reconcile",
-                                            "matching_invoice": matching_invoice,
-                                        }
-                                    else:
+                                    # Check if partial_processing already created a PE
+                                    # (happens when BT exists from a previous failed attempt)
+                                    if bt_result.get("payment_entry"):
+                                        # PE was already created during partial_processing
                                         payment_result = bt_result
-                                        payment_result["processing_mode"] = "bt_only"
-                                        payment_result["note"] = "No member found, fell back to BT only"
+                                        payment_result["processing_mode"] = "bt_pe_reconcile"
+                                        payment_result[
+                                            "note"
+                                        ] = "PE created during partial_processing recovery"
+                                    else:
+                                        payment = dues_processor.mollie_client.sdk_client.payments.get(
+                                            payment_id
+                                        )
+                                        member_name = bt_result.get("member")
+
+                                        if member_name:
+                                            # invoice_to_use already set above for process_dues_payment call
+                                            pe_name = dues_processor._create_payment_entry_for_dues(
+                                                member_name, payment, invoice_name=invoice_to_use
+                                            )
+                                            bt_name = bt_result.get("bank_transaction")
+                                            bt_doc = frappe.get_doc("Bank Transaction", bt_name)
+                                            bt_doc.append(
+                                                "payment_entries",
+                                                {
+                                                    "payment_document": "Payment Entry",
+                                                    "payment_entry": pe_name,
+                                                    "allocated_amount": abs(bt_doc.unallocated_amount),
+                                                },
+                                            )
+                                            bt_doc.save()
+                                            payment_result = {
+                                                "payment_id": payment_id,
+                                                "status": "success",
+                                                "bank_transaction": bt_name,
+                                                "payment_entry": pe_name,
+                                                "payment_type": bt_result.get("payment_type"),
+                                                "member": member_name,
+                                                "processing_mode": "bt_pe_reconcile",
+                                                "matching_invoice": matching_invoice,
+                                            }
+                                        else:
+                                            payment_result = bt_result
+                                            payment_result["processing_mode"] = "bt_only"
+                                            payment_result["note"] = "No member found, fell back to BT only"
                                 else:
                                     payment_result = bt_result
 

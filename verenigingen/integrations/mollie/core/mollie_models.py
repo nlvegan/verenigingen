@@ -58,6 +58,7 @@ class Payment:
     description: str
     status: str
     customer_id: Optional[str]
+    subscription_id: Optional[str]
     created_at: datetime
     paid_at: Optional[datetime]
     metadata: Dict[str, Any]
@@ -72,6 +73,7 @@ class Payment:
             description=data["description"],
             status=data["status"],
             customer_id=data.get("customerId"),
+            subscription_id=data.get("subscriptionId"),
             created_at=datetime.fromisoformat(data["createdAt"].replace("Z", "+00:00")),
             paid_at=(
                 datetime.fromisoformat(data["paidAt"].replace("Z", "+00:00")) if data.get("paidAt") else None

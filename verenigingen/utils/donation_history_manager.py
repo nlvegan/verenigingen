@@ -43,6 +43,7 @@ class DonationHistoryManager:
                     "donation_purpose",
                     "paid",
                     "docstatus",
+                    "journal_entry",
                 ],
                 order_by="donation_date desc",
             )
@@ -65,6 +66,7 @@ class DonationHistoryManager:
                             "fund_designation": donation.fund_designation,
                             "donation_purpose": donation.donation_purpose,
                             "paid": donation.paid,
+                            "journal_entry": donation.journal_entry,
                         },
                     )
 
@@ -118,6 +120,7 @@ class DonationHistoryManager:
                 existing_entry.fund_designation = donation_doc.fund_designation
                 existing_entry.donation_purpose = donation_doc.donation_purpose
                 existing_entry.paid = donation_doc.paid
+                existing_entry.journal_entry = getattr(donation_doc, "journal_entry", None)
             else:
                 donor.append(
                     "donor_history",
@@ -130,6 +133,7 @@ class DonationHistoryManager:
                         "fund_designation": donation_doc.fund_designation,
                         "donation_purpose": donation_doc.donation_purpose,
                         "paid": donation_doc.paid,
+                        "journal_entry": getattr(donation_doc, "journal_entry", None),
                     },
                 )
 

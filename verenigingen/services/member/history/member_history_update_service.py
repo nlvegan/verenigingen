@@ -52,7 +52,8 @@ External Service Dependencies:
 See: docs/patterns/OPERATION_RESULT_PATTERN.md
 """
 
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 
 import frappe
 
@@ -61,6 +62,24 @@ from verenigingen.utils.operation_result import OperationResult
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
+
+
+@dataclass
+class PaymentReferenceCache:
+    """
+    Cached payment reference data shared between history update methods.
+
+    This cache is populated once per history rebuild and passed to both
+    _update_dues_payment_history() and _update_invoice_payment_history()
+    to avoid redundant database queries.
+
+    Query Reduction: ~4 queries → 2 queries (50% reduction)
+    """
+
+    member_invoice_names: List[str] = field(default_factory=list)
+    payment_refs_by_invoice: Dict[str, List[Any]] = field(default_factory=dict)
+    payment_entries_data: Dict[str, Any] = field(default_factory=dict)
+    reconciled_payment_entries: Set[str] = field(default_factory=set)
 
 
 class MemberHistoryUpdateService(StatelessService):
@@ -142,13 +161,17 @@ class MemberHistoryUpdateService(StatelessService):
             else:
                 donation_changes = 0
 
-            # STEP 2.5: Update dues payment history (from Payment Entry custom_member field)
-            dues_changes = self._update_dues_payment_history(member_doc)
+            # STEP 2.5: Prefetch payment reference data (shared between dues and invoice methods)
+            # This optimization reduces redundant queries by fetching payment refs once
+            payment_cache = self._prefetch_payment_references(member_doc)
+
+            # STEP 2.6: Update dues payment history (from Payment Entry custom_member field)
+            dues_changes = self._update_dues_payment_history(member_doc, payment_cache)
             if dues_changes > 0:
                 changes_made = True
 
-            # STEP 2.6: Update invoice payment history (from Sales Invoices linked to member)
-            invoice_changes = self._update_invoice_payment_history(member_doc)
+            # STEP 2.7: Update invoice payment history (from Sales Invoices linked to member)
+            invoice_changes = self._update_invoice_payment_history(member_doc, payment_cache)
             if invoice_changes > 0:
                 changes_made = True
 
@@ -208,6 +231,71 @@ class MemberHistoryUpdateService(StatelessService):
                 donations={"success": False, "error": str(e)},
                 member=member_doc.name,
             )
+
+    def _prefetch_payment_references(self, member_doc: "Document") -> PaymentReferenceCache:
+        """
+        Prefetch payment reference data used by both dues and invoice history methods.
+
+        This method fetches all Payment Entry Reference data in bulk, avoiding
+        redundant queries when updating both dues payment history and invoice
+        payment history.
+
+        Args:
+            member_doc: Member document object
+
+        Returns:
+            PaymentReferenceCache: Cached data structure with:
+                - member_invoice_names: List of Sales Invoice names
+                - payment_refs_by_invoice: Dict mapping invoice -> payment refs
+                - payment_entries_data: Dict mapping payment entry name -> data
+                - reconciled_payment_entries: Set of reconciled payment entry names
+        """
+        cache = PaymentReferenceCache()
+
+        if not member_doc.customer:
+            return cache
+
+        # Get all Sales Invoices for this member's customer
+        cache.member_invoice_names = frappe.get_all(
+            "Sales Invoice",
+            filters={"customer": member_doc.customer, "docstatus": ["!=", 2]},
+            pluck="name",
+        )
+
+        if not cache.member_invoice_names:
+            return cache
+
+        # Get all payment references for these invoices in one query
+        payment_refs = frappe.get_all(
+            "Payment Entry Reference",
+            filters={
+                "reference_doctype": "Sales Invoice",
+                "reference_name": ["in", cache.member_invoice_names],
+            },
+            fields=["reference_name", "parent", "allocated_amount"],
+        )
+
+        # Group by invoice and collect unique payment entry names
+        all_payment_entry_names: Set[str] = set()
+        for ref in payment_refs:
+            if ref.reference_name not in cache.payment_refs_by_invoice:
+                cache.payment_refs_by_invoice[ref.reference_name] = []
+            cache.payment_refs_by_invoice[ref.reference_name].append(ref)
+            all_payment_entry_names.add(ref.parent)
+
+        # Build set of reconciled payment entries
+        cache.reconciled_payment_entries = all_payment_entry_names.copy()
+
+        # Get all unique payment entries in one query
+        if all_payment_entry_names:
+            payment_entries = frappe.get_all(
+                "Payment Entry",
+                filters={"name": ["in", list(all_payment_entry_names)], "docstatus": ["!=", 2]},
+                fields=["name", "posting_date", "mode_of_payment"],
+            )
+            cache.payment_entries_data = {pe.name: pe for pe in payment_entries}
+
+        return cache
 
     def _update_volunteer_expense_history(self, member_doc: "Document") -> int:
         """
@@ -284,13 +372,13 @@ class MemberHistoryUpdateService(StatelessService):
                 # Check if existing row needs updating
                 existing_row = existing_expenses[claim.name]
                 needs_update = any(
-                    getattr(existing_row, field, None) != expected_value
-                    for field, expected_value in expected_row.items()
+                    getattr(existing_row, field_name, None) != expected_value
+                    for field_name, expected_value in expected_row.items()
                 )
 
                 if needs_update:
-                    for field, expected_value in expected_row.items():
-                        setattr(existing_row, field, expected_value)
+                    for field_name, expected_value in expected_row.items():
+                        setattr(existing_row, field_name, expected_value)
                     updated_count += 1
             else:
                 # Add new row directly (not via batch processor since we're already batching)
@@ -304,12 +392,20 @@ class MemberHistoryUpdateService(StatelessService):
 
         return removed_count + updated_count + added_count
 
-    def _update_dues_payment_history(self, member_doc: "Document") -> int:
+    def _update_dues_payment_history(
+        self, member_doc: "Document", payment_cache: PaymentReferenceCache
+    ) -> int:
         """
-        Rebuild membership dues payment history from ALL Payment Entries with custom_member field.
+        Rebuild membership dues payment history from Payment Entries with custom_member field
+        that are NOT already reconciled with the member's Sales Invoices.
+
+        Payment Entries that are reconciled with invoices are represented in the invoice
+        history rows (created by _update_invoice_payment_history). This method only creates
+        standalone rows for UNRECONCILED/UNALLOCATED payments.
 
         Args:
             member_doc: Member document object
+            payment_cache: Prefetched payment reference data from _prefetch_payment_references()
 
         Returns:
             int: Total number of changes (adds + updates + removals)
@@ -339,9 +435,15 @@ class MemberHistoryUpdateService(StatelessService):
             order_by="posting_date desc",
         )
 
+        # Use cached reconciled payment entries to filter out payments already shown via invoices
+        # This avoids redundant queries - the data was prefetched by _prefetch_payment_references()
+        unreconciled_payments = [
+            p for p in current_payments if p.name not in payment_cache.reconciled_payment_entries
+        ]
+
         # Build a lookup of existing payment entries in history
         existing_payments = {row.payment_entry: row for row in (member_doc.payment_history or [])}
-        current_payment_names = {payment.name for payment in current_payments}
+        current_payment_names = {payment.name for payment in unreconciled_payments}
 
         # Remove dues payment entries that no longer exist in database
         rows_to_remove = [
@@ -357,8 +459,8 @@ class MemberHistoryUpdateService(StatelessService):
             member_doc.payment_history.pop(idx)
             removed_count += 1
 
-        # Process each current payment
-        for payment in current_payments:
+        # Process each unreconciled payment (reconciled ones are shown via invoice rows)
+        for payment in unreconciled_payments:
             # Build notes with reference_no if available (e.g., Mollie transaction ID)
             notes_parts = []
             if payment.remarks:
@@ -389,13 +491,13 @@ class MemberHistoryUpdateService(StatelessService):
                 # Check if existing row needs updating
                 existing_row = existing_payments[payment.name]
                 needs_update = any(
-                    getattr(existing_row, field, None) != expected_value
-                    for field, expected_value in expected_row.items()
+                    getattr(existing_row, field_name, None) != expected_value
+                    for field_name, expected_value in expected_row.items()
                 )
 
                 if needs_update:
-                    for field, expected_value in expected_row.items():
-                        setattr(existing_row, field, expected_value)
+                    for field_name, expected_value in expected_row.items():
+                        setattr(existing_row, field_name, expected_value)
                     updated_count += 1
             else:
                 # Add new row
@@ -411,12 +513,15 @@ class MemberHistoryUpdateService(StatelessService):
 
         return removed_count + updated_count + added_count
 
-    def _update_invoice_payment_history(self, member_doc: "Document") -> int:
+    def _update_invoice_payment_history(
+        self, member_doc: "Document", payment_cache: PaymentReferenceCache
+    ) -> int:
         """
         Rebuild membership invoice payment history from ALL Sales Invoices linked to member's customer.
 
         Args:
             member_doc: Member document object
+            payment_cache: Prefetched payment reference data from _prefetch_payment_references()
 
         Returns:
             int: Total number of changes (adds + updates + removals)
@@ -469,35 +574,11 @@ class MemberHistoryUpdateService(StatelessService):
             member_doc.payment_history.pop(idx)
             removed_count += 1
 
-        # ✅ OPTIMIZATION: Prefetch payment information for all invoices to avoid N+1 queries
-        # Fetch payment entry references in bulk
-        invoice_names = [inv.name for inv in current_invoices]
-        payment_refs_by_invoice = {}
-        payment_entries_data = {}
-
-        if invoice_names:
-            # Get all payment references for these invoices in one query
-            payment_refs = frappe.get_all(
-                "Payment Entry Reference",
-                filters={"reference_doctype": "Sales Invoice", "reference_name": ["in", invoice_names]},
-                fields=["reference_name", "parent", "allocated_amount"],
-            )
-
-            # Group by invoice
-            for ref in payment_refs:
-                if ref.reference_name not in payment_refs_by_invoice:
-                    payment_refs_by_invoice[ref.reference_name] = []
-                payment_refs_by_invoice[ref.reference_name].append(ref)
-
-            # Get all unique payment entries in one query
-            payment_entry_names = list(set(ref.parent for ref in payment_refs))
-            if payment_entry_names:
-                payment_entries = frappe.get_all(
-                    "Payment Entry",
-                    filters={"name": ["in", payment_entry_names], "docstatus": ["!=", 2]},
-                    fields=["name", "posting_date", "mode_of_payment"],
-                )
-                payment_entries_data = {pe.name: pe for pe in payment_entries}
+        # ✅ OPTIMIZATION: Use prefetched payment reference data from cache
+        # This data was fetched once by _prefetch_payment_references() and shared
+        # with _update_dues_payment_history() to avoid redundant queries
+        payment_refs_by_invoice = payment_cache.payment_refs_by_invoice
+        payment_entries_data = payment_cache.payment_entries_data
 
         # Process each current invoice
         for invoice in current_invoices:
@@ -567,13 +648,13 @@ class MemberHistoryUpdateService(StatelessService):
                     # Check if existing row needs updating
                     existing_row = existing_invoices[invoice.name]
                     needs_update = any(
-                        getattr(existing_row, field, None) != expected_value
-                        for field, expected_value in expected_row.items()
+                        getattr(existing_row, field_name, None) != expected_value
+                        for field_name, expected_value in expected_row.items()
                     )
 
                     if needs_update:
-                        for field, expected_value in expected_row.items():
-                            setattr(existing_row, field, expected_value)
+                        for field_name, expected_value in expected_row.items():
+                            setattr(existing_row, field_name, expected_value)
                         updated_count += 1
                 else:
                     # Add new row

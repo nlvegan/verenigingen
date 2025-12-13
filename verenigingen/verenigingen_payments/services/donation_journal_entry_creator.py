@@ -125,7 +125,7 @@ class DonationJournalEntryCreator:
         # Create Journal Entry
         # NOTE: Customer/party info is tracked on Bank Transaction, not Journal Entry
         # (ERPNext only allows party on Receivable/Payable accounts)
-        return self._create_journal_entry(
+        je_name = self._create_journal_entry(
             posting_date=posting_date,
             company=company,
             amount=amount,
@@ -137,6 +137,12 @@ class DonationJournalEntryCreator:
             cost_center=config.get("cost_center"),
             bank_transaction_name=bank_transaction_name,
         )
+
+        # Write Journal Entry reference back to Donation record
+        if je_name:
+            self._update_donation_journal_entry(donation_doc.name, je_name)
+
+        return je_name
 
     def create_from_dict(
         self,
@@ -185,7 +191,7 @@ class DonationJournalEntryCreator:
             posting_date = donation_doc.donation_date or nowdate()
 
         # NOTE: Customer/party info is tracked on Bank Transaction, not Journal Entry
-        return self._create_journal_entry(
+        je_name = self._create_journal_entry(
             posting_date=posting_date,
             company=company,
             amount=amount,
@@ -196,6 +202,35 @@ class DonationJournalEntryCreator:
             income_account=config["income_account"],
             cost_center=config.get("cost_center"),
         )
+
+        # Write Journal Entry reference back to Donation record
+        if je_name:
+            self._update_donation_journal_entry(donation_doc.name, je_name)
+
+        return je_name
+
+    def _update_donation_journal_entry(self, donation_name: str, journal_entry_name: str) -> None:
+        """
+        Update the Donation record with the Journal Entry reference.
+
+        Args:
+            donation_name: Name of the Donation record
+            journal_entry_name: Name of the Journal Entry to link
+        """
+        try:
+            frappe.db.set_value(
+                "Donation",
+                donation_name,
+                "journal_entry",
+                journal_entry_name,
+                update_modified=False,
+            )
+            frappe.logger().info(f"Updated Donation {donation_name} with Journal Entry {journal_entry_name}")
+        except Exception as e:
+            frappe.logger().error(
+                f"Failed to update Donation {donation_name} with Journal Entry {journal_entry_name}: {e}"
+            )
+            # Don't raise - JE was created successfully, just couldn't link back
 
     def _check_existing_by_reference(self, reference_number: str) -> Optional[str]:
         """Check if Journal Entry already exists with this reference."""

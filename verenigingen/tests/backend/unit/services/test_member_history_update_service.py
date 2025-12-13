@@ -243,6 +243,123 @@ class TestMemberHistoryUpdateService(EnhancedTestCase):
         result2 = self.service.incremental_update_history_tables(member)
         self.assertTrue(result2.success)
 
+    def test_reconciled_payment_not_duplicated_in_history(self):
+        """Test that payment entries reconciled with invoices don't create duplicate rows.
+
+        When a Payment Entry is reconciled with a Sales Invoice:
+        - The invoice row shows the payment info (payment_entry, payment_date, reconciled=1)
+        - NO separate "Membership Dues Payment" row should be created
+
+        This prevents duplicate representation of the same payment.
+        """
+        unique_email = f"nodupe.test.{random_string(8).lower()}@example.com"
+        member = self.create_test_member(
+            first_name="NoDupe",
+            last_name="Test",
+            email=unique_email
+        )
+
+        # Ensure customer exists for member (factory may auto-create)
+        if not member.customer:
+            member.create_customer()
+            member.reload()
+
+        # Create a Sales Invoice for this member using factory method
+        invoice = self.create_test_sales_invoice(
+            customer=member.name,  # Factory resolves member to customer
+            rate=25.0,
+            submit=True
+        )
+
+        # Create a Payment Entry for this member that pays the invoice
+        payment_entry = self.create_test_payment_entry(
+            party=member.customer,
+            paid_amount=25.0,
+            custom_member=member.name,
+            references=[{
+                "reference_doctype": "Sales Invoice",
+                "reference_name": invoice.name,
+                "allocated_amount": 25.0,
+            }],
+            submit=True
+        )
+
+        # Run incremental update
+        result = self.service.incremental_update_history_tables(member)
+        self.assertTrue(result.success)
+
+        # Reload member to get updated history
+        member.reload()
+
+        # Count how many times this payment entry appears in history
+        payment_entry_occurrences = [
+            row for row in (member.payment_history or [])
+            if row.payment_entry == payment_entry.name
+        ]
+
+        # The payment entry should appear ONCE (via the invoice row), not twice
+        self.assertEqual(
+            len(payment_entry_occurrences), 1,
+            f"Payment Entry {payment_entry.name} appears {len(payment_entry_occurrences)} times, expected 1"
+        )
+
+        # The single occurrence should be on an invoice row (reconciled)
+        occurrence = payment_entry_occurrences[0]
+        self.assertEqual(occurrence.invoice, invoice.name)
+        self.assertEqual(occurrence.reconciled, 1)
+        # It should NOT be a standalone "Membership Dues Payment" type
+        self.assertNotEqual(occurrence.transaction_type, "Membership Dues Payment")
+
+    def test_unreconciled_payment_creates_standalone_row(self):
+        """Test that unreconciled payment entries create standalone history rows.
+
+        When a Payment Entry is NOT reconciled with any invoice:
+        - A "Membership Dues Payment" row should be created
+        - reconciled should be 0
+        """
+        unique_email = f"unreconciled.test.{random_string(8).lower()}@example.com"
+        member = self.create_test_member(
+            first_name="Unreconciled",
+            last_name="Test",
+            email=unique_email
+        )
+
+        # Ensure customer exists for member
+        if not member.customer:
+            member.create_customer()
+            member.reload()
+
+        # Create an unallocated Payment Entry (no invoice references)
+        payment_entry = self.create_test_payment_entry(
+            party=member.customer,
+            paid_amount=25.0,
+            custom_member=member.name,
+            # No references - this is an unreconciled payment
+            submit=True
+        )
+
+        # Run incremental update
+        result = self.service.incremental_update_history_tables(member)
+        self.assertTrue(result.success)
+
+        # Reload member to get updated history
+        member.reload()
+
+        # Find the payment entry in history
+        payment_rows = [
+            row for row in (member.payment_history or [])
+            if row.payment_entry == payment_entry.name
+        ]
+
+        # Should have exactly one entry
+        self.assertEqual(len(payment_rows), 1)
+
+        # Should be a standalone "Membership Dues Payment" row
+        row = payment_rows[0]
+        self.assertEqual(row.transaction_type, "Membership Dues Payment")
+        self.assertEqual(row.reconciled, 0)
+        self.assertIsNone(row.invoice)  # No invoice linked
+
 
 def run_tests():
     """Helper function to run tests from console"""

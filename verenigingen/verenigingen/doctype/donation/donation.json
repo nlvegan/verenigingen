@@ -60,6 +60,7 @@
   "accounting_section",
   "sales_invoice",
   "column_break_revc",
+  "journal_entry",
   "amended_from"
  ],
  "fields": [
@@ -383,6 +384,14 @@
    "fieldtype": "Column Break"
   },
   {
+   "description": "Journal Entry created for this donation payment",
+   "fieldname": "journal_entry",
+   "fieldtype": "Link",
+   "label": "Journal Entry",
+   "options": "Journal Entry",
+   "read_only": 1
+  },
+  {
    "fieldname": "financial_details_tab",
    "fieldtype": "Tab Break",
    "label": "Financial Details"
@@ -390,7 +399,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-09-30 08:49:05.210948",
+ "modified": "2025-12-13 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Donation",

@@ -15,6 +15,7 @@ import frappe
 from frappe import _
 
 from verenigingen.integrations.mollie.core.mollie_client import MollieClient
+from verenigingen.integrations.mollie.core.mollie_models import Payment as MolliePayment
 from verenigingen.integrations.mollie.services.dues_payment_processor import DuesPaymentProcessor
 
 
@@ -161,6 +162,55 @@ class BulkPaymentChecker:
 
         return None
 
+    def check_invoice_match_for_payment(
+        self,
+        sdk_payment: Any,
+        member_name: str,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Check if an SDK payment matches an unpaid dues invoice.
+
+        Convenience method that handles date parsing from SDK payment objects
+        and delegates to find_matching_unpaid_dues_invoice.
+
+        Args:
+            sdk_payment: Raw Mollie SDK payment object (supports dict-like access)
+            member_name: Member record name
+
+        Returns:
+            Dict with invoice details if found, None otherwise
+        """
+        try:
+            # Extract amount
+            amount_obj = sdk_payment.amount if hasattr(sdk_payment, "amount") else sdk_payment.get("amount")
+            if not amount_obj:
+                return None
+
+            payment_amount = float(
+                amount_obj["value"] if isinstance(amount_obj, dict) else amount_obj.get("value")
+            )
+
+            # Parse payment date - prefer paid_at for accuracy
+            paid_at = getattr(sdk_payment, "paid_at", None) or sdk_payment.get("paidAt")
+            created_at = getattr(sdk_payment, "created_at", None) or sdk_payment.get("createdAt")
+
+            date_str = paid_at or created_at
+            if not date_str:
+                return None
+
+            # Parse ISO date string to datetime
+            if isinstance(date_str, str):
+                payment_date = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+            else:
+                payment_date = date_str  # Already a datetime
+
+            return self.find_matching_unpaid_dues_invoice(
+                member_name=member_name, payment_amount=payment_amount, payment_date=payment_date
+            )
+        except Exception as e:
+            frappe.logger().warning(f"Error checking invoice match for payment: {e}")
+            return None
+
     def get_members_with_mollie_customers(
         self, limit: Optional[int] = None, offset: int = 0
     ) -> Dict[str, Any]:
@@ -293,9 +343,21 @@ class BulkPaymentChecker:
                     # Not a rate limit error - propagate normally
                     raise
 
-            # Get all payments for this customer
-            payments = customer_obj.payments.list(limit=limit)
-            result["total_found"] = len(payments)
+            # Get all payments for this customer and convert to typed objects
+            sdk_payments = customer_obj.payments.list(limit=limit)
+            result["total_found"] = len(sdk_payments)
+
+            # Convert SDK payments to typed Payment objects with proper datetime parsing
+            # This ensures created_at and paid_at are datetime objects, not strings
+            payments: List[MolliePayment] = []
+            for sdk_payment in sdk_payments:
+                try:
+                    payments.append(MolliePayment.from_mollie_api(sdk_payment))
+                except Exception as e:
+                    frappe.logger().warning(
+                        f"Could not convert payment {sdk_payment.get('id', 'unknown')} to typed object: {e}"
+                    )
+                    continue
 
             # Filter by date if requested
             if from_date:
@@ -316,29 +378,19 @@ class BulkPaymentChecker:
                 # CRITICAL: Use paid_at for financial reconciliation (when money actually moved)
                 # Fall back to created_at only for pending/unpaid payments
                 if from_date:
-                    try:
-                        # Use paid_at (when payment completed) for accurate financial reconciliation
-                        payment_date = getattr(payment, "paid_at", None)
+                    # Use paid_at (when payment completed) for accurate financial reconciliation
+                    payment_date = payment.paid_at if payment.paid_at else payment.created_at
 
-                        # Fallback to created_at if paid_at is None (pending/failed payments)
-                        if payment_date is None:
-                            payment_date = payment.created_at
-                            frappe.logger().debug(
-                                f"Payment {payment.id} has no paid_at, using created_at (status: {payment.status})"
-                            )
+                    if payment_date is None:
+                        frappe.logger().warning(f"Payment {payment.id} has no date, excluding from results")
+                        filtered_by_date += 1
+                        continue
 
-                        # Make payment_date timezone-aware if needed
-                        if payment_date.tzinfo is None:
-                            payment_date = payment_date.replace(tzinfo=timezone.utc)
+                    # Make payment_date timezone-aware if needed
+                    if payment_date.tzinfo is None:
+                        payment_date = payment_date.replace(tzinfo=timezone.utc)
 
-                        if payment_date < from_date:
-                            filtered_by_date += 1
-                            continue
-                    except (AttributeError, TypeError):
-                        # Payment has unparseable date - exclude from results
-                        frappe.logger().warning(
-                            f"Could not parse payment date for {payment.id}, excluding from results"
-                        )
+                    if payment_date < from_date:
                         filtered_by_date += 1
                         continue
 
@@ -376,9 +428,14 @@ class BulkPaymentChecker:
                 # Identify payment type
                 payment_type = self.dues_processor.identify_payment_type(payment)
 
-                # Extract and validate currency
-                amount_value = payment.amount["value"] if payment.amount else "Unknown"
-                currency = payment.amount["currency"] if payment.amount else "Unknown"
+                # Extract amount from typed Money object
+                # MolliePayment.amount is a Money dataclass with .amount (Decimal) and .currency (str)
+                if payment.amount:
+                    amount_value = str(payment.amount.amount)  # Decimal to string for display
+                    currency = payment.amount.currency
+                else:
+                    amount_value = "Unknown"
+                    currency = "Unknown"
 
                 # Check for currency mismatch (warning if not EUR)
                 currency_warning = None
@@ -402,8 +459,10 @@ class BulkPaymentChecker:
                 ):
                     try:
                         # Get payment date (prefer paid_at for accuracy)
-                        invoice_check_date = getattr(payment, "paid_at", None) or payment.created_at
-                        payment_amount_float = float(amount_value)
+                        # MolliePayment has typed datetime fields - no string parsing needed
+                        invoice_check_date = payment.paid_at or payment.created_at
+
+                        payment_amount_float = float(payment.amount.amount)
                         matching_invoice = self.find_matching_unpaid_dues_invoice(
                             member_name=member_name,
                             payment_amount=payment_amount_float,
@@ -422,12 +481,10 @@ class BulkPaymentChecker:
                     "amount_display": (
                         f"{currency} {amount_value}" if amount_value != "Unknown" else "Unknown"
                     ),
-                    "description": getattr(payment, "description", ""),
+                    "description": payment.description,
                     "created_at": str(payment.created_at),
-                    "paid_at": (
-                        str(getattr(payment, "paid_at", None)) if getattr(payment, "paid_at", None) else None
-                    ),
-                    "subscription_id": getattr(payment, "subscription_id", None),
+                    "paid_at": str(payment.paid_at) if payment.paid_at else None,
+                    "subscription_id": payment.subscription_id,
                     "payment_type": payment_type,
                     "already_processed": idempotency_check["already_processed"],
                     "payment_entry": idempotency_check.get("payment_entry"),
