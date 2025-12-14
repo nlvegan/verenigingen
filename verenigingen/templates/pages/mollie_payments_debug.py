@@ -6,6 +6,10 @@ Administrative interface for debugging Mollie API issues
 import frappe
 from frappe import _
 
+from verenigingen.integrations.mollie.utils.common_helpers import (
+    user_has_any_role,
+    validate_mollie_payment_ids,
+)
 from verenigingen.services.mollie_debug_service import MollieDebugService
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
@@ -57,16 +61,15 @@ def get_context(context):
 
 def has_mollie_debug_access():
     """Check if current user has access to Mollie debug page"""
-    allowed_roles = [
-        "System Manager",
-        "Administrator",
-        "Verenigingen Administrator",
-        "Verenigingen Staff",
-        "Treasurer",
-    ]
-
-    user_roles = frappe.get_roles(frappe.session.user)
-    return any(role in allowed_roles for role in user_roles)
+    return user_has_any_role(
+        [
+            "System Manager",
+            "Administrator",
+            "Verenigingen Administrator",
+            "Verenigingen Staff",
+            "Treasurer",
+        ]
+    )
 
 
 @frappe.whitelist(allow_guest=False)
@@ -184,10 +187,7 @@ def create_mandate(
 
 def has_customer_deletion_access():
     """Check if current user has access to customer deletion (most restrictive)"""
-    allowed_roles = ["Verenigingen Administrator"]
-
-    user_roles = frappe.get_roles(frappe.session.user)
-    return any(role in allowed_roles for role in user_roles)
+    return user_has_any_role(["Verenigingen Administrator"])
 
 
 @frappe.whitelist(allow_guest=False)
@@ -525,13 +525,10 @@ def batch_process_dues_payments(payment_ids, customer_id=None):
             frappe.throw(_("Invalid payment_ids - must be a list"))
 
         # Validate each payment ID format to prevent injection attacks
-        # Mollie payment IDs follow pattern: tr_[alphanumeric 10+ chars]
-        mollie_payment_pattern = re.compile(r"^tr_[a-zA-Z0-9]{10,}$")
-        for pid in payment_ids:
-            if not isinstance(pid, str):
-                frappe.throw(_("Payment ID must be a string: {0}").format(pid))
-            if not mollie_payment_pattern.match(pid):
-                frappe.throw(_("Invalid Mollie payment ID format: {0}").format(pid))
+        try:
+            validate_mollie_payment_ids(payment_ids)
+        except ValueError as e:
+            frappe.throw(str(e))
 
         # Enforce maximum batch size
         MAX_BATCH_SIZE = 50
@@ -871,15 +868,11 @@ def bulk_process_member_payments(payment_ids, docstatus=0, payment_modes=None, c
                 "Use payment_modes parameter instead. This parameter will be removed in a future version."
             )
 
-        # Validate payment ID format
-        import re
-
-        mollie_payment_pattern = re.compile(r"^tr_[a-zA-Z0-9]{10,}$")
-        for pid in payment_ids:
-            if not isinstance(pid, str):
-                frappe.throw(_("Payment ID must be a string: {0}").format(pid))
-            if not mollie_payment_pattern.match(pid):
-                frappe.throw(_("Invalid Mollie payment ID format: {0}").format(pid))
+        # Validate payment ID format using centralized helper
+        try:
+            validate_mollie_payment_ids(payment_ids)
+        except ValueError as e:
+            frappe.throw(str(e))
 
         # Validate docstatus
         try:
@@ -1119,16 +1112,11 @@ def process_discovered_payments(payment_ids, dry_run=False):
         if not payment_ids or not isinstance(payment_ids, list):
             frappe.throw(_("Invalid payment_ids - must be a list"))
 
-        # Validate each payment ID format to prevent injection attacks
-        # Mollie payment IDs follow pattern: tr_[alphanumeric 10+ chars]
-        import re
-
-        mollie_payment_pattern = re.compile(r"^tr_[a-zA-Z0-9]{10,}$")
-        for pid in payment_ids:
-            if not isinstance(pid, str):
-                frappe.throw(_("Payment ID must be a string: {0}").format(pid))
-            if not mollie_payment_pattern.match(pid):
-                frappe.throw(_("Invalid Mollie payment ID format: {0}").format(pid))
+        # Validate each payment ID format using centralized helper
+        try:
+            validate_mollie_payment_ids(payment_ids)
+        except ValueError as e:
+            frappe.throw(str(e))
 
         # Enforce maximum batch size
         MAX_BATCH_SIZE = 100

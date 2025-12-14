@@ -233,6 +233,12 @@ function generate_catchup_invoices(report) {
 		return;
 	}
 
+	// Get current filter values for date range display
+	const filters = report.get_values();
+	const dateRangeText = filters.from_date && filters.to_date
+		? `<p><strong>Date range:</strong> ${filters.from_date} to ${filters.to_date}</p>`
+		: '<p><em>No date range specified - analyzing all gaps</em></p>';
+
 	// Show confirmation dialog
 	const dialog = new frappe.ui.Dialog({
 		title: __('Generate Catch-up Invoices'),
@@ -243,6 +249,7 @@ function generate_catchup_invoices(report) {
 				options: `
 					<div class="alert alert-info">
 						<strong>Members requiring catch-up invoices: ${selected_members.length}</strong>
+						${dateRangeText}
 						<ul>
 							${selected_members
 		.map(
@@ -273,11 +280,15 @@ function generate_catchup_invoices(report) {
 			}
 
 			// Call server method to generate catch-up invoices
+			// Pass date filters to limit catch-up to the analyzed period
+			const filters = report.get_values();
 			frappe.call({
 				method:
           'verenigingen.verenigingen.report.membership_dues_coverage_analysis.membership_dues_coverage_analysis.generate_catchup_invoices',
 				args: {
-					members: selected_members
+					members: selected_members,
+					from_date: filters.from_date,
+					to_date: filters.to_date
 				},
 				callback(r) {
 					if (r.message) {

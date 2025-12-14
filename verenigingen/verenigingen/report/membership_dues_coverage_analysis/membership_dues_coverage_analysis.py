@@ -884,7 +884,7 @@ def get_book_year_end_date(book_year, end_month, end_day):
         # Determine if end month is in same calendar year or next
         # If book year starts in Jan and ends in Dec -> same year
         # If book year starts in Apr and ends in Mar -> next year
-        start_month, start_day, _, _ = get_book_year_boundaries()
+        start_month = get_book_year_boundaries()[0]  # Only need start_month for comparison
 
         if end_month < start_month:
             # End is in next calendar year (e.g., Apr start, Mar end)
@@ -913,16 +913,61 @@ def split_gap_by_book_year(gap_start, gap_end):
 
     Returns:
         list: List of (segment_start, segment_end, book_year) tuples
+
+    Raises:
+        frappe.ValidationError: If book year settings create an impossible configuration
     """
+    from datetime import date as date_type
+
     gap_start = getdate(gap_start)
     gap_end = getdate(gap_end)
 
     start_month, start_day, end_month, end_day = get_book_year_boundaries()
 
+    # Upfront validation: verify book year settings create a valid ~12 month period
+    # Calculate a sample book year to check if configuration is reasonable
+    sample_year = gap_start.year
+    try:
+        sample_start = date_type(sample_year, start_month, start_day)
+        # End year depends on whether the period wraps
+        sample_end_year = sample_year + 1 if end_month < start_month else sample_year
+        sample_end = date_type(sample_end_year, end_month, end_day)
+    except ValueError as e:
+        frappe.throw(
+            _(
+                "Invalid book year configuration: {error}. "
+                "Please check book_year_start_month/day and book_year_end_month/day in Verenigingen Settings."
+            ).format(error=str(e)),
+            title=_("Book Year Configuration Error"),
+        )
+
+    # Check that the book year period is approximately a year (300-400 days)
+    # This catches configurations like Jan 1 - Mar 31 (only 90 days)
+    period_days = (sample_end - sample_start).days + 1
+    if period_days < 300 or period_days > 400:
+        frappe.throw(
+            _(
+                "Invalid book year configuration: Period from {start_month}/{start_day} to "
+                "{end_month}/{end_day} is {days} days (expected ~365 days for a book year). "
+                "Please check book_year_start_month/day and book_year_end_month/day in Verenigingen Settings."
+            ).format(
+                start_month=start_month,
+                start_day=start_day,
+                end_month=end_month,
+                end_day=end_day,
+                days=period_days,
+            ),
+            title=_("Book Year Configuration Error"),
+        )
+
     segments = []
     current_start = gap_start
+    max_iterations = 100  # Safety limit to prevent infinite loops
 
-    while current_start <= gap_end:
+    for _i in range(max_iterations):  # noqa: F841 - _i intentionally unused
+        if current_start > gap_end:
+            break
+
         # Determine which book year current_start belongs to
         book_year = get_book_year_for_date(current_start, start_month, start_day)
 
@@ -932,10 +977,36 @@ def split_gap_by_book_year(gap_start, gap_end):
         # The segment ends at either the book year end or the gap end, whichever is earlier
         segment_end = min(book_year_end, gap_end)
 
+        # Guard: detect invalid book year configuration where end is before start
+        if segment_end < current_start:
+            frappe.throw(
+                _(
+                    "Invalid book year configuration in Verenigingen Settings. "
+                    "Book year end ({end_month}/{end_day}) creates a period that ends before "
+                    "the current date ({current}). Please check book_year_start_month/day "
+                    "and book_year_end_month/day settings."
+                ).format(
+                    end_month=end_month,
+                    end_day=end_day,
+                    current=current_start.strftime("%Y-%m-%d"),
+                ),
+                title=_("Book Year Configuration Error"),
+            )
+
         segments.append((current_start, segment_end, book_year))
 
         # Move to the next day after this segment
         current_start = add_days(segment_end, 1)
+    else:
+        # Loop exhausted max_iterations - something is wrong
+        frappe.throw(
+            _(
+                "Book year calculation exceeded maximum iterations. "
+                "This usually indicates an invalid book year configuration in Verenigingen Settings. "
+                "Please verify book_year_start_month/day and book_year_end_month/day create a valid year period."
+            ),
+            title=_("Book Year Configuration Error"),
+        )
 
     return segments
 
@@ -1223,10 +1294,10 @@ def generate_catchup_invoices(members, from_date=None, to_date=None):
                 if is_current_period and not member_end_date:
                     # This period ends around today and member hasn't indicated end date
                     # Extend to proper billing period end
-                    proper_end = get_coverage_calculator().calculate_period_end_date(
-                        period_start, schedule_doc.billing_frequency
+                    billing_period = get_coverage_calculator().calculate_billing_period(
+                        schedule_doc.billing_frequency, period_start
                     )
-                    period_end = proper_end
+                    period_end = billing_period[1]  # Use end date from (start, end) tuple
                 elif is_current_period and member_end_date and getdate(member_end_date) < getdate(period_end):
                     # Member is quitting - use their end date as the period end
                     period_end = getdate(member_end_date)

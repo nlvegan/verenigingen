@@ -8,11 +8,20 @@ from frappe import _
 
 from verenigingen.integrations.mollie.core.client import MollieClient
 from verenigingen.integrations.mollie.utils.common_helpers import (
+    create_error_response,
+    create_success_response,
     format_mollie_amount,
     format_mollie_response_amount,
+    validate_mollie_amount,
 )
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.security.api_security_framework import OperationType
+from verenigingen.verenigingen_payments.core.compliance.audit_trail import (
+    AuditEventType,
+    AuditSeverity,
+    get_audit_trail,
+)
+from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 
 class MollieDebugService(StatelessService):
@@ -24,6 +33,20 @@ class MollieDebugService(StatelessService):
     def __init__(self):
         super().__init__(service_name="MollieDebugService")
         self.mollie_client = MollieClient()
+        self.audit_trail = get_audit_trail()
+        self._config = None  # Lazy-loaded configuration service
+
+    @property
+    def config(self):
+        """Lazy-load configuration service."""
+        if self._config is None:
+            self._config = get_mollie_config()
+        return self._config
+
+    @property
+    def test_mode(self):
+        """Get test mode from configuration service."""
+        return self.config.is_test_mode()
 
     def debug_customer(self, customer_id):
         """Debug a Mollie customer with detailed information"""
@@ -247,20 +270,37 @@ class MollieDebugService(StatelessService):
             customer_obj = client.customers.get(customer_id)
             cancelled_subscription = customer_obj.subscriptions.delete(subscription_id)
 
-            # Log admin action
+            # Structured audit trail logging
+            self.audit_trail.log_event(
+                AuditEventType.CONFIGURATION_CHANGED,
+                AuditSeverity.WARNING,
+                f"Admin cancelled subscription {subscription_id} for customer {customer_id}",
+                details={
+                    "action": "subscription_cancellation",
+                    "subscription_id": subscription_id,
+                    "customer_id": customer_id,
+                    "reason": reason,
+                    "cancelled_by": frappe.session.user,
+                },
+                entity_type="Mollie Subscription",
+                entity_id=subscription_id,
+            )
+
+            # Also keep standard logger for operational visibility
             self.logger.info(
                 f"ADMIN CANCELLATION: User {frappe.session.user} cancelled subscription {subscription_id} for customer {customer_id}. Reason: {reason}"
             )
 
-            return {
-                "status": "success",
-                "message": _("Subscription cancelled successfully"),
-                "subscription_id": subscription_id,
-                "customer_id": customer_id,
-                "cancelled_by": frappe.session.user,
-                "reason": reason,
-                "timestamp": frappe.utils.now(),
-            }
+            return create_success_response(
+                "Subscription cancelled successfully",
+                {
+                    "subscription_id": subscription_id,
+                    "customer_id": customer_id,
+                    "cancelled_by": frappe.session.user,
+                    "reason": reason,
+                    "timestamp": frappe.utils.now(),
+                },
+            )
 
         except Exception as api_error:
             error_message = str(api_error)
@@ -340,25 +380,44 @@ class MollieDebugService(StatelessService):
             # STEP 2: Revoke the mandate
             revoked_mandate = customer_obj.mandates.delete(mandate_id)
 
-            # Log admin action
+            # Structured audit trail logging
+            self.audit_trail.log_event(
+                AuditEventType.CONFIGURATION_CHANGED,
+                AuditSeverity.WARNING,
+                f"Admin revoked mandate {mandate_id} for customer {customer_id}",
+                details={
+                    "action": "mandate_revocation",
+                    "mandate_id": mandate_id,
+                    "customer_id": customer_id,
+                    "cancelled_subscriptions": cancelled_subscriptions,
+                    "subscriptions_cancelled_count": len(cancelled_subscriptions),
+                    "reason": reason,
+                    "revoked_by": frappe.session.user,
+                },
+                entity_type="Mollie Mandate",
+                entity_id=mandate_id,
+            )
+
+            # Also keep standard logger for operational visibility
             self.logger.info(
                 f"ADMIN REVOCATION: User {frappe.session.user} revoked mandate {mandate_id} "
                 f"for customer {customer_id}. Cancelled {len(cancelled_subscriptions)} subscriptions. "
                 f"Reason: {reason}"
             )
 
-            return {
-                "status": "success",
-                "message": _("Mandate revoked and {0} subscription(s) cancelled successfully").format(
+            return create_success_response(
+                _("Mandate revoked and {0} subscription(s) cancelled successfully").format(
                     len(cancelled_subscriptions)
                 ),
-                "mandate_id": mandate_id,
-                "customer_id": customer_id,
-                "cancelled_subscriptions": cancelled_subscriptions,
-                "revoked_by": frappe.session.user,
-                "reason": reason,
-                "timestamp": frappe.utils.now(),
-            }
+                {
+                    "mandate_id": mandate_id,
+                    "customer_id": customer_id,
+                    "cancelled_subscriptions": cancelled_subscriptions,
+                    "revoked_by": frappe.session.user,
+                    "reason": reason,
+                    "timestamp": frappe.utils.now(),
+                },
+            )
 
         except Exception as api_error:
             error_message = str(api_error)
@@ -467,11 +526,6 @@ class MollieDebugService(StatelessService):
             # Create the mandate
             mandate = customer_obj.mandates.create(mandate_data)
 
-            self.logger.info(
-                f"MANDATE CREATED: User {frappe.session.user} created mandate {mandate.id} "
-                f"for customer {customer_id}. IBAN: {cleaned_iban[-4:].rjust(len(cleaned_iban), '*')}"
-            )
-
             # Build response with mandate details
             mandate_response = {
                 "id": mandate.id,
@@ -492,15 +546,43 @@ class MollieDebugService(StatelessService):
                     "consumerBic": mandate.details.get("consumerBic"),
                 }
 
-            return {
-                "status": "success",
-                "message": _("Mandate created successfully"),
-                "customer_id": customer_id,
-                "test_mode": self.test_mode,
-                "mandate": mandate_response,
-                "created_by": frappe.session.user,
-                "timestamp": frappe.utils.now(),
-            }
+            # Structured audit trail logging (mask IBAN for security, preserve country code)
+            if len(cleaned_iban) >= 6:
+                # Show country code (2 chars) + masked middle + last 4 digits
+                masked_iban = f"{cleaned_iban[:2]}{'*' * (len(cleaned_iban) - 6)}{cleaned_iban[-4:]}"
+            else:
+                masked_iban = "*" * len(cleaned_iban)
+            self.audit_trail.log_event(
+                AuditEventType.PAYMENT_CREATED,
+                AuditSeverity.INFO,
+                f"Created SEPA mandate {mandate.id} for customer {customer_id}",
+                details={
+                    "action": "mandate_creation",
+                    "mandate_id": mandate.id,
+                    "customer_id": customer_id,
+                    "iban_masked": masked_iban,
+                    "mandate_status": mandate.status,
+                    "created_by": frappe.session.user,
+                },
+                entity_type="Mollie Mandate",
+                entity_id=mandate.id,
+            )
+
+            self.logger.info(
+                f"MANDATE CREATED: User {frappe.session.user} created mandate {mandate.id} "
+                f"for customer {customer_id}. IBAN: {masked_iban}"
+            )
+
+            return create_success_response(
+                "Mandate created successfully",
+                {
+                    "customer_id": customer_id,
+                    "test_mode": self.test_mode,
+                    "mandate": mandate_response,
+                    "created_by": frappe.session.user,
+                    "timestamp": frappe.utils.now(),
+                },
+            )
 
         except Exception as api_error:
             sanitized_error = self._sanitize_error_message(str(api_error))
@@ -509,13 +591,14 @@ class MollieDebugService(StatelessService):
                 f"for customer {customer_id}. Error: {sanitized_error}"
             )
 
-            return {
-                "status": "error",
-                "error": sanitized_error,
-                "customer_id": customer_id,
-                "test_mode": self.test_mode,
-                "timestamp": frappe.utils.now(),
-            }
+            return create_error_response(
+                sanitized_error,
+                {
+                    "customer_id": customer_id,
+                    "test_mode": self.test_mode,
+                    "timestamp": frappe.utils.now(),
+                },
+            )
 
     def admin_delete_customer(self, customer_id, reason="Administrative deletion", confirmation_text=None):
         """Admin function to delete entire customer (DANGEROUS - cascades to all subscriptions/mandates)"""
@@ -542,8 +625,10 @@ class MollieDebugService(StatelessService):
             }
 
             # Get counts of what will be deleted
-            subscriptions = customer_obj.subscriptions.list()
-            mandates = customer_obj.mandates.list()
+            subscriptions = list(customer_obj.subscriptions.list())
+            mandates = list(customer_obj.mandates.list())
+            subscription_count = len(subscriptions)
+            mandate_count = len(mandates)
 
             # Log the impending deletion with full details
             self.logger.warning(
@@ -551,31 +636,51 @@ class MollieDebugService(StatelessService):
             )
             self.logger.warning(f"Customer details: {customer_details}")
             self.logger.warning(
-                f"Will cascade delete {len(subscriptions)} subscriptions and {len(mandates)} mandates"
+                f"Will cascade delete {subscription_count} subscriptions and {mandate_count} mandates"
             )
             self.logger.warning(f"Reason: {reason}")
 
             # Perform the deletion
             deleted_customer = client.customers.delete(customer_id)
 
+            # Structured audit trail logging (CRITICAL severity for customer deletion)
+            self.audit_trail.log_event(
+                AuditEventType.DATA_DELETION,
+                AuditSeverity.CRITICAL,
+                f"Admin deleted Mollie customer {customer_id} ({customer_details.get('name', 'N/A')})",
+                details={
+                    "action": "customer_deletion",
+                    "customer_id": customer_id,
+                    "customer_name": customer_details.get("name"),
+                    "customer_email": customer_details.get("email"),
+                    "subscriptions_deleted": subscription_count,
+                    "mandates_deleted": mandate_count,
+                    "reason": reason,
+                    "deleted_by": frappe.session.user,
+                },
+                entity_type="Mollie Customer",
+                entity_id=customer_id,
+            )
+
             # Log successful deletion
             self.logger.warning(
                 f"CUSTOMER DELETION COMPLETED: Customer {customer_id} successfully deleted by {frappe.session.user}"
             )
 
-            return {
-                "status": "success",
-                "message": _("Customer deleted successfully (including all subscriptions and mandates)"),
-                "customer_id": customer_id,
-                "deleted_by": frappe.session.user,
-                "reason": reason,
-                "timestamp": frappe.utils.now(),
-                "customer_details": customer_details,
-                "cascaded_deletions": {
-                    "subscriptions_deleted": len(subscriptions),
-                    "mandates_deleted": len(mandates),
+            return create_success_response(
+                "Customer deleted successfully (including all subscriptions and mandates)",
+                {
+                    "customer_id": customer_id,
+                    "deleted_by": frappe.session.user,
+                    "reason": reason,
+                    "timestamp": frappe.utils.now(),
+                    "customer_details": customer_details,
+                    "cascaded_deletions": {
+                        "subscriptions_deleted": subscription_count,
+                        "mandates_deleted": mandate_count,
+                    },
                 },
-            }
+            )
 
         except Exception as api_error:
             error_message = str(api_error)
@@ -1073,20 +1178,37 @@ class MollieDebugService(StatelessService):
             else:
                 response.raise_for_status()
 
-            # Log admin action
+            # Structured audit trail logging
+            self.audit_trail.log_event(
+                AuditEventType.PAYMENT_UPDATED,
+                AuditSeverity.WARNING,
+                f"Admin cancelled payment {payment_id}",
+                details={
+                    "action": "payment_cancellation",
+                    "payment_id": payment_id,
+                    "previous_status": payment.status,
+                    "reason": reason,
+                    "cancelled_by": frappe.session.user,
+                },
+                entity_type="Mollie Payment",
+                entity_id=payment_id,
+            )
+
+            # Also keep standard logger for operational visibility
             self.logger.info(
                 f"ADMIN PAYMENT CANCELLATION: User {frappe.session.user} cancelled payment {payment_id}. Reason: {reason}"
             )
 
-            return {
-                "status": "success",
-                "message": _("Payment cancelled successfully"),
-                "payment_id": payment_id,
-                "previous_status": payment.status,
-                "cancelled_by": frappe.session.user,
-                "reason": reason,
-                "timestamp": frappe.utils.now(),
-            }
+            return create_success_response(
+                "Payment cancelled successfully",
+                {
+                    "payment_id": payment_id,
+                    "previous_status": payment.status,
+                    "cancelled_by": frappe.session.user,
+                    "reason": reason,
+                    "timestamp": frappe.utils.now(),
+                },
+            )
 
         except Exception as api_error:
             error_message = str(api_error)
@@ -1299,14 +1421,8 @@ class MollieDebugService(StatelessService):
         if not customer_id:
             raise ValueError(_("Customer ID is required"))
 
-        # Validate amount
-        try:
-            amount_float = float(amount)
-        except (ValueError, TypeError):
-            raise ValueError(_("Invalid amount format - must be a number"))
-
-        if amount_float <= 0:
-            raise ValueError(_("Amount must be positive"))
+        # Validate amount using centralized helper
+        amount_float = validate_mollie_amount(amount, min_amount=0.01)
 
         # Add reasonable maximum for test subscriptions (€1,000)
         if amount_float > 1000.00:
@@ -1316,14 +1432,6 @@ class MollieDebugService(StatelessService):
         valid_intervals = ["1 month", "2 months", "3 months", "6 months", "12 months"]
         if interval not in valid_intervals:
             raise ValueError(_("Invalid interval - must be one of: {0}").format(", ".join(valid_intervals)))
-
-        result = {
-            "customer_id": customer_id,
-            "test_mode": self.mollie_client.is_test_mode(),
-            "timestamp": frappe.utils.now(),
-            "status": "pending",
-            "error": None,
-        }
 
         try:
             # Get the raw Mollie client
@@ -1368,21 +1476,27 @@ class MollieDebugService(StatelessService):
             customer = client.customers.get(customer_id)
             subscription = customer.subscriptions.create(subscription_data)
 
-            result["status"] = "success"
-            result["subscription_id"] = subscription.id
-            result["subscription_status"] = subscription.status
-            result["amount"] = format_mollie_response_amount(subscription.amount)
-            result["interval"] = subscription.interval
-            result["description"] = subscription.description
-            result["webhook_url"] = getattr(subscription, "webhookUrl", "Using dashboard webhook")
+            # Structured audit trail logging
+            self.audit_trail.log_event(
+                AuditEventType.PAYMENT_CREATED,
+                AuditSeverity.INFO,
+                f"Created subscription {subscription.id} for customer {customer_id}",
+                details={
+                    "action": "subscription_creation",
+                    "subscription_id": subscription.id,
+                    "customer_id": customer_id,
+                    "amount": amount_float,
+                    "interval": interval,
+                    "description": description,
+                    "mandate_id": mandate_id,
+                    "start_date": start_date or subscription_data.get("startDate"),
+                    "created_by": frappe.session.user,
+                },
+                entity_type="Mollie Subscription",
+                entity_id=subscription.id,
+            )
 
-            # Add optional fields if present
-            if hasattr(subscription, "start_date") and subscription.start_date:
-                result["start_date"] = str(subscription.start_date)
-            if hasattr(subscription, "next_payment_date") and subscription.next_payment_date:
-                result["next_payment_date"] = str(subscription.next_payment_date)
-
-            # Enhanced audit logging
+            # Also keep standard logger for operational visibility
             self.logger.info(
                 f"DEBUG SUBSCRIPTION CREATION: User {frappe.session.user} "
                 f"created subscription {subscription.id} for customer {customer_id} "
@@ -1390,11 +1504,30 @@ class MollieDebugService(StatelessService):
                 f"mandate: {mandate_id or 'auto'}, start: {start_date or 'immediate'})"
             )
 
+            return create_success_response(
+                "Subscription created successfully",
+                {
+                    "customer_id": customer_id,
+                    "test_mode": self.test_mode,
+                    "subscription_id": subscription.id,
+                    "subscription_status": subscription.status,
+                    "amount": format_mollie_response_amount(subscription.amount),
+                    "interval": subscription.interval,
+                    "description": subscription.description,
+                    "webhook_url": getattr(subscription, "webhookUrl", "Using dashboard webhook"),
+                    "start_date": str(subscription.start_date)
+                    if hasattr(subscription, "start_date") and subscription.start_date
+                    else None,
+                    "next_payment_date": str(subscription.next_payment_date)
+                    if hasattr(subscription, "next_payment_date") and subscription.next_payment_date
+                    else None,
+                    "timestamp": frappe.utils.now(),
+                },
+            )
+
         except Exception as e:
             # Sanitize error message before returning to client
             sanitized_error = self._sanitize_error_message(str(e))
-            result["error"] = sanitized_error
-            result["status"] = "error"
 
             # Log full error internally with user context
             self.logger.error(
@@ -1402,7 +1535,14 @@ class MollieDebugService(StatelessService):
                 f"customer {customer_id}: {str(e)}"
             )
 
-        return result
+            return create_error_response(
+                sanitized_error,
+                {
+                    "customer_id": customer_id,
+                    "test_mode": self.test_mode,
+                    "timestamp": frappe.utils.now(),
+                },
+            )
 
     def create_scheduled_subscription(
         self,
@@ -1931,14 +2071,8 @@ class MollieDebugService(StatelessService):
                 - checkout_url: URL to complete payment
                 - error: Error message (if failed)
         """
-        # Validate amount
-        try:
-            amount_float = float(amount)
-        except (ValueError, TypeError):
-            raise ValueError(_("Invalid amount format - must be a number"))
-
-        if amount_float <= 0:
-            raise ValueError(_("Amount must be positive"))
+        # Validate amount using centralized helper
+        amount_float = validate_mollie_amount(amount, min_amount=0.01)
 
         # Add reasonable maximum for test payments (€1,000)
         if amount_float > 1000.00:
@@ -1946,13 +2080,6 @@ class MollieDebugService(StatelessService):
 
         if not description or len(description.strip()) < 3:
             raise ValueError(_("Description must be at least 3 characters"))
-
-        result = {
-            "test_mode": self.mollie_client.is_test_mode(),
-            "timestamp": frappe.utils.now(),
-            "status": "pending",
-            "error": None,
-        }
 
         try:
             # Get site URL for redirect
@@ -1982,15 +2109,24 @@ class MollieDebugService(StatelessService):
             # Create payment using MollieClient
             payment = self.mollie_client.create_payment(payment_data)
 
-            result["status"] = "success"
-            result["payment_id"] = payment.id
-            result["payment_status"] = payment.status
-            result["amount"] = format_mollie_response_amount(payment.amount)
-            result["description"] = payment.description
-            result["checkout_url"] = payment.checkout_url
-            result["customer_id"] = customer_id
+            # Structured audit trail logging
+            self.audit_trail.log_event(
+                AuditEventType.PAYMENT_CREATED,
+                AuditSeverity.INFO,
+                f"Created test payment {payment.id}",
+                details={
+                    "action": "test_payment_creation",
+                    "payment_id": payment.id,
+                    "amount": amount_float,
+                    "description": description[:100],  # Truncate for audit log
+                    "customer_id": customer_id,
+                    "created_by": frappe.session.user,
+                },
+                entity_type="Mollie Payment",
+                entity_id=payment.id,
+            )
 
-            # Enhanced audit logging
+            # Also keep standard logger for operational visibility
             self.logger.info(
                 f"DEBUG PAYMENT CREATION: User {frappe.session.user} "
                 f"created payment {payment.id} "
@@ -1998,16 +2134,34 @@ class MollieDebugService(StatelessService):
                 f"customer: {customer_id or 'none'})"
             )
 
+            return create_success_response(
+                "Test payment created successfully",
+                {
+                    "test_mode": self.test_mode,
+                    "payment_id": payment.id,
+                    "payment_status": payment.status,
+                    "amount": format_mollie_response_amount(payment.amount),
+                    "description": payment.description,
+                    "checkout_url": payment.checkout_url,
+                    "customer_id": customer_id,
+                    "timestamp": frappe.utils.now(),
+                },
+            )
+
         except Exception as e:
             # Sanitize error message before returning to client
             sanitized_error = self._sanitize_error_message(str(e))
-            result["error"] = sanitized_error
-            result["status"] = "error"
 
             # Log full error internally with user context
             self.logger.error(f"Mollie test payment creation error for user {frappe.session.user}: {str(e)}")
 
-        return result
+            return create_error_response(
+                sanitized_error,
+                {
+                    "test_mode": self.test_mode,
+                    "timestamp": frappe.utils.now(),
+                },
+            )
 
     def sync_membership_end_dates_from_mollie(self, dry_run: bool = True):
         """

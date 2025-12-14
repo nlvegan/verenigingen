@@ -1,0 +1,1384 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Mollie Payment Processing") }}{% endblock %}
+
+{% block head_include %}
+{{ super() }}
+<link href="/css/brand_colors.css?v={{ frappe.utils.now() }}" rel="stylesheet">
+<style>
+/* ==========================================================================
+   BRUTALIST MOLLIE PAYMENT PROCESSING - Uses Brand Colors
+   ========================================================================== */
+
+/* Base */
+.mollie-processing-page {
+    font-family: 'IBM Plex Mono', 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', monospace;
+    background-color: var(--brand-background);
+    color: var(--brand-text);
+    min-height: 100vh;
+    padding: 0;
+    line-height: 1.5;
+    font-size: 0.9375rem;
+}
+
+/* Wide layout wrapper */
+.wide-layout-wrapper {
+    width: 90vw;
+    max-width: 1600px;
+    margin-left: calc(-45vw + 50% - 2.5vw);
+    margin-right: calc(-45vw + 50% + 2.5vw);
+    padding: 0;
+    box-sizing: border-box;
+}
+
+@media (max-width: 1200px) {
+    .wide-layout-wrapper {
+        width: 95vw;
+        margin-left: calc(-47.5vw + 50% - 2.5vw);
+        margin-right: calc(-47.5vw + 50% + 2.5vw);
+    }
+}
+
+/* Page Header */
+.page-header {
+    background: var(--brand-primary);
+    color: var(--brand-primary-contrast);
+    padding: 2rem 1.5rem;
+    border-bottom: 4px solid #000;
+}
+
+.page-header h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin: 0 0 0.25rem 0;
+    text-transform: uppercase;
+}
+
+.page-header p {
+    font-size: 0.8125rem;
+    margin: 0;
+    opacity: 0.9;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* API Mode Warning */
+.api-mode-box {
+    margin-top: 1rem;
+    padding: 0.75rem 1rem;
+    border: 2px solid #000;
+    background: color-mix(in srgb, var(--brand-warning) 20%, transparent);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+
+/* Forms */
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.debug-input {
+    width: 100%;
+    padding: 0.75rem 0.875rem;
+    border: 2px solid #000;
+    background: var(--brand-background);
+    font-family: inherit;
+    font-size: 0.9375rem;
+}
+
+.debug-input:focus {
+    outline: none;
+    border-color: var(--brand-primary);
+}
+
+/* Buttons */
+.btn-brutal {
+    font-family: inherit;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 0.75rem 1.25rem;
+    border: 2px solid #000;
+    cursor: pointer;
+    background: var(--brand-background, #ffffff);
+    color: #000;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.btn-brutal:hover {
+    background: #000;
+    color: #fff;
+}
+
+.btn-brutal:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.btn-brutal--primary {
+    background: var(--brand-primary, #cf3131);
+    color: var(--brand-primary-contrast, #ffffff);
+}
+
+.btn-brutal--primary:hover {
+    background: var(--brand-primary-600, #a82828);
+}
+
+.btn-brutal--success {
+    background: var(--brand-success, #28a745);
+    color: #fff;
+}
+
+.btn-brutal--warning {
+    background: var(--brand-warning, #ffc107);
+    color: #000;
+}
+
+.btn-brutal--info {
+    background: var(--brand-info, #17a2b8);
+    color: #fff;
+}
+
+/* Result Area */
+.result-area {
+    background: #000;
+    color: #0f0;
+    border: 2px solid #000;
+    padding: 1rem;
+    margin-top: 1rem;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.875rem;
+    white-space: pre-wrap;
+    max-height: 24rem;
+    overflow-y: auto;
+}
+
+/* Status Badges */
+.status-badge {
+    display: inline-block;
+    padding: 0.125rem 0.5rem;
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border: 2px solid currentColor;
+}
+
+.status-active, .status-paid, .status-valid {
+    background: var(--brand-success);
+    color: #fff;
+    border-color: #000;
+}
+
+.status-canceled, .status-failed, .status-invalid {
+    background: var(--brand-error);
+    color: #fff;
+    border-color: #000;
+}
+
+.status-pending {
+    background: var(--brand-warning);
+    color: #000;
+    border-color: #000;
+}
+
+/* Dark sections (config boxes, headers) */
+.brutal-section-dark {
+    background-color: #000;
+    color: #fff;
+    padding: 1rem;
+    border: 2px solid #000;
+}
+
+.brutal-section-dark h4,
+.brutal-section-dark h3 {
+    color: #fff;
+}
+
+.brutal-section-dark label {
+    color: #fff;
+}
+
+/* Help text */
+.brutal-help {
+    font-size: 0.75rem;
+    color: #555;
+    margin-top: 0.25rem;
+}
+
+.brutal-section-dark .brutal-help {
+    color: #aaa;
+}
+
+/* Table styling */
+.brutal-table-header {
+    background-color: #000;
+    color: #fff;
+}
+
+.brutal-table-header th {
+    color: #fff;
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+}
+
+/* Legacy Tailwind compatibility classes */
+.hidden { display: none; }
+.flex { display: flex; }
+.items-center { align-items: center; }
+.gap-2 { gap: 0.5rem; }
+.gap-4 { gap: 1rem; }
+.mb-2 { margin-bottom: 0.5rem; }
+.mb-3 { margin-bottom: 0.75rem; }
+.mb-4 { margin-bottom: 1rem; }
+.mb-6 { margin-bottom: 1.5rem; }
+.mt-4 { margin-top: 1rem; }
+.mr-1 { margin-right: 0.25rem; }
+.mr-2 { margin-right: 0.5rem; }
+.ml-4 { margin-left: 1rem; }
+.p-3 { padding: 0.75rem; }
+.p-4 { padding: 1rem; }
+.px-2 { padding-left: 0.5rem; padding-right: 0.5rem; }
+.py-2 { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+.text-sm { font-size: 0.875rem; }
+.text-xs { font-size: 0.75rem; }
+.text-lg { font-size: 1.125rem; }
+.font-medium { font-weight: 500; }
+.font-semibold { font-weight: 600; }
+.font-bold { font-weight: 700; }
+.font-mono { font-family: monospace; }
+.text-left { text-align: left; }
+.text-center { text-align: center; }
+.text-black { color: #000; }
+.text-white { color: #fff; }
+.text-gray-600 { color: #4b5563; }
+.text-gray-900 { color: #111827; }
+.text-green-600 { color: #059669; }
+.text-amber-600 { color: #d97706; }
+.bg-white { background-color: #fff; }
+.bg-blue-100 { background-color: #dbeafe; }
+.bg-blue-600 { background-color: #2563eb; }
+.bg-green-600 { background-color: #059669; }
+.bg-amber-400 { background-color: #fbbf24; }
+.border { border-width: 1px; }
+.border-2 { border-width: 2px; }
+.border-b { border-bottom-width: 1px; }
+.border-b-2 { border-bottom-width: 2px; }
+.border-black { border-color: #000; }
+.rounded { border-radius: 0.25rem; }
+.rounded-lg { border-radius: 0.5rem; }
+.rounded-md { border-radius: 0.375rem; }
+.overflow-x-auto { overflow-x: auto; }
+.overflow-y-auto { overflow-y: auto; }
+.max-h-96 { max-height: 24rem; }
+.whitespace-pre-wrap { white-space: pre-wrap; }
+.w-full { width: 100%; }
+.sticky { position: sticky; }
+.top-0 { top: 0; }
+.opacity-60 { opacity: 0.6; }
+.grid { display: grid; }
+.grid-cols-1 { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+
+@media (min-width: 768px) {
+    .md\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .md\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .md\:col-span-2 { grid-column: span 2 / span 2; }
+}
+
+.hover\:bg-amber-50:hover { background-color: #fffbeb; }
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div class="mollie-processing-page">
+    <div class="wide-layout-wrapper">
+        <!-- Page Header -->
+        <div class="page-header">
+            <h1><i class="fa fa-credit-card mr-2"></i>{{ _("Mollie Payment Processing") }}</h1>
+            <p>{{ _("Process Mollie payments as membership dues and bank transactions") }}</p>
+
+            {% if test_mode %}
+            <div class="api-mode-box">
+                <i class="fa fa-flask mr-1"></i>
+                <strong>{{ _("TEST MODE") }}</strong> — {{ _("Using test API key. Payments are simulated.") }}
+            </div>
+            {% else %}
+            <div class="api-mode-box" style="background: color-mix(in srgb, var(--brand-error) 20%, transparent);">
+                <i class="fa fa-exclamation-triangle mr-1"></i>
+                <strong>{{ _("LIVE MODE") }}</strong> — {{ _("Using production API key. Real financial transactions!") }}
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Main Content -->
+        <div class="p-4">
+            <!-- Membership Dues Payment Processor Section -->
+            <div class="bg-white border-2 border-black p-4 mb-6">
+                <div class="p-4 border-2 border-black bg-white">
+                    <h3 class="text-lg font-semibold text-black mb-2">
+                        <i class="fa fa-credit-card mr-2"></i>{{ _("Membership Dues Payment Processor") }}
+                    </h3>
+                    <p class="text-black mb-4">
+                        {{ _("Two-stage processing: Retrieve all payment transactions for a customer, then select which ones to process as membership dues payments") }}
+                    </p>
+
+                    <!-- Stage 1: Retrieve Payments -->
+                    <div class="brutal-section-dark mb-4">
+                        <h4 class="font-semibold mb-3">{{ _("Stage 1: Retrieve Customer Payments") }}</h4>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                            <div>
+                                <label class="block text-sm font-medium mb-1">{{ _("Mollie Customer ID") }}</label>
+                                <input type="text" id="dues-customer-id" class="w-full px-3 py-2 border-2 border-black bg-white text-black"
+                                       placeholder="cst_xxxxxxxxxx">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium mb-1">{{ _("Limit (max 250)") }}</label>
+                                <input type="number" id="dues-payment-limit" class="w-full px-3 py-2 border-2 border-black bg-white text-black"
+                                       value="250" min="1" max="250">
+                            </div>
+                        </div>
+
+                        <button type="button" onclick="retrieveCustomerPayments()" class="btn-brutal btn-brutal--success">
+                            <i class="fa fa-download mr-2"></i>{{ _("Retrieve All Payments") }}
+                        </button>
+                    </div>
+
+                    <!-- Stage 2: Select & Process -->
+                    <div id="dues-payments-list" class="bg-white p-4 border-2 border-black" style="display: none;">
+                        <h4 class="font-semibold text-black mb-3">{{ _("Stage 2: Select Payments to Process") }}</h4>
+
+                        <div class="mb-4 p-3 bg-white border-2 border-black">
+                            <div class="text-sm text-black">
+                                <p class="mb-2"><strong>{{ _("Summary:") }}</strong></p>
+                                <p class="mb-1">Customer: <span id="dues-customer-info" class="font-semibold">-</span></p>
+                                <p class="mb-1">Mode: <span id="dues-api-mode" class="font-semibold">-</span></p>
+                                <p class="mb-1">Total Retrieved: <span id="dues-total-count" class="font-semibold">0</span></p>
+                                <p class="mb-1">Already Processed: <span id="dues-processed-count" class="font-semibold">0</span></p>
+                                <p class="mb-1">Available to Process: <span id="dues-unprocessed-count" class="font-semibold">0</span></p>
+                            </div>
+                        </div>
+
+                        <!-- Quick Selection Buttons -->
+                        <div class="mb-4 flex gap-2">
+                            <button type="button" onclick="selectAllProcessable()" class="btn-brutal btn-brutal--primary">
+                                <i class="fa fa-check-square mr-2"></i>{{ _("Select All Processable") }}
+                            </button>
+                            <button type="button" onclick="deselectAll()" class="btn-brutal">
+                                <i class="fa fa-square-o mr-2"></i>{{ _("Deselect All") }}
+                            </button>
+                        </div>
+
+                        <!-- Payments Table -->
+                        <div class="overflow-x-auto mb-4 border-2 border-black">
+                            <table class="w-full text-sm">
+                                <thead class="brutal-table-header">
+                                    <tr>
+                                        <th class="px-2 py-2 text-left">
+                                            <input type="checkbox" id="select-all-checkbox" onchange="toggleSelectAll()">
+                                        </th>
+                                        <th class="px-2 py-2 text-left">{{ _("Payment ID") }}</th>
+                                        <th class="px-2 py-2 text-left">{{ _("Status") }}</th>
+                                        <th class="px-2 py-2 text-left">{{ _("Amount") }}</th>
+                                        <th class="px-2 py-2 text-left">{{ _("Type") }}</th>
+                                        <th class="px-2 py-2 text-left">{{ _("Member") }}</th>
+                                        <th class="px-2 py-2 text-left">{{ _("Processed?") }}</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="dues-payments-table-body">
+                                    <!-- Populated by JavaScript -->
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <button type="button" onclick="processSelectedPayments()" class="btn-brutal btn-brutal--warning">
+                            <i class="fa fa-cogs mr-2"></i>{{ _("Process Selected Payments") }}
+                        </button>
+                    </div>
+
+                    <!-- Processing Results -->
+                    <div id="dues-processing-results" class="bg-white border-2 border-black p-4 mt-4 font-mono whitespace-pre-wrap max-h-96 overflow-y-auto" style="display: none;"></div>
+
+                    <div class="mt-4 p-3 bg-white border-2 border-black">
+                        <div class="text-sm text-black">
+                            <p class="mb-2"><strong>{{ _("How it works:") }}</strong></p>
+                            <p class="mb-1">{{ _("1. Enter customer ID and retrieve all payments") }}</p>
+                            <p class="mb-1">{{ _("2. System identifies which payments are membership dues (vs donations)") }}</p>
+                            <p class="mb-1">{{ _("3. Shows which payments already have Payment Entry records") }}</p>
+                            <p class="mb-1">{{ _("4. Select unprocessed dues payments and create Payment Entries in batch") }}</p>
+                            <p>{{ _("5. Member payment history automatically updates via existing hooks") }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bulk Member Payment Processor Section -->
+            <div class="bg-white border-2 border-black rounded-lg p-4 mb-6">
+                <div class="p-4 border-2 border-black rounded-lg bg-white">
+                    <h3 class="text-lg font-semibold text-black mb-2">
+                        <i class="fa fa-users mr-2"></i>{{ _("Bulk Member Payment Processor") }}
+                    </h3>
+                    <p class="text-gray-900 mb-4">
+                        {{ _("Systematically retrieve payments for ALL members with Mollie customer IDs and process them in bulk") }}
+                    </p>
+
+                    <!-- Configuration Section -->
+                    <div class="brutal-section-dark rounded-lg mb-4">
+                        <h4 class="font-semibold mb-3">{{ _("Configuration") }}</h4>
+
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                            <div>
+                                <label class="block text-sm font-medium mb-1">{{ _("From Date") }}</label>
+                                <input type="date" id="bulk-from-date" class="w-full px-3 py-2 border-2 border-black rounded-md bg-white"
+                                       data-max-days="{{ mollie_settings.payment_retrieval_days_back_limit or 1825 }}">
+                                <p class="brutal-help">{{ _("Max: {0} days back (configurable in Mollie Settings)").format(mollie_settings.payment_retrieval_days_back_limit or 1825) }}</p>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium mb-1">{{ _("Max Payments") }}</label>
+                                <input type="number" id="bulk-max-payments" class="w-full px-3 py-2 border-2 border-black rounded-md bg-white"
+                                       value="5000" min="250" max="10000" step="250">
+                                <p class="brutal-help">{{ _("~20 API calls for 5000 payments") }}</p>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium mb-1">{{ _("Payment Status") }}</label>
+                                <select id="bulk-payment-status" class="w-full px-3 py-2 border-2 border-black rounded-md bg-white">
+                                    <option value="all">All</option>
+                                    <option value="paid" selected>Paid Only</option>
+                                    <option value="pending">Pending Only</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <button type="button" onclick="bulkRetrieveAllMemberPayments()" class="btn-brutal btn-brutal--success">
+                            <i class="fa fa-download mr-2"></i>{{ _("Retrieve All Member Payments") }}
+                        </button>
+                    </div>
+
+                    <!-- Results Section -->
+                    <div id="bulk-payments-list" class="bg-white p-4 rounded-lg border-2 border-black" style="display: none;">
+                        <h4 class="font-semibold text-black mb-3">{{ _("Retrieved Payments") }}</h4>
+
+                        <div class="mb-4 p-3 bg-white border-2 border-black rounded-lg">
+                            <div class="text-sm text-gray-900">
+                                <p class="mb-2"><strong>{{ _("Summary:") }}</strong></p>
+                                <p class="mb-1">Total Members: <span id="bulk-total-members" class="font-semibold">0</span></p>
+                                <p class="mb-1">Members Checked: <span id="bulk-members-checked" class="font-semibold">0</span></p>
+                                <p class="mb-1">Total Payments: <span id="bulk-total-payments" class="font-semibold">0</span></p>
+                                <p class="mb-1">Unprocessed: <span id="bulk-unprocessed-payments" class="font-semibold">0</span></p>
+                                <p class="mb-1 text-green-600">API Calls Made: <span id="bulk-api-calls" class="font-semibold">0</span></p>
+                            </div>
+                        </div>
+
+                        <!-- Intelligent Processing Info -->
+                        <div class="mb-4 p-3 bg-blue-100 border-2 border-black rounded-lg">
+                            <h5 class="font-semibold text-black mb-2"><i class="fa fa-magic mr-2"></i>{{ _("Intelligent Processing") }}</h5>
+                            <p class="text-xs text-gray-900">
+                                {{ _("Processing mode is determined automatically per payment:") }}<br>
+                                <span class="inline-block mt-1">
+                                    <span class="px-2 py-0.5 bg-green-600 text-white text-xs font-bold border border-black rounded">BT+PE</span>
+                                    {{ _("Matching unpaid dues invoice found → Bank Transaction + Payment Entry + Reconcile") }}
+                                </span><br>
+                                <span class="inline-block mt-1">
+                                    <span class="px-2 py-0.5 bg-amber-400 text-black text-xs font-bold border border-black rounded">BT Only</span>
+                                    {{ _("No matching invoice → Bank Transaction only (manual reconciliation)") }}
+                                </span>
+                            </p>
+                        </div>
+
+                        <!-- Quick Selection Buttons -->
+                        <div class="mb-4 flex gap-2">
+                            <button type="button" onclick="bulkSelectAllUnprocessed()" class="btn-brutal btn-brutal--primary">
+                                <i class="fa fa-check-square mr-2"></i>{{ _("Select All Unprocessed") }}
+                            </button>
+                            <button type="button" onclick="bulkDeselectAll()" class="btn-brutal">
+                                <i class="fa fa-square-o mr-2"></i>{{ _("Deselect All") }}
+                            </button>
+                            <span id="bulk-selected-count" class="text-sm font-medium text-black flex items-center ml-4">
+                                Selected: <span class="ml-1 font-bold">0</span>
+                            </span>
+                        </div>
+
+                        <!-- Member/Payments Table -->
+                        <div class="overflow-x-auto mb-4 max-h-96 overflow-y-auto border-2 border-black">
+                            <table class="w-full text-sm">
+                                <thead class="brutal-table-header sticky top-0">
+                                    <tr>
+                                        <th class="px-2 py-2 text-left border-b-2 border-black">
+                                            <input type="checkbox" id="bulk-select-all-checkbox" onchange="bulkToggleSelectAll()">
+                                        </th>
+                                        <th class="px-2 py-2 text-left border-b-2 border-black">{{ _("Member") }}</th>
+                                        <th class="px-2 py-2 text-left border-b-2 border-black">{{ _("Payment ID") }}</th>
+                                        <th class="px-2 py-2 text-left border-b-2 border-black">{{ _("Status") }}</th>
+                                        <th class="px-2 py-2 text-left border-b-2 border-black">{{ _("Amount") }}</th>
+                                        <th class="px-2 py-2 text-left border-b-2 border-black">{{ _("Date") }}</th>
+                                        <th class="px-2 py-2 text-left border-b-2 border-black">{{ _("Mode") }}</th>
+                                        <th class="px-2 py-2 text-left border-b-2 border-black">{{ _("Processed?") }}</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="bulk-payments-table-body">
+                                    <!-- Populated by JavaScript -->
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <button type="button" onclick="bulkProcessSelectedPayments()" class="btn-brutal btn-brutal--warning">
+                            <i class="fa fa-cogs mr-2"></i>{{ _("Process Selected Payments") }}
+                        </button>
+                    </div>
+
+                    <!-- Processing Results -->
+                    <div id="bulk-processing-results" class="bg-white border-2 border-black rounded p-4 mt-4 font-mono whitespace-pre-wrap max-h-96 overflow-y-auto" style="display: none;"></div>
+
+                    <div class="mt-4 p-3 bg-white border-2 border-black rounded-lg">
+                        <div class="text-sm text-black">
+                            <p class="mb-2"><strong>{{ _("How it works:") }}</strong></p>
+                            <p class="mb-1">{{ _("1. Configure days back and payment status filter") }}</p>
+                            <p class="mb-1">{{ _("2. Click to retrieve ALL payments for ALL active members with Mollie IDs") }}</p>
+                            <p class="mb-1">{{ _("3. System identifies which payments are already processed") }}</p>
+                            <p class="mb-1">{{ _("4. Choose Draft or Submitted mode") }}</p>
+                            <p class="mb-1">{{ _("5. Select unprocessed payments and process in bulk") }}</p>
+                            <p>{{ _("6. Payment Entries and/or Bank Transactions are created automatically") }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// ============================================================================
+// MEMBERSHIP DUES PAYMENT PROCESSOR - JavaScript Functions
+// ============================================================================
+
+// Global variable to store retrieved payments
+let retrievedPayments = [];
+
+// Wait for DOM to be ready
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Mollie Payment Processing page initialized');
+
+    // Initialize default date for bulk payment processor (30 days ago)
+    const bulkFromDate = document.getElementById('bulk-from-date');
+    if (bulkFromDate && !bulkFromDate.value) {
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        bulkFromDate.value = thirtyDaysAgo.toISOString().split('T')[0];
+    }
+});
+
+// Stage 1: Retrieve all payments for customer
+async function retrieveCustomerPayments() {
+    const customerId = document.getElementById('dues-customer-id').value.trim();
+    const limit = document.getElementById('dues-payment-limit').value;
+
+    if (!customerId) {
+        frappe.msgprint(__('Please enter a Mollie Customer ID'));
+        return;
+    }
+
+    frappe.show_progress(__('Retrieving payments...'), 30, 100);
+
+    try {
+        const response = await frappe.call({
+            method: 'verenigingen.templates.pages.mollie_payment_processing.retrieve_customer_payments_for_processing',
+            args: {
+                customer_id: customerId,
+                limit: parseInt(limit)
+            }
+        });
+
+        frappe.hide_progress();
+
+        if (response.message.error) {
+            frappe.msgprint({
+                title: __('Error'),
+                message: response.message.error,
+                indicator: 'red'
+            });
+            return;
+        }
+
+        const data = response.message;
+        console.log('Dues Payment Processor Response:', data);
+        retrievedPayments = data.payments || [];
+
+        // Update summary with customer info
+        const customerInfo = data.customer_name
+            ? `${data.customer_name} (${data.customer_email || 'no email'})`
+            : data.customer_id;
+        document.getElementById('dues-customer-info').textContent = customerInfo;
+        document.getElementById('dues-api-mode').textContent = data.test_mode ? 'TEST' : 'LIVE';
+        document.getElementById('dues-api-mode').className = data.test_mode
+            ? 'font-semibold text-amber-600'
+            : 'font-semibold text-green-600';
+        document.getElementById('dues-total-count').textContent = data.total_found;
+        document.getElementById('dues-processed-count').textContent = data.processed_count;
+        document.getElementById('dues-unprocessed-count').textContent = data.unprocessed_count;
+
+        renderPaymentsTable(retrievedPayments);
+        document.getElementById('dues-payments-list').style.display = 'block';
+
+        frappe.show_alert({
+            message: __('Retrieved {0} payments', [data.total_found]),
+            indicator: 'green'
+        });
+
+    } catch (error) {
+        frappe.hide_progress();
+        frappe.msgprint({
+            title: __('Error'),
+            message: __('Failed to retrieve payments: {0}', [error.message]),
+            indicator: 'red'
+        });
+    }
+}
+
+// Render payments table
+function renderPaymentsTable(payments) {
+    const tbody = document.getElementById('dues-payments-table-body');
+    tbody.innerHTML = '';
+
+    payments.forEach((payment, index) => {
+        const row = document.createElement('tr');
+        row.className = payment.processable ? 'bg-white' : 'bg-white opacity-60';
+        row.style.borderBottom = '1px solid #000';
+
+        // Checkbox (XSS-safe with setAttribute)
+        const checkboxCell = document.createElement('td');
+        checkboxCell.className = 'px-2 py-2';
+        if (payment.processable) {
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.className = 'payment-checkbox';
+            cb.setAttribute('data-payment-id', payment.id);
+            cb.setAttribute('data-index', index);
+            checkboxCell.appendChild(cb);
+        }
+        row.appendChild(checkboxCell);
+
+        // Payment ID
+        const idCell = document.createElement('td');
+        idCell.className = 'px-2 py-2 font-mono text-xs';
+        idCell.textContent = payment.id;
+        row.appendChild(idCell);
+
+        // Status
+        const statusCell = document.createElement('td');
+        statusCell.className = 'px-2 py-2';
+        const statusBadge = document.createElement('span');
+        statusBadge.className = 'status-badge';
+        statusBadge.classList.add(
+            payment.status === 'paid' ? 'status-paid' :
+            payment.status === 'pending' ? 'status-pending' :
+            'status-canceled'
+        );
+        statusBadge.textContent = payment.status;
+        statusCell.appendChild(statusBadge);
+        row.appendChild(statusCell);
+
+        // Amount
+        const amountCell = document.createElement('td');
+        amountCell.className = 'px-2 py-2 font-semibold';
+        amountCell.textContent = payment.amount;
+        row.appendChild(amountCell);
+
+        // Type
+        const typeCell = document.createElement('td');
+        typeCell.className = 'px-2 py-2';
+        const typeBadge = document.createElement('span');
+        typeBadge.style.cssText = 'padding: 0.125rem 0.5rem; font-size: 0.625rem; font-weight: 700; text-transform: uppercase; border: 2px solid #000;';
+        typeBadge.style.backgroundColor = payment.payment_type === 'dues' ? '#fff' : payment.payment_type === 'donation' ? '#17a2b8' : '#fff';
+        typeBadge.style.color = payment.payment_type === 'donation' ? '#fff' : '#000';
+        typeBadge.textContent = payment.payment_type;
+        typeCell.appendChild(typeBadge);
+        row.appendChild(typeCell);
+
+        // Member
+        const memberCell = document.createElement('td');
+        memberCell.className = 'px-2 py-2 text-xs';
+        memberCell.textContent = payment.member || '-';
+        row.appendChild(memberCell);
+
+        // Already Processed
+        const processedCell = document.createElement('td');
+        processedCell.className = 'px-2 py-2';
+        if (payment.already_processed) {
+            const recordName = payment.payment_entry || payment.bank_transaction || 'Yes';
+            const recordType = payment.payment_entry ? '(PE)' : payment.bank_transaction ? '(BT)' : '';
+            const processedSpan = document.createElement('span');
+            processedSpan.style.cssText = 'color: #28a745; font-weight: bold;';
+            processedSpan.textContent = `✓ ${recordName} ${recordType}`;
+            processedCell.appendChild(processedSpan);
+        } else {
+            const dashSpan = document.createElement('span');
+            dashSpan.style.color = '#000';
+            dashSpan.textContent = '-';
+            processedCell.appendChild(dashSpan);
+        }
+        row.appendChild(processedCell);
+
+        tbody.appendChild(row);
+    });
+}
+
+// Toggle select all
+function toggleSelectAll() {
+    const selectAllCheckbox = document.getElementById('select-all-checkbox');
+    const checkboxes = document.querySelectorAll('.payment-checkbox');
+    checkboxes.forEach(cb => cb.checked = selectAllCheckbox.checked);
+}
+
+// Select all processable payments
+function selectAllProcessable() {
+    const checkboxes = document.querySelectorAll('.payment-checkbox');
+    checkboxes.forEach(cb => cb.checked = true);
+}
+
+// Deselect all
+function deselectAll() {
+    const checkboxes = document.querySelectorAll('.payment-checkbox');
+    checkboxes.forEach(cb => cb.checked = false);
+    document.getElementById('select-all-checkbox').checked = false;
+}
+
+// Stage 2: Process selected payments
+async function processSelectedPayments() {
+    const selectedCheckboxes = document.querySelectorAll('.payment-checkbox:checked');
+
+    if (selectedCheckboxes.length === 0) {
+        frappe.msgprint(__('Please select at least one payment to process'));
+        return;
+    }
+
+    const selectedPaymentIds = Array.from(selectedCheckboxes).map(cb => cb.dataset.paymentId);
+
+    const confirmed = await new Promise(resolve => {
+        frappe.confirm(
+            __('Process {0} selected payment(s)?', [selectedPaymentIds.length]),
+            () => resolve(true),
+            () => resolve(false)
+        );
+    });
+
+    if (!confirmed) return;
+
+    frappe.show_progress(__('Processing payments...'), 50, 100);
+
+    try {
+        const response = await frappe.call({
+            method: 'verenigingen.templates.pages.mollie_payment_processing.batch_process_dues_payments',
+            args: {
+                payment_ids: selectedPaymentIds,
+                customer_id: document.getElementById('dues-customer-id').value.trim()
+            }
+        });
+
+        frappe.hide_progress();
+
+        if (response.message.error) {
+            frappe.msgprint({
+                title: __('Error'),
+                message: response.message.error,
+                indicator: 'red'
+            });
+            return;
+        }
+
+        const result = response.message;
+        displayProcessingResults(result);
+        setTimeout(() => retrieveCustomerPayments(), 2000);
+
+        frappe.show_alert({
+            message: __('Processed {0} payments successfully', [result.processed]),
+            indicator: 'green'
+        });
+
+    } catch (error) {
+        frappe.hide_progress();
+        frappe.msgprint({
+            title: __('Error'),
+            message: __('Failed to process payments: {0}', [error.message]),
+            indicator: 'red'
+        });
+    }
+}
+
+// Display processing results
+function displayProcessingResults(result) {
+    const resultsDiv = document.getElementById('dues-processing-results');
+    resultsDiv.style.display = 'block';
+
+    let html = '<div class="p-4 bg-white border-2 border-black">';
+    html += '<h4 class="font-semibold mb-3">Processing Results</h4>';
+    html += `<div class="mb-3">`;
+    html += `<p><strong>Total Requested:</strong> ${result.total_requested}</p>`;
+    html += `<p style="color: #28a745;"><strong>Successfully Processed:</strong> ${result.processed}</p>`;
+    html += `<p style="color: #ffc107;"><strong>Skipped:</strong> ${result.skipped}</p>`;
+    html += `<p style="color: #dc3545;"><strong>Errors:</strong> ${result.errors}</p>`;
+    html += `</div>`;
+
+    if (result.results && result.results.length > 0) {
+        html += '<div class="mt-4"><h5 class="font-semibold mb-2">Details:</h5>';
+        html += '<div class="max-h-96 overflow-y-auto border-2 border-black">';
+        html += '<table class="w-full text-sm">';
+        html += '<thead class="brutal-table-header"><tr>';
+        html += '<th class="px-2 py-1 text-left">Payment ID</th>';
+        html += '<th class="px-2 py-1 text-left">Status</th>';
+        html += '<th class="px-2 py-1 text-left">Member</th>';
+        html += '<th class="px-2 py-1 text-left">Created Record</th>';
+        html += '<th class="px-2 py-1 text-left">Details</th>';
+        html += '</tr></thead><tbody>';
+
+        result.results.forEach(item => {
+            const statusColor =
+                item.status === 'success' ? '#28a745' :
+                item.status === 'skipped' || item.status === 'already_processed' ? '#ffc107' :
+                '#dc3545';
+
+            let recordDisplay = '-';
+            if (item.payment_entry) {
+                recordDisplay = `${item.payment_entry} (PE)`;
+            } else if (item.bank_transaction) {
+                recordDisplay = `${item.bank_transaction} (BT)`;
+            }
+
+            html += `<tr style="border-bottom: 1px solid #000;">`;
+            html += `<td class="px-2 py-1 font-mono text-xs">${item.payment_id}</td>`;
+            html += `<td class="px-2 py-1 font-semibold" style="color: ${statusColor};">${item.status}</td>`;
+            html += `<td class="px-2 py-1 text-xs">${item.member || '-'}</td>`;
+            html += `<td class="px-2 py-1 text-xs">${recordDisplay}</td>`;
+            html += `<td class="px-2 py-1 text-xs">${item.error || item.skipped_reason || '-'}</td>`;
+            html += `</tr>`;
+        });
+
+        html += '</tbody></table></div></div>';
+    }
+
+    html += '</div>';
+    resultsDiv.innerHTML = html;
+}
+
+// ============================================================================
+// BULK MEMBER PAYMENT PROCESSOR - JavaScript Functions
+// ============================================================================
+
+let bulkPaymentsData = null;
+
+function bulkRetrieveAllMemberPayments() {
+    const fromDateInput = document.getElementById('bulk-from-date');
+    const fromDate = fromDateInput.value;
+    const maxPayments = document.getElementById('bulk-max-payments').value;
+    const paymentStatus = document.getElementById('bulk-payment-status').value;
+
+    if (!fromDate) {
+        alert('Please select a From Date');
+        return;
+    }
+
+    // Calculate days back from the selected date
+    const selectedDate = new Date(fromDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diffTime = today - selectedDate;
+    const daysBack = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    // Validate against max days limit
+    const maxDays = parseInt(fromDateInput.dataset.maxDays) || 1825;
+    if (daysBack > maxDays) {
+        alert(`Selected date is ${daysBack} days ago, which exceeds the maximum of ${maxDays} days.`);
+        return;
+    }
+
+    if (daysBack < 1) {
+        alert('Please select a date in the past');
+        return;
+    }
+
+    const estimatedApiCalls = Math.ceil(maxPayments / 250);
+    if (!confirm(`This will retrieve payments for ALL active members with Mollie IDs using the global payments endpoint.\n\nFrom date: ${fromDate} (${daysBack} days ago)\nMax payments: ${maxPayments}\nStatus: ${paymentStatus}\nEstimated API calls: ~${estimatedApiCalls}\n\nContinue?`)) {
+        return;
+    }
+
+    document.getElementById('bulk-payments-list').style.display = 'block';
+    document.getElementById('bulk-payments-table-body').innerHTML = '<tr><td colspan="8" class="text-center py-4"><i class="fa fa-spinner fa-spin mr-2"></i>Fetching payments via BulkPaymentChecker (with deduplication)...</td></tr>';
+
+    const formData = new FormData();
+    formData.append('days_back', daysBack);
+    formData.append('max_payments', maxPayments);
+    formData.append('payment_status_filter', paymentStatus === 'all' ? null : paymentStatus);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payment_processing.bulk_retrieve_all_member_payments', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        const result = data.message || data;
+        if (result.error) {
+            alert('Error: ' + result.error);
+            document.getElementById('bulk-payments-list').style.display = 'none';
+            return;
+        }
+
+        bulkPaymentsData = result;
+        displayBulkPaymentsResults(result);
+    })
+    .catch(error => {
+        alert('Error: ' + error.message);
+        document.getElementById('bulk-payments-list').style.display = 'none';
+    });
+}
+
+function displayBulkPaymentsResults(data) {
+    console.log('BMPP Response Data:', {
+        total_payments: data.total_payments,
+        total_payments_found: data.total_payments_found,
+        total_payments_after_filtering: data.total_payments_after_filtering,
+        total_filtered_by_date: data.total_filtered_by_date,
+        total_filtered_by_duplicate: data.total_filtered_by_duplicate,
+        total_filtered_by_customer: data.total_filtered_by_customer
+    });
+
+    document.getElementById('bulk-total-members').textContent = data.total_members || 0;
+    document.getElementById('bulk-members-checked').textContent = data.members_checked || 0;
+
+    const totalPaymentsFound = data.total_payments_found || 0;
+    const totalPaymentsMatched = data.total_payments || 0;
+    const afterFiltering = data.total_payments_after_filtering || totalPaymentsMatched;
+    const filteredByDate = data.total_filtered_by_date || 0;
+    const filteredByDuplicate = data.total_filtered_by_duplicate || 0;
+    const filteredByCustomer = data.total_filtered_by_customer || 0;
+
+    const filterParts = [];
+    if (filteredByCustomer > 0) filterParts.push(`${filteredByCustomer} no member match`);
+    if (filteredByDate > 0) filterParts.push(`${filteredByDate} outside date range`);
+    if (filteredByDuplicate > 0) filterParts.push(`${filteredByDuplicate} duplicates`);
+
+    if (filterParts.length > 0) {
+        const displayText = `${totalPaymentsFound} found → ${totalPaymentsMatched} matched (filtered: ${filterParts.join(', ')})`;
+        document.getElementById('bulk-total-payments').textContent = displayText;
+    } else {
+        document.getElementById('bulk-total-payments').textContent = totalPaymentsMatched;
+    }
+
+    document.getElementById('bulk-unprocessed-payments').textContent = data.unprocessed_payments || data.total_new_payments || 0;
+    document.getElementById('bulk-api-calls').textContent = data.api_calls_made || 0;
+
+    const tbody = document.getElementById('bulk-payments-table-body');
+    tbody.innerHTML = '';
+
+    const customersList = data.customers || data.members || [];
+
+    if (customersList.length === 0) {
+        let emptyMessage = 'No members with payments found';
+        const filteredByCustomer = data.total_filtered_by_customer || 0;
+        const totalFound = data.total_payments_found || 0;
+        if (totalFound > 0 && filteredByCustomer > 0) {
+            emptyMessage = `${totalFound} payments found from Mollie, but ${filteredByCustomer} did not match any active member's Mollie Customer ID. Check if member records have correct mollie_customer_id values.`;
+        } else if (totalFound === 0) {
+            emptyMessage = 'No payments found from Mollie API for the selected date range.';
+        }
+        tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-gray-600">${emptyMessage}</td></tr>`;
+        return;
+    }
+
+    customersList.forEach(customer => {
+        if (!customer.payments || customer.payments.length === 0) return;
+
+        const memberName = customer.member || customer.member_name;
+        const fullName = customer.full_name || memberName;
+
+        customer.payments.forEach((payment, index) => {
+            const row = document.createElement('tr');
+            const isProcessed = payment.already_processed || payment.is_processed;
+            row.className = isProcessed ? 'bg-white opacity-60' : 'bg-white hover:bg-amber-50 border-b border-black';
+
+            const paymentId = payment.id || payment.payment_id;
+            const processingMode = payment.processing_mode || null;
+            const matchingInvoice = payment.matching_invoice || null;
+            const amountDisplay = payment.amount_display || payment.amount;
+
+            // Cell 1: Checkbox (XSS-safe with setAttribute)
+            const checkboxCell = document.createElement('td');
+            checkboxCell.className = 'px-2 py-2';
+            if (!isProcessed) {
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.className = 'bulk-payment-checkbox';
+                cb.setAttribute('data-payment-id', paymentId);
+                cb.setAttribute('data-processing-mode', processingMode || '');
+                cb.setAttribute('data-matching-invoice', matchingInvoice ? matchingInvoice.invoice_name : '');
+                cb.addEventListener('change', bulkUpdateSelectedCount);
+                checkboxCell.appendChild(cb);
+            } else {
+                const dash = document.createElement('span');
+                dash.className = 'text-black';
+                dash.textContent = '—';
+                checkboxCell.appendChild(dash);
+            }
+            row.appendChild(checkboxCell);
+
+            // Cell 2: Member display (XSS-safe with textContent)
+            const memberCell = document.createElement('td');
+            memberCell.className = 'px-2 py-2';
+            if (index === 0) {
+                const nameDiv = document.createElement('div');
+                nameDiv.className = 'font-medium';
+                nameDiv.textContent = fullName;
+                const idDiv = document.createElement('div');
+                idDiv.className = 'text-xs text-black';
+                idDiv.textContent = memberName;
+                memberCell.appendChild(nameDiv);
+                memberCell.appendChild(idDiv);
+            } else {
+                const sameDiv = document.createElement('div');
+                sameDiv.className = 'text-xs text-black';
+                sameDiv.textContent = '↳ same member';
+                memberCell.appendChild(sameDiv);
+            }
+            row.appendChild(memberCell);
+
+            // Cell 3: Payment ID (XSS-safe with textContent)
+            const idCell = document.createElement('td');
+            idCell.className = 'px-2 py-2';
+            const idCode = document.createElement('code');
+            idCode.className = 'text-xs bg-white px-1 border-2 border-black';
+            idCode.textContent = paymentId;
+            idCell.appendChild(idCode);
+            row.appendChild(idCell);
+
+            // Cell 4: Status (XSS-safe with textContent)
+            const statusCell = document.createElement('td');
+            statusCell.className = 'px-2 py-2';
+            const statusSpan = document.createElement('span');
+            statusSpan.className = 'px-2 py-1 bg-blue-600 text-white text-xs font-bold border-2 border-black rounded';
+            statusSpan.textContent = payment.status;
+            statusCell.appendChild(statusSpan);
+            row.appendChild(statusCell);
+
+            // Cell 5: Amount (XSS-safe with textContent)
+            const amountCell = document.createElement('td');
+            amountCell.className = 'px-2 py-2 font-mono';
+            amountCell.textContent = amountDisplay;
+            row.appendChild(amountCell);
+
+            // Cell 6: Date
+            const dateCell = document.createElement('td');
+            dateCell.className = 'px-2 py-2 text-xs';
+            dateCell.textContent = payment.created_at ? new Date(payment.created_at).toLocaleDateString() : 'N/A';
+            row.appendChild(dateCell);
+
+            // Cell 7: Mode badge (XSS-safe with textContent and setAttribute for title)
+            const modeCell = document.createElement('td');
+            modeCell.className = 'px-2 py-2';
+            if (!isProcessed && processingMode) {
+                const modeSpan = document.createElement('span');
+                modeSpan.className = 'cursor-help';
+                if (processingMode === 'bt_pe_reconcile') {
+                    modeSpan.className = 'px-2 py-0.5 bg-green-600 text-white text-xs font-bold border border-black rounded cursor-help';
+                    const invoiceName = matchingInvoice ? matchingInvoice.invoice_name : '';
+                    modeSpan.setAttribute('title', `Will reconcile with ${invoiceName}`);
+                    modeSpan.textContent = 'BT+PE';
+                } else {
+                    modeSpan.className = 'px-2 py-0.5 bg-amber-400 text-black text-xs font-bold border border-black rounded cursor-help';
+                    modeSpan.setAttribute('title', 'No matching invoice found');
+                    modeSpan.textContent = 'BT Only';
+                }
+                modeCell.appendChild(modeSpan);
+            } else {
+                const dashSpan = document.createElement('span');
+                dashSpan.className = 'text-gray-400';
+                dashSpan.textContent = '—';
+                modeCell.appendChild(dashSpan);
+            }
+            row.appendChild(modeCell);
+
+            // Cell 8: Processed badge
+            const processedCell = document.createElement('td');
+            processedCell.className = 'px-2 py-2';
+            const processedSpan = document.createElement('span');
+            if (isProcessed) {
+                processedSpan.className = 'px-2 py-1 bg-green-600 text-white text-xs font-bold border-2 border-black rounded';
+                processedSpan.textContent = '✓ Processed';
+            } else {
+                processedSpan.className = 'px-2 py-1 bg-amber-400 text-black text-xs font-bold border-2 border-black rounded';
+                processedSpan.textContent = 'Unprocessed';
+            }
+            processedCell.appendChild(processedSpan);
+            row.appendChild(processedCell);
+
+            tbody.appendChild(row);
+        });
+    });
+
+    bulkUpdateSelectedCount();
+}
+
+function bulkSelectAllUnprocessed() {
+    let count = 0;
+
+    document.querySelectorAll('.bulk-payment-checkbox').forEach(cb => {
+        cb.checked = true;
+        count++;
+    });
+
+    if (count === 0) {
+        alert('No unprocessed payments available to select.\n\nPlease click "Retrieve All Member Payments" first to load payment data.');
+        return;
+    }
+
+    bulkUpdateSelectedCount();
+}
+
+function bulkDeselectAll() {
+    document.querySelectorAll('.bulk-payment-checkbox').forEach(cb => {
+        cb.checked = false;
+    });
+    document.getElementById('bulk-select-all-checkbox').checked = false;
+    bulkUpdateSelectedCount();
+}
+
+function bulkToggleSelectAll() {
+    const MAX_BATCH_SIZE = 500;
+    const selectAllCheckbox = document.getElementById('bulk-select-all-checkbox');
+    const checked = selectAllCheckbox.checked;
+    const checkboxes = document.querySelectorAll('.bulk-payment-checkbox');
+    let count = 0;
+
+    if (checked && checkboxes.length === 0) {
+        alert('No unprocessed payments available to select.\n\nPlease click "Retrieve All Member Payments" first to load payment data.');
+        selectAllCheckbox.checked = false;
+        return;
+    }
+
+    checkboxes.forEach(cb => {
+        if (checked) {
+            if (count < MAX_BATCH_SIZE) {
+                cb.checked = true;
+                count++;
+            }
+        } else {
+            cb.checked = false;
+        }
+    });
+
+    if (checked && count >= MAX_BATCH_SIZE) {
+        alert(`Selected first ${MAX_BATCH_SIZE} payments.\n\nMaximum batch size is ${MAX_BATCH_SIZE} to prevent timeouts.\nProcess these first, then select more.`);
+    }
+
+    bulkUpdateSelectedCount();
+}
+
+function bulkUpdateSelectedCount() {
+    const count = document.querySelectorAll('.bulk-payment-checkbox:checked').length;
+    document.getElementById('bulk-selected-count').querySelector('span').textContent = count;
+}
+
+function bulkProcessSelectedPayments() {
+    const checkboxes = document.querySelectorAll('.bulk-payment-checkbox:checked');
+    if (checkboxes.length === 0) {
+        alert('Please select at least one payment to process');
+        return;
+    }
+
+    const paymentIds = [];
+    const paymentModes = {};
+    let btPeCount = 0;
+    let btOnlyCount = 0;
+
+    Array.from(checkboxes).forEach(cb => {
+        const paymentId = cb.dataset.paymentId;
+        const mode = cb.dataset.processingMode || 'bt_only';
+        const matchingInvoice = cb.dataset.matchingInvoice || null;
+
+        paymentIds.push(paymentId);
+        paymentModes[paymentId] = {
+            mode: mode,
+            matching_invoice: matchingInvoice
+        };
+
+        if (mode === 'bt_pe_reconcile') {
+            btPeCount++;
+        } else {
+            btOnlyCount++;
+        }
+    });
+
+    const docstatus = '1';  // Always submit documents
+
+    if (btPeCount > 250) {
+        alert(`⚠️ Large Batch Warning\n\nYou're processing ${btPeCount} payments that will create Bank Transaction + Payment Entry.\n\nThis may take several minutes and could timeout.\n\nConsider processing in smaller batches.`);
+    }
+
+    let modeBreakdown = `Intelligent Processing:\n`;
+    if (btPeCount > 0) {
+        modeBreakdown += `• ${btPeCount} payment(s) → BT + PE + Reconcile (matching invoice found)\n`;
+    }
+    if (btOnlyCount > 0) {
+        modeBreakdown += `• ${btOnlyCount} payment(s) → BT Only (no matching invoice)\n`;
+    }
+    const message = `Process ${paymentIds.length} payment(s)?\n\n${modeBreakdown}\nDocuments will be auto-submitted.\n\nContinue?`;
+
+    if (!confirm(message)) {
+        return;
+    }
+
+    document.getElementById('bulk-processing-results').style.display = 'block';
+    document.getElementById('bulk-processing-results').textContent = 'Processing payments...';
+
+    const formData = new FormData();
+    formData.append('payment_ids', JSON.stringify(paymentIds));
+    formData.append('docstatus', docstatus);
+    formData.append('payment_modes', JSON.stringify(paymentModes));
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payment_processing.bulk_process_member_payments', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => {
+        if (!response.ok) {
+            return response.text().then(text => {
+                throw new Error(`Server error (${response.status}): ${text}`);
+            });
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data.exc || data._server_messages) {
+            let errorMsg = 'Server Error:\n\n';
+            if (data._server_messages) {
+                try {
+                    const messages = JSON.parse(data._server_messages);
+                    errorMsg += messages.map(m => JSON.parse(m).message).join('\n');
+                } catch (e) {
+                    errorMsg += data._server_messages;
+                }
+            }
+            if (data.exc) {
+                errorMsg += '\n\nException:\n' + data.exc;
+            }
+            document.getElementById('bulk-processing-results').textContent = errorMsg;
+            document.getElementById('bulk-processing-results').style.display = 'block';
+            return;
+        }
+
+        const result = data.message || data;
+        displayBulkProcessingResults(result);
+    })
+    .catch(error => {
+        let errorText = 'Bulk processing error:\n\n' + error.message;
+
+        if (error.message.includes('500') || error.message.includes('Internal Server Error')) {
+            errorText += '\n\n⚠️ This is likely a timeout issue.\n\n';
+            errorText += 'The processing may still be running in the background.\n';
+            errorText += 'Check the Error Log in Frappe or wait a few minutes and refresh to see if documents were created.\n\n';
+            errorText += 'For large batches, consider:\n';
+            errorText += '• Processing in smaller batches (< 250 payments)\n';
+            errorText += '• Using the single-member processor for individual members';
+        } else {
+            errorText += '\n\nCheck browser console for details.';
+        }
+
+        document.getElementById('bulk-processing-results').textContent = errorText;
+        document.getElementById('bulk-processing-results').style.display = 'block';
+        console.error('Bulk processing error:', error);
+    });
+}
+
+function displayBulkProcessingResults(data) {
+    // Check if this is a queued background job response
+    if (data.queued) {
+        let output = `Background Processing Queued\n`;
+        output += `============================\n\n`;
+        output += `Job ID: ${data.job_id}\n`;
+        output += `Total Payments: ${data.total_payments}\n`;
+        output += `Number of Batches: ${data.num_batches}\n`;
+        output += `Batch Size: ${data.batch_size}\n\n`;
+        output += `${data.message}\n\n`;
+        output += `Batches Queued:\n`;
+        output += `--------------\n`;
+        data.batches.forEach(batch => {
+            output += `  Batch ${batch.batch_num}: ${batch.payment_count} payments\n`;
+        });
+        output += `\nThe batches are processing in the background. Check the Background Jobs list to monitor progress.\n`;
+        output += `You can close this page - processing will continue in the background.\n`;
+
+        document.getElementById('bulk-processing-results').textContent = output;
+        document.getElementById('bulk-processing-results').style.display = 'block';
+
+        alert(`${data.num_batches} batches queued for background processing!\n\nJob ID: ${data.job_id}\n\nCheck Background Jobs for progress.`);
+        return;
+    }
+
+    // Check if this is an error response
+    if (data.error && !data.total_requested) {
+        let output = `Bulk Processing Error\n`;
+        output += `====================\n\n`;
+        output += `Error: ${data.error}\n`;
+        document.getElementById('bulk-processing-results').textContent = output;
+        return;
+    }
+
+    let output = `Bulk Processing Complete\n`;
+    output += `======================\n\n`;
+    output += `Total Requested: ${data.total_requested}\n`;
+    output += `Successfully Processed: ${data.processed}\n`;
+    output += `Skipped (already processed): ${data.skipped}\n`;
+    output += `Errors: ${data.errors}\n`;
+    output += `Document Status: ${data.docstatus === 0 ? 'Draft' : 'Submitted'}\n`;
+    output += `\n`;
+
+    if (data.results && data.results.length > 0) {
+        output += `Detailed Results:\n`;
+        output += `----------------\n`;
+        data.results.forEach((result, index) => {
+            output += `\n${index + 1}. Payment ID: ${result.payment_id}\n`;
+            output += `   Status: ${result.status}\n`;
+            if (result.payment_entry) {
+                output += `   Payment Entry: ${result.payment_entry}\n`;
+                if (result.payment_entry_submitted) {
+                    output += `   ✓ Payment Entry Submitted\n`;
+                }
+            }
+            if (result.bank_transaction) {
+                output += `   Bank Transaction: ${result.bank_transaction}\n`;
+                if (result.bank_transaction_submitted) {
+                    output += `   ✓ Bank Transaction Submitted\n`;
+                }
+            }
+            if (result.error) {
+                output += `   Error: ${result.error}\n`;
+            }
+            if (result.message) {
+                output += `   Message: ${result.message}\n`;
+            }
+        });
+    }
+
+    document.getElementById('bulk-processing-results').textContent = output;
+
+    if (data.processed > 0) {
+        setTimeout(() => {
+            alert(`Processing complete!\n\nProcessed: ${data.processed}\nSkipped: ${data.skipped}\nErrors: ${data.errors}\n\nClick OK to refresh the payment list.`);
+            bulkRetrieveAllMemberPayments();
+        }, 1000);
+    }
+}
+</script>
+{% endblock %}

@@ -6,10 +6,21 @@ Provides standardized patterns for error responses, frequency mapping, and other
 common operations used across Mollie integration code.
 """
 
-from typing import Any, Dict, Optional
+import re
+from typing import Any, Dict, List, Optional, Tuple
 
 import frappe
 from frappe import _
+
+# Pre-compiled regex patterns for Mollie ID validation
+MOLLIE_ID_PATTERNS = {
+    "payment": re.compile(r"^tr_[a-zA-Z0-9]{10,}$"),
+    "refund": re.compile(r"^re_[a-zA-Z0-9]{10,}$"),
+    "chargeback": re.compile(r"^chb_[a-zA-Z0-9]{10,}$"),
+    "customer": re.compile(r"^cst_[a-zA-Z0-9]{10,}$"),
+    "subscription": re.compile(r"^sub_[a-zA-Z0-9]{10,}$"),
+    "mandate": re.compile(r"^mdt_[a-zA-Z0-9]{10,}$"),
+}
 
 
 def create_error_response(message: str, details: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -227,6 +238,93 @@ def validate_mollie_amount(amount: Any, min_amount: float = 0.01) -> float:
         raise ValueError(f"Amount must be at least {min_amount}, got: {amount_float}")
 
     return amount_float
+
+
+def validate_mollie_id(mollie_id: str, id_type: str = "payment") -> Tuple[bool, str]:
+    """
+    Validate a single Mollie ID format.
+
+    Args:
+        mollie_id: The Mollie ID to validate
+        id_type: Type of ID ('payment', 'refund', 'chargeback', 'customer', 'subscription', 'mandate')
+
+    Returns:
+        Tuple of (is_valid, error_message). Error message is empty if valid.
+
+    Example:
+        >>> validate_mollie_id("tr_WDqYK6vllg", "payment")
+        (True, "")
+        >>> validate_mollie_id("invalid", "payment")
+        (False, "Invalid payment ID format: invalid")
+        >>> validate_mollie_id("cst_123", "customer")
+        (False, "Invalid customer ID format: cst_123")
+    """
+    if not mollie_id or not isinstance(mollie_id, str):
+        return False, f"{id_type.capitalize()} ID must be a non-empty string"
+
+    pattern = MOLLIE_ID_PATTERNS.get(id_type)
+    if not pattern:
+        return False, f"Unknown ID type: {id_type}"
+
+    if not pattern.match(mollie_id):
+        return False, f"Invalid {id_type} ID format: {mollie_id}"
+
+    return True, ""
+
+
+def validate_mollie_payment_ids(payment_ids: List[str]) -> None:
+    """
+    Validate a list of Mollie payment IDs, raising ValueError on invalid.
+
+    This is a convenience function for batch validation that throws on first error.
+    Use for API endpoint validation where you want to reject invalid input early.
+
+    Args:
+        payment_ids: List of payment IDs to validate
+
+    Raises:
+        ValueError: If any payment ID is invalid
+
+    Example:
+        >>> validate_mollie_payment_ids(["tr_WDqYK6vllg", "tr_AbCdEfGhIj"])  # Valid
+        >>> validate_mollie_payment_ids(["invalid"])
+        ValueError: Invalid Mollie payment ID: invalid - Invalid payment ID format: invalid
+    """
+    for pid in payment_ids:
+        if not isinstance(pid, str):
+            raise ValueError(_("Payment ID must be a string: {0}").format(pid))
+
+        is_valid, error_msg = validate_mollie_id(pid, "payment")
+        if not is_valid:
+            raise ValueError(_("Invalid Mollie payment ID: {0} - {1}").format(pid, error_msg))
+
+
+def user_has_any_role(allowed_roles: List[str], user: Optional[str] = None) -> bool:
+    """
+    Check if a user has any of the specified roles.
+
+    Centralized role-based permission checking pattern used across Mollie integration.
+    Using direct role check instead of frappe.has_permission() because has_permission()
+    doesn't work correctly for service accounts (e.g., webhook users).
+
+    Args:
+        allowed_roles: List of role names that grant access
+        user: User to check (defaults to current session user)
+
+    Returns:
+        True if user has any of the allowed roles, False otherwise
+
+    Example:
+        >>> user_has_any_role(["System Manager", "Administrator"])
+        True  # If current user has either role
+        >>> user_has_any_role(["Verenigingen Administrator"], "webhook@example.com")
+        False  # If webhook user doesn't have that role
+    """
+    if user is None:
+        user = frappe.session.user
+
+    user_roles = frappe.get_roles(user)
+    return any(role in allowed_roles for role in user_roles)
 
 
 def format_mollie_amount(amount: Any, currency: str = "EUR") -> Dict[str, str]:
