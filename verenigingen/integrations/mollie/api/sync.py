@@ -12,10 +12,11 @@ from frappe.utils import now_datetime
 
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
-from ..core.mollie_client import MollieClient
-from ..core.mollie_exceptions import MollieIntegrationError
+from ..core.client import MollieClient
+from ..exceptions import MollieIntegrationError
 from ..services.payment_service import PaymentService
 from ..services.subscription_service import SubscriptionService
+from ..utils.amount_helpers import extract_amount_currency, extract_amount_float
 from ..utils.audit import log_mollie_security_event
 
 
@@ -127,8 +128,8 @@ def sync_customer_payments(customer_id: str, limit: int = 50) -> Dict[str, Any]:
             try:
                 payment_data = {
                     "id": payment.id,
-                    "amount": float(payment.amount.amount),
-                    "currency": payment.amount.currency,
+                    "amount": extract_amount_float(payment.amount),
+                    "currency": extract_amount_currency(payment.amount),
                     "status": payment.status,
                     "paid_at": payment.paid_at,
                     "method": payment.method,
@@ -136,7 +137,7 @@ def sync_customer_payments(customer_id: str, limit: int = 50) -> Dict[str, Any]:
                 }
 
                 # Check if we need to process this payment
-                if payment.is_paid:
+                if payment.status == "paid":
                     # Check if already processed locally
                     existing_log = frappe.db.exists(
                         "Mollie Audit Log",

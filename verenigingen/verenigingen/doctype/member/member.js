@@ -3600,6 +3600,16 @@ function incremental_update_history_tables(frm) {
 								__('Donations: {0}', [data.donations.error])
 							);
 						}
+						if (data && data.dues_payments && data.dues_payments.error) {
+							error_parts.push(
+								__('Dues Payments: {0}', [data.dues_payments.error])
+							);
+						}
+						if (data && data.invoices && data.invoices.error) {
+							error_parts.push(
+								__('Invoices: {0}', [data.invoices.error])
+							);
+						}
 
 						frappe.msgprint({
 							title: __('Update Failed'),

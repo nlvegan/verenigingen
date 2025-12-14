@@ -10,6 +10,8 @@ from typing import Any, Dict, Optional
 
 import frappe
 
+from verenigingen.integrations.mollie.utils.amount_helpers import extract_amount_float
+
 
 class MollieTestHelper:
     """
@@ -168,7 +170,7 @@ class MollieTestHelper:
             return {
                 "refund_id": refund.id,
                 "payment_id": payment_id,
-                "amount": float(refund.amount.value) if hasattr(refund.amount, "value") else amount,
+                "amount": extract_amount_float(refund.amount) or amount,
                 "status": refund.status,
             }
 

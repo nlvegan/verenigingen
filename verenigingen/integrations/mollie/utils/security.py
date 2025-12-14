@@ -13,7 +13,7 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
-from ..core.mollie_exceptions import MollieSecurityError
+from ..exceptions import MollieSecurityError
 
 
 class WebhookSecurityManager:

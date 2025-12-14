@@ -4,11 +4,17 @@ Mollie Client - Core API Integration
 A simple, robust wrapper around the Mollie API that focuses on the operations
 actually needed by the Verenigingen application. This replaces the complex
 mollie_client.py with a focused implementation.
+
+Uses MollieConfigurationService for cached configuration access where appropriate.
+API keys are NOT cached for security reasons - retrieved directly from Mollie Settings.
 """
 
 from typing import Any, Dict, Optional
 
 import frappe
+
+# Import configuration service for cached settings access
+from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 from ..exceptions import MolliePaymentError, MollieWebhookError
 from ..utils.error_recovery import CircuitBreakerConfig, RetryConfig, with_circuit_breaker, with_retry
@@ -241,14 +247,44 @@ class MollieClient:
             frappe.log_error(error_msg, "Mollie Client")
             raise MolliePaymentError(error_msg, original_error=e)
 
+    def list_customer_payments(self, customer_id: str, limit: int = 50) -> Any:
+        """
+        List payments for a customer.
+
+        Args:
+            customer_id: The Mollie customer ID
+            limit: Maximum number of payments to return (default 50)
+
+        Returns:
+            List of Mollie payment objects
+
+        Raises:
+            MolliePaymentError: When payments cannot be retrieved
+        """
+        try:
+            client = self._get_mollie_client()
+            customer = client.customers.get(customer_id)
+            return list(customer.payments.list(limit=limit))
+        except Exception as e:
+            error_msg = f"Failed to list payments for customer {customer_id}: {e}"
+            frappe.log_error(error_msg, "Mollie Client")
+            raise MolliePaymentError(error_msg, original_error=e)
+
     def is_test_mode(self) -> bool:
         """
         Check if the client is in test mode.
 
+        Uses MollieConfigurationService for cached access to test_mode setting.
+        Falls back to API key prefix check if configuration unavailable.
+
         Returns:
             True if in test mode, False if in live mode
         """
-        return self.api_key.startswith("test_") if self.api_key else False
+        try:
+            return get_mollie_config().is_test_mode()
+        except Exception:
+            # Fallback to API key check if config service unavailable
+            return self.api_key.startswith("test_") if self.api_key else False
 
     def get_refund(self, payment_id: str, refund_id: str) -> Any:
         """
@@ -371,6 +407,8 @@ class MollieClient:
         """
         Get the webhook URL for this site with environment parameter.
 
+        Uses MollieConfigurationService for cached access to test_mode setting.
+
         Args:
             endpoint: The webhook endpoint name
             env: Environment parameter ("test" or "live"). If None, auto-detects from current mode.
@@ -385,31 +423,8 @@ class MollieClient:
         if env is not None:
             env_param = env
         else:
-            # Auto-detect environment from Mollie Settings test_mode flag
-            try:
-                mollie_settings = frappe.get_single("Mollie Settings")
-                env_param = "test" if mollie_settings.test_mode else "live"
-            except frappe.DoesNotExistError as e:
-                frappe.log_error(f"Mollie Settings not configured: {e}", "Mollie Client Config")
-                frappe.logger().warning(
-                    "Mollie Settings not found, using API key fallback for environment detection"
-                )
-                env_param = "test" if self.is_test_mode() else "live"
-            except frappe.PermissionError as e:
-                frappe.log_error(
-                    f"Permission denied accessing Mollie Settings: {e}", "Mollie Client Security"
-                )
-                # Permission errors should not silently fallback - this is a security concern
-                from verenigingen.integrations.mollie.exceptions import MolliePaymentError
-
-                raise MolliePaymentError("Insufficient permissions to access Mollie configuration")
-            except Exception as e:
-                frappe.log_error(
-                    f"Unexpected error accessing Mollie Settings for webhook URL: {e}",
-                    "Mollie Client Webhook URL",
-                )
-                # Still provide fallback but log the unexpected error
-                env_param = "test" if self.is_test_mode() else "live"
+            # Auto-detect environment using configuration service (cached)
+            env_param = "test" if self.is_test_mode() else "live"
 
         return f"{base_url}?env={env_param}"
 

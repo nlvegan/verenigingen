@@ -21,6 +21,7 @@ from verenigingen.utils.security.api_security_framework import (
 from ..exceptions import MolliePaymentError, MollieValidationError, MollieWebhookError
 from ..services.complete_payment_service import CompletePaymentService
 from ..services.webhook_wrapper_service_unified import get_unified_webhook_service
+from ..utils.amount_helpers import extract_amount_value
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
@@ -494,7 +495,7 @@ def initiate_refund():
             "status": "success",
             "refund_id": refund.id,
             "payment_id": payment_id,
-            "amount": refund.amount.value,
+            "amount": extract_amount_value(refund.amount),
             "message": "Refund initiated successfully",
         }
 

@@ -16,16 +16,16 @@ Key Integration Coverage:
 - Real business logic validation with proper test data
 """
 
-import json
-import time
 import hashlib
 import hmac
+import json
+import time
 from datetime import datetime
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock, Mock, patch
 
 import frappe
-from frappe.utils import getdate, now_datetime
 from frappe.test_runner import make_test_records
+from frappe.utils import getdate, now_datetime
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
@@ -45,7 +45,7 @@ class TestWebhookIntegrationComprehensive(EnhancedTestCase):
             first_name="Integration",
             last_name="Test",
             email="integration.test@example.com",
-            payment_method="Mollie"
+            payment_method="Mollie",
         )
 
         # Set up Mollie subscription details
@@ -55,10 +55,7 @@ class TestWebhookIntegrationComprehensive(EnhancedTestCase):
         self.test_member.save()
 
         # Create test donation
-        self.test_donation = self.create_test_donation(
-            donor_name="Integration Test Donor",
-            amount=75.0
-        )
+        self.test_donation = self.create_test_donation(donor_name="Integration Test Donor", amount=75.0)
         self.test_donation.payment_id = "tr_donation_integration_123"
         self.test_donation.save()
 
@@ -67,35 +64,31 @@ class TestWebhookIntegrationComprehensive(EnhancedTestCase):
         self.mock_mollie_settings.get_webhook_secret.return_value = self.webhook_secret
 
         # Create webhook user for testing
-        self.webhook_user = frappe.get_doc({
-            "doctype": "User",
-            "email": "webhook.test@verenigingen.test",
-            "first_name": "Webhook",
-            "last_name": "Test User",
-            "enabled": 1
-        }).insert()
+        self.webhook_user = frappe.get_doc(
+            {
+                "doctype": "User",
+                "email": "webhook.test@verenigingen.test",
+                "first_name": "Webhook",
+                "last_name": "Test User",
+                "enabled": 1,
+            }
+        ).insert()
 
         # Add Verenigingen Webhook User role
         if not frappe.db.exists("Role", "Verenigingen Webhook User"):
-            frappe.get_doc({
-                "doctype": "Role",
-                "role_name": "Verenigingen Webhook User",
-                "desk_access": 0
-            }).insert()
+            frappe.get_doc(
+                {"doctype": "Role", "role_name": "Verenigingen Webhook User", "desk_access": 0}
+            ).insert()
 
         # Assign role to webhook user
-        frappe.get_doc({
-            "doctype": "Has Role",
-            "parent": self.webhook_user.name,
-            "role": "Verenigingen Webhook User"
-        }).insert()
+        frappe.get_doc(
+            {"doctype": "Has Role", "parent": self.webhook_user.name, "role": "Verenigingen Webhook User"}
+        ).insert()
 
     def generate_webhook_signature(self, payload):
         """Generate valid webhook signature for integration testing"""
         return hmac.new(
-            self.webhook_secret.encode('utf-8'),
-            payload.encode('utf-8'),
-            hashlib.sha256
+            self.webhook_secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
         ).hexdigest()
 
     def create_webhook_request_data(self, payment_id, status="failed", **kwargs):
@@ -106,13 +99,13 @@ class TestWebhookIntegrationComprehensive(EnhancedTestCase):
             "amount": {"value": "25.00", "currency": "EUR"},
             "method": "directdebit",
             "created_at": now_datetime().isoformat(),
-            **kwargs
+            **kwargs,
         }
         return json.dumps(webhook_data)
 
-    @patch('frappe.get_single')
-    @patch('frappe.local.form_dict', new_callable=dict)
-    @patch('frappe.request')
+    @patch("frappe.get_single")
+    @patch("frappe.local.form_dict", new_callable=dict)
+    @patch("frappe.request")
     def test_complete_failed_member_payment_workflow(self, mock_request, mock_form_dict, mock_get_single):
         """Test complete workflow for failed member subscription payment"""
         from verenigingen.integrations.mollie.api.payment_webhook import handle_mollie_payment_webhook
@@ -123,7 +116,7 @@ class TestWebhookIntegrationComprehensive(EnhancedTestCase):
             payment_id,
             status="failed",
             subscription_id=self.test_member.mollie_subscription_id,
-            customer_id=self.test_member.mollie_customer_id
+            customer_id=self.test_member.mollie_customer_id,
         )
         signature = self.generate_webhook_signature(webhook_payload)
 
@@ -139,22 +132,23 @@ class TestWebhookIntegrationComprehensive(EnhancedTestCase):
         mock_payment.status = "failed"
         mock_payment.subscription_id = self.test_member.mollie_subscription_id
         mock_payment.customer_id = self.test_member.mollie_customer_id
-        mock_payment.amount = Mock()
-        mock_payment.amount.value = "25.00"
-        mock_payment.amount.currency = "EUR"
+        # Use dict format for amount to match real Mollie SDK v3.8.0 behavior
+        mock_payment.amount = {"value": "25.00", "currency": "EUR"}
         mock_payment.method = "directdebit"
 
-        with patch('verenigingen.integrations.mollie.api.payment_webhook.get_webhook_user') as mock_get_user:
+        with patch("verenigingen.integrations.mollie.api.payment_webhook.get_webhook_user") as mock_get_user:
             mock_get_user.return_value = self.webhook_user.email
 
-            with patch('frappe.set_user'):
-                with patch.object(self.mock_mollie_settings, 'get_mollie_client') as mock_get_client:
+            with patch("frappe.set_user"):
+                with patch.object(self.mock_mollie_settings, "get_mollie_client") as mock_get_client:
                     mock_client = Mock()
                     mock_client.payments.get.return_value = mock_payment
                     mock_get_client.return_value = mock_client
 
                     # Mock email service to prevent actual email sending
-                    with patch('verenigingen.services.communication.email_service.get_email_service') as mock_email:
+                    with patch(
+                        "verenigingen.services.communication.email_service.get_email_service"
+                    ) as mock_email:
                         mock_email_service = Mock()
                         mock_email_service.send_templated_email.return_value = {"status": "success"}
                         mock_email.return_value = mock_email_service
@@ -176,14 +170,16 @@ class TestWebhookIntegrationComprehensive(EnhancedTestCase):
 
                         self.assertIsNotNone(failed_payment)
                         self.assertIn("Failed", failed_payment.payment_status)
-                        self.assertEqual(failed_payment.mollie_subscription_id, self.test_member.mollie_subscription_id)
+                        self.assertEqual(
+                            failed_payment.mollie_subscription_id, self.test_member.mollie_subscription_id
+                        )
 
                         # Verify email notification was sent
                         mock_email_service.send_templated_email.assert_called_once()
 
-    @patch('frappe.get_single')
-    @patch('frappe.local.form_dict', new_callable=dict)
-    @patch('frappe.request')
+    @patch("frappe.get_single")
+    @patch("frappe.local.form_dict", new_callable=dict)
+    @patch("frappe.request")
     def test_complete_failed_donation_workflow(self, mock_request, mock_form_dict, mock_get_single):
         """Test complete workflow for failed donation payment"""
         from verenigingen.integrations.mollie.api.payment_webhook import handle_mollie_payment_webhook
@@ -205,16 +201,15 @@ class TestWebhookIntegrationComprehensive(EnhancedTestCase):
         mock_payment.status = "failed"
         mock_payment.subscription_id = None
         mock_payment.customer_id = None
-        mock_payment.amount = Mock()
-        mock_payment.amount.value = "75.00"
-        mock_payment.amount.currency = "EUR"
+        # Use dict format for amount to match real Mollie SDK v3.8.0 behavior
+        mock_payment.amount = {"value": "75.00", "currency": "EUR"}
         mock_payment.method = "ideal"
 
-        with patch('verenigingen.integrations.mollie.api.payment_webhook.get_webhook_user') as mock_get_user:
+        with patch("verenigingen.integrations.mollie.api.payment_webhook.get_webhook_user") as mock_get_user:
             mock_get_user.return_value = self.webhook_user.email
 
-            with patch('frappe.set_user'):
-                with patch.object(self.mock_mollie_settings, 'get_mollie_client') as mock_get_client:
+            with patch("frappe.set_user"):
+                with patch.object(self.mock_mollie_settings, "get_mollie_client") as mock_get_client:
                     mock_client = Mock()
                     mock_client.payments.get.return_value = mock_payment
                     mock_get_client.return_value = mock_client
@@ -237,9 +232,9 @@ class TestWebhookIntegrationComprehensive(EnhancedTestCase):
                     self.assertIsNotNone(failed_payment)
                     self.assertIn("Failed", failed_payment.payment_status)
 
-    @patch('frappe.get_single')
-    @patch('frappe.local.form_dict', new_callable=dict)
-    @patch('frappe.request')
+    @patch("frappe.get_single")
+    @patch("frappe.local.form_dict", new_callable=dict)
+    @patch("frappe.request")
     def test_successful_member_payment_workflow(self, mock_request, mock_form_dict, mock_get_single):
         """Test complete workflow for successful member subscription payment"""
         from verenigingen.integrations.mollie.api.payment_webhook import handle_mollie_payment_webhook
@@ -250,7 +245,7 @@ class TestWebhookIntegrationComprehensive(EnhancedTestCase):
             payment_id,
             status="paid",
             subscription_id=self.test_member.mollie_subscription_id,
-            customer_id=self.test_member.mollie_customer_id
+            customer_id=self.test_member.mollie_customer_id,
         )
         signature = self.generate_webhook_signature(webhook_payload)
 
@@ -266,22 +261,23 @@ class TestWebhookIntegrationComprehensive(EnhancedTestCase):
         mock_payment.status = "paid"
         mock_payment.subscription_id = self.test_member.mollie_subscription_id
         mock_payment.customer_id = self.test_member.mollie_customer_id
-        mock_payment.amount = Mock()
-        mock_payment.amount.value = "25.00"
-        mock_payment.amount.currency = "EUR"
+        # Use dict format for amount to match real Mollie SDK v3.8.0 behavior
+        mock_payment.amount = {"value": "25.00", "currency": "EUR"}
         mock_payment.method = "directdebit"
 
-        with patch('verenigingen.integrations.mollie.api.payment_webhook.get_webhook_user') as mock_get_user:
+        with patch("verenigingen.integrations.mollie.api.payment_webhook.get_webhook_user") as mock_get_user:
             mock_get_user.return_value = self.webhook_user.email
 
-            with patch('frappe.set_user'):
-                with patch.object(self.mock_mollie_settings, 'get_mollie_client') as mock_get_client:
+            with patch("frappe.set_user"):
+                with patch.object(self.mock_mollie_settings, "get_mollie_client") as mock_get_client:
                     mock_client = Mock()
                     mock_client.payments.get.return_value = mock_payment
                     mock_get_client.return_value = mock_client
 
                     # Mock subscription service
-                    with patch('verenigingen.integrations.mollie.services.subscription_service.SubscriptionService') as mock_sub_service:
+                    with patch(
+                        "verenigingen.integrations.mollie.services.subscription_service.SubscriptionService"
+                    ) as mock_sub_service:
                         mock_service_instance = Mock()
                         mock_service_instance.get_subscription_status.return_value = {
                             "next_payment_date": "2024-02-01"
@@ -305,7 +301,9 @@ class TestWebhookIntegrationComprehensive(EnhancedTestCase):
 
                         self.assertIsNotNone(successful_payment)
                         self.assertEqual(successful_payment.payment_status, "Paid")
-                        self.assertEqual(successful_payment.mollie_subscription_id, self.test_member.mollie_subscription_id)
+                        self.assertEqual(
+                            successful_payment.mollie_subscription_id, self.test_member.mollie_subscription_id
+                        )
 
     def test_webhook_signature_validation_integration(self):
         """Test webhook signature validation in integration context"""
@@ -315,8 +313,8 @@ class TestWebhookIntegrationComprehensive(EnhancedTestCase):
         payload = '{"id": "tr_test_signature_validation"}'
         valid_signature = self.generate_webhook_signature(payload)
 
-        with patch('frappe.request') as mock_request:
-            with patch('frappe.get_single') as mock_get_single:
+        with patch("frappe.request") as mock_request:
+            with patch("frappe.get_single") as mock_get_single:
                 mock_request.get_data.return_value = payload
                 mock_request.headers = {"X-Mollie-Signature": valid_signature}
                 mock_get_single.return_value = self.mock_mollie_settings
@@ -330,8 +328,8 @@ class TestWebhookIntegrationComprehensive(EnhancedTestCase):
         # Test with invalid signature
         invalid_signature = "invalid_signature_123"
 
-        with patch('frappe.request') as mock_request:
-            with patch('frappe.get_single') as mock_get_single:
+        with patch("frappe.request") as mock_request:
+            with patch("frappe.get_single") as mock_get_single:
                 mock_request.get_data.return_value = payload
                 mock_request.headers = {"X-Mollie-Signature": invalid_signature}
                 mock_get_single.return_value = self.mock_mollie_settings
@@ -355,15 +353,18 @@ class TestWebhookIntegrationComprehensive(EnhancedTestCase):
         self.assertFalse(status["all_complete"])
 
         # Simulate processing by adding payment history
-        donation.append("payments", {
-            "payment_date": getdate(),
-            "amount": donation.amount,
-            "payment_method": "Mollie",
-            "payment_id": payment_id,
-            "payment_reference": payment_id,
-            "payment_status": "Failed (failed)",
-            "mollie_payment_id": payment_id
-        })
+        donation.append(
+            "payments",
+            {
+                "payment_date": getdate(),
+                "amount": donation.amount,
+                "payment_method": "Mollie",
+                "payment_id": payment_id,
+                "payment_reference": payment_id,
+                "payment_status": "Failed (failed)",
+                "mollie_payment_id": payment_id,
+            },
+        )
         donation.save()
 
         # Second check - should show payment history exists
@@ -388,14 +389,17 @@ class TestWebhookIntegrationComprehensive(EnhancedTestCase):
             current_count = _get_subscription_failure_count(member.name, subscription_id)
 
             # Add new failure
-            member.append("payment_history", {
-                "payment_date": getdate(),
-                "amount": 25.0,
-                "payment_method": "Mollie",
-                "payment_status": f"Failed (failed)",
-                "mollie_subscription_id": subscription_id,
-                "mollie_payment_id": f"tr_concurrent_safety_{i}"
-            })
+            member.append(
+                "payment_history",
+                {
+                    "payment_date": getdate(),
+                    "amount": 25.0,
+                    "payment_method": "Mollie",
+                    "payment_status": f"Failed (failed)",
+                    "mollie_subscription_id": subscription_id,
+                    "mollie_payment_id": f"tr_concurrent_safety_{i}",
+                },
+            )
             member.save()
 
             # Verify count increases correctly
@@ -410,7 +414,7 @@ class TestWebhookIntegrationComprehensive(EnhancedTestCase):
         """Clean up test environment"""
         try:
             # Clean up test user
-            if hasattr(self, 'webhook_user') and self.webhook_user:
+            if hasattr(self, "webhook_user") and self.webhook_user:
                 frappe.delete_doc("User", self.webhook_user.name, force=True)
         except:
             pass
@@ -431,7 +435,7 @@ class TestWebhookPerformanceIntegration(EnhancedTestCase):
                 first_name=f"Performance{i}",
                 last_name="Test",
                 email=f"performance{i}.test@example.com",
-                payment_method="Mollie"
+                payment_method="Mollie",
             )
             member.mollie_customer_id = f"cst_perf_test_{i}"
             member.mollie_subscription_id = f"sub_perf_test_{i}"
@@ -445,14 +449,17 @@ class TestWebhookPerformanceIntegration(EnhancedTestCase):
         # Add bulk payment history data
         for member in self.test_members[:5]:  # Test with 5 members
             for i in range(20):  # 20 payments each
-                member.append("payment_history", {
-                    "payment_date": getdate(),
-                    "amount": 25.0,
-                    "payment_method": "Mollie",
-                    "payment_status": "Failed (failed)" if i % 3 == 0 else "Paid",
-                    "mollie_subscription_id": member.mollie_subscription_id,
-                    "mollie_payment_id": f"tr_bulk_{member.name}_{i}"
-                })
+                member.append(
+                    "payment_history",
+                    {
+                        "payment_date": getdate(),
+                        "amount": 25.0,
+                        "payment_method": "Mollie",
+                        "payment_status": "Failed (failed)" if i % 3 == 0 else "Paid",
+                        "mollie_subscription_id": member.mollie_subscription_id,
+                        "mollie_payment_id": f"tr_bulk_{member.name}_{i}",
+                    },
+                )
             member.save()
 
         # Test query performance
@@ -504,9 +511,12 @@ class TestWebhookPerformanceIntegration(EnhancedTestCase):
         validation_time = end_time - start_time
 
         # Should complete within reasonable time
-        self.assertLess(validation_time, 1.0, f"Payment validation took {validation_time:.2f}s for 2000 payments")
+        self.assertLess(
+            validation_time, 1.0, f"Payment validation took {validation_time:.2f}s for 2000 payments"
+        )
 
 
 if __name__ == "__main__":
     import unittest
+
     unittest.main()

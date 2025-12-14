@@ -260,9 +260,7 @@ class UnifiedIdempotencyManager:
             mollie_refunds = refunds_response.get("_embedded", {}).get("refunds", [])
             self.logger.info(f"📋 Mollie SSOT: {len(mollie_refunds)} refunds for payment {payment_id}")
         except Exception as e:
-            self.logger.error(
-                f"❌ [unified_idempotency] Failed to fetch Mollie refunds for {payment_id}: {e}"
-            )
+            self.logger.error(f"❌ [unified_idempotency] Failed to fetch Mollie refunds for {payment_id}: {e}")
             # CRITICAL FIX: Mark check as failed instead of silent return
             result.refund_check_failed = True
             return
@@ -453,6 +451,26 @@ class UnifiedIdempotencyManager:
             return existing_credit_note
 
         return None
+
+    def payment_entry_exists(self, payment_id: str, payment_type: str = "Receive") -> Optional[str]:
+        """
+        Simple check if a Payment Entry exists for a given payment ID.
+
+        This is the canonical method for quick existence checks. All code paths
+        should use this instead of direct frappe.db.exists() calls to ensure
+        consistent filtering criteria.
+
+        Args:
+            payment_id: Mollie payment ID (stored in reference_no)
+            payment_type: "Receive" for payments, "Pay" for refunds
+
+        Returns:
+            Payment Entry name if exists and submitted, None otherwise
+        """
+        return frappe.db.exists(
+            "Payment Entry",
+            {"reference_no": payment_id, "payment_type": payment_type, "docstatus": 1},
+        )
 
 
 # Global singleton instance - ensures consistent state across all webhook processing

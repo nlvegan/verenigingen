@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import frappe
 from frappe.utils import add_days, flt, getdate, today
 
+from verenigingen.integrations.mollie.utils.amount_helpers import extract_amount_float, extract_amount_value
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
@@ -186,12 +187,8 @@ def fetch_mollie_payments_safe(start_date, end_date):
                     payment_date = payment.created_at[:10]
 
                     if start_date <= payment_date <= end_date:
-                        # Handle amount safely
-                        amount_value = (
-                            payment.amount.value
-                            if hasattr(payment.amount, "value")
-                            else payment.amount.get("value", "0")
-                        )
+                        # Use helper functions to safely extract amount
+                        amount_value = extract_amount_value(payment.amount)
 
                         # Handle refunds
                         refund_amount = 0
@@ -199,7 +196,7 @@ def fetch_mollie_payments_safe(start_date, end_date):
                             try:
                                 refunds = payment.refunds.list()
                                 refund_amount = sum(
-                                    float(r.amount.value) for r in refunds if r.status == "refunded"
+                                    extract_amount_float(r.amount) for r in refunds if r.status == "refunded"
                                 )
                             except:
                                 refund_amount = 0

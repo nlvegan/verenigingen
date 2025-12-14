@@ -1,11 +1,14 @@
 """
 Mollie API Client
 
-Unified client consolidating functionality from mollie_base_client.py and mollie_connector.py.
-Provides clean interface for all Mollie API operations.
+DEPRECATED: This module is deprecated. Use client.py instead.
+
+This module is kept for backward compatibility and will be removed in a future version.
+Import MollieClient from verenigingen.integrations.mollie.core.client instead.
 """
 
 import json
+import warnings
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -13,7 +16,7 @@ import frappe
 import requests
 from frappe import _
 
-from .mollie_exceptions import MollieAPIError, MollieConfigurationError
+from ..exceptions import MollieAPIError, MollieConfigurationError
 from .mollie_models import Customer, Money, Payment, Subscription
 
 try:
@@ -40,10 +43,18 @@ class MollieClient:
         """
         Initialize Mollie client.
 
+        DEPRECATED: Use verenigingen.integrations.mollie.core.client.MollieClient instead.
+
         Args:
             api_key: Mollie API key (if not provided, fetched from settings)
             test_mode: Whether to use test mode (if not provided, inferred from API key)
         """
+        warnings.warn(
+            "mollie_client.MollieClient is deprecated. "
+            "Use verenigingen.integrations.mollie.core.client.MollieClient instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.settings = self._load_settings()
 
         # Use provided API key or get from settings

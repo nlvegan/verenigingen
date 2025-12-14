@@ -1077,12 +1077,18 @@
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-1 mb-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Customer ID (optional)") }}</label>
                             <input type="text" id="test-payment-customer-id" class="debug-input"
                                    placeholder="cst_xxxxxxxxxx">
                             <p class="text-xs text-gray-600 mt-1">{{ _("Link payment to existing customer for subscription testing") }}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Due Date (optional)") }}</label>
+                            <input type="date" id="test-payment-due-date" class="debug-input"
+                                   min="" placeholder="YYYY-MM-DD">
+                            <p class="text-xs text-gray-600 mt-1">{{ _("For bank transfer payments only. Must be between tomorrow and 100 days from now.") }}</p>
                         </div>
                     </div>
 

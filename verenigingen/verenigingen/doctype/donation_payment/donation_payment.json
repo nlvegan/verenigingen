@@ -110,7 +110,7 @@
       "fieldtype": "Select",
       "in_list_view": 1,
       "label": "Payment Status",
-      "options": "Pending\nPaid\nFailed\nCancelled\nRefunded",
+      "options": "Pending\nPaid\nFailed\nCancelled\nRefunded\nChargeback",
       "reqd": 1
     },
     {

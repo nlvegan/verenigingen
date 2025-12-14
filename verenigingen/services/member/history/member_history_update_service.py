@@ -126,26 +126,41 @@ class MemberHistoryUpdateService(StatelessService):
         Note:
             - Never throws exceptions (returns failed OperationResult)
             - All errors logged and returned as OperationResult.fail()
+            - Each step has independent error handling for accurate error attribution
         """
-        try:
-            changes_made = False
-            donation_changes = 0
-            expense_changes = 0
-            cleanup_removed = 0
+        # Initialize results for each step - track success/failure independently
+        changes_made = False
+        cleanup_removed = 0
+        has_errors = False
 
-            # STEP 1: Clean broken volunteer expense entries (if employee linked)
+        # Results dict with step-specific tracking
+        results = {
+            "volunteer_expenses": {"success": True, "count": 0, "cleaned": 0},
+            "donations": {"success": True, "count": 0},
+            "dues_payments": {"success": True, "count": 0},
+            "invoices": {"success": True, "count": 0},
+        }
+
+        # STEP 1: Clean broken volunteer expense entries (if employee linked)
+        try:
             if hasattr(member_doc, "employee") and member_doc.employee:
                 from verenigingen.utils.member_history_integrity import HistoryIntegrityManager
 
                 manager = HistoryIntegrityManager(member_doc)
                 cleanup_stats = manager.cleanup_volunteer_expense_history()
                 cleanup_removed = cleanup_stats["removed"]
+                results["volunteer_expenses"]["cleaned"] = cleanup_removed
 
                 if cleanup_removed > 0:
                     changes_made = True
+        except Exception as e:
+            self.logger.error(f"Error cleaning volunteer expense history for {member_doc.name}: {str(e)}")
+            results["volunteer_expenses"]["success"] = False
+            results["volunteer_expenses"]["error"] = f"Cleanup failed: {str(e)}"
+            has_errors = True
 
-            # STEP 2: Update donation history if donor exists (via email lookup)
-            # Member doesn't have direct donor field - donors are linked via email
+        # STEP 2: Update donation history if donor exists (via email lookup)
+        try:
             donor_name = frappe.db.get_value("Donor", {"donor_email": member_doc.email}, "name")
             if donor_name:
                 from verenigingen.utils.donation_history_manager import sync_donor_history
@@ -156,81 +171,116 @@ class MemberHistoryUpdateService(StatelessService):
                 donation_changes = abs(
                     len(getattr(member_doc, "donation_history", [])) - original_donation_count
                 )
+                results["donations"]["count"] = donation_changes
                 if donation_changes > 0:
                     changes_made = True
-            else:
-                donation_changes = 0
+        except Exception as e:
+            self.logger.error(f"Error updating donation history for {member_doc.name}: {str(e)}")
+            results["donations"]["success"] = False
+            results["donations"]["error"] = str(e)
+            has_errors = True
 
-            # STEP 2.5: Prefetch payment reference data (shared between dues and invoice methods)
-            # This optimization reduces redundant queries by fetching payment refs once
+        # STEP 3: Prefetch payment reference data (shared between dues and invoice methods)
+        payment_cache = None
+        try:
             payment_cache = self._prefetch_payment_references(member_doc)
+        except Exception as e:
+            self.logger.error(f"Error prefetching payment references for {member_doc.name}: {str(e)}")
+            # This affects both dues and invoices
+            results["dues_payments"]["success"] = False
+            results["dues_payments"]["error"] = f"Payment reference prefetch failed: {str(e)}"
+            results["invoices"]["success"] = False
+            results["invoices"]["error"] = f"Payment reference prefetch failed: {str(e)}"
+            has_errors = True
 
-            # STEP 2.6: Update dues payment history (from Payment Entry custom_member field)
-            dues_changes = self._update_dues_payment_history(member_doc, payment_cache)
-            if dues_changes > 0:
-                changes_made = True
+        # STEP 4: Update dues payment history (from Payment Entry custom_member field)
+        if payment_cache is not None and results["dues_payments"]["success"]:
+            try:
+                dues_changes = self._update_dues_payment_history(member_doc, payment_cache)
+                results["dues_payments"]["count"] = dues_changes
+                if dues_changes > 0:
+                    changes_made = True
+            except Exception as e:
+                self.logger.error(f"Error updating dues payment history for {member_doc.name}: {str(e)}")
+                results["dues_payments"]["success"] = False
+                results["dues_payments"]["error"] = str(e)
+                has_errors = True
 
-            # STEP 2.7: Update invoice payment history (from Sales Invoices linked to member)
-            invoice_changes = self._update_invoice_payment_history(member_doc, payment_cache)
-            if invoice_changes > 0:
-                changes_made = True
+        # STEP 5: Update invoice payment history (from Sales Invoices linked to member)
+        if payment_cache is not None and results["invoices"]["success"]:
+            try:
+                invoice_changes = self._update_invoice_payment_history(member_doc, payment_cache)
+                results["invoices"]["count"] = invoice_changes
+                if invoice_changes > 0:
+                    changes_made = True
+            except Exception as e:
+                self.logger.error(f"Error updating invoice payment history for {member_doc.name}: {str(e)}")
+                results["invoices"]["success"] = False
+                results["invoices"]["error"] = str(e)
+                has_errors = True
 
-            # STEP 3: Update volunteer expense history if employee is linked
+        # STEP 6: Update volunteer expense history if employee is linked
+        try:
             expense_changes = self._update_volunteer_expense_history(member_doc)
+            results["volunteer_expenses"]["count"] = expense_changes
             if expense_changes > 0:
                 changes_made = True
-
-            # Only save if something actually changed
-            if changes_made:
-                # Configure flags for automated history synchronization
-                # These flags prevent unnecessary overhead and conflicts during batch updates
-
-                # ignore_version: Don't create version history for automated sync operations
-                # Reason: History tables are synchronized from source documents, creating
-                # version records would clutter the version history without adding value
-                member_doc.flags.ignore_version = True
-
-                # ignore_links: Skip link validation during history table updates
-                # Reason: Child table entries reference Payment Entries, Donations, Sales Invoices,
-                # and Volunteer Expenses. These links are validated when child records are created
-                # by the update methods. Re-validating during save adds unnecessary overhead.
-                # SECURITY NOTE: All referenced documents are validated before child table insertion
-                # by the respective _update_*_history() methods.
-                member_doc.flags.ignore_links = True
-
-                # ignore_comment: Don't generate activity log entries for automated updates
-                # Reason: History updates are triggered by source document changes (payments,
-                # donations, etc.). Logging these automated syncs creates noise in the timeline
-                # without providing actionable information to users.
-                member_doc.flags.ignore_comment = True
-
-                member_doc.save()
-
-            result_data = {
-                "volunteer_expenses": {
-                    "success": True,
-                    "count": expense_changes,
-                    "cleaned": cleanup_removed,
-                },
-                "donations": {"success": True, "count": donation_changes},
-                "dues_payments": {"success": True, "count": dues_changes},
-                "invoices": {"success": True, "count": invoice_changes},
-            }
-
-            return OperationResult.ok(
-                result_data,
-                message=f"Incremental update: {donation_changes} donation changes, {dues_changes} dues payment changes, {invoice_changes} invoice changes, {expense_changes} expense changes, {cleanup_removed} broken entries cleaned",
-            )
-
         except Exception as e:
-            self.logger.error(f"Error in incremental history update for member {member_doc.name}: {str(e)}")
+            self.logger.error(f"Error updating volunteer expense history for {member_doc.name}: {str(e)}")
+            results["volunteer_expenses"]["success"] = False
+            results["volunteer_expenses"]["error"] = str(e)
+            has_errors = True
+
+        # Only save if something actually changed and we have some successes
+        if changes_made:
+            try:
+                # Configure flags for automated history synchronization
+                member_doc.flags.ignore_version = True
+                member_doc.flags.ignore_links = True
+                member_doc.flags.ignore_comment = True
+                member_doc.save()
+            except Exception as e:
+                self.logger.error(f"Error saving member document {member_doc.name}: {str(e)}")
+                # Add save error to all results
+                for key in results:
+                    if results[key]["success"]:
+                        results[key]["success"] = False
+                        results[key]["error"] = f"Save failed: {str(e)}"
+                has_errors = True
+
+        # Build summary message
+        message_parts = []
+        if results["donations"]["count"] > 0:
+            message_parts.append(f"{results['donations']['count']} donation changes")
+        if results["dues_payments"]["count"] > 0:
+            message_parts.append(f"{results['dues_payments']['count']} dues payment changes")
+        if results["invoices"]["count"] > 0:
+            message_parts.append(f"{results['invoices']['count']} invoice changes")
+        if results["volunteer_expenses"]["count"] > 0:
+            message_parts.append(f"{results['volunteer_expenses']['count']} expense changes")
+        if cleanup_removed > 0:
+            message_parts.append(f"{cleanup_removed} broken entries cleaned")
+
+        summary = ", ".join(message_parts) if message_parts else "No changes"
+
+        if has_errors:
+            # Collect error messages
+            error_messages = []
+            for key, value in results.items():
+                if not value["success"] and "error" in value:
+                    error_messages.append(f"{key}: {value['error']}")
+
             return OperationResult.fail(
-                f"Error updating history tables: {str(e)}",
-                errors=[str(e)],
-                volunteer_expenses={"success": False, "error": str(e)},
-                donations={"success": False, "error": str(e)},
+                f"Partial update completed with errors: {summary}",
+                errors=error_messages,
+                **results,
                 member=member_doc.name,
             )
+
+        return OperationResult.ok(
+            results,
+            message=f"Incremental update: {summary}",
+        )
 
     def _prefetch_payment_references(self, member_doc: "Document") -> PaymentReferenceCache:
         """

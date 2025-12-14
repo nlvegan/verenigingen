@@ -91,10 +91,10 @@ def create_unified_payment_entry(
         customer_doc = frappe.get_doc("Customer", customer)
         display_name = customer_doc.customer_name or donor_doc.donor_name or "Unknown"
 
-        # Set cost center (reuse from main logic)
-        from verenigingen.integrations.mollie.api.payment_webhook import get_appropriate_cost_center
+        # Set cost center using shared resolver
+        from verenigingen.integrations.mollie.services.shared import get_cost_center_for_donation
 
-        cost_center = get_appropriate_cost_center(donation_doc, company)
+        cost_center = get_cost_center_for_donation(donation_doc, company)
 
         # Set accounts based on payment type
         if payment_type == "Receive":

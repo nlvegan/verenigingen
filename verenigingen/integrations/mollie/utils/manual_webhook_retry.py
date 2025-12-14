@@ -20,7 +20,7 @@ def retry_webhook_processing(payment_id="tr_kEvfjvo5qm7pN74wj27EJ"):
         print(f"Payment Status: {payment.status}")
         print(f"Sequence Type: {getattr(payment, 'sequence_type', 'N/A')}")
         print(f"Customer ID: {getattr(payment, 'customer_id', 'N/A')}")
-        print(f"Is Paid: {payment.is_paid()}")
+        print(f"Is Paid: {payment.status == 'paid'}")
 
         # Check metadata
         metadata = getattr(payment, "metadata", {})
@@ -28,7 +28,7 @@ def retry_webhook_processing(payment_id="tr_kEvfjvo5qm7pN74wj27EJ"):
         for key, value in metadata.items():
             print(f"  {key}: {value}")
 
-        if not payment.is_paid():
+        if payment.status != "paid":
             print("❌ Payment is not paid - cannot process")
             return False
 

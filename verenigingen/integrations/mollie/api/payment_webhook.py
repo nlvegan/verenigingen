@@ -10,6 +10,23 @@ from datetime import datetime, timedelta
 import frappe
 from frappe import _
 
+# Import extracted handlers
+from verenigingen.integrations.mollie.services.handlers import DonationLookup, RefundHandler
+from verenigingen.integrations.mollie.services.handlers import (
+    check_payment_processing_status as _handler_check_payment_processing_status,
+)
+from verenigingen.integrations.mollie.services.handlers import (
+    find_donation_for_payment as _handler_find_donation_for_payment,
+)
+from verenigingen.integrations.mollie.services.handlers import (
+    find_donation_for_payment_by_id as _handler_find_donation_for_payment_by_id,
+)
+from verenigingen.integrations.mollie.services.handlers import (
+    find_donation_for_subscription_payment as _handler_find_donation_for_subscription_payment,
+)
+from verenigingen.integrations.mollie.services.handlers import (
+    process_payment_refunds as _handler_process_payment_refunds,
+)
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
@@ -85,68 +102,36 @@ def get_appropriate_cost_center(donation, company):
 
 def find_donation_for_subscription_payment(payment_id, payment, with_lock=False):
     """
-    Find donation record for subscription payments by looking at payment metadata
+    Find donation record for subscription payments by looking at payment metadata.
+
+    DELEGATED: This function now delegates to the extracted DonationLookup handler.
 
     Args:
         payment_id (str): Mollie payment ID
         payment: Full Mollie payment object (can be None if not available yet)
         with_lock (bool): If True, acquire FOR UPDATE lock
     """
-    # If payment object is available, check if this is a subscription payment
-    if payment and (not hasattr(payment, "subscription_id") or not payment.subscription_id):
-        return None
-
-    # If payment object is available, get donation_id from payment metadata
-    if payment:
-        metadata = getattr(payment, "metadata", {})
-        donation_id = metadata.get("donation_id")
-
-        if donation_id:
-            frappe.logger().info(f"🔍 Found donation_id in subscription payment metadata: {donation_id}")
-            try:
-                if with_lock:
-                    # Acquire row-level lock
-                    frappe.db.sql("SELECT name FROM `tabDonation` WHERE name = %s FOR UPDATE", (donation_id,))
-                return frappe.get_doc("Donation", donation_id)
-            except frappe.DoesNotExistError:
-                frappe.logger().error(f"❌ Donation {donation_id} from metadata not found")
-                return None
-
-        # Fallback: try to find by subscription_id (if donation has it stored)
-        frappe.logger().info(f"🔍 Trying fallback lookup by subscription_id: {payment.subscription_id}")
-        donation_name = frappe.db.get_value(
-            "Donation", {"mollie_subscription_id": payment.subscription_id}, "name"
-        )
-        if donation_name:
-            if with_lock:
-                frappe.db.sql("SELECT name FROM `tabDonation` WHERE name = %s FOR UPDATE", (donation_name,))
-            return frappe.get_doc("Donation", donation_name)
-
-    # If no payment object or no subscription info found, return None
-    # This is normal for first payments that haven't been processed yet
-    return None
+    return _handler_find_donation_for_subscription_payment(payment_id, payment, with_lock)
 
 
 def find_donation_for_payment_by_id(payment_id, with_lock=False):
     """
-    Find donation record by payment_id (primary matching only)
+    Find donation record by payment_id (primary matching only).
+
+    DELEGATED: This function now delegates to the extracted DonationLookup handler.
 
     Args:
         payment_id (str): Mollie payment ID
         with_lock (bool): If True, acquire FOR UPDATE lock to prevent race conditions
     """
-    donation_name = frappe.db.get_value("Donation", {"payment_id": payment_id}, "name")
-    if donation_name:
-        if with_lock:
-            # Acquire row-level lock to prevent concurrent webhook processing
-            frappe.db.sql("SELECT name FROM `tabDonation` WHERE name = %s FOR UPDATE", (donation_name,))
-        return frappe.get_doc("Donation", donation_name)
-    return None
+    return _handler_find_donation_for_payment_by_id(payment_id, with_lock)
 
 
 def check_payment_processing_status(donation, payment_id):
     """
-    Check the processing status of each component with isolated idempotency checks
+    Check the processing status of each component with isolated idempotency checks.
+
+    DELEGATED: This function now delegates to the extracted DonationLookup handler.
 
     Returns dict with status of:
     - payment_entry_created: Whether Payment Entry exists for this transaction ID
@@ -154,94 +139,20 @@ def check_payment_processing_status(donation, payment_id):
     - donation_status_updated: Whether donation status is properly set
     - all_complete: Whether all components are processed
     """
-
-    # Check 1: Payment Entry (isolated check - only looks for PE with matching transaction ID)
-    payment_entry = frappe.db.get_value(
-        "Payment Entry",
-        {"reference_no": payment_id, "docstatus": 1},  # Direct transaction ID match  # Must be submitted
-        "name",
-    )
-    payment_entry_created = bool(payment_entry)
-
-    # Check 2: Payment History (isolated check - only looks for history with this transaction)
-    payment_history_exists = False
-    if hasattr(donation, "payments") and donation.payments:
-        for payment_record in donation.payments:
-            # Check multiple possible field names for transaction ID
-            if (
-                getattr(payment_record, "mollie_payment_id", None) == payment_id
-                or getattr(payment_record, "payment_reference", None) == payment_id
-                or getattr(payment_record, "payment_id", None) == payment_id
-            ):
-                payment_history_exists = True
-                break
-
-    # Check 3: Donation Status (isolated check - only verifies status is not "Promised")
-    donation_status_updated = donation.status in ["One-time", "Recurring"]
-
-    all_complete = payment_entry_created and payment_history_exists and donation_status_updated
-
-    return {
-        "payment_entry_created": payment_entry_created,
-        "payment_history_exists": payment_history_exists,
-        "donation_status_updated": donation_status_updated,
-        "payment_entry_name": payment_entry if payment_entry_created else None,
-        "donation_history_updated": payment_history_exists,
-        "all_complete": all_complete,
-    }
+    return _handler_check_payment_processing_status(donation, payment_id)
 
 
 def find_donation_for_payment(payment_id, payment):
     """
-    Find donation record for the given payment
+    Find donation record for the given payment.
+
+    DELEGATED: This function now delegates to the extracted DonationLookup handler.
 
     Matching strategy:
     1. Primary: Match by donation.payment_id
     2. Fallback: Match by customer + timestamp window (for edge cases)
     """
-
-    # Primary matching: by payment_id
-    donation_name = frappe.db.get_value("Donation", {"payment_id": payment_id}, "name")
-    if donation_name:
-        return frappe.get_doc("Donation", donation_name)
-
-    # Fallback matching: by customer ID and time window
-    customer_id = getattr(payment, "customer_id", None)
-    if not customer_id:
-        return None
-
-    # Get payment creation time
-    payment_created = getattr(payment, "created_at", None)
-    if not payment_created:
-        return None
-
-    # Convert to datetime if it's a string
-    if isinstance(payment_created, str):
-        try:
-            payment_created = datetime.fromisoformat(payment_created.replace("Z", "+00:00"))
-        except (ValueError, TypeError):
-            return None
-
-    # Search for donations within 30-minute window
-    time_window_start = payment_created - timedelta(minutes=30)
-    time_window_end = payment_created + timedelta(minutes=30)
-
-    donations = frappe.get_all(
-        "Donation",
-        filters={
-            "mollie_customer_id": customer_id,
-            "creation": ["between", [time_window_start, time_window_end]],
-            "paid": 0,  # Only unpaid donations
-        },
-        order_by="creation desc",
-        limit=1,
-    )
-
-    if donations:
-        frappe.logger().info("✅ Found donation via customer+timestamp fallback: %s", donations[0].name)
-        return frappe.get_doc("Donation", donations[0].name)
-
-    return None
+    return _handler_find_donation_for_payment(payment_id, payment)
 
 
 def _determine_recurring_status(donation, mollie_data):
@@ -341,10 +252,13 @@ def process_successful_payment_with_idempotency(donation, payment, idempotency_s
             raise ValueError(f"Payment Entry creation failed for {donation.name}")
     else:
         frappe.logger().info("⏭️ Payment Entry already exists")
-        # Get the existing PE name for results
-        existing_pe = frappe.db.get_value(
-            "Payment Entry", {"reference_no": payment.id, "docstatus": 1}, "name"
+        # Get the existing PE name using unified idempotency manager
+        from verenigingen.integrations.mollie.services.unified_idempotency_manager import (
+            get_unified_idempotency_manager,
         )
+
+        idempotency_manager = get_unified_idempotency_manager()
+        existing_pe = idempotency_manager.payment_entry_exists(payment.id)
         results["payment_entry"] = existing_pe
 
     # STEP 2: Update Payment History SECOND
@@ -1247,6 +1161,8 @@ def _process_payment_refunds(payment_id, payment):
     """
     Process any refunds associated with this payment.
 
+    DELEGATED: This function now delegates to the extracted RefundHandler.
+
     This function is called when a webhook is received for a payment that might contain refund events.
     It fetches all refunds for the payment and processes any that haven't been handled yet.
 
@@ -1257,134 +1173,7 @@ def _process_payment_refunds(payment_id, payment):
     Returns:
         dict: Processing results including any refunds processed
     """
-    try:
-        frappe.logger().info(f"🔍 Checking for refunds on payment {payment_id}")
-
-        # Debug log
-        frappe.log_error(
-            f"Starting refund processing for payment {payment_id}", "Refund Debug - Start Processing"
-        )
-
-        # Get Mollie client to fetch refunds
-        mollie_settings = frappe.get_single("Mollie Settings")
-        mollie = mollie_settings.get_mollie_client()
-
-        # Fetch all refunds for this payment
-        try:
-            refunds = mollie.payment_refunds.with_parent_id(payment_id).list()
-            frappe.log_error(
-                f"Successfully fetched refunds for {payment_id}: found {len(refunds)} refunds",
-                "Refund Debug - Fetch Success",
-            )
-        except Exception as e:
-            frappe.logger().warning(f"⚠️ Could not fetch refunds for payment {payment_id}: {e}")
-            frappe.log_error(
-                f"Could not fetch refunds for payment {payment_id}: {e}", "Refund Debug - Fetch Error"
-            )
-            return {"refunds_processed": []}
-
-        if not refunds:
-            frappe.logger().info(f"ℹ️ No refunds found for payment {payment_id}")
-            frappe.log_error(f"No refunds found for payment {payment_id}", "Refund Debug - No Refunds")
-            return {"refunds_processed": []}
-
-        frappe.logger().info(f"🔍 Found {len(refunds)} refunds for payment {payment_id}")
-
-        # Log details of each refund
-        for i, refund in enumerate(refunds):
-            frappe.log_error(
-                f"Refund {i + 1}: ID={refund.id}, status={refund.status}, amount={refund.amount.value}",
-                "Refund Debug - Refund Details",
-            )
-
-        processed_refunds = []
-
-        # Process each refund
-        for refund in refunds:
-            frappe.logger().info(f"🔄 Processing refund {refund.id} with status {refund.status}")
-
-            # Only process completed refunds
-            if refund.status != "refunded":
-                frappe.logger().info(
-                    f"⏭️ Skipping refund {refund.id} - status is {refund.status}, not 'refunded'"
-                )
-                continue
-
-            # Check if this refund has already been processed (idempotency)
-            existing_pe = frappe.db.exists(
-                "Payment Entry", {"reference_no": refund.id, "payment_type": "Pay"}
-            )
-
-            if existing_pe:
-                frappe.logger().info(
-                    f"⏭️ Refund {refund.id} already processed (Payment Entry: {existing_pe})"
-                )
-                continue
-
-            # Process the refund using unified payment entry creator and utilities
-            from verenigingen.integrations.mollie.utils.unified_payment_entry_creator import (
-                create_refund_payment_entry,
-            )
-            from verenigingen.integrations.mollie.utils.webhook_utilities import get_donation_by_payment_id
-
-            # Find the original donation using utility
-            donation_doc = get_donation_by_payment_id(payment_id)
-            if not donation_doc:
-                frappe.logger().warning(f"❌ Original donation not found for payment {payment_id}")
-                continue
-
-            # Use the unified creator with the actual refund ID
-            refund_pe = create_refund_payment_entry(
-                donation_doc=donation_doc,
-                mollie_payment_id=payment_id,
-                refund_id=refund.id,  # Use actual Mollie refund ID
-                refund_amount=float(refund.amount.value),
-                refund_date=refund.created_at.date().isoformat() if refund.created_at else None,
-            )
-
-            # Format result for compatibility
-            result = {
-                "status": "success" if refund_pe else "error",
-                "payment_entry_id": refund_pe.name if refund_pe else None,
-                "message": (
-                    f"Refund Payment Entry created: {refund_pe.name}"
-                    if refund_pe
-                    else "Failed to create refund Payment Entry"
-                ),
-            }
-
-            if result.get("status") == "success":
-                processed_refunds.append(
-                    {
-                        "refund_id": refund.id,
-                        "amount": refund.amount.value,
-                        "payment_entry": result.get("payment_entry_id"),
-                        "status": "processed",
-                    }
-                )
-                frappe.logger().info(f"✅ Successfully processed refund {refund.id}")
-            else:
-                frappe.logger().error(f"❌ Failed to process refund {refund.id}: {result.get('message')}")
-                processed_refunds.append(
-                    {
-                        "refund_id": refund.id,
-                        "amount": refund.amount.value,
-                        "status": "failed",
-                        "error": result.get("message"),
-                    }
-                )
-
-        return {
-            "refunds_processed": processed_refunds,
-            "payment_id": payment_id,
-            "total_refunds": len(refunds),
-            "processed_count": len([r for r in processed_refunds if r["status"] == "processed"]),
-        }
-
-    except Exception as e:
-        frappe.logger().error(f"❌ Error processing refunds for payment {payment_id}: {e}")
-        frappe.log_error(f"Refund processing error for payment {payment_id}: {e}", "Refund Processing")
-        return {"refunds_processed": [], "error": str(e)}
+    return _handler_process_payment_refunds(payment_id, payment)
 
 
 def _notify_member_of_payment_failure(member, payment, failure_count):

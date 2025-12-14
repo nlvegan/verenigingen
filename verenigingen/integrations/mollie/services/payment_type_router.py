@@ -24,7 +24,7 @@ class PaymentTypeRouter:
     """
 
     def __init__(self):
-        from ..core.mollie_client import MollieClient
+        from ..core.client import MollieClient
         from .dues_payment_processor import DuesPaymentProcessor
         from .order_payment_processor import OrderPaymentProcessor
 

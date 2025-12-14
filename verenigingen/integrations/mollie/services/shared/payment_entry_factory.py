@@ -1,13 +1,10 @@
 """
-Generic Payment Entry Factory
+Payment Entry Factory
 
-DEPRECATED: This module has been moved to the shared services layer.
-Import from verenigingen.integrations.mollie.services.shared instead.
-
-This file is kept for backward compatibility and re-exports from the new location.
+Centralized factory for creating Payment Entries for all Mollie payment types.
+Part of the shared services layer used by all event handlers.
 """
 
-import warnings
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import frappe
@@ -15,75 +12,109 @@ import frappe
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
-from .payment_context_resolver import PaymentContext
-
-# Re-export from shared location for backward compatibility
-from .shared.cost_center_resolver import get_cost_center_for_context as _get_cost_center_for_context
-from .shared.payment_entry_factory import PaymentEntryFactory as _SharedPaymentEntryFactory
-
-
-def get_appropriate_cost_center_for_context(context: PaymentContext, company: str) -> str:
-    """
-    Get appropriate cost center based on payment context instead of random selection.
-
-    DEPRECATED: Use verenigingen.integrations.mollie.services.shared.get_cost_center_for_context instead.
-
-    Args:
-        context: PaymentContext with payment details
-        company: Company name
-
-    Returns:
-        str: Cost center name
-    """
-    warnings.warn(
-        "get_appropriate_cost_center_for_context is deprecated. "
-        "Use verenigingen.integrations.mollie.services.shared.get_cost_center_for_context instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return _get_cost_center_for_context(context, company)
-
+from .cost_center_resolver import CostCenterResolver
 
 if TYPE_CHECKING:
     from frappe import Document
 
+    from ..payment_context_resolver import PaymentContext
 
-class PaymentEntryFactory(_SharedPaymentEntryFactory):
+
+class PaymentEntryFactory:
     """
     Generic factory for creating Payment Entries for any payment type.
 
-    DEPRECATED: This class has been moved to the shared services layer.
-    Import from verenigingen.integrations.mollie.services.shared instead.
-
-    This class inherits from the shared implementation for backward compatibility.
-    """
-
-    def __init__(self):
-        warnings.warn(
-            "PaymentEntryFactory from payment_entry_factory is deprecated. "
-            "Use verenigingen.integrations.mollie.services.shared.PaymentEntryFactory instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        super().__init__()
-
-
-# The rest of this file is kept for reference but the actual implementation
-# is now in services/shared/payment_entry_factory.py
-
-
-class _LegacyPaymentEntryFactory:
-    """
-    ARCHIVED: Original PaymentEntryFactory implementation.
-    Kept for reference only - do not use.
-    Use PaymentEntryFactory from services/shared/ instead.
+    This factory creates Payment Entries based on payment context without
+    hardcoding specific payment type logic.
     """
 
     def __init__(self):
         self.logger = frappe.logger()
+        self.cost_center_resolver = CostCenterResolver()
 
-    def _resolve_customer_for_context_ARCHIVED(self, context: PaymentContext) -> Optional[str]:
-        """ARCHIVED: Resolve customer based on payment context"""
+    def create_payment_entry(
+        self,
+        context: "PaymentContext",
+        mollie_data: Dict[str, Any],
+        customer: str = None,
+        title: str = None,
+    ) -> Optional["Document"]:
+        """
+        Create a generic Payment Entry for any payment type.
+
+        Args:
+            context: Payment context information
+            mollie_data: Extracted Mollie payment data
+            customer: Customer for the payment entry (if None, will be resolved)
+            title: Custom title for the payment entry (if None, will be generated)
+
+        Returns:
+            Payment Entry document or None if creation fails
+        """
+        try:
+            # Resolve customer if not provided
+            if not customer:
+                customer = self._resolve_customer_for_context(context)
+                if not customer:
+                    self.logger.error(f"Could not resolve customer for context: {context}")
+                    return None
+
+            # Get company and accounts
+            company = self._get_company()
+            accounts = self._get_accounts(company, context.payment_type)
+
+            if not accounts["receivable_account"] or not accounts["bank_account"]:
+                self.logger.error(f"Missing required accounts for company {company}")
+                return None
+
+            # Validate Mode of Payment exists
+            if not DocumentExistenceValidator.check_document_exists("Mode of Payment", "Mollie"):
+                self.logger.error("Mollie Mode of Payment not configured")
+                return None
+
+            # Generate title if not provided
+            if not title:
+                title = self._generate_payment_title(context, mollie_data, customer)
+
+            # Get appropriate cost center using shared resolver
+            cost_center = self.cost_center_resolver.resolve_for_context(context, company)
+
+            # Create Payment Entry
+            pe = frappe.get_doc(
+                {
+                    "doctype": "Payment Entry",
+                    "payment_type": "Receive",
+                    "party_type": "Customer",
+                    "party": customer,
+                    "paid_amount": float(mollie_data["amount"]),
+                    "received_amount": float(mollie_data["amount"]),
+                    "reference_no": mollie_data["payment_id"],
+                    "reference_date": frappe.utils.getdate(),
+                    "company": company,
+                    "paid_from": accounts["receivable_account"],
+                    "paid_to": accounts["bank_account"],
+                    "cost_center": cost_center,
+                    "title": title,
+                    "remarks": self._generate_remarks(context, mollie_data),
+                }
+            )
+
+            # Insert and submit
+            pe.insert()
+            pe.submit()
+
+            self.logger.info(f"Created Payment Entry: {pe.name} for {context.payment_type}")
+            return pe
+
+        except Exception as e:
+            self.logger.error(f"Failed to create Payment Entry for {context}: {e}")
+            frappe.log_error(
+                f"Payment Entry creation failed for {context}: {str(e)}", "Payment Entry Factory"
+            )
+            return None
+
+    def _resolve_customer_for_context(self, context: "PaymentContext") -> Optional[str]:
+        """Resolve customer based on payment context"""
         try:
             if context.payment_type == "donation":
                 # Get customer from donation -> donor
@@ -153,7 +184,7 @@ class _LegacyPaymentEntryFactory:
         return accounts
 
     def _generate_payment_title(
-        self, context: PaymentContext, mollie_data: Dict[str, Any], customer: str
+        self, context: "PaymentContext", mollie_data: Dict[str, Any], customer: str
     ) -> str:
         """Generate appropriate title for the payment entry"""
         try:
@@ -170,7 +201,7 @@ class _LegacyPaymentEntryFactory:
             self.logger.warning(f"Could not generate payment title: {e}")
             return f"Payment - {context.target_name}"
 
-    def _extract_record_reference(self, mollie_data: Dict[str, Any], context: PaymentContext) -> str:
+    def _extract_record_reference(self, mollie_data: Dict[str, Any], context: "PaymentContext") -> str:
         """Extract record reference for payment title"""
         # Try metadata first
         metadata = mollie_data.get("metadata", {})
@@ -192,7 +223,7 @@ class _LegacyPaymentEntryFactory:
         # Fallback to context target name
         return context.target_name
 
-    def _generate_remarks(self, context: PaymentContext, mollie_data: Dict[str, Any]) -> str:
+    def _generate_remarks(self, context: "PaymentContext", mollie_data: Dict[str, Any]) -> str:
         """Generate remarks for the payment entry"""
         method = mollie_data.get("method", "Unknown method")
         payment_type = context.payment_type.title()

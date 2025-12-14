@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional
 import frappe
 
 from ..exceptions import MollieWebhookError
+from ..utils.amount_helpers import extract_amount_currency, extract_amount_value
 from ..utils.logging import MollieLogger
 from ..utils.monitoring import record_operation_performance
 from .payment_context_resolver import PaymentContextResolver
@@ -275,15 +276,9 @@ class GenericWebhookService:
                     continue
 
                 # Create webhook payload structure that the refund service expects
-                # Handle both object and dict formats for refund.amount
-                if hasattr(refund.amount, "value"):
-                    # Object format: refund.amount.value, refund.amount.currency
-                    amount_value = refund.amount.value
-                    amount_currency = refund.amount.currency
-                else:
-                    # Dict format: refund.amount['value'], refund.amount['currency']
-                    amount_value = refund.amount["value"]
-                    amount_currency = refund.amount["currency"]
+                # Use helper functions to safely extract amount regardless of SDK format
+                amount_value = extract_amount_value(refund.amount)
+                amount_currency = extract_amount_currency(refund.amount)
 
                 refund_webhook_payload = {
                     "payment_id": payment_id,

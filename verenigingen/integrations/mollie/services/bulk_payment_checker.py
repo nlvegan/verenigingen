@@ -14,9 +14,14 @@ from typing import Any, Dict, List, Optional
 import frappe
 from frappe import _
 
-from verenigingen.integrations.mollie.core.mollie_client import MollieClient
+from verenigingen.integrations.mollie.core.client import MollieClient
 from verenigingen.integrations.mollie.core.mollie_models import Payment as MolliePayment
 from verenigingen.integrations.mollie.services.dues_payment_processor import DuesPaymentProcessor
+from verenigingen.integrations.mollie.utils.amount_helpers import (
+    extract_amount_currency,
+    extract_amount_float,
+    extract_amount_value,
+)
 
 
 # Configuration constants
@@ -428,14 +433,9 @@ class BulkPaymentChecker:
                 # Identify payment type
                 payment_type = self.dues_processor.identify_payment_type(payment)
 
-                # Extract amount from typed Money object
-                # MolliePayment.amount is a Money dataclass with .amount (Decimal) and .currency (str)
-                if payment.amount:
-                    amount_value = str(payment.amount.amount)  # Decimal to string for display
-                    currency = payment.amount.currency
-                else:
-                    amount_value = "Unknown"
-                    currency = "Unknown"
+                # Extract amount using helper functions that handle SDK dict format
+                amount_value = extract_amount_value(payment.amount)
+                currency = extract_amount_currency(payment.amount)
 
                 # Check for currency mismatch (warning if not EUR)
                 currency_warning = None
@@ -462,7 +462,7 @@ class BulkPaymentChecker:
                         # MolliePayment has typed datetime fields - no string parsing needed
                         invoice_check_date = payment.paid_at or payment.created_at
 
-                        payment_amount_float = float(payment.amount.amount)
+                        payment_amount_float = extract_amount_float(payment.amount)
                         matching_invoice = self.find_matching_unpaid_dues_invoice(
                             member_name=member_name,
                             payment_amount=payment_amount_float,

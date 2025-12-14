@@ -38,7 +38,7 @@ def debug_specific_transaction(payment_id="tr_8gAtxfRYWdfbvaRDTC3EJ"):
         print()
 
         # Check if payment was successful
-        is_paid = payment.is_paid()
+        is_paid = payment.status == "paid"
         print(f"Payment Successful: {is_paid}")
         if is_paid:
             print(f"Paid At: {getattr(payment, 'paid_at', 'N/A')}")

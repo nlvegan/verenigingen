@@ -15,8 +15,9 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, now_datetime
 
-from ..core.mollie_client import MollieClient
-from ..core.mollie_exceptions import MollieSecurityError, MollieWebhookError
+from ..core.client import MollieClient
+from ..exceptions import MollieSecurityError, MollieWebhookError
+from ..utils.amount_helpers import extract_amount_currency
 from ..utils.audit import MollieAuditLogger
 from ..utils.mollie_relationship_manager import MollieRelationshipManager, MollieWebhookQueue
 from ..utils.webhook_security import authenticate_mollie_webhook, validate_webhook_user_permissions
@@ -391,12 +392,13 @@ class WebhookService:
         Check the processing status of each component with isolated idempotency checks.
         Complete port from original implementation (lines 310-354).
         """
-        # Check 1: Payment Entry (isolated check - only looks for PE with matching transaction ID)
-        payment_entry = frappe.db.get_value(
-            "Payment Entry",
-            {"reference_no": payment_id, "docstatus": 1},  # Direct transaction ID match, must be submitted
-            "name",
+        # Check 1: Payment Entry using unified idempotency manager
+        from verenigingen.integrations.mollie.services.unified_idempotency_manager import (
+            get_unified_idempotency_manager,
         )
+
+        idempotency_manager = get_unified_idempotency_manager()
+        payment_entry = idempotency_manager.payment_entry_exists(payment_id)
         payment_entry_created = bool(payment_entry)
 
         # Check 2: Payment History (isolated check - only looks for history with this transaction)
@@ -487,7 +489,7 @@ class WebhookService:
         return {
             "payment_id": extractor.extract_payment_id(payment),
             "amount": extractor.extract_amount(payment, allow_zero=True),  # Allow zero for audit purposes
-            "currency": payment.amount.currency if hasattr(payment.amount, "currency") else "EUR",
+            "currency": extract_amount_currency(payment.amount),
             "status": payment.status,
             "method": getattr(payment, "method", None),
             "paid_at": getattr(payment, "paid_at", None),  # Keep raw for dict return
@@ -499,7 +501,7 @@ class WebhookService:
             "details": getattr(payment, "details", {}),
         }
 
-    def _determine_recurring_status(self, donation: frappe.Document, mollie_data: dict) -> bool:
+    def _determine_recurring_status(self, donation: Document, mollie_data: dict) -> bool:
         """
         Determine if payment should be treated as recurring based on Mollie data and donation status.
         Complete port from original implementation (lines 441-468).
@@ -535,7 +537,7 @@ class WebhookService:
 
         return is_recurring
 
-    def _create_payment_entry_for_donation(self, donation: frappe.Document, mollie_data: dict) -> str:
+    def _create_payment_entry_for_donation(self, donation: Document, mollie_data: dict) -> str:
         """Create Payment Entry for the successful donation payment"""
         try:
             # Get the customer linked to the donor
@@ -602,7 +604,7 @@ class WebhookService:
             return None
 
     def _update_donation_payment_history(
-        self, donation: frappe.Document, mollie_data: dict, payment_entry_name: str = None
+        self, donation: Document, mollie_data: dict, payment_entry_name: str = None
     ):
         """Update donation payment history child table"""
         try:
@@ -635,7 +637,7 @@ class WebhookService:
             frappe.log_error(f"Error updating payment history for donation {donation.name}: {e}")
             raise
 
-    def _update_donation_with_mollie_data(self, donation: frappe.Document, mollie_data: dict):
+    def _update_donation_with_mollie_data(self, donation: Document, mollie_data: dict):
         """Update donation record with Mollie metadata"""
         try:
             updates = {}

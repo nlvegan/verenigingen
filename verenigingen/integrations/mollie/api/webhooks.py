@@ -9,7 +9,7 @@ from frappe import _
 
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
 
-from ..core.mollie_exceptions import MollieSecurityError, MollieWebhookError
+from ..exceptions import MollieSecurityError, MollieWebhookError
 from ..services.webhook_service import WebhookService
 
 

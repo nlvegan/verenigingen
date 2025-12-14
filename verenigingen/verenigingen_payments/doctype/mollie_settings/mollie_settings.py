@@ -5,6 +5,32 @@ This DocType configures Mollie payment gateway integration for the Verenigingen
 association management system. It provides secure credential storage, API validation,
 and configuration options for Mollie payment processing.
 
+IMPORTANT - Configuration Access Pattern:
+For accessing Mollie configuration in production code, prefer using the
+MollieConfigurationService instead of direct frappe.get_single("Mollie Settings"):
+
+    from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
+        get_mollie_config,
+    )
+
+    config = get_mollie_config()
+    api_key = config.get_api_key()
+    is_test = config.is_test_mode()
+    webhook_url = config.get_webhook_url()
+    client = config.get_mollie_client()
+
+This service provides:
+- Caching for performance
+- Consistent error handling
+- Type-safe configuration access
+- Single source of truth for configuration values
+
+Direct access via frappe.get_single("Mollie Settings") is acceptable in:
+- Test files
+- The DocType controller itself
+- Debug/utility scripts
+- One-off administrative tasks
+
 Key Features:
 - Secure API key storage with encryption
 - Multi-currency support (46+ currencies)
@@ -37,7 +63,7 @@ This DocType integrates with:
 
 Author: Development Team
 Date: 2025-01-13
-Version: 1.1
+Version: 1.2
 """
 
 from urllib.parse import urlencode

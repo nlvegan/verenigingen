@@ -15,7 +15,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate
 
-from verenigingen.integrations.mollie.core.mollie_client import MollieClient
+from verenigingen.integrations.mollie.core.client import MollieClient
 
 
 class OrderPaymentProcessor:

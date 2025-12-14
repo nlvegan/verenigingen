@@ -21,6 +21,8 @@ else:
 from frappe import _
 from frappe.utils import flt, now_datetime
 
+from ..utils.amount_helpers import extract_amount_currency, extract_amount_float
+
 # Temporarily disabled - these modules don't exist yet
 # from ..core.mollie_client import MollieClient
 # from ..core.mollie_exceptions import MollieIntegrationError, MollieValidationError
@@ -360,12 +362,12 @@ class PaymentService:
         return {
             "id": payment.id,
             "status": payment.status,
-            "amount": float(payment.amount.amount),
-            "currency": payment.amount.currency,
+            "amount": extract_amount_float(payment.amount),
+            "currency": extract_amount_currency(payment.amount),
             "paid_at": payment.paid_at,
-            "is_paid": payment.is_paid,
-            "is_pending": payment.is_pending,
-            "is_failed": payment.is_failed,
+            "is_paid": payment.status == "paid",
+            "is_pending": payment.status in ["open", "pending"],
+            "is_failed": payment.status in ["failed", "canceled", "expired"],
             "method": payment.method,
             "metadata": payment.metadata,
         }
@@ -382,7 +384,7 @@ class PaymentService:
         """
         payment = self.client.get_payment(payment_id)
 
-        if not payment.is_paid:
+        if payment.status != "paid":
             raise MollieIntegrationError(f"Payment {payment_id} is not paid (status: {payment.status})")
 
         result = {"payment_id": payment_id, "processed": False}
@@ -501,8 +503,8 @@ class PaymentService:
 
         # Create new customer
         customer = self.client.create_customer(
-            name=f"{donor.first_name} {donor.last_name}".strip(),
-            email=donor.email_address,
+            name=donor.donor_name or "",
+            email=donor.donor_email,
             metadata={"donor_id": donor.name},
         )
 
@@ -553,8 +555,8 @@ class PaymentService:
             "payment_history",
             {
                 "payment_id": payment.id,
-                "amount": float(payment.amount.amount),
-                "currency": payment.amount.currency,
+                "amount": extract_amount_float(payment.amount),
+                "currency": extract_amount_currency(payment.amount),
                 "status": payment.status,
                 "created_at": payment.created_at,
                 "description": payment.description,
@@ -579,7 +581,7 @@ class PaymentService:
         return {
             "type": "donation",
             "donor_id": donor_id,
-            "amount": float(payment.amount.amount),
+            "amount": extract_amount_float(payment.amount),
             "processed": True,
         }
 
@@ -594,6 +596,6 @@ class PaymentService:
         return {
             "type": "membership_dues",
             "member_id": member_id,
-            "amount": float(payment.amount.amount),
+            "amount": extract_amount_float(payment.amount),
             "processed": True,
         }

@@ -12,7 +12,7 @@ import frappe
 from frappe import _
 
 from ..core.client import MollieClient
-from ..core.mollie_exceptions import MollieIntegrationError
+from ..exceptions import MollieIntegrationError
 from .subscription_service import SubscriptionService
 
 # Billing interval mapping to Mollie format
@@ -282,9 +282,7 @@ class MollieSubscriptionSyncService:
                 # Re-raise for outer exception handler if not handled above
                 raise
 
-            frappe.logger().info(
-                f"✅ Created new subscription {new_subscription.id} for member {member.name}"
-            )
+            frappe.logger().info(f"✅ Created new subscription {new_subscription.id} for member {member.name}")
 
             # Verify subscription amount matches dues schedule
             verification_result = self._verify_subscription_amount(

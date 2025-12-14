@@ -17,7 +17,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate
 
-from verenigingen.integrations.mollie.core.mollie_client import MollieClient
+from verenigingen.integrations.mollie.core.client import MollieClient
 from verenigingen.integrations.mollie.domain.payment_classification import PaymentClassifier
 from verenigingen.verenigingen_payments.services.payment.payment_entry_creation_service import (
     payment_entry_service,
@@ -886,7 +886,12 @@ class DuesPaymentProcessor:
         mode_of_payment = getattr(verenigingen_settings, "mode_of_payment", None) or "Mollie"
 
         # Idempotency check: ensure Payment Entry doesn't already exist for this payment
-        existing_pe = frappe.db.get_value("Payment Entry", {"reference_no": payment_id}, "name")
+        from verenigingen.integrations.mollie.services.unified_idempotency_manager import (
+            get_unified_idempotency_manager,
+        )
+
+        idempotency_manager = get_unified_idempotency_manager()
+        existing_pe = idempotency_manager.payment_entry_exists(payment_id)
         if existing_pe:
             frappe.logger().info(f"⏭️ Payment Entry already exists for payment {payment_id}: {existing_pe}")
             return existing_pe

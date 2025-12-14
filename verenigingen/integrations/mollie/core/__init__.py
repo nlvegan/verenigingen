@@ -1,7 +1,9 @@
 """Core Mollie integration components."""
 
-from .mollie_client import MollieClient
-from .mollie_exceptions import MollieAPIError, MollieIntegrationError
+# Import MollieClient from the canonical client module
+# Keep exceptions and models for backward compatibility
+from ..exceptions import MollieAPIError, MollieIntegrationError
+from .client import MollieClient
 from .mollie_models import Customer, Payment, Subscription
 
 __all__ = ["MollieClient", "MollieIntegrationError", "MollieAPIError", "Payment", "Subscription", "Customer"]

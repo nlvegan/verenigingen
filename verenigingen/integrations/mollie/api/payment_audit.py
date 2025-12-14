@@ -4,6 +4,11 @@ from datetime import datetime, timedelta
 import frappe
 from frappe.utils import add_days, flt, today
 
+from verenigingen.integrations.mollie.utils.amount_helpers import (
+    extract_amount_currency,
+    extract_amount_float,
+    extract_amount_value,
+)
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
@@ -165,17 +170,9 @@ def fetch_mollie_payments(client, start_date, end_date, limit=250):
             for payment in payment_list:
                 payment_date = payment.created_at[:10]  # Extract YYYY-MM-DD
                 if start_date <= payment_date <= end_date:
-                    # Handle both dict and object responses from Mollie API
-                    amount_value = (
-                        payment.amount.value
-                        if hasattr(payment.amount, "value")
-                        else payment.amount.get("value")
-                    )
-                    amount_currency = (
-                        payment.amount.currency
-                        if hasattr(payment.amount, "currency")
-                        else payment.amount.get("currency")
-                    )
+                    # Use helper functions to safely extract amount
+                    amount_value = extract_amount_value(payment.amount)
+                    amount_currency = extract_amount_currency(payment.amount)
 
                     payments.append(
                         {
@@ -455,7 +452,12 @@ def audit_subscription_payments(customer_id=None, subscription_id=None):
                 "next_payment_date": subscription.next_payment_date,
             },
             "mollie_payments": [
-                {"id": p.id, "status": p.status, "amount": p.amount.value, "created_at": p.created_at}
+                {
+                    "id": p.id,
+                    "status": p.status,
+                    "amount": extract_amount_value(p.amount),
+                    "created_at": p.created_at,
+                }
                 for p in subscription_payments
             ],
             "database_records": db_records,
@@ -513,7 +515,7 @@ def fix_missing_payments(payment_ids=None, dry_run=True):
                     # Add payment to Payment History
                     payment_entry = {
                         "payment_date": payment.created_at[:10],
-                        "amount": float(payment.amount.value),
+                        "amount": extract_amount_float(payment.amount),
                         "payment_id": payment.id,
                         "payment_status": "Completed",
                         "mollie_payment_id": payment.id,
@@ -526,7 +528,7 @@ def fix_missing_payments(payment_ids=None, dry_run=True):
                         {
                             "payment_id": payment_id,
                             "donation": donation.name,
-                            "amount": payment.amount.value,
+                            "amount": extract_amount_value(payment.amount),
                             "status": "FIXED" if not dry_run else "WOULD_FIX",
                         }
                     )
@@ -537,7 +539,7 @@ def fix_missing_payments(payment_ids=None, dry_run=True):
                         {
                             "payment_id": payment_id,
                             "donation": donation.name,
-                            "amount": payment.amount.value,
+                            "amount": extract_amount_value(payment.amount),
                             "status": "WOULD_FIX",
                         }
                     )
@@ -546,7 +548,7 @@ def fix_missing_payments(payment_ids=None, dry_run=True):
                         {
                             "payment_id": payment_id,
                             "error": "No matching donation found",
-                            "amount": payment.amount.value,
+                            "amount": extract_amount_value(payment.amount),
                         }
                     )
                     results["summary"]["errors"] += 1
@@ -587,7 +589,7 @@ def find_matching_donation(payment):
 
     # Try to match by amount and approximate date
     payment_date = payment.created_at[:10]
-    amount = float(payment.amount.value)
+    amount = extract_amount_float(payment.amount)
 
     donations = frappe.db.sql(
         """

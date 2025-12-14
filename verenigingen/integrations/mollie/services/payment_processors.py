@@ -350,10 +350,13 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
 
     def check_idempotency(self, context: PaymentContext, payment_id: str) -> Dict[str, Any]:
         """Check donation payment processing status"""
-        # Check if Payment Entry exists (any docstatus - draft or submitted)
-        payment_entry_exists = bool(
-            frappe.db.get_value("Payment Entry", {"reference_no": payment_id}, "name")
+        # Use unified idempotency manager for Payment Entry check
+        from verenigingen.integrations.mollie.services.unified_idempotency_manager import (
+            get_unified_idempotency_manager,
         )
+
+        idempotency_manager = get_unified_idempotency_manager()
+        payment_entry_exists = bool(idempotency_manager.payment_entry_exists(payment_id))
 
         # Check if Bank Transaction exists (any docstatus - draft or submitted)
         bank_transaction_exists = bool(
@@ -676,10 +679,13 @@ class MembershipPaymentProcessor(AbstractPaymentProcessor):
 
     def check_idempotency(self, context: PaymentContext, payment_id: str) -> Dict[str, Any]:
         """Check membership payment processing status"""
-        # For membership payments, check if Payment Entry exists and member history is updated
-        payment_entry_exists = bool(
-            frappe.db.get_value("Payment Entry", {"reference_no": payment_id, "docstatus": 1}, "name")
+        # Use unified idempotency manager for Payment Entry check
+        from verenigingen.integrations.mollie.services.unified_idempotency_manager import (
+            get_unified_idempotency_manager,
         )
+
+        idempotency_manager = get_unified_idempotency_manager()
+        payment_entry_exists = bool(idempotency_manager.payment_entry_exists(payment_id))
 
         # Check member payment history
         member = frappe.get_doc("Member", context.target_name)

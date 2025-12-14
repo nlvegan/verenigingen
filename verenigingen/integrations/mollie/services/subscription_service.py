@@ -11,9 +11,10 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, getdate, now_datetime
 
-from ..core.mollie_client import MollieClient
-from ..core.mollie_exceptions import MollieIntegrationError, MollieValidationError
+from ..core.client import MollieClient
 from ..core.mollie_models import Money, Subscription
+from ..exceptions import MollieIntegrationError, MollieValidationError
+from ..utils.amount_helpers import extract_amount_currency, extract_amount_float
 from ..utils.validators import PaymentDataValidator
 
 
@@ -116,7 +117,7 @@ class SubscriptionService:
             customer_id=customer_id,
             amount=money,
             interval=interval,
-            description=f"Recurring donation - {donor.first_name} {donor.last_name}",
+            description=f"Recurring donation - {donor.donor_name}",
             webhook_url=self._get_webhook_url(),
             metadata={"donor_id": donor_id, "subscription_type": "recurring_donation", "interval": interval},
         )
@@ -143,12 +144,12 @@ class SubscriptionService:
             "id": subscription.id,
             "customer_id": subscription.customer_id,
             "status": subscription.status,
-            "amount": float(subscription.amount.amount),
-            "currency": subscription.amount.currency,
+            "amount": extract_amount_float(subscription.amount),
+            "currency": extract_amount_currency(subscription.amount),
             "interval": subscription.interval,
             "next_payment_date": subscription.next_payment_date,
-            "is_active": subscription.is_active,
-            "is_canceled": subscription.is_canceled,
+            "is_active": subscription.status == "active",
+            "is_canceled": subscription.status in ["canceled", "suspended", "completed"],
             "description": subscription.description,
             "metadata": subscription.metadata,
         }
@@ -194,7 +195,7 @@ class SubscriptionService:
         """
         payment = self.client.get_payment(payment_id)
 
-        if not payment.is_paid:
+        if payment.status != "paid":
             raise MollieIntegrationError(f"Subscription payment {payment_id} is not paid")
 
         # Determine subscription type from metadata or customer
@@ -241,7 +242,7 @@ class SubscriptionService:
                         "id": subscription.id,
                         "type": "membership_dues",
                         "status": subscription.status,
-                        "amount": float(subscription.amount.amount),
+                        "amount": extract_amount_float(subscription.amount),
                         "next_payment_date": subscription.next_payment_date,
                     }
                 )
@@ -275,8 +276,8 @@ class SubscriptionService:
 
         # Create new customer
         customer = self.client.create_customer(
-            name=f"{donor.first_name} {donor.last_name}".strip(),
-            email=donor.email_address,
+            name=donor.donor_name or "",
+            email=donor.donor_email,
             metadata={"donor_id": donor.name},
         )
 
@@ -357,7 +358,7 @@ class SubscriptionService:
         return {
             "type": "membership_subscription",
             "payment_id": payment.id,
-            "amount": float(payment.amount.amount),
+            "amount": extract_amount_float(payment.amount),
             "processed": True,
         }
 
@@ -367,6 +368,6 @@ class SubscriptionService:
         return {
             "type": "donation_subscription",
             "payment_id": payment.id,
-            "amount": float(payment.amount.amount),
+            "amount": extract_amount_float(payment.amount),
             "processed": True,
         }
