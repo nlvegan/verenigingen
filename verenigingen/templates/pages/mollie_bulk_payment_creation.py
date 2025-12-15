@@ -14,7 +14,7 @@ from typing import Dict, List, Optional
 import frappe
 from frappe import _
 
-from verenigingen.services.mollie_debug_service import MollieDebugService, format_mollie_amount
+from verenigingen.services.mollie_debug_service import MollieDebugService
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 # Configuration constants
@@ -96,6 +96,8 @@ def validate_csv_members(
     global_amount: str = "",
     global_description: str = "",
     include_member_id_suffix: bool = False,
+    payment_interval: str = "1 month",
+    payment_times: int = 1,
 ) -> Dict:
     """
     Parse CSV file and validate member data for bulk payment creation.
@@ -118,6 +120,24 @@ def validate_csv_members(
 
         # Convert boolean parameter (may come as string from JS)
         include_suffix = include_member_id_suffix in (True, "true", "1", 1)
+
+        # Validate interval
+        valid_intervals = ["1 month", "2 months", "3 months", "6 months", "12 months"]
+        if payment_interval not in valid_intervals:
+            return {
+                "status": "error",
+                "error": f"Invalid interval. Must be one of: {', '.join(valid_intervals)}",
+            }
+
+        # Validate times (convert from string if needed)
+        try:
+            payment_times_int = int(payment_times)
+            if payment_times_int < 1:
+                return {"status": "error", "error": "Number of payments must be at least 1"}
+            if payment_times_int > 100:
+                return {"status": "error", "error": "Number of payments cannot exceed 100"}
+        except (ValueError, TypeError):
+            return {"status": "error", "error": "Invalid number of payments"}
 
         # Validate CSV size to prevent DoS
         if len(csv_content) > MAX_CSV_SIZE:
@@ -193,6 +213,8 @@ def validate_csv_members(
                 "amount": None,
                 "charge_date": None,
                 "description": global_description or "Membership payment",
+                "interval": payment_interval,
+                "times": payment_times_int,
                 "status": "valid",
                 "issues": [],
             }
@@ -331,10 +353,10 @@ def validate_csv_members(
 @high_security_api(operation_type=OperationType.FINANCIAL)
 def create_bulk_payments(payments_json: str) -> Dict:
     """
-    Create one-time payments in bulk against existing mandates.
+    Create payments in bulk using Mollie subscriptions API.
 
-    This creates individual SEPA Direct Debit payments (not subscriptions)
-    using Mollie's recurring payment API with sequenceType: "recurring".
+    This creates subscriptions with the specified number of payments (times parameter).
+    Using subscriptions allows specifying the startDate for when the first payment occurs.
 
     Args:
         payments_json: JSON string of validated payment data
@@ -358,10 +380,12 @@ def create_bulk_payments(payments_json: str) -> Dict:
         except json.JSONDecodeError as e:
             return {"status": "error", "error": f"Invalid JSON: {str(e)}"}
 
-        # Get Mollie settings for webhook URL
+        # Initialize MollieDebugService for subscription creation
+        service = MollieDebugService()
+
+        # Also get raw client for duplicate checking
         mollie_settings = frappe.get_single("Mollie Settings")
         mollie_client = mollie_settings.get_mollie_client()
-        webhook_url = get_webhook_url()
 
         results = []
         total_amount = 0.0
@@ -377,6 +401,8 @@ def create_bulk_payments(payments_json: str) -> Dict:
             charge_date = payment_data.get("charge_date")
             description = payment_data.get("description", "Membership payment")
             mandate_id = payment_data.get("mandate_id")
+            interval = payment_data.get("interval", "1 month")
+            times = int(payment_data.get("times", 1))
 
             result = {
                 "customer_id": customer_id,
@@ -384,7 +410,7 @@ def create_bulk_payments(payments_json: str) -> Dict:
                 "amount": amount,
                 "charge_date": charge_date,
                 "status": "pending",
-                "payment_id": None,
+                "payment_id": None,  # Will contain subscription_id
                 "error": None,
             }
 
@@ -401,82 +427,89 @@ def create_bulk_payments(payments_json: str) -> Dict:
                 results.append(result)
                 continue
 
+            if not charge_date:
+                result["status"] = "error"
+                result["error"] = "Charge date is required for subscriptions"
+                results.append(result)
+                continue
+
             try:
-                # Generate idempotency key to prevent duplicate payments
+                # Generate idempotency key to prevent duplicate subscriptions
                 # Based on customer + amount + date - same combination = same key
                 idempotency_data = f"{customer_id}:{amount}:{charge_date}"
                 idempotency_key = hashlib.sha256(idempotency_data.encode()).hexdigest()[:32]
 
-                # Check for duplicate payments (same customer, amount, date)
-                # Skip cancelled payments - they didn't actually charge the customer
+                # Check for duplicate subscriptions (same customer, amount, start date)
+                # Skip cancelled subscriptions - they didn't actually charge the customer
                 is_duplicate = False
                 try:
                     customer = mollie_client.customers.get(customer_id)
-                    recent_payments = customer.payments.list()
-                    for existing_payment in recent_payments:
-                        # Skip cancelled payments - allow retry after cancellation
-                        if getattr(existing_payment, "status", "") == "canceled":
+                    # Check existing subscriptions
+                    existing_subscriptions = customer.subscriptions.list()
+                    for existing_sub in existing_subscriptions:
+                        # Skip cancelled subscriptions - allow retry after cancellation
+                        sub_status = getattr(existing_sub, "status", "")
+                        if sub_status in ["canceled", "cancelled"]:
                             continue
 
-                        metadata = getattr(existing_payment, "metadata", {}) or {}
-                        if metadata.get("idempotency_key") == idempotency_key:
+                        # Check by start date and amount
+                        sub_start = getattr(existing_sub, "startDate", None)
+                        sub_amount = getattr(existing_sub, "amount", {})
+                        sub_amount_value = (
+                            float(sub_amount.get("value", 0)) if isinstance(sub_amount, dict) else 0
+                        )
+
+                        if sub_start == charge_date and abs(sub_amount_value - amount) < 0.01:
                             result["status"] = "skipped"
-                            result["error"] = f"Duplicate: payment {existing_payment.id} already exists"
-                            result["payment_id"] = existing_payment.id
+                            result[
+                                "error"
+                            ] = f"Duplicate: subscription {existing_sub.id} already exists for this date/amount"
+                            result["payment_id"] = existing_sub.id
                             is_duplicate = True
                             frappe.logger().warning(
-                                f"Skipped duplicate payment for {customer_id}: {existing_payment.id}"
+                                f"Skipped duplicate subscription for {customer_id}: {existing_sub.id}"
                             )
                             break
                 except Exception as dup_check_error:
-                    # If duplicate check fails, log but continue with payment creation
+                    # If duplicate check fails, log but continue with subscription creation
                     frappe.logger().warning(f"Duplicate check failed for {customer_id}: {dup_check_error}")
 
                 if is_duplicate:
                     results.append(result)
                     continue
 
-                # Create the one-time payment using Mollie API
-                # sequenceType: "recurring" allows charging the mandate directly
-                payment_request = {
-                    "amount": format_mollie_amount(amount),
-                    "customerId": customer_id,
-                    "mandateId": mandate_id,
-                    "sequenceType": "recurring",  # One-time charge against mandate
-                    "description": description[:140],  # Mollie has 140 char limit
-                    "webhookUrl": webhook_url,
-                    "metadata": {
-                        "created_via": "bulk_payment_tool",
-                        "created_by": frappe.session.user,
-                        "created_at": frappe.utils.now(),
-                        "member_id": payment_data.get("member_id"),
-                        "idempotency_key": idempotency_key,
-                    },
-                }
-
-                # Add due date if specified (Mollie uses this for SEPA timing)
-                if charge_date:
-                    payment_request["dueDate"] = charge_date
-
-                # Create the payment with idempotency header
-                # Note: Mollie SDK may not pass headers directly, so we also store key in metadata
-                payment = mollie_client.payments.create(payment_request)
-
-                result["status"] = "success"
-                result["payment_id"] = payment.id
-                total_amount += amount
-
-                # Log successful creation
-                frappe.logger().info(
-                    f"Bulk payment created: {payment.id} for customer {customer_id}, "
-                    f"amount {amount}, due {charge_date}"
+                # Create subscription using MollieDebugService
+                # The times parameter limits the subscription to N payments
+                create_result = service.create_subscription(
+                    customer_id=customer_id,
+                    amount=amount,
+                    interval=interval,
+                    description=description[:140],  # Mollie has 140 char limit
+                    mandate_id=mandate_id,
+                    start_date=charge_date,
+                    times=times,
                 )
+
+                if create_result.get("status") == "error" or create_result.get("error"):
+                    result["status"] = "error"
+                    result["error"] = create_result.get("error", "Unknown error creating subscription")
+                else:
+                    subscription_id = create_result.get("subscription_id")
+                    result["status"] = "success"
+                    result["payment_id"] = subscription_id  # Store subscription ID in payment_id field
+                    total_amount += amount
+
+                    # Log successful creation
+                    frappe.logger().info(
+                        f"Bulk subscription created: {subscription_id} for customer {customer_id}, "
+                        f"amount {amount}, start {charge_date}, times {times}"
+                    )
 
             except Exception as e:
                 result["status"] = "error"
                 result["error"] = str(e)
                 frappe.log_error(
-                    f"Bulk payment creation failed for {customer_id}: {str(e)}", "Bulk Payment Error"
+                    f"Bulk subscription creation failed for {customer_id}: {str(e)}", "Bulk Payment Error"
                 )
 
             results.append(result)

@@ -372,6 +372,24 @@
             </small>
         </div>
 
+        <div class="form-group">
+            <label class="form-label" for="payment_interval">Payment Interval</label>
+            <select id="payment_interval" class="form-input" style="max-width: 200px;">
+                <option value="1 month" selected>1 month</option>
+                <option value="2 months">2 months</option>
+                <option value="3 months">3 months</option>
+                <option value="6 months">6 months</option>
+                <option value="12 months">12 months</option>
+            </select>
+            <small style="color: #64748b; font-size: 0.75rem;">Required by Mollie subscription API (irrelevant for single payments)</small>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="payment_times">Number of Payments (Times)</label>
+            <input type="number" id="payment_times" class="form-input" style="max-width: 100px;" min="1" max="100" value="1">
+            <small style="color: #64748b; font-size: 0.75rem;">1 = single payment on charge date, >1 = recurring subscription</small>
+        </div>
+
         <button id="validate_btn" class="btn btn-primary" disabled>
             <span id="validate_spinner" class="loading-spinner hidden"></span>
             Validate Members
@@ -510,6 +528,8 @@ validateBtn.addEventListener('click', async () => {
     const globalAmount = document.getElementById('global_amount').value;
     const globalDescription = document.getElementById('global_description').value;
     const includeMemberIdSuffix = document.getElementById('include_member_id_suffix').checked;
+    const paymentInterval = document.getElementById('payment_interval').value;
+    const paymentTimes = parseInt(document.getElementById('payment_times').value) || 1;
 
     validateBtn.disabled = true;
     document.getElementById('validate_spinner').classList.remove('hidden');
@@ -522,7 +542,9 @@ validateBtn.addEventListener('click', async () => {
                 global_charge_date: globalChargeDate,
                 global_amount: globalAmount,
                 global_description: globalDescription,
-                include_member_id_suffix: includeMemberIdSuffix
+                include_member_id_suffix: includeMemberIdSuffix,
+                payment_interval: paymentInterval,
+                payment_times: paymentTimes
             }
         });
 

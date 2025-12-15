@@ -192,8 +192,14 @@ class MollieDebugService(StatelessService):
                 "status": subscription.status,
                 "amount": amount_str,
                 "interval": subscription.interval,
+                "times": getattr(subscription, "times", None),  # Number of payments (None = unlimited)
                 "description": subscription.description,
                 "created_at": str(subscription.created_at),
+                "start_date": (
+                    str(getattr(subscription, "startDate", None))
+                    if getattr(subscription, "startDate", None)
+                    else None
+                ),
                 "next_payment_date": (
                     str(getattr(subscription, "next_payment_date", None))
                     if getattr(subscription, "next_payment_date", None)
@@ -205,6 +211,7 @@ class MollieDebugService(StatelessService):
                     else None
                 ),
                 "mandate_id": getattr(subscription, "mandateId", None),
+                "webhook_url": getattr(subscription, "webhookUrl", None),
                 "metadata": getattr(subscription, "metadata", {}),
             }
 
@@ -1393,6 +1400,7 @@ class MollieDebugService(StatelessService):
         description: str,
         mandate_id: str = None,
         start_date: str = None,
+        times: int = None,
     ):
         """
         Create a new Mollie subscription for testing purposes.
@@ -1404,6 +1412,7 @@ class MollieDebugService(StatelessService):
             description: Human-readable subscription description
             mandate_id: Optional specific mandate ID to use
             start_date: Optional start date (YYYY-MM-DD format)
+            times: Optional number of payments (1 = single payment, None = unlimited)
 
         Returns:
             Dict containing subscription details including:
@@ -1455,6 +1464,10 @@ class MollieDebugService(StatelessService):
             if mandate_id:
                 subscription_data["mandateId"] = mandate_id
 
+            # Add times parameter for limited-payment subscriptions (e.g., times=1 for single payment)
+            if times is not None and times > 0:
+                subscription_data["times"] = times
+
             # Handle start date - use configured scheduled months if not explicitly provided
             if start_date:
                 subscription_data["startDate"] = start_date
@@ -1490,6 +1503,7 @@ class MollieDebugService(StatelessService):
                     "description": description,
                     "mandate_id": mandate_id,
                     "start_date": start_date or subscription_data.get("startDate"),
+                    "times": times,
                     "created_by": frappe.session.user,
                 },
                 entity_type="Mollie Subscription",
@@ -1501,7 +1515,8 @@ class MollieDebugService(StatelessService):
                 f"DEBUG SUBSCRIPTION CREATION: User {frappe.session.user} "
                 f"created subscription {subscription.id} for customer {customer_id} "
                 f"(amount: €{amount_float:.2f}, interval: {interval}, description: {description}, "
-                f"mandate: {mandate_id or 'auto'}, start: {start_date or 'immediate'})"
+                f"mandate: {mandate_id or 'auto'}, start: {start_date or 'immediate'}, "
+                f"times: {times or 'unlimited'})"
             )
 
             return create_success_response(
