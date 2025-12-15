@@ -339,6 +339,87 @@ class MollieDebugService(StatelessService):
             else:
                 raise api_error
 
+    def update_subscription_webhook(
+        self, customer_id, subscription_id, webhook_url, reason="Webhook URL update"
+    ):
+        """
+        Update the webhook URL for a subscription via Mollie PATCH API.
+
+        Args:
+            customer_id: Mollie customer ID
+            subscription_id: Mollie subscription ID
+            webhook_url: New webhook URL to set
+            reason: Reason for the update (for audit trail)
+
+        Returns:
+            Dict with success/error status
+        """
+        if not customer_id or not subscription_id:
+            raise ValueError(_("Customer ID and Subscription ID are required"))
+
+        if not webhook_url:
+            raise ValueError(_("Webhook URL is required"))
+
+        # Validate webhook URL format
+        if not webhook_url.startswith("https://"):
+            raise ValueError(_("Webhook URL must use HTTPS"))
+
+        try:
+            client = self.mollie_client.sdk_client
+            customer_obj = client.customers.get(customer_id)
+
+            # Get current subscription to verify it exists and capture old webhook
+            current_subscription = customer_obj.subscriptions.get(subscription_id)
+            old_webhook_url = getattr(current_subscription, "webhookUrl", None)
+
+            # Update the subscription with new webhook URL
+            updated_subscription = customer_obj.subscriptions.update(
+                subscription_id, {"webhookUrl": webhook_url}
+            )
+
+            # Structured audit trail logging
+            self.audit_trail.log_event(
+                AuditEventType.CONFIGURATION_CHANGED,
+                AuditSeverity.INFO,
+                f"Updated webhook URL for subscription {subscription_id}",
+                details={
+                    "action": "subscription_webhook_update",
+                    "subscription_id": subscription_id,
+                    "customer_id": customer_id,
+                    "old_webhook_url": old_webhook_url,
+                    "new_webhook_url": webhook_url,
+                    "reason": reason,
+                    "updated_by": frappe.session.user,
+                },
+                entity_type="Mollie Subscription",
+                entity_id=subscription_id,
+            )
+
+            self.logger.info(
+                f"WEBHOOK UPDATE: User {frappe.session.user} updated webhook URL for subscription "
+                f"{subscription_id} (customer {customer_id}). Old: {old_webhook_url}, New: {webhook_url}"
+            )
+
+            return create_success_response(
+                "Webhook URL updated successfully",
+                {
+                    "subscription_id": subscription_id,
+                    "customer_id": customer_id,
+                    "old_webhook_url": old_webhook_url,
+                    "new_webhook_url": webhook_url,
+                    "updated_by": frappe.session.user,
+                    "timestamp": frappe.utils.now(),
+                },
+            )
+
+        except Exception as api_error:
+            error_message = str(api_error)
+            self.logger.error(
+                f"WEBHOOK UPDATE FAILED: User {frappe.session.user} failed to update webhook URL for "
+                f"subscription {subscription_id} (customer {customer_id}): {error_message}"
+            )
+            raise api_error
+
     def admin_revoke_mandate(self, customer_id, mandate_id, reason="Administrative revocation"):
         """
         Admin function to revoke a mandate and cancel all associated subscriptions.

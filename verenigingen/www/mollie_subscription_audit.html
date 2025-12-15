@@ -23,6 +23,91 @@
         </div>
     </div>
 
+    <!-- Webhook URL Management Section -->
+    <div class="card mb-4">
+        <div class="card-header bg-warning text-dark">
+            <h5 class="mb-0"><i class="fa fa-link"></i> Webhook URL Management</h5>
+        </div>
+        <div class="card-body">
+            <p class="text-muted mb-3">Update webhook URLs for active subscriptions to ensure payment notifications are received correctly.</p>
+
+            <div class="row mb-3">
+                <div class="col-md-8">
+                    <label for="webhook-url-input" class="form-label"><strong>New Webhook URL</strong></label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="webhook-url-input"
+                               placeholder="https://..." readonly>
+                        <button class="btn btn-outline-secondary" type="button" onclick="loadDefaultWebhook()">
+                            <i class="fa fa-refresh"></i> Load Default
+                        </button>
+                    </div>
+                    <small class="text-muted" id="webhook-mode-info"></small>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">&nbsp;</label>
+                    <div>
+                        <button class="btn btn-info" id="fetch-subs-btn" onclick="fetchActiveSubscriptions()">
+                            <i class="fa fa-download"></i> Fetch Active Subscriptions
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="webhook-progress-container" style="display:none;" class="mb-3">
+                <div class="progress">
+                    <div id="webhook-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated"
+                         role="progressbar" style="width: 0%"></div>
+                </div>
+                <p id="webhook-progress-text" class="mt-2 text-center small"></p>
+            </div>
+
+            <!-- Subscription List Table -->
+            <div id="webhook-subs-container" style="display:none;">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div>
+                        <input type="checkbox" id="select-all-subs" onchange="toggleAllSubscriptions(this)">
+                        <label for="select-all-subs" class="mb-0 ml-1">Select All</label>
+                        <span class="badge badge-info ml-2" id="webhook-subs-count">0</span> subscriptions
+                    </div>
+                    <button class="btn btn-success" id="update-webhooks-btn" onclick="updateSelectedWebhooks()" disabled>
+                        <i class="fa fa-save"></i> Update Selected Webhooks
+                    </button>
+                </div>
+
+                <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                    <table class="table table-sm table-hover">
+                        <thead class="thead-light sticky-top">
+                            <tr>
+                                <th style="width: 40px;"></th>
+                                <th>Member</th>
+                                <th>Subscription ID</th>
+                                <th>Amount</th>
+                                <th>Current Webhook URL</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="webhook-subs-table">
+                        </tbody>
+                    </table>
+                </div>
+
+                <div id="webhook-errors-container" style="display:none;" class="mt-3">
+                    <h6 class="text-danger"><i class="fa fa-exclamation-triangle"></i> Fetch Errors</h6>
+                    <div id="webhook-errors-list" class="small text-danger"></div>
+                </div>
+            </div>
+
+            <!-- Update Results -->
+            <div id="webhook-results-container" style="display:none;" class="mt-3">
+                <div class="alert alert-info">
+                    <h6><i class="fa fa-check-circle"></i> Update Results</h6>
+                    <div id="webhook-results-summary"></div>
+                </div>
+                <div id="webhook-results-details" class="small"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- Summary Section -->
     <div id="summary-section" style="display:none;" class="card mb-4">
         <div class="card-header bg-primary text-white">
@@ -386,5 +471,265 @@ function escapeHtml(text) {
     div.textContent = String(text);
     return div.innerHTML;
 }
+
+// ==================== Webhook URL Management Functions ====================
+
+let activeSubscriptions = [];
+
+function loadDefaultWebhook() {
+    frappe.call({
+        method: 'verenigingen.www.mollie_subscription_audit.get_default_webhook_url',
+        callback: function(r) {
+            if (r.message && r.message.success) {
+                const data = r.message.data;
+                document.getElementById('webhook-url-input').value = data.webhook_url || '';
+                document.getElementById('webhook-url-input').readOnly = false;
+                document.getElementById('webhook-mode-info').textContent =
+                    `${data.mode_label} mode webhook URL from Mollie Settings`;
+            } else {
+                frappe.msgprint({
+                    title: 'Error',
+                    indicator: 'red',
+                    message: r.message?.error_message || 'Failed to load default webhook URL'
+                });
+            }
+        }
+    });
+}
+
+function fetchActiveSubscriptions() {
+    const btn = document.getElementById('fetch-subs-btn');
+    const progressContainer = document.getElementById('webhook-progress-container');
+    const progressBar = document.getElementById('webhook-progress-bar');
+    const progressText = document.getElementById('webhook-progress-text');
+
+    btn.disabled = true;
+    progressContainer.style.display = 'block';
+    progressBar.style.width = '0%';
+    progressText.textContent = 'Starting...';
+
+    // Hide previous results
+    document.getElementById('webhook-subs-container').style.display = 'none';
+    document.getElementById('webhook-results-container').style.display = 'none';
+
+    // Listen for progress updates
+    frappe.realtime.on('webhook_fetch_progress', (data) => {
+        progressText.textContent = data.message;
+        progressBar.style.width = data.progress + '%';
+    });
+
+    frappe.call({
+        method: 'verenigingen.www.mollie_subscription_audit.get_active_subscriptions_with_webhooks',
+        callback: function(r) {
+            btn.disabled = false;
+            progressContainer.style.display = 'none';
+
+            if (r.message && r.message.success) {
+                const data = r.message.data;
+                activeSubscriptions = data.subscriptions;
+                displaySubscriptionTable(data);
+
+                // Also set the default webhook URL if not already set
+                if (!document.getElementById('webhook-url-input').value) {
+                    document.getElementById('webhook-url-input').value = data.default_webhook_url || '';
+                    document.getElementById('webhook-url-input').readOnly = false;
+                    document.getElementById('webhook-mode-info').textContent =
+                        `${data.test_mode ? 'Test' : 'Live'} mode webhook URL from Mollie Settings`;
+                }
+            } else {
+                frappe.msgprint({
+                    title: 'Error',
+                    indicator: 'red',
+                    message: r.message?.error_message || 'Failed to fetch subscriptions'
+                });
+            }
+        }
+    });
+}
+
+function displaySubscriptionTable(data) {
+    const container = document.getElementById('webhook-subs-container');
+    const tableBody = document.getElementById('webhook-subs-table');
+    const countBadge = document.getElementById('webhook-subs-count');
+    const errorsContainer = document.getElementById('webhook-errors-container');
+    const errorsList = document.getElementById('webhook-errors-list');
+
+    countBadge.textContent = data.subscriptions.length;
+
+    // Build table rows
+    let html = '';
+    data.subscriptions.forEach((sub, idx) => {
+        const webhookMismatch = sub.current_webhook_url !== data.default_webhook_url;
+        const rowClass = webhookMismatch ? 'table-warning' : '';
+
+        html += `
+            <tr class="${rowClass}">
+                <td>
+                    <input type="checkbox" class="sub-checkbox" data-index="${idx}"
+                           onchange="updateSelectAllState()" ${webhookMismatch ? 'checked' : ''}>
+                </td>
+                <td>
+                    <a href="/app/member/${escapeHtml(sub.member_id)}" target="_blank">
+                        ${escapeHtml(sub.member_name)}
+                    </a>
+                </td>
+                <td><code class="small">${escapeHtml(sub.subscription_id)}</code></td>
+                <td>${escapeHtml(sub.amount)}</td>
+                <td class="small ${webhookMismatch ? 'text-danger' : 'text-success'}">
+                    ${sub.current_webhook_url ? escapeHtml(sub.current_webhook_url.substring(0, 50)) + '...' : '<em>None</em>'}
+                    ${webhookMismatch ? '<i class="fa fa-exclamation-triangle text-warning ml-1" title="Differs from default"></i>' : ''}
+                </td>
+                <td><span class="badge badge-${sub.status === 'active' ? 'success' : 'secondary'}">${escapeHtml(sub.status)}</span></td>
+            </tr>
+        `;
+    });
+
+    tableBody.innerHTML = html;
+    container.style.display = 'block';
+
+    // Show errors if any
+    if (data.errors && data.errors.length > 0) {
+        errorsList.innerHTML = data.errors.map(err =>
+            `<div>${escapeHtml(err.member_id)}: ${escapeHtml(err.error)}</div>`
+        ).join('');
+        errorsContainer.style.display = 'block';
+    } else {
+        errorsContainer.style.display = 'none';
+    }
+
+    updateSelectAllState();
+    updateUpdateButtonState();
+}
+
+function toggleAllSubscriptions(checkbox) {
+    document.querySelectorAll('.sub-checkbox').forEach(cb => {
+        cb.checked = checkbox.checked;
+    });
+    updateUpdateButtonState();
+}
+
+function updateSelectAllState() {
+    const checkboxes = document.querySelectorAll('.sub-checkbox');
+    const checkedCount = document.querySelectorAll('.sub-checkbox:checked').length;
+    document.getElementById('select-all-subs').checked = checkedCount === checkboxes.length;
+    document.getElementById('select-all-subs').indeterminate = checkedCount > 0 && checkedCount < checkboxes.length;
+    updateUpdateButtonState();
+}
+
+function updateUpdateButtonState() {
+    const checkedCount = document.querySelectorAll('.sub-checkbox:checked').length;
+    const webhookUrl = document.getElementById('webhook-url-input').value;
+    document.getElementById('update-webhooks-btn').disabled = checkedCount === 0 || !webhookUrl;
+}
+
+function updateSelectedWebhooks() {
+    const webhookUrl = document.getElementById('webhook-url-input').value;
+    if (!webhookUrl) {
+        frappe.msgprint({title: 'Error', indicator: 'red', message: 'Please enter a webhook URL'});
+        return;
+    }
+
+    if (!webhookUrl.startsWith('https://')) {
+        frappe.msgprint({title: 'Error', indicator: 'red', message: 'Webhook URL must use HTTPS'});
+        return;
+    }
+
+    // Gather selected subscriptions
+    const selectedSubs = [];
+    document.querySelectorAll('.sub-checkbox:checked').forEach(cb => {
+        const idx = parseInt(cb.dataset.index);
+        selectedSubs.push({
+            customer_id: activeSubscriptions[idx].customer_id,
+            subscription_id: activeSubscriptions[idx].subscription_id,
+        });
+    });
+
+    if (selectedSubs.length === 0) {
+        frappe.msgprint({title: 'Error', indicator: 'red', message: 'No subscriptions selected'});
+        return;
+    }
+
+    // Confirm action
+    frappe.confirm(
+        `Update webhook URL for ${selectedSubs.length} subscription(s)?<br><br><code>${escapeHtml(webhookUrl)}</code>`,
+        () => {
+            executeWebhookUpdate(selectedSubs, webhookUrl);
+        }
+    );
+}
+
+function executeWebhookUpdate(subscriptions, webhookUrl) {
+    const btn = document.getElementById('update-webhooks-btn');
+    const progressContainer = document.getElementById('webhook-progress-container');
+    const progressBar = document.getElementById('webhook-progress-bar');
+    const progressText = document.getElementById('webhook-progress-text');
+
+    btn.disabled = true;
+    progressContainer.style.display = 'block';
+    progressBar.style.width = '0%';
+    progressText.textContent = 'Updating webhooks...';
+
+    // Listen for progress updates
+    frappe.realtime.on('webhook_update_progress', (data) => {
+        progressText.textContent = data.message;
+        progressBar.style.width = data.progress + '%';
+    });
+
+    frappe.call({
+        method: 'verenigingen.www.mollie_subscription_audit.bulk_update_subscription_webhooks',
+        args: {
+            subscriptions_json: JSON.stringify(subscriptions),
+            new_webhook_url: webhookUrl
+        },
+        callback: function(r) {
+            btn.disabled = false;
+            progressContainer.style.display = 'none';
+
+            if (r.message && r.message.success) {
+                displayUpdateResults(r.message.data);
+                // Refresh the subscription list
+                fetchActiveSubscriptions();
+            } else {
+                frappe.msgprint({
+                    title: 'Error',
+                    indicator: 'red',
+                    message: r.message?.error_message || 'Failed to update webhooks'
+                });
+            }
+
+            updateUpdateButtonState();
+        }
+    });
+}
+
+function displayUpdateResults(data) {
+    const container = document.getElementById('webhook-results-container');
+    const summary = document.getElementById('webhook-results-summary');
+    const details = document.getElementById('webhook-results-details');
+
+    summary.innerHTML = `
+        <strong>Total:</strong> ${data.summary.total} |
+        <strong class="text-success">Success:</strong> ${data.summary.success} |
+        <strong class="text-danger">Errors:</strong> ${data.summary.errors}
+    `;
+
+    // Show error details if any
+    const errorResults = data.results.filter(r => r.status === 'error');
+    if (errorResults.length > 0) {
+        details.innerHTML = '<h6 class="mt-2">Errors:</h6>' +
+            errorResults.map(r =>
+                `<div class="text-danger">${escapeHtml(r.subscription_id)}: ${escapeHtml(r.error)}</div>`
+            ).join('');
+    } else {
+        details.innerHTML = '';
+    }
+
+    container.style.display = 'block';
+}
+
+// Auto-load default webhook URL on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadDefaultWebhook();
+});
 </script>
 {% endblock %}
