@@ -417,10 +417,10 @@ class MemberLifecycleService(StatelessService):
             if not member.user:
                 try:
                     from verenigingen.services.member.account.member_user_account_service import (
-                        MemberUserAccountService,
+                        get_member_user_account_service,
                     )
 
-                    user_name = MemberUserAccountService.create_user_for_member(member)
+                    user_name, _action = get_member_user_account_service().create_user_for_member(member)
                     setup_results["user_created"] = True
                     setup_results["user_name"] = user_name
                     self.logger.info(f"Created user account {user_name} for member {member.name}")

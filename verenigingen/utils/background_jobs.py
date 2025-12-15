@@ -521,7 +521,7 @@ def load_payment_history_batch_optimized(member_doc) -> Dict[str, Any]:
         "outstanding_amount",
         "status",
         "docstatus",
-        "membership",
+        "is_membership_invoice",
     ]
 
     # Check for coverage fields existence once
@@ -579,25 +579,10 @@ def load_payment_history_batch_optimized(member_doc) -> Dict[str, Any]:
         )
         payment_entries = {pe.name: pe for pe in payment_entry_list}
 
-    # 4. BATCH QUERY: Get memberships for invoices that have them
-    membership_names = [inv.membership for inv in invoices if inv.get("membership")]
+    # Note: Membership lookup removed - using is_membership_invoice boolean instead
+    # SEPA mandates now retrieved via member's direct mandate link
     memberships = {}
-    if membership_names:
-        membership_list = frappe.get_all(
-            "Membership", filters={"name": ["in", membership_names]}, fields=["name", "member", "status"]
-        )
-        memberships = {m.name: m for m in membership_list}
-
-    # 5. BATCH QUERY: Get SEPA mandates for members
-    member_names = [m.member for m in memberships.values() if m.get("member")]
     mandates = {}
-    if member_names:
-        mandate_list = frappe.get_all(
-            "SEPA Mandate",
-            filters={"member": ["in", member_names], "status": "Active"},
-            fields=["name", "member", "status", "mandate_id", "iban"],
-        )
-        mandates = {m.member: m for m in mandate_list}
 
     # 6. BATCH QUERY: Get unreconciled payments (only submitted, not cancelled)
     reconciled_payment_names = list(payment_entry_names)
@@ -627,15 +612,12 @@ def load_payment_history_batch_optimized(member_doc) -> Dict[str, Any]:
 
     for invoice in invoices:
         try:
-            # Determine transaction type and reference
-            transaction_type = "Regular Invoice"
+            # Determine transaction type using is_membership_invoice boolean
+            transaction_type = (
+                "Membership Invoice" if invoice.get("is_membership_invoice") else "Regular Invoice"
+            )
             reference_doctype = None
             reference_name = None
-
-            if invoice.get("membership"):
-                transaction_type = "Membership Invoice"
-                reference_doctype = "Membership"
-                reference_name = invoice.membership
 
             # Process payments using pre-loaded data
             payment_refs = payment_refs_by_invoice.get(invoice.name, [])
@@ -679,41 +661,28 @@ def load_payment_history_batch_optimized(member_doc) -> Dict[str, Any]:
             elif paid_amount > 0 and paid_amount < invoice.grand_total:
                 payment_status = "Partially Paid"
 
-            # Process SEPA mandate using pre-loaded data
+            # Process SEPA mandate using member's default mandate
             has_mandate = 0
             sepa_mandate = None
             mandate_status = None
             mandate_reference = None
 
-            if reference_name and reference_name in memberships:
-                membership = memberships[reference_name]
-                if membership.get("sepa_mandate") and membership.sepa_mandate in mandates:
-                    mandate = mandates[membership.sepa_mandate]
+            # Get member's default mandate (if any)
+            try:
+                default_mandate = (
+                    member_doc.get_default_sepa_mandate()
+                    if hasattr(member_doc, "get_default_sepa_mandate")
+                    else None
+                )
+
+                if default_mandate:
                     has_mandate = 1
-                    sepa_mandate = mandate.name
-                    mandate_status = mandate.status
-                    mandate_reference = mandate.mandate_id
-
-            # Check for default mandate on member
-            if not has_mandate:
-                # Get member's default mandate (if any)
-                try:
-                    member_doc = frappe.get_doc("Member", member_doc.name)
-                    default_mandate = (
-                        member_doc.get_default_sepa_mandate()
-                        if hasattr(member_doc, "get_default_sepa_mandate")
-                        else None
-                    )
-
-                    if default_mandate and default_mandate.name in mandates:
-                        mandate = mandates[default_mandate.name]
-                        has_mandate = 1
-                        sepa_mandate = mandate.name
-                        mandate_status = mandate.status
-                        mandate_reference = mandate.mandate_id
-                except Exception as e:
-                    # Log error but continue processing
-                    frappe.log_error(f"Error getting default mandate for member: {e}")
+                    sepa_mandate = default_mandate.name
+                    mandate_status = default_mandate.status
+                    mandate_reference = default_mandate.mandate_id
+            except Exception as e:
+                # Log error but continue processing
+                frappe.log_error(f"Error getting default mandate for member: {e}")
 
             # Get coverage dates from invoice data (already loaded)
             coverage_start_date = invoice.get("custom_coverage_start_date")

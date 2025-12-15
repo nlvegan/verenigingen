@@ -408,11 +408,16 @@ def create_bulk_payments(payments_json: str) -> Dict:
                 idempotency_key = hashlib.sha256(idempotency_data.encode()).hexdigest()[:32]
 
                 # Check for duplicate payments (same customer, amount, date)
+                # Skip cancelled payments - they didn't actually charge the customer
                 is_duplicate = False
                 try:
                     customer = mollie_client.customers.get(customer_id)
                     recent_payments = customer.payments.list()
                     for existing_payment in recent_payments:
+                        # Skip cancelled payments - allow retry after cancellation
+                        if getattr(existing_payment, "status", "") == "canceled":
+                            continue
+
                         metadata = getattr(existing_payment, "metadata", {}) or {}
                         if metadata.get("idempotency_key") == idempotency_key:
                             result["status"] = "skipped"

@@ -2055,7 +2055,9 @@ class MollieDebugService(StatelessService):
 
         return result
 
-    def create_test_payment(self, amount: float, description: str, customer_id: str = None):
+    def create_test_payment(
+        self, amount: float, description: str, customer_id: str = None, due_date: str = None
+    ):
         """
         Create a test payment with customizable description.
 
@@ -2063,14 +2065,20 @@ class MollieDebugService(StatelessService):
             amount: Payment amount in EUR
             description: Custom payment description
             customer_id: Optional customer ID to link payment to
+            due_date: Optional due date for bank transfer payments (YYYY-MM-DD format).
+                      Must be between tomorrow and 100 days from now.
+                      Only applicable for bank transfer payment method.
 
         Returns:
             Dict containing:
                 - status: "success" or "error"
                 - payment_id: Created payment ID (if successful)
                 - checkout_url: URL to complete payment
+                - due_date: The due date if provided (for bank transfer payments)
                 - error: Error message (if failed)
         """
+        from datetime import datetime, timedelta
+
         # Validate amount using centralized helper
         amount_float = validate_mollie_amount(amount, min_amount=0.01)
 
@@ -2080,6 +2088,25 @@ class MollieDebugService(StatelessService):
 
         if not description or len(description.strip()) < 3:
             raise ValueError(_("Description must be at least 3 characters"))
+
+        # Validate due date if provided
+        validated_due_date = None
+        if due_date:
+            try:
+                due_date_obj = datetime.strptime(due_date, "%Y-%m-%d").date()
+                tomorrow = (datetime.now() + timedelta(days=1)).date()
+                max_date = (datetime.now() + timedelta(days=100)).date()
+
+                if due_date_obj < tomorrow:
+                    raise ValueError(_("Due date must be at least tomorrow"))
+                if due_date_obj > max_date:
+                    raise ValueError(_("Due date cannot be more than 100 days from now"))
+
+                validated_due_date = due_date
+            except ValueError as e:
+                if "strptime" in str(e.__class__):
+                    raise ValueError(_("Invalid due date format. Use YYYY-MM-DD"))
+                raise
 
         try:
             # Get site URL for redirect
@@ -2106,6 +2133,10 @@ class MollieDebugService(StatelessService):
             if customer_id:
                 payment_data["customerId"] = customer_id
 
+            # Add due date if provided (only applicable for bank transfer payments)
+            if validated_due_date:
+                payment_data["dueDate"] = validated_due_date
+
             # Create payment using MollieClient
             payment = self.mollie_client.create_payment(payment_data)
 
@@ -2120,6 +2151,7 @@ class MollieDebugService(StatelessService):
                     "amount": amount_float,
                     "description": description[:100],  # Truncate for audit log
                     "customer_id": customer_id,
+                    "due_date": validated_due_date,
                     "created_by": frappe.session.user,
                 },
                 entity_type="Mollie Payment",
@@ -2131,7 +2163,7 @@ class MollieDebugService(StatelessService):
                 f"DEBUG PAYMENT CREATION: User {frappe.session.user} "
                 f"created payment {payment.id} "
                 f"(amount: €{amount_float:.2f}, description: {description}, "
-                f"customer: {customer_id or 'none'})"
+                f"customer: {customer_id or 'none'}, due_date: {validated_due_date or 'none'})"
             )
 
             return create_success_response(
@@ -2144,6 +2176,7 @@ class MollieDebugService(StatelessService):
                     "description": payment.description,
                     "checkout_url": payment.checkout_url,
                     "customer_id": customer_id,
+                    "due_date": validated_due_date,
                     "timestamp": frappe.utils.now(),
                 },
             )

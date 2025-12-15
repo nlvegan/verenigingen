@@ -601,7 +601,7 @@ class MemberHistoryUpdateService(StatelessService):
                 "docstatus",  # ✅ Added for payment status determination
                 "custom_coverage_start_date",
                 "custom_coverage_end_date",
-                "membership",
+                "is_membership_invoice",
             ],
             order_by="posting_date desc",
         )
@@ -689,9 +689,11 @@ class MemberHistoryUpdateService(StatelessService):
                     "reconciled": reconciled,
                     "coverage_start_date": invoice.custom_coverage_start_date,
                     "coverage_end_date": invoice.custom_coverage_end_date,
-                    "transaction_type": "Membership Invoice" if invoice.membership else "Regular Invoice",
-                    "reference_doctype": "Membership" if invoice.membership else None,
-                    "reference_name": invoice.membership,
+                    "transaction_type": "Membership Invoice"
+                    if invoice.is_membership_invoice
+                    else "Regular Invoice",
+                    "reference_doctype": None,
+                    "reference_name": None,
                 }
 
                 if invoice.name in existing_invoices:

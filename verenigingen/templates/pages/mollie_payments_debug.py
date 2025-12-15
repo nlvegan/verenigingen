@@ -356,14 +356,22 @@ def admin_cancel_payment(payment_id, reason="Administrative cancellation"):
 
 @frappe.whitelist(allow_guest=False)
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def create_test_payment(amount, description, customer_id=None):
-    """Create a test payment that can be completed via Mollie checkout URL"""
+def create_test_payment(amount, description, customer_id=None, due_date=None):
+    """Create a test payment that can be completed via Mollie checkout URL.
+
+    Args:
+        amount: Payment amount in EUR
+        description: Custom payment description
+        customer_id: Optional customer ID to link payment to
+        due_date: Optional due date for bank transfer payments (YYYY-MM-DD format).
+                  Must be between tomorrow and 100 days from now.
+    """
     try:
         if not has_mollie_debug_access():
             frappe.throw(_("Access denied"))
 
         service = MollieDebugService()
-        return service.create_test_payment(amount, description, customer_id)
+        return service.create_test_payment(amount, description, customer_id, due_date)
 
     except Exception as e:
         frappe.log_error(f"Mollie test payment creation error: {str(e)}")

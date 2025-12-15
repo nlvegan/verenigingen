@@ -2298,6 +2298,7 @@ function createTestPayment() {
     const amount = document.getElementById('test-payment-amount').value.trim();
     const description = document.getElementById('test-payment-description').value.trim();
     const customerId = document.getElementById('test-payment-customer-id').value.trim();
+    const dueDate = document.getElementById('test-payment-due-date').value.trim();
 
     // Validate inputs
     if (!amount || parseFloat(amount) <= 0) {
@@ -2310,6 +2311,27 @@ function createTestPayment() {
         return;
     }
 
+    // Validate due date if provided (must be between tomorrow and 100 days from now)
+    if (dueDate) {
+        const dueDateObj = new Date(dueDate);
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        tomorrow.setHours(0, 0, 0, 0);
+
+        const maxDate = new Date();
+        maxDate.setDate(maxDate.getDate() + 100);
+        maxDate.setHours(23, 59, 59, 999);
+
+        if (dueDateObj < tomorrow) {
+            alert('{{ _("Due date must be at least tomorrow") }}');
+            return;
+        }
+        if (dueDateObj > maxDate) {
+            alert('{{ _("Due date cannot be more than 100 days from now") }}');
+            return;
+        }
+    }
+
     showLoading('test-payment-result', '{{ _("Creating test payment...") }}');
 
     const formData = new FormData();
@@ -2317,6 +2339,9 @@ function createTestPayment() {
     formData.append('description', description);
     if (customerId) {
         formData.append('customer_id', customerId);
+    }
+    if (dueDate) {
+        formData.append('due_date', dueDate);
     }
 
     fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.create_test_payment', {
@@ -2333,13 +2358,19 @@ function createTestPayment() {
 
         if (result.status === 'success' && result.checkout_url) {
             // Format success message with clickable link
-            const successMessage = `✅ Payment Created Successfully!\n\n` +
+            let successMessage = `✅ Payment Created Successfully!\n\n` +
                 `Payment ID: ${result.payment_id}\n` +
                 `Amount: ${result.amount}\n` +
                 `Description: ${result.description}\n` +
                 `Status: ${result.payment_status}\n` +
-                `Customer: ${result.customer_id || 'None'}\n\n` +
-                `🔗 Complete Payment: ${result.checkout_url}\n\n` +
+                `Customer: ${result.customer_id || 'None'}\n`;
+
+            // Add due date if provided (for bank transfer payments)
+            if (result.due_date) {
+                successMessage += `Due Date: ${result.due_date}\n`;
+            }
+
+            successMessage += `\n🔗 Complete Payment: ${result.checkout_url}\n\n` +
                 `Click the button below to open the Mollie checkout page:`;
 
             displayResult('test-payment-result', successMessage, 'success');
@@ -4459,6 +4490,20 @@ document.addEventListener('DOMContentLoaded', function() {
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         bulkFromDate.value = thirtyDaysAgo.toISOString().split('T')[0];
+    }
+
+    // Initialize due date constraints for test payment form
+    const dueDateInput = document.getElementById('test-payment-due-date');
+    if (dueDateInput) {
+        // Set min to tomorrow
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        dueDateInput.min = tomorrow.toISOString().split('T')[0];
+
+        // Set max to 100 days from now
+        const maxDate = new Date();
+        maxDate.setDate(maxDate.getDate() + 100);
+        dueDateInput.max = maxDate.toISOString().split('T')[0];
     }
 });
 </script>

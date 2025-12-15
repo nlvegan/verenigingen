@@ -211,7 +211,7 @@ class PaymentMixin:
         self.payment_history = []
 
         try:
-            # QUERY 1: Get invoices WITH membership field (eliminates get_doc calls)
+            # QUERY 1: Get invoices WITH is_membership_invoice field (eliminates get_doc calls)
             base_fields = [
                 "name",
                 "posting_date",
@@ -220,7 +220,7 @@ class PaymentMixin:
                 "outstanding_amount",
                 "status",
                 "docstatus",
-                "membership",  # ← KEY: Include membership field to avoid get_doc()
+                "is_membership_invoice",  # ← KEY: Include is_membership_invoice field to avoid get_doc()
             ]
 
             # Check for coverage custom fields
@@ -287,24 +287,12 @@ class PaymentMixin:
             # Build lookup: payment_name → payment_data
             payments_by_name = {pe.name: pe for pe in all_payment_entries}
 
-            # QUERY 3: Batch fetch ALL membership and mandate data
-            membership_names = [inv.membership for inv in invoices if inv.membership]
+            # Note: Membership lookup removed - using is_membership_invoice boolean instead
+            # SEPA mandate data is now retrieved from member's default mandate
+            memberships_by_name = {}
 
-            # Batch fetch memberships with chunking
-            memberships_with_mandates = []
-            if membership_names:
-                memberships_with_mandates = self._batch_fetch_with_chunking(
-                    doctype="Membership",
-                    name_list=membership_names,
-                    fields=["name", "sepa_mandate"],
-                    chunk_size=500,
-                )
-
-            # Build lookup: membership_name → membership_data
-            memberships_by_name = {m.name: m for m in memberships_with_mandates}
-
-            # Get all unique mandate names
-            mandate_names = [m.sepa_mandate for m in memberships_with_mandates if m.sepa_mandate]
+            # Get mandate names from member's default mandate instead of membership records
+            mandate_names = []
 
             # Batch fetch mandates with chunking
             all_mandates = []
@@ -332,15 +320,12 @@ class PaymentMixin:
             # NOW ITERATE WITHOUT DATABASE QUERIES
             for invoice in invoices:
                 try:
-                    # Determine transaction type from membership field (no get_doc needed!)
+                    # Determine transaction type from is_membership_invoice field (no get_doc needed!)
                     reference_doctype = None
                     reference_name = None
-                    transaction_type = "Regular Invoice"
-
-                    if invoice.membership:
-                        transaction_type = "Membership Invoice"
-                        reference_doctype = "Membership"
-                        reference_name = invoice.membership
+                    transaction_type = (
+                        "Membership Invoice" if invoice.is_membership_invoice else "Regular Invoice"
+                    )
 
                     # Get payment data from lookups (no queries!)
                     payment_refs = payment_refs_by_invoice.get(invoice.name, [])
@@ -390,25 +375,13 @@ class PaymentMixin:
                     elif paid_amount > 0 and paid_amount < invoice.grand_total:
                         payment_status = "Partially Paid"
 
-                    # Check for SEPA mandate using lookups (no queries!)
+                    # Check for SEPA mandate using member's default mandate
                     has_mandate = 0
                     sepa_mandate = None
                     mandate_status = None
                     mandate_reference = None
 
-                    if reference_doctype == "Membership" and reference_name:
-                        membership_data = memberships_by_name.get(reference_name)
-                        if membership_data and membership_data.sepa_mandate:
-                            has_mandate = 1
-                            sepa_mandate = membership_data.sepa_mandate
-
-                            # Get mandate data from lookup (no query!)
-                            mandate_data = mandates_by_name.get(sepa_mandate)
-                            if mandate_data:
-                                mandate_status = mandate_data.status
-                                mandate_reference = mandate_data.mandate_id
-
-                    if not has_mandate and default_mandate:
+                    if default_mandate:
                         # Use pre-fetched default mandate (eliminates N queries)
                         has_mandate = 1
                         sepa_mandate = default_mandate.name
