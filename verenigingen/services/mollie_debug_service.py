@@ -186,18 +186,24 @@ class MollieDebugService(StatelessService):
             except Exception:
                 amount_str = "Error parsing amount"
 
+            # Safely extract times - Mollie SDK may throw on None values
+            try:
+                times_value = getattr(subscription, "times", None)
+            except (TypeError, ValueError):
+                times_value = None  # Unlimited subscription
+
             result["subscription_data"] = {
                 "id": subscription.id,
                 "customer_id": subscription.customer_id,
                 "status": subscription.status,
                 "amount": amount_str,
                 "interval": subscription.interval,
-                "times": getattr(subscription, "times", None),  # Number of payments (None = unlimited)
+                "times": times_value,  # Number of payments (None = unlimited)
                 "description": subscription.description,
                 "created_at": str(subscription.created_at),
                 "start_date": (
-                    str(getattr(subscription, "startDate", None))
-                    if getattr(subscription, "startDate", None)
+                    str(getattr(subscription, "start_date", None) or getattr(subscription, "startDate", None))
+                    if (getattr(subscription, "start_date", None) or getattr(subscription, "startDate", None))
                     else None
                 ),
                 "next_payment_date": (
@@ -210,8 +216,9 @@ class MollieDebugService(StatelessService):
                     if getattr(subscription, "canceled_at", None)
                     else None
                 ),
-                "mandate_id": getattr(subscription, "mandateId", None),
-                "webhook_url": getattr(subscription, "webhookUrl", None),
+                # Try both snake_case (SDK) and camelCase (API) attribute names
+                "mandate_id": getattr(subscription, "mandate_id", None) or getattr(subscription, "mandateId", None),
+                "webhook_url": getattr(subscription, "webhook_url", None) or getattr(subscription, "webhookUrl", None),
                 "metadata": getattr(subscription, "metadata", {}),
             }
 
@@ -1610,7 +1617,7 @@ class MollieDebugService(StatelessService):
                     "amount": format_mollie_response_amount(subscription.amount),
                     "interval": subscription.interval,
                     "description": subscription.description,
-                    "webhook_url": getattr(subscription, "webhookUrl", "Using dashboard webhook"),
+                    "webhook_url": getattr(subscription, "webhook_url", None) or getattr(subscription, "webhookUrl", None),
                     "start_date": str(subscription.start_date)
                     if hasattr(subscription, "start_date") and subscription.start_date
                     else None,
@@ -1785,7 +1792,7 @@ class MollieDebugService(StatelessService):
             result["amount"] = format_mollie_response_amount(subscription.amount)
             result["interval"] = subscription.interval
             result["description"] = subscription.description
-            result["webhook_url"] = getattr(subscription, "webhookUrl", "Using dashboard webhook")
+            result["webhook_url"] = getattr(subscription, "webhook_url", None) or getattr(subscription, "webhookUrl", None)
 
             # Add optional fields if present
             if hasattr(subscription, "start_date") and subscription.start_date:
