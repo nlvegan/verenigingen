@@ -72,10 +72,15 @@ def parse_sepa_structured_data(text: str) -> Dict[str, str]:
 
     # Parse REMI (Remittance) - format: /REMI/type/text/ or /REMI/USTD//text/
     # After normalization, text has no newlines, but may have // (double slash)
-    remi_match = re.search(r"/REMI/([^/]*)/+([^/|]+)", text)
+    # IMPORTANT: Don't stop at "/" in text like "e/o" (Dutch "en/of" = and/or)
+    # Only stop at "/" when followed by a SEPA tag name (uppercase letters)
+    # Use negative lookahead to allow "/" not followed by SEPA tags
+    remi_match = re.search(r"/REMI/([^/]*)/+(.+?)(?=/[A-Z]{4}/|//[A-Z]|\||\Z)", text)
     if remi_match:
         remi_type = remi_match.group(1).strip()
         remi_text = remi_match.group(2).strip()
+        # Clean up: remove trailing slashes that aren't part of the text
+        remi_text = remi_text.rstrip("/")
         result["remittance_info"] = remi_text if remi_text else remi_type
 
     # Parse EREF (End-to-end reference) - format: /EREF/reference/

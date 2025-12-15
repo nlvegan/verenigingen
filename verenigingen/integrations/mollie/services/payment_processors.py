@@ -145,6 +145,14 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
             # Get donation document
             donation = frappe.get_doc("Donation", context.target_name)
 
+            # Extract and save consumer bank data from Mollie payment (for Customer only)
+            # This creates Bank Account links for future MT940 matching
+            if donation.donor:
+                donor = frappe.get_doc("Donor", donation.donor)
+                customer = getattr(donor, "customer", None)
+                if customer:
+                    self._extract_and_save_consumer_bank_data(customer, payment_data)
+
             # Track what we actually process
             processed_components = []
             payment_entry = None
@@ -458,6 +466,97 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
         # Default to one-time if no indicators found
         self.logger.info("🔍 No subscription indicators found - marking as one-time")
         return False
+
+    def _extract_and_save_consumer_bank_data(self, customer: str, payment_data: Any) -> None:
+        """
+        Extract consumer bank account data from Mollie payment and save to Customer.
+
+        For donations, we only create Bank Account links for the Customer (not Member/Donor).
+        This enables future payment matching by IBAN in MT940 imports, etc.
+
+        Args:
+            customer: Customer document name
+            payment_data: Mollie payment object with details
+        """
+        if not customer:
+            return
+
+        try:
+            # Extract payment details
+            details = getattr(payment_data, "details", None)
+            if not details:
+                return
+
+            # Handle both dict and object-style access
+            if hasattr(details, "get"):
+                consumer_account = details.get("consumerAccount")
+            else:
+                consumer_account = getattr(details, "consumerAccount", None) or getattr(details, "consumer_account", None)
+
+            if not consumer_account:
+                return
+
+            # Validate IBAN format
+            from verenigingen.integrations.mollie.utils.validators import validate_iban
+
+            iban_result = validate_iban(consumer_account)
+            if not iban_result.get("valid"):
+                self.logger.debug(
+                    f"Consumer account {consumer_account} is not a valid IBAN, skipping bank data save"
+                )
+                return
+
+            # Clean IBAN
+            clean_iban = consumer_account.replace(" ", "").upper()
+
+            # Create Bank Account link for Customer (enables future MT940 matching)
+            self._ensure_customer_bank_account(customer, clean_iban)
+
+        except Exception as e:
+            # Don't fail payment processing if bank data save fails
+            self.logger.warning(
+                f"Could not save consumer bank data for customer {customer}: {str(e)}"
+            )
+
+    def _ensure_customer_bank_account(self, customer: str, iban: str) -> None:
+        """
+        Ensure a Bank Account record exists linking this IBAN to the Customer.
+
+        Args:
+            customer: Customer document name
+            iban: IBAN to link
+        """
+        try:
+            # Check if Bank Account already exists for this IBAN
+            existing = frappe.db.exists("Bank Account", {"iban": iban})
+            if existing:
+                # Check if it's linked to the right customer
+                existing_party = frappe.db.get_value("Bank Account", existing, ["party_type", "party"], as_dict=True)
+                if existing_party and existing_party.get("party") == customer:
+                    return  # Already correctly linked
+
+                # Exists but linked to different party - log and skip
+                self.logger.debug(
+                    f"Bank Account for IBAN {iban} exists but linked to {existing_party}, not updating"
+                )
+                return
+
+            # Create Bank Account linking IBAN to Customer
+            bank_account = frappe.new_doc("Bank Account")
+            bank_account.account_name = f"{customer} - {iban[-4:]}"
+            bank_account.bank = "Unknown"
+            bank_account.iban = iban
+            bank_account.party_type = "Customer"
+            bank_account.party = customer
+            bank_account.is_default = 0
+            bank_account.insert(ignore_permissions=True)
+
+            self.logger.info(
+                f"✅ Created Bank Account link from donation: IBAN {iban} -> Customer {customer}"
+            )
+
+        except Exception as e:
+            self.logger.warning(f"Could not create Bank Account for {customer}: {str(e)}")
 
     def _create_bank_transaction_for_donation(self, donation, mollie_data: Dict[str, Any]) -> Optional[str]:
         """

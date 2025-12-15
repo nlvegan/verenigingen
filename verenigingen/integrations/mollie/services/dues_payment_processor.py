@@ -158,6 +158,109 @@ class DuesPaymentProcessor:
         frappe.logger().warning(f"⚠️ No member found for payment {payment.id}")
         return None
 
+    def _extract_and_save_consumer_bank_data(self, member_name: str, payment) -> None:
+        """
+        Extract consumer bank account data from Mollie payment and save to Member/Customer.
+
+        This enables future payment matching by IBAN. Data is extracted from Mollie's
+        payment.details for iDEAL, bank transfer, and direct debit payments.
+
+        Args:
+            member_name: Member document name
+            payment: Mollie payment object with details
+        """
+        try:
+            # Extract payment details
+            details = getattr(payment, "details", None)
+            if not details:
+                return
+
+            # Handle both dict and object-style access
+            if hasattr(details, "get"):
+                consumer_name = details.get("consumerName")
+                consumer_account = details.get("consumerAccount")
+            else:
+                consumer_name = getattr(details, "consumerName", None) or getattr(details, "consumer_name", None)
+                consumer_account = getattr(details, "consumerAccount", None) or getattr(details, "consumer_account", None)
+
+            if not consumer_account:
+                return
+
+            # Validate IBAN format
+            from verenigingen.integrations.mollie.utils.validators import validate_iban
+
+            iban_result = validate_iban(consumer_account)
+            if not iban_result.get("valid"):
+                frappe.logger().debug(
+                    f"Consumer account {consumer_account} is not a valid IBAN, skipping bank data save"
+                )
+                return
+
+            # Clean IBAN
+            clean_iban = consumer_account.replace(" ", "").upper()
+
+            # Get Member document
+            member = frappe.get_doc("Member", member_name)
+
+            # Save IBAN to Member if not already set
+            if not member.iban:
+                member.iban = clean_iban
+                member.save(ignore_permissions=True)
+                frappe.logger().info(
+                    f"✅ Saved IBAN {clean_iban} to Member {member_name} from Mollie payment"
+                )
+
+            # Create Bank Account link for Customer (enables future MT940 matching)
+            if member.customer:
+                self._ensure_customer_bank_account(member.customer, clean_iban, consumer_name)
+
+        except Exception as e:
+            # Don't fail payment processing if bank data save fails
+            frappe.logger().warning(
+                f"Could not save consumer bank data for member {member_name}: {str(e)}"
+            )
+
+    def _ensure_customer_bank_account(self, customer: str, iban: str, account_holder_name: str = None) -> None:
+        """
+        Ensure a Bank Account record exists linking this IBAN to the Customer.
+
+        Args:
+            customer: Customer document name
+            iban: IBAN to link
+            account_holder_name: Optional account holder name from payment
+        """
+        try:
+            # Check if Bank Account already exists for this IBAN
+            existing = frappe.db.exists("Bank Account", {"iban": iban})
+            if existing:
+                # Check if it's linked to the right customer
+                existing_party = frappe.db.get_value("Bank Account", existing, ["party_type", "party"], as_dict=True)
+                if existing_party and existing_party.get("party") == customer:
+                    return  # Already correctly linked
+
+                # Exists but linked to different party - log and skip
+                frappe.logger().debug(
+                    f"Bank Account for IBAN {iban} exists but linked to {existing_party}, not updating"
+                )
+                return
+
+            # Create Bank Account linking IBAN to Customer
+            bank_account = frappe.new_doc("Bank Account")
+            bank_account.account_name = f"{customer} - {iban[-4:]}"
+            bank_account.bank = "Unknown"
+            bank_account.iban = iban
+            bank_account.party_type = "Customer"
+            bank_account.party = customer
+            bank_account.is_default = 0
+            bank_account.insert(ignore_permissions=True)
+
+            frappe.logger().info(
+                f"✅ Created Bank Account link: IBAN {iban} -> Customer {customer}"
+            )
+
+        except Exception as e:
+            frappe.logger().warning(f"Could not create Bank Account for {customer}: {str(e)}")
+
     def _get_or_create_historical_invoice(
         self, member_name: str, payment_date: date, payment_amount: float
     ) -> Optional[str]:
@@ -687,6 +790,10 @@ class DuesPaymentProcessor:
                 return result
 
             result["member"] = member_name
+
+            # Extract and save consumer bank data from Mollie payment
+            # This populates Member.iban and creates Bank Account links for future matching
+            self._extract_and_save_consumer_bank_data(member_name, payment)
 
             # Determine creation mode: use override if provided, otherwise use centralized configuration
             if creation_mode is None:

@@ -58,9 +58,11 @@ def find_party_by_iban_or_name(iban: str, counterparty_name: str, is_incoming: b
     Find party (Customer/Supplier) by IBAN or name for MT940 bank transactions.
 
     Priority order:
-    1. Member by IBAN -> get linked Customer
-    2. Customer/Supplier by Bank Account IBAN
-    3. Customer/Supplier by name (using BankTransactionParser fuzzy matching)
+    1. Member by IBAN -> get linked Customer (+ create Bank Account link)
+    2. SEPA Mandate by IBAN -> get linked Member -> Customer
+    3. Customer/Supplier by Bank Account IBAN
+    4. Customer/Supplier by name (using BankTransactionParser)
+       - If matched by name and IBAN provided, creates Bank Account link for future matching
 
     Args:
         iban: Counterparty IBAN from bank statement
@@ -93,29 +95,59 @@ def find_party_by_iban_or_name(iban: str, counterparty_name: str, is_incoming: b
         )
 
         if member_customer and member_customer[0].get("customer"):
-            # Verify the Customer exists
             customer_name = member_customer[0]["customer"]
             if frappe.db.exists("Customer", customer_name):
                 result["party_type"] = "Customer"
                 result["party"] = customer_name
+                # Create Bank Account link for future matching
+                _ensure_bank_account_link(iban, customer_name, "Customer")
                 frappe.logger().debug(
                     f"MT940: Matched IBAN {iban} to Member {member_customer[0]['member_name']} -> Customer {customer_name}"
                 )
                 return result
 
-    # Priority 2: Look up party by Bank Account IBAN
+    # Priority 2: Look up SEPA Mandate by IBAN -> Member -> Customer
+    if iban:
+        try:
+            mandate_member = frappe.db.sql(
+                """
+                SELECT sm.member, m.customer
+                FROM `tabSEPA Mandate` sm
+                JOIN `tabMember` m ON sm.member = m.name
+                WHERE sm.iban = %s
+                AND m.customer IS NOT NULL
+                AND m.customer != ''
+                LIMIT 1
+                """,
+                (iban,),
+                as_dict=True,
+            )
+
+            if mandate_member and mandate_member[0].get("customer"):
+                customer_name = mandate_member[0]["customer"]
+                if frappe.db.exists("Customer", customer_name):
+                    result["party_type"] = "Customer"
+                    result["party"] = customer_name
+                    _ensure_bank_account_link(iban, customer_name, "Customer")
+                    frappe.logger().debug(
+                        f"MT940: Matched IBAN {iban} via SEPA Mandate -> Customer {customer_name}"
+                    )
+                    return result
+        except Exception:
+            pass  # SEPA Mandate table might not exist or have different schema
+
+    # Priority 3: Look up party by Bank Account IBAN (any party type)
     if iban:
         bank_account_party = frappe.db.sql(
             """
             SELECT party, party_type
             FROM `tabBank Account`
-            WHERE party_type = %s
-            AND (bank_account_no = %s OR iban = %s)
+            WHERE (bank_account_no = %s OR iban = %s)
             AND party IS NOT NULL
             AND party != ''
             LIMIT 1
             """,
-            (party_type, iban, iban),
+            (iban, iban),
             as_dict=True,
         )
 
@@ -127,60 +159,82 @@ def find_party_by_iban_or_name(iban: str, counterparty_name: str, is_incoming: b
             )
             return result
 
-    # Priority 3: Try fuzzy name matching using BankTransactionParser
+    # Priority 4: Use BankTransactionParser for name matching
+    # This handles exact, case-insensitive, and fuzzy matching
+    # AND creates Bank Account links when parties are found/created
     if counterparty_name:
         try:
             from verenigingen.e_boekhouden.utils.bank_transaction_parser import BankTransactionParser
 
             parser = BankTransactionParser()
 
-            # Try to find existing party by name (don't create new ones)
-            field_name = "customer_name" if party_type == "Customer" else "supplier_name"
-
-            # Exact match first
-            existing = frappe.db.get_value(party_type, {field_name: counterparty_name}, "name")
-            if existing:
-                result["party_type"] = party_type
-                result["party"] = existing
-                frappe.logger().debug(
-                    f"MT940: Matched name '{counterparty_name}' to {party_type} {existing} (exact)"
-                )
-                return result
-
-            # Case-insensitive match
-            similar = frappe.db.sql(
-                f"""
-                SELECT name
-                FROM `tab{party_type}`
-                WHERE LOWER({field_name}) = LOWER(%s)
-                LIMIT 1
-                """,
-                (counterparty_name,),
+            # Use find_or_create_party which:
+            # 1. Matches by IBAN (already checked above, but double-checks)
+            # 2. Matches by name (exact, case-insensitive, fuzzy)
+            # 3. Creates new party if no match (with Bank Account link)
+            party_name, created = parser.find_or_create_party(
+                party_name=counterparty_name,
+                party_type=party_type,
+                iban=iban,
             )
-            if similar:
-                result["party_type"] = party_type
-                result["party"] = similar[0][0]
-                frappe.logger().debug(
-                    f"MT940: Matched name '{counterparty_name}' to {party_type} {similar[0][0]} (case-insensitive)"
-                )
-                return result
 
-            # Fuzzy match using BankTransactionParser
-            fuzzy_match = parser._fuzzy_name_match(counterparty_name, party_type)
-            if fuzzy_match:
+            if party_name:
                 result["party_type"] = party_type
-                result["party"] = fuzzy_match
-                frappe.logger().debug(
-                    f"MT940: Fuzzy matched name '{counterparty_name}' to {party_type} {fuzzy_match}"
-                )
+                result["party"] = party_name
+                if created:
+                    frappe.logger().info(
+                        f"MT940: Created new {party_type} '{party_name}' from bank statement"
+                    )
+                else:
+                    frappe.logger().debug(
+                        f"MT940: Matched name '{counterparty_name}' to {party_type} {party_name}"
+                    )
                 return result
 
         except ImportError:
             frappe.logger().debug("BankTransactionParser not available for party matching")
         except Exception as e:
-            frappe.logger().debug(f"Party name matching failed: {str(e)}")
+            frappe.logger().warning(f"Party matching/creation failed: {str(e)}")
 
     return result
+
+
+def _ensure_bank_account_link(iban: str, party: str, party_type: str) -> None:
+    """
+    Ensure a Bank Account record exists linking this IBAN to the party.
+    Creates one if it doesn't exist.
+    """
+    if not iban or not party:
+        return
+
+    try:
+        # Check if Bank Account already exists for this IBAN
+        existing = frappe.db.exists("Bank Account", {"iban": iban})
+        if existing:
+            return
+
+        # Also check by bank_account_no field
+        existing = frappe.db.exists("Bank Account", {"bank_account_no": iban})
+        if existing:
+            return
+
+        # Create Bank Account linking IBAN to party
+        bank_account = frappe.new_doc("Bank Account")
+        bank_account.account_name = f"{party} - {iban[-4:]}"
+        bank_account.bank = "Unknown"
+        bank_account.iban = iban
+        bank_account.party_type = party_type
+        bank_account.party = party
+        bank_account.is_default = 0  # Don't override existing defaults
+        bank_account.insert(ignore_permissions=True)
+
+        frappe.logger().info(
+            f"MT940: Created Bank Account link: IBAN {iban} -> {party_type} {party}"
+        )
+
+    except Exception as e:
+        # Bank account creation is optional - log but don't fail
+        frappe.logger().warning(f"Could not create Bank Account link for {iban}: {str(e)}")
 
 
 @frappe.whitelist()
