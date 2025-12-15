@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import os
+import re
 import tempfile
 import traceback
 
@@ -10,6 +11,7 @@ from frappe.utils import getdate, today
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 
 # Dutch Banking Transaction Type Mapping (ING, Triodos, ABN AMRO, Rabobank)
+# TRCD codes from ING MT940 format
 DUTCH_BOOKING_CODES = {
     "005": "Transfer/Wire",
     "020": "Check Payment",
@@ -26,6 +28,11 @@ DUTCH_BOOKING_CODES = {
     "901": "Cash Withdrawal",
     "904": "Interest Credit",
     "905": "Interest Debit",
+    # ING-specific TRCD codes
+    "00100": "Inkomende overboeking",  # Incoming transfer
+    "00112": "Uitgaande overboeking",  # Outgoing transfer
+    "00370": "Interne overboeking",    # Internal transfer (e.g., savings)
+    "09001": "Bankkosten",             # Bank charges
 }
 
 # SEPA Transaction Types for enhanced classification
@@ -44,6 +51,136 @@ SEPA_TRANSACTION_TYPES = {
     "CHAR": "Charity Payment",
     "SECU": "Securities Purchase/Sale",
 }
+
+
+def find_party_by_iban_or_name(iban: str, counterparty_name: str, is_incoming: bool) -> dict:
+    """
+    Find party (Customer/Supplier) by IBAN or name for MT940 bank transactions.
+
+    Priority order:
+    1. Member by IBAN -> get linked Customer
+    2. Customer/Supplier by Bank Account IBAN
+    3. Customer/Supplier by name (using BankTransactionParser fuzzy matching)
+
+    Args:
+        iban: Counterparty IBAN from bank statement
+        counterparty_name: Counterparty name from bank statement
+        is_incoming: True for deposits (Customer), False for withdrawals (Supplier)
+
+    Returns:
+        dict with party_type and party (both may be None if no match)
+    """
+    result = {"party_type": None, "party": None}
+
+    # Determine expected party type based on transaction direction
+    # Incoming payments (deposits) are typically from Customers
+    # Outgoing payments (withdrawals) are typically to Suppliers
+    party_type = "Customer" if is_incoming else "Supplier"
+
+    # Priority 1: Look up Member by IBAN (for association payments)
+    if iban:
+        member_customer = frappe.db.sql(
+            """
+            SELECT m.name as member_name, m.customer
+            FROM `tabMember` m
+            WHERE m.iban = %s
+            AND m.customer IS NOT NULL
+            AND m.customer != ''
+            LIMIT 1
+            """,
+            (iban,),
+            as_dict=True,
+        )
+
+        if member_customer and member_customer[0].get("customer"):
+            # Verify the Customer exists
+            customer_name = member_customer[0]["customer"]
+            if frappe.db.exists("Customer", customer_name):
+                result["party_type"] = "Customer"
+                result["party"] = customer_name
+                frappe.logger().debug(
+                    f"MT940: Matched IBAN {iban} to Member {member_customer[0]['member_name']} -> Customer {customer_name}"
+                )
+                return result
+
+    # Priority 2: Look up party by Bank Account IBAN
+    if iban:
+        bank_account_party = frappe.db.sql(
+            """
+            SELECT party, party_type
+            FROM `tabBank Account`
+            WHERE party_type = %s
+            AND (bank_account_no = %s OR iban = %s)
+            AND party IS NOT NULL
+            AND party != ''
+            LIMIT 1
+            """,
+            (party_type, iban, iban),
+            as_dict=True,
+        )
+
+        if bank_account_party:
+            result["party_type"] = bank_account_party[0]["party_type"]
+            result["party"] = bank_account_party[0]["party"]
+            frappe.logger().debug(
+                f"MT940: Matched IBAN {iban} to {result['party_type']} {result['party']} via Bank Account"
+            )
+            return result
+
+    # Priority 3: Try fuzzy name matching using BankTransactionParser
+    if counterparty_name:
+        try:
+            from verenigingen.e_boekhouden.utils.bank_transaction_parser import BankTransactionParser
+
+            parser = BankTransactionParser()
+
+            # Try to find existing party by name (don't create new ones)
+            field_name = "customer_name" if party_type == "Customer" else "supplier_name"
+
+            # Exact match first
+            existing = frappe.db.get_value(party_type, {field_name: counterparty_name}, "name")
+            if existing:
+                result["party_type"] = party_type
+                result["party"] = existing
+                frappe.logger().debug(
+                    f"MT940: Matched name '{counterparty_name}' to {party_type} {existing} (exact)"
+                )
+                return result
+
+            # Case-insensitive match
+            similar = frappe.db.sql(
+                f"""
+                SELECT name
+                FROM `tab{party_type}`
+                WHERE LOWER({field_name}) = LOWER(%s)
+                LIMIT 1
+                """,
+                (counterparty_name,),
+            )
+            if similar:
+                result["party_type"] = party_type
+                result["party"] = similar[0][0]
+                frappe.logger().debug(
+                    f"MT940: Matched name '{counterparty_name}' to {party_type} {similar[0][0]} (case-insensitive)"
+                )
+                return result
+
+            # Fuzzy match using BankTransactionParser
+            fuzzy_match = parser._fuzzy_name_match(counterparty_name, party_type)
+            if fuzzy_match:
+                result["party_type"] = party_type
+                result["party"] = fuzzy_match
+                frappe.logger().debug(
+                    f"MT940: Fuzzy matched name '{counterparty_name}' to {party_type} {fuzzy_match}"
+                )
+                return result
+
+        except ImportError:
+            frappe.logger().debug("BankTransactionParser not available for party matching")
+        except Exception as e:
+            frappe.logger().debug(f"Party name matching failed: {str(e)}")
+
+    return result
 
 
 @frappe.whitelist()
@@ -103,47 +240,110 @@ def extract_sepa_data_enhanced(mt940_transaction):
     Extract SEPA data from MT940 transaction using Banking app approach.
 
     Attempts to access SEPA fields (EREF, MREF, CRED, SVWZ, ABWA) if available
-    in the mt940 library, with fallbacks to standard MT940 fields.
+    in the mt940 library, with fallbacks to parsing structured data from
+    description fields.
     """
+    from verenigingen.utils.sepa_parser import parse_sepa_structured_data
+
     transaction_data = mt940_transaction.data
 
     # Try to access SEPA fields if available in mt940 library
     sepa_data = getattr(mt940_transaction, "sepa", {}) or {}
 
+    # Parse structured SEPA data from description/extra_details fields
+    # This handles the /CNTP/, /REMI/, /EREF/ etc. tags that Dutch banks embed
+    raw_text = " ".join(
+        filter(
+            None,
+            [
+                str(transaction_data.get("extra_details", "") or ""),
+                str(transaction_data.get("transaction_details", "") or ""),
+                str(transaction_data.get("purpose", "") or ""),
+            ],
+        )
+    )
+    parsed_sepa = parse_sepa_structured_data(raw_text)
+
     # Extract enhanced SEPA information with fallbacks
+    # Priority: parsed structured data > mt940 library sepa > raw transaction fields
     eref = (
-        sepa_data.get("EREF")
+        parsed_sepa.get("end_to_end_ref")
+        or sepa_data.get("EREF")
         or transaction_data.get("transaction_reference")
         or transaction_data.get("reference")
         or ""
     )
 
     # Mandate Reference - crucial for direct debit processing
-    mref = sepa_data.get("MREF") or transaction_data.get("mandate_reference") or ""
+    mref = (
+        parsed_sepa.get("mandate_ref")
+        or sepa_data.get("MREF")
+        or transaction_data.get("mandate_reference")
+        or ""
+    )
 
     # Payment purpose (Verwendungszweck) - enhanced description
     svwz = (
-        sepa_data.get("SVWZ") or transaction_data.get("purpose") or transaction_data.get("description") or ""
+        parsed_sepa.get("remittance_info")
+        or parsed_sepa.get("payment_purpose")
+        or sepa_data.get("SVWZ")
+        or transaction_data.get("purpose")
+        or transaction_data.get("description")
+        or ""
     )
+    # Normalize svwz - remove line breaks and collapse whitespace
+    if svwz:
+        svwz = re.sub(r'[\r\n]+', '', svwz)  # Remove line breaks
+        svwz = re.sub(r'\s+', ' ', svwz).strip()  # Collapse multiple spaces
 
     # Creditor Reference
-    creditor_ref = sepa_data.get("CRED") or transaction_data.get("creditor_reference") or ""
+    creditor_ref = (
+        parsed_sepa.get("creditor_ref")
+        or sepa_data.get("CRED")
+        or transaction_data.get("creditor_reference")
+        or ""
+    )
 
     # Counterparty name (ABWA = Abweichender Auftraggeber/Begünstigter)
     counterparty = (
-        sepa_data.get("ABWA")
+        parsed_sepa.get("counterparty_name")
+        or sepa_data.get("ABWA")
         or transaction_data.get("counterparty_name")
         or transaction_data.get("name")
         or ""
     )
 
-    # Additional SEPA data extraction
+    # Normalize counterparty - remove line breaks and collapse whitespace
+    if counterparty:
+        counterparty = re.sub(r'[\r\n]+', '', counterparty)
+        counterparty = re.sub(r'\s+', ' ', counterparty).strip()
+
+    # Filter out placeholder values
+    if counterparty and counterparty.upper() in ("NONREF", "NOTPROVIDED", "N/A"):
+        counterparty = ""
+
+    # Counterparty IBAN - get from various sources
     counterparty_iban = (
-        transaction_data.get("counterparty_account")
+        parsed_sepa.get("counterparty_account")
+        or transaction_data.get("counterparty_account")
         or transaction_data.get("iban")
         or transaction_data.get("account")
         or ""
     )
+
+    # Clean up IBAN - remove whitespace from line breaks in MT940
+    if counterparty_iban:
+        counterparty_iban = re.sub(r'\s+', '', counterparty_iban)
+
+    # Validate IBAN format - must start with 2 letters (country code) + 2 digits
+    # Non-IBANs like 'L96981341' (internal account refs) should be stored separately
+    counterparty_account_ref = ""
+    if counterparty_iban:
+        # Check if it looks like a valid IBAN (2 letters + 2 digits + rest)
+        if not re.match(r'^[A-Z]{2}[0-9]{2}[A-Z0-9]+$', counterparty_iban.upper()):
+            # Not an IBAN, treat as account reference
+            counterparty_account_ref = counterparty_iban
+            counterparty_iban = ""
 
     return {
         "eref": eref,
@@ -152,7 +352,9 @@ def extract_sepa_data_enhanced(mt940_transaction):
         "creditor_ref": creditor_ref,
         "counterparty": counterparty,
         "counterparty_iban": counterparty_iban,
+        "counterparty_account_ref": counterparty_account_ref,  # For non-IBAN account numbers
         "raw_sepa": sepa_data,  # Keep raw SEPA data for debugging
+        "parsed_sepa": parsed_sepa,  # Include parsed structured data
     }
 
 
@@ -442,23 +644,70 @@ def create_enhanced_bank_transaction_from_mt940(mt940_transaction, bank_account,
             description_parts = []
             if transaction_data.get("purpose"):
                 description_parts.append(str(transaction_data["purpose"]))
-            if transaction_data.get("extra_details"):
-                description_parts.append(str(transaction_data["extra_details"]))
+
+            # Check if extra_details is just a TRCD code - if so, translate it
+            extra_details = transaction_data.get("extra_details", "")
+            if extra_details:
+                # Extract TRCD code if present (trailing slash is optional)
+                trcd_match = re.search(r'/TRCD/(\d+)/?', extra_details)
+                if trcd_match:
+                    trcd_code = trcd_match.group(1)
+                    # Use human-readable description from DUTCH_BOOKING_CODES
+                    trcd_description = DUTCH_BOOKING_CODES.get(trcd_code)
+                    if trcd_description:
+                        # Use counterparty name to make description more useful
+                        counterparty = sepa_data.get("counterparty", "")
+                        if counterparty:
+                            description_parts.append(f"{trcd_description} - {counterparty}")
+                        else:
+                            description_parts.append(trcd_description)
+                    else:
+                        # Unknown code, just use the raw extra_details
+                        description_parts.append(str(extra_details))
+                else:
+                    description_parts.append(str(extra_details))
+
             description = " | ".join(filter(None, description_parts))
+
+        # Normalize description - remove line breaks and collapse whitespace
+        if description:
+            description = re.sub(r'[\r\n]+', '', description)
+            description = re.sub(r'\s+', ' ', description).strip()
 
         bt.description = description or "MT940 Transaction"
 
         # Enhanced transaction type using Banking app approach
         bt.transaction_type = get_enhanced_transaction_type(mt940_transaction)
 
-        # Enhanced reference using SEPA EREF (Banking app approach)
+        # Enhanced reference using SEPA EREF, then bank_reference as fallback
+        # Avoid using transaction_reference as it may be the statement reference
         reference = sepa_data["eref"]
-        bt.reference_number = reference if reference != "NONREF" else ""
+        if not reference or reference == "NONREF":
+            # Use bank_reference from :61: field as fallback
+            reference = transaction_data.get("bank_reference", "")
+        bt.reference_number = reference if reference and reference != "NONREF" else ""
         bt.transaction_id = transaction_id
 
         # Enhanced party information using SEPA ABWA field
         bt.bank_party_name = sepa_data["counterparty"]
         bt.bank_party_iban = sepa_data["counterparty_iban"]
+
+        # Party matching - try to link to existing Customer/Supplier
+        # Incoming transactions (deposits) -> look for Customer
+        # Outgoing transactions (withdrawals) -> look for Supplier
+        is_incoming = amount > 0
+        party_match = find_party_by_iban_or_name(
+            iban=sepa_data["counterparty_iban"],
+            counterparty_name=sepa_data["counterparty"],
+            is_incoming=is_incoming,
+        )
+        if party_match.get("party"):
+            bt.party_type = party_match["party_type"]
+            bt.party = party_match["party"]
+            frappe.logger().debug(
+                f"MT940: Linked transaction to {bt.party_type} {bt.party} "
+                f"(IBAN: {sepa_data['counterparty_iban']}, Name: {sepa_data['counterparty']})"
+            )
 
         # Store additional SEPA data in custom fields (if available)
         try:

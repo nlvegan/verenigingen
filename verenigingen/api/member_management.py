@@ -1683,6 +1683,8 @@ def extract_transaction_data_improved(transaction):
 
         from frappe.utils import getdate
 
+        from verenigingen.utils.sepa_parser import parse_sepa_structured_data
+
         # Get transaction data - all data is in the data dictionary
         data = transaction.data if hasattr(transaction, "data") else {}
 
@@ -1726,32 +1728,81 @@ def extract_transaction_data_improved(transaction):
         if not transaction_date or amount is None:
             return None
 
+        # Combine text fields for SEPA parsing
+        raw_text_for_sepa = " ".join(
+            filter(
+                None,
+                [
+                    data.get("extra_details", ""),
+                    data.get("transaction_details", ""),
+                    data.get("purpose", ""),
+                ],
+            )
+        )
+
+        # Parse SEPA structured data from description/extra_details
+        sepa_data = parse_sepa_structured_data(raw_text_for_sepa)
+
+        # Determine counterparty info - prefer SEPA parsed data over raw fields
+        counterparty_name = sepa_data.get("counterparty_name") or data.get("customer_reference", "")
+        counterparty_account = sepa_data.get("counterparty_account") or data.get("counterparty_account", "")
+
+        # Filter out placeholder values like "NONREF"
+        if counterparty_name and counterparty_name.upper() == "NONREF":
+            counterparty_name = ""
+
         # Build transaction data
         transaction_data = {
             "date": transaction_date,
             "amount": amount,
             "currency": currency,
             "description": "",
-            "reference": data.get("transaction_reference", ""),
+            "reference": sepa_data.get("end_to_end_ref") or data.get("transaction_reference", ""),
             "bank_reference": data.get("bank_reference", ""),
-            "counterparty_name": data.get("customer_reference", ""),
-            "counterparty_account": data.get("counterparty_account", ""),
+            "counterparty_name": counterparty_name,
+            "counterparty_account": counterparty_account,
             "extra_details": data.get("extra_details", ""),
+            # Additional SEPA fields for enhanced data
+            "mandate_ref": sepa_data.get("mandate_ref", ""),
+            "creditor_ref": sepa_data.get("creditor_ref", ""),
+            "remittance_info": sepa_data.get("remittance_info", ""),
+            "payment_purpose": sepa_data.get("payment_purpose", ""),
         }
 
-        # Build description from available fields
+        # Build description - prefer clean SEPA data over raw tagged text
         description_parts = []
-        if data.get("extra_details"):
-            description_parts.append(data["extra_details"])
-        if data.get("transaction_details"):
-            description_parts.append(data["transaction_details"])
+        has_sepa_description = False
+
+        # Use remittance info or payment purpose as primary description
+        if sepa_data.get("remittance_info"):
+            description_parts.append(sepa_data["remittance_info"])
+            has_sepa_description = True
+        elif sepa_data.get("payment_purpose"):
+            description_parts.append(sepa_data["payment_purpose"])
+            has_sepa_description = True
+
+        # Only include raw transaction_details if we didn't extract clean SEPA description
+        # This avoids duplicating info like "/CNTP/...///REMI/USTD//RSP-Veiling..."
+        if not has_sepa_description:
+            if data.get("extra_details"):
+                description_parts.append(data["extra_details"])
+            if data.get("transaction_details"):
+                description_parts.append(data["transaction_details"])
+
         # Add funds code and transaction reference for more context
         if data.get("funds_code"):
             description_parts.append(f"Funds: {data['funds_code']}")
-        if data.get("transaction_reference"):
+        if data.get("transaction_reference") and data["transaction_reference"] != transaction_data["reference"]:
             description_parts.append(f"Ref: {data['transaction_reference']}")
 
-        transaction_data["description"] = " | ".join(filter(None, description_parts)) or "MT940 Transaction"
+        description = " | ".join(filter(None, description_parts)) or "MT940 Transaction"
+
+        # Normalize description - remove line breaks and collapse whitespace
+        if description:
+            description = re.sub(r'[\r\n]+', '', description)
+            description = re.sub(r'\s+', ' ', description).strip()
+
+        transaction_data["description"] = description
 
         return transaction_data
 
