@@ -439,6 +439,10 @@ def cleanup_orphaned_child_tables(dry_run=True, table_filter=None) -> OperationR
         # PERFORMANCE CHECK: Verify indexes before starting expensive operations
         if not dry_run:
             index_results_response = verify_child_table_indexes()
+            # Normalize response: @critical_api decorator converts OperationResult to dict
+            if isinstance(index_results_response, dict):
+                index_results_response = OperationResult.from_dict_result(index_results_response)
+
             if not index_results_response.success:
                 return OperationResult.fail(
                     _("Unable to verify indexes before cleanup. Please try again."),
