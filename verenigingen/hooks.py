@@ -1049,6 +1049,11 @@ fixtures = [
 # on_session_creation = "verenigingen.auth_hooks.on_session_creation"
 on_logout = "verenigingen.auth_hooks.on_logout"
 
+# Test Setup Hook
+# ---------------
+# Ensure ERPNext test fixtures (Company, etc.) are created before our tests run
+before_tests = "verenigingen.tests.setup.before_tests"
+
 # Optional: Request hooks to enforce member portal access
 # DISABLED: The before_request hook was causing "User None is disabled" errors
 # because it interfered with Frappe's core session initialization process.

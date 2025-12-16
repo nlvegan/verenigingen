@@ -1572,6 +1572,13 @@ class EnhancedTestCase(FrappeTestCase):
             self._cleanup_stale_test_data()
             self.__class__._cleanup_done = True
 
+        # ORPHANED DYNAMIC LINK CLEANUP: Run once per test session
+        # Cleans up Dynamic Links where target document doesn't exist
+        # This prevents LinkValidationError when Frappe validates Contact/Address records
+        if not getattr(frappe.flags, '_orphan_dynamic_link_cleanup_done', False):
+            self._cleanup_orphaned_dynamic_links()
+            frappe.flags._orphan_dynamic_link_cleanup_done = True
+
         # FIXTURE VALIDATION: Check required fixtures are loaded
         # Only run once per test class to avoid overhead
         if not hasattr(self.__class__, '_fixtures_validated'):
@@ -2005,7 +2012,74 @@ class EnhancedTestCase(FrappeTestCase):
     def track_test_record(self, doctype, name):
         """Public method to track test records for cleanup"""
         self._track_record(doctype, name)
-        
+
+    def _cleanup_orphaned_dynamic_links(self):
+        """
+        Clean up orphaned Dynamic Links where target document doesn't exist.
+
+        This fixes LinkValidationError that occurs when:
+        1. Previous test runs created Contacts/Addresses linked to test Donors/Members
+        2. The linked documents were deleted but Dynamic Links remained
+        3. Frappe's test_runner tries to validate these Contacts and fails
+
+        Only cleans up links matching test patterns to avoid touching production data.
+        Runs once per test session (controlled by frappe.flags).
+        """
+        try:
+            # Test-like name patterns that indicate test data
+            test_patterns = [
+                "Test %", "TEST %", "Debug %", "Phase%", "Security Test%",
+                "Performance Test%", "Form Test%", "Campaign Test%",
+                "Orphaned Test%", "SQL Test%", "Sync Utils Test%",
+                "Form Integration Test%", "Fallback Test%"
+            ]
+
+            # Build WHERE clause for test patterns
+            pattern_conditions = " OR ".join([f"dl.link_name LIKE '{p}'" for p in test_patterns])
+
+            # Find orphaned Dynamic Links (links to non-existent documents)
+            # We check each link_doctype separately since we can't do dynamic table joins
+            link_doctypes = ["Donor", "Member", "Customer", "Chapter"]
+
+            total_deleted = 0
+            for doctype in link_doctypes:
+                try:
+                    # Find links where target doesn't exist
+                    orphaned_links = frappe.db.sql(f"""
+                        SELECT dl.name, dl.parent, dl.parenttype, dl.link_name
+                        FROM `tabDynamic Link` dl
+                        WHERE dl.link_doctype = %s
+                          AND ({pattern_conditions})
+                          AND NOT EXISTS (
+                              SELECT 1 FROM `tab{doctype}` t
+                              WHERE t.name = dl.link_name
+                          )
+                        LIMIT 500
+                    """, (doctype,), as_dict=True)
+
+                    if orphaned_links:
+                        for link in orphaned_links:
+                            try:
+                                frappe.db.delete("Dynamic Link", {"name": link.name})
+                                total_deleted += 1
+                            except Exception:
+                                continue
+
+                except Exception as e:
+                    # Table might not exist, skip
+                    frappe.logger().debug(f"Skipped orphan check for {doctype}: {e}")
+                    continue
+
+            if total_deleted > 0:
+                frappe.db.commit()  # Commit the cleanup
+                frappe.logger().info(
+                    f"🧹 ETC orphan cleanup: Removed {total_deleted} orphaned Dynamic Links"
+                )
+
+        except Exception as e:
+            frappe.logger().warning(f"Orphaned Dynamic Link cleanup failed: {e}")
+            # Don't fail tests if cleanup fails
+
     def _cleanup_stale_test_data(self):
         """
         Clean up test data from previous test runs that didn't get rolled back.

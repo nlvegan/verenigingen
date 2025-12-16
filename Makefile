@@ -28,15 +28,16 @@ help:
 
 test:
 	@echo "Running comprehensive tests..."
-	@cd $(BENCH_DIR) && python $(PWD)/verenigingen/tests/run_all_tests.py --all
+	@cd $(BENCH_DIR) && bench --site $(SITE) run-tests --app $(APP)
 
 test-quick:
-	@echo "Running quick tests..."
-	@cd $(BENCH_DIR) && python $(PWD)/scripts/testing/runners/enhanced_test_runner.py --suite quick
+	@echo "Running quick validation tests (SEPA naming + Chapter management)..."
+	@cd $(BENCH_DIR) && bench --site $(SITE) run-tests --module verenigingen.tests.test_sepa_mandate_naming
+	@cd $(BENCH_DIR) && bench --site $(SITE) run-tests --module verenigingen.tests.backend.unit.services.test_chapter_management_service
 
 test-all:
 	@echo "Running all tests..."
-	@cd $(BENCH_DIR) && python $(PWD)/verenigingen/scripts/testing/runners/enhanced_test_runner.py --suite all --all-reports
+	@cd $(BENCH_DIR) && bench --site $(SITE) run-tests --app $(APP)
 
 coverage:
 	@echo "Running tests with coverage..."
@@ -77,30 +78,30 @@ clean:
 # Mollie Test Orchestrator Commands
 test-mollie:
 	@echo "Running all Mollie test categories..."
-	@cd $(BENCH_DIR) && python $(PWD)/$(MOLLIE_ORCHESTRATOR) --all
+	@cd $(BENCH_DIR) && $(BENCH_DIR)/env/bin/python $(PWD)/$(MOLLIE_ORCHESTRATOR) --all
 
 test-mollie-core:
 	@echo "Running core Mollie integration tests..."
-	@cd $(BENCH_DIR) && python $(PWD)/$(MOLLIE_ORCHESTRATOR) --category core --verbose
+	@cd $(BENCH_DIR) && $(BENCH_DIR)/env/bin/python $(PWD)/$(MOLLIE_ORCHESTRATOR) --category core --verbose
 
 test-mollie-performance:
 	@echo "Running Mollie performance benchmarks..."
-	@cd $(BENCH_DIR) && python $(PWD)/$(MOLLIE_ORCHESTRATOR) --category performance --verbose
+	@cd $(BENCH_DIR) && $(BENCH_DIR)/env/bin/python $(PWD)/$(MOLLIE_ORCHESTRATOR) --category performance --verbose
 
 test-mollie-security:
 	@echo "Running Mollie security tests..."
-	@cd $(BENCH_DIR) && python $(PWD)/$(MOLLIE_ORCHESTRATOR) --category security --verbose
+	@cd $(BENCH_DIR) && $(BENCH_DIR)/env/bin/python $(PWD)/$(MOLLIE_ORCHESTRATOR) --category security --verbose
 
 test-mollie-integration:
 	@echo "Running Mollie integration tests..."
-	@cd $(BENCH_DIR) && python $(PWD)/$(MOLLIE_ORCHESTRATOR) --category integration --verbose
+	@cd $(BENCH_DIR) && $(BENCH_DIR)/env/bin/python $(PWD)/$(MOLLIE_ORCHESTRATOR) --category integration --verbose
 
 test-mollie-specialized:
 	@echo "Running specialized Mollie tests..."
-	@cd $(BENCH_DIR) && python $(PWD)/$(MOLLIE_ORCHESTRATOR) --category specialized --verbose
+	@cd $(BENCH_DIR) && $(BENCH_DIR)/env/bin/python $(PWD)/$(MOLLIE_ORCHESTRATOR) --category specialized --verbose
 
 mollie-test-status:
 	@echo "Mollie test configuration status..."
-	@cd $(BENCH_DIR) && python $(PWD)/$(MOLLIE_ORCHESTRATOR) --list-categories
+	@cd $(BENCH_DIR) && $(BENCH_DIR)/env/bin/python $(PWD)/$(MOLLIE_ORCHESTRATOR) --list-categories
 	@echo ""
-	@cd $(BENCH_DIR) && python $(PWD)/$(MOLLIE_ORCHESTRATOR) --validate
+	@cd $(BENCH_DIR) && $(BENCH_DIR)/env/bin/python $(PWD)/$(MOLLIE_ORCHESTRATOR) --validate
