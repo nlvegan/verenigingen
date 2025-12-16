@@ -1151,24 +1151,40 @@ def fetch_relation_details(relation_id):
 
 
 def create_customer_from_relation(relation_details, debug_info):
-    """Create customer with proper details from relation data"""
-    customer = frappe.new_doc("Customer")
+    """
+    Create customer with proper details from relation data.
+
+    Uses centralized BankTransactionParser for party creation to ensure
+    consistent matching and creation logic across the codebase.
+    """
+    from verenigingen.e_boekhouden.utils.bank_transaction_parser import BankTransactionParser
+
+    parser = BankTransactionParser()
 
     # Use actual name if available
-    customer.customer_name = relation_details.get("name", f"E-Boekhouden {relation_details['id']}")
-    customer.customer_group = "All Customer Groups"
-    customer.territory = "All Territories"
+    customer_name = relation_details.get("name", f"E-Boekhouden {relation_details['id']}")
 
-    # Store relation ID for future matching
-    customer.eboekhouden_relation_code = str(relation_details["id"])
+    party_name, created = parser.find_or_create_party(
+        party_name=customer_name,
+        party_type="Customer",
+        iban=None,
+    )
 
-    # Add contact info if available
-    if relation_details.get("email"):
-        customer.email_id = relation_details["email"]
+    if created:
+        # Set additional fields from relation data
+        try:
+            updates = {"eboekhouden_relation_code": str(relation_details["id"])}
+            if relation_details.get("email"):
+                updates["email_id"] = relation_details["email"]
+            frappe.db.set_value("Customer", party_name, updates)
+        except Exception:
+            pass  # Fields might not exist
 
-    customer.insert()
-    debug_info.append(f"Created customer from relation data: {customer.name}")
-    return customer.name
+        debug_info.append(f"Created customer from relation data: {party_name}")
+    else:
+        debug_info.append(f"Found existing customer: {party_name}")
+
+    return party_name
 
 
 def create_single_line_fallback(invoice, mutation_detail, cost_center, debug_info):

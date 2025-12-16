@@ -8,8 +8,27 @@ import traceback
 import frappe
 from frappe.utils import getdate, today
 
+from verenigingen.utils.bank_utils import get_or_create_unknown_bank
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 
+# =============================================================================
+# Constants
+# =============================================================================
+
+# Pattern for Dutch payment prefix in remittance info (Mollie/bank generated)
+# Matches: "Betaling van [Name] [Dutch IBAN] [actual message]"
+DUTCH_PAYMENT_PREFIX_PATTERN = r"^Betaling van\s+.+?\s+(NL\d{2}[A-Z]{4}\d{10})\s+"
+
+# Default description for transactions without meaningful description
+DEFAULT_TRANSACTION_DESCRIPTION = "MT940 Transaction"
+
+# ING internal account reference pattern (e.g., 'L96981341' for linked savings accounts)
+ING_INTERNAL_ACCOUNT_PATTERN = r"^L\d{6,10}$"
+
+# Transaction ID hash length (128 bits for collision resistance)
+TRANSACTION_HASH_LENGTH = 32
+
+# =============================================================================
 # Dutch Banking Transaction Type Mapping (ING, Triodos, ABN AMRO, Rabobank)
 # TRCD codes from ING MT940 format
 DUTCH_BOOKING_CODES = {
@@ -31,8 +50,8 @@ DUTCH_BOOKING_CODES = {
     # ING-specific TRCD codes
     "00100": "Inkomende overboeking",  # Incoming transfer
     "00112": "Uitgaande overboeking",  # Outgoing transfer
-    "00370": "Interne overboeking",    # Internal transfer (e.g., savings)
-    "09001": "Bankkosten",             # Bank charges
+    "00370": "Interne overboeking",  # Internal transfer (e.g., savings)
+    "09001": "Bankkosten",  # Bank charges
 }
 
 # SEPA Transaction Types for enhanced classification
@@ -53,11 +72,200 @@ SEPA_TRANSACTION_TYPES = {
 }
 
 
-def find_party_by_iban_or_name(iban: str, counterparty_name: str, is_incoming: bool) -> dict:
+def is_internal_account_reference(account_ref: str) -> bool:
+    """
+    Check if an account reference is an ING internal linked account reference.
+
+    ING uses internal references like 'L96981341' for linked accounts (e.g., savings accounts
+    connected to a business checking account). These are NOT IBANs and indicate internal transfers
+    between the organization's own accounts.
+
+    Pattern: L + 8 digits (ING internal account format)
+
+    Args:
+        account_ref: Account reference string (could be IBAN or internal ref)
+
+    Returns:
+        True if this looks like an internal ING account reference
+    """
+    if not account_ref:
+        return False
+
+    # ING internal account references: L followed by digits (typically 8)
+    return bool(re.match(ING_INTERNAL_ACCOUNT_PATTERN, account_ref))
+
+
+def find_own_bank_account_by_reference(account_ref: str, counterparty_name: str, company: str) -> dict:
+    """
+    Find own Bank Account by internal reference or name.
+
+    For internal transfers (e.g., savings account), the counterparty is our own account.
+    This function identifies these cases to avoid creating Customer/Supplier records
+    for our own accounts.
+
+    Args:
+        account_ref: Internal account reference (e.g., 'L96981341')
+        counterparty_name: Counterparty name from bank statement
+        company: Company name to match against
+
+    Returns:
+        dict with:
+        - is_own_account: True if matched to own Bank Account
+        - bank_account: Bank Account name if found
+        - bank_account_iban: IBAN of the matched account if available
+    """
+    result = {"is_own_account": False, "bank_account": None, "bank_account_iban": None}
+
+    if not account_ref and not counterparty_name:
+        return result
+
+    # Priority 1: Match by internal account reference in bank_account_no field
+    if account_ref:
+        matched_account = frappe.db.sql(
+            """
+            SELECT name, iban, is_company_account, company
+            FROM `tabBank Account`
+            WHERE bank_account_no = %s
+            AND (is_company_account = 1 OR company = %s)
+            LIMIT 1
+            """,
+            (account_ref, company),
+            as_dict=True,
+        )
+
+        if matched_account:
+            result["is_own_account"] = True
+            result["bank_account"] = matched_account[0]["name"]
+            result["bank_account_iban"] = matched_account[0].get("iban", "")
+            frappe.logger().info(
+                f"MT940: Matched internal reference {account_ref} to own Bank Account "
+                f"{result['bank_account']}"
+            )
+            return result
+
+    # Priority 2: Match by counterparty name (for savings accounts with descriptive names)
+    if counterparty_name:
+        # Look for Bank Account with matching account_name (case-insensitive)
+        matched_account = frappe.db.sql(
+            """
+            SELECT name, iban, is_company_account, company, account_name
+            FROM `tabBank Account`
+            WHERE LOWER(account_name) LIKE LOWER(%s)
+            AND (is_company_account = 1 OR company = %s)
+            LIMIT 1
+            """,
+            (f"%{counterparty_name}%", company),
+            as_dict=True,
+        )
+
+        if matched_account:
+            result["is_own_account"] = True
+            result["bank_account"] = matched_account[0]["name"]
+            result["bank_account_iban"] = matched_account[0].get("iban", "")
+            frappe.logger().info(
+                f"MT940: Matched counterparty name '{counterparty_name}' to own Bank Account "
+                f"{result['bank_account']}"
+            )
+            return result
+
+    return result
+
+
+def batch_preload_party_lookups(ibans: list) -> dict:
+    """
+    Batch preload party lookup data for a list of IBANs.
+
+    This eliminates N+1 query patterns when processing multiple MT940 transactions.
+    Instead of 3-4 queries per transaction, we do 3 queries total for all transactions.
+
+    Args:
+        ibans: List of counterparty IBANs to look up
+
+    Returns:
+        dict with preloaded lookups:
+        - member_by_iban: {iban: {member_name, customer}}
+        - mandate_by_iban: {iban: {member, customer}}
+        - bank_account_by_iban: {iban: {party_type, party}}
+    """
+    if not ibans:
+        return {"member_by_iban": {}, "mandate_by_iban": {}, "bank_account_by_iban": {}}
+
+    # Filter out empty IBANs
+    valid_ibans = [i for i in ibans if i]
+    if not valid_ibans:
+        return {"member_by_iban": {}, "mandate_by_iban": {}, "bank_account_by_iban": {}}
+
+    # Batch load Member -> Customer mappings by IBAN
+    member_results = frappe.db.sql(
+        """
+        SELECT m.iban, m.name as member_name, m.customer
+        FROM `tabMember` m
+        WHERE m.iban IN %(ibans)s
+        AND m.customer IS NOT NULL
+        AND m.customer != ''
+        """,
+        {"ibans": valid_ibans},
+        as_dict=True,
+    )
+    member_by_iban = {r["iban"]: r for r in member_results}
+
+    # Batch load SEPA Mandate -> Member -> Customer mappings by IBAN
+    try:
+        mandate_results = frappe.db.sql(
+            """
+            SELECT sm.iban, sm.member, m.customer
+            FROM `tabSEPA Mandate` sm
+            JOIN `tabMember` m ON sm.member = m.name
+            WHERE sm.iban IN %(ibans)s
+            AND m.customer IS NOT NULL
+            AND m.customer != ''
+            """,
+            {"ibans": valid_ibans},
+            as_dict=True,
+        )
+        mandate_by_iban = {r["iban"]: r for r in mandate_results}
+    except Exception:
+        # SEPA Mandate table might not exist
+        mandate_by_iban = {}
+
+    # Batch load Bank Account -> Party mappings by IBAN
+    bank_account_results = frappe.db.sql(
+        """
+        SELECT iban, party, party_type
+        FROM `tabBank Account`
+        WHERE (bank_account_no IN %(ibans)s OR iban IN %(ibans)s)
+        AND party IS NOT NULL
+        AND party != ''
+        """,
+        {"ibans": valid_ibans},
+        as_dict=True,
+    )
+    bank_account_by_iban = {r["iban"]: r for r in bank_account_results if r.get("iban")}
+    # Also index by bank_account_no for those stored there
+    for r in bank_account_results:
+        if r.get("bank_account_no") and r["bank_account_no"] not in bank_account_by_iban:
+            bank_account_by_iban[r["bank_account_no"]] = r
+
+    return {
+        "member_by_iban": member_by_iban,
+        "mandate_by_iban": mandate_by_iban,
+        "bank_account_by_iban": bank_account_by_iban,
+    }
+
+
+def find_party_by_iban_or_name(
+    iban: str,
+    counterparty_name: str,
+    is_incoming: bool,
+    internal_account_ref: str = None,
+    company: str = None,
+    preloaded_lookups: dict = None,
+) -> dict:
     """
     Find party (Customer/Supplier) by IBAN or name for MT940 bank transactions.
 
     Priority order:
+    0. Internal transfer detection (own savings accounts, etc.)
     1. Member by IBAN -> get linked Customer (+ create Bank Account link)
     2. SEPA Mandate by IBAN -> get linked Member -> Customer
     3. Customer/Supplier by Bank Account IBAN
@@ -68,53 +276,62 @@ def find_party_by_iban_or_name(iban: str, counterparty_name: str, is_incoming: b
         iban: Counterparty IBAN from bank statement
         counterparty_name: Counterparty name from bank statement
         is_incoming: True for deposits (Customer), False for withdrawals (Supplier)
+        internal_account_ref: Non-IBAN account reference (e.g., ING internal ref 'L96981341')
+        company: Company name for internal account matching
+        preloaded_lookups: Optional dict from batch_preload_party_lookups() to avoid N+1 queries
 
     Returns:
-        dict with party_type and party (both may be None if no match)
+        dict with:
+        - party_type and party (both may be None if no match or internal transfer)
+        - is_internal_transfer: True if this is a transfer to/from own account
+        - internal_bank_account: Bank Account name if internal transfer
     """
-    result = {"party_type": None, "party": None}
+    result = {"party_type": None, "party": None, "is_internal_transfer": False, "internal_bank_account": None}
 
     # Determine expected party type based on transaction direction
     # Incoming payments (deposits) are typically from Customers
     # Outgoing payments (withdrawals) are typically to Suppliers
     party_type = "Customer" if is_incoming else "Supplier"
 
-    # Priority 1: Look up Member by IBAN (for association payments)
-    if iban:
-        member_customer = frappe.db.sql(
-            """
-            SELECT m.name as member_name, m.customer
-            FROM `tabMember` m
-            WHERE m.iban = %s
-            AND m.customer IS NOT NULL
-            AND m.customer != ''
-            LIMIT 1
-            """,
-            (iban,),
-            as_dict=True,
-        )
-
-        if member_customer and member_customer[0].get("customer"):
-            customer_name = member_customer[0]["customer"]
-            if frappe.db.exists("Customer", customer_name):
-                result["party_type"] = "Customer"
-                result["party"] = customer_name
-                # Create Bank Account link for future matching
-                _ensure_bank_account_link(iban, customer_name, "Customer")
-                frappe.logger().debug(
-                    f"MT940: Matched IBAN {iban} to Member {member_customer[0]['member_name']} -> Customer {customer_name}"
+    # Priority 0: Check for internal transfers (own accounts like savings)
+    # ING uses internal references like 'L96981341' for linked accounts
+    if internal_account_ref and company:
+        if is_internal_account_reference(internal_account_ref):
+            own_account = find_own_bank_account_by_reference(internal_account_ref, counterparty_name, company)
+            if own_account["is_own_account"]:
+                result["is_internal_transfer"] = True
+                result["internal_bank_account"] = own_account["bank_account"]
+                frappe.logger().info(
+                    f"MT940: Detected internal transfer to/from {own_account['bank_account']} "
+                    f"(internal ref: {internal_account_ref})"
                 )
                 return result
 
-    # Priority 2: Look up SEPA Mandate by IBAN -> Member -> Customer
+    # Also check by counterparty name alone if it matches a company Bank Account
+    # (Some internal transfers may not have a special reference pattern)
+    if counterparty_name and company and not iban:
+        own_account = find_own_bank_account_by_reference(None, counterparty_name, company)
+        if own_account["is_own_account"]:
+            result["is_internal_transfer"] = True
+            result["internal_bank_account"] = own_account["bank_account"]
+            frappe.logger().info(
+                f"MT940: Detected internal transfer to/from {own_account['bank_account']} "
+                f"(matched by name: '{counterparty_name}')"
+            )
+            return result
+
+    # Priority 1: Look up Member by IBAN (for association payments)
     if iban:
-        try:
-            mandate_member = frappe.db.sql(
+        # Use preloaded data if available (batch mode), otherwise query
+        member_data = None
+        if preloaded_lookups and "member_by_iban" in preloaded_lookups:
+            member_data = preloaded_lookups["member_by_iban"].get(iban)
+        else:
+            member_customer = frappe.db.sql(
                 """
-                SELECT sm.member, m.customer
-                FROM `tabSEPA Mandate` sm
-                JOIN `tabMember` m ON sm.member = m.name
-                WHERE sm.iban = %s
+                SELECT m.name as member_name, m.customer
+                FROM `tabMember` m
+                WHERE m.iban = %s
                 AND m.customer IS NOT NULL
                 AND m.customer != ''
                 LIMIT 1
@@ -122,40 +339,85 @@ def find_party_by_iban_or_name(iban: str, counterparty_name: str, is_incoming: b
                 (iban,),
                 as_dict=True,
             )
+            if member_customer:
+                member_data = member_customer[0]
 
-            if mandate_member and mandate_member[0].get("customer"):
-                customer_name = mandate_member[0]["customer"]
-                if frappe.db.exists("Customer", customer_name):
-                    result["party_type"] = "Customer"
-                    result["party"] = customer_name
-                    _ensure_bank_account_link(iban, customer_name, "Customer")
-                    frappe.logger().debug(
-                        f"MT940: Matched IBAN {iban} via SEPA Mandate -> Customer {customer_name}"
-                    )
-                    return result
-        except Exception:
-            pass  # SEPA Mandate table might not exist or have different schema
+        if member_data and member_data.get("customer"):
+            customer_name = member_data["customer"]
+            if frappe.db.exists("Customer", customer_name):
+                result["party_type"] = "Customer"
+                result["party"] = customer_name
+                # Create Bank Account link for future matching
+                _ensure_bank_account_link(iban, customer_name, "Customer")
+                frappe.logger().debug(
+                    f"[MT940] Matched IBAN {iban} to Member {member_data.get('member_name')} -> Customer {customer_name}"
+                )
+                return result
+
+    # Priority 2: Look up SEPA Mandate by IBAN -> Member -> Customer
+    if iban:
+        # Use preloaded data if available (batch mode), otherwise query
+        mandate_data = None
+        if preloaded_lookups and "mandate_by_iban" in preloaded_lookups:
+            mandate_data = preloaded_lookups["mandate_by_iban"].get(iban)
+        else:
+            try:
+                mandate_member = frappe.db.sql(
+                    """
+                    SELECT sm.member, m.customer
+                    FROM `tabSEPA Mandate` sm
+                    JOIN `tabMember` m ON sm.member = m.name
+                    WHERE sm.iban = %s
+                    AND m.customer IS NOT NULL
+                    AND m.customer != ''
+                    LIMIT 1
+                    """,
+                    (iban,),
+                    as_dict=True,
+                )
+                if mandate_member:
+                    mandate_data = mandate_member[0]
+            except Exception:
+                pass  # SEPA Mandate table might not exist
+
+        if mandate_data and mandate_data.get("customer"):
+            customer_name = mandate_data["customer"]
+            if frappe.db.exists("Customer", customer_name):
+                result["party_type"] = "Customer"
+                result["party"] = customer_name
+                _ensure_bank_account_link(iban, customer_name, "Customer")
+                frappe.logger().debug(
+                    f"[MT940] Matched IBAN {iban} via SEPA Mandate -> Customer {customer_name}"
+                )
+                return result
 
     # Priority 3: Look up party by Bank Account IBAN (any party type)
     if iban:
-        bank_account_party = frappe.db.sql(
-            """
-            SELECT party, party_type
-            FROM `tabBank Account`
-            WHERE (bank_account_no = %s OR iban = %s)
-            AND party IS NOT NULL
-            AND party != ''
-            LIMIT 1
-            """,
-            (iban, iban),
-            as_dict=True,
-        )
+        # Use preloaded data if available (batch mode), otherwise query
+        bank_account_data = None
+        if preloaded_lookups and "bank_account_by_iban" in preloaded_lookups:
+            bank_account_data = preloaded_lookups["bank_account_by_iban"].get(iban)
+        else:
+            bank_account_party = frappe.db.sql(
+                """
+                SELECT party, party_type
+                FROM `tabBank Account`
+                WHERE (bank_account_no = %s OR iban = %s)
+                AND party IS NOT NULL
+                AND party != ''
+                LIMIT 1
+                """,
+                (iban, iban),
+                as_dict=True,
+            )
+            if bank_account_party:
+                bank_account_data = bank_account_party[0]
 
-        if bank_account_party:
-            result["party_type"] = bank_account_party[0]["party_type"]
-            result["party"] = bank_account_party[0]["party"]
+        if bank_account_data:
+            result["party_type"] = bank_account_data["party_type"]
+            result["party"] = bank_account_data["party"]
             frappe.logger().debug(
-                f"MT940: Matched IBAN {iban} to {result['party_type']} {result['party']} via Bank Account"
+                f"[MT940] Matched IBAN {iban} to {result['party_type']} {result['party']} via Bank Account"
             )
             return result
 
@@ -194,7 +456,12 @@ def find_party_by_iban_or_name(iban: str, counterparty_name: str, is_incoming: b
         except ImportError:
             frappe.logger().debug("BankTransactionParser not available for party matching")
         except Exception as e:
-            frappe.logger().warning(f"Party matching/creation failed: {str(e)}")
+            # Fail loudly - party matching is critical for financial reconciliation
+            frappe.log_error(
+                title="MT940 Party Matching Failed",
+                message=f"IBAN: {iban}, Name: {counterparty_name}, Error: {str(e)}",
+            )
+            raise
 
     return result
 
@@ -218,23 +485,32 @@ def _ensure_bank_account_link(iban: str, party: str, party_type: str) -> None:
         if existing:
             return
 
-        # Create Bank Account linking IBAN to party
-        bank_account = frappe.new_doc("Bank Account")
-        bank_account.account_name = f"{party} - {iban[-4:]}"
-        bank_account.bank = "Unknown"
-        bank_account.iban = iban
-        bank_account.party_type = party_type
-        bank_account.party = party
-        bank_account.is_default = 0  # Don't override existing defaults
-        bank_account.insert(ignore_permissions=True)
+        # Ensure the Unknown bank exists (Bank Account requires a Bank link)
+        bank_name = get_or_create_unknown_bank()
 
-        frappe.logger().info(
-            f"MT940: Created Bank Account link: IBAN {iban} -> {party_type} {party}"
-        )
+        # Create Bank Account linking IBAN to party
+        # Use migration context for proper permission handling
+        from verenigingen.e_boekhouden.utils.security_helper import migration_context
+
+        with migration_context("party_creation"):
+            bank_account = frappe.new_doc("Bank Account")
+            bank_account.account_name = f"{party} - {iban[-4:]}"
+            bank_account.bank = bank_name
+            bank_account.iban = iban
+            bank_account.party_type = party_type
+            bank_account.party = party
+            bank_account.is_default = 0  # Don't override existing defaults
+            bank_account.insert()
+
+        frappe.logger().info(f"[MT940] Created Bank Account link: IBAN {iban} -> {party_type} {party}")
 
     except Exception as e:
-        # Bank account creation is optional - log but don't fail
-        frappe.logger().warning(f"Could not create Bank Account link for {iban}: {str(e)}")
+        # Fail loudly - bank account linking is important for payment matching
+        frappe.log_error(
+            title="MT940 Bank Account Creation Failed",
+            message=f"IBAN: {iban}, Party: {party_type} {party}, Error: {str(e)}",
+        )
+        raise
 
 
 @frappe.whitelist()
@@ -319,14 +595,11 @@ def extract_sepa_data_enhanced(mt940_transaction):
     parsed_sepa = parse_sepa_structured_data(raw_text)
 
     # Extract enhanced SEPA information with fallbacks
-    # Priority: parsed structured data > mt940 library sepa > raw transaction fields
-    eref = (
-        parsed_sepa.get("end_to_end_ref")
-        or sepa_data.get("EREF")
-        or transaction_data.get("transaction_reference")
-        or transaction_data.get("reference")
-        or ""
-    )
+    # Priority: parsed structured data > mt940 library sepa
+    # NOTE: Do NOT use transaction_data.get("transaction_reference") here!
+    # That field contains the MT940 :20: statement reference (e.g., "P251214000000001")
+    # which is the same for all transactions in a statement, not the individual EREF.
+    eref = parsed_sepa.get("end_to_end_ref") or sepa_data.get("EREF") or ""
 
     # Mandate Reference - crucial for direct debit processing
     mref = (
@@ -347,8 +620,8 @@ def extract_sepa_data_enhanced(mt940_transaction):
     )
     # Normalize svwz - remove line breaks and collapse whitespace
     if svwz:
-        svwz = re.sub(r'[\r\n]+', '', svwz)  # Remove line breaks
-        svwz = re.sub(r'\s+', ' ', svwz).strip()  # Collapse multiple spaces
+        svwz = re.sub(r"[\r\n]+", "", svwz)  # Remove line breaks
+        svwz = re.sub(r"\s+", " ", svwz).strip()  # Collapse multiple spaces
 
     # Creditor Reference
     creditor_ref = (
@@ -369,11 +642,13 @@ def extract_sepa_data_enhanced(mt940_transaction):
 
     # Normalize counterparty - remove line breaks and collapse whitespace
     if counterparty:
-        counterparty = re.sub(r'[\r\n]+', '', counterparty)
-        counterparty = re.sub(r'\s+', ' ', counterparty).strip()
+        counterparty = re.sub(r"[\r\n]+", "", counterparty)
+        counterparty = re.sub(r"\s+", " ", counterparty).strip()
 
     # Filter out placeholder values
-    if counterparty and counterparty.upper() in ("NONREF", "NOTPROVIDED", "N/A"):
+    from verenigingen.utils.sepa_parser import is_placeholder_value
+
+    if is_placeholder_value(counterparty):
         counterparty = ""
 
     # Counterparty IBAN - get from various sources
@@ -387,14 +662,14 @@ def extract_sepa_data_enhanced(mt940_transaction):
 
     # Clean up IBAN - remove whitespace from line breaks in MT940
     if counterparty_iban:
-        counterparty_iban = re.sub(r'\s+', '', counterparty_iban)
+        counterparty_iban = re.sub(r"\s+", "", counterparty_iban)
 
     # Validate IBAN format - must start with 2 letters (country code) + 2 digits
     # Non-IBANs like 'L96981341' (internal account refs) should be stored separately
     counterparty_account_ref = ""
     if counterparty_iban:
         # Check if it looks like a valid IBAN (2 letters + 2 digits + rest)
-        if not re.match(r'^[A-Z]{2}[0-9]{2}[A-Z0-9]+$', counterparty_iban.upper()):
+        if not re.match(r"^[A-Z]{2}[0-9]{2}[A-Z0-9]+$", counterparty_iban.upper()):
             # Not an IBAN, treat as account reference
             counterparty_account_ref = counterparty_iban
             counterparty_iban = ""
@@ -519,6 +794,54 @@ def extract_sepa_purpose_code(purpose_text):
     return ""
 
 
+def clean_description_redundancy(description: str, counterparty_name: str, counterparty_iban: str) -> str:
+    """
+    Remove redundant "Betaling van [Name] [IBAN]" prefix from payment descriptions.
+
+    Dutch banks/Mollie often include the payer's name and IBAN in the remittance info
+    even though this is already in the CNTP (counterparty) field. This creates verbose
+    descriptions like "Betaling van Hr M E J Eggermont NL96INGB0005119504 Contributie..."
+    when the meaningful part is just "Contributie...".
+
+    Args:
+        description: The raw description/remittance info
+        counterparty_name: The counterparty name from CNTP field
+        counterparty_iban: The counterparty IBAN from CNTP field
+
+    Returns:
+        str: Cleaned description with redundant prefix removed
+    """
+    if not description:
+        return description
+
+    # Pattern: "Betaling van [Name] [IBAN] [actual message]"
+    # The name/IBAN in the prefix may have slight variations from CNTP
+    # so we use a flexible regex approach
+
+    # First try exact match with counterparty info
+    if counterparty_name and counterparty_iban:
+        # Escape special regex chars in name
+        escaped_name = re.escape(counterparty_name)
+        escaped_iban = re.escape(counterparty_iban)
+
+        # Try pattern: "Betaling van [Name] [IBAN] "
+        pattern = rf"^Betaling van\s+{escaped_name}\s+{escaped_iban}\s+"
+        cleaned = re.sub(pattern, "", description, flags=re.IGNORECASE)
+        if cleaned != description:
+            return cleaned.strip()
+
+    # Generic pattern: "Betaling van [any name] [any IBAN] "
+    # IBAN pattern: 2 letters + 2 digits + up to 30 alphanumeric
+    match = re.match(DUTCH_PAYMENT_PREFIX_PATTERN, description, re.IGNORECASE)
+    if match:
+        # Remove the matched prefix
+        cleaned = description[match.end() :].strip()
+        if cleaned:
+            return cleaned
+
+    return description
+
+
 def process_mt940_document(mt940_content, bank_account, company):
     """
     Process MT940 document content using the WoLpH/mt940 library.
@@ -562,45 +885,82 @@ def process_mt940_document(mt940_content, bank_account, company):
             # Process transactions - avoid double counting by processing all transactions directly
             processed_transaction_ids = set()  # Track processed transactions to avoid duplicates
 
-            for statement in transaction_list:
-                # Extract IBAN from statement
-                if hasattr(statement, "data") and "account_identification" in statement.data:
-                    statement_iban = statement.data["account_identification"]
+            # Batch preload party lookups to eliminate N+1 query pattern
+            # Extract all counterparty IBANs first
+            all_ibans = []
+            for stmt in transaction_list:
+                sepa_data = extract_sepa_data_enhanced(stmt)
+                if sepa_data.get("counterparty_iban"):
+                    all_ibans.append(sepa_data["counterparty_iban"])
+            preloaded_lookups = batch_preload_party_lookups(all_ibans)
 
-                # Validate IBAN matches (if available)
-                if bank_account_iban and statement_iban and bank_account_iban != statement_iban:
-                    return {
-                        "success": False,
-                        "message": f"IBAN mismatch: Bank Account IBAN {bank_account_iban} does not match MT940 IBAN {statement_iban}",
-                    }
+            # Use savepoint for transaction isolation - allows atomic rollback on failure
+            # This prevents orphaned Customer/Bank Account records if import fails partway
+            savepoint_name = f"mt940_import_{frappe.generate_hash()[:8]}"
 
-                # In MT940 library, each statement object IS a transaction, not a container
-                # The library structure treats each parsed item as a single transaction
-                try:
-                    # Generate transaction ID to check for duplicates within this import
-                    from verenigingen.utils.mt940_import import (
-                        extract_sepa_data_enhanced,
-                        get_enhanced_duplicate_hash,
-                    )
+            try:
+                frappe.db.savepoint(savepoint_name)
 
-                    sepa_data = extract_sepa_data_enhanced(statement)
-                    transaction_id = get_enhanced_duplicate_hash(statement, sepa_data)[:16]
+                for statement in transaction_list:
+                    # Extract IBAN from statement
+                    if hasattr(statement, "data") and "account_identification" in statement.data:
+                        statement_iban = statement.data["account_identification"]
 
-                    # Skip if we've already processed this exact transaction in this import
-                    if transaction_id in processed_transaction_ids:
-                        continue
+                    # Validate IBAN matches (if available)
+                    if bank_account_iban and statement_iban and bank_account_iban != statement_iban:
+                        frappe.db.rollback(save_point=savepoint_name)
+                        return {
+                            "success": False,
+                            "message": f"IBAN mismatch: Bank Account IBAN {bank_account_iban} does not match MT940 IBAN {statement_iban}",
+                        }
 
-                    processed_transaction_ids.add(transaction_id)
+                    # In MT940 library, each statement object IS a transaction, not a container
+                    # The library structure treats each parsed item as a single transaction
+                    try:
+                        # Generate transaction ID to check for duplicates within this import
+                        from verenigingen.utils.mt940_import import (
+                            extract_sepa_data_enhanced,
+                            get_enhanced_duplicate_hash,
+                        )
 
-                    # Create bank transaction using enhanced method
-                    if create_enhanced_bank_transaction_from_mt940(statement, bank_account, company):
-                        transactions_created += 1
-                    else:
-                        transactions_skipped += 1
+                        sepa_data = extract_sepa_data_enhanced(statement)
+                        transaction_id = get_enhanced_duplicate_hash(statement, sepa_data)[:32]
 
-                except Exception as e:
-                    errors.append(f"Transaction error: {str(e)}")
-                    frappe.logger().error(f"Error processing MT940 transaction: {str(e)}")
+                        # Skip if we've already processed this exact transaction in this import
+                        if transaction_id in processed_transaction_ids:
+                            continue
+
+                        processed_transaction_ids.add(transaction_id)
+
+                        # Create bank transaction using enhanced method
+                        if create_enhanced_bank_transaction_from_mt940(
+                            statement, bank_account, company, preloaded_lookups=preloaded_lookups
+                        ):
+                            transactions_created += 1
+                        else:
+                            transactions_skipped += 1
+
+                    except Exception as e:
+                        errors.append(f"Transaction error: {str(e)}")
+                        frappe.logger().error(f"[MT940] Error processing transaction: {str(e)}")
+
+                # Release savepoint on success (implicit commit of savepoint)
+                frappe.db.release_savepoint(savepoint_name)
+
+            except Exception as batch_error:
+                # Rollback entire batch on critical failure
+                frappe.db.rollback(save_point=savepoint_name)
+                frappe.log_error(
+                    title="MT940 Import Batch Failed",
+                    message=f"Bank Account: {bank_account}, Error: {str(batch_error)}",
+                )
+                return {
+                    "success": False,
+                    "message": f"Import failed and rolled back: {str(batch_error)}",
+                    "transactions_created": 0,
+                    "transactions_skipped": 0,
+                    "errors": [str(batch_error)],
+                }
 
             # Calculate date range from processed transactions - each statement IS a transaction
             transaction_dates = []
@@ -644,7 +1004,9 @@ def process_mt940_document(mt940_content, bank_account, company):
         return {"success": False, "message": f"Failed to process MT940 document: {str(e)}"}
 
 
-def create_enhanced_bank_transaction_from_mt940(mt940_transaction, bank_account, company):
+def create_enhanced_bank_transaction_from_mt940(
+    mt940_transaction, bank_account, company, preloaded_lookups=None
+):
     """
     Enhanced Bank Transaction creation inspired by Banking app approach.
 
@@ -653,6 +1015,13 @@ def create_enhanced_bank_transaction_from_mt940(mt940_transaction, bank_account,
     - Sophisticated transaction type classification
     - Enhanced duplicate detection using multiple fields
     - Better handling of Dutch banking codes
+    - Batch preloaded party lookups to eliminate N+1 queries
+
+    Args:
+        mt940_transaction: Parsed MT940 transaction object
+        bank_account: ERPNext Bank Account name
+        company: Company name
+        preloaded_lookups: Optional dict from batch_preload_party_lookups() for N+1 optimization
     """
     try:
         import contextlib
@@ -661,7 +1030,8 @@ def create_enhanced_bank_transaction_from_mt940(mt940_transaction, bank_account,
         sepa_data = extract_sepa_data_enhanced(mt940_transaction)
 
         # Generate enhanced transaction ID using Banking app strategy
-        transaction_id = get_enhanced_duplicate_hash(mt940_transaction, sepa_data)[:16]
+        # Use 32 chars (128 bits) for collision-resistant duplicate detection
+        transaction_id = get_enhanced_duplicate_hash(mt940_transaction, sepa_data)[:32]
 
         # Check if transaction already exists
         if transaction_id and frappe.db.exists(
@@ -703,7 +1073,7 @@ def create_enhanced_bank_transaction_from_mt940(mt940_transaction, bank_account,
             extra_details = transaction_data.get("extra_details", "")
             if extra_details:
                 # Extract TRCD code if present (trailing slash is optional)
-                trcd_match = re.search(r'/TRCD/(\d+)/?', extra_details)
+                trcd_match = re.search(r"/TRCD/(\d+)/?", extra_details)
                 if trcd_match:
                     trcd_code = trcd_match.group(1)
                     # Use human-readable description from DUTCH_BOOKING_CODES
@@ -725,10 +1095,18 @@ def create_enhanced_bank_transaction_from_mt940(mt940_transaction, bank_account,
 
         # Normalize description - remove line breaks and collapse whitespace
         if description:
-            description = re.sub(r'[\r\n]+', '', description)
-            description = re.sub(r'\s+', ' ', description).strip()
+            description = re.sub(r"[\r\n]+", "", description)
+            description = re.sub(r"\s+", " ", description).strip()
 
-        bt.description = description or "MT940 Transaction"
+        # Clean up redundant "Betaling van [Name] [IBAN]" prefix
+        if description:
+            description = clean_description_redundancy(
+                description,
+                sepa_data.get("counterparty", ""),
+                sepa_data.get("counterparty_iban", ""),
+            )
+
+        bt.description = description or DEFAULT_TRANSACTION_DESCRIPTION
 
         # Enhanced transaction type using Banking app approach
         bt.transaction_type = get_enhanced_transaction_type(mt940_transaction)
@@ -746,6 +1124,10 @@ def create_enhanced_bank_transaction_from_mt940(mt940_transaction, bank_account,
         bt.bank_party_name = sepa_data["counterparty"]
         bt.bank_party_iban = sepa_data["counterparty_iban"]
 
+        # Store non-IBAN account reference (e.g., ING internal account ref like 'L96981341')
+        if sepa_data.get("counterparty_account_ref"):
+            bt.bank_party_account_number = sepa_data["counterparty_account_ref"]
+
         # Party matching - try to link to existing Customer/Supplier
         # Incoming transactions (deposits) -> look for Customer
         # Outgoing transactions (withdrawals) -> look for Supplier
@@ -754,8 +1136,29 @@ def create_enhanced_bank_transaction_from_mt940(mt940_transaction, bank_account,
             iban=sepa_data["counterparty_iban"],
             counterparty_name=sepa_data["counterparty"],
             is_incoming=is_incoming,
+            internal_account_ref=sepa_data.get("counterparty_account_ref"),
+            company=company,
+            preloaded_lookups=preloaded_lookups,
         )
-        if party_match.get("party"):
+
+        # Handle internal transfers (own accounts like savings)
+        if party_match.get("is_internal_transfer"):
+            # Don't set party for internal transfers - it's our own account
+            frappe.logger().info(
+                f"MT940: Internal transfer detected to/from {party_match.get('internal_bank_account')} "
+                f"(counterparty: {sepa_data['counterparty']}, ref: {sepa_data.get('counterparty_account_ref')})"
+            )
+            # Update description to indicate internal transfer if not already clear
+            if bt.description and "intern" not in bt.description.lower():
+                internal_account = party_match.get("internal_bank_account", "")
+                if internal_account:
+                    # Get the account name for a clearer description
+                    account_name = (
+                        frappe.db.get_value("Bank Account", internal_account, "account_name")
+                        or internal_account
+                    )
+                    bt.description = f"Internal transfer: {account_name} - {bt.description}"
+        elif party_match.get("party"):
             bt.party_type = party_match["party_type"]
             bt.party = party_match["party"]
             frappe.logger().debug(
@@ -839,7 +1242,7 @@ def generate_mt940_transaction_hash(transaction):
     ]
 
     sha.update("".join(hash_components).encode())
-    return sha.hexdigest()[:16]  # Use first 16 characters
+    return sha.hexdigest()[:32]  # Use 32 chars (128 bits) for collision resistance
 
 
 @frappe.whitelist()

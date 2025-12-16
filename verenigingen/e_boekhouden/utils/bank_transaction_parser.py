@@ -17,6 +17,9 @@ from typing import Dict, Optional, Tuple
 
 import frappe
 
+from verenigingen.utils.bank_utils import get_or_create_unknown_bank
+from verenigingen.utils.sepa_parser import extract_salutation
+
 
 class BankTransactionParser:
     """Parse Dutch bank transaction descriptions to extract party information"""
@@ -117,14 +120,23 @@ class BankTransactionParser:
         """
         Parse bank transaction description to extract party information.
 
+        Extracts IBAN, BIC, party name, and Dutch salutations from bank
+        transaction descriptions. Salutations like "Hr", "Mw", "Dhr" are
+        recognized (case-insensitive) and mapped to ERPNext Salutation names.
+
         Args:
             description: Bank transaction description string
 
         Returns:
-            Dict with keys: iban, bic, party_name, remainder
+            Dict with keys:
+                - iban: IBAN if found
+                - bic: BIC code if found
+                - party_name: Clean party name (salutation removed)
+                - salutation: ERPNext Salutation name (Mr, Mrs, etc.) or None
+                - remainder: Remaining text after party name
         """
         if not description:
-            return {"iban": None, "bic": None, "party_name": None, "remainder": description}
+            return {"iban": None, "bic": None, "party_name": None, "salutation": None, "remainder": description}
 
         # Try to find IBAN (NL followed by digits/letters)
         iban_match = re.match(r"(NL\d{2}[A-Z]{4}\d{10})\s+", description)
@@ -219,7 +231,12 @@ class BankTransactionParser:
                     )
                     party_name = None
 
-        return {"iban": iban, "bic": bic, "party_name": party_name, "remainder": remainder}
+        # Extract salutation from party name (e.g., "Hr M E J Eggermont" -> salutation="Mr", name="M E J Eggermont")
+        salutation = None
+        if party_name:
+            salutation, party_name = extract_salutation(party_name)
+
+        return {"iban": iban, "bic": bic, "party_name": party_name, "salutation": salutation, "remainder": remainder}
 
     def find_or_create_party(
         self, party_name: str, party_type: str, iban: Optional[str] = None
@@ -503,9 +520,12 @@ class BankTransactionParser:
         """Create bank account for party"""
         try:
             if not frappe.db.exists("Bank Account", {"iban": iban}):
+                # Ensure the Unknown bank exists (Bank Account requires a Bank link)
+                bank_name = get_or_create_unknown_bank()
+
                 bank_account = frappe.new_doc("Bank Account")
                 bank_account.account_name = f"{party} - {iban[-4:]}"
-                bank_account.bank = "Unknown"  # Could parse from BIC
+                bank_account.bank = bank_name
                 bank_account.iban = iban
                 bank_account.party_type = party_type
                 bank_account.party = party

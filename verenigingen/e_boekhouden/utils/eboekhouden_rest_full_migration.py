@@ -1108,9 +1108,15 @@ def _get_or_create_supplier(relation_id, description, debug_info):
 
 
 def _get_or_create_generic_customer(description, debug_info):
-    """Create customer with improved description-based naming"""
+    """
+    Create customer with improved description-based naming.
+
+    Uses centralized BankTransactionParser for party creation to ensure
+    consistent matching and creation logic across the codebase.
+    """
     try:
         from .eboekhouden_payment_naming import get_meaningful_description
+        from verenigingen.e_boekhouden.utils.bank_transaction_parser import BankTransactionParser
 
         # Clean and improve the description
         clean_description = get_meaningful_description(description) if description else ""
@@ -1122,26 +1128,32 @@ def _get_or_create_generic_customer(description, debug_info):
         else:
             customer_name = "eBoekhouden Import Customer"
 
-        # Check if this customer already exists
-        existing = frappe.db.get_value("Customer", {"customer_name": customer_name}, "name")
-        if existing:
-            debug_info.append(f"Found existing import customer: {existing}")
-            return existing
+        # Use centralized party creation
+        parser = BankTransactionParser()
+        party_name, created = parser.find_or_create_party(
+            party_name=customer_name,
+            party_type="Customer",
+            iban=None,
+        )
 
-        # Create new customer with better defaults
-        customer = frappe.new_doc("Customer")
-        customer.customer_name = customer_name
-        customer.customer_type = "Individual"
-        customer.customer_group = "All Customer Groups"
-        customer.territory = "All Territories"
+        if created:
+            # Set import-specific fields
+            try:
+                updates = {}
+                if frappe.get_meta("Customer").has_field("custom_import_source"):
+                    updates["custom_import_source"] = "eBoekhouden"
+                if frappe.get_meta("Customer").has_field("custom_needs_review"):
+                    updates["custom_needs_review"] = 1
+                if updates:
+                    frappe.db.set_value("Customer", party_name, updates)
+            except Exception:
+                pass  # Fields might not exist
 
-        # Mark as import customer for later review
-        customer.custom_import_source = "eBoekhouden"
-        customer.custom_needs_review = 1
+            debug_info.append(f"Created improved import customer: {party_name}")
+        else:
+            debug_info.append(f"Found existing import customer: {party_name}")
 
-        customer.save()
-        debug_info.append(f"Created improved import customer: {customer.name} ({customer_name})")
-        return customer.name
+        return party_name
 
     except Exception as e:
         debug_info.append(f"Error creating import customer: {str(e)}")
@@ -1150,9 +1162,15 @@ def _get_or_create_generic_customer(description, debug_info):
 
 
 def _get_or_create_generic_supplier(description, debug_info):
-    """Create supplier with improved description-based naming"""
+    """
+    Create supplier with improved description-based naming.
+
+    Uses centralized BankTransactionParser for party creation to ensure
+    consistent matching and creation logic across the codebase.
+    """
     try:
         from .eboekhouden_payment_naming import get_meaningful_description
+        from verenigingen.e_boekhouden.utils.bank_transaction_parser import BankTransactionParser
 
         # Clean and improve the description
         clean_description = get_meaningful_description(description) if description else ""
@@ -1164,25 +1182,32 @@ def _get_or_create_generic_supplier(description, debug_info):
         else:
             supplier_name = "eBoekhouden Import Supplier"
 
-        # Check if this supplier already exists
-        existing = frappe.db.get_value("Supplier", {"supplier_name": supplier_name}, "name")
-        if existing:
-            debug_info.append(f"Found existing import supplier: {existing}")
-            return existing
+        # Use centralized party creation
+        parser = BankTransactionParser()
+        party_name, created = parser.find_or_create_party(
+            party_name=supplier_name,
+            party_type="Supplier",
+            iban=None,
+        )
 
-        # Create new supplier with better defaults
-        supplier = frappe.new_doc("Supplier")
-        supplier.supplier_name = supplier_name
-        supplier.supplier_type = "Individual"
-        supplier.supplier_group = "All Supplier Groups"
+        if created:
+            # Set import-specific fields
+            try:
+                updates = {}
+                if frappe.get_meta("Supplier").has_field("custom_import_source"):
+                    updates["custom_import_source"] = "eBoekhouden"
+                if frappe.get_meta("Supplier").has_field("custom_needs_review"):
+                    updates["custom_needs_review"] = 1
+                if updates:
+                    frappe.db.set_value("Supplier", party_name, updates)
+            except Exception:
+                pass  # Fields might not exist
 
-        # Mark as import supplier for later review
-        supplier.custom_import_source = "eBoekhouden"
-        supplier.custom_needs_review = 1
+            debug_info.append(f"Created improved import supplier: {party_name}")
+        else:
+            debug_info.append(f"Found existing import supplier: {party_name}")
 
-        supplier.save()
-        debug_info.append(f"Created improved import supplier: {supplier.name} ({supplier_name})")
-        return supplier.name
+        return party_name
 
     except Exception as e:
         debug_info.append(f"Error creating import supplier: {str(e)}")
@@ -1191,24 +1216,32 @@ def _get_or_create_generic_supplier(description, debug_info):
 
 
 def _get_or_create_company_as_customer(company, debug_info):
-    """Get or create the company as a customer for internal transactions"""
+    """
+    Get or create the company as a customer for internal transactions.
+
+    Uses centralized BankTransactionParser for party creation to ensure
+    consistent matching and creation logic across the codebase.
+    """
     try:
+        from verenigingen.e_boekhouden.utils.bank_transaction_parser import BankTransactionParser
+
         # Use the company name as customer name
         customer_name = f"{company} (Internal)"
 
-        # Check if this customer already exists
-        existing = frappe.db.get_value("Customer", {"customer_name": customer_name}, "name")
-        if existing:
-            debug_info.append(f"Found existing company customer: {existing}")
-            return existing
+        # Use centralized party creation
+        parser = BankTransactionParser()
+        party_name, created = parser.find_or_create_party(
+            party_name=customer_name,
+            party_type="Customer",
+            iban=None,
+        )
 
-        # Create company as customer
-        customer = frappe.new_doc("Customer")
-        customer.customer_name = customer_name
-        customer.customer_type = "Company"
-        customer.save()
-        debug_info.append(f"Created company customer: {customer.name}")
-        return customer.name
+        if created:
+            debug_info.append(f"Created company customer: {party_name}")
+        else:
+            debug_info.append(f"Found existing company customer: {party_name}")
+
+        return party_name
 
     except Exception as e:
         debug_info.append(f"Error creating company customer: {str(e)}")
@@ -1216,24 +1249,32 @@ def _get_or_create_company_as_customer(company, debug_info):
 
 
 def _get_or_create_company_as_supplier(company, debug_info):
-    """Get or create the company as a supplier for internal transactions"""
+    """
+    Get or create the company as a supplier for internal transactions.
+
+    Uses centralized BankTransactionParser for party creation to ensure
+    consistent matching and creation logic across the codebase.
+    """
     try:
+        from verenigingen.e_boekhouden.utils.bank_transaction_parser import BankTransactionParser
+
         # Use the company name as supplier name
         supplier_name = f"{company} (Internal)"
 
-        # Check if this supplier already exists
-        existing = frappe.db.get_value("Supplier", {"supplier_name": supplier_name}, "name")
-        if existing:
-            debug_info.append(f"Found existing company supplier: {existing}")
-            return existing
+        # Use centralized party creation
+        parser = BankTransactionParser()
+        party_name, created = parser.find_or_create_party(
+            party_name=supplier_name,
+            party_type="Supplier",
+            iban=None,
+        )
 
-        # Create company as supplier
-        supplier = frappe.new_doc("Supplier")
-        supplier.supplier_name = supplier_name
-        supplier.supplier_type = "Company"
-        supplier.save()
-        debug_info.append(f"Created company supplier: {supplier.name}")
-        return supplier.name
+        if created:
+            debug_info.append(f"Created company supplier: {party_name}")
+        else:
+            debug_info.append(f"Found existing company supplier: {party_name}")
+
+        return party_name
 
     except Exception as e:
         debug_info.append(f"Error creating company supplier: {str(e)}")

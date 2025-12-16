@@ -19,6 +19,7 @@ from frappe.utils import flt, getdate
 
 from verenigingen.integrations.mollie.core.client import MollieClient
 from verenigingen.integrations.mollie.domain.payment_classification import PaymentClassifier
+from verenigingen.utils.bank_utils import get_or_create_unknown_bank
 from verenigingen.verenigingen_payments.services.payment.payment_entry_creation_service import (
     payment_entry_service,
 )
@@ -132,14 +133,14 @@ class DuesPaymentProcessor:
         if subscription_id:
             member_name = frappe.db.get_value("Member", {"mollie_subscription_id": subscription_id}, "name")
             if member_name:
-                frappe.logger().info(f"✅ Found member {member_name} by subscription_id")
+                frappe.logger().info(f"[Mollie] Found member {member_name} by subscription_id")
                 return member_name
 
         # Method 2: Customer ID match
         if customer_id:
             member_name = frappe.db.get_value("Member", {"mollie_customer_id": customer_id}, "name")
             if member_name:
-                frappe.logger().info(f"✅ Found member {member_name} by customer_id")
+                frappe.logger().info(f"[Mollie] Found member {member_name} by customer_id")
                 return member_name
 
         # Method 3: Parse member ID from description
@@ -152,10 +153,12 @@ class DuesPaymentProcessor:
             if match:
                 potential_member_id = match.group(0)
                 if frappe.db.exists("Member", potential_member_id):
-                    frappe.logger().info(f"✅ Found member {potential_member_id} by parsing description")
+                    frappe.logger().info(
+                        f"[Mollie] Found member {potential_member_id} by parsing description"
+                    )
                     return potential_member_id
 
-        frappe.logger().warning(f"⚠️ No member found for payment {payment.id}")
+        frappe.logger().warning(f"[Mollie] No member found for payment {payment.id}")
         return None
 
     def _extract_and_save_consumer_bank_data(self, member_name: str, payment) -> None:
@@ -180,8 +183,12 @@ class DuesPaymentProcessor:
                 consumer_name = details.get("consumerName")
                 consumer_account = details.get("consumerAccount")
             else:
-                consumer_name = getattr(details, "consumerName", None) or getattr(details, "consumer_name", None)
-                consumer_account = getattr(details, "consumerAccount", None) or getattr(details, "consumer_account", None)
+                consumer_name = getattr(details, "consumerName", None) or getattr(
+                    details, "consumer_name", None
+                )
+                consumer_account = getattr(details, "consumerAccount", None) or getattr(
+                    details, "consumer_account", None
+                )
 
             if not consumer_account:
                 return
@@ -207,7 +214,7 @@ class DuesPaymentProcessor:
                 member.iban = clean_iban
                 member.save(ignore_permissions=True)
                 frappe.logger().info(
-                    f"✅ Saved IBAN {clean_iban} to Member {member_name} from Mollie payment"
+                    f"[Mollie] Saved IBAN {clean_iban} to Member {member_name} from Mollie payment"
                 )
 
             # Create Bank Account link for Customer (enables future MT940 matching)
@@ -215,12 +222,15 @@ class DuesPaymentProcessor:
                 self._ensure_customer_bank_account(member.customer, clean_iban, consumer_name)
 
         except Exception as e:
-            # Don't fail payment processing if bank data save fails
-            frappe.logger().warning(
-                f"Could not save consumer bank data for member {member_name}: {str(e)}"
+            # Fail loudly - bank data integrity is important for future matching
+            frappe.log_error(
+                title="Mollie Bank Data Save Failed", message=f"Member: {member_name}, Error: {str(e)}"
             )
+            raise
 
-    def _ensure_customer_bank_account(self, customer: str, iban: str, account_holder_name: str = None) -> None:
+    def _ensure_customer_bank_account(
+        self, customer: str, iban: str, account_holder_name: str = None
+    ) -> None:
         """
         Ensure a Bank Account record exists linking this IBAN to the Customer.
 
@@ -234,7 +244,9 @@ class DuesPaymentProcessor:
             existing = frappe.db.exists("Bank Account", {"iban": iban})
             if existing:
                 # Check if it's linked to the right customer
-                existing_party = frappe.db.get_value("Bank Account", existing, ["party_type", "party"], as_dict=True)
+                existing_party = frappe.db.get_value(
+                    "Bank Account", existing, ["party_type", "party"], as_dict=True
+                )
                 if existing_party and existing_party.get("party") == customer:
                     return  # Already correctly linked
 
@@ -245,21 +257,28 @@ class DuesPaymentProcessor:
                 return
 
             # Create Bank Account linking IBAN to Customer
-            bank_account = frappe.new_doc("Bank Account")
-            bank_account.account_name = f"{customer} - {iban[-4:]}"
-            bank_account.bank = "Unknown"
-            bank_account.iban = iban
-            bank_account.party_type = "Customer"
-            bank_account.party = customer
-            bank_account.is_default = 0
-            bank_account.insert(ignore_permissions=True)
+            # Use migration context for proper permission handling
+            from verenigingen.e_boekhouden.utils.security_helper import migration_context
 
-            frappe.logger().info(
-                f"✅ Created Bank Account link: IBAN {iban} -> Customer {customer}"
-            )
+            with migration_context("party_creation"):
+                bank_account = frappe.new_doc("Bank Account")
+                bank_account.account_name = f"{customer} - {iban[-4:]}"
+                bank_account.bank = get_or_create_unknown_bank()
+                bank_account.iban = iban
+                bank_account.party_type = "Customer"
+                bank_account.party = customer
+                bank_account.is_default = 0
+                bank_account.insert()
+
+            frappe.logger().info(f"[Mollie] Created Bank Account link: IBAN {iban} -> Customer {customer}")
 
         except Exception as e:
-            frappe.logger().warning(f"Could not create Bank Account for {customer}: {str(e)}")
+            # Fail loudly - bank account linking is important for payment matching
+            frappe.log_error(
+                title="Bank Account Creation Failed",
+                message=f"Customer: {customer}, IBAN: {iban}, Error: {str(e)}",
+            )
+            raise
 
     def _get_or_create_historical_invoice(
         self, member_name: str, payment_date: date, payment_amount: float
@@ -366,7 +385,7 @@ class DuesPaymentProcessor:
                 if overlap_result.exact_match:
                     # Exact match - return the existing invoice
                     frappe.logger().info(
-                        f"✅ Found existing invoice {overlap_result.exact_match} for coverage period "
+                        f"[Mollie] Found existing invoice {overlap_result.exact_match} for coverage period "
                         f"{coverage_start} to {coverage_end}"
                     )
                     return overlap_result.exact_match
@@ -374,7 +393,7 @@ class DuesPaymentProcessor:
                     # Overlapping but not exact - cannot safely create invoice
                     overlapping_names = [inv["name"] for inv in overlap_result.overlapping_invoices]
                     frappe.logger().warning(
-                        f"⚠️ Coverage overlap detected for member {member_name}: "
+                        f"[Mollie] Coverage overlap detected for member {member_name}: "
                         f"proposed {coverage_start} to {coverage_end} overlaps with "
                         f"existing invoice(s): {', '.join(overlapping_names)}. "
                         f"Skipping invoice creation - manual review required."
@@ -398,7 +417,7 @@ class DuesPaymentProcessor:
 
             if invoice_name:
                 frappe.logger().info(
-                    f"✅ Created historical invoice {invoice_name} for {member_name} "
+                    f"[Mollie] Created historical invoice {invoice_name} for {member_name} "
                     f"(coverage: {coverage_start} to {coverage_end})"
                 )
 
@@ -535,14 +554,14 @@ class DuesPaymentProcessor:
                 )
                 if exact_invoice and exact_invoice.outstanding_amount > 0:
                     frappe.logger().info(
-                        f"⏭️ Sales Invoice already exists for coverage {coverage_start} to {coverage_end}: "
+                        f"[Mollie] Sales Invoice already exists for coverage {coverage_start} to {coverage_end}: "
                         f"{exact_invoice.name} (outstanding: {exact_invoice.outstanding_amount})"
                     )
                     return exact_invoice.name
                 else:
                     # Invoice exists but is already paid - don't create duplicate
                     frappe.logger().warning(
-                        f"⚠️ Invoice {overlap_result.exact_match} exists for coverage "
+                        f"[Mollie] Invoice {overlap_result.exact_match} exists for coverage "
                         f"{coverage_start} to {coverage_end} but is already paid. "
                         f"Payment Entry will be created unallocated for manual reconciliation."
                     )
@@ -551,7 +570,7 @@ class DuesPaymentProcessor:
                 # Overlapping but not exact - cannot safely create invoice
                 overlapping_names = [inv["name"] for inv in overlap_result.overlapping_invoices]
                 frappe.logger().warning(
-                    f"⚠️ Coverage overlap detected for member {member_doc.name}: "
+                    f"[Mollie] Coverage overlap detected for member {member_doc.name}: "
                     f"proposed {coverage_start} to {coverage_end} overlaps with "
                     f"existing invoice(s): {', '.join(overlapping_names)}. "
                     f"Skipping invoice creation - manual review required."
@@ -637,7 +656,7 @@ class DuesPaymentProcessor:
                 if retry_count < max_retries:
                     wait_time = 0.1 * (2 ** (retry_count - 1))  # 0.1s, 0.2s, 0.4s
                     frappe.logger().warning(
-                        f"⚠️ Deadlock creating Sales Invoice for {member_doc.name}, "
+                        f"[Mollie] Deadlock creating Sales Invoice for {member_doc.name}, "
                         f"retry {retry_count}/{max_retries} after {wait_time}s"
                     )
                     time.sleep(wait_time)
@@ -811,7 +830,7 @@ class DuesPaymentProcessor:
             # Handle partial processing: if Bank Transaction exists, only create Payment Entry
             if partial_processing:
                 frappe.logger().info(
-                    f"⚠️ Partial processing for {payment_id}: Bank Transaction {idempotency_check['bank_transaction']} "
+                    f"[Mollie] Partial processing for {payment_id}: Bank Transaction {idempotency_check['bank_transaction']} "
                     f"exists but no Payment Entry. Creating Payment Entry only."
                 )
                 record_name = self._create_payment_entry_for_dues(
@@ -871,7 +890,7 @@ class DuesPaymentProcessor:
                                 bt_doc.set_status()
                                 bt_doc.save()
                                 result["reconciled"] = True
-                                frappe.logger().info(f"✅ Reconciled BT {bt_name} with PE {pe_name}")
+                                frappe.logger().info(f"[Mollie] Reconciled BT {bt_name} with PE {pe_name}")
                             except Exception as e:
                                 frappe.logger().warning(
                                     f"Could not reconcile BT {bt_name} with PE {pe_name}: {e}"
@@ -938,7 +957,7 @@ class DuesPaymentProcessor:
                     frappe.log_error(f"Could not fetch Sales Invoice information: {si_error}")
 
                 frappe.logger().info(
-                    f"✅ Successfully processed dues payment {payment_id} for member {member_name} "
+                    f"[Mollie] Successfully processed dues payment {payment_id} for member {member_name} "
                     f"(created {record_type}: {record_name})"
                 )
             else:
@@ -1000,7 +1019,9 @@ class DuesPaymentProcessor:
         idempotency_manager = get_unified_idempotency_manager()
         existing_pe = idempotency_manager.payment_entry_exists(payment_id)
         if existing_pe:
-            frappe.logger().info(f"⏭️ Payment Entry already exists for payment {payment_id}: {existing_pe}")
+            frappe.logger().info(
+                f"[Mollie] Payment Entry already exists for payment {payment_id}: {existing_pe}"
+            )
             return existing_pe
 
         # Determine company - prioritize invoice's company if available
@@ -1131,7 +1152,7 @@ class DuesPaymentProcessor:
         payment_entry.submit()
 
         frappe.logger().info(
-            f"✅ Created Payment Entry {payment_entry.name} for member {member_name} "
+            f"[Mollie] Created Payment Entry {payment_entry.name} for member {member_name} "
             f"(amount: {currency} {amount}, payment: {payment_id})"
         )
 
@@ -1208,7 +1229,7 @@ class DuesPaymentProcessor:
 
         if bank_transaction_name:
             frappe.logger().info(
-                f"✅ Created Bank Transaction {bank_transaction_name} for member {member_name} "
+                f"[Mollie] Created Bank Transaction {bank_transaction_name} for member {member_name} "
                 f"(amount: {currency} {amount}, payment: {payment_id}, status: Unreconciled)"
             )
 
@@ -1337,7 +1358,7 @@ class DuesPaymentProcessor:
                         batch_result["errors"] += 1
 
             frappe.logger().info(
-                f"✅ Batch processing complete for customer {customer_id}: "
+                f"[Mollie] Batch processing complete for customer {customer_id}: "
                 f"{batch_result['processed']} processed, {batch_result['skipped']} skipped, {batch_result['errors']} errors"
             )
 

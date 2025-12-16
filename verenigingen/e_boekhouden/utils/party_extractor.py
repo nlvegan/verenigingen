@@ -396,49 +396,51 @@ class EBoekhoudenPartyExtractor:
             return None
 
     def _resolve_party_by_name(self, party_name: str, party_type: str) -> Optional[str]:
-        """Resolve party by name - find existing or create new"""
+        """
+        Resolve party by name using centralized BankTransactionParser logic.
+
+        Uses the same matching strategy as MT940 import:
+        1. IBAN match (not applicable here - no IBAN available)
+        2. Exact name match (case-sensitive)
+        3. Case-insensitive name match
+        4. Fuzzy name match (handles initials, prefixes)
+        5. Create new party if no match found
+
+        Args:
+            party_name: Party name extracted from description
+            party_type: "Customer" or "Supplier"
+
+        Returns:
+            Party name if found/created, None on error
+        """
         try:
-            doctype = party_type
+            from verenigingen.e_boekhouden.utils.bank_transaction_parser import BankTransactionParser
 
-            # Try to find existing party by name (fuzzy match)
-            existing_parties = frappe.get_all(
-                doctype,
-                filters={"name": ["like", f"%{party_name}%"]},
-                fields=["name", f"{doctype.lower()}_name"],
-                limit=5,
+            parser = BankTransactionParser()
+
+            # Use centralized find_or_create_party which has comprehensive matching
+            # No IBAN available from e-boekhouden descriptions
+            resolved_party, created = parser.find_or_create_party(
+                party_name=party_name,
+                party_type=party_type,
+                iban=None,  # E-boekhouden descriptions don't have structured IBAN data
             )
 
-            # Look for exact or close matches
-            for party in existing_parties:
-                party_full_name = party.get(f"{doctype.lower()}_name", "")
-                if (
-                    party_name.lower() in party_full_name.lower()
-                    or party_full_name.lower() in party_name.lower()
-                ):
-                    return party["name"]
+            if created:
+                frappe.logger().info(
+                    f"EBoekhoudenPartyExtractor: Created new {party_type} '{resolved_party}' "
+                    f"from description parsing"
+                )
+            else:
+                frappe.logger().debug(
+                    f"EBoekhoudenPartyExtractor: Matched '{party_name}' to existing {party_type} '{resolved_party}'"
+                )
 
-            # Create new party if none found (basic creation)
-            new_party = frappe.new_doc(doctype)
-            new_party.update(
-                {
-                    f"{doctype.lower()}_name": party_name,
-                    "customer_group": "Individual" if doctype == "Customer" else None,
-                    "supplier_group": "Local" if doctype == "Supplier" else None,
-                    "territory": "Netherlands" if doctype == "Customer" else None,
-                }
-            )
-
-            new_party.insert(ignore_permissions=True)
-
-            frappe.log_error(
-                f"Created new {doctype} '{party_name}' from eBoekhouden description parsing",
-                "EBoekhoudenPartyExtractor",
-            )
-
-            return new_party.name
+            return resolved_party
 
         except Exception as e:
             frappe.log_error(
-                f"Error resolving party by name '{party_name}': {str(e)}", "EBoekhoudenPartyExtractor"
+                f"Error resolving party by name '{party_name}': {str(e)}",
+                "EBoekhoudenPartyExtractor",
             )
             return None

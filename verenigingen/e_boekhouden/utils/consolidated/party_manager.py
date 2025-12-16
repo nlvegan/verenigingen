@@ -133,8 +133,8 @@ class EBoekhoudenPartyManager:
         """
         Simple customer creation without custom fields (for payment processing fallback).
 
-        This is maintained for backward compatibility with payment processing
-        that may not have custom fields available.
+        Uses centralized BankTransactionParser for party creation to ensure
+        consistent matching and creation logic across the codebase.
         """
         if not relation_id:
             return None
@@ -150,17 +150,25 @@ class EBoekhoudenPartyManager:
             debug_log.append(f"Found existing customer: {existing}")
             return existing
 
-        # Create simple customer
+        # Use centralized party creation via BankTransactionParser
         try:
-            with migration_context("party_creation"):
-                customer = frappe.new_doc("Customer")
-                customer.customer_name = f"E-Boekhouden Customer {relation_id}"
-                customer.customer_group = self._get_default_customer_group()
-                customer.territory = self._get_default_territory()
+            from verenigingen.e_boekhouden.utils.bank_transaction_parser import BankTransactionParser
 
-                validate_and_insert(customer)
-                debug_log.append(f"Created simple customer: {customer.name}")
-                return customer.name
+            parser = BankTransactionParser()
+            customer_name = f"E-Boekhouden Customer {relation_id}"
+
+            party_name, created = parser.find_or_create_party(
+                party_name=customer_name,
+                party_type="Customer",
+                iban=None,
+            )
+
+            if created:
+                debug_log.append(f"Created simple customer: {party_name}")
+            else:
+                debug_log.append(f"Found existing customer via parser: {party_name}")
+
+            return party_name
 
         except Exception as e:
             debug_log.append(f"Failed to create simple customer: {str(e)}")
@@ -169,7 +177,12 @@ class EBoekhoudenPartyManager:
     def get_or_create_supplier_simple(
         self, relation_id: str, description: str = "", debug_log: Optional[List] = None
     ) -> Optional[str]:
-        """Simple supplier creation without custom fields (for payment processing fallback)."""
+        """
+        Simple supplier creation without custom fields (for payment processing fallback).
+
+        Uses centralized BankTransactionParser for party creation to ensure
+        consistent matching and creation logic across the codebase.
+        """
         if not relation_id:
             return None
 
@@ -184,19 +197,30 @@ class EBoekhoudenPartyManager:
             debug_log.append(f"Found existing supplier: {existing}")
             return existing
 
-        # Create simple supplier
+        # Use centralized party creation via BankTransactionParser
         try:
-            with migration_context("party_creation"):
-                supplier = frappe.new_doc("Supplier")
-                supplier.supplier_name = f"E-Boekhouden Supplier {relation_id}"
-                if description and len(description) > len(f"Supplier {relation_id}"):
-                    supplier.supplier_name = description[:100]  # Use description as name hint
+            from verenigingen.e_boekhouden.utils.bank_transaction_parser import BankTransactionParser
 
-                supplier.supplier_group = self._get_default_supplier_group()
+            parser = BankTransactionParser()
 
-                validate_and_insert(supplier)
-                debug_log.append(f"Created simple supplier: {supplier.name}")
-                return supplier.name
+            # Use description as name hint if more descriptive than just the relation ID
+            if description and len(description) > len(f"Supplier {relation_id}"):
+                supplier_name = description[:100]
+            else:
+                supplier_name = f"E-Boekhouden Supplier {relation_id}"
+
+            party_name, created = parser.find_or_create_party(
+                party_name=supplier_name,
+                party_type="Supplier",
+                iban=None,
+            )
+
+            if created:
+                debug_log.append(f"Created simple supplier: {party_name}")
+            else:
+                debug_log.append(f"Found existing supplier via parser: {party_name}")
+
+            return party_name
 
         except Exception as e:
             debug_log.append(f"Failed to create simple supplier: {str(e)}")
@@ -280,66 +304,116 @@ class EBoekhoudenPartyManager:
         return None
 
     def _create_provisional_customer(self, relation_id: str, debug_info: List) -> str:
-        """Create a provisional customer that can be enriched later."""
-        with migration_context("party_creation"):
-            customer = frappe.new_doc("Customer")
-            customer.customer_name = f"E-Boekhouden Customer {relation_id}"
-            customer.customer_group = self._get_default_customer_group()
-            customer.territory = self._get_default_territory()
+        """
+        Create a provisional customer that can be enriched later.
 
-            # Set custom field if available
-            if hasattr(customer, "eboekhouden_relation_code"):
-                customer.eboekhouden_relation_code = str(relation_id)
+        Uses centralized BankTransactionParser for party creation to ensure
+        consistent matching and creation logic across the codebase.
+        """
+        try:
+            from verenigingen.e_boekhouden.utils.bank_transaction_parser import BankTransactionParser
 
-            # Mark as provisional
-            if hasattr(customer, "provisional_party"):
-                customer.provisional_party = 1
+            parser = BankTransactionParser()
+            customer_name = f"E-Boekhouden Customer {relation_id}"
 
-            validate_and_insert(customer)
-            debug_info.append(f"Created provisional customer: {customer.name}")
-            return customer.name
+            party_name, created = parser.find_or_create_party(
+                party_name=customer_name,
+                party_type="Customer",
+                iban=None,
+            )
+
+            if created:
+                # Set additional fields specific to provisional customers
+                try:
+                    updates = {}
+                    if frappe.get_meta("Customer").has_field("eboekhouden_relation_code"):
+                        updates["eboekhouden_relation_code"] = str(relation_id)
+                    if frappe.get_meta("Customer").has_field("provisional_party"):
+                        updates["provisional_party"] = 1
+                    if updates:
+                        frappe.db.set_value("Customer", party_name, updates)
+                except Exception:
+                    pass  # Fields might not exist
+
+                debug_info.append(f"Created provisional customer: {party_name}")
+            else:
+                debug_info.append(f"Found existing customer via parser: {party_name}")
+
+            return party_name
+
+        except Exception as e:
+            debug_info.append(f"Failed to create provisional customer: {str(e)}")
+            raise
 
     def _create_provisional_supplier(self, relation_id: str, description: str, debug_info: List) -> str:
-        """Create a provisional supplier that can be enriched later."""
-        with migration_context("party_creation"):
-            supplier = frappe.new_doc("Supplier")
+        """
+        Create a provisional supplier that can be enriched later.
+
+        Uses centralized BankTransactionParser for party creation to ensure
+        consistent matching and creation logic across the codebase.
+        """
+        try:
+            from verenigingen.e_boekhouden.utils.bank_transaction_parser import BankTransactionParser
+
+            parser = BankTransactionParser()
 
             # Use description as name hint or fallback to relation ID
             if description and len(description.strip()) > 5 and relation_id not in description:
-                supplier.supplier_name = f"{description.strip()[:80]} ({relation_id})"
+                supplier_name = f"{description.strip()[:80]} ({relation_id})"
             else:
-                supplier.supplier_name = f"E-Boekhouden Supplier {relation_id}"
+                supplier_name = f"E-Boekhouden Supplier {relation_id}"
 
-            supplier.supplier_group = self._get_default_supplier_group()
+            party_name, created = parser.find_or_create_party(
+                party_name=supplier_name,
+                party_type="Supplier",
+                iban=None,
+            )
 
-            # Set custom field if available
-            if hasattr(supplier, "eboekhouden_relation_code"):
-                supplier.eboekhouden_relation_code = str(relation_id)
+            if created:
+                # Set additional fields specific to provisional suppliers
+                try:
+                    updates = {}
+                    if frappe.get_meta("Supplier").has_field("eboekhouden_relation_code"):
+                        updates["eboekhouden_relation_code"] = str(relation_id)
+                    if frappe.get_meta("Supplier").has_field("provisional_party"):
+                        updates["provisional_party"] = 1
+                    if updates:
+                        frappe.db.set_value("Supplier", party_name, updates)
+                except Exception:
+                    pass  # Fields might not exist
 
-            # Mark as provisional
-            if hasattr(supplier, "provisional_party"):
-                supplier.provisional_party = 1
+                debug_info.append(f"Created provisional supplier: {party_name}")
+            else:
+                debug_info.append(f"Found existing supplier via parser: {party_name}")
 
-            validate_and_insert(supplier)
-            debug_info.append(f"Created provisional supplier: {supplier.name}")
-            return supplier.name
+            return party_name
+
+        except Exception as e:
+            debug_info.append(f"Failed to create provisional supplier: {str(e)}")
+            raise
 
     def _get_default_customer(self) -> Optional[str]:
-        """Get or create default customer for fallback cases."""
+        """
+        Get or create default customer for fallback cases.
+
+        Uses centralized BankTransactionParser for party creation to ensure
+        consistent matching and creation logic across the codebase.
+        """
         default_customer = frappe.db.get_value(
             "Customer", {"customer_name": "Default E-Boekhouden Customer"}, "name"
         )
 
         if not default_customer:
             try:
-                with migration_context("party_creation"):
-                    customer = frappe.new_doc("Customer")
-                    customer.customer_name = "Default E-Boekhouden Customer"
-                    customer.customer_group = self._get_default_customer_group()
-                    customer.territory = self._get_default_territory()
+                from verenigingen.e_boekhouden.utils.bank_transaction_parser import BankTransactionParser
 
-                    validate_and_insert(customer)
-                    return customer.name
+                parser = BankTransactionParser()
+                party_name, _ = parser.find_or_create_party(
+                    party_name="Default E-Boekhouden Customer",
+                    party_type="Customer",
+                    iban=None,
+                )
+                return party_name
             except Exception:
                 return None
 

@@ -10,6 +10,8 @@ from typing import Any, Dict, Optional
 
 import frappe
 
+from verenigingen.utils.bank_utils import get_or_create_unknown_bank
+
 from .payment_context_resolver import PaymentContext
 from .payment_entry_factory import PaymentEntryFactory
 
@@ -491,7 +493,9 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
             if hasattr(details, "get"):
                 consumer_account = details.get("consumerAccount")
             else:
-                consumer_account = getattr(details, "consumerAccount", None) or getattr(details, "consumer_account", None)
+                consumer_account = getattr(details, "consumerAccount", None) or getattr(
+                    details, "consumer_account", None
+                )
 
             if not consumer_account:
                 return
@@ -514,9 +518,7 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
 
         except Exception as e:
             # Don't fail payment processing if bank data save fails
-            self.logger.warning(
-                f"Could not save consumer bank data for customer {customer}: {str(e)}"
-            )
+            self.logger.warning(f"Could not save consumer bank data for customer {customer}: {str(e)}")
 
     def _ensure_customer_bank_account(self, customer: str, iban: str) -> None:
         """
@@ -531,7 +533,9 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
             existing = frappe.db.exists("Bank Account", {"iban": iban})
             if existing:
                 # Check if it's linked to the right customer
-                existing_party = frappe.db.get_value("Bank Account", existing, ["party_type", "party"], as_dict=True)
+                existing_party = frappe.db.get_value(
+                    "Bank Account", existing, ["party_type", "party"], as_dict=True
+                )
                 if existing_party and existing_party.get("party") == customer:
                     return  # Already correctly linked
 
@@ -542,17 +546,21 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
                 return
 
             # Create Bank Account linking IBAN to Customer
-            bank_account = frappe.new_doc("Bank Account")
-            bank_account.account_name = f"{customer} - {iban[-4:]}"
-            bank_account.bank = "Unknown"
-            bank_account.iban = iban
-            bank_account.party_type = "Customer"
-            bank_account.party = customer
-            bank_account.is_default = 0
-            bank_account.insert(ignore_permissions=True)
+            # Use migration context for proper permission handling
+            from verenigingen.e_boekhouden.utils.security_helper import migration_context
+
+            with migration_context("party_creation"):
+                bank_account = frappe.new_doc("Bank Account")
+                bank_account.account_name = f"{customer} - {iban[-4:]}"
+                bank_account.bank = get_or_create_unknown_bank()
+                bank_account.iban = iban
+                bank_account.party_type = "Customer"
+                bank_account.party = customer
+                bank_account.is_default = 0
+                bank_account.insert()
 
             self.logger.info(
-                f"✅ Created Bank Account link from donation: IBAN {iban} -> Customer {customer}"
+                f"[Mollie] Created Bank Account link from donation: IBAN {iban} -> Customer {customer}"
             )
 
         except Exception as e:

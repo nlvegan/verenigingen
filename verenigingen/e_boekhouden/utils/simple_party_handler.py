@@ -6,7 +6,15 @@ import frappe
 
 
 def get_or_create_customer_simple(relation_id, debug_log=None):
-    """Get or create customer without relying on custom fields."""
+    """
+    Get or create customer without relying on custom fields.
+
+    Uses centralized BankTransactionParser for party creation to ensure
+    consistent matching and creation logic across the codebase.
+    """
+    if debug_log is None:
+        debug_log = []
+
     if not relation_id:
         return None
 
@@ -15,38 +23,32 @@ def get_or_create_customer_simple(relation_id, debug_log=None):
     existing = frappe.db.get_value("Customer", {"customer_name": ["like", customer_name_pattern]}, "name")
 
     if existing:
-        if debug_log:
-            debug_log.append(f"Found existing customer: {existing}")
+        debug_log.append(f"Found existing customer: {existing}")
         return existing
 
-    # Create new customer
+    # Use centralized party creation via BankTransactionParser
     try:
-        customer = frappe.new_doc("Customer")
-        customer.customer_name = f"E-Boekhouden Customer {relation_id}"
+        from verenigingen.e_boekhouden.utils.bank_transaction_parser import BankTransactionParser
 
-        # Get appropriate customer group
-        customer_group = frappe.db.get_value("Customer Group", {"is_group": 0}, "name")
-        if not customer_group:
-            customer_group = "All Customer Groups"  # ERPNext default
-        customer.customer_group = customer_group
+        parser = BankTransactionParser()
+        customer_name = f"E-Boekhouden Customer {relation_id}"
 
-        # Get appropriate territory
-        territory = frappe.db.get_value("Territory", {"is_group": 0}, "name")
-        if not territory:
-            frappe.throw(
-                "No territory found. Please create territories before importing customers.",
-                title="Territory Required",
-            )
-        customer.territory = territory
-        customer.save()
+        # Use find_or_create_party which has comprehensive matching and creation logic
+        party_name, created = parser.find_or_create_party(
+            party_name=customer_name,
+            party_type="Customer",
+            iban=None,
+        )
 
-        if debug_log:
-            debug_log.append(f"Created customer: {customer.name}")
-        return customer.name
+        if created:
+            debug_log.append(f"Created customer: {party_name}")
+        else:
+            debug_log.append(f"Found existing customer via parser: {party_name}")
+
+        return party_name
 
     except Exception as e:
-        if debug_log:
-            debug_log.append(f"Error creating customer: {str(e)}")
+        debug_log.append(f"Error creating customer: {str(e)}")
         return None
 
 
@@ -81,7 +83,12 @@ def get_or_create_supplier_simple(relation_id, description, debug_log=None):
 
 
 def _create_supplier_from_description(relation_id, description, debug_log):
-    """Create supplier using description when API data unavailable."""
+    """
+    Create supplier using description when API data unavailable.
+
+    Uses centralized BankTransactionParser for party creation to ensure
+    consistent matching and creation logic across the codebase.
+    """
     try:
         # Clean description for supplier name
         clean_desc = description.strip()[:80] if description else ""
@@ -97,23 +104,30 @@ def _create_supplier_from_description(relation_id, description, debug_log):
             debug_log.append(f"Found existing description-based supplier: {existing}")
             return existing
 
-        supplier = frappe.new_doc("Supplier")
-        supplier.supplier_name = supplier_name
-        # Get appropriate supplier group
-        supplier_group = frappe.db.get_value("Supplier Group", {"is_group": 0}, "name")
-        if not supplier_group:
-            frappe.throw(
-                "No supplier group found. Please create supplier groups before importing suppliers.",
-                title="Supplier Group Required",
-            )
-        supplier.supplier_group = supplier_group
-        if hasattr(supplier, "eboekhouden_relation_code"):
-            supplier.eboekhouden_relation_code = str(relation_id)
-        supplier.save()
+        # Use centralized party creation via BankTransactionParser
+        from verenigingen.e_boekhouden.utils.bank_transaction_parser import BankTransactionParser
 
-        if debug_log:
-            debug_log.append(f"Created supplier: {supplier.name}")
-        return supplier.name
+        parser = BankTransactionParser()
+
+        # Use find_or_create_party which has comprehensive matching and creation logic
+        party_name, created = parser.find_or_create_party(
+            party_name=supplier_name,
+            party_type="Supplier",
+            iban=None,
+        )
+
+        if created:
+            # Set eboekhouden_relation_code if the field exists
+            try:
+                frappe.db.set_value("Supplier", party_name, "eboekhouden_relation_code", str(relation_id))
+            except Exception:
+                pass  # Field might not exist
+
+            debug_log.append(f"Created supplier: {party_name}")
+        else:
+            debug_log.append(f"Found existing supplier via parser: {party_name}")
+
+        return party_name
 
     except Exception as e:
         if debug_log:

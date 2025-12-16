@@ -9,7 +9,212 @@ rather than using separate fields in the MT940 library output.
 """
 
 import re
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
+
+# Maximum length for party names (ERPNext customer_name field limit)
+MAX_PARTY_NAME_LENGTH = 140
+
+# Maximum input length for SEPA parsing (DoS prevention)
+# MT940 :86: fields are typically <1000 chars; 10000 is generous upper bound
+MAX_SEPA_INPUT_LENGTH = 10000
+
+# Placeholder values that should be treated as empty
+SEPA_PLACEHOLDER_VALUES = frozenset({"NONREF", "NOTPROVIDED", "N/A", "NICHT ANGEGEBEN", "NOT PROVIDED"})
+
+
+def sanitize_party_name(name: str) -> str:
+    """
+    Sanitize party name from bank statement for safe storage.
+
+    Bank statements can contain:
+    - Control characters
+    - Emojis and special Unicode
+    - Excessively long strings
+    - Leading/trailing whitespace
+
+    Args:
+        name: Raw party name from bank statement
+
+    Returns:
+        Sanitized name safe for database storage
+    """
+    if not name:
+        return name
+
+    # Remove control characters (ASCII 0-31 and 127-159)
+    name = re.sub(r"[\x00-\x1F\x7F-\x9F]", "", name)
+
+    # Remove emojis and other non-BMP Unicode (keeps accented chars for Dutch/European names)
+    # This pattern removes characters outside Basic Multilingual Plane
+    name = re.sub(r"[\U00010000-\U0010FFFF]", "", name)
+
+    # Collapse multiple whitespace to single space
+    name = re.sub(r"\s+", " ", name)
+
+    # Strip leading/trailing whitespace
+    name = name.strip()
+
+    # Truncate to maximum length
+    if len(name) > MAX_PARTY_NAME_LENGTH:
+        name = name[:MAX_PARTY_NAME_LENGTH].strip()
+
+    return name
+
+
+def is_placeholder_value(value: str) -> bool:
+    """Check if a value is a SEPA placeholder that should be treated as empty."""
+    if not value:
+        return True
+    return value.strip().upper() in SEPA_PLACEHOLDER_VALUES
+
+
+# Dutch salutations mapped to ERPNext Salutation DocType names
+# Bank statements often include salutations like "Hr", "Mw", "Dhr" before names
+# Key: Dutch abbreviation (case-insensitive match)
+# Value: ERPNext Salutation name (must exist in Salutation DocType)
+DUTCH_SALUTATIONS = {
+    # Male salutations -> Mr
+    "hr": "Mr",  # Heer (formal) - most common in bank statements
+    "dhr": "Mr",  # De Heer (formal)
+    "dhr.": "Mr",  # De Heer with period
+    "hr.": "Mr",  # Heer with period
+    "de heer": "Mr",  # Full form
+    "heer": "Mr",  # Without "de"
+    "meneer": "Mr",  # Informal
+    "mijnheer": "Mr",  # Formal spoken
+    "mnhr": "Mr",  # Abbreviation
+    # Female salutations -> Mrs/Ms
+    "mw": "Mrs",  # Mevrouw (formal) - most common in bank statements
+    "mw.": "Mrs",  # Mevrouw with period
+    "mevr": "Mrs",  # Mevrouw abbreviated
+    "mevr.": "Mrs",  # Mevrouw abbreviated with period
+    "mevrouw": "Mrs",  # Full form
+    "mvr": "Mrs",  # Abbreviation
+    "mvr.": "Mrs",  # Abbreviation with period
+    "mejuffrouw": "Miss",  # Unmarried woman (traditional)
+    "mej": "Miss",  # Mejuffrouw abbreviated
+    "mej.": "Miss",  # Mejuffrouw abbreviated with period
+    "juffrouw": "Miss",  # Informal unmarried
+    # Professional/Academic titles
+    "dr": "Dr",  # Doctor
+    "dr.": "Dr",  # Doctor with period
+    "drs": "Dr",  # Doctorandus (Dutch academic title)
+    "drs.": "Dr",  # Doctorandus with period
+    "ir.": "Mr",  # Ingenieur (require period - avoid matching random text)
+    "ing.": "Mr",  # Ingenieur HBO (require period - "ING" is a bank)
+    "mr.": "Mr",  # Meester in de rechten (law degree)
+    "prof": "Prof",  # Professor
+    "prof.": "Prof",  # Professor with period
+    "professor": "Prof",  # Full form
+    # Religious titles
+    "ds": "Mr",  # Dominee (minister)
+    "ds.": "Mr",  # Dominee with period
+    "pastoor": "Mr",  # Pastor
+    "pater": "Mr",  # Father (religious)
+    "zr": "Ms",  # Zuster (sister/nurse)
+    "zr.": "Ms",  # Zuster with period
+    "br": "Mr",  # Broeder (brother, religious)
+    "br.": "Mr",  # Broeder with period
+    # Family/Other
+    "fam": None,  # Familie - not personal, skip
+    "fam.": None,  # Familie with period
+    "familie": None,  # Full form
+    "wed": "Mrs",  # Weduwe (widow)
+    "wed.": "Mrs",  # Weduwe with period
+    "weduwe": "Mrs",  # Full form
+}
+
+
+class SalutationTrie:
+    """
+    Trie-based matcher for Dutch salutations.
+
+    More efficient than a 60+ alternation regex pattern.
+    Provides O(k) lookup where k is the maximum salutation length.
+    """
+
+    def __init__(self, salutations: Dict[str, Optional[str]]):
+        self.root: Dict = {}
+        self.salutations = salutations
+        # Sort by length descending to prefer longer matches
+        for key in sorted(salutations.keys(), key=len, reverse=True):
+            self._insert(key.lower(), salutations[key])
+
+    def _insert(self, key: str, value: Optional[str]) -> None:
+        """Insert a salutation into the trie."""
+        node = self.root
+        for char in key:
+            if char not in node:
+                node[char] = {}
+            node = node[char]
+        node["_value"] = value
+        node["_key"] = key
+
+    def match_prefix(self, text: str) -> Tuple[Optional[str], Optional[str], int]:
+        """
+        Match the longest salutation at the start of text.
+
+        Args:
+            text: Input text to match against
+
+        Returns:
+            Tuple of (matched_key, erpnext_salutation, match_length)
+            Returns (None, None, 0) if no match found
+        """
+        if not text:
+            return None, None, 0
+
+        text_lower = text.lower()
+        node = self.root
+        last_match = (None, None, 0)
+
+        for i, char in enumerate(text_lower):
+            if char not in node:
+                break
+            node = node[char]
+            # Check if this is a complete salutation
+            if "_value" in node:
+                # Only accept if followed by whitespace (word boundary)
+                next_pos = i + 1
+                if next_pos < len(text) and text[next_pos].isspace():
+                    last_match = (node["_key"], node["_value"], next_pos)
+
+        return last_match
+
+
+# Build trie for efficient salutation matching
+_SALUTATION_TRIE = SalutationTrie(DUTCH_SALUTATIONS)
+
+
+def extract_salutation(name: str) -> Tuple[Optional[str], str]:
+    """
+    Extract Dutch salutation from the beginning of a name.
+
+    Bank statements often include salutations like "Hr M E J Eggermont"
+    or "Mw S Bostelaar". This extracts the salutation and returns
+    the clean name.
+
+    Uses trie-based matching for O(k) performance instead of 60+ regex alternations.
+
+    Args:
+        name: Full name potentially starting with salutation
+
+    Returns:
+        Tuple of (erpnext_salutation, clean_name)
+        - erpnext_salutation: ERPNext Salutation name (Mr, Mrs, etc.) or None
+        - clean_name: Name with salutation prefix removed
+    """
+    if not name:
+        return None, name
+
+    matched_key, erpnext_salutation, match_end = _SALUTATION_TRIE.match_prefix(name)
+
+    if matched_key is not None:
+        # Skip the salutation and any following whitespace
+        clean_name = name[match_end:].lstrip()
+        return erpnext_salutation, clean_name
+
+    return None, name
 
 
 def parse_sepa_structured_data(text: str) -> Dict[str, str]:
@@ -43,9 +248,10 @@ def parse_sepa_structured_data(text: str) -> Dict[str, str]:
     if text:
         # Remove newlines/carriage returns that occur within the text
         # but preserve the content by just removing the line break characters
-        text = text.replace('\r\n', '').replace('\r', '').replace('\n', '')
+        text = text.replace("\r\n", "").replace("\r", "").replace("\n", "")
     result = {
         "counterparty_name": "",
+        "counterparty_salutation": "",
         "counterparty_account": "",
         "counterparty_bic": "",
         "remittance_info": "",
@@ -59,23 +265,35 @@ def parse_sepa_structured_data(text: str) -> Dict[str, str]:
     if not text:
         return result
 
+    # DoS prevention: reject excessively long input that could cause regex backtracking
+    if len(text) > MAX_SEPA_INPUT_LENGTH:
+        import frappe
+
+        frappe.logger().warning(f"[SEPA] Input text too long ({len(text)} chars), truncating to prevent DoS")
+        text = text[:MAX_SEPA_INPUT_LENGTH]
+
     # Parse CNTP (Counterparty) - format: /CNTP/account/bic/name/city/country/
     # Note: Account numbers may be split across lines in MT940, creating spaces/newlines
     cntp_match = re.search(r"/CNTP/([^/]*)/([^/]*)/([^/]*)/([^/]*)?/?([^/]*)?/?", text)
     if cntp_match:
         # Clean up account number - remove any whitespace/newlines from line breaks
         account = cntp_match.group(1)
-        account = re.sub(r'\s+', '', account)  # Remove all whitespace
+        account = re.sub(r"\s+", "", account)  # Remove all whitespace
         result["counterparty_account"] = account
         result["counterparty_bic"] = cntp_match.group(2).strip()
-        result["counterparty_name"] = cntp_match.group(3).strip()
+
+        # Extract salutation from counterparty name (e.g., "Hr M E J Eggermont" -> "Mr", "M E J Eggermont")
+        raw_name = cntp_match.group(3).strip()
+        salutation, clean_name = extract_salutation(raw_name)
+        result["counterparty_name"] = sanitize_party_name(clean_name)
+        result["counterparty_salutation"] = salutation or ""
 
     # Parse REMI (Remittance) - format: /REMI/type/text/ or /REMI/USTD//text/
     # After normalization, text has no newlines, but may have // (double slash)
     # IMPORTANT: Don't stop at "/" in text like "e/o" (Dutch "en/of" = and/or)
     # Only stop at "/" when followed by a SEPA tag name (uppercase letters)
-    # Use negative lookahead to allow "/" not followed by SEPA tags
-    remi_match = re.search(r"/REMI/([^/]*)/+(.+?)(?=/[A-Z]{4}/|//[A-Z]|\||\Z)", text)
+    # Using bounded repetition {1,2000} to prevent catastrophic backtracking
+    remi_match = re.search(r"/REMI/([^/]*)/+(.{1,2000}?)(?=/[A-Z]{4}/|//[A-Z]|\||\Z)", text)
     if remi_match:
         remi_type = remi_match.group(1).strip()
         remi_text = remi_match.group(2).strip()
@@ -111,20 +329,27 @@ def parse_sepa_structured_data(text: str) -> Dict[str, str]:
     # Parse ABWA (Alternative payer/payee) - format: /ABWA/name/
     abwa_match = re.search(r"/ABWA/([^/|]+)", text)
     if abwa_match:
-        # ABWA overrides counterparty name if present
-        result["counterparty_name"] = abwa_match.group(1).strip()
+        # ABWA overrides counterparty name if present - also extract salutation
+        raw_name = abwa_match.group(1).strip()
+        salutation, clean_name = extract_salutation(raw_name)
+        result["counterparty_name"] = sanitize_party_name(clean_name)
+        result["counterparty_salutation"] = salutation or ""
 
     # Alternative formats - /NAME/, /IBAN/, /BIC/
     if not result["counterparty_name"]:
         name_match = re.search(r"/NAME/([^/|]+)", text)
         if name_match:
-            result["counterparty_name"] = name_match.group(1).strip()
+            raw_name = name_match.group(1).strip()
+            salutation, clean_name = extract_salutation(raw_name)
+            result["counterparty_name"] = sanitize_party_name(clean_name)
+            if not result["counterparty_salutation"]:
+                result["counterparty_salutation"] = salutation or ""
 
     if not result["counterparty_account"]:
         iban_match = re.search(r"/IBAN/([^/|]+)", text)
         if iban_match:
             # Clean up IBAN - remove any whitespace from line breaks
-            iban = re.sub(r'\s+', '', iban_match.group(1))
+            iban = re.sub(r"\s+", "", iban_match.group(1))
             result["counterparty_account"] = iban
 
     if not result["counterparty_bic"]:
@@ -186,7 +411,7 @@ def get_counterparty_from_sepa(
     account = sepa_data.get("counterparty_account") or fallback_account or ""
 
     # Filter out placeholder values
-    if name and name.upper() in ("NONREF", "NOTPROVIDED", "N/A"):
+    if is_placeholder_value(name):
         name = ""
 
     return name, account
