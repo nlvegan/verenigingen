@@ -732,7 +732,7 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
 
             # Delete Customers FIRST (before Contacts/Addresses that may link to them)
             # Clear custom_member field first to break the link
-            if customers_with_member_links:
+            if customers_with_member_links and frappe.db.has_column("Customer", "custom_member"):
                 customer_names = [c.name for c in customers_with_member_links]
                 placeholders = ", ".join(["%s"] * len(customer_names))
                 frappe.db.sql(
@@ -1970,8 +1970,8 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
             ("tabMember", False, "Core member records"),
         ]
 
-        # Tables to update (clear references)
-        tables_to_update = [
+        # Tables to update (clear references) - for documentation
+        _tables_to_update = [  # noqa: F841
             ("tabChapter", "chapter_head", "Clear chapter head references"),
             ("tabCustomer", "custom_member", "Clear customer-member links"),
         ]
@@ -1982,7 +1982,7 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
                 # Check if table exists
                 if has_special and table_name == "tabDonor":
                     if not frappe.db.exists("DocType", "Donor"):
-                        results["warnings"].append(f"Donor DocType does not exist - skipping")
+                        results["warnings"].append("Donor DocType does not exist - skipping")
                         continue
 
                 count = frappe.db.sql(f"SELECT COUNT(*) FROM `{table_name}`")[0][0]
@@ -2068,13 +2068,15 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
             results["tables_updated"].append("Dynamic Links to Member/Volunteer deleted")
 
             # Get member-linked customers before deleting members
-            customer_names = frappe.db.sql(
-                """
-                SELECT name FROM `tabCustomer` WHERE custom_member IS NOT NULL
-            """,
-                as_list=True,
-            )
-            customer_names = [c[0] for c in customer_names] if customer_names else []
+            customer_names = []
+            if frappe.db.has_column("Customer", "custom_member"):
+                customer_names = frappe.db.sql(
+                    """
+                    SELECT name FROM `tabCustomer` WHERE custom_member IS NOT NULL
+                """,
+                    as_list=True,
+                )
+                customer_names = [c[0] for c in customer_names] if customer_names else []
 
             if customer_names:
                 placeholders = ", ".join(["%s"] * len(customer_names))
