@@ -40,6 +40,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import date_diff, getdate, now, now_datetime, today
 
+from verenigingen.repositories.dues_schedule_repository import DuesScheduleRepository
 from verenigingen.services.member.core.member_address_service import get_member_address_service
 from verenigingen.services.member.core.member_id_service import generate_application_id, generate_member_id
 from verenigingen.services.member.core.member_lifecycle_service import get_member_lifecycle_service
@@ -1803,13 +1804,9 @@ def get_member_chapter_display_html(member_name):
 def sync_member_dues_rate(member_name):
     """Sync member's dues_rate field with their active dues schedule"""
     try:
-        # Get the member's active dues schedule
-        schedule = frappe.db.get_value(
-            "Membership Dues Schedule",
-            {"member": member_name, "status": "Active"},
-            ["name", "dues_rate"],
-            as_dict=True,
-        )
+        # Get the member's active dues schedule using repository
+        repo = DuesScheduleRepository()
+        schedule = repo.get_active_schedule(member_name, fields=["name", "dues_rate"])
 
         if schedule:
             # Update member's dues_rate field
@@ -1833,12 +1830,11 @@ def sync_member_dues_rate(member_name):
 def get_current_dues_schedule_details(member):
     """Get current dues schedule details for a member"""
     try:
-        # Get active dues schedule
-        dues_schedule = frappe.db.get_value(
-            "Membership Dues Schedule",
-            {"member": member, "status": "Active"},
-            ["name", "dues_rate", "billing_frequency", "next_invoice_date", "membership_type"],
-            as_dict=True,
+        # Get active dues schedule using repository
+        repo = DuesScheduleRepository()
+        dues_schedule = repo.get_active_schedule(
+            member,
+            fields=["name", "dues_rate", "billing_frequency", "next_invoice_date", "membership_type"],
         )
 
         if not dues_schedule:
