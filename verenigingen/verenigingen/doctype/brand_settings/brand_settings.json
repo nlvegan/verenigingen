@@ -22,6 +22,9 @@
     "primary_hover_color",
     "secondary_hover_color",
     "accent_hover_color",
+    "column_break_derived_bg",
+    "list_page_background_color",
+    "card_container_background_color",
     "section_break_14",
     "success_color",
     "warning_color",
@@ -136,6 +139,24 @@
       "fieldtype": "Color",
       "label": "Accent Dark Shade",
       "reqd": 1,
+      "read_only": 0
+    },
+    {
+      "fieldname": "column_break_derived_bg",
+      "fieldtype": "Column Break"
+    },
+    {
+      "description": "Auto-calculated: 8% primary tint on background. Slightly darker than forms for visual differentiation.",
+      "fieldname": "list_page_background_color",
+      "fieldtype": "Color",
+      "label": "List Page Background",
+      "read_only": 0
+    },
+    {
+      "description": "Auto-calculated: 20% primary tint on secondary background. Creates visual depth for card containers.",
+      "fieldname": "card_container_background_color",
+      "fieldtype": "Color",
+      "label": "Card Container Background",
       "read_only": 0
     },
     {

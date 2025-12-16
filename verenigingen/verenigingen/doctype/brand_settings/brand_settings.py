@@ -99,6 +99,23 @@ class BrandSettings(Document):
         if not self.background_secondary_color:
             self.background_secondary_color = "#f8f9fa"  # Light gray
 
+        # Auto-calculate derived background colors for visual depth
+        # List page: 8% primary tint on background (slightly darker than forms)
+        if self.primary_color and self.background_primary_color:
+            auto_list_bg = self.tint_color(self.background_primary_color, self.primary_color, 0.08)
+            if not doc_before_save or self.list_page_background_color == doc_before_save.get(
+                "list_page_background_color"
+            ):
+                self.list_page_background_color = auto_list_bg
+
+        # Card container: 20% primary tint on secondary background (most noticeable depth)
+        if self.primary_color and self.background_secondary_color:
+            auto_container_bg = self.tint_color(self.background_secondary_color, self.primary_color, 0.20)
+            if not doc_before_save or self.card_container_background_color == doc_before_save.get(
+                "card_container_background_color"
+            ):
+                self.card_container_background_color = auto_container_bg
+
     def validate_colors(self):
         """Validate that all colors are valid hex colors"""
         color_fields = [
@@ -116,6 +133,8 @@ class BrandSettings(Document):
             "text_secondary_color",
             "background_primary_color",
             "background_secondary_color",
+            "list_page_background_color",
+            "card_container_background_color",
         ]
 
         for field in color_fields:
@@ -359,7 +378,7 @@ class BrandSettings(Document):
             # APP NAME COLOR - Auto-contrast against navbar background for breadcrumbs and workspace names
             # This ensures breadcrumb text is readable against the navbar, not the primary color
             owl_settings.app_name_color = self.get_contrasting_text_color(
-                owl_settings.navbar_background_color or self.primary_color
+                owl_settings.navbar_background_color or self.primary_color  # ast-skip: owl_settings field
             )
 
             # SIDEBAR COLORS - Use secondary background with user-defined text
@@ -370,17 +389,25 @@ class BrandSettings(Document):
             bg_layers = self.generate_background_layers()
 
             owl_settings.main_page_background_color = bg_layers["workspace"]
-            owl_settings.main_page_card_container_background_color = bg_layers["container"]
             owl_settings.background_color = bg_layers["workspace"]
+
+            # CARD CONTAINER - Use explicit field (20% primary tint for noticeable depth)
+            owl_settings.main_page_card_container_background_color = (
+                self.card_container_background_color or bg_layers["container"]
+            )
 
             # CARD COLORS - Workspace shortcut cards with subtle tinting
             owl_settings.cards_background_color = bg_layers["cards"]
             owl_settings.cards_title_text_color = self.text_primary_color
             owl_settings.cards_text_color = self.text_secondary_color
 
-            # FORM AND LIST PAGE BACKGROUNDS - Use workspace background
+            # FORM BACKGROUND - Use workspace background (lightest, clean editing surface)
             owl_settings.form_background_color = bg_layers["workspace"]
-            owl_settings.list_page_background_color = bg_layers["workspace"]
+
+            # LIST PAGE BACKGROUND - Use explicit field (8% primary tint, slightly darker than forms)
+            owl_settings.list_page_background_color = (
+                self.list_page_background_color or bg_layers["workspace"]
+            )
 
             # LOGO SYNC - Use organization branding
             if self.logo:
@@ -441,6 +468,8 @@ def get_active_brand_settings():
             "text_secondary_color": "#666666",
             "background_primary_color": "#ffffff",
             "background_secondary_color": "#f8f9fa",
+            "list_page_background_color": "#f9e8e8",  # 8% primary tint on white
+            "card_container_background_color": "#f0d8d8",  # 20% primary tint on secondary
         }
 
         return default_settings
