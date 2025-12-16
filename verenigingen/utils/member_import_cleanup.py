@@ -1880,38 +1880,53 @@ def _validate_vereinigingen_admin_permissions():
 @critical_api(operation_type=OperationType.ADMIN)
 def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True):
     """
-    Nuclear TRUNCATE cleanup: Instantly reset ALL member-related tables to empty state.
+    Nuclear TRUNCATE cleanup: Instantly reset ALL member-related AND financial tables.
 
     Unlike the sequential delete cleanup, this function uses SQL TRUNCATE statements
-    to instantly empty all member-related tables. This is MUCH faster than row-by-row
-    deletion but is also more dangerous as it bypasses all Frappe hooks and validations.
+    to instantly empty all member-related and financial tables. This is MUCH faster
+    than row-by-row deletion but is also more dangerous as it bypasses all Frappe
+    hooks and validations.
 
-    IMPORTANT: This preserves all settings DocTypes - only operational/transactional
-    data is removed. Settings like Verenigingen Settings, Membership Types, etc. remain.
+    ⚠️ WARNING: This is a COMPLETE RESET of member data AND financial data!
+    This will delete ALL contacts, addresses, invoices, payments, and ledger entries.
 
     Tables that will be TRUNCATED (in safe dependency order):
-    - Member Payment History
-    - Chapter Member (child table)
-    - Chapter Board Member (child table)
+
+    MEMBER-RELATED:
+    - Member Payment History, Chapter Member, Chapter Board Member
     - Volunteer Assignment, Volunteer Skill, Volunteer Interest Area, Volunteer Development Goal
-    - Volunteer
-    - SEPA Mandate
-    - Contribution Amendment Request
-    - Membership Dues Schedule (non-templates only - templates preserved)
-    - Membership
-    - Donor (if exists)
-    - Member
+    - SEPA Mandate, Contribution Amendment Request, Membership Termination Request
+    - Volunteer, Membership, Membership Type, Donor, Member, Employee
+
+    CONTACT/ADDRESS (ALL records, not just member-linked):
+    - Contact Email, Contact Phone, Dynamic Link
+    - Contact, Address
+
+    FINANCIAL DOCUMENTS:
+    - Sales Invoice (+ Items, Taxes, Payment Schedule, Sales Team)
+    - Purchase Invoice (+ Items, Taxes)
+    - Payment Entry (+ References, Deductions)
+    - Bank Transaction (+ Payments)
+
+    LEDGER ENTRIES:
+    - GL Entry (General Ledger - resets Chart of Accounts balances)
+    - Payment Ledger Entry
+
+    AUDIT LOGS:
+    - API Audit Log
+    - SEPA Audit Log
+
+    SPECIAL HANDLING:
+    - Membership Dues Schedule: Only non-templates deleted, templates preserved
 
     Tables that will be UPDATED (references cleared):
     - Chapter (chapter_head cleared)
     - Customer (custom_member cleared)
-    - Sales Invoice (member field cleared on membership invoices)
 
-    Child tables that will be cleaned:
-    - Dynamic Link (links to Member, Volunteer, Customer)
-    - Contact (linked to deleted members)
-    - Address (linked to deleted members)
-    - User (member-linked users except Administrator/Guest)
+    PRESERVED:
+    - User accounts (except member-linked, excluding Administrator/Guest)
+    - Settings DocTypes (Verenigingen Settings, etc.)
+    - Membership Dues Schedule templates
 
     Args:
         confirm_nuclear_truncate (bool): Must be True to proceed
@@ -1952,7 +1967,7 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
         # Define tables to truncate in dependency order (children first, parents last)
         # Each entry: (table_name, has_special_handling, description)
         tables_to_truncate = [
-            # Child tables first
+            # ===== MEMBER-RELATED CHILD TABLES =====
             ("tabMember Payment History", False, "Member payment tracking records"),
             ("tabChapter Member", False, "Chapter membership links"),
             ("tabChapter Board Member", False, "Chapter board member links"),
@@ -1960,14 +1975,44 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
             ("tabVolunteer Skill", False, "Volunteer skills"),
             ("tabVolunteer Interest Area", False, "Volunteer interest areas"),
             ("tabVolunteer Development Goal", False, "Volunteer development goals"),
-            # Main operational tables
+            # ===== CONTACT/ADDRESS CHILD TABLES =====
+            ("tabContact Email", False, "Contact email addresses"),
+            ("tabContact Phone", False, "Contact phone numbers"),
+            ("tabDynamic Link", False, "Dynamic links (Contact/Address links)"),
+            # ===== FINANCIAL DOCUMENT CHILD TABLES =====
+            ("tabSales Invoice Item", False, "Sales invoice line items"),
+            ("tabSales Taxes and Charges", False, "Sales invoice taxes"),
+            ("tabPayment Schedule", False, "Payment schedules"),
+            ("tabSales Team", False, "Sales team entries"),
+            ("tabPurchase Invoice Item", False, "Purchase invoice line items"),
+            ("tabPurchase Taxes and Charges", False, "Purchase invoice taxes"),
+            ("tabPayment Entry Reference", False, "Payment entry references"),
+            ("tabPayment Entry Deduction", False, "Payment entry deductions"),
+            ("tabBank Transaction Payments", False, "Bank transaction payment links"),
+            # ===== MEMBER OPERATIONAL TABLES =====
             ("tabSEPA Mandate", False, "SEPA direct debit mandates"),
             ("tabContribution Amendment Request", False, "Contribution change requests"),
+            ("tabMembership Termination Request", False, "Membership termination requests"),
             ("tabVolunteer", False, "Volunteer records"),
             ("tabMembership", False, "Membership records"),
+            ("tabMembership Type", False, "Membership type definitions"),
             ("tabDonor", True, "Donor records (if DocType exists)"),
-            # Member table last
             ("tabMember", False, "Core member records"),
+            ("tabEmployee", False, "Employee records"),
+            # ===== CONTACT/ADDRESS TABLES =====
+            ("tabContact", False, "All contact records"),
+            ("tabAddress", False, "All address records"),
+            # ===== FINANCIAL DOCUMENTS =====
+            ("tabBank Transaction", False, "Bank transactions"),
+            ("tabPayment Entry", False, "Payment entries"),
+            ("tabSales Invoice", False, "Sales invoices"),
+            ("tabPurchase Invoice", False, "Purchase invoices"),
+            # ===== LEDGER ENTRIES (LAST - references documents) =====
+            ("tabGL Entry", False, "General ledger entries"),
+            ("tabPayment Ledger Entry", False, "Payment ledger entries"),
+            # ===== AUDIT LOGS =====
+            ("tabAPI Audit Log", False, "API audit log entries"),
+            ("tabSEPA Audit Log", False, "SEPA audit log entries"),
         ]
 
         # Tables to update (clear references) - for documentation
@@ -2173,7 +2218,15 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
                 results["tables_updated"].append("Member-linked Employees deleted")
 
             # PHASE 6: TRUNCATE main operational tables
+            # TRUNCATE is DDL and causes implicit commit, so we must commit first
+            # and execute TRUNCATEs outside of transaction
+            frappe.logger().info("Phase 6: Committing reference cleanup before TRUNCATE...")
+            frappe.db.commit()
+
             frappe.logger().info("Phase 6: Truncating main operational tables...")
+
+            # Temporarily disable foreign key checks to allow TRUNCATE
+            frappe.db.sql_ddl("SET FOREIGN_KEY_CHECKS = 0")
 
             for table_name, has_special, desc in tables_to_truncate:
                 try:
@@ -2183,13 +2236,20 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
                             continue
 
                     # TRUNCATE is faster than DELETE as it doesn't log individual rows
-                    frappe.db.sql(f"TRUNCATE TABLE `{table_name}`")
+                    # Use sql_ddl for DDL statements that cause implicit commit
+                    frappe.db.sql_ddl(f"TRUNCATE TABLE `{table_name}`")
                     results["tables_truncated"].append(f"{table_name} ({desc})")
                     frappe.logger().info(f"Truncated {table_name}")
 
                 except Exception as e:
                     results["errors"].append(f"Failed to truncate {table_name}: {str(e)}")
                     frappe.logger().error(f"Failed to truncate {table_name}: {str(e)}")
+
+            # Re-enable foreign key checks
+            frappe.db.sql_ddl("SET FOREIGN_KEY_CHECKS = 1")
+
+            # Start new transaction for remaining cleanup
+            frappe.db.begin()
 
             # PHASE 7: Special handling for Membership Dues Schedule (preserve templates)
             frappe.logger().info("Phase 7: Cleaning Membership Dues Schedules (preserving templates)...")
@@ -2200,22 +2260,9 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
             except Exception as e:
                 results["errors"].append(f"Failed to clean Membership Dues Schedule: {str(e)}")
 
-            # PHASE 8: Clean up Sales Invoices membership references (but keep invoices)
-            frappe.logger().info("Phase 8: Clearing Sales Invoice membership references...")
-            try:
-                frappe.db.sql(
-                    """
-                    UPDATE `tabSales Invoice`
-                    SET member = NULL, membership_dues_schedule = NULL, membership_dues_schedule_display = NULL
-                    WHERE member IS NOT NULL OR membership_dues_schedule IS NOT NULL
-                """
-                )
-                results["tables_updated"].append("Sales Invoice membership references cleared")
-            except Exception as e:
-                results["warnings"].append(f"Could not clear Sales Invoice references: {str(e)}")
-
-            # PHASE 9: Clean up Notification Settings and API Audit Logs for member emails
-            frappe.logger().info("Phase 9: Cleaning up related settings...")
+            # PHASE 8: Clean up Notification Settings and API Audit Logs for member emails
+            # Note: Sales Invoice is now fully truncated, no need to clear references
+            frappe.logger().info("Phase 8: Cleaning up related settings...")
             # Note: We don't truncate these as they may have non-member data
             # The nuclear_cleanup_all_members does this per-member, but here we skip it
             # as the members table is now empty

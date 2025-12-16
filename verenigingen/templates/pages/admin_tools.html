@@ -1262,6 +1262,39 @@ function formatCleanupResult(result) {
         html += '</div>';
     }
 
+    // Show top-level errors array (used by nuclear_truncate)
+    if (result.errors && result.errors.length > 0 && !hasErrors) {
+        html += '<div class="alert alert-danger mt-3">';
+        html += '<strong><i class="fa fa-exclamation-circle"></i> Errors encountered:</strong>';
+        html += '<ul class="mt-2 mb-0">';
+        result.errors.forEach(function(error) {
+            html += '<li>' + error + '</li>';
+        });
+        html += '</ul></div>';
+    }
+
+    // Show tables truncated (used by nuclear_truncate)
+    if (result.tables_truncated && result.tables_truncated.length > 0) {
+        html += '<div class="alert alert-success mt-3">';
+        html += '<strong><i class="fa fa-check-circle"></i> Tables Truncated:</strong>';
+        html += '<ul class="mt-2 mb-0">';
+        result.tables_truncated.forEach(function(table) {
+            html += '<li>' + table + '</li>';
+        });
+        html += '</ul></div>';
+    }
+
+    // Show tables/references updated
+    if (result.tables_updated && result.tables_updated.length > 0) {
+        html += '<div class="alert alert-info mt-3">';
+        html += '<strong><i class="fa fa-sync"></i> Tables/References Updated:</strong>';
+        html += '<ul class="mt-2 mb-0">';
+        result.tables_updated.forEach(function(table) {
+            html += '<li>' + table + '</li>';
+        });
+        html += '</ul></div>';
+    }
+
     return html;
 }
 
