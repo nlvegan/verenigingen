@@ -495,6 +495,7 @@ class BankTransactionCreator:
         transaction_id: Optional[str] = None,
         party_type: Optional[str] = None,
         party: Optional[str] = None,
+        **additional_fields,
     ) -> Optional[str]:
         """
         Create and submit Bank Transaction (low-level method for all transaction types).
@@ -514,6 +515,7 @@ class BankTransactionCreator:
             transaction_id: Optional additional transaction ID for tracking
             party_type: Optional party type (e.g., "Customer", "Supplier") for dues payments
             party: Optional party name (Customer/Supplier name) for dues payments
+            **additional_fields: Additional fields to set on Bank Transaction (e.g., custom_member)
 
         Returns:
             Bank Transaction name if created, None on failure
@@ -536,6 +538,7 @@ class BankTransactionCreator:
             transaction_id=transaction_id,
             party_type=party_type,
             party=party,
+            **additional_fields,
         )
 
     def _create_bank_transaction(

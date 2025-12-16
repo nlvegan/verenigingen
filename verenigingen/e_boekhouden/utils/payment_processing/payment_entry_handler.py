@@ -318,7 +318,9 @@ class PaymentEntryHandler:
                     f"(Mutation #{mutation_id}, Amount: {pe.paid_amount or pe.received_amount})"
                 )
 
-                bank_transaction_name = self._create_bank_transaction_for_payment(mutation, pe, bank_account_name)
+                bank_transaction_name = self._create_bank_transaction_for_payment(
+                    mutation, pe, bank_account_name
+                )
 
             if bank_transaction_name:
                 if not existing_bt:
@@ -1426,6 +1428,14 @@ class PaymentEntryHandler:
                 "party_type": payment_entry.party_type if payment_entry.party else None,
                 "party": payment_entry.party if payment_entry.party else None,
             }
+
+            # Link to Member if the Customer is linked to a Member
+            if payment_entry.party_type == "Customer" and payment_entry.party:
+                from verenigingen.utils.financial_utils import get_member_for_customer
+
+                member_name = get_member_for_customer(payment_entry.party)
+                if member_name:
+                    transaction_data["custom_member"] = member_name
 
             bank_transaction_name = creator.create_from_dict(
                 transaction_data=transaction_data,

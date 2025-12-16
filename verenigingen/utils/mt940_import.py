@@ -1165,6 +1165,14 @@ def create_enhanced_bank_transaction_from_mt940(
                 f"MT940: Linked transaction to {bt.party_type} {bt.party} "
                 f"(IBAN: {sepa_data['counterparty_iban']}, Name: {sepa_data['counterparty']})"
             )
+            # Link to Member if this Customer is linked to a Member
+            if bt.party_type == "Customer":
+                from verenigingen.utils.financial_utils import get_member_for_customer
+
+                member_name = get_member_for_customer(bt.party)
+                if member_name:
+                    bt.custom_member = member_name
+                    frappe.logger().debug(f"MT940: Linked transaction to Member {member_name}")
 
         # Store additional SEPA data in custom fields (if available)
         try:

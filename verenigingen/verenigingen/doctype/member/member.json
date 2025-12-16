@@ -553,7 +553,8 @@
    "fieldname": "customer",
    "fieldtype": "Link",
    "label": "Customer record",
-   "options": "Customer"
+   "options": "Customer",
+   "search_index": 1
   },
   {
    "fieldname": "column_break_24",
@@ -967,7 +968,7 @@
   {
    "group": "Transactions",
    "link_doctype": "Bank Transaction",
-   "link_fieldname": "party"
+   "link_fieldname": "custom_member"
   }
  ],
  "modified": "2025-11-18 10:50:21.757653",

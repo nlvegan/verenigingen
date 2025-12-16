@@ -1212,7 +1212,7 @@ class DuesPaymentProcessor:
         else:
             description = additional_description
 
-        # Use centralized create() method with party fields
+        # Use centralized create() method with party fields and member link
         bank_transaction_name = self.bank_tx_creator.create(
             date=payment_date,
             bank_account=bank_account,
@@ -1225,6 +1225,7 @@ class DuesPaymentProcessor:
             description=description,
             party_type="Customer",
             party=customer,
+            custom_member=member_name,
         )
 
         if bank_transaction_name:
