@@ -2301,3 +2301,240 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
         )
 
     return results
+
+
+@frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
+def scan_and_clear_broken_links(
+    target_doctypes=None, dry_run=True, clear_mode="null"
+) -> OperationResult[Dict[str, Any]]:
+    """
+    Scan for and optionally clear broken Link field references across all DocTypes.
+
+    This is useful after nuclear truncate operations to find stale references
+    to deleted documents.
+
+    Args:
+        target_doctypes (list|str): DocTypes to scan for broken links to.
+            Default: ["Member", "Membership Type", "Membership Dues Schedule", "Chapter", "Volunteer"]
+        dry_run (bool): If True, only report broken links without clearing them
+        clear_mode (str): How to clear broken links:
+            - "null": Set the field to NULL (default)
+            - "delete": Delete the row (only for child tables)
+
+    Returns:
+        OperationResult[Dict[str, Any]]: Scan results including:
+            - broken_links: List of broken link details by DocType
+            - total_broken: Total count of broken references found
+            - cleared: Count of references cleared (0 if dry_run)
+            - summary: Human-readable summary
+    """
+    # ENHANCED SECURITY VALIDATION
+    validate_cleanup_permissions()
+
+    if isinstance(dry_run, str):
+        dry_run = dry_run.lower() in ("true", "1", "yes")
+
+    # Default target doctypes - common ones that get truncated
+    default_targets = [
+        "Member",
+        "Membership Type",
+        "Membership Dues Schedule",
+        "Chapter",
+        "Volunteer",
+        "SEPA Mandate",
+        "Sales Invoice",
+        "Payment Entry",
+    ]
+
+    if target_doctypes is None:
+        target_doctypes = default_targets
+    elif isinstance(target_doctypes, str):
+        import json
+
+        try:
+            target_doctypes = json.loads(target_doctypes)
+        except json.JSONDecodeError:
+            target_doctypes = [target_doctypes]
+
+    results = {
+        "broken_links": {},
+        "total_broken": 0,
+        "cleared": 0,
+        "errors": [],
+        "dry_run": dry_run,
+    }
+
+    try:
+        for target_doctype in target_doctypes:
+            target_results = {
+                "link_fields": [],
+                "dynamic_links": [],
+                "total": 0,
+            }
+
+            # 1. Find all Link fields pointing to this DocType
+            link_fields = frappe.db.sql(
+                """
+                SELECT df.parent as doctype, df.fieldname, df.label,
+                       dt.istable, dt.issingle
+                FROM tabDocField df
+                JOIN tabDocType dt ON df.parent = dt.name
+                WHERE df.fieldtype = 'Link'
+                AND df.options = %s
+                AND dt.issingle = 0
+                """,
+                target_doctype,
+                as_dict=True,
+            )
+
+            for field in link_fields:
+                table_name = f"tab{field.doctype}"
+
+                try:
+                    # Find broken references using LEFT JOIN
+                    broken = frappe.db.sql(
+                        f"""
+                        SELECT src.name, src.`{field.fieldname}` as broken_ref
+                        FROM `{table_name}` src
+                        LEFT JOIN `tab{target_doctype}` tgt ON src.`{field.fieldname}` = tgt.name
+                        WHERE src.`{field.fieldname}` IS NOT NULL
+                        AND src.`{field.fieldname}` != ''
+                        AND tgt.name IS NULL
+                        LIMIT 1000
+                        """,
+                        as_dict=True,
+                    )
+
+                    if broken:
+                        broken_count = len(broken)
+                        results["total_broken"] += broken_count
+                        target_results["total"] += broken_count
+
+                        target_results["link_fields"].append(
+                            {
+                                "doctype": field.doctype,
+                                "fieldname": field.fieldname,
+                                "label": field.label,
+                                "is_child_table": bool(field.istable),
+                                "broken_count": broken_count,
+                                "sample_refs": [b.broken_ref for b in broken[:5]],
+                            }
+                        )
+
+                        if not dry_run:
+                            # Clear the broken references
+                            if clear_mode == "delete" and field.istable:
+                                # Delete child table rows with broken links
+                                frappe.db.sql(
+                                    f"""
+                                    DELETE src FROM `{table_name}` src
+                                    LEFT JOIN `tab{target_doctype}` tgt ON src.`{field.fieldname}` = tgt.name
+                                    WHERE src.`{field.fieldname}` IS NOT NULL
+                                    AND src.`{field.fieldname}` != ''
+                                    AND tgt.name IS NULL
+                                    """
+                                )
+                            else:
+                                # Set to NULL
+                                frappe.db.sql(
+                                    f"""
+                                    UPDATE `{table_name}` src
+                                    LEFT JOIN `tab{target_doctype}` tgt ON src.`{field.fieldname}` = tgt.name
+                                    SET src.`{field.fieldname}` = NULL
+                                    WHERE src.`{field.fieldname}` IS NOT NULL
+                                    AND src.`{field.fieldname}` != ''
+                                    AND tgt.name IS NULL
+                                    """
+                                )
+                            results["cleared"] += broken_count
+
+                except Exception as e:
+                    # Table might not exist or column missing
+                    if "doesn't exist" not in str(e).lower() and "Unknown column" not in str(e):
+                        results["errors"].append(f"{field.doctype}.{field.fieldname}: {str(e)}")
+
+            # 2. Check Dynamic Links (used by Contact, Address, etc.)
+            try:
+                broken_dynamic = frappe.db.sql(
+                    f"""
+                    SELECT dl.parent, dl.parenttype, dl.link_name
+                    FROM `tabDynamic Link` dl
+                    LEFT JOIN `tab{target_doctype}` tgt ON dl.link_name = tgt.name
+                    WHERE dl.link_doctype = %s
+                    AND tgt.name IS NULL
+                    LIMIT 1000
+                    """,
+                    target_doctype,
+                    as_dict=True,
+                )
+
+                if broken_dynamic:
+                    dynamic_count = len(broken_dynamic)
+                    results["total_broken"] += dynamic_count
+                    target_results["total"] += dynamic_count
+
+                    # Group by parenttype
+                    by_parenttype = {}
+                    for dl in broken_dynamic:
+                        if dl.parenttype not in by_parenttype:
+                            by_parenttype[dl.parenttype] = []
+                        by_parenttype[dl.parenttype].append(dl.link_name)
+
+                    for parenttype, links in by_parenttype.items():
+                        target_results["dynamic_links"].append(
+                            {
+                                "parenttype": parenttype,
+                                "broken_count": len(links),
+                                "sample_refs": links[:5],
+                            }
+                        )
+
+                    if not dry_run:
+                        # Delete broken dynamic links
+                        frappe.db.sql(
+                            f"""
+                            DELETE dl FROM `tabDynamic Link` dl
+                            LEFT JOIN `tab{target_doctype}` tgt ON dl.link_name = tgt.name
+                            WHERE dl.link_doctype = %s
+                            AND tgt.name IS NULL
+                            """,
+                            target_doctype,
+                        )
+                        results["cleared"] += dynamic_count
+
+            except Exception as e:
+                results["errors"].append(f"Dynamic Link ({target_doctype}): {str(e)}")
+
+            if target_results["total"] > 0:
+                results["broken_links"][target_doctype] = target_results
+
+        if not dry_run:
+            frappe.db.commit()
+
+        # Build summary
+        if results["total_broken"] == 0:
+            results["summary"] = "No broken links found"
+        elif dry_run:
+            results["summary"] = (
+                f"DRY RUN: Found {results['total_broken']} broken links across "
+                f"{len(results['broken_links'])} target DocTypes"
+            )
+        else:
+            results["summary"] = (
+                f"Cleared {results['cleared']} broken links across "
+                f"{len(results['broken_links'])} target DocTypes"
+            )
+
+        return OperationResult.ok(results, message=_(results["summary"]))
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error scanning for broken links: {str(e)}\n{traceback.format_exc()}",
+            "Broken Link Scanner Error",
+        )
+        return OperationResult.fail(
+            _("Unable to scan for broken links. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "scan_and_clear_broken_links", "dry_run": dry_run},
+        )

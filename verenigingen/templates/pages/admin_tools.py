@@ -123,6 +123,15 @@ def get_context(context):
             "formatter": "generic",
         },
         {
+            "title": "Create Missing Parent Indexes",
+            "description": "Create (parent, parenttype) indexes on child tables for 10-100x faster orphan detection",
+            "method": "verenigingen.utils.orphaned_child_table_cleanup.create_missing_parent_indexes",
+            "icon": "fa fa-database",
+            "color": "brand-secondary",
+            "warning": "This creates database indexes. Safe but may take a moment on large databases.",
+            "formatter": "generic",
+        },
+        {
             "title": "Detect Orphaned Child Tables",
             "description": "Scan all child tables for orphaned records (where parent has been deleted)",
             "method": "verenigingen.utils.orphaned_child_table_cleanup.detect_orphaned_child_tables",
@@ -146,7 +155,7 @@ def get_context(context):
             "icon": "fa fa-eraser",
             "color": "brand-secondary",
             "warning": "This will permanently delete orphaned child table records across all DocTypes!",
-            "args": {"dry_run": False},
+            "args": {"dry_run": False, "skip_index_check": True},
             "formatter": "orphan",
         },
         {
@@ -504,6 +513,25 @@ def get_context(context):
             "args": {"confirm_nuclear_truncate": True, "dry_run": False},
             "formatter": "cleanup",
         },
+        {
+            "title": "Scan Broken Links (DRY RUN)",
+            "description": "Find broken Link field references to truncated DocTypes (Member, Chapter, etc.)",
+            "method": "verenigingen.utils.member_import_cleanup.scan_and_clear_broken_links",
+            "icon": "fa fa-unlink",
+            "color": "brand-accent",
+            "args": {"dry_run": True},
+            "formatter": "generic",
+        },
+        {
+            "title": "Clear Broken Links (LIVE)",
+            "description": "Find and clear broken Link field references across all DocTypes",
+            "method": "verenigingen.utils.member_import_cleanup.scan_and_clear_broken_links",
+            "icon": "fa fa-unlink",
+            "color": "brand-secondary",
+            "warning": "This will NULL out broken Link field references and delete broken Dynamic Links!",
+            "args": {"dry_run": False},
+            "formatter": "generic",
+        },
     ]
 
     # Add command examples with dynamic site name
@@ -595,6 +623,7 @@ ALLOWED_ADMIN_METHODS = {
     "verenigingen.utils.dues_schedule_health_manager.sync_all_member_fields",
     # Data integrity management
     "verenigingen.utils.orphaned_child_table_cleanup.verify_child_table_indexes",
+    "verenigingen.utils.orphaned_child_table_cleanup.create_missing_parent_indexes",
     "verenigingen.utils.orphaned_child_table_cleanup.detect_orphaned_child_tables",
     "verenigingen.utils.orphaned_child_table_cleanup.cleanup_orphaned_child_tables",
     "verenigingen.utils.orphaned_child_table_cleanup.cleanup_member_child_tables_only",
@@ -632,6 +661,7 @@ ALLOWED_ADMIN_METHODS = {
     "verenigingen.utils.member_import_cleanup.nuclear_cleanup_all_members",
     "verenigingen.utils.member_import_cleanup.force_cleanup_orphaned_schedules_and_invoices",
     "verenigingen.utils.member_import_cleanup.nuclear_truncate_member_tables",
+    "verenigingen.utils.member_import_cleanup.scan_and_clear_broken_links",
     # API Audit Log management
     "verenigingen.verenigingen.doctype.api_audit_log.api_audit_log.clear_all_audit_logs",
     # Version history management

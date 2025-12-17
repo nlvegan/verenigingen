@@ -949,12 +949,12 @@ fixtures = [
             ["fieldname", "=", "custom_eboekhouden_grootboek_nummer"],
         ],
     },
-    # Membership Types
+    # Membership Types (Dutch association types)
     {
         "doctype": "Membership Type",
-        "filters": [["name", "in", ["Monthly Membership", "Quarterly Membership", "Annual Membership"]]],
+        "filters": [["name", "in", ["Lid", "Huisgenootlid", "Aspirant", "Erelid", "Donateur"]]],
     },
-    # Membership Dues Schedule Templates
+    # Membership Dues Schedule Templates (Dutch)
     {
         "doctype": "Membership Dues Schedule",
         "filters": [
@@ -962,9 +962,11 @@ fixtures = [
                 "name",
                 "in",
                 [
-                    "Monthly Membership Template",
-                    "Quarterly Membership Template",
-                    "Annual Membership Template",
+                    "Standaard Lid Template",
+                    "Huisgenootlid Template",
+                    "Aspirant Template",
+                    "Erelid Template",
+                    "Donateur Template",
                 ],
             ]
         ],

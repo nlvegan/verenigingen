@@ -67,6 +67,107 @@ class SimpleLock:
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
+def create_missing_parent_indexes() -> OperationResult[Dict[str, Any]]:
+    """
+    Create missing (parent, parenttype) composite indexes on child tables.
+
+    These indexes dramatically improve LEFT JOIN performance for orphan detection
+    (10-100x faster on large datasets).
+
+    Returns:
+        OperationResult[Dict[str, Any]]: Index creation results including:
+            - indexes_created: List of tables where indexes were created
+            - indexes_skipped: List of tables that already had indexes
+            - errors: List of any errors encountered
+            - summary: Human-readable summary of operation
+    """
+    # SECURITY: Explicit permission validation for DDL operations
+    if not frappe.has_permission("System Settings", "write"):
+        frappe.throw("Insufficient permissions to create database indexes", frappe.PermissionError)
+
+    results = {
+        "indexes_created": [],
+        "indexes_skipped": [],
+        "errors": [],
+    }
+
+    try:
+        # Get all child table DocTypes
+        child_tables = frappe.get_all("DocType", filters={"istable": 1}, fields=["name"])
+
+        for table in child_tables:
+            table_name = f"tab{table.name}"
+
+            if not _validate_table_name(table_name):
+                continue
+
+            try:
+                # Check for existing index on (parent, parenttype) columns
+                indexes = frappe.db.sql(
+                    f"""
+                    SHOW INDEX FROM `{table_name}`
+                    WHERE Column_name IN ('parent', 'parenttype')
+                    """,
+                    as_dict=True,
+                )
+
+                # Check if we have a composite index on (parent, parenttype)
+                has_parent_parenttype_index = False
+                for idx in indexes:
+                    if idx.Column_name == "parent":
+                        # Check if this index also includes parenttype
+                        same_index = [i for i in indexes if i.Key_name == idx.Key_name]
+                        if len(same_index) >= 2:
+                            has_parent_parenttype_index = True
+                            break
+
+                if has_parent_parenttype_index:
+                    results["indexes_skipped"].append(table.name)
+                else:
+                    # Create the index using DDL
+                    index_name = f"idx_parent_parenttype_{table.name.replace(' ', '_').lower()}"
+                    try:
+                        frappe.db.sql_ddl(
+                            f"CREATE INDEX `{index_name}` ON `{table_name}` (parent, parenttype)"
+                        )
+                        results["indexes_created"].append(table.name)
+                        frappe.logger().info(f"Created index {index_name} on {table_name}")
+                    except Exception as idx_error:
+                        # Index might already exist with different name, or other issue
+                        error_msg = str(idx_error)
+                        if "Duplicate key name" in error_msg or "already exists" in error_msg.lower():
+                            results["indexes_skipped"].append(table.name)
+                        else:
+                            results["errors"].append(f"{table.name}: {error_msg}")
+
+            except Exception as e:
+                # Table doesn't exist or can't be accessed - skip it
+                if "doesn't exist" not in str(e).lower():
+                    results["errors"].append(f"{table.name}: {str(e)}")
+                continue
+
+        results["summary"] = (
+            f"Created {len(results['indexes_created'])} indexes, "
+            f"skipped {len(results['indexes_skipped'])} (already indexed), "
+            f"{len(results['errors'])} errors"
+        )
+
+        return OperationResult.ok(results, message=_(results["summary"]))
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error creating child table indexes: {str(e)}\n{traceback.format_exc()}",
+            "Index Creation Error",
+        )
+        return OperationResult.fail(
+            _("Unable to create child table indexes. Please contact support."),
+            errors=[str(e)],
+            context={"operation": "create_missing_parent_indexes"},
+        )
+
+
+@frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def verify_child_table_indexes() -> OperationResult[Dict[str, Any]]:
     """
     Verify that required indexes exist on child tables for optimal LEFT JOIN performance.
@@ -390,13 +491,16 @@ def detect_orphaned_child_tables() -> OperationResult[Dict[str, Any]]:
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def cleanup_orphaned_child_tables(dry_run=True, table_filter=None) -> OperationResult[Dict[str, Any]]:
+def cleanup_orphaned_child_tables(
+    dry_run=True, table_filter=None, skip_index_check=False
+) -> OperationResult[Dict[str, Any]]:
     """
     Clean up orphaned child table records with concurrent execution protection.
 
     Args:
         dry_run (bool): If True, only report what would be deleted
         table_filter (str): Optional - only clean specific child table name
+        skip_index_check (bool): If True, proceed without requiring indexes (slower but functional)
 
     Returns:
         OperationResult[Dict[str, Any]]: Cleanup results including:
@@ -409,6 +513,8 @@ def cleanup_orphaned_child_tables(dry_run=True, table_filter=None) -> OperationR
     """
     if isinstance(dry_run, str):
         dry_run = dry_run.lower() in ("true", "1", "yes")
+    if isinstance(skip_index_check, str):
+        skip_index_check = skip_index_check.lower() in ("true", "1", "yes")
 
     # Acquire distributed lock for non-dry-run operations to prevent concurrent execution
     lock = None
@@ -436,8 +542,8 @@ def cleanup_orphaned_child_tables(dry_run=True, table_filter=None) -> OperationR
     start_time = time.time()
 
     try:
-        # PERFORMANCE CHECK: Verify indexes before starting expensive operations
-        if not dry_run:
+        # PERFORMANCE CHECK: Verify indexes before starting expensive operations (unless skipped)
+        if not dry_run and not skip_index_check:
             index_results_response = verify_child_table_indexes()
             # Normalize response: @critical_api decorator converts OperationResult to dict
             if isinstance(index_results_response, dict):
@@ -458,7 +564,7 @@ def cleanup_orphaned_child_tables(dry_run=True, table_filter=None) -> OperationR
             if index_results.get("missing_indexes"):
                 return OperationResult.fail(
                     _(
-                        "Missing {0} required indexes. Run 'Verify Child Table Indexes' first and create recommended indexes for optimal performance."
+                        "Missing {0} required indexes. Run 'Create Missing Parent Indexes' first, or use skip_index_check=True to proceed anyway (slower)."
                     ).format(len(index_results["missing_indexes"])),
                     errors=["Missing database indexes"],
                     context={
@@ -467,6 +573,10 @@ def cleanup_orphaned_child_tables(dry_run=True, table_filter=None) -> OperationR
                         "recommendations": index_results.get("recommendations", []),
                     },
                 )
+        elif skip_index_check and not dry_run:
+            frappe.logger().warning(
+                "Proceeding with orphan cleanup without index verification - performance may be degraded"
+            )
 
         # Get all child table DocTypes
         filters = {"istable": 1}
