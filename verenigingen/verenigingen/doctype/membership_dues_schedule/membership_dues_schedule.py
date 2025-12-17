@@ -60,6 +60,7 @@ class MembershipDuesSchedule(Document):
             self.validate_dates()
 
         self.validate_custom_frequency()  # Validate custom frequency settings
+        self.validate_progressive_configuration()  # Validate progressive mode settings
         self.sync_from_template()  # Sync minimum_amount and other fields from template
         self.set_dues_rate_from_membership_type()  # Set default before validation
         self.validate_dues_rate_configuration()
@@ -162,6 +163,82 @@ class MembershipDuesSchedule(Document):
                 frappe.throw("Custom frequency number must be a positive integer")
             if not frequency_unit:
                 frappe.throw("Custom frequency unit must be specified when using custom billing")
+
+    def validate_progressive_configuration(self):
+        """Validate progressive contribution mode settings"""
+        if self.contribution_mode != "Progressive":
+            return
+
+        # Check if fields exist (might not exist during migration)
+        reference_income = getattr(self, "progressive_reference_income", None)
+        lower_threshold = getattr(self, "progressive_lower_threshold", None)
+
+        # Templates must have complete progressive configuration
+        if self.is_template:
+            if not reference_income or reference_income <= 0:
+                frappe.throw(
+                    "Progressive mode requires a Reference Income (median) to be set. "
+                    "This is the national median income used as the 100% reference point."
+                )
+            if not lower_threshold or lower_threshold < 0:
+                frappe.throw(
+                    "Progressive mode requires a Lower Income Threshold to be set. "
+                    "This is the income level below which minimum dues apply."
+                )
+            if lower_threshold >= reference_income:
+                frappe.throw(
+                    f"Lower Income Threshold (€{lower_threshold:,.2f}) must be less than "
+                    f"Reference Income (€{reference_income:,.2f})"
+                )
+
+    def calculate_progressive_dues(self, monthly_income, base_dues=None):
+        """
+        Calculate suggested dues based on progressive sliding scale formula.
+
+        Formula: multiplier = (income - lower_threshold) / (reference_income - lower_threshold)
+                 suggested_dues = base_dues * multiplier
+
+        Args:
+            monthly_income: Applicant's monthly net income
+            base_dues: The standard dues rate (100% reference). If None, uses suggested_amount.
+
+        Returns:
+            dict with keys:
+                - multiplier: The calculated multiplier (0.0 to unbounded)
+                - percentage: Multiplier as percentage (0 to unbounded)
+                - suggested_dues: Calculated dues amount
+                - base_dues: The base dues used for calculation
+        """
+        reference_income = getattr(self, "progressive_reference_income", None) or 0
+        lower_threshold = getattr(self, "progressive_lower_threshold", None) or 0
+
+        if base_dues is None:
+            base_dues = self.suggested_amount or 0
+
+        if reference_income <= lower_threshold:
+            # Invalid configuration, return base dues
+            return {
+                "multiplier": 1.0,
+                "percentage": 100,
+                "suggested_dues": base_dues,
+                "base_dues": base_dues,
+            }
+
+        # Calculate multiplier using linear sliding scale
+        range_amount = reference_income - lower_threshold
+        multiplier = (monthly_income - lower_threshold) / range_amount
+
+        # Floor at 0 (no negative dues), no ceiling (higher earners pay more)
+        multiplier = max(0, multiplier)
+
+        suggested_dues = round(base_dues * multiplier, 2)
+
+        return {
+            "multiplier": round(multiplier, 4),
+            "percentage": round(multiplier * 100, 1),
+            "suggested_dues": suggested_dues,
+            "base_dues": base_dues,
+        }
 
     def validate_permissions(self):
         """Validate user permissions for editing this document"""

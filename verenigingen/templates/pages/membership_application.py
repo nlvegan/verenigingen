@@ -63,14 +63,15 @@ def get_dues_schedule_template_values(membership_type_name):
         mt_doc = frappe.get_doc("Membership Type", membership_type_name)
 
         # Get template-based suggested amount, not minimum_amount
-        suggested_contribution = 0
+        # Use None to distinguish "not set" from "explicitly set to 0"
+        suggested_contribution = None
         if mt_doc.dues_schedule_template:
             try:
                 template = frappe.get_doc("Membership Dues Schedule", mt_doc.dues_schedule_template)
-                # Check dues_rate first, then suggested_amount
-                if template.dues_rate:
+                # Check dues_rate first, then suggested_amount (use explicit None checks to allow 0)
+                if template.dues_rate is not None:
                     suggested_contribution = template.dues_rate
-                elif template.suggested_amount:
+                elif template.suggested_amount is not None:
                     suggested_contribution = template.suggested_amount
                 else:
                     frappe.log_error(
@@ -83,9 +84,9 @@ def get_dues_schedule_template_values(membership_type_name):
                     "Membership Application Template Access",
                 )
 
-        # Fallback to minimum_amount only if no template available and explicit validation
-        if not suggested_contribution:
-            if mt_doc.minimum_amount:
+        # Fallback to minimum_amount only if no template value available
+        if suggested_contribution is None:
+            if mt_doc.minimum_amount is not None:
                 suggested_contribution = mt_doc.minimum_amount
             else:
                 frappe.throw(
@@ -198,11 +199,15 @@ def get_membership_types_with_contributions():
         # Get billing values from template
         template_values = get_dues_schedule_template_values(mt.name)
 
+        # Use suggested amount from contribution_options (which comes from dues schedule template)
+        # Fall back to minimum_amount only if suggested is not available
+        display_amount = contribution_options.get("suggested", mt.minimum_amount) or mt.minimum_amount
+
         enhanced_mt = {
             "name": mt.name,
             "membership_type_name": mt.membership_type_name,
             "description": mt.description,
-            "amount": mt.minimum_amount,  # Use minimum_amount field that exists in query
+            "amount": display_amount,
             "billing_frequency": template_values.get("billing_frequency", "Annual"),
             "contribution_options": contribution_options,
         }

@@ -185,11 +185,10 @@
                             </div>
                         </div>
 
-                        <!-- Income Calculator -->
-                        {% if enable_income_calculator %}
-                        <div class="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200" id="income-calculator">
+                        <!-- Income Calculator (supports both percentage and progressive modes) -->
+                        <div class="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200" id="income-calculator" style="display: none;">
                             <h5 class="text-lg font-semibold text-gray-800 mb-3">{{ _("Contribution Calculator") }}</h5>
-                            <p class="text-sm text-gray-600 mb-4">{{ calculator_description }}</p>
+                            <p class="text-sm text-gray-600 mb-4" id="calculator-description">{{ calculator_description }}</p>
 
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                                 <div class="input-group">
@@ -208,6 +207,7 @@
                                 </div>
                             </div>
 
+                            <!-- Standard percentage-based result -->
                             <div id="calc-result" class="bg-green-50 border border-green-200 text-green-800 p-4 rounded-lg mb-4" style="display: none;">
                                 <p class="text-sm font-medium mb-1">{{ _("Suggested Contribution:") }}</p>
                                 <p class="text-lg font-bold">
@@ -219,11 +219,43 @@
                                 </p>
                             </div>
 
+                            <!-- Progressive sliding scale result -->
+                            <div id="progressive-calc-result" class="bg-blue-50 border border-blue-200 text-blue-800 p-4 rounded-lg mb-4" style="display: none;">
+                                <p class="text-sm font-medium mb-2">{{ _("Progressive Contribution Scale") }}</p>
+
+                                <!-- Visual sliding scale -->
+                                <div class="relative h-8 mb-3">
+                                    <div class="absolute w-full h-2 bg-gradient-to-r from-blue-200 via-blue-400 to-blue-600 rounded-full top-3"></div>
+                                    <!-- Position markers -->
+                                    <div class="absolute left-0 top-0 text-xs text-gray-500">{{ _("Min") }}</div>
+                                    <div class="absolute right-0 top-0 text-xs text-gray-500" id="progressive-median-label">{{ _("Median") }}</div>
+                                    <!-- User position indicator -->
+                                    <div id="progressive-position-marker" class="absolute w-4 h-4 bg-blue-600 border-2 border-white rounded-full shadow-md transition-all duration-300" style="top: 5px; left: 50%;"></div>
+                                </div>
+
+                                <!-- Percentage display -->
+                                <div class="text-center mb-3">
+                                    <span class="text-2xl font-bold text-blue-700" id="progressive-percentage">1%</span>
+                                    <span class="text-sm text-blue-600"> {{ _("of your income") }}</span>
+                                </div>
+
+                                <!-- Suggested amount -->
+                                <div class="text-center">
+                                    <p class="text-sm text-blue-600 mb-1">{{ _("Suggested Contribution:") }}</p>
+                                    <p class="text-xl font-bold text-blue-800">
+                                        <span id="progressive-suggested-amount">€0.00</span>
+                                        <span class="text-sm font-normal" id="progressive-payment-frequency"></span>
+                                    </p>
+                                    <p class="text-xs text-blue-500 mt-1">
+                                        (€<span id="progressive-monthly-income">0</span> × <span id="progressive-percentage-detail">1%</span><span id="progressive-billing-multiplier"></span>)
+                                    </p>
+                                </div>
+                            </div>
+
                             <button type="button" class="w-full bg-gray-600 hover:bg-gray-700 text-white text-sm py-2 px-4 rounded-md transition-colors duration-200" id="apply-calculated-amount" style="display: none;">
                                 {{ _("Use This Amount") }}
                             </button>
                         </div>
-                        {% endif %}
 
                         <!-- Membership Type Selection -->
                         <h5 class="input-label required">{{ _("Membership Type") }}</h5>

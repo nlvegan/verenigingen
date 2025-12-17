@@ -710,54 +710,69 @@ class _MembershipApplication {
 					isValid = false;
 				}
 
-				// Check IBAN
-				const iban = $('#iban').val();
-				console.log('IBAN value:', iban);
-				if (!iban || iban.trim() === '') {
-					console.log('IBAN is empty');
-					$('#iban').addClass('is-invalid');
-					const feedback = $('#iban').siblings('.invalid-feedback');
-					if (feedback.length === 0) {
-						$('#iban').after(
-							'<div class="invalid-feedback">IBAN is required</div>'
-						);
-					}
-					$('#iban').siblings('.invalid-feedback').show();
-					isValid = false;
-				} else {
-					// Perform comprehensive IBAN validation with checksum
-					const validation = this.performIBANValidation(iban);
-					if (!validation.valid) {
-						console.log('IBAN validation failed:', validation.error);
-						$('#iban').removeClass('is-valid').addClass('is-invalid');
-						$('#iban').siblings('.invalid-feedback').remove();
-						$('#iban').after(
-							`<div class="invalid-feedback">${validation.error}</div>`
-						);
+				// Bank details are only required for SEPA Direct Debit
+				// Not required for Mollie or Bank Transfer
+				const normalizedMethod = (paymentMethod || '').toLowerCase().replace(/[^a-z]/g, '');
+				const requiresBankDetails = normalizedMethod === 'sepadirectdebit' || paymentMethod === 'SEPA Direct Debit';
+				const isMollie = normalizedMethod === 'mollie' || paymentMethod === 'Mollie';
+
+				console.log('Requires bank details:', requiresBankDetails, 'Is Mollie:', isMollie);
+
+				// Only validate IBAN and account holder for non-Mollie payment methods that require it
+				if (requiresBankDetails) {
+					// Check IBAN
+					const iban = $('#iban').val();
+					console.log('IBAN value:', iban);
+					if (!iban || iban.trim() === '') {
+						console.log('IBAN is empty');
+						$('#iban').addClass('is-invalid');
+						const feedback = $('#iban').siblings('.invalid-feedback');
+						if (feedback.length === 0) {
+							$('#iban').after(
+								'<div class="invalid-feedback">IBAN is required</div>'
+							);
+						}
+						$('#iban').siblings('.invalid-feedback').show();
 						isValid = false;
 					} else {
-						// Format the IBAN if valid
-						$('#iban').val(validation.formatted);
-						$('#iban').removeClass('is-invalid').addClass('is-valid');
+						// Perform comprehensive IBAN validation with checksum
+						const validation = this.performIBANValidation(iban);
+						if (!validation.valid) {
+							console.log('IBAN validation failed:', validation.error);
+							$('#iban').removeClass('is-valid').addClass('is-invalid');
+							$('#iban').siblings('.invalid-feedback').remove();
+							$('#iban').after(
+								`<div class="invalid-feedback">${validation.error}</div>`
+							);
+							isValid = false;
+						} else {
+							// Format the IBAN if valid
+							$('#iban').val(validation.formatted);
+							$('#iban').removeClass('is-invalid').addClass('is-valid');
+						}
 					}
-				}
 
-				// Check account holder name
-				const accountHolder = $('#account_holder_name').val();
-				console.log('Account holder name:', accountHolder);
-				if (!accountHolder || accountHolder.trim() === '') {
-					console.log('Account holder name is empty');
-					$('#account_holder_name').addClass('is-invalid');
-					const feedback = $('#account_holder_name').siblings(
-						'.invalid-feedback'
-					);
-					if (feedback.length === 0) {
-						$('#account_holder_name').after(
-							'<div class="invalid-feedback">Account holder name is required</div>'
+					// Check account holder name
+					const accountHolder = $('#account_holder_name').val();
+					console.log('Account holder name:', accountHolder);
+					if (!accountHolder || accountHolder.trim() === '') {
+						console.log('Account holder name is empty');
+						$('#account_holder_name').addClass('is-invalid');
+						const feedback = $('#account_holder_name').siblings(
+							'.invalid-feedback'
 						);
+						if (feedback.length === 0) {
+							$('#account_holder_name').after(
+								'<div class="invalid-feedback">Account holder name is required</div>'
+							);
+						}
+						$('#account_holder_name').siblings('.invalid-feedback').show();
+						isValid = false;
 					}
-					$('#account_holder_name').siblings('.invalid-feedback').show();
-					isValid = false;
+				} else {
+					// Clear any validation errors on bank fields for Mollie/Bank Transfer
+					$('#iban, #account_holder_name').removeClass('is-invalid is-valid');
+					$('#iban, #account_holder_name').siblings('.invalid-feedback').hide();
 				}
 
 				console.log('Step 6 validation result:', isValid);
@@ -1851,14 +1866,172 @@ class _MembershipApplication {
 	setupIncomeCalculator() {
 		console.log('Setting up income calculator');
 
-		// Check if income calculator is enabled and available
+		// Check if income calculator element exists (it's hidden by default now)
 		if (!$('#income-calculator').length) {
-			console.log('Income calculator not available in this form');
+			console.log('Income calculator element not available in this form');
 			return;
 		}
 
-		// Calculator is always visible when enabled, so just set up functionality
+		// Store current calculator mode and configuration
+		this.calculatorMode = null;
+		this.progressiveConfig = null;
+
+		// Calculator is hidden by default - it will be shown when a membership type
+		// with Calculator or Progressive mode is selected
 		this.bindIncomeCalculatorEvents();
+	}
+
+	/**
+	 * Show/configure the income calculator based on selected membership type
+	 * @param {Object} contributionOptions - The contribution_options from the membership type
+	 */
+	configureIncomeCalculator(contributionOptions, billingFrequency = 'Annual') {
+		if (!contributionOptions) {
+			$('#income-calculator').hide();
+			return;
+		}
+
+		const mode = contributionOptions.mode;
+		console.log('Configuring income calculator for mode:', mode, 'billing frequency:', billingFrequency);
+
+		// Store billing frequency from dues schedule template
+		this.billingFrequency = billingFrequency;
+
+		// Map billing frequency to dropdown value and set it
+		const frequencyMap = {
+			'Monthly': 'monthly',
+			'Quarterly': 'quarterly',
+			'Annual': 'annually',
+			'Annually': 'annually'
+		};
+		const dropdownValue = frequencyMap[billingFrequency] || 'annually';
+		$('#calc-payment-interval').val(dropdownValue);
+
+		// Hide the dropdown since it's determined by the dues schedule
+		$('#calc-payment-interval').closest('.input-group').hide();
+
+		if (mode === 'Progressive' && contributionOptions.progressive) {
+			// Progressive sliding scale mode
+			this.calculatorMode = 'Progressive';
+			this.progressiveConfig = {
+				referenceIncome: contributionOptions.progressive.reference_income,
+				lowerThreshold: contributionOptions.progressive.lower_threshold,
+				standardDues: contributionOptions.progressive.standard_dues || contributionOptions.suggested,
+				description: contributionOptions.progressive.formula_description || ''
+			};
+
+			// Update description
+			if (this.progressiveConfig.description) {
+				$('#calculator-description').text(this.progressiveConfig.description);
+			} else {
+				$('#calculator-description').text(
+					`Based on national median income of €${this.progressiveConfig.referenceIncome?.toLocaleString('nl-NL')}`
+				);
+			}
+
+			// Update standard dues display
+			$('#progressive-standard-dues').text(this.progressiveConfig.standardDues?.toFixed(2) || '0.00');
+
+			// Show calculator with progressive mode
+			$('#income-calculator').show();
+			console.log('Progressive calculator configured:', this.progressiveConfig);
+
+		} else if (mode === 'Calculator' && contributionOptions.calculator?.enabled) {
+			// Standard percentage-based calculator
+			this.calculatorMode = 'Calculator';
+			this.progressiveConfig = null;
+
+			// Update description
+			const description = contributionOptions.calculator.description ||
+				`We suggest ${contributionOptions.calculator.percentage}% of your monthly net income`;
+			$('#calculator-description').text(description);
+			$('#calc-income-percentage').text(contributionOptions.calculator.percentage);
+
+			// Show calculator
+			$('#income-calculator').show();
+			console.log('Standard calculator configured');
+
+		} else {
+			// No calculator for this mode (Tier, Custom, etc.)
+			this.calculatorMode = null;
+			this.progressiveConfig = null;
+			$('#income-calculator').hide();
+			console.log('Calculator hidden - mode does not support it');
+		}
+
+		// Recalculate if there's already an income entered
+		const currentIncome = parseFloat($('#calc-monthly-income').val());
+		if (currentIncome > 0) {
+			this.calculateContribution();
+		}
+	}
+
+	/**
+	 * Calculate progressive dues using income-based percentage formula
+	 * Formula: (income - (2 × lowerThreshold) + median) / (median - lowerThreshold) = wage percentage
+	 * The result represents what percentage of income should be contributed
+	 * @param {number} monthlyIncome - The monthly net income
+	 * @returns {Object} - Calculation result with multiplier, percentage, suggestedDues
+	 */
+	calculateProgressiveDues(monthlyIncome) {
+		if (!this.progressiveConfig) {
+			return { multiplier: 1, percentage: 100, suggestedDues: 0 };
+		}
+
+		const { referenceIncome, lowerThreshold, standardDues } = this.progressiveConfig;
+		// referenceIncome = national median income
+		// lowerThreshold = lower income threshold
+
+		if (referenceIncome <= lowerThreshold || !referenceIncome) {
+			return { multiplier: 1, percentage: 100, suggestedDues: standardDues };
+		}
+
+		// Calculate wage contribution percentage using the formula:
+		// (income - (2 × lowerThreshold) + median) / (median - lowerThreshold)
+		const denominator = referenceIncome - lowerThreshold;
+		const numerator = monthlyIncome - (2 * lowerThreshold) + referenceIncome;
+		let wagePercentage = numerator / denominator;
+
+		// Floor at 0 (no negative percentage), no ceiling
+		wagePercentage = Math.max(0, wagePercentage);
+
+		// The wage percentage represents what % of income should be contributed
+		// Convert to actual dues amount (percentage is already in decimal-ish form, e.g., 1.5 = 150%)
+		// Apply as percentage of income: income * (wagePercentage / 100) for reasonable dues
+		const suggestedDues = Math.round(monthlyIncome * (wagePercentage / 100) * 100) / 100;
+
+		// Calculate multiplier relative to standard dues for display purposes
+		const multiplier = standardDues > 0 ? suggestedDues / standardDues : wagePercentage;
+
+		return {
+			multiplier: Math.round(multiplier * 10000) / 10000,
+			percentage: Math.round(wagePercentage * 1000) / 10, // Display as percentage
+			suggestedDues: suggestedDues,
+			wagePercentage: Math.round(wagePercentage * 1000) / 10 // The calculated wage %
+		};
+	}
+
+	/**
+	 * Update the progressive scale visual indicator
+	 * @param {number} percentage - The percentage position on the scale
+	 */
+	updateProgressiveScaleVisual(percentage) {
+		// Position the marker (0% = left edge, 100% = right edge)
+		// Clamp between 0% and 200% for visual display
+		const visualPercentage = Math.min(200, Math.max(0, percentage));
+		const position = Math.min(100, (visualPercentage / 200) * 100);
+
+		$('#progressive-position-marker').css('left', `calc(${position}% - 8px)`);
+
+		// Update color based on position
+		const marker = $('#progressive-position-marker');
+		if (percentage < 50) {
+			marker.removeClass('bg-blue-600').addClass('bg-blue-400');
+		} else if (percentage <= 100) {
+			marker.removeClass('bg-blue-400').addClass('bg-blue-600');
+		} else {
+			marker.removeClass('bg-blue-600 bg-blue-400').addClass('bg-blue-700');
+		}
 	}
 
 	bindIncomeCalculatorEvents() {
@@ -1869,50 +2042,107 @@ class _MembershipApplication {
 		};
 		let calculatedAmount = 0;
 
-		function calculateContribution() {
+		// Store reference to 'this' for use in nested functions
+		const self = this;
+
+		// Main calculation function - handles both modes
+		this.calculateContribution = function() {
 			const monthlyIncome = parseFloat($('#calc-monthly-income').val()) || 0;
-			const paymentInterval = $('#calc-payment-interval').val();
+			// Use billing frequency from dues schedule template (stored in configureIncomeCalculator)
+			const billingFrequency = self.billingFrequency || 'Annual';
 
 			if (monthlyIncome <= 0) {
 				$('#calc-result').hide();
+				$('#progressive-calc-result').hide();
 				$('#apply-calculated-amount').hide();
 				calculatedAmount = 0;
 				return;
 			}
 
-			// Calculate based on percentage of monthly income
-			const monthlyContribution
-        = monthlyIncome * (calculatorSettings.percentage / 100);
 			let displayAmount;
 			let displayFrequency;
 
-			if (paymentInterval === 'quarterly') {
-				displayAmount = monthlyContribution * 3; // 3 months worth
-				displayFrequency = 'per quarter';
-			} else if (paymentInterval === 'annually') {
-				displayAmount = monthlyContribution * 12; // 12 months worth
-				displayFrequency = 'per year';
+			// Map billing frequency to display text
+			const frequencyDisplayMap = {
+				'Monthly': '/month',
+				'Quarterly': '/quarter',
+				'Annual': '/year',
+				'Annually': '/year'
+			};
+			displayFrequency = frequencyDisplayMap[billingFrequency] || '/year';
+
+			// Check which mode we're in
+			if (self.calculatorMode === 'Progressive' && self.progressiveConfig) {
+				// Progressive sliding scale calculation
+				const result = self.calculateProgressiveDues(monthlyIncome);
+
+				// The calculation gives monthly contribution, adjust for billing frequency
+				let billingMultiplier = 1;
+				let billingMultiplierText = '';
+				if (billingFrequency === 'Quarterly') {
+					billingMultiplier = 3;
+					billingMultiplierText = ' × 3 months';
+				} else if (billingFrequency === 'Annual' || billingFrequency === 'Annually') {
+					billingMultiplier = 12;
+					billingMultiplierText = ' × 12 months';
+				}
+
+				// Calculate display amount for the billing period
+				displayAmount = result.suggestedDues * billingMultiplier;
+				calculatedAmount = displayAmount;
+
+				// Update progressive display with income-based text
+				$('#progressive-percentage').text(`${result.percentage}%`);
+				$('#progressive-percentage-detail').text(`${result.percentage}%`);
+				$('#progressive-monthly-income').text(monthlyIncome.toLocaleString());
+				$('#progressive-billing-multiplier').text(billingMultiplierText);
+				$('#progressive-suggested-amount').text(`€${displayAmount.toFixed(2)}`);
+				$('#progressive-payment-frequency').text(displayFrequency);
+
+				// Update visual slider
+				self.updateProgressiveScaleVisual(result.percentage);
+
+				// Show progressive result, hide standard
+				$('#calc-result').hide();
+				$('#progressive-calc-result').show();
+				$('#apply-calculated-amount').show();
+
 			} else {
-				displayAmount = monthlyContribution;
-				displayFrequency = 'per month';
+				// Standard percentage-based calculation
+				// This calculates based on monthly income, so we need to convert to billing frequency
+				const percentage = parseFloat($('#calc-income-percentage').text()) || calculatorSettings.percentage;
+				const monthlyContribution = monthlyIncome * (percentage / 100);
+
+				// Convert monthly calculation to billing frequency
+				if (billingFrequency === 'Quarterly') {
+					displayAmount = monthlyContribution * 3;
+				} else if (billingFrequency === 'Annual' || billingFrequency === 'Annually') {
+					displayAmount = monthlyContribution * 12;
+				} else {
+					// Monthly
+					displayAmount = monthlyContribution;
+				}
+
+				calculatedAmount = displayAmount;
+
+				// Format currency
+				const formattedAmount = `€${displayAmount.toFixed(2)}`;
+
+				// Update standard display
+				$('#calc-suggested-amount').text(formattedAmount);
+				$('#calc-payment-frequency').text(` ${displayFrequency}`);
+
+				// Show standard result, hide progressive
+				$('#progressive-calc-result').hide();
+				$('#calc-result').show();
+				$('#apply-calculated-amount').show();
 			}
-
-			calculatedAmount = displayAmount;
-
-			// Format currency
-			const formattedAmount = `€${displayAmount.toFixed(2)}`;
-
-			// Update display
-			$('#calc-suggested-amount').text(formattedAmount);
-			$('#calc-payment-frequency').text(` ${displayFrequency}`);
-			$('#calc-result').show();
-			$('#apply-calculated-amount').show();
-		}
+		};
 
 		// Bind calculator events
 		$('#calc-monthly-income, #calc-payment-interval').on(
 			'input change',
-			calculateContribution
+			() => this.calculateContribution()
 		);
 
 		// Apply calculated amount to main form
@@ -1931,10 +2161,54 @@ class _MembershipApplication {
 			'Applying calculated amount:',
 			amount,
 			'with interval:',
-			paymentInterval
+			paymentInterval,
+			'calculator mode:',
+			this.calculatorMode
 		);
 
-		// Find the first applicable membership type based on payment interval
+		// For Progressive mode, the membership type is already selected
+		// We just need to apply the calculated amount to it directly
+		if (this.calculatorMode === 'Progressive') {
+			const selectedType = this.state.get('selected_membership_type');
+			console.log('Progressive mode - applying to selected type:', selectedType);
+
+			if (selectedType) {
+				const membershipCard = $(`.membership-type-card[data-type="${selectedType}"]`);
+				if (membershipCard.length) {
+					// Directly apply the calculated amount
+					this.selectMembershipType(membershipCard, true, amount);
+
+					// Show confirmation message
+					if (typeof frappe !== 'undefined' && frappe.show_alert) {
+						frappe.show_alert({
+							message: `Calculated contribution (€${amount.toFixed(2)}) applied`,
+							indicator: 'green'
+						});
+					}
+
+					console.log('Progressive amount applied:', amount);
+					return;
+				}
+			}
+
+			// Fallback: find the selected card by .selected class
+			const selectedCard = $('.membership-type-card.selected');
+			if (selectedCard.length) {
+				this.selectMembershipType(selectedCard, true, amount);
+				if (typeof frappe !== 'undefined' && frappe.show_alert) {
+					frappe.show_alert({
+						message: `Calculated contribution (€${amount.toFixed(2)}) applied`,
+						indicator: 'green'
+					});
+				}
+				console.log('Progressive amount applied via selected card:', amount);
+				return;
+			}
+
+			console.warn('Progressive mode but no membership type selected');
+		}
+
+		// For non-Progressive modes, find membership type by payment interval
 		const targetMembershipType
       = this.findMembershipTypeByInterval(paymentInterval);
 
@@ -2393,11 +2667,11 @@ class _MembershipApplication {
 		$(document)
 			.off(
 				'change',
-				'input[name="payment_method_selection"], .payment-method-radio'
+				'input[name="payment_method_selection"], input[name="payment_method"], .payment-method-radio'
 			)
 			.on(
 				'change',
-				'input[name="payment_method_selection"], .payment-method-radio',
+				'input[name="payment_method_selection"], input[name="payment_method"], .payment-method-radio',
 				function () {
 					const selectedMethod = $(this).val();
 					console.log(
@@ -2561,7 +2835,9 @@ class _MembershipApplication {
 		const contributionOptions = type.contribution_options || {};
 		const hasTiers = contributionOptions.tiers && contributionOptions.tiers.length > 0;
 		const hasQuickAmounts = contributionOptions.quick_amounts && contributionOptions.quick_amounts.length > 0;
-		const allowsContributionChoice = hasTiers || hasQuickAmounts || contributionOptions.mode;
+		const isProgressiveMode = contributionOptions.mode === 'Progressive';
+		// Progressive mode uses the income calculator instead of direct amount entry
+		const allowsContributionChoice = !isProgressiveMode && (hasTiers || hasQuickAmounts || contributionOptions.mode === 'Calculator' || contributionOptions.mode === 'Custom');
 
 		console.log('Creating membership card for:', {
 			name: type.name,
@@ -2937,6 +3213,15 @@ class _MembershipApplication {
 			usesCustomAmount
 		);
 
+		// Configure income calculator based on the selected membership type's contribution mode
+		const membershipTypeData = this.membershipTypes
+			&& this.membershipTypes.find((t) => t.name === membershipType);
+		if (membershipTypeData && membershipTypeData.contribution_options) {
+			// Pass billing_frequency from dues schedule template
+			const billingFrequency = membershipTypeData.billing_frequency || 'Annual';
+			this.configureIncomeCalculator(membershipTypeData.contribution_options, billingFrequency);
+		}
+
 		if (usesCustomAmount) {
 			this.validateCustomAmount(membershipType, finalAmount);
 		}
@@ -3072,24 +3357,28 @@ class _MembershipApplication {
 
 	// Implement payment method field switching similar to member doctype UIUtils.handle_payment_method_change
 	handlePaymentMethodChange(methodName) {
-		const is_direct_debit = methodName === 'SEPA Direct Debit';
-		const is_bank_transfer = methodName === 'Bank Transfer';
-		const _show_bank_details = ['SEPA Direct Debit', 'Bank Transfer'].includes(
-			methodName
-		);
+		// Normalize method names (HTML radio values vs display names)
+		const normalizedMethod = methodName.toLowerCase().replace(/[^a-z]/g, '');
+		const is_direct_debit = methodName === 'SEPA Direct Debit' || normalizedMethod === 'sepadirectdebit';
+		const is_bank_transfer = methodName === 'Bank Transfer' || normalizedMethod === 'banktransfer';
+		const is_mollie = methodName === 'Mollie' || normalizedMethod === 'mollie';
+		const show_bank_details = is_direct_debit || is_bank_transfer;
 
 		console.log('Main app: Handling payment method change to:', methodName);
 		console.log(
 			'Main app: is_direct_debit:',
 			is_direct_debit,
 			'is_bank_transfer:',
-			is_bank_transfer
+			is_bank_transfer,
+			'is_mollie:',
+			is_mollie
 		);
 
 		// Hide all payment detail sections first
 		$('#bank-account-details').hide();
 		$('#bank-transfer-notice').hide();
 		$('#bank-transfer-details').hide();
+		$('#bank-details').hide();
 
 		// Show appropriate section based on payment method
 		if (is_direct_debit) {
@@ -3097,6 +3386,7 @@ class _MembershipApplication {
 				'Main app: Showing bank account details for SEPA Direct Debit'
 			);
 			$('#bank-account-details').show();
+			$('#bank-details').show();
 
 			// Set required attributes for bank account fields
 			$('#iban, #bank_account_name, #account_holder_name').prop(
@@ -3108,6 +3398,7 @@ class _MembershipApplication {
 				'Main app: Showing bank transfer details with account fields'
 			);
 			$('#bank-transfer-details').show();
+			$('#bank-details').show();
 
 			// Bank transfer fields are optional (for payment matching purposes)
 			$('#iban, #bank_account_name, #account_holder_name').prop(
@@ -3115,10 +3406,20 @@ class _MembershipApplication {
 				false
 			);
 			$('#transfer_iban, #transfer_account_name').prop('required', false);
+		} else if (is_mollie) {
+			console.log(
+				'Main app: Hiding bank details for Mollie payment'
+			);
+			// Hide bank details and remove required for Mollie
+			$('#bank-details').hide();
+			$('#iban, #bank_account_name, #account_holder_name').prop(
+				'required',
+				false
+			);
 		}
 
 		// Clear validation errors when switching payment methods
-		$('#bank-account-details input, #bank-transfer-details input').removeClass(
+		$('#bank-account-details input, #bank-transfer-details input, #bank-details input').removeClass(
 			'is-invalid is-valid'
 		);
 		$('.invalid-feedback').hide();

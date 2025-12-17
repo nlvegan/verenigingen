@@ -40,6 +40,9 @@
   "contribution_mode",
   "selected_tier",
   "base_multiplier",
+  "progressive_reference_income",
+  "progressive_lower_threshold",
+  "progressive_formula_description",
   "column_break_contrib",
   "minimum_amount",
   "suggested_amount",
@@ -281,7 +284,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Contribution Mode",
-   "options": "Tier\nCalculator\nCustom"
+   "options": "Tier\nCalculator\nCustom\nProgressive"
   },
   {
    "depends_on": "eval:doc.contribution_mode == 'Tier'",
@@ -298,6 +301,29 @@
    "fieldtype": "Float",
    "label": "Base Multiplier",
    "precision": "2"
+  },
+  {
+   "depends_on": "eval:doc.contribution_mode == 'Progressive'",
+   "description": "National median income used as 100% reference point (e.g., 3137.75)",
+   "fieldname": "progressive_reference_income",
+   "fieldtype": "Currency",
+   "label": "Reference Income (Median)",
+   "mandatory_depends_on": "eval:doc.contribution_mode == 'Progressive' && doc.is_template"
+  },
+  {
+   "depends_on": "eval:doc.contribution_mode == 'Progressive'",
+   "description": "Income threshold below which minimum dues apply (e.g., 2186.42)",
+   "fieldname": "progressive_lower_threshold",
+   "fieldtype": "Currency",
+   "label": "Lower Income Threshold",
+   "mandatory_depends_on": "eval:doc.contribution_mode == 'Progressive' && doc.is_template"
+  },
+  {
+   "depends_on": "eval:doc.contribution_mode == 'Progressive'",
+   "description": "Explanation shown to applicants about how their contribution is calculated",
+   "fieldname": "progressive_formula_description",
+   "fieldtype": "Small Text",
+   "label": "Formula Description for Applicants"
   },
   {
    "fieldname": "column_break_contrib",

@@ -173,6 +173,17 @@ class DuesScheduleValidationService(StatelessService):
             elif schedule_doc.contribution_mode == "Custom":
                 if not schedule_doc.uses_custom_amount:
                     frappe.throw("Custom dues rate must be enabled for custom contribution mode")
+            elif schedule_doc.contribution_mode == "Progressive":
+                # Progressive mode: dues_rate should be set from application form based on income
+                # If not set, use the suggested_amount as default (100% rate)
+                from verenigingen.services.billing.template_configuration_service import (
+                    TemplateConfigurationService,
+                )
+
+                template_values = TemplateConfigurationService().get_template_values(
+                    schedule_doc, schedule_doc.membership_type
+                )
+                schedule_doc.dues_rate = template_values.get("suggested_amount", 0)
 
         # If contribution mode is Custom but dues_rate is set, ensure custom amount flags are set
         if schedule_doc.contribution_mode == "Custom" and schedule_doc.dues_rate:
@@ -225,7 +236,9 @@ class DuesScheduleValidationService(StatelessService):
             if schedule_doc.dues_rate > 0:
                 absolute_minimum = ConfigManager.get("absolute_minimum_dues", 0.01)  # €0.01 minimum
                 if float(schedule_doc.dues_rate) < absolute_minimum:
-                    frappe.throw(f"Dues rate cannot be less than €{absolute_minimum:.2f}", frappe.ValidationError)
+                    frappe.throw(
+                        f"Dues rate cannot be less than €{absolute_minimum:.2f}", frappe.ValidationError
+                    )
 
             # Check maximum reasonable amount
             maximum_dues = ConfigManager.get("maximum_dues_limit", 1000.0)  # €1000 default max

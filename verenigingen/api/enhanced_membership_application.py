@@ -293,13 +293,22 @@ def validate_contribution_amount(
                 # Continue with fallback values if template access fails
                 pass
 
-        min_amount = template_values.get("minimum_contribution", 0) or (
-            mt_doc.minimum_amount * 0.3 if mt_doc.minimum_amount else 5.0
+        # Use explicit None checks to allow 0 as a valid amount (e.g., for trial memberships)
+        min_contribution = template_values.get("minimum_contribution")
+        min_amount = (
+            min_contribution
+            if min_contribution is not None
+            else (mt_doc.minimum_amount * 0.3 if mt_doc.minimum_amount else 5.0)
         )
-        # Use template amount directly, with fallback to reasonable default
-        suggested_amount = template_values.get("suggested_contribution", 0) or 15.0
+        suggested_contribution = template_values.get("suggested_contribution")
+        suggested_amount = suggested_contribution if suggested_contribution is not None else 15.0
         max_multiplier = template_values.get("fee_slider_max_multiplier", 10.0)
-        max_amount = template_values.get("maximum_contribution", 0) or (suggested_amount * max_multiplier)
+        max_contribution = template_values.get("maximum_contribution")
+        max_amount = (
+            max_contribution
+            if max_contribution is not None
+            else (suggested_amount * max_multiplier if suggested_amount > 0 else 0)
+        )
 
         # Validate against constraints
         if amount < min_amount:
@@ -1028,6 +1037,101 @@ def get_contribution_calculator_config(membership_type=None) -> OperationResult[
             message=f"Error getting contribution calculator config: {str(e)}\n{traceback.format_exc()}",
         )
         return OperationResult.fail(message=_("Configuration unavailable"), error_code="CONFIG_ERROR")
+
+
+@public_api(operation_type=OperationType.PUBLIC)
+@frappe.whitelist(allow_guest=True)
+def calculate_progressive_dues(
+    membership_type: str = None, monthly_income: float = None
+) -> OperationResult[Dict[str, Any]]:
+    """Calculate progressive dues based on income using sliding scale formula.
+
+    Uses the progressive contribution formula:
+        multiplier = (income - lower_threshold) / (reference_income - lower_threshold)
+        suggested_dues = standard_dues * multiplier
+
+    Args:
+        membership_type (str): Membership type name with Progressive mode configured
+        monthly_income (float): Applicant's monthly net income
+
+    Returns:
+        OperationResult[Dict[str, Any]]: Result containing:
+            - multiplier (float): Calculated multiplier (0.0 to unbounded)
+            - percentage (float): Multiplier as percentage (0 to unbounded)
+            - suggested_dues (float): Calculated dues amount
+            - standard_dues (float): Base dues (100% reference)
+            - reference_income (float): Median income reference
+            - lower_threshold (float): Lower income threshold
+
+    Error Handling:
+        - Returns error if membership type not found
+        - Returns error if Progressive mode not configured
+        - Returns error if income is invalid
+    """
+    try:
+        if not membership_type:
+            return OperationResult.fail(
+                message=_("Membership type is required"), error_code="MISSING_MEMBERSHIP_TYPE"
+            )
+
+        if monthly_income is None or monthly_income < 0:
+            return OperationResult.fail(
+                message=_("Valid monthly income is required"), error_code="INVALID_INCOME"
+            )
+
+        monthly_income = flt(monthly_income)
+
+        # Get membership type and its template
+        if not frappe.db.exists("Membership Type", membership_type):
+            return OperationResult.fail(
+                message=_("Invalid membership type"), error_code="INVALID_MEMBERSHIP_TYPE"
+            )
+
+        mt_doc = frappe.get_doc("Membership Type", membership_type)
+
+        if not mt_doc.dues_schedule_template:
+            return OperationResult.fail(
+                message=_("Membership type has no dues schedule template configured"),
+                error_code="NO_TEMPLATE",
+            )
+
+        template = frappe.get_doc("Membership Dues Schedule", mt_doc.dues_schedule_template)
+
+        if template.contribution_mode != "Progressive":
+            return OperationResult.fail(
+                message=_("This membership type does not use progressive contribution mode"),
+                error_code="NOT_PROGRESSIVE",
+            )
+
+        # Get progressive configuration
+        reference_income = template.progressive_reference_income or 0
+        lower_threshold = template.progressive_lower_threshold or 0
+        standard_dues = template.suggested_amount or 0
+
+        if reference_income <= lower_threshold:
+            return OperationResult.fail(
+                message=_("Invalid progressive configuration"),
+                error_code="INVALID_CONFIG",
+            )
+
+        # Calculate using the template's method
+        result = template.calculate_progressive_dues(monthly_income, standard_dues)
+
+        # Add configuration to the result
+        result["reference_income"] = reference_income
+        result["lower_threshold"] = lower_threshold
+
+        return OperationResult.ok(data=result, message=_("Progressive dues calculated successfully"))
+
+    except Exception as e:
+        frappe.log_error(
+            title=_("Error Calculating Progressive Dues"),
+            message=f"Error calculating progressive dues: {str(e)}\n{traceback.format_exc()}",
+        )
+        return OperationResult.fail(
+            message=_("Failed to calculate dues. Please try again."),
+            error_code="CALCULATION_ERROR",
+        )
 
 
 def validate_dutch_business_rules(data):

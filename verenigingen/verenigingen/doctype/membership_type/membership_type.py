@@ -151,11 +151,14 @@ class MembershipType(Document):
             template = frappe.get_doc("Membership Dues Schedule", self.dues_schedule_template)
 
             # Get all configuration from the template
+            # Use explicit None checks to allow 0 as a valid amount (e.g., for trial memberships)
+            suggested = template.suggested_amount if template.suggested_amount is not None else 15.0
+            minimum = template.minimum_amount if template.minimum_amount is not None else 5.0
             options = {
                 "mode": template.contribution_mode or "Calculator",
-                "minimum": template.minimum_amount or 5.0,
-                "suggested": template.suggested_amount or 15.0,
-                "maximum": ((template.suggested_amount or 15.0) * 10),
+                "minimum": minimum,
+                "suggested": suggested,
+                "maximum": suggested * 10 if suggested > 0 else 0,
                 "calculator": {
                     "enabled": (
                         template.enable_income_calculator
@@ -204,6 +207,27 @@ class MembershipType(Document):
                                 "is_default": multiplier == 1.0,
                             }
                         )
+
+            # Add Progressive mode configuration if applicable
+            if options["mode"] == "Progressive":
+                options["progressive"] = {
+                    "reference_income": (
+                        template.progressive_reference_income
+                        if hasattr(template, "progressive_reference_income")
+                        else 0
+                    ),
+                    "lower_threshold": (
+                        template.progressive_lower_threshold
+                        if hasattr(template, "progressive_lower_threshold")
+                        else 0
+                    ),
+                    "formula_description": (
+                        template.progressive_formula_description
+                        if hasattr(template, "progressive_formula_description")
+                        else ""
+                    ),
+                    "standard_dues": options["suggested"],
+                }
 
             return options
 
