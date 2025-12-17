@@ -1964,6 +1964,22 @@
   },
   {
     "doctype": "Critical Operation Rule",
+    "name": "scan_and_clear_broken_links",
+    "operation_name": "scan_and_clear_broken_links",
+    "operation_type": "admin",
+    "description": "Scan and clear broken Link field references across all DocTypes",
+    "enabled": 1,
+    "security_level": "high",
+    "business_context": "Data integrity maintenance - find and clear orphaned link references after truncate operations",
+    "required_roles": "System Manager,Verenigingen Administrator",
+    "rate_limit_calls": 5,
+    "rate_limit_period_seconds": 3600,
+    "rate_limit_scope": "per_user",
+    "audit_level": "comprehensive",
+    "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
     "name": "nuclear_truncate_version_and_deleted_tables",
     "operation_name": "nuclear_truncate_version_and_deleted_tables",
     "operation_type": "admin",
@@ -40722,6 +40738,22 @@
     "rate_limit_period_seconds": 300,
     "rate_limit_scope": "per_user",
     "audit_level": "standard",
+    "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "create_missing_parent_indexes",
+    "operation_name": "create_missing_parent_indexes",
+    "operation_type": "admin",
+    "description": "Create missing (parent, parenttype) indexes on child tables for optimal orphan detection",
+    "enabled": 1,
+    "security_level": "high",
+    "business_context": "Database DDL operation - creates indexes for 10-100x faster orphan detection queries",
+    "required_roles": "System Manager,Verenigingen Administrator",
+    "rate_limit_calls": 5,
+    "rate_limit_period_seconds": 3600,
+    "rate_limit_scope": "per_user",
+    "audit_level": "comprehensive",
     "alert_on_execution": 0
   },
   {
