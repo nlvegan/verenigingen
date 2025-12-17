@@ -75,7 +75,7 @@
     "is_template": 1,
     "membership_type": "Erelid",
     "status": "Active",
-    "billing_frequency": "Lifetime",
+    "billing_frequency": "Annual",
     "auto_generate": 0,
     "test_mode": 0,
     "invoice_days_before": 0,
