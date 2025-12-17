@@ -45,16 +45,6 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
         # Set Administrator for account creation pipeline testing
         # EnhancedTestCase handles permissions automatically
 
-        # Create test roles for membership type testing
-        for role_name in ["Verenigingen Student", "Verenigingen Senior", "Verenigingen Family"]:
-            if not frappe.db.exists("Role", role_name):
-                role_doc = frappe.get_doc({
-                    "doctype": "Role",
-                    "role_name": role_name,
-                    "desk_access": 0
-                })
-                role_doc.insert(ignore_permissions=True)
-        
     def tearDown(self):
         # EnhancedTestCase handles permissions automatically
         super().tearDown()
@@ -355,36 +345,34 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
         self.assertIsNotNone(request.created_user)
         
     def test_membership_type_based_role_assignment(self):
-        """Test role assignment based on membership type"""
-        # Create different membership types
-        membership_types = [
-            {"name": "Student Member", "roles": ["Verenigingen Member", "Verenigingen Student"]},
-            {"name": "Senior Member", "roles": ["Verenigingen Member", "Verenigingen Senior"]},
-            {"name": "Family Member", "roles": ["Verenigingen Member", "Verenigingen Family"]}
+        """Test role assignment based on membership type using real Verenigingen roles"""
+        # Use real roles that exist in fixtures:
+        # Verenigingen Member, Verenigingen Volunteer, Chapter Board Member, etc.
+        role_combinations = [
+            {"name": "Standard Member", "roles": ["Verenigingen Member"]},
+            {"name": "Board Member", "roles": ["Verenigingen Member", "Chapter Board Member"]},
         ]
-        
-        for membership_type in membership_types:
-            with self.subTest(membership_type=membership_type["name"]):
+
+        for role_combo in role_combinations:
+            with self.subTest(role_combo=role_combo["name"]):
                 member = self.create_test_member(
                     first_name="Membership",
                     last_name="Type",
-                    email=f"membership.type.{membership_type['name'].lower().replace(' ', '.')}@test.invalid",
+                    email=f"membership.type.{role_combo['name'].lower().replace(' ', '.')}@test.invalid",
                     birth_date="1995-01-01"
                 )
-                
+
                 # Create account with specific roles
                 result = queue_account_creation_for_member(
                     member.name,
-                    roles=membership_type["roles"]
+                    roles=role_combo["roles"]
                 )
-                
+
                 request = frappe.get_doc("Account Creation Request", result["request_name"])
                 requested_roles = [r.role for r in request.requested_roles]
-                
-                for role in membership_type["roles"]:
-                    # Note: Some roles might not exist in test environment
-                    if role in ["Verenigingen Member"]:  # Only test existing roles
-                        self.assertIn(role, requested_roles)
+
+                for role in role_combo["roles"]:
+                    self.assertIn(role, requested_roles, f"Missing expected role: {role}")
                         
     def test_age_transition_volunteer_eligibility(self):
         """Test volunteer eligibility during age transition periods"""

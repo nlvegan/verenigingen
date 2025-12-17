@@ -69,14 +69,6 @@ def create_sepa_indexes():
             "name": "idx_direct_debit_batch_status",
             "columns": ["docstatus", "status", "batch_date"],
             "description": "Optimizes batch status and date queries"
-        },
-        
-        # Billing frequency transition audit optimization
-        {
-            "table": "tabBilling Frequency Transition Audit",
-            "name": "idx_billing_transition_audit_member",
-            "columns": ["member", "transition_status", "processed_at"],
-            "description": "Optimizes billing transition history queries"
         }
     ]
     
