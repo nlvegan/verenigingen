@@ -253,15 +253,15 @@
     font-size: 0.9375rem; /* 15px base */
 }
 
-/* Page Header */
-.page-header {
+/* Page Header - scoped to admin-tools-page to avoid styling base template */
+.admin-tools-page .page-header {
     background: var(--brand-primary);
     color: var(--brand-primary-contrast);
     padding: 2rem 1.5rem;
     border-bottom: 4px solid #000;
 }
 
-.page-header h1 {
+.admin-tools-page .page-header h1 {
     font-size: 2.5rem;
     font-weight: 700;
     letter-spacing: -0.02em;
@@ -269,7 +269,7 @@
     text-transform: uppercase;
 }
 
-.page-header p {
+.admin-tools-page .page-header p {
     font-size: 0.875rem;
     margin: 0;
     opacity: 0.9;
@@ -725,7 +725,7 @@
 
 /* Responsive */
 @media (max-width: 768px) {
-    .page-header h1 {
+    .admin-tools-page .page-header h1 {
         font-size: 1.75rem;
     }
 
