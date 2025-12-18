@@ -5,9 +5,12 @@ Comprehensive cleanup function to delete all members and related records
 for testing import functionality. Use with extreme caution - only on development servers.
 """
 
+from typing import Any, Dict
+
 import frappe
 from frappe import _
 
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
