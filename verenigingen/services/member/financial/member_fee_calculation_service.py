@@ -64,7 +64,7 @@ class MemberFeeCalculationService(StatelessService):
         try:
             from verenigingen.services.member.core.member_membership_service import MemberMembershipService
 
-            active_membership = MemberMembershipService.get_active_membership_for_member_doc(member_doc)
+            active_membership = MemberMembershipService().get_active_membership_for_member_doc(member_doc)
         except Exception as e:
             self.logger.error(f"Error retrieving active membership for member {member_doc.name}: {str(e)}")
             return {

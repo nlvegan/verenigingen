@@ -421,11 +421,8 @@ class EmailService(StatelessService):
                     operation="_send_email_internal",
                 )
 
-            # Use Email Queue instead of direct sendmail() to prevent broken pipe errors
+            # Use frappe.sendmail with delayed=True (default) to queue for background processing
             # This queues the email for background processing by RQ workers
-            from frappe.email.queue import queue as add_to_email_queue
-
-            # Prepare email arguments for queue
             email_args = {
                 "recipients": recipients,
                 "subject": subject,
@@ -433,16 +430,26 @@ class EmailService(StatelessService):
                 "reference_doctype": reference_doctype,
                 "reference_name": reference_name,
                 "send_priority": 1,  # Normal priority
-                "queue": "default",  # Use default queue
+                "delayed": True,  # Queue for background sending (default)
             }
 
-            # Add any additional options
-            email_args.update(options)
+            # Add any additional options (but filter out unsupported ones)
+            supported_keys = {
+                "sender",
+                "cc",
+                "bcc",
+                "reply_to",
+                "attachments",
+                "template",
+                "args",
+                "header",
+                "with_container",
+            }
+            filtered_options = {k: v for k, v in options.items() if k in supported_keys}
+            email_args.update(filtered_options)
 
-            # Queue the email - this returns immediately without blocking
-            # The actual sending happens in background via RQ worker
-            # Note: frappe.email.queue.queue() returns None on success
-            add_to_email_queue(**email_args)
+            # Queue the email via frappe.sendmail
+            frappe.sendmail(**email_args)
 
             # NOTE: We don't create Communication records for queued emails because:
             # 1. Frappe's Email Queue system creates its own "Email Queue" records with proper status tracking

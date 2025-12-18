@@ -38,6 +38,9 @@
   "current_membership_plan",
   "current_dues_schedule",
   "dues_rate",
+  "fee_override_reason",
+  "fee_override_date",
+  "fee_override_by",
   "next_invoice_date",
   "column_break_incg",
   "amendment_status_html",
@@ -742,6 +745,31 @@
    "fieldname": "dues_rate",
    "fieldtype": "Currency",
    "label": "Dues Rate",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.dues_rate",
+   "description": "Reason for custom fee override",
+   "fieldname": "fee_override_reason",
+   "fieldtype": "Small Text",
+   "label": "Fee Override Reason",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.dues_rate",
+   "description": "Date when fee override was set",
+   "fieldname": "fee_override_date",
+   "fieldtype": "Date",
+   "label": "Fee Override Date",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.dues_rate",
+   "description": "User who set the fee override",
+   "fieldname": "fee_override_by",
+   "fieldtype": "Link",
+   "label": "Fee Override By",
+   "options": "User",
    "read_only": 1
   },
   {

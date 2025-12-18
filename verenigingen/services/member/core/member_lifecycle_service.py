@@ -108,7 +108,7 @@ class MemberLifecycleService(StatelessService):
             member.status = "Rejected"
             member.reviewed_by = frappe.session.user
             member.review_date = now_datetime()
-            member.rejection_reason = reason
+            member.review_notes = reason  # Use valid field name (not rejection_reason which doesn't exist)
 
             # Set flags to skip status validation and preserve rejection reason for retry
             member.flags.ignore_status_validation = True
@@ -522,7 +522,7 @@ class MemberLifecycleService(StatelessService):
         try:
             from verenigingen.services.member.core.member_membership_service import MemberMembershipService
 
-            return MemberMembershipService.get_active_membership_for_member_doc(member)
+            return MemberMembershipService().get_active_membership_for_member_doc(member)
         except Exception:
             return None
 

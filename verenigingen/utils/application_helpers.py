@@ -478,17 +478,18 @@ def create_member_from_application(data, application_id, address=None):
                     if first_user:
                         override_user = first_user
 
-                # Only set the field if we found a valid user
+                # Only set fee_override_by if we found a valid user
+                # Keep the custom amount data regardless - it's valid even without approver info
                 if override_user:
                     member.fee_override_by = override_user
                 else:
-                    # Log warning but don't fail - just skip the fee override fields
+                    # Log warning but keep the custom amount data - don't discard it
                     frappe.log_error(
-                        "No valid user found for fee_override_by field", "Fee Override User Error"
+                        "No valid user found for fee_override_by field - custom amount preserved without approver",
+                        "Fee Override User Warning",
                     )
-                    member.dues_rate = None
-                    member.fee_override_reason = None
-                    member.fee_override_date = None
+                    # Note: We intentionally do NOT reset dues_rate, fee_override_reason, fee_override_date
+                    # The custom amount is valid even if we can't record who approved it
 
             # Legacy JSON storage in notes removed - data now stored in proper fields
         except Exception as e:
