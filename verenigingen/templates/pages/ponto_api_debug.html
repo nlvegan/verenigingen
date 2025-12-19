@@ -1,0 +1,788 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Ponto API Debug") }}{% endblock %}
+
+{% block head_include %}
+{{ super() }}
+<link href="/css/brand_colors.css?v={{ frappe.utils.now() }}" rel="stylesheet">
+<style>
+/* ==========================================================================
+   BRUTALIST PONTO DEBUG - Uses Brand Colors from /css/brand_colors.css
+   ========================================================================== */
+
+/* Hide base template's empty header wrapper */
+.page-header-wrapper {
+    display: none;
+}
+
+/* Base */
+.ponto-debug-page {
+    font-family: 'IBM Plex Mono', 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', monospace;
+    background-color: var(--brand-background);
+    color: var(--brand-text);
+    min-height: 100vh;
+    padding: 0;
+    margin-top: 20px;
+    line-height: 1.5;
+    font-size: 0.9375rem;
+}
+
+/* Wide layout wrapper */
+.wide-layout-wrapper {
+    width: 90vw;
+    max-width: 1400px;
+    margin-left: calc(-45vw + 50% - 2.5vw);
+    margin-right: calc(-45vw + 50% + 2.5vw);
+    padding: 0;
+    box-sizing: border-box;
+}
+
+/* Page Header */
+.page-header {
+    background: var(--brand-secondary);
+    color: var(--brand-secondary-contrast);
+    padding: 2rem 1.5rem;
+    border-bottom: 4px solid #000;
+}
+
+.page-header h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin: 0 0 0.25rem 0;
+    text-transform: uppercase;
+}
+
+.page-header p {
+    font-size: 0.8125rem;
+    margin: 0;
+    opacity: 0.9;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* API Mode Warning */
+.api-mode-box {
+    margin-top: 1rem;
+    padding: 0.75rem 1rem;
+    border: 2px solid #000;
+    background: color-mix(in srgb, var(--brand-warning) 20%, transparent);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+
+/* Tab Navigation */
+.tab-nav {
+    display: flex;
+    border-bottom: 2px solid #000;
+    background: var(--brand-background);
+    overflow-x: auto;
+}
+
+.tab-button {
+    padding: 1rem 1.5rem;
+    font-size: 0.875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border: none;
+    border-right: 1px solid #000;
+    background: var(--brand-background);
+    color: var(--brand-text);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.tab-button:hover {
+    background: color-mix(in srgb, var(--brand-secondary) 10%, transparent);
+}
+
+.tab-button.active {
+    background: var(--brand-secondary);
+    color: var(--brand-secondary-contrast);
+}
+
+/* Tab Content */
+.tab-content {
+    padding: 1.5rem;
+}
+
+.tab-content.hidden {
+    display: none;
+}
+
+/* Debug Card */
+.debug-card {
+    background-color: var(--brand-background);
+    border: 2px solid #000;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.debug-card h2 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 0 0 0.75rem 0;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid #000;
+}
+
+.debug-card h3 {
+    font-size: 1.0625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    margin: 0 0 0.5rem 0;
+}
+
+.debug-card p {
+    font-size: 0.9375rem;
+    opacity: 0.8;
+    margin: 0 0 1rem 0;
+}
+
+/* Section Variants */
+.debug-section {
+    padding: 1rem;
+    border: 2px solid #000;
+    margin-bottom: 1rem;
+}
+
+.debug-section--primary { border-left: 4px solid var(--brand-primary); }
+.debug-section--secondary { border-left: 4px solid var(--brand-secondary); }
+.debug-section--success { border-left: 4px solid var(--brand-success); }
+.debug-section--warning { border-left: 4px solid var(--brand-warning); }
+.debug-section--danger { border-left: 4px solid var(--brand-error); }
+.debug-section--info { border-left: 4px solid var(--brand-info); }
+
+/* Forms */
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.form-group label {
+    display: block;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.375rem;
+}
+
+.debug-input, .debug-select, .debug-textarea {
+    width: 100%;
+    padding: 0.75rem 0.875rem;
+    border: 2px solid #000;
+    background: var(--brand-background);
+    font-family: inherit;
+    font-size: 0.9375rem;
+}
+
+.debug-textarea {
+    min-height: 100px;
+    resize: vertical;
+}
+
+.debug-input:focus, .debug-select:focus, .debug-textarea:focus {
+    outline: none;
+    border-color: var(--brand-secondary);
+}
+
+/* Buttons */
+.btn-brutal {
+    font-family: inherit;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 0.75rem 1.25rem;
+    border: 2px solid #000;
+    cursor: pointer;
+    background: var(--brand-background, #ffffff);
+    color: #000;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.btn-brutal:hover {
+    background: #000;
+    color: #fff;
+}
+
+.btn-brutal:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.btn-brutal--primary {
+    background: var(--brand-primary, #cf3131);
+    color: var(--brand-primary-contrast, #ffffff);
+}
+
+.btn-brutal--secondary {
+    background: var(--brand-secondary, #01796f);
+    color: var(--brand-secondary-contrast, #ffffff);
+}
+
+.btn-brutal--success {
+    background: var(--brand-success, #28a745);
+    color: #fff;
+}
+
+.btn-brutal--warning {
+    background: var(--brand-warning, #ffc107);
+    color: #000;
+}
+
+.btn-brutal--danger {
+    background: var(--brand-error, #dc3545);
+    color: #fff;
+}
+
+.btn-brutal--info {
+    background: var(--brand-info, #17a2b8);
+    color: #fff;
+}
+
+/* Result Area */
+.result-area {
+    background: #000;
+    color: #0f0;
+    border: 2px solid #000;
+    padding: 1rem;
+    margin-top: 1rem;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.875rem;
+    white-space: pre-wrap;
+    max-height: 24rem;
+    overflow-y: auto;
+}
+
+.result-area.success-result {
+    background: color-mix(in srgb, var(--brand-success) 10%, #000);
+    border-color: var(--brand-success);
+}
+
+.result-area.error-result {
+    background: color-mix(in srgb, var(--brand-error) 10%, #000);
+    border-color: var(--brand-error);
+    color: #f88;
+}
+
+/* Table */
+.debug-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+
+.debug-table th,
+.debug-table td {
+    padding: 0.75rem;
+    text-align: left;
+    border: 1px solid #000;
+}
+
+.debug-table th {
+    background: var(--brand-secondary);
+    color: var(--brand-secondary-contrast);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.debug-table tr:hover {
+    background: color-mix(in srgb, var(--brand-secondary) 5%, transparent);
+}
+
+/* Status Badge */
+.status-badge {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    border: 1px solid #000;
+}
+
+.status-badge--draft { background: #e5e5e5; color: #000; }
+.status-badge--pending { background: var(--brand-warning); color: #000; }
+.status-badge--authorized { background: var(--brand-info); color: #fff; }
+.status-badge--executed { background: var(--brand-success); color: #fff; }
+.status-badge--rejected { background: var(--brand-error); color: #fff; }
+.status-badge--cancelled { background: #666; color: #fff; }
+.status-badge--expired { background: #999; color: #fff; }
+.status-badge--failed { background: var(--brand-error); color: #fff; }
+
+/* Link styling */
+.redirect-link {
+    color: var(--brand-info);
+    word-break: break-all;
+    font-size: 0.75rem;
+}
+
+/* Button row */
+.button-row {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1rem;
+    flex-wrap: wrap;
+}
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div class="ponto-debug-page">
+    <div class="wide-layout-wrapper">
+        <!-- Page Header -->
+        <header class="page-header">
+            <h1>PONTO API DEBUG</h1>
+            <p>Payment Link Creation and Testing Interface</p>
+            {% if ponto_configured %}
+            <div class="api-mode-box">
+                <strong>Mode:</strong> {{ "SANDBOX" if sandbox_mode else "PRODUCTION" }} |
+                <strong>Status:</strong> Configured
+                {% if organization_name %} | <strong>Org:</strong> {{ organization_name }}{% endif %}
+            </div>
+            <!-- Service Activation Status -->
+            <div class="api-mode-box" style="margin-top: 0.5rem; {% if payment_requests_activated %}background: color-mix(in srgb, var(--brand-success) 20%, transparent);{% elif not onboarding_complete %}background: color-mix(in srgb, var(--brand-error) 20%, transparent);{% endif %}">
+                <strong>Payment Requests (Betaalverzoek):</strong>
+                {% if payment_requests_activated %}
+                    <span style="color: var(--brand-success);">✓ ACTIVE</span>
+                {% elif payment_requests_activation_requested %}
+                    <span style="color: var(--brand-warning);">⏳ REQUESTED (pending activation)</span>
+                {% else %}
+                    <span style="color: var(--brand-error);">✗ NOT ACTIVATED</span>
+                {% endif %}
+                |
+                <strong>Outbound Payments:</strong>
+                {% if payments_activated %}
+                    <span style="color: var(--brand-success);">✓ ACTIVE</span>
+                {% elif payments_activation_requested %}
+                    <span style="color: var(--brand-warning);">⏳ REQUESTED</span>
+                {% else %}
+                    <span style="color: var(--brand-error);">✗ NOT ACTIVATED</span>
+                {% endif %}
+                |
+                <strong>Onboarding:</strong>
+                {% if onboarding_complete %}
+                    <span style="color: var(--brand-success);">✓ Complete</span>
+                {% else %}
+                    <span style="color: var(--brand-warning);">⏳ Incomplete</span>
+                {% endif %}
+                {% if last_status_refresh %}
+                | <small>Last refresh: {{ frappe.utils.pretty_date(last_status_refresh) }}</small>
+                {% endif %}
+            </div>
+            {% if not payment_requests_activated %}
+            <div class="api-mode-box" style="margin-top: 0.5rem; background: color-mix(in srgb, var(--brand-info) 20%, transparent);">
+                <strong>Note:</strong> Payment Requests must be activated in Ponto before you can create betaalverzoeken.
+                Go to <a href="/app/ponto-settings" style="color: var(--brand-info);">Ponto Settings</a> and click "Refresh Status from Ponto" to update activation status.
+            </div>
+            {% endif %}
+            {% else %}
+            <div class="api-mode-box" style="background: color-mix(in srgb, var(--brand-error) 20%, transparent);">
+                <strong>Warning:</strong> Ponto API not configured. Please configure in Ponto Settings.
+            </div>
+            {% endif %}
+        </header>
+
+        <!-- Tab Navigation -->
+        <nav class="tab-nav">
+            <button class="tab-button active" data-tab="create">Create Payment Link</button>
+            <button class="tab-button" data-tab="list">List Payment Links</button>
+            <button class="tab-button" data-tab="connection">Test Connection</button>
+        </nav>
+
+        <!-- Create Payment Link Tab -->
+        <div id="tab-create" class="tab-content">
+            <div class="debug-card">
+                <h2>Create Payment Link (Betaalverzoek)</h2>
+                <p>Create a payment request that customers can use to authorize payments from their bank account.</p>
+
+                <div class="debug-section debug-section--secondary">
+                    <h3>Payment Details</h3>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="amount">Amount (EUR) *</label>
+                            <input type="number" id="amount" class="debug-input" step="0.01" min="0.01" placeholder="25.00" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="payment_type">Payment Type *</label>
+                            <select id="payment_type" class="debug-select">
+                                <option value="One-Time">One-Time Payment</option>
+                                <option value="Periodic">Periodic (Standing Order)</option>
+                            </select>
+                        </div>
+                        <div class="form-group" id="frequency_group" style="display: none;">
+                            <label for="frequency">Frequency</label>
+                            <select id="frequency" class="debug-select">
+                                <option value="Monthly">Monthly</option>
+                                <option value="Quarterly">Quarterly</option>
+                                <option value="Annually">Annually</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="description">Description *</label>
+                        <textarea id="description" class="debug-textarea" placeholder="Payment description shown to customer">{{ description_template }}</textarea>
+                    </div>
+                </div>
+
+                <div class="debug-section debug-section--info">
+                    <h3>Creditor (Receiver) Details</h3>
+                    <p>These are your organization's details. Defaults from Verenigingen Settings.</p>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="creditor_name">Creditor Name *</label>
+                            <input type="text" id="creditor_name" class="debug-input" value="{{ default_creditor_name }}" placeholder="Organization Name">
+                        </div>
+                        <div class="form-group">
+                            <label for="creditor_iban">Creditor IBAN *</label>
+                            <input type="text" id="creditor_iban" class="debug-input" value="{{ default_creditor_iban }}" placeholder="NL91ABNA0417164300">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="debug-section debug-section--primary">
+                    <h3>Optional: Link to Member/Invoice</h3>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="member">Member</label>
+                            <input type="text" id="member" class="debug-input" placeholder="MEM-00001">
+                        </div>
+                        <div class="form-group">
+                            <label for="sales_invoice">Sales Invoice</label>
+                            <input type="text" id="sales_invoice" class="debug-input" placeholder="ACC-SINV-2025-00001">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="button-row">
+                    <button id="btn-create" class="btn-brutal btn-brutal--secondary">
+                        Create Payment Link
+                    </button>
+                    <button id="btn-create-submit" class="btn-brutal btn-brutal--success">
+                        Create &amp; Submit to Ponto
+                    </button>
+                </div>
+
+                <div id="create-result" class="result-area" style="display: none;"></div>
+            </div>
+        </div>
+
+        <!-- List Payment Links Tab -->
+        <div id="tab-list" class="tab-content hidden">
+            <div class="debug-card">
+                <h2>Payment Links</h2>
+                <p>View and manage existing Ponto Payment Links.</p>
+
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="status_filter">Filter by Status</label>
+                        <select id="status_filter" class="debug-select">
+                            <option value="">All Statuses</option>
+                            <option value="Draft">Draft</option>
+                            <option value="Pending Authorization">Pending Authorization</option>
+                            <option value="Authorized">Authorized</option>
+                            <option value="Executed">Executed</option>
+                            <option value="Rejected">Rejected</option>
+                            <option value="Cancelled">Cancelled</option>
+                            <option value="Expired">Expired</option>
+                            <option value="Failed">Failed</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="limit_filter">Limit</label>
+                        <input type="number" id="limit_filter" class="debug-input" value="20" min="1" max="100">
+                    </div>
+                </div>
+
+                <div class="button-row">
+                    <button id="btn-list" class="btn-brutal btn-brutal--info">
+                        Load Payment Links
+                    </button>
+                </div>
+
+                <div id="links-table-container" style="margin-top: 1rem;"></div>
+                <div id="list-result" class="result-area" style="display: none;"></div>
+            </div>
+        </div>
+
+        <!-- Test Connection Tab -->
+        <div id="tab-connection" class="tab-content hidden">
+            <div class="debug-card">
+                <h2>Test Ponto Connection</h2>
+                <p>Verify that the Ponto API credentials are configured correctly.</p>
+
+                <div class="button-row">
+                    <button id="btn-test-connection" class="btn-brutal btn-brutal--secondary">
+                        Test Connection
+                    </button>
+                </div>
+
+                <div id="connection-result" class="result-area" style="display: none;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block script %}
+{{ super() }}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Tab navigation
+    const tabButtons = document.querySelectorAll('.tab-button');
+    const tabContents = document.querySelectorAll('.tab-content');
+
+    tabButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const tabId = this.dataset.tab;
+
+            // Update button states
+            tabButtons.forEach(btn => btn.classList.remove('active'));
+            this.classList.add('active');
+
+            // Update content visibility
+            tabContents.forEach(content => {
+                content.classList.toggle('hidden', content.id !== 'tab-' + tabId);
+            });
+        });
+    });
+
+    // Payment type toggle
+    const paymentTypeSelect = document.getElementById('payment_type');
+    const frequencyGroup = document.getElementById('frequency_group');
+
+    paymentTypeSelect.addEventListener('change', function() {
+        frequencyGroup.style.display = this.value === 'Periodic' ? 'block' : 'none';
+    });
+
+    // Create Payment Link
+    document.getElementById('btn-create').addEventListener('click', function() {
+        createPaymentLink(false);
+    });
+
+    document.getElementById('btn-create-submit').addEventListener('click', function() {
+        createPaymentLink(true);
+    });
+
+    function createPaymentLink(autoSubmit) {
+        const resultArea = document.getElementById('create-result');
+        resultArea.style.display = 'block';
+        resultArea.className = 'result-area';
+        resultArea.textContent = 'Creating payment link...';
+
+        const data = {
+            amount: document.getElementById('amount').value,
+            description: document.getElementById('description').value,
+            payment_type: document.getElementById('payment_type').value,
+            frequency: document.getElementById('frequency').value,
+            creditor_name: document.getElementById('creditor_name').value,
+            creditor_iban: document.getElementById('creditor_iban').value,
+            member: document.getElementById('member').value || null,
+            sales_invoice: document.getElementById('sales_invoice').value || null,
+        };
+
+        frappe.call({
+            method: 'verenigingen.templates.pages.ponto_api_debug.create_payment_link',
+            args: data,
+            callback: function(r) {
+                if (r.message && r.message.success) {
+                    resultArea.className = 'result-area success-result';
+                    resultArea.textContent = JSON.stringify(r.message, null, 2);
+
+                    if (autoSubmit) {
+                        submitPaymentLink(r.message.name, resultArea);
+                    }
+                } else {
+                    resultArea.className = 'result-area error-result';
+                    resultArea.textContent = 'Error: ' + (r.message?.error || 'Unknown error');
+                }
+            },
+            error: function(err) {
+                resultArea.className = 'result-area error-result';
+                resultArea.textContent = 'Error: ' + (err.message || 'Request failed');
+            }
+        });
+    }
+
+    function submitPaymentLink(name, resultArea) {
+        resultArea.textContent += '\n\nSubmitting to Ponto API...';
+
+        frappe.call({
+            method: 'verenigingen.templates.pages.ponto_api_debug.submit_payment_link',
+            args: { payment_link_name: name },
+            callback: function(r) {
+                if (r.message && r.message.success) {
+                    resultArea.textContent += '\n\n=== SUBMITTED ===\n' + JSON.stringify(r.message, null, 2);
+
+                    if (r.message.redirect_link) {
+                        resultArea.innerHTML = resultArea.textContent +
+                            '\n\n<strong>AUTHORIZATION LINK:</strong>\n' +
+                            '<a href="' + r.message.redirect_link + '" target="_blank" class="redirect-link">' +
+                            r.message.redirect_link + '</a>';
+                    }
+                } else {
+                    resultArea.textContent += '\n\nSubmit Error: ' + (r.message?.error || 'Unknown error');
+                }
+            },
+            error: function(err) {
+                resultArea.textContent += '\n\nSubmit Error: ' + (err.message || 'Request failed');
+            }
+        });
+    }
+
+    // List Payment Links
+    document.getElementById('btn-list').addEventListener('click', function() {
+        const resultArea = document.getElementById('list-result');
+        const tableContainer = document.getElementById('links-table-container');
+        resultArea.style.display = 'block';
+        resultArea.className = 'result-area';
+        resultArea.textContent = 'Loading payment links...';
+        tableContainer.innerHTML = '';
+
+        frappe.call({
+            method: 'verenigingen.templates.pages.ponto_api_debug.list_payment_links',
+            args: {
+                limit: document.getElementById('limit_filter').value,
+                status_filter: document.getElementById('status_filter').value || null,
+            },
+            callback: function(r) {
+                if (r.message && r.message.success) {
+                    resultArea.style.display = 'none';
+
+                    if (r.message.links && r.message.links.length > 0) {
+                        renderLinksTable(r.message.links, tableContainer);
+                    } else {
+                        tableContainer.innerHTML = '<p>No payment links found.</p>';
+                    }
+                } else {
+                    resultArea.className = 'result-area error-result';
+                    resultArea.textContent = 'Error: ' + (r.message?.error || 'Unknown error');
+                }
+            },
+            error: function(err) {
+                resultArea.className = 'result-area error-result';
+                resultArea.textContent = 'Error: ' + (err.message || 'Request failed');
+            }
+        });
+    });
+
+    function renderLinksTable(links, container) {
+        let html = `
+            <table class="debug-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Amount</th>
+                        <th>Type</th>
+                        <th>Status</th>
+                        <th>Description</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        links.forEach(link => {
+            const statusClass = getStatusClass(link.status);
+            const description = link.description ? link.description.substring(0, 30) + (link.description.length > 30 ? '...' : '') : '';
+
+            html += `
+                <tr>
+                    <td><a href="/app/ponto-payment-link/${link.name}" target="_blank">${link.name}</a></td>
+                    <td>${link.amount} ${link.currency}</td>
+                    <td>${link.payment_type}${link.frequency ? ' (' + link.frequency + ')' : ''}</td>
+                    <td><span class="status-badge ${statusClass}">${link.status}</span></td>
+                    <td title="${link.description || ''}">${description}</td>
+                    <td>
+                        <button class="btn-brutal" onclick="refreshLinkStatus('${link.name}')">Refresh</button>
+                        ${link.redirect_link ? '<a href="' + link.redirect_link + '" target="_blank" class="btn-brutal btn-brutal--info">Pay Link</a>' : ''}
+                    </td>
+                </tr>
+            `;
+        });
+
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    }
+
+    function getStatusClass(status) {
+        const statusMap = {
+            'Draft': 'status-badge--draft',
+            'Pending Authorization': 'status-badge--pending',
+            'Authorized': 'status-badge--authorized',
+            'Executed': 'status-badge--executed',
+            'Rejected': 'status-badge--rejected',
+            'Cancelled': 'status-badge--cancelled',
+            'Expired': 'status-badge--expired',
+            'Failed': 'status-badge--failed',
+        };
+        return statusMap[status] || 'status-badge--draft';
+    }
+
+    // Make refresh function globally available
+    window.refreshLinkStatus = function(name) {
+        const resultArea = document.getElementById('list-result');
+        resultArea.style.display = 'block';
+        resultArea.className = 'result-area';
+        resultArea.textContent = 'Refreshing status for ' + name + '...';
+
+        frappe.call({
+            method: 'verenigingen.templates.pages.ponto_api_debug.refresh_payment_link_status',
+            args: { payment_link_name: name },
+            callback: function(r) {
+                if (r.message && r.message.success) {
+                    resultArea.className = 'result-area success-result';
+                    resultArea.textContent = 'Status refreshed:\n' + JSON.stringify(r.message, null, 2);
+                    // Reload the list
+                    document.getElementById('btn-list').click();
+                } else {
+                    resultArea.className = 'result-area error-result';
+                    resultArea.textContent = 'Error: ' + (r.message?.error || 'Unknown error');
+                }
+            },
+            error: function(err) {
+                resultArea.className = 'result-area error-result';
+                resultArea.textContent = 'Error: ' + (err.message || 'Request failed');
+            }
+        });
+    };
+
+    // Test Connection
+    document.getElementById('btn-test-connection').addEventListener('click', function() {
+        const resultArea = document.getElementById('connection-result');
+        resultArea.style.display = 'block';
+        resultArea.className = 'result-area';
+        resultArea.textContent = 'Testing connection...';
+
+        frappe.call({
+            method: 'verenigingen.templates.pages.ponto_api_debug.test_ponto_connection',
+            callback: function(r) {
+                if (r.message && r.message.success) {
+                    resultArea.className = 'result-area success-result';
+                    resultArea.textContent = 'Connection Successful!\n\n' + JSON.stringify(r.message, null, 2);
+                } else {
+                    resultArea.className = 'result-area error-result';
+                    resultArea.textContent = 'Connection Failed:\n' + (r.message?.error || r.message?.message || 'Unknown error');
+                }
+            },
+            error: function(err) {
+                resultArea.className = 'result-area error-result';
+                resultArea.textContent = 'Error: ' + (err.message || 'Request failed');
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,477 @@
+{
+  "actions": [],
+  "creation": "2025-12-18 10:00:00",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "connection_tab",
+    "environment_section",
+    "sandbox_mode",
+    "organization_id",
+    "column_break_environment",
+    "organization_name",
+    "access_token_expiry",
+    "activation_status_section",
+    "onboarding_complete",
+    "payments_activated",
+    "payment_requests_activated",
+    "column_break_activation",
+    "payments_activation_requested",
+    "payment_requests_activation_requested",
+    "refresh_status_button",
+    "last_status_refresh",
+    "authorization_section",
+    "use_ibanity_mtls",
+    "ibanity_authorization_status",
+    "authorize_ibanity_button",
+    "ibanity_refresh_token",
+    "credentials_tab",
+    "sandbox_credentials_section",
+    "sandbox_client_id",
+    "sandbox_client_secret",
+    "production_credentials_section",
+    "production_client_id",
+    "production_client_secret",
+    "ibanity_credentials_section",
+    "ibanity_api_url",
+    "ibanity_client_id",
+    "column_break_ibanity_creds",
+    "ibanity_client_secret",
+    "mtls_certificates_section",
+    "ibanity_certificate",
+    "ibanity_private_key",
+    "ibanity_key_passphrase",
+    "signature_certificate_section",
+    "signature_certificate_id",
+    "signature_certificate",
+    "column_break_signature",
+    "signature_private_key",
+    "signature_key_passphrase",
+    "bank_accounts_tab",
+    "bank_accounts_section",
+    "fetch_accounts_button",
+    "bank_account_mappings",
+    "sync_tab",
+    "sync_section",
+    "trigger_sync_button",
+    "auto_sync_enabled",
+    "sync_interval_hours",
+    "column_break_sync",
+    "last_sync_time",
+    "webhook_section",
+    "enable_webhooks",
+    "webhook_url"
+  ],
+  "fields": [
+    {
+      "fieldname": "connection_tab",
+      "fieldtype": "Tab Break",
+      "label": "Connection"
+    },
+    {
+      "fieldname": "environment_section",
+      "fieldtype": "Section Break",
+      "label": "Environment"
+    },
+    {
+      "default": "1",
+      "description": "When checked, uses sandbox credentials for testing. Uncheck for production.",
+      "fieldname": "sandbox_mode",
+      "fieldtype": "Check",
+      "in_list_view": 1,
+      "label": "Sandbox Mode"
+    },
+    {
+      "description": "Your Ponto organization ID (optional, for reference)",
+      "fieldname": "organization_id",
+      "fieldtype": "Data",
+      "label": "Organization ID"
+    },
+    {
+      "fieldname": "column_break_environment",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "organization_name",
+      "fieldtype": "Data",
+      "label": "Organization Name",
+      "read_only": 1,
+      "description": "Organization name from Ponto (auto-populated)"
+    },
+    {
+      "description": "Current access token expiry time (auto-updated)",
+      "fieldname": "access_token_expiry",
+      "fieldtype": "Datetime",
+      "label": "Access Token Expiry",
+      "read_only": 1
+    },
+    {
+      "fieldname": "activation_status_section",
+      "fieldtype": "Section Break",
+      "label": "Service Activation Status"
+    },
+    {
+      "default": "0",
+      "fieldname": "onboarding_complete",
+      "fieldtype": "Check",
+      "label": "Onboarding Complete",
+      "read_only": 1,
+      "description": "Whether Ponto onboarding has been completed"
+    },
+    {
+      "default": "0",
+      "fieldname": "payments_activated",
+      "fieldtype": "Check",
+      "label": "Outbound Payments Activated",
+      "read_only": 1,
+      "description": "Can sign outbound payments from Ponto"
+    },
+    {
+      "default": "0",
+      "fieldname": "payment_requests_activated",
+      "fieldtype": "Check",
+      "label": "Payment Requests Activated",
+      "read_only": 1,
+      "description": "Can create payment requests (betaalverzoeken) for customers to pay you"
+    },
+    {
+      "fieldname": "column_break_activation",
+      "fieldtype": "Column Break"
+    },
+    {
+      "default": "0",
+      "fieldname": "payments_activation_requested",
+      "fieldtype": "Check",
+      "label": "Payments Activation Requested",
+      "read_only": 1,
+      "description": "Whether activation has been requested for outbound payments"
+    },
+    {
+      "default": "0",
+      "fieldname": "payment_requests_activation_requested",
+      "fieldtype": "Check",
+      "label": "Payment Requests Activation Requested",
+      "read_only": 1,
+      "description": "Whether activation has been requested for payment requests"
+    },
+    {
+      "fieldname": "refresh_status_button",
+      "fieldtype": "Button",
+      "label": "Refresh Status from Ponto"
+    },
+    {
+      "fieldname": "last_status_refresh",
+      "fieldtype": "Datetime",
+      "label": "Last Status Refresh",
+      "read_only": 1
+    },
+    {
+      "fieldname": "authorization_section",
+      "fieldtype": "Section Break",
+      "label": "Authorization"
+    },
+    {
+      "default": "0",
+      "fieldname": "use_ibanity_mtls",
+      "fieldtype": "Check",
+      "label": "Use Ibanity mTLS Authentication",
+      "description": "Enable to use api.ibanity.com with client certificates for full API access including payment requests"
+    },
+    {
+      "depends_on": "eval:doc.use_ibanity_mtls",
+      "fieldname": "ibanity_authorization_status",
+      "fieldtype": "HTML",
+      "label": "Authorization Status"
+    },
+    {
+      "depends_on": "eval:doc.use_ibanity_mtls",
+      "fieldname": "authorize_ibanity_button",
+      "fieldtype": "Button",
+      "label": "Authorize with Ibanity"
+    },
+    {
+      "fieldname": "ibanity_refresh_token",
+      "fieldtype": "Password",
+      "label": "Refresh Token",
+      "hidden": 1,
+      "description": "OAuth2 refresh token for Ibanity (stored securely, survives cache clears)"
+    },
+    {
+      "fieldname": "credentials_tab",
+      "fieldtype": "Tab Break",
+      "label": "Credentials"
+    },
+    {
+      "collapsible": 1,
+      "collapsible_depends_on": "eval:doc.sandbox_mode",
+      "depends_on": "eval:doc.sandbox_mode",
+      "fieldname": "sandbox_credentials_section",
+      "fieldtype": "Section Break",
+      "label": "Sandbox OAuth2 Credentials"
+    },
+    {
+      "description": "OAuth2 Client ID for sandbox environment",
+      "fieldname": "sandbox_client_id",
+      "fieldtype": "Data",
+      "label": "Sandbox Client ID",
+      "mandatory_depends_on": "eval:doc.sandbox_mode && !doc.use_ibanity_mtls"
+    },
+    {
+      "description": "OAuth2 Client Secret for sandbox environment",
+      "fieldname": "sandbox_client_secret",
+      "fieldtype": "Password",
+      "label": "Sandbox Client Secret",
+      "mandatory_depends_on": "eval:doc.sandbox_mode && !doc.use_ibanity_mtls"
+    },
+    {
+      "collapsible": 1,
+      "collapsible_depends_on": "eval:!doc.sandbox_mode",
+      "depends_on": "eval:!doc.sandbox_mode",
+      "fieldname": "production_credentials_section",
+      "fieldtype": "Section Break",
+      "label": "Production OAuth2 Credentials"
+    },
+    {
+      "description": "OAuth2 Client ID for production environment",
+      "fieldname": "production_client_id",
+      "fieldtype": "Data",
+      "label": "Production Client ID",
+      "mandatory_depends_on": "eval:!doc.sandbox_mode && !doc.use_ibanity_mtls"
+    },
+    {
+      "description": "OAuth2 Client Secret for production environment",
+      "fieldname": "production_client_secret",
+      "fieldtype": "Password",
+      "label": "Production Client Secret",
+      "mandatory_depends_on": "eval:!doc.sandbox_mode && !doc.use_ibanity_mtls"
+    },
+    {
+      "depends_on": "eval:doc.use_ibanity_mtls",
+      "fieldname": "ibanity_credentials_section",
+      "fieldtype": "Section Break",
+      "label": "Ibanity OAuth2 Credentials",
+      "description": "OAuth2 credentials from your Ibanity application at dev.ibanity.com"
+    },
+    {
+      "default": "https://api.ibanity.com",
+      "depends_on": "eval:doc.use_ibanity_mtls",
+      "fieldname": "ibanity_api_url",
+      "fieldtype": "Data",
+      "label": "Ibanity API URL",
+      "description": "Base URL for Ibanity API (default: https://api.ibanity.com)"
+    },
+    {
+      "depends_on": "eval:doc.use_ibanity_mtls",
+      "fieldname": "ibanity_client_id",
+      "fieldtype": "Data",
+      "label": "Ibanity Client ID",
+      "description": "OAuth2 Client ID from your Ibanity application"
+    },
+    {
+      "fieldname": "column_break_ibanity_creds",
+      "fieldtype": "Column Break"
+    },
+    {
+      "depends_on": "eval:doc.use_ibanity_mtls",
+      "fieldname": "ibanity_client_secret",
+      "fieldtype": "Password",
+      "label": "Ibanity Client Secret",
+      "description": "OAuth2 Client Secret from your Ibanity application"
+    },
+    {
+      "depends_on": "eval:doc.use_ibanity_mtls",
+      "fieldname": "mtls_certificates_section",
+      "fieldtype": "Section Break",
+      "label": "mTLS Client Certificates",
+      "description": "Client certificates for mTLS authentication. Generate at dev.ibanity.com"
+    },
+    {
+      "depends_on": "eval:doc.use_ibanity_mtls",
+      "fieldname": "ibanity_certificate",
+      "fieldtype": "Code",
+      "label": "Client Certificate (PEM)",
+      "options": "PEM",
+      "description": "Paste the contents of certificate.pem from Ibanity"
+    },
+    {
+      "depends_on": "eval:doc.use_ibanity_mtls",
+      "fieldname": "ibanity_private_key",
+      "fieldtype": "Code",
+      "label": "Private Key (PEM)",
+      "options": "PEM",
+      "description": "Paste the contents of private_key.pem from Ibanity"
+    },
+    {
+      "depends_on": "eval:doc.use_ibanity_mtls",
+      "fieldname": "ibanity_key_passphrase",
+      "fieldtype": "Password",
+      "label": "Private Key Passphrase",
+      "description": "Passphrase for the private key (if encrypted)"
+    },
+    {
+      "depends_on": "eval:doc.use_ibanity_mtls",
+      "fieldname": "signature_certificate_section",
+      "fieldtype": "Section Break",
+      "label": "HTTP Signature Certificate",
+      "description": "Required for Payment Initiation. Generate a separate signature certificate at dev.ibanity.com"
+    },
+    {
+      "depends_on": "eval:doc.use_ibanity_mtls",
+      "fieldname": "signature_certificate_id",
+      "fieldtype": "Data",
+      "label": "Signature Certificate ID",
+      "description": "The certificate ID shown in Ibanity portal after generating the signature certificate"
+    },
+    {
+      "depends_on": "eval:doc.use_ibanity_mtls",
+      "fieldname": "signature_certificate",
+      "fieldtype": "Code",
+      "label": "Signature Certificate (PEM)",
+      "options": "PEM",
+      "description": "Paste the signature certificate.pem contents from Ibanity"
+    },
+    {
+      "fieldname": "column_break_signature",
+      "fieldtype": "Column Break"
+    },
+    {
+      "depends_on": "eval:doc.use_ibanity_mtls",
+      "fieldname": "signature_private_key",
+      "fieldtype": "Code",
+      "label": "Signature Private Key (PEM)",
+      "options": "PEM",
+      "description": "Paste the signature private_key.pem contents from Ibanity"
+    },
+    {
+      "depends_on": "eval:doc.use_ibanity_mtls",
+      "fieldname": "signature_key_passphrase",
+      "fieldtype": "Password",
+      "label": "Signature Key Passphrase",
+      "description": "Passphrase for the signature private key (if encrypted)"
+    },
+    {
+      "fieldname": "bank_accounts_tab",
+      "fieldtype": "Tab Break",
+      "label": "Bank Accounts"
+    },
+    {
+      "fieldname": "bank_accounts_section",
+      "fieldtype": "Section Break",
+      "label": "Bank Account Mappings"
+    },
+    {
+      "description": "Fetch available accounts from Ponto API",
+      "fieldname": "fetch_accounts_button",
+      "fieldtype": "Button",
+      "label": "Fetch Accounts from Ponto"
+    },
+    {
+      "description": "Map Ponto accounts to ERPNext Bank Accounts",
+      "fieldname": "bank_account_mappings",
+      "fieldtype": "Table",
+      "label": "Bank Account Mappings",
+      "options": "Ponto Bank Account Mapping"
+    },
+    {
+      "fieldname": "sync_tab",
+      "fieldtype": "Tab Break",
+      "label": "Sync & Webhooks"
+    },
+    {
+      "fieldname": "sync_section",
+      "fieldtype": "Section Break",
+      "label": "Transaction Synchronization"
+    },
+    {
+      "description": "Import available transactions from Ponto (Ponto auto-syncs with banks 4x daily)",
+      "fieldname": "trigger_sync_button",
+      "fieldtype": "Button",
+      "label": "Import Transactions"
+    },
+    {
+      "default": "0",
+      "description": "Enable automatic scheduled synchronization",
+      "fieldname": "auto_sync_enabled",
+      "fieldtype": "Check",
+      "label": "Enable Auto Sync"
+    },
+    {
+      "default": "6",
+      "depends_on": "eval:doc.auto_sync_enabled",
+      "description": "Hours between automatic syncs (minimum 1)",
+      "fieldname": "sync_interval_hours",
+      "fieldtype": "Int",
+      "label": "Sync Interval (Hours)"
+    },
+    {
+      "fieldname": "column_break_sync",
+      "fieldtype": "Column Break"
+    },
+    {
+      "description": "Last successful synchronization time",
+      "fieldname": "last_sync_time",
+      "fieldtype": "Datetime",
+      "label": "Last Sync Time",
+      "read_only": 1
+    },
+    {
+      "fieldname": "webhook_section",
+      "fieldtype": "Section Break",
+      "label": "Webhook Settings"
+    },
+    {
+      "default": "0",
+      "description": "Enable webhook notifications for new transactions",
+      "fieldname": "enable_webhooks",
+      "fieldtype": "Check",
+      "label": "Enable Webhooks"
+    },
+    {
+      "depends_on": "eval:doc.enable_webhooks",
+      "description": "Webhook URL for Ponto notifications (auto-generated)",
+      "fieldname": "webhook_url",
+      "fieldtype": "Data",
+      "label": "Webhook URL",
+      "read_only": 1
+    }
+  ],
+  "issingle": 1,
+  "links": [],
+  "modified": "2025-12-19 15:00:00",
+  "modified_by": "Administrator",
+  "module": "Verenigingen Payments",
+  "name": "Ponto Settings",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "print": 1,
+      "read": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "print": 1,
+      "read": 1,
+      "role": "Verenigingen Administrator",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "read": 1,
+      "role": "Verenigingen Webhook User"
+    }
+  ],
+  "quick_entry": 0,
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1
+}

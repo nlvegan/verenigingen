@@ -464,13 +464,15 @@ class MollieErrorRecovery:
         # Store recovery metrics in cache for monitoring
         cache_key = f"mollie_recovery_success:{operation_name}"
         current_data = frappe.cache().get(cache_key) or {"count": 0, "total_attempts": 0}
-        if isinstance(current_data, str):
-            # Handle case where cache returns JSON string
+        if isinstance(current_data, (str, bytes)):
+            # Handle case where cache returns JSON string or bytes
             import json
 
             try:
+                if isinstance(current_data, bytes):
+                    current_data = current_data.decode("utf-8")
                 current_data = json.loads(current_data)
-            except (json.JSONDecodeError, TypeError):
+            except (json.JSONDecodeError, TypeError, UnicodeDecodeError):
                 current_data = {"count": 0, "total_attempts": 0}
 
         current_data["count"] += 1
@@ -486,13 +488,15 @@ class MollieErrorRecovery:
         # Store failure metrics in cache for monitoring
         cache_key = f"mollie_operation_failure:{operation_name}"
         current_data = frappe.cache().get(cache_key) or {"count": 0, "total_attempts": 0}
-        if isinstance(current_data, str):
-            # Handle case where cache returns JSON string
+        if isinstance(current_data, (str, bytes)):
+            # Handle case where cache returns JSON string or bytes
             import json
 
             try:
+                if isinstance(current_data, bytes):
+                    current_data = current_data.decode("utf-8")
                 current_data = json.loads(current_data)
-            except (json.JSONDecodeError, TypeError):
+            except (json.JSONDecodeError, TypeError, UnicodeDecodeError):
                 current_data = {"count": 0, "total_attempts": 0}
 
         current_data["count"] += 1

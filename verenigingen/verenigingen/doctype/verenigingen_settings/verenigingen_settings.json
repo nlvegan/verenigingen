@@ -53,6 +53,7 @@
   "max_fee_adjustments_per_year",
   "auto_submit_membership_invoices",
   "mollie_subscription_description_template",
+  "ponto_payment_description_template",
   "column_break_membership",
   "max_rate_change_percent",
   "membership_payment_account",
@@ -86,6 +87,7 @@
   "column_break_financial",
   "default_cash_account",
   "mollie_bank_account",
+  "ponto_bank_account_parent",
   "automate_membership_payment_entries",
   "batch_processing_section",
   "sepa_mandate_naming_pattern",
@@ -678,6 +680,13 @@
    "options": "Account"
   },
   {
+   "description": "Parent account group under which Ponto bank accounts will be created. Default: Bankrekeningen",
+   "fieldname": "ponto_bank_account_parent",
+   "fieldtype": "Link",
+   "label": "Ponto Bank Account Parent Group",
+   "options": "Account"
+  },
+  {
    "default": "1",
    "description": "Automatically submit membership invoices when created. Uncheck to keep them as drafts for manual review.",
    "fieldname": "auto_submit_membership_invoices",
@@ -690,6 +699,13 @@
    "fieldname": "mollie_subscription_description_template",
    "fieldtype": "Data",
    "label": "Mollie Subscription Description Template"
+  },
+  {
+   "default": "Membership dues MEMBER_NAME (MEMBER_ID) - COVERAGE_START to COVERAGE_END",
+   "description": "Template for Ponto payment request description. Available placeholders: MEMBER_ID (member ID number), MEMBER_NAME (full name), COVERAGE_START (coverage period start date), COVERAGE_END (coverage period end date)",
+   "fieldname": "ponto_payment_description_template",
+   "fieldtype": "Data",
+   "label": "Ponto Payment Description Template"
   },
   {
    "description": "Default item group for membership items",

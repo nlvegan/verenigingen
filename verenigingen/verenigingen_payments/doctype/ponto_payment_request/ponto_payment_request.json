@@ -1,0 +1,277 @@
+{
+  "actions": [],
+  "autoname": "format:PONTO-PAY-{####}",
+  "creation": "2025-12-19 07:00:00",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "payment_details_section",
+    "ponto_account",
+    "ponto_account_name",
+    "amount",
+    "currency",
+    "column_break_payment",
+    "status",
+    "ponto_payment_id",
+    "requested_execution_date",
+    "creditor_section",
+    "creditor_name",
+    "creditor_iban",
+    "column_break_creditor",
+    "creditor_bic",
+    "remittance_info",
+    "authorization_section",
+    "redirect_uri",
+    "redirect_link",
+    "links_section",
+    "reference_doctype",
+    "reference_name",
+    "column_break_links",
+    "payment_entry",
+    "amended_from"
+  ],
+  "fields": [
+    {
+      "fieldname": "payment_details_section",
+      "fieldtype": "Section Break",
+      "label": "Payment Details"
+    },
+    {
+      "description": "Ponto account to pay from",
+      "fieldname": "ponto_account",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Ponto Account ID",
+      "reqd": 1
+    },
+    {
+      "description": "Ponto account display name",
+      "fieldname": "ponto_account_name",
+      "fieldtype": "Data",
+      "label": "Ponto Account Name",
+      "read_only": 1
+    },
+    {
+      "description": "Payment amount",
+      "fieldname": "amount",
+      "fieldtype": "Currency",
+      "in_list_view": 1,
+      "label": "Amount",
+      "reqd": 1
+    },
+    {
+      "default": "EUR",
+      "description": "Currency (must be EUR for SEPA)",
+      "fieldname": "currency",
+      "fieldtype": "Link",
+      "label": "Currency",
+      "options": "Currency",
+      "reqd": 1
+    },
+    {
+      "fieldname": "column_break_payment",
+      "fieldtype": "Column Break"
+    },
+    {
+      "default": "Draft",
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Status",
+      "options": "Draft\nPending\nSigned\nExecuted\nRejected\nCancelled\nFailed",
+      "read_only": 1
+    },
+    {
+      "description": "Payment request ID from Ponto API",
+      "fieldname": "ponto_payment_id",
+      "fieldtype": "Data",
+      "label": "Ponto Payment ID",
+      "read_only": 1
+    },
+    {
+      "description": "Requested date for payment execution (optional)",
+      "fieldname": "requested_execution_date",
+      "fieldtype": "Date",
+      "label": "Requested Execution Date"
+    },
+    {
+      "fieldname": "creditor_section",
+      "fieldtype": "Section Break",
+      "label": "Creditor Details"
+    },
+    {
+      "description": "Beneficiary name",
+      "fieldname": "creditor_name",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Creditor Name",
+      "reqd": 1
+    },
+    {
+      "description": "Beneficiary IBAN",
+      "fieldname": "creditor_iban",
+      "fieldtype": "Data",
+      "label": "Creditor IBAN",
+      "reqd": 1
+    },
+    {
+      "fieldname": "column_break_creditor",
+      "fieldtype": "Column Break"
+    },
+    {
+      "description": "Beneficiary BIC/SWIFT code (optional)",
+      "fieldname": "creditor_bic",
+      "fieldtype": "Data",
+      "label": "Creditor BIC"
+    },
+    {
+      "description": "Payment reference/description",
+      "fieldname": "remittance_info",
+      "fieldtype": "Small Text",
+      "label": "Remittance Information",
+      "reqd": 1
+    },
+    {
+      "collapsible": 1,
+      "fieldname": "authorization_section",
+      "fieldtype": "Section Break",
+      "label": "Authorization"
+    },
+    {
+      "description": "URL to redirect after signing",
+      "fieldname": "redirect_uri",
+      "fieldtype": "Data",
+      "label": "Redirect URI"
+    },
+    {
+      "description": "Link to Ponto authorization portal for signing",
+      "fieldname": "redirect_link",
+      "fieldtype": "Data",
+      "label": "Authorization Link",
+      "read_only": 1
+    },
+    {
+      "collapsible": 1,
+      "fieldname": "links_section",
+      "fieldtype": "Section Break",
+      "label": "References"
+    },
+    {
+      "fieldname": "reference_doctype",
+      "fieldtype": "Link",
+      "label": "Reference DocType",
+      "options": "DocType"
+    },
+    {
+      "fieldname": "reference_name",
+      "fieldtype": "Dynamic Link",
+      "label": "Reference Name",
+      "options": "reference_doctype"
+    },
+    {
+      "fieldname": "column_break_links",
+      "fieldtype": "Column Break"
+    },
+    {
+      "description": "Payment Entry created when payment is executed",
+      "fieldname": "payment_entry",
+      "fieldtype": "Link",
+      "label": "Payment Entry",
+      "options": "Payment Entry",
+      "read_only": 1
+    },
+    {
+      "fieldname": "amended_from",
+      "fieldtype": "Link",
+      "label": "Amended From",
+      "no_copy": 1,
+      "options": "Ponto Payment Request",
+      "print_hide": 1,
+      "read_only": 1
+    }
+  ],
+  "index_web_pages_for_search": 1,
+  "is_submittable": 1,
+  "links": [],
+  "modified": "2025-12-19 07:00:00",
+  "modified_by": "Administrator",
+  "module": "Verenigingen Payments",
+  "name": "Ponto Payment Request",
+  "naming_rule": "Expression",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "submit": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Verenigingen Administrator",
+      "share": 1,
+      "submit": 1,
+      "write": 1
+    },
+    {
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Accounts Manager",
+      "share": 1,
+      "submit": 1,
+      "write": 1
+    }
+  ],
+  "quick_entry": 0,
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [
+    {
+      "color": "gray",
+      "title": "Draft"
+    },
+    {
+      "color": "orange",
+      "title": "Pending"
+    },
+    {
+      "color": "blue",
+      "title": "Signed"
+    },
+    {
+      "color": "green",
+      "title": "Executed"
+    },
+    {
+      "color": "red",
+      "title": "Rejected"
+    },
+    {
+      "color": "gray",
+      "title": "Cancelled"
+    },
+    {
+      "color": "red",
+      "title": "Failed"
+    }
+  ],
+  "track_changes": 1
+}

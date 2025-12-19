@@ -1,0 +1,215 @@
+{
+  "actions": [],
+  "autoname": "format:PONTO-SYNC-{YYYY}-{MM}-{DD}-{####}",
+  "creation": "2025-12-18 12:00:00",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "sync_section",
+    "sync_type",
+    "account_id",
+    "column_break_sync",
+    "status",
+    "ponto_sync_id",
+    "timing_section",
+    "start_time",
+    "end_time",
+    "column_break_timing",
+    "duration_seconds",
+    "results_section",
+    "transactions_imported",
+    "transactions_skipped",
+    "column_break_results",
+    "transactions_failed",
+    "errors_section",
+    "error_summary",
+    "error_details",
+    "bank_transactions_section",
+    "bank_transactions"
+  ],
+  "fields": [
+    {
+      "fieldname": "sync_section",
+      "fieldtype": "Section Break",
+      "label": "Synchronization Details"
+    },
+    {
+      "default": "Manual",
+      "description": "Type of synchronization",
+      "fieldname": "sync_type",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Sync Type",
+      "options": "Manual\nAutomatic\nWebhook",
+      "reqd": 1
+    },
+    {
+      "description": "Ponto account UUID",
+      "fieldname": "account_id",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Account ID"
+    },
+    {
+      "fieldname": "column_break_sync",
+      "fieldtype": "Column Break"
+    },
+    {
+      "default": "Pending",
+      "description": "Current status of the sync operation",
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Status",
+      "options": "Pending\nIn Progress\nCompleted\nFailed",
+      "reqd": 1
+    },
+    {
+      "description": "Ponto synchronization ID (for manual syncs)",
+      "fieldname": "ponto_sync_id",
+      "fieldtype": "Data",
+      "label": "Ponto Sync ID"
+    },
+    {
+      "fieldname": "timing_section",
+      "fieldtype": "Section Break",
+      "label": "Timing"
+    },
+    {
+      "fieldname": "start_time",
+      "fieldtype": "Datetime",
+      "label": "Start Time"
+    },
+    {
+      "fieldname": "end_time",
+      "fieldtype": "Datetime",
+      "label": "End Time"
+    },
+    {
+      "fieldname": "column_break_timing",
+      "fieldtype": "Column Break"
+    },
+    {
+      "description": "Duration of sync in seconds",
+      "fieldname": "duration_seconds",
+      "fieldtype": "Float",
+      "label": "Duration (seconds)",
+      "precision": "2",
+      "read_only": 1
+    },
+    {
+      "fieldname": "results_section",
+      "fieldtype": "Section Break",
+      "label": "Results"
+    },
+    {
+      "default": "0",
+      "description": "Number of transactions successfully imported",
+      "fieldname": "transactions_imported",
+      "fieldtype": "Int",
+      "in_list_view": 1,
+      "label": "Imported"
+    },
+    {
+      "default": "0",
+      "description": "Number of transactions skipped (duplicates)",
+      "fieldname": "transactions_skipped",
+      "fieldtype": "Int",
+      "in_list_view": 1,
+      "label": "Skipped"
+    },
+    {
+      "fieldname": "column_break_results",
+      "fieldtype": "Column Break"
+    },
+    {
+      "default": "0",
+      "description": "Number of transactions that failed to import",
+      "fieldname": "transactions_failed",
+      "fieldtype": "Int",
+      "in_list_view": 1,
+      "label": "Failed"
+    },
+    {
+      "collapsible": 1,
+      "collapsible_depends_on": "eval:doc.transactions_failed > 0 || doc.status == 'Failed'",
+      "fieldname": "errors_section",
+      "fieldtype": "Section Break",
+      "label": "Errors"
+    },
+    {
+      "description": "Brief summary of errors",
+      "fieldname": "error_summary",
+      "fieldtype": "Small Text",
+      "label": "Error Summary"
+    },
+    {
+      "description": "Detailed error information (JSON)",
+      "fieldname": "error_details",
+      "fieldtype": "Code",
+      "label": "Error Details",
+      "options": "JSON"
+    },
+    {
+      "collapsible": 1,
+      "collapsible_depends_on": "eval:doc.transactions_imported > 0",
+      "fieldname": "bank_transactions_section",
+      "fieldtype": "Section Break",
+      "label": "Created Bank Transactions"
+    },
+    {
+      "description": "List of Bank Transaction names created (JSON array)",
+      "fieldname": "bank_transactions",
+      "fieldtype": "Code",
+      "label": "Bank Transactions",
+      "options": "JSON"
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "links": [],
+  "modified": "2025-12-18 12:00:00",
+  "modified_by": "Administrator",
+  "module": "Verenigingen Payments",
+  "name": "Ponto Sync Log",
+  "naming_rule": "Expression",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Verenigingen Administrator",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "read": 1,
+      "role": "Verenigingen Webhook User"
+    }
+  ],
+  "quick_entry": 0,
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "title_field": "sync_type",
+  "track_changes": 1
+}
