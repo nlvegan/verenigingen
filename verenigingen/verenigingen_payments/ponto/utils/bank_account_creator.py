@@ -23,6 +23,7 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.verenigingen_payments.ponto.exceptions import PontoIntegrationError
 
 # Bank code mappings for Dutch banks
 DUTCH_BANK_CODES = {
@@ -66,7 +67,7 @@ def identify_bank_from_iban(iban: str) -> Dict[str, str]:
     }
 
 
-def get_or_create_bank(bank_info: Dict[str, str]) -> Optional[str]:
+def get_or_create_bank(bank_info: Dict[str, str]) -> str:
     """
     Get existing Bank record or create new one.
 
@@ -74,7 +75,10 @@ def get_or_create_bank(bank_info: Dict[str, str]) -> Optional[str]:
         bank_info: Dict with bank_name, swift_code
 
     Returns:
-        Bank record name or None
+        Bank record name
+
+    Raises:
+        PontoIntegrationError: If bank creation fails
     """
     bank_name = bank_info.get("bank_name", "Unknown Bank")
 
@@ -100,18 +104,21 @@ def get_or_create_bank(bank_info: Dict[str, str]) -> Optional[str]:
         )
 
         if not result.success:
-            frappe.log_error(
-                title="Ponto Bank creation failed",
-                message=f"Failed to create Bank {bank_name}: {'; '.join(result.errors)}",
-            )
-            return None
+            error_msg = f"Failed to create Bank {bank_name}: {'; '.join(result.errors)}"
+            frappe.log_error(title="Ponto Bank creation failed", message=error_msg)
+            raise PontoIntegrationError(message=error_msg, details={"bank_name": bank_name})
 
         frappe.logger().info(f"Created Bank: {result.document.name}")
         return result.document.name
 
+    except PontoIntegrationError:
+        raise
     except Exception as e:
         frappe.logger().error(f"Error creating Bank {bank_name}: {e}")
-        return None
+        raise PontoIntegrationError(
+            message=f"Error creating Bank {bank_name}",
+            details={"bank_name": bank_name, "error": str(e)},
+        )
 
 
 def create_gl_account(
@@ -119,7 +126,7 @@ def create_gl_account(
     parent_account: str,
     company: str,
     currency: str = "EUR",
-) -> Optional[str]:
+) -> str:
     """
     Create a GL Account (Chart of Accounts entry) for a bank account.
 
@@ -130,7 +137,10 @@ def create_gl_account(
         currency: Account currency
 
     Returns:
-        Account name or None
+        Account name
+
+    Raises:
+        PontoIntegrationError: If GL account creation fails
     """
     # Check if account already exists
     existing = frappe.db.exists(
@@ -158,18 +168,21 @@ def create_gl_account(
         )
 
         if not result.success:
-            frappe.log_error(
-                title="Ponto GL Account creation failed",
-                message=f"Failed to create GL Account {account_name}: {'; '.join(result.errors)}",
-            )
-            return None
+            error_msg = f"Failed to create GL Account {account_name}: {'; '.join(result.errors)}"
+            frappe.log_error(title="Ponto GL Account creation failed", message=error_msg)
+            raise PontoIntegrationError(message=error_msg, details={"account_name": account_name})
 
         frappe.logger().info(f"Created GL Account: {result.document.name}")
         return result.document.name
 
+    except PontoIntegrationError:
+        raise
     except Exception as e:
         frappe.logger().error(f"Error creating GL Account {account_name}: {e}")
-        return None
+        raise PontoIntegrationError(
+            message=f"Error creating GL Account {account_name}",
+            details={"account_name": account_name, "error": str(e)},
+        )
 
 
 def create_bank_account_record(
@@ -179,7 +192,7 @@ def create_bank_account_record(
     account_name: str,
     company: str,
     currency: str = "EUR",
-) -> Optional[str]:
+) -> str:
     """
     Create a Bank Account record linked to GL Account.
 
@@ -192,7 +205,10 @@ def create_bank_account_record(
         currency: Account currency
 
     Returns:
-        Bank Account name or None
+        Bank Account name
+
+    Raises:
+        PontoIntegrationError: If bank account creation fails
     """
     # Check if Bank Account already exists by IBAN
     existing = frappe.db.exists("Bank Account", {"iban": iban})
@@ -219,18 +235,21 @@ def create_bank_account_record(
         )
 
         if not result.success:
-            frappe.log_error(
-                title="Ponto Bank Account creation failed",
-                message=f"Failed to create Bank Account {account_name}: {'; '.join(result.errors)}",
-            )
-            return None
+            error_msg = f"Failed to create Bank Account {account_name}: {'; '.join(result.errors)}"
+            frappe.log_error(title="Ponto Bank Account creation failed", message=error_msg)
+            raise PontoIntegrationError(message=error_msg, details={"iban": iban})
 
         frappe.logger().info(f"Created Bank Account: {result.document.name}")
         return result.document.name
 
+    except PontoIntegrationError:
+        raise
     except Exception as e:
         frappe.logger().error(f"Error creating Bank Account {account_name}: {e}")
-        return None
+        raise PontoIntegrationError(
+            message=f"Error creating Bank Account {account_name}",
+            details={"iban": iban, "error": str(e)},
+        )
 
 
 def create_ponto_bank_account(
@@ -255,10 +274,10 @@ def create_ponto_bank_account(
             parent_account = get_parent_bank_account_group(company)
 
         if not parent_account:
-            return {
-                "success": False,
-                "error": "No parent bank account group configured in Verenigingen Settings",
-            }
+            raise PontoIntegrationError(
+                message="No parent bank account group configured in Verenigingen Settings",
+                details={"company": company},
+            )
 
         # Extract bank info from IBAN
         iban = ponto_account.iban
@@ -273,28 +292,18 @@ def create_ponto_bank_account(
         # Currency from Ponto or default to EUR
         currency = getattr(ponto_account, "currency", "EUR") or "EUR"
 
-        # Step 1: Create Bank record
+        # Step 1: Create Bank record (raises PontoIntegrationError on failure)
         bank_name = get_or_create_bank(bank_info)
-        if not bank_name:
-            return {
-                "success": False,
-                "error": f"Failed to create Bank record for {bank_info['bank_name']}",
-            }
 
-        # Step 2: Create GL Account under parent group
+        # Step 2: Create GL Account under parent group (raises PontoIntegrationError on failure)
         gl_account = create_gl_account(
             account_name=gl_account_name,
             parent_account=parent_account,
             company=company,
             currency=currency,
         )
-        if not gl_account:
-            return {
-                "success": False,
-                "error": f"Failed to create GL Account {gl_account_name}",
-            }
 
-        # Step 3: Create Bank Account linked to GL Account
+        # Step 3: Create Bank Account linked to GL Account (raises PontoIntegrationError on failure)
         bank_account = create_bank_account_record(
             gl_account=gl_account,
             bank_name=bank_name,
@@ -303,11 +312,6 @@ def create_ponto_bank_account(
             company=company,
             currency=currency,
         )
-        if not bank_account:
-            return {
-                "success": False,
-                "error": f"Failed to create Bank Account for {iban}",
-            }
 
         return {
             "success": True,
@@ -317,10 +321,16 @@ def create_ponto_bank_account(
             "iban": iban,
         }
 
+    except PontoIntegrationError as e:
+        frappe.log_error(
+            title="Ponto bank account creation failed",
+            message=f"Error creating bank account for Ponto account: {e.message}",
+        )
+        return {"success": False, "error": e.message}
     except Exception as e:
         frappe.log_error(
             title="Ponto bank account creation failed",
-            message=f"Error creating bank account for Ponto account: {e}",
+            message=f"Unexpected error creating bank account for Ponto account: {e}",
         )
         return {"success": False, "error": str(e)}
 

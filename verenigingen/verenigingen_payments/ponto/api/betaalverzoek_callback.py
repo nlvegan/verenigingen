@@ -22,10 +22,30 @@ from frappe import _
 from frappe.utils import get_url
 
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+from verenigingen.utils.security.rate_limiter import check_api_rate_limit
+
+
+def _get_client_ip() -> str:
+    """Get client IP address, handling proxies."""
+    forwarded_for = frappe.request.headers.get("X-Forwarded-For")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    return frappe.request.remote_addr or "unknown"
+
+
+def _check_betaalverzoek_callback_rate_limit() -> bool:
+    """Check betaalverzoek callback rate limit - 30 per 5 minutes per IP."""
+    ip_address = _get_client_ip()
+    return check_api_rate_limit(
+        user=f"ip:{ip_address}",
+        endpoint="ponto_betaalverzoek_callback",
+        max_requests=30,
+        window_minutes=5,
+    )
 
 
 @frappe.whitelist(allow_guest=True, methods=["GET"])
-@standard_api(operation_type=OperationType.API_ACCESS)
+@standard_api(operation_type=OperationType.PUBLIC)
 def payment_link_callback():
     """
     Handle redirect from Ponto after customer payment authorization.
@@ -38,6 +58,15 @@ def payment_link_callback():
     Returns:
         Redirect to appropriate page based on result
     """
+    # Rate limit check
+    if not _check_betaalverzoek_callback_rate_limit():
+        ip = _get_client_ip()
+        frappe.logger().warning(f"Betaalverzoek callback rate limit exceeded for IP: {ip}")
+        frappe.local.response["http_status_code"] = 429
+        frappe.local.response["type"] = "redirect"
+        frappe.local.response["location"] = get_url("/app/home")
+        return
+
     payment_link_name = frappe.request.args.get("payment_link")
     error = frappe.request.args.get("error")
     error_description = frappe.request.args.get("error_description")
@@ -45,7 +74,7 @@ def payment_link_callback():
     if not payment_link_name:
         frappe.logger().warning("Payment link callback received without payment_link")
         frappe.local.response["type"] = "redirect"
-        frappe.local.response["location"] = get_url("/payment-error?reason=missing_link")
+        frappe.local.response["location"] = get_url("/app/home")
         return
 
     try:
@@ -53,7 +82,7 @@ def payment_link_callback():
         if not frappe.db.exists("Ponto Payment Link", payment_link_name):
             frappe.logger().warning(f"Payment link callback for unknown link: {payment_link_name}")
             frappe.local.response["type"] = "redirect"
-            frappe.local.response["location"] = get_url("/payment-error?reason=not_found")
+            frappe.local.response["location"] = get_url("/app/home")
             return
 
         doc = frappe.get_doc("Ponto Payment Link", payment_link_name)
@@ -65,24 +94,24 @@ def payment_link_callback():
             )
 
             # If access_denied, customer cancelled the authorization
+            # SECURITY JUSTIFICATION: OAuth2 callback from external Ponto system. Guest endpoint
+            # by design (allow_guest=True). Audit trail via doc.status change and error logs.
             if error == "access_denied":
                 doc.status = "Cancelled"
                 doc.save(ignore_permissions=True)
                 frappe.local.response["type"] = "redirect"
-                frappe.local.response["location"] = get_url(f"/payment-cancelled?link={payment_link_name}")
+                frappe.local.response["location"] = get_url(f"/app/ponto-payment-link/{payment_link_name}")
                 return
             else:
                 # Other errors - mark as rejected
                 doc.status = "Rejected"
                 doc.save(ignore_permissions=True)
                 frappe.log_error(
-                    title=f"Ponto payment link authorization failed: {payment_link_name}",
+                    title=f"Ponto payment authorization failed: {payment_link_name}",
                     message=f"Error: {error}\nDescription: {error_description}",
                 )
                 frappe.local.response["type"] = "redirect"
-                frappe.local.response["location"] = get_url(
-                    f"/payment-error?link={payment_link_name}&reason={error}"
-                )
+                frappe.local.response["location"] = get_url(f"/app/ponto-payment-link/{payment_link_name}")
                 return
 
         # No error - refresh status from Ponto API
@@ -91,32 +120,24 @@ def payment_link_callback():
         try:
             result = doc.refresh_status()
             new_status = result.get("status", doc.status)
-
-            if new_status in ["Authorized", "Executed"]:
-                # Payment successful
-                frappe.local.response["type"] = "redirect"
-                frappe.local.response["location"] = get_url(f"/payment-success?link={payment_link_name}")
-            else:
-                # Payment pending or other status
-                frappe.local.response["type"] = "redirect"
-                frappe.local.response["location"] = get_url(
-                    f"/payment-pending?link={payment_link_name}&status={new_status}"
-                )
+            frappe.logger().info(f"Payment link {payment_link_name} status: {new_status}")
 
         except Exception as e:
             frappe.logger().error(f"Failed to refresh payment link status: {payment_link_name}: {e}")
-            # Still redirect to success page - status will be updated by webhook
-            frappe.local.response["type"] = "redirect"
-            frappe.local.response["location"] = get_url(f"/payment-pending?link={payment_link_name}")
+            # Status will be updated by webhook
+
+        # Redirect to the payment link document view
+        frappe.local.response["type"] = "redirect"
+        frappe.local.response["location"] = get_url(f"/app/ponto-payment-link/{payment_link_name}")
 
     except Exception as e:
         frappe.logger().error(f"Payment link callback error: {e}")
         frappe.log_error(
-            title="Ponto payment link callback error",
+            title="Ponto payment callback error",
             message=str(e),
         )
         frappe.local.response["type"] = "redirect"
-        frappe.local.response["location"] = get_url("/payment-error?reason=internal_error")
+        frappe.local.response["location"] = get_url("/app/home")
 
 
 @frappe.whitelist(allow_guest=True, methods=["GET"])

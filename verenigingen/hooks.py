@@ -1040,6 +1040,8 @@ fixtures = [
     {"doctype": "User", "filters": [["email", "=", "background.service@verenigingen.local"]]},
     # Verenigingen Settings with system user
     {"doctype": "Verenigingen Settings"},
+    # Critical Operation Rules (security rate limiting)
+    "Critical Operation Rule",
 ]
 
 # Authentication and authorization

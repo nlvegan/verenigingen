@@ -97,7 +97,7 @@ class PontoConfigurationService:
         Can also be called manually when needed.
         """
         frappe.cache().delete_value(cls.CACHE_KEY)
-        frappe.logger().info("Cleared Ponto Settings cache")
+        frappe.logger().debug("Cleared Ponto Settings cache")
 
     @classmethod
     def get_settings(cls) -> Dict[str, Any]:
@@ -443,6 +443,9 @@ class PontoConfigurationService:
                     row.last_sync_time = now_datetime()
                     break
 
+        # SECURITY JUSTIFICATION: Sync time update is a system operation triggered by scheduled
+        # jobs or webhook callbacks. No user session during background sync. Audit trail via
+        # last_sync_time timestamp field. Only updating non-sensitive timestamp field.
         settings.save(ignore_permissions=True)
         cls.clear_cache()
 
@@ -460,6 +463,9 @@ class PontoConfigurationService:
             if row.ponto_account_id == ponto_account_id:
                 row.transactions_imported = (row.transactions_imported or 0) + count
                 break
+        # SECURITY JUSTIFICATION: Transaction counter is a system operation triggered by sync jobs.
+        # No user session during background sync. Audit trail via transactions_imported counter.
+        # Only updating non-sensitive statistics field.
         settings.save(ignore_permissions=True)
         cls.clear_cache()
 

@@ -37,17 +37,21 @@ import frappe
 import jwt
 import requests
 from jwt import PyJWKClient
+from jwt.api_jwk import PyJWKSet
 
 from verenigingen.verenigingen_payments.ponto.exceptions import PontoWebhookError
+from verenigingen.verenigingen_payments.ponto.utils.secure_cert_manager import SecureCertManager
 
 # Ibanity API endpoints
+# All Ponto Connect mTLS operations go through api.ibanity.com, not api.myponto.com
 IBANITY_API_BASE = "https://api.ibanity.com"
-IBANITY_PONTO_API_BASE = "https://api.myponto.com"
+IBANITY_PONTO_API_BASE = IBANITY_API_BASE  # Webhook issuer is api.ibanity.com for mTLS
 
 # JWKS endpoint - Ibanity publishes signing keys here
-# Note: This may need adjustment based on actual Ibanity documentation
+# Webhook keys are served from the main Ibanity API, not myponto.com
+# See: https://documentation.ibanity.com/webhooks/api
 IBANITY_JWKS_URL = f"{IBANITY_API_BASE}/webhooks/keys"
-IBANITY_PONTO_JWKS_URL = f"{IBANITY_PONTO_API_BASE}/webhooks/keys"
+IBANITY_PONTO_JWKS_URL = IBANITY_JWKS_URL  # Same endpoint for all Ibanity products
 
 # Default tolerance for timestamp validation (seconds)
 DEFAULT_TOLERANCE = 30
@@ -101,9 +105,51 @@ class PontoWebhookVerifier:
             self._jwks_client = PyJWKClient(self.jwks_url, cache_keys=True)
         return self._jwks_client
 
+    def _is_mtls_enabled(self) -> bool:
+        """Check if mTLS is enabled in Ponto Settings."""
+        try:
+            settings = frappe.get_single("Ponto Settings")
+            return bool(settings.use_ibanity_mtls)
+        except Exception:
+            return False
+
+    def _fetch_jwks_with_mtls(self) -> dict:
+        """
+        Fetch JWKS using mTLS authentication.
+
+        Returns:
+            JWKS response as dict
+
+        Raises:
+            PontoWebhookError: If fetch fails
+        """
+        with SecureCertManager() as cert_manager:
+            if not cert_manager.setup_from_settings():
+                raise PontoWebhookError(
+                    message="Failed to setup mTLS certificates for JWKS fetch",
+                    details={"jwks_url": self.jwks_url},
+                )
+
+            cert_files = cert_manager.get_cert_files()
+            try:
+                response = requests.get(
+                    self.jwks_url,
+                    cert=cert_files,
+                    timeout=30,
+                )
+                response.raise_for_status()
+                return response.json()
+            except requests.RequestException as e:
+                raise PontoWebhookError(
+                    message="Failed to fetch JWKS with mTLS",
+                    details={"error": str(e), "jwks_url": self.jwks_url},
+                )
+
     def _fetch_signing_key(self, token: str):
         """
         Fetch the signing key for a given JWT token.
+
+        Uses mTLS if enabled in settings, otherwise falls back to standard HTTPS.
 
         Args:
             token: JWT token string
@@ -115,14 +161,36 @@ class PontoWebhookVerifier:
             PontoWebhookError: If key cannot be fetched
         """
         try:
-            jwks_client = self._get_jwks_client()
-            return jwks_client.get_signing_key_from_jwt(token)
+            # Get the key ID from the token header
+            unverified_header = jwt.get_unverified_header(token)
+            kid = unverified_header.get("kid")
+
+            if self._is_mtls_enabled():
+                # Fetch JWKS with mTLS
+                jwks_data = self._fetch_jwks_with_mtls()
+                jwks = PyJWKSet.from_dict(jwks_data)
+
+                # Find the key by kid
+                for key in jwks.keys:
+                    if key.key_id == kid:
+                        return key
+                raise PontoWebhookError(
+                    message="Signing key not found in JWKS",
+                    details={"kid": kid, "available_kids": [k.key_id for k in jwks.keys]},
+                )
+            else:
+                # Use standard PyJWKClient (no mTLS)
+                jwks_client = self._get_jwks_client()
+                return jwks_client.get_signing_key_from_jwt(token)
+
         except jwt.exceptions.PyJWKClientError as e:
             frappe.logger().error(f"Failed to fetch JWKS signing key: {e}")
             raise PontoWebhookError(
                 message="Failed to fetch webhook signing keys",
                 details={"error": str(e), "jwks_url": self.jwks_url},
             )
+        except PontoWebhookError:
+            raise
         except Exception as e:
             frappe.logger().error(f"Unexpected error fetching JWKS key: {e}")
             raise PontoWebhookError(

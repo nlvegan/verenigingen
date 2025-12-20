@@ -24,6 +24,26 @@ from frappe import _
 from frappe.utils import get_url
 
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+from verenigingen.utils.security.rate_limiter import check_api_rate_limit
+
+
+def _get_client_ip() -> str:
+    """Get client IP address, handling proxies."""
+    forwarded_for = frappe.request.headers.get("X-Forwarded-For")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    return frappe.request.remote_addr or "unknown"
+
+
+def _check_payment_callback_rate_limit() -> bool:
+    """Check payment callback rate limit - 20 per 5 minutes per IP."""
+    ip_address = _get_client_ip()
+    return check_api_rate_limit(
+        user=f"ip:{ip_address}",
+        endpoint="ponto_payment_callback",
+        max_requests=20,
+        window_minutes=5,
+    )
 
 
 @frappe.whitelist(allow_guest=True, methods=["GET"])
@@ -40,6 +60,15 @@ def payment_callback():
     Returns:
         Redirect to appropriate page based on result
     """
+    # Rate limit check
+    if not _check_payment_callback_rate_limit():
+        ip = _get_client_ip()
+        frappe.logger().warning(f"Payment callback rate limit exceeded for IP: {ip}")
+        frappe.local.response["http_status_code"] = 429
+        frappe.local.response["type"] = "redirect"
+        frappe.local.response["location"] = get_url("/desk")
+        return
+
     payment_request_name = frappe.request.args.get("payment_request")
     error = frappe.request.args.get("error")
     error_description = frappe.request.args.get("error_description")
@@ -67,6 +96,8 @@ def payment_callback():
             )
 
             # If access_denied, user cancelled the signing
+            # SECURITY JUSTIFICATION: OAuth2 callback from external Ponto system. Guest endpoint
+            # by design (allow_guest=True). Audit trail via doc.status change and error logs.
             if error == "access_denied":
                 doc.status = "Cancelled"
                 doc.save(ignore_permissions=True)

@@ -48,6 +48,8 @@ Usage:
     )
 """
 
+import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -56,8 +58,91 @@ from typing import Any, Dict, List, Optional
 import frappe
 from frappe import _
 
+from verenigingen.utils.validation.iban_validator import validate_iban
 from verenigingen.verenigingen_payments.ponto.core.ponto_client import PontoClient
-from verenigingen.verenigingen_payments.ponto.exceptions import PontoAPIError, PontoIntegrationError
+from verenigingen.verenigingen_payments.ponto.exceptions import (
+    PontoAPIError,
+    PontoConfigurationError,
+    PontoIntegrationError,
+)
+from verenigingen.verenigingen_payments.ponto.services.configuration_service import get_ponto_config
+
+
+def sanitize_sepa_text(text: str, field_name: str = "text") -> str:
+    """
+    Sanitize text for SEPA compliance.
+
+    SEPA only allows a limited character set in remittance information:
+    - Letters: a-z A-Z
+    - Digits: 0-9
+    - Special: / - ? : ( ) . , ' + and space
+
+    Args:
+        text: The text to sanitize
+        field_name: Name of field for logging purposes
+
+    Returns:
+        Sanitized text with only SEPA-allowed characters
+    """
+    if not text:
+        return text
+
+    original = text
+
+    # First, normalize unicode to ASCII equivalents where possible
+    # This handles accented characters like é -> e, ñ -> n, ü -> u
+    text = unicodedata.normalize("NFKD", text)
+    text = text.encode("ascii", "ignore").decode("ascii")
+
+    # Replace common problematic characters with SEPA-safe equivalents
+    replacements = {
+        "—": "-",  # em-dash to hyphen
+        "–": "-",  # en-dash to hyphen
+        """: "'",  # smart double quote to apostrophe
+        """: "'",  # smart double quote to apostrophe
+        "'": "'",  # smart single quote to apostrophe
+        "'": "'",  # smart single quote to apostrophe
+        "€": "EUR",  # euro symbol to text
+        "&": "+",  # ampersand to plus
+        ";": ",",  # semicolon to comma
+        "!": ".",  # exclamation to period
+        "@": "",  # remove at sign
+        "#": "",  # remove hash
+        "$": "",  # remove dollar
+        "%": "",  # remove percent
+        "*": "",  # remove asterisk
+        "=": "-",  # equals to hyphen
+        "[": "(",  # brackets to parentheses
+        "]": ")",
+        "{": "(",
+        "}": ")",
+        "<": "(",
+        ">": ")",
+        "_": "-",  # underscore to hyphen
+        "\\": "/",  # backslash to forward slash
+        "|": "/",  # pipe to forward slash
+        "\n": " ",  # newline to space
+        "\r": " ",  # carriage return to space
+        "\t": " ",  # tab to space
+    }
+
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+
+    # Keep only SEPA-allowed characters: a-zA-Z0-9 and / - ? : ( ) . , ' + space
+    text = re.sub(r"[^a-zA-Z0-9/\-?:().,'+\s]", "", text)
+
+    # Collapse multiple spaces into single space
+    text = re.sub(r"\s+", " ", text)
+
+    # Trim whitespace
+    text = text.strip()
+
+    # Log if sanitization changed the text
+    if text != original:
+        frappe.logger().info(f"SEPA sanitized {field_name}: '{original[:50]}...' -> '{text[:50]}...'")
+
+    return text
 
 
 @dataclass
@@ -94,6 +179,10 @@ class PaymentInitiationRequest:
         """
         attrs = data.get("attributes", {})
 
+        # The signing/authorization URL is in attributes.signingUri
+        # This is the URL customers use to authorize the payment
+        redirect_link = attrs.get("signingUri", "") or data.get("links", {}).get("redirect", "")
+
         return cls(
             id=data.get("id", ""),
             status=attrs.get("status", ""),
@@ -104,7 +193,7 @@ class PaymentInitiationRequest:
             creditor_agent=attrs.get("creditorAgent", ""),
             remittance_info=attrs.get("remittanceInformation", ""),
             redirect_uri=attrs.get("redirectUri", ""),
-            redirect_link=data.get("links", {}).get("redirect", ""),
+            redirect_link=redirect_link,
             debtor_name=attrs.get("debtorName"),
             debtor_iban=attrs.get("debtorAccountReference"),
             debtor_bank=attrs.get("debtorAgent"),
@@ -164,6 +253,9 @@ class PeriodicPaymentInitiationRequest:
             except (ValueError, TypeError):
                 pass
 
+        # The signing/authorization URL is in attributes.signingUri
+        redirect_link = attrs.get("signingUri", "") or data.get("links", {}).get("redirect", "")
+
         return cls(
             id=data.get("id", ""),
             status=attrs.get("status", ""),
@@ -177,7 +269,7 @@ class PeriodicPaymentInitiationRequest:
             start_date=start_date,
             end_date=end_date,
             redirect_uri=attrs.get("redirectUri", ""),
-            redirect_link=data.get("links", {}).get("redirect", ""),
+            redirect_link=redirect_link,
             debtor_name=attrs.get("debtorName"),
             debtor_iban=attrs.get("debtorAccountReference"),
             debtor_bank=attrs.get("debtorAgent"),
@@ -207,6 +299,52 @@ class PontoBetaalverzoekClient:
     def __init__(self):
         """Initialize the betaalverzoek client."""
         self._client = PontoClient()
+        self._config = get_ponto_config()
+
+        # Verify mTLS is enabled - required for Payment Initiation Services (PIS)
+        self._verify_pis_enabled()
+
+    def _verify_pis_enabled(self) -> None:
+        """
+        Verify that Payment Initiation Services (PIS) are properly configured.
+
+        PIS requires mTLS authentication with the Ibanity API.
+        Raises PontoConfigurationError if not properly configured.
+        """
+        import frappe
+
+        settings = frappe.get_single("Ponto Settings")
+
+        if not settings.use_ibanity_mtls:
+            raise PontoConfigurationError(
+                message=(
+                    "Payment Initiation Services (PIS) require mTLS authentication. "
+                    "Please enable 'Use Ibanity mTLS' in Ponto Settings and configure "
+                    "the required certificates."
+                ),
+                missing_fields=["use_ibanity_mtls"],
+            )
+
+        # Check for enabled bank account mappings
+        enabled_mappings = self._config.get_enabled_account_mappings()
+        if not enabled_mappings:
+            raise PontoConfigurationError(
+                message=(
+                    "Payment Initiation Services (PIS) require a linked Ponto account. "
+                    "Please configure and enable a bank account in Ponto Settings."
+                ),
+                missing_fields=["bank_account_mappings"],
+            )
+
+    def _get_account_id(self) -> str:
+        """Get the first enabled Ponto account ID for PIS operations."""
+        account_id = self._config.get_first_enabled_ponto_account_id()
+        if not account_id:
+            raise PontoConfigurationError(
+                message="No enabled Ponto account configured for payment initiation.",
+                missing_fields=["bank_account_mappings"],
+            )
+        return account_id
 
     def create_payment_request(
         self,
@@ -245,6 +383,34 @@ class PontoBetaalverzoekClient:
                 details={"amount": amount},
             )
 
+        # SEPA amount limits and precision
+        SEPA_MAX_AMOUNT = 999999999.99
+        if amount > SEPA_MAX_AMOUNT:
+            raise PontoIntegrationError(
+                message=f"Payment amount exceeds SEPA maximum of {SEPA_MAX_AMOUNT:,.2f} EUR",
+                details={"amount": amount, "max_allowed": SEPA_MAX_AMOUNT},
+            )
+
+        # Validate decimal precision (max 2 decimal places for EUR)
+        amount_cents = round(amount * 100, 6)
+        if abs(amount_cents - round(amount_cents)) > 0.0001:
+            raise PontoIntegrationError(
+                message="Payment amount must have at most 2 decimal places",
+                details={"amount": amount},
+            )
+
+        # Validate creditor IBAN
+        iban_validation = validate_iban(creditor_iban)
+        if not iban_validation.get("valid"):
+            raise PontoIntegrationError(
+                message=f"Invalid creditor IBAN: {iban_validation.get('message', 'Validation failed')}",
+                details={"creditor_iban": creditor_iban},
+            )
+
+        # Sanitize text fields for SEPA compliance
+        creditor_name = sanitize_sepa_text(creditor_name, "creditorName")
+        remittance_info = sanitize_sepa_text(remittance_info, "remittanceInformation")
+
         # Build payment request payload (JSON:API format)
         attributes = {
             "amount": float(amount),
@@ -274,12 +440,29 @@ class PontoBetaalverzoekClient:
         }
 
         try:
+            # Payment requests are scoped to a specific Ponto account
+            # Ponto Connect API uses "payment-requests" endpoint
+            account_id = self._get_account_id()
+            endpoint = f"/accounts/{account_id}/payment-requests"
+
+            frappe.logger().debug(f"Creating payment initiation request at endpoint: {endpoint}")
+
             response = self._client.post(
-                "/payment-initiation-requests",
+                endpoint,
                 data=payload,
             )
 
+            # Log the full response for debugging redirect_link issues
+            frappe.logger().debug(f"Ponto payment request response: {response}")
+
             data = response.get("data", {})
+
+            # Check for redirect link in top-level links (JSON:API spec)
+            # Some APIs return links at the top level, not inside data
+            top_level_links = response.get("links", {})
+            if top_level_links and not data.get("links"):
+                data["links"] = top_level_links
+
             request = PaymentInitiationRequest.from_api_response(data)
 
             frappe.logger().info(
@@ -289,13 +472,30 @@ class PontoBetaalverzoekClient:
 
             return request
 
+        except PontoAPIError:
+            # Re-raise Ponto-specific errors directly to preserve error details
+            raise
         except Exception as e:
-            frappe.logger().error(f"Failed to create Ponto payment request: {e}")
+            # Extract original error if wrapped by retry decorator
+            original = getattr(e, "original_error", None) or e
+            original_msg = str(original)
+
+            # Extract status code and error code if available
+            status_code = getattr(original, "status_code", None)
+            error_code = getattr(original, "error_code", None)
+
+            frappe.logger().error(
+                f"Failed to create Ponto payment request: {original_msg}",
+                exc_info=True,
+            )
             raise PontoAPIError(
-                message=f"Failed to create payment request: {e}",
+                message=f"Failed to create payment request: {original_msg}",
+                status_code=status_code,
+                error_code=error_code,
                 details={
                     "amount": amount,
                     "creditor_iban": creditor_iban,
+                    "original_error_type": type(original).__name__,
                 },
             )
 
@@ -343,6 +543,22 @@ class PontoBetaalverzoekClient:
                 details={"amount": amount},
             )
 
+        # SEPA amount limits and precision
+        SEPA_MAX_AMOUNT = 999999999.99
+        if amount > SEPA_MAX_AMOUNT:
+            raise PontoIntegrationError(
+                message=f"Payment amount exceeds SEPA maximum of {SEPA_MAX_AMOUNT:,.2f} EUR",
+                details={"amount": amount, "max_allowed": SEPA_MAX_AMOUNT},
+            )
+
+        # Validate decimal precision (max 2 decimal places for EUR)
+        amount_cents = round(amount * 100, 6)
+        if abs(amount_cents - round(amount_cents)) > 0.0001:
+            raise PontoIntegrationError(
+                message="Payment amount must have at most 2 decimal places",
+                details={"amount": amount},
+            )
+
         # Map frequency to Ponto API value
         ponto_frequency = self.FREQUENCY_MAP.get(frequency.lower())
         if not ponto_frequency:
@@ -350,6 +566,18 @@ class PontoBetaalverzoekClient:
                 message=f"Invalid frequency: {frequency}. Must be monthly, quarterly, or annually.",
                 details={"frequency": frequency},
             )
+
+        # Validate creditor IBAN
+        iban_validation = validate_iban(creditor_iban)
+        if not iban_validation.get("valid"):
+            raise PontoIntegrationError(
+                message=f"Invalid creditor IBAN: {iban_validation.get('message', 'Validation failed')}",
+                details={"creditor_iban": creditor_iban},
+            )
+
+        # Sanitize text fields for SEPA compliance
+        creditor_name = sanitize_sepa_text(creditor_name, "creditorName")
+        remittance_info = sanitize_sepa_text(remittance_info, "remittanceInformation")
 
         # Build periodic payment request payload (JSON:API format)
         attributes = {
@@ -388,12 +616,28 @@ class PontoBetaalverzoekClient:
         }
 
         try:
+            # Periodic payment requests are scoped to a specific Ponto account
+            # Ponto Connect API uses "periodic-payment-requests" endpoint
+            account_id = self._get_account_id()
+            endpoint = f"/accounts/{account_id}/periodic-payment-requests"
+
+            frappe.logger().debug(f"Creating periodic payment request at endpoint: {endpoint}")
+
             response = self._client.post(
-                "/periodic-payment-initiation-requests",
+                endpoint,
                 data=payload,
             )
 
+            # Log the full response for debugging redirect_link issues
+            frappe.logger().debug(f"Ponto periodic payment request response: {response}")
+
             data = response.get("data", {})
+
+            # Check for redirect link in top-level links (JSON:API spec)
+            top_level_links = response.get("links", {})
+            if top_level_links and not data.get("links"):
+                data["links"] = top_level_links
+
             request = PeriodicPaymentInitiationRequest.from_api_response(data)
 
             frappe.logger().info(
@@ -403,14 +647,31 @@ class PontoBetaalverzoekClient:
 
             return request
 
+        except PontoAPIError:
+            # Re-raise Ponto-specific errors directly to preserve error details
+            raise
         except Exception as e:
-            frappe.logger().error(f"Failed to create Ponto periodic payment request: {e}")
+            # Extract original error if wrapped by retry decorator
+            original = getattr(e, "original_error", None) or e
+            original_msg = str(original)
+
+            # Extract status code and error code if available
+            status_code = getattr(original, "status_code", None)
+            error_code = getattr(original, "error_code", None)
+
+            frappe.logger().error(
+                f"Failed to create Ponto periodic payment request: {original_msg}",
+                exc_info=True,
+            )
             raise PontoAPIError(
-                message=f"Failed to create periodic payment request: {e}",
+                message=f"Failed to create periodic payment request: {original_msg}",
+                status_code=status_code,
+                error_code=error_code,
                 details={
                     "amount": amount,
                     "frequency": frequency,
                     "creditor_iban": creditor_iban,
+                    "original_error_type": type(original).__name__,
                 },
             )
 
@@ -428,7 +689,9 @@ class PontoBetaalverzoekClient:
             PontoAPIError: If request fails
         """
         try:
-            response = self._client.get(f"/payment-initiation-requests/{request_id}")
+            account_id = self._get_account_id()
+            endpoint = f"/accounts/{account_id}/payment-requests/{request_id}"
+            response = self._client.get(endpoint)
 
             data = response.get("data", {})
             return PaymentInitiationRequest.from_api_response(data)
@@ -454,7 +717,9 @@ class PontoBetaalverzoekClient:
             PontoAPIError: If request fails
         """
         try:
-            response = self._client.get(f"/periodic-payment-initiation-requests/{request_id}")
+            account_id = self._get_account_id()
+            endpoint = f"/accounts/{account_id}/periodic-payment-requests/{request_id}"
+            response = self._client.get(endpoint)
 
             data = response.get("data", {})
             return PeriodicPaymentInitiationRequest.from_api_response(data)
@@ -480,8 +745,9 @@ class PontoBetaalverzoekClient:
             PontoAPIError: If request fails
         """
         try:
+            # List all payment requests across accounts
             response = self._client.get(
-                "/payment-initiation-requests",
+                "/payment-requests",
                 params={"limit": limit},
             )
 
@@ -511,8 +777,9 @@ class PontoBetaalverzoekClient:
             PontoAPIError: If request fails
         """
         try:
+            # List all periodic payment requests across accounts
             response = self._client.get(
-                "/periodic-payment-initiation-requests",
+                "/periodic-payment-requests",
                 params={"limit": limit},
             )
 
@@ -544,7 +811,9 @@ class PontoBetaalverzoekClient:
             PontoAPIError: If deletion fails
         """
         try:
-            self._client.delete(f"/payment-initiation-requests/{request_id}")
+            account_id = self._get_account_id()
+            endpoint = f"/accounts/{account_id}/payment-requests/{request_id}"
+            self._client.delete(endpoint)
 
             frappe.logger().info(f"Deleted Ponto payment request {request_id}")
             return True
@@ -572,7 +841,9 @@ class PontoBetaalverzoekClient:
             PontoAPIError: If deletion fails
         """
         try:
-            self._client.delete(f"/periodic-payment-initiation-requests/{request_id}")
+            account_id = self._get_account_id()
+            endpoint = f"/accounts/{account_id}/periodic-payment-requests/{request_id}"
+            self._client.delete(endpoint)
 
             frappe.logger().info(f"Deleted Ponto periodic payment request {request_id}")
             return True

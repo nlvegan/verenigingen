@@ -42,6 +42,32 @@ from verenigingen.verenigingen_payments.ponto.services.configuration_service imp
 from verenigingen.verenigingen_payments.ponto.utils.token_manager import PontoTokenManager
 
 
+def _sanitize_error_message(detailed_message: str, generic_message: str) -> str:
+    """
+    Return appropriate error message based on user permissions.
+
+    System Managers get detailed technical information for debugging.
+    Regular users get a generic, user-friendly message to avoid
+    exposing internal endpoints, API responses, or system details.
+
+    Args:
+        detailed_message: Full technical error message for admins
+        generic_message: User-friendly message for regular users
+
+    Returns:
+        str: Appropriate message based on user role
+    """
+    try:
+        # System Managers and Administrators get detailed errors
+        user_roles = frappe.get_roles()
+        if "System Manager" in user_roles or "Administrator" in user_roles:
+            return detailed_message
+        return generic_message
+    except Exception:
+        # If role check fails, return generic message for safety
+        return generic_message
+
+
 class PontoClient:
     """
     Low-level REST client for Ponto API.
@@ -59,14 +85,20 @@ class PontoClient:
 
     BASE_URL = "https://api.myponto.com"
 
-    # Default retry configuration
+    # Retry configuration for transient failures (network timeouts, 5xx errors)
+    # - max_attempts: 3 retries balances reliability vs latency
+    # - base_delay: 1 second initial backoff
+    # - max_delay: 30 seconds cap to prevent excessive waits
     DEFAULT_RETRY_CONFIG = RetryConfig(
         max_attempts=3,
         base_delay=1.0,
         max_delay=30.0,
     )
 
-    # Default circuit breaker configuration
+    # Circuit breaker protects against cascading failures when Ponto API is down
+    # - failure_threshold: 5 failures before opening circuit (prevents hammering)
+    # - recovery_timeout: 60 seconds before allowing test request
+    # - success_threshold: 3 successes needed to close circuit
     DEFAULT_CIRCUIT_CONFIG = CircuitBreakerConfig(
         failure_threshold=5,
         recovery_timeout=60,
@@ -186,12 +218,27 @@ class PontoClient:
         self._cleanup_temp_files()
 
     def _cleanup_temp_files(self):
-        """Remove temporary certificate and key files."""
+        """
+        Securely remove temporary certificate and key files.
+
+        Uses secure deletion (overwrite before delete) for key files
+        to prevent recovery of sensitive cryptographic material.
+        """
         for filepath in [self._temp_cert_file, self._temp_key_file]:
             if filepath:
                 try:
                     name = filepath.name if hasattr(filepath, "name") else filepath
                     if isinstance(name, str) and os.path.exists(name):
+                        # Secure delete: overwrite with random data before unlinking
+                        try:
+                            file_size = os.path.getsize(name)
+                            for _ in range(3):  # Multiple overwrite passes
+                                with open(name, "wb") as f:
+                                    f.write(os.urandom(file_size))
+                                    f.flush()
+                                    os.fsync(f.fileno())
+                        except Exception:
+                            pass  # Fall through to unlink
                         os.unlink(name)
                 except Exception as e:
                     frappe.logger().debug(f"Failed to cleanup temp file: {e}")
@@ -213,6 +260,12 @@ class PontoClient:
         """
         Handle error responses from Ponto API.
 
+        Error messages are sanitized based on user permissions:
+        - System Managers see detailed technical information
+        - Regular users see generic, user-friendly messages
+
+        Detailed errors are always logged for debugging.
+
         Args:
             response: HTTP response object
             endpoint: API endpoint for error context
@@ -227,37 +280,55 @@ class PontoClient:
         # Try to parse JSON:API error response
         error_data = {}
         error_code = None
-        error_message = f"Ponto API error on {endpoint}"
+        detailed_message = f"Ponto API error on {endpoint}"
 
         try:
             data = response.json()
             if "errors" in data and data["errors"]:
                 error = data["errors"][0]
                 error_code = error.get("code")
-                error_message = error.get("detail") or error.get("title") or error_message
+                detailed_message = error.get("detail") or error.get("title") or detailed_message
                 error_data = error
         except (ValueError, KeyError):
-            error_message = response.text[:200] if response.text else error_message
+            detailed_message = response.text[:200] if response.text else detailed_message
+
+        # Always log detailed error for debugging (admin-visible in Error Log)
+        frappe.logger().error(
+            f"Ponto API error: status={status_code}, endpoint={endpoint}, "
+            f"message={detailed_message}, code={error_code}"
+        )
 
         if status_code == 401:
             # Invalidate token and raise auth error
             self._token_manager.invalidate_token()
+            user_message = _sanitize_error_message(
+                f"Ponto authentication failed: {detailed_message}",
+                "Bank connection authentication failed. Please contact support.",
+            )
             raise PontoAuthenticationError(
-                f"Ponto authentication failed: {error_message}",
+                user_message,
                 details={"endpoint": endpoint, "error": error_data},
             )
 
         if status_code == 429:
             retry_after = response.headers.get("Retry-After")
             retry_seconds = int(retry_after) if retry_after and retry_after.isdigit() else None
-            raise PontoRateLimitError(
+            user_message = _sanitize_error_message(
                 f"Ponto rate limit exceeded on {endpoint}",
+                "Too many requests. Please try again in a few minutes.",
+            )
+            raise PontoRateLimitError(
+                user_message,
                 retry_after=retry_seconds,
                 details={"endpoint": endpoint},
             )
 
+        user_message = _sanitize_error_message(
+            detailed_message,
+            "An error occurred while communicating with the bank. Please try again later.",
+        )
         raise PontoAPIError(
-            error_message,
+            user_message,
             status_code=status_code,
             error_code=error_code,
             details={"endpoint": endpoint, "response": error_data},
@@ -305,8 +376,12 @@ class PontoClient:
             response = self._session.get(url, **request_kwargs)
         except requests.RequestException as e:
             frappe.logger().error(f"Ponto request failed: {e}")
-            raise PontoAPIError(
+            user_message = _sanitize_error_message(
                 f"Failed to connect to Ponto API: {str(e)}",
+                "Unable to connect to the bank service. Please try again later.",
+            )
+            raise PontoAPIError(
+                user_message,
                 details={"endpoint": endpoint, "error": str(e)},
             )
 
@@ -355,8 +430,12 @@ class PontoClient:
             response = self._session.post(url, **request_kwargs)
         except requests.RequestException as e:
             frappe.logger().error(f"Ponto request failed: {e}")
-            raise PontoAPIError(
+            user_message = _sanitize_error_message(
                 f"Failed to connect to Ponto API: {str(e)}",
+                "Unable to connect to the bank service. Please try again later.",
+            )
+            raise PontoAPIError(
+                user_message,
                 details={"endpoint": endpoint, "error": str(e)},
             )
 
@@ -406,8 +485,12 @@ class PontoClient:
             response = self._session.delete(url, **request_kwargs)
         except requests.RequestException as e:
             frappe.logger().error(f"Ponto request failed: {e}")
-            raise PontoAPIError(
+            user_message = _sanitize_error_message(
                 f"Failed to connect to Ponto API: {str(e)}",
+                "Unable to connect to the bank service. Please try again later.",
+            )
+            raise PontoAPIError(
+                user_message,
                 details={"endpoint": endpoint, "error": str(e)},
             )
 
@@ -448,7 +531,7 @@ class PontoClient:
 
         while current_url:
             if max_pages and page_count >= max_pages:
-                frappe.logger().info(f"Reached max pages ({max_pages}) for {endpoint}")
+                frappe.logger().debug(f"Reached max pages ({max_pages}) for {endpoint}")
                 break
 
             # First request uses params, subsequent use full URL from links.next

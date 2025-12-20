@@ -61,6 +61,8 @@
     "last_sync_time",
     "webhook_section",
     "enable_webhooks",
+    "require_webhook_signature",
+    "column_break_webhook",
     "webhook_url"
   ],
   "fields": [
@@ -426,6 +428,18 @@
       "fieldname": "enable_webhooks",
       "fieldtype": "Check",
       "label": "Enable Webhooks"
+    },
+    {
+      "default": "1",
+      "depends_on": "eval:doc.enable_webhooks",
+      "description": "Require JWT signature verification on webhook requests. SECURITY: Enable this in production to prevent unauthorized webhook submissions.",
+      "fieldname": "require_webhook_signature",
+      "fieldtype": "Check",
+      "label": "Require Webhook Signature"
+    },
+    {
+      "fieldname": "column_break_webhook",
+      "fieldtype": "Column Break"
     },
     {
       "depends_on": "eval:doc.enable_webhooks",

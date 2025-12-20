@@ -37,6 +37,7 @@ from typing import Optional
 import frappe
 from frappe import _
 
+from verenigingen.utils.validation.iban_validator import validate_iban
 from verenigingen.verenigingen_payments.ponto.clients.payment_client import PaymentRequest, get_payment_client
 from verenigingen.verenigingen_payments.ponto.exceptions import PontoIntegrationError
 
@@ -87,10 +88,36 @@ def create_sepa_payment(
             details={"amount": amount},
         )
 
+    # SEPA amount limits and precision
+    # Max €999,999,999.99 for SEPA Credit Transfer (SCT)
+    SEPA_MAX_AMOUNT = 999999999.99
+    if amount > SEPA_MAX_AMOUNT:
+        raise PontoIntegrationError(
+            message=f"Payment amount exceeds SEPA maximum of {SEPA_MAX_AMOUNT:,.2f} EUR",
+            details={"amount": amount, "max_allowed": SEPA_MAX_AMOUNT},
+        )
+
+    # Validate decimal precision (max 2 decimal places for EUR)
+    # Check by multiplying by 100 and verifying it's a whole number
+    amount_cents = round(amount * 100, 6)  # round to avoid floating point issues
+    if abs(amount_cents - round(amount_cents)) > 0.0001:
+        raise PontoIntegrationError(
+            message="Payment amount must have at most 2 decimal places",
+            details={"amount": amount},
+        )
+
     if not creditor_name or not creditor_iban:
         raise PontoIntegrationError(
             message="Creditor name and IBAN are required",
             details={"creditor_name": creditor_name, "creditor_iban": creditor_iban},
+        )
+
+    # Validate IBAN format and checksum
+    iban_validation = validate_iban(creditor_iban)
+    if not iban_validation.get("valid"):
+        raise PontoIntegrationError(
+            message=f"Invalid creditor IBAN: {iban_validation.get('message', 'Validation failed')}",
+            details={"creditor_iban": creditor_iban},
         )
 
     if not remittance_info:

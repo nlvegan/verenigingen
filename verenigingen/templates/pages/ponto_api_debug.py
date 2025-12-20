@@ -188,7 +188,7 @@ def create_payment_link(
         }
 
     except Exception as e:
-        frappe.log_error(f"Ponto create payment link error: {str(e)}")
+        frappe.log_error(title="Ponto Payment Link Error", message=f"Create failed: {str(e)}")
         return {"success": False, "error": str(e)}
 
 
@@ -224,7 +224,7 @@ def submit_payment_link(payment_link_name):
         }
 
     except Exception as e:
-        frappe.log_error(f"Ponto submit payment link error: {str(e)}")
+        frappe.log_error(title="Ponto Payment Link Error", message=f"Submit failed: {str(e)}")
         return {"success": False, "error": str(e)}
 
 
@@ -257,7 +257,7 @@ def refresh_payment_link_status(payment_link_name):
         }
 
     except Exception as e:
-        frappe.log_error(f"Ponto refresh payment link error: {str(e)}")
+        frappe.log_error(title="Ponto Payment Link Error", message=f"Refresh failed: {str(e)}")
         return {"success": False, "error": str(e)}
 
 
@@ -312,7 +312,7 @@ def list_payment_links(limit=20, status_filter=None):
         }
 
     except Exception as e:
-        frappe.log_error(f"Ponto list payment links error: {str(e)}")
+        frappe.log_error(title="Ponto Payment Link Error", message=f"List failed: {str(e)}")
         return {"success": False, "error": str(e)}
 
 
@@ -360,7 +360,7 @@ def get_payment_link_details(payment_link_name):
         }
 
     except Exception as e:
-        frappe.log_error(f"Ponto get payment link details error: {str(e)}")
+        frappe.log_error(title="Ponto Payment Link Error", message=f"Get details failed: {str(e)}")
         return {"success": False, "error": str(e)}
 
 
@@ -383,7 +383,7 @@ def test_ponto_connection():
         return result
 
     except Exception as e:
-        frappe.log_error(f"Ponto test connection error: {str(e)}")
+        frappe.log_error(title="Ponto Connection Error", message=f"Test failed: {str(e)}")
         return {"success": False, "error": str(e)}
 
 
@@ -469,5 +469,5 @@ def test_mtls_connection():
             return {"success": False, **results}
 
     except Exception as e:
-        frappe.log_error(f"Ponto mTLS test error: {str(e)}")
+        frappe.log_error(title="Ponto mTLS Error", message=f"Test failed: {str(e)}")
         return {"success": False, "error": str(e)}

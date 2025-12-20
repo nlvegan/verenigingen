@@ -55,13 +55,13 @@ class PontoAccountsClient:
         Raises:
             PontoAPIError: If API call fails
         """
-        frappe.logger().info("Fetching Ponto accounts list")
+        frappe.logger().debug("Fetching Ponto accounts list")
 
         data = self._client.get_paginated("/accounts")
 
         accounts = [PontoAccount.from_api_response(item) for item in data]
 
-        frappe.logger().info(f"Found {len(accounts)} Ponto accounts")
+        frappe.logger().debug(f"Found {len(accounts)} Ponto accounts")
 
         return accounts
 

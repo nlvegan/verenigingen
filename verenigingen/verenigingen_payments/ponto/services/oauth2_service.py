@@ -69,9 +69,49 @@ class PontoOAuth2Service:
     REFRESH_TOKEN_CACHE_KEY = "ponto_ibanity_refresh_token"
     TOKEN_EXPIRY_CACHE_KEY = "ponto_ibanity_token_expiry"
 
+    # Cache TTL settings (seconds)
+    STATE_CACHE_TTL = 600  # 10 minutes - OAuth2 state/code_verifier expiry
+    REFRESH_TOKEN_CACHE_TTL = 86400 * 30  # 30 days - Refresh token cache
+
     def __init__(self):
         """Initialize OAuth2 service."""
         self._settings = None
+        self._cert_files = None
+
+    def __del__(self):
+        """Clean up temporary certificate files on object destruction."""
+        self._cleanup_temp_files()
+
+    def _cleanup_temp_files(self):
+        """
+        Securely remove temporary certificate and key files.
+
+        Uses secure deletion (overwrite before delete) for key files
+        to prevent recovery of sensitive cryptographic material.
+        """
+        import os
+
+        if not self._cert_files:
+            return
+
+        for filepath in self._cert_files:
+            if filepath:
+                try:
+                    if os.path.exists(filepath):
+                        # Secure delete: overwrite with random data before unlinking
+                        try:
+                            file_size = os.path.getsize(filepath)
+                            for _ in range(3):  # Multiple overwrite passes
+                                with open(filepath, "wb") as f:
+                                    f.write(os.urandom(file_size))
+                                    f.flush()
+                                    os.fsync(f.fileno())
+                        except Exception:
+                            pass  # Fall through to unlink
+                        os.unlink(filepath)
+                except Exception:
+                    pass
+
         self._cert_files = None
 
     def _generate_pkce_pair(self) -> Tuple[str, str]:
@@ -161,8 +201,8 @@ class PontoOAuth2Service:
 
         # Store state and code_verifier in cache for verification/exchange
         cache = frappe.cache()
-        cache.set_value(self.STATE_CACHE_KEY, state, expires_in_sec=600)  # 10 min expiry
-        cache.set_value(self.CODE_VERIFIER_CACHE_KEY, code_verifier, expires_in_sec=600)
+        cache.set_value(self.STATE_CACHE_KEY, state, expires_in_sec=self.STATE_CACHE_TTL)
+        cache.set_value(self.CODE_VERIFIER_CACHE_KEY, code_verifier, expires_in_sec=self.STATE_CACHE_TTL)
 
         params = {
             "client_id": client_id,
@@ -177,7 +217,7 @@ class PontoOAuth2Service:
         base_url = self._get_authorization_base_url()
         auth_url = f"{base_url}?{urlencode(params)}"
 
-        frappe.logger().info(
+        frappe.logger().debug(
             f"Generated Ponto OAuth2 authorization URL (sandbox={self._get_settings().sandbox_mode}) "
             f"with state: {state[:10]}..."
         )
@@ -380,12 +420,18 @@ class PontoOAuth2Service:
 
         if refresh_token:
             # Refresh tokens have longer expiry (typically 28 days)
-            cache.set_value(self.REFRESH_TOKEN_CACHE_KEY, refresh_token, expires_in_sec=86400 * 30)
+            cache.set_value(
+                self.REFRESH_TOKEN_CACHE_KEY, refresh_token, expires_in_sec=self.REFRESH_TOKEN_CACHE_TTL
+            )
 
         # Update settings - store refresh token in database for persistence
         try:
             settings = frappe.get_single("Ponto Settings")
             settings.access_token_expiry = expiry_time
+            # SECURITY JUSTIFICATION: OAuth2 token storage is a system operation triggered by
+            # OAuth2 callback flow (user just completed authorization). No persistent user session
+            # during callback. Audit trail via access_token_expiry timestamp. Only updating
+            # token-related fields as part of authorized OAuth2 flow.
             settings.save(ignore_permissions=True)
 
             # Password fields require special handling for Single DocTypes
@@ -399,7 +445,7 @@ class PontoOAuth2Service:
                     fieldname="ibanity_refresh_token",
                 )
                 frappe.db.commit()  # Ensure password is persisted immediately
-            frappe.logger().info("Stored refresh token in database for persistence")
+            frappe.logger().debug("Stored refresh token in database for persistence")
         except Exception as e:
             frappe.logger().warning(f"Could not update Ponto Settings: {e}")
 
@@ -447,7 +493,7 @@ class PontoOAuth2Service:
                 settings = frappe.get_single("Ponto Settings")
                 refresh_token = settings.get_password("ibanity_refresh_token")
                 if refresh_token:
-                    frappe.logger().info("Retrieved refresh token from database (cache was empty)")
+                    frappe.logger().debug("Retrieved refresh token from database (cache was empty)")
             except Exception as e:
                 frappe.logger().debug(f"Could not get refresh token from database: {e}")
 
@@ -518,7 +564,7 @@ class PontoOAuth2Service:
 
         self._store_tokens(token_data)
 
-        frappe.logger().info("Successfully refreshed Ponto access token")
+        frappe.logger().debug("Successfully refreshed Ponto access token")
 
         return token_data.get("access_token")
 
@@ -533,6 +579,9 @@ class PontoOAuth2Service:
         try:
             settings = frappe.get_single("Ponto Settings")
             settings.access_token_expiry = None
+            # SECURITY JUSTIFICATION: Token revocation is a security operation initiated by admin
+            # or system. Clearing tokens doesn't expose sensitive data - it removes access.
+            # Operation logged via revoke_tokens() logger call.
             settings.save(ignore_permissions=True)
 
             # Delete password from __Auth table

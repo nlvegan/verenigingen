@@ -26,15 +26,88 @@ Note:
     Signature verification uses JWT with JWKS public keys from Ibanity.
 """
 
+import hashlib
 import json
 from typing import Any, Dict, Optional
 
 import frappe
 from frappe import _
+from frappe.utils import now_datetime
 
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
 from verenigingen.verenigingen_payments.ponto.exceptions import PontoWebhookError
 from verenigingen.verenigingen_payments.ponto.utils.webhook_security import verify_ponto_webhook
+
+
+def _create_webhook_log(
+    webhook_id: str,
+    webhook_type: str,
+    raw_payload: str,
+    status: str = "success",
+    processing_result: str = None,
+    error_details: str = None,
+) -> Optional[str]:
+    """
+    Create a Webhook Processing Log entry.
+
+    Args:
+        webhook_id: Unique identifier for the webhook (e.g., event ID from Ponto)
+        webhook_type: Type of webhook (ponto_sync, ponto_payment, ponto_account)
+        raw_payload: Original webhook payload as string
+        status: Processing status (success, error, ignored)
+        processing_result: JSON string with processing result details
+        error_details: Error message if status is error
+
+    Returns:
+        Name of created log document or None if logging failed
+    """
+    try:
+        # Create a hash to detect duplicate webhooks
+        webhook_hash = hashlib.sha256(f"{webhook_id}:{raw_payload}".encode()).hexdigest()
+
+        # Check for duplicate
+        existing = frappe.db.exists("Webhook Processing Log", {"webhook_hash": webhook_hash})
+        if existing:
+            frappe.logger().debug(f"Duplicate webhook detected: {webhook_id}")
+            return None
+
+        log = frappe.new_doc("Webhook Processing Log")
+        log.webhook_id = webhook_id[:140] if webhook_id else "unknown"  # Truncate to field limit
+        log.webhook_type = webhook_type
+        log.webhook_hash = webhook_hash
+        log.processed_at = now_datetime()
+        log.status = status
+        log.raw_payload = raw_payload
+
+        if processing_result:
+            log.processing_result = processing_result
+
+        if error_details:
+            log.error_details = error_details[:65535] if len(error_details) > 65535 else error_details
+
+        # SECURITY JUSTIFICATION: Webhook logging is a system audit function during
+        # webhook processing. No user session during webhook callbacks.
+        log.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        return log.name
+
+    except Exception as e:
+        frappe.logger().error(f"Failed to create webhook log: {e}")
+        return None
+
+
+def _get_webhook_type_from_event(event_type: str) -> str:
+    """Map Ponto event type to webhook log type."""
+    if not event_type:
+        return "ponto_sync"
+
+    if "payment" in event_type.lower():
+        return "ponto_payment"
+    elif "account" in event_type.lower() or "integration" in event_type.lower():
+        return "ponto_account"
+    else:
+        return "ponto_sync"
 
 
 # Ponto Connect webhook event types
@@ -99,10 +172,11 @@ def handle_ponto_webhook():
             frappe.logger().warning("Ponto webhook received but webhooks are disabled")
             return {"status": "ignored", "reason": "webhooks_disabled"}
 
-        # Verify signature (optional based on Ponto's webhook configuration)
-        # Note: Ponto may or may not require signature verification
-        # If signature is provided, verify it
+        # Verify webhook signature (JWT/JWKS)
+        # SECURITY: When require_webhook_signature is enabled, reject unsigned requests
+        require_signature = getattr(settings, "require_webhook_signature", True)
         claims = None
+
         if signature:
             try:
                 claims = verify_ponto_webhook(payload, signature)
@@ -113,13 +187,26 @@ def handle_ponto_webhook():
                     title="Ponto webhook signature failed",
                     message=str(e),
                 )
-                # Return 401 for signature failures
                 frappe.local.response["http_status_code"] = 401
                 return {"status": "error", "message": "Signature verification failed"}
+        elif require_signature:
+            # No signature provided but signature is required - reject the request
+            frappe.logger().warning(
+                "Ponto webhook rejected: no signature provided but require_webhook_signature is enabled"
+            )
+            frappe.log_error(
+                title="Ponto webhook rejected - missing signature",
+                message="Webhook request received without signature while require_webhook_signature is enabled. "
+                "This could indicate an attack attempt or misconfigured webhook source.",
+            )
+            frappe.local.response["http_status_code"] = 401
+            return {"status": "error", "message": "Webhook signature required"}
         else:
-            # No signature provided - log but continue
-            # Some webhook setups may not include signatures
-            frappe.logger().info("Ponto webhook received without signature")
+            # No signature provided but signatures not required (development mode)
+            frappe.logger().warning(
+                "Ponto webhook received without signature - INSECURE MODE. "
+                "Enable require_webhook_signature in Ponto Settings for production."
+            )
 
         # Parse the webhook payload
         try:
@@ -133,8 +220,19 @@ def handle_ponto_webhook():
         # Ponto uses JSON:API format, so event type may be in different locations
         event_type = extract_event_type(event_data)
 
+        # Extract webhook ID for logging (use data.id or generate one)
+        webhook_id = event_data.get("data", {}).get("id", "") or f"ponto_{frappe.utils.now()}"
+        raw_payload_str = payload.decode("utf-8") if isinstance(payload, bytes) else str(payload)
+
         if not event_type:
             frappe.logger().warning(f"Unknown webhook event format: {event_data}")
+            _create_webhook_log(
+                webhook_id=webhook_id,
+                webhook_type="ponto_sync",
+                raw_payload=raw_payload_str,
+                status="error",
+                error_details="Unknown event format",
+            )
             frappe.local.response["http_status_code"] = 400
             return {"status": "error", "message": "Unknown event format"}
 
@@ -143,6 +241,15 @@ def handle_ponto_webhook():
 
         # Process the event
         result = process_webhook_event(event_type, event_data)
+
+        # Log successful processing
+        _create_webhook_log(
+            webhook_id=webhook_id,
+            webhook_type=_get_webhook_type_from_event(event_type),
+            raw_payload=raw_payload_str,
+            status="success",
+            processing_result=json.dumps(result, default=str),
+        )
 
         return {
             "status": "success",
@@ -156,6 +263,18 @@ def handle_ponto_webhook():
             title="Ponto webhook processing error",
             message=str(e),
         )
+        # Log the error
+        try:
+            raw_payload_str = payload.decode("utf-8") if isinstance(payload, bytes) else str(payload)
+            _create_webhook_log(
+                webhook_id=f"ponto_error_{frappe.utils.now()}",
+                webhook_type="ponto_sync",
+                raw_payload=raw_payload_str,
+                status="error",
+                error_details=str(e),
+            )
+        except Exception:
+            pass  # Don't fail on logging errors
         frappe.local.response["http_status_code"] = 400
         return {"status": "error", "message": str(e)}
 
@@ -165,6 +284,18 @@ def handle_ponto_webhook():
             title="Ponto webhook unexpected error",
             message=str(e),
         )
+        # Log the error
+        try:
+            raw_payload_str = payload.decode("utf-8") if isinstance(payload, bytes) else str(payload)
+            _create_webhook_log(
+                webhook_id=f"ponto_error_{frappe.utils.now()}",
+                webhook_type="ponto_sync",
+                raw_payload=raw_payload_str,
+                status="error",
+                error_details=str(e),
+            )
+        except Exception:
+            pass  # Don't fail on logging errors
         frappe.local.response["http_status_code"] = 500
         return {"status": "error", "message": "Internal server error"}
 
@@ -434,6 +565,7 @@ def handle_payment_request_closed(event_data: Dict[str, Any]) -> Dict[str, Any]:
     (executed, rejected, failed, cancelled).
 
     Updates the corresponding Ponto Payment Request document status.
+    Uses explicit transaction boundaries for data integrity.
     """
     payment_id = extract_payment_request_id(event_data)
     new_status = extract_payment_status(event_data)
@@ -469,24 +601,34 @@ def handle_payment_request_closed(event_data: Dict[str, Any]) -> Dict[str, Any]:
     mapped_status = status_map.get(new_status.lower() if new_status else "", None)
 
     if mapped_status:
+        updated_requests = []
+        failed_requests = []
+
         for pr in payment_requests:
+            # Use savepoint for each update to isolate failures
+            savepoint_name = f"payment_status_{pr.name}"
             try:
+                frappe.db.savepoint(savepoint_name)
                 doc = frappe.get_doc("Ponto Payment Request", pr.name)
                 doc.update_status_from_webhook(mapped_status)
                 frappe.logger().info(f"Updated Ponto Payment Request {pr.name} to status {mapped_status}")
+                updated_requests.append(pr.name)
             except Exception as e:
+                frappe.db.rollback(save_point=savepoint_name)
                 frappe.logger().error(f"Failed to update Ponto Payment Request {pr.name}: {e}")
                 frappe.log_error(
                     title=f"Payment webhook status update failed: {pr.name}",
                     message=str(e),
                 )
+                failed_requests.append(pr.name)
 
         return {
             "handled": True,
             "action": "status_updated",
             "payment_id": payment_id,
             "new_status": mapped_status,
-            "updated_requests": [pr.name for pr in payment_requests],
+            "updated_requests": updated_requests,
+            "failed_requests": failed_requests if failed_requests else None,
         }
 
     return {"handled": True, "action": "logged", "reason": "unknown_status"}
@@ -550,6 +692,9 @@ def _update_payment_link_status(
     """
     Common helper to update Ponto Payment Link status.
 
+    Uses explicit transaction boundaries (savepoints) for data integrity.
+    Each payment link update is isolated so failures don't affect others.
+
     Args:
         request_id: Ponto request ID
         new_status: New status value
@@ -586,24 +731,34 @@ def _update_payment_link_status(
     mapped_status = status_map.get(new_status.lower() if new_status else "", None)
 
     if mapped_status:
+        updated_links = []
+        failed_links = []
+
         for pl in payment_links:
+            # Use savepoint for each update to isolate failures
+            savepoint_name = f"payment_link_status_{pl.name}"
             try:
+                frappe.db.savepoint(savepoint_name)
                 doc = frappe.get_doc("Ponto Payment Link", pl.name)
                 doc.update_status_from_webhook(mapped_status, debtor_info)
                 frappe.logger().info(f"Updated Ponto Payment Link {pl.name} to status {mapped_status}")
+                updated_links.append(pl.name)
             except Exception as e:
+                frappe.db.rollback(save_point=savepoint_name)
                 frappe.logger().error(f"Failed to update Ponto Payment Link {pl.name}: {e}")
                 frappe.log_error(
                     title=f"Payment link webhook status update failed: {pl.name}",
                     message=str(e),
                 )
+                failed_links.append(pl.name)
 
         return {
             "handled": True,
             "action": "status_updated",
             "request_id": request_id,
             "new_status": mapped_status,
-            "updated_links": [pl.name for pl in payment_links],
+            "updated_links": updated_links,
+            "failed_links": failed_links if failed_links else None,
         }
 
     return {"handled": True, "action": "logged", "reason": "unknown_status"}
@@ -691,6 +846,10 @@ def handle_periodic_payment_execution(event_data: Dict[str, Any]) -> Dict[str, A
 
     This event is sent each time a recurring payment is executed.
     Used to track individual payment executions in a standing order.
+
+    Uses explicit transaction boundaries (savepoints) for data integrity.
+    Each payment link update is atomic - counter, payment processing, and
+    debtor info updates are committed together or rolled back together.
     """
     request_id = extract_payment_link_id(event_data)
     debtor_info = extract_debtor_info(event_data)
@@ -712,8 +871,15 @@ def handle_periodic_payment_execution(event_data: Dict[str, Any]) -> Dict[str, A
         frappe.logger().warning(f"No Ponto Payment Link found for request ID: {request_id}")
         return {"handled": True, "action": "logged", "reason": "payment_link_not_found"}
 
+    updated_links = []
+    failed_links = []
+
     for pl in payment_links:
+        # Use savepoint for each payment link - all operations within are atomic
+        savepoint_name = f"periodic_payment_{pl.name}"
         try:
+            frappe.db.savepoint(savepoint_name)
+
             doc = frappe.get_doc("Ponto Payment Link", pl.name)
 
             # Increment payment counter
@@ -730,23 +896,29 @@ def handle_periodic_payment_execution(event_data: Dict[str, Any]) -> Dict[str, A
                     doc.debtor_iban = debtor_info["iban"]
                 if debtor_info.get("bank"):
                     doc.debtor_bank = debtor_info["bank"]
+                # SECURITY JUSTIFICATION: Webhook handler processes external Ponto callbacks.
+                # No user session during webhook processing. Audit trail via webhook event logs.
                 doc.save(ignore_permissions=True)
 
             frappe.logger().info(
                 f"Processed periodic payment execution for {pl.name}, "
                 f"total payments: {doc.total_payments_collected}"
             )
+            updated_links.append(pl.name)
 
         except Exception as e:
+            frappe.db.rollback(save_point=savepoint_name)
             frappe.logger().error(f"Failed to process periodic payment execution for {pl.name}: {e}")
             frappe.log_error(
                 title=f"Periodic payment execution failed: {pl.name}",
                 message=str(e),
             )
+            failed_links.append(pl.name)
 
     return {
         "handled": True,
         "action": "payment_processed",
         "request_id": request_id,
-        "updated_links": [pl.name for pl in payment_links],
+        "updated_links": updated_links,
+        "failed_links": failed_links if failed_links else None,
     }

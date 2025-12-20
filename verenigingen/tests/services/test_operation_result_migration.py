@@ -121,7 +121,8 @@ class TestMemberLifecycleServiceMigration(EnhancedTestCase):
         # Verify member was updated
         member.reload()
         self.assertEqual(member.status, "Rejected")
-        self.assertEqual(member.rejection_reason, reason)
+        # The rejection reason is stored in review_notes field (not rejection_reason which doesn't exist)
+        self.assertEqual(member.review_notes, reason)
 
     def test_reject_application_not_application_member(self):
         """Test reject_application fails for non-application member."""

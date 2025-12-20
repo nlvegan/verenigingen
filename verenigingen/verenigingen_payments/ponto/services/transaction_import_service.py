@@ -50,7 +50,7 @@ def import_new_transactions(
         }
     """
     try:
-        frappe.logger().info(f"Starting transaction import for Ponto account {account_id}")
+        frappe.logger().debug(f"Starting transaction import for Ponto account {account_id}")
 
         # Get configuration
         from verenigingen.verenigingen_payments.ponto.services.configuration_service import get_ponto_config
@@ -69,7 +69,7 @@ def import_new_transactions(
             }
 
         if not mapping.get("enabled"):
-            frappe.logger().info(f"Ponto account {account_id} is disabled, skipping import")
+            frappe.logger().debug(f"Ponto account {account_id} is disabled, skipping import")
             return {
                 "success": True,
                 "imported": 0,

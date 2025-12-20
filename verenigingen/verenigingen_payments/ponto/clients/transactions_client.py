@@ -75,7 +75,7 @@ class PontoTransactionsClient:
                 details={"account_id": account_id},
             )
 
-        frappe.logger().info(
+        frappe.logger().debug(
             f"Fetching Ponto transactions for account {account_id}"
             + (f" from {from_date}" if from_date else "")
             + (f" to {to_date}" if to_date else "")
@@ -100,7 +100,7 @@ class PontoTransactionsClient:
         if from_date or to_date:
             transactions = self._filter_by_date(transactions, from_date, to_date)
 
-        frappe.logger().info(f"Found {len(transactions)} Ponto transactions for account {account_id}")
+        frappe.logger().debug(f"Found {len(transactions)} Ponto transactions for account {account_id}")
 
         return transactions
 

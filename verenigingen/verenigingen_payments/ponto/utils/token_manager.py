@@ -91,10 +91,25 @@ class PontoTokenManager:
         self._cleanup_temp_files()
 
     def _cleanup_temp_files(self):
-        """Remove temporary certificate and key files."""
+        """
+        Securely remove temporary certificate and key files.
+
+        Uses secure deletion (overwrite before delete) for key files
+        to prevent recovery of sensitive cryptographic material.
+        """
         for filepath in self._temp_files:
             try:
                 if filepath and os.path.exists(filepath):
+                    # Secure delete: overwrite with random data before unlinking
+                    try:
+                        file_size = os.path.getsize(filepath)
+                        for _pass in range(3):  # Multiple overwrite passes
+                            with open(filepath, "wb") as f:
+                                f.write(os.urandom(file_size))
+                                f.flush()
+                                os.fsync(f.fileno())
+                    except Exception:
+                        pass  # Fall through to unlink
                     os.unlink(filepath)
             except Exception:
                 pass
@@ -151,7 +166,7 @@ class PontoTokenManager:
             self._temp_files.append(key_file.name)
 
             self._cert_files = (cert_file.name, key_file.name)
-            frappe.logger().info("Ponto TokenManager mTLS configured")
+            frappe.logger().debug("Ponto TokenManager mTLS configured")
 
         except Exception as e:
             frappe.logger().error(f"Failed to setup mTLS for token manager: {e}")
@@ -249,7 +264,7 @@ class PontoTokenManager:
                 pass
 
         # Fetch new token using client_credentials (MyPonto only)
-        frappe.logger().info("Fetching new Ponto access token")
+        frappe.logger().debug("Fetching new Ponto access token")
         return self._fetch_new_token()
 
     def _fetch_new_token(self) -> str:
@@ -270,10 +285,10 @@ class PontoTokenManager:
         # Choose endpoint based on mTLS configuration
         if self._use_mtls:
             token_url = self.IBANITY_TOKEN_URL
-            frappe.logger().info(f"Fetching token from Ibanity mTLS endpoint: {token_url}")
+            frappe.logger().debug(f"Fetching token from Ibanity mTLS endpoint: {token_url}")
         else:
             token_url = self.MYPONTO_TOKEN_URL
-            frappe.logger().info(f"Fetching token from MyPonto endpoint: {token_url}")
+            frappe.logger().debug(f"Fetching token from MyPonto endpoint: {token_url}")
 
         try:
             # Build request kwargs
@@ -337,6 +352,9 @@ class PontoTokenManager:
         )
 
         # Update settings with expiry time for visibility
+        # SECURITY JUSTIFICATION: Token refresh is a system operation triggered by OAuth2 flow.
+        # No user context available during background token refresh. Audit trail maintained via
+        # access_token_expiry timestamp field. Only updating non-sensitive timestamp field.
         try:
             settings = frappe.get_single("Ponto Settings")
             settings.access_token_expiry = expiry_time
@@ -358,7 +376,7 @@ class PontoTokenManager:
         cache = frappe.cache()
         cache.delete_value(self.TOKEN_CACHE_KEY)
         cache.delete_value(self.EXPIRY_CACHE_KEY)
-        frappe.logger().info("Invalidated Ponto access token cache")
+        frappe.logger().debug("Invalidated Ponto access token cache")
 
     def refresh_token(self) -> str:
         """
@@ -383,7 +401,7 @@ class PontoTokenManager:
         cache = frappe.cache()
         cache.delete_value(cls.TOKEN_CACHE_KEY)
         cache.delete_value(cls.EXPIRY_CACHE_KEY)
-        frappe.logger().info("Cleared Ponto token cache")
+        frappe.logger().debug("Cleared Ponto token cache")
 
 
 def get_token_manager() -> PontoTokenManager:

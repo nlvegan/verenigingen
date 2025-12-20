@@ -74,7 +74,7 @@ class PontoSyncClient:
                 "message": "Account ID is required",
             }
 
-        frappe.logger().info(f"Triggering Ponto sync for account {account_id}")
+        frappe.logger().debug(f"Triggering Ponto sync for account {account_id}")
 
         try:
             # POST to synchronizations endpoint
@@ -89,7 +89,7 @@ class PontoSyncClient:
             if response and "data" in response:
                 sync_id = response["data"].get("id")
 
-            frappe.logger().info(f"Ponto sync triggered for {account_id}, sync_id={sync_id}")
+            frappe.logger().debug(f"Ponto sync triggered for {account_id}, sync_id={sync_id}")
 
             return {
                 "status": "success",
@@ -104,7 +104,7 @@ class PontoSyncClient:
 
             # Rate limit or sync already in progress
             if error_code in ("synchronizationInProgress", "rateLimitExceeded"):
-                frappe.logger().info(f"Ponto sync already in progress or rate limited for {account_id}")
+                frappe.logger().debug(f"Ponto sync already in progress or rate limited for {account_id}")
                 return {
                     "status": "pending",
                     "message": str(e),
@@ -113,7 +113,7 @@ class PontoSyncClient:
             # 404 means endpoint not available (might require user OAuth flow)
             # This is OK - Ponto auto-syncs periodically, we can still import
             if status_code == 404 or error_code == "resourceNotFound":
-                frappe.logger().info(
+                frappe.logger().debug(
                     f"Ponto sync endpoint not available for {account_id} "
                     "(may require user OAuth). Continuing with existing transactions."
                 )

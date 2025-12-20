@@ -38,7 +38,7 @@
       "fieldtype": "Select",
       "in_list_view": 1,
       "label": "Webhook Type",
-      "options": "\npayment\nsubscription\ncustomer\nchargeback",
+      "options": "\npayment\nsubscription\ncustomer\nchargeback\nponto_sync\nponto_payment\nponto_account",
       "reqd": 1
     },
     {

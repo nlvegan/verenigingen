@@ -40,6 +40,7 @@ from typing import Any, Dict, List, Optional
 import frappe
 from frappe import _
 
+from verenigingen.utils.validation.iban_validator import validate_iban
 from verenigingen.verenigingen_payments.ponto.core.ponto_client import PontoClient
 from verenigingen.verenigingen_payments.ponto.exceptions import PontoAPIError, PontoIntegrationError
 
@@ -159,6 +160,30 @@ class PontoPaymentClient:
             raise PontoIntegrationError(
                 message="Payment amount must be positive",
                 details={"amount": amount},
+            )
+
+        # SEPA amount limits and precision
+        SEPA_MAX_AMOUNT = 999999999.99
+        if amount > SEPA_MAX_AMOUNT:
+            raise PontoIntegrationError(
+                message=f"Payment amount exceeds SEPA maximum of {SEPA_MAX_AMOUNT:,.2f} EUR",
+                details={"amount": amount, "max_allowed": SEPA_MAX_AMOUNT},
+            )
+
+        # Validate decimal precision (max 2 decimal places for EUR)
+        amount_cents = round(amount * 100, 6)
+        if abs(amount_cents - round(amount_cents)) > 0.0001:
+            raise PontoIntegrationError(
+                message="Payment amount must have at most 2 decimal places",
+                details={"amount": amount},
+            )
+
+        # Validate creditor IBAN
+        iban_validation = validate_iban(creditor_iban)
+        if not iban_validation.get("valid"):
+            raise PontoIntegrationError(
+                message=f"Invalid creditor IBAN: {iban_validation.get('message', 'Validation failed')}",
+                details={"creditor_iban": creditor_iban},
             )
 
         # Build payment request payload (JSON:API format)

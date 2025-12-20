@@ -166,7 +166,7 @@ class PontoTransactionImporter:
         bank_account = bank_account or self._config.get_bank_account()
         company = company or self._config.get_default_company()
 
-        frappe.logger().info(
+        frappe.logger().debug(
             f"Starting Ponto transaction import for account {account_id}"
             + (f" from {from_date}" if from_date else "")
             + (f" to {to_date}" if to_date else "")
@@ -181,7 +181,7 @@ class PontoTransactionImporter:
             max_pages=max_pages,
         )
 
-        frappe.logger().info(f"Fetched {len(transactions)} transactions from Ponto")
+        frappe.logger().debug(f"Fetched {len(transactions)} transactions from Ponto")
 
         # Import each transaction
         result = ImportResult()
