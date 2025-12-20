@@ -63,15 +63,16 @@ class PontoOAuth2Service:
     DEFAULT_SCOPES = "ai pi name offline_access"
 
     # Cache keys
+    # NOTE: Refresh token is NOT cached - always read from database.
+    # Redis cache gets cleared too easily (bench restart, cache clear, etc.)
+    # and losing the refresh token requires full re-authorization.
     STATE_CACHE_KEY = "ponto_oauth2_state"
     CODE_VERIFIER_CACHE_KEY = "ponto_oauth2_code_verifier"
     ACCESS_TOKEN_CACHE_KEY = "ponto_ibanity_access_token"
-    REFRESH_TOKEN_CACHE_KEY = "ponto_ibanity_refresh_token"
     TOKEN_EXPIRY_CACHE_KEY = "ponto_ibanity_token_expiry"
 
     # Cache TTL settings (seconds)
     STATE_CACHE_TTL = 600  # 10 minutes - OAuth2 state/code_verifier expiry
-    REFRESH_TOKEN_CACHE_TTL = 86400 * 30  # 30 days - Refresh token cache
 
     # Access token storage failure tracking
     ACCESS_TOKEN_STORAGE_FAILURES_KEY = "ponto_access_token_storage_failures"
@@ -535,15 +536,11 @@ class PontoOAuth2Service:
             # Non-critical - just for UI visibility
             frappe.logger().warning(f"Could not update access_token_expiry: {e}")
 
-        # Step 4: Update cache (convenience, can be regenerated from DB if lost)
+        # Step 4: Update access token cache (convenience, can be regenerated from DB if lost)
+        # NOTE: Refresh token is NOT cached - see class docstring for rationale
         cache = frappe.cache()
         cache.set_value(self.ACCESS_TOKEN_CACHE_KEY, access_token, expires_in_sec=expires_in)
         cache.set_value(self.TOKEN_EXPIRY_CACHE_KEY, expiry_time.isoformat(), expires_in_sec=expires_in)
-
-        if refresh_token:
-            cache.set_value(
-                self.REFRESH_TOKEN_CACHE_KEY, refresh_token, expires_in_sec=self.REFRESH_TOKEN_CACHE_TTL
-            )
 
         frappe.logger().debug(f"Ponto tokens stored, access token expires at {expiry_time.isoformat()}")
 
@@ -622,22 +619,19 @@ class PontoOAuth2Service:
             frappe.logger().debug(f"Could not get access token from database: {e}")
 
         # Step 3: Refresh using refresh token (last resort)
-        # Try cache first for refresh token
-        refresh_token = cache.get_value(self.REFRESH_TOKEN_CACHE_KEY)
-        if isinstance(refresh_token, bytes):
-            refresh_token = refresh_token.decode("utf-8")
-
-        # Fall back to database-stored refresh token if cache is empty
-        if not refresh_token:
-            try:
-                # Reuse settings if already loaded, otherwise fetch
-                if settings is None:
-                    settings = frappe.get_single("Ponto Settings")
-                refresh_token = settings.get_password("ibanity_refresh_token")
-                if refresh_token:
-                    frappe.logger().debug("Retrieved refresh token from database (cache was empty)")
-            except Exception as e:
-                frappe.logger().debug(f"Could not get refresh token from database: {e}")
+        # ALWAYS read refresh token from database - never cache it.
+        # Redis cache gets cleared too easily and losing the refresh token
+        # requires full re-authorization with Ibanity.
+        refresh_token = None
+        try:
+            # Reuse settings if already loaded, otherwise fetch
+            if settings is None:
+                settings = frappe.get_single("Ponto Settings")
+            refresh_token = settings.get_password("ibanity_refresh_token")
+            if refresh_token:
+                frappe.logger().debug("Retrieved refresh token from database")
+        except Exception as e:
+            frappe.logger().debug(f"Could not get refresh token from database: {e}")
 
         if refresh_token:
             # Use distributed lock to prevent race conditions
@@ -739,7 +733,6 @@ class PontoOAuth2Service:
         """Clear all stored tokens (cache and database)."""
         cache = frappe.cache()
         cache.delete_value(self.ACCESS_TOKEN_CACHE_KEY)
-        cache.delete_value(self.REFRESH_TOKEN_CACHE_KEY)
         cache.delete_value(self.TOKEN_EXPIRY_CACHE_KEY)
 
         # Also clear database-stored refresh token

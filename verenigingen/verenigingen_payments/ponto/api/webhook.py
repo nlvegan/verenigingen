@@ -35,8 +35,29 @@ from frappe import _
 from frappe.utils import now_datetime
 
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
+from verenigingen.utils.service_user import get_service_user
 from verenigingen.verenigingen_payments.ponto.exceptions import PontoWebhookError
 from verenigingen.verenigingen_payments.ponto.utils.webhook_security import verify_ponto_webhook
+
+
+def _get_webhook_user() -> str:
+    """
+    Get the configured webhook user for background job execution.
+
+    Webhook handlers run as Guest (allow_guest=True), but background jobs
+    need a proper user context with appropriate permissions.
+
+    Returns:
+        str: Username from Verenigingen Payments Settings, or 'Administrator' as fallback
+
+    Raises:
+        ValueError: If no valid user is available
+    """
+    return get_service_user(
+        settings_doctype="Verenigingen Payments Settings",
+        user_field="webhook_user",
+        service_name="Ponto Webhook",
+    )
 
 
 def _create_webhook_log(
@@ -510,12 +531,14 @@ def handle_sync_succeeded(event_data: Dict[str, Any]) -> Dict[str, Any]:
 
     # Trigger transaction import
     if account_id:
-        # Queue transaction import job
+        # Queue transaction import job with proper user context
+        # Webhook runs as Guest, but background jobs need a user with permissions
         frappe.enqueue(
             "verenigingen.verenigingen_payments.ponto.services.transaction_import_service.import_new_transactions",
             account_id=account_id,
             queue="short",
             timeout=300,
+            user=_get_webhook_user(),
         )
         return {"handled": True, "action": "transaction_import_queued", "account_id": account_id}
 
@@ -621,12 +644,13 @@ def handle_transactions_created(event_data: Dict[str, Any]) -> Dict[str, Any]:
     frappe.logger().info(f"New Ponto transactions created for account {account_id}")
 
     if account_id:
-        # Queue transaction import
+        # Queue transaction import with proper user context
         frappe.enqueue(
             "verenigingen.verenigingen_payments.ponto.services.transaction_import_service.import_new_transactions",
             account_id=account_id,
             queue="short",
             timeout=300,
+            user=_get_webhook_user(),
         )
         return {"handled": True, "action": "transaction_import_queued"}
 
