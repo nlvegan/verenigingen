@@ -2931,31 +2931,77 @@ class EnhancedTestCase(FrappeTestCase):
             membership_type_name = "Test Type"
         unique_name = f"{membership_type_name}-{int(time.time() * 1000)}"
 
-        # Get a dues schedule template if available
-        template = frappe.db.get_value(
-            "Membership Dues Schedule",
-            {"is_template": 1},
-            "name"
-        )
+        # Get or create a role profile (mandatory field)
+        role_profile = kwargs.get("role_profile")
+        if not role_profile:
+            role_profile = frappe.db.get_value("Role Profile", {"name": "Verenigingen Member"})
+            if not role_profile:
+                # Create a minimal test role profile
+                test_profile = frappe.new_doc("Role Profile")
+                test_profile.role_profile = "Test Member Profile"
+                # Check if the role exists before adding
+                if frappe.db.exists("Role", "Verenigingen Member"):
+                    test_profile.append("roles", {"role": "Verenigingen Member"})
+                test_profile.insert(ignore_permissions=True)
+                role_profile = test_profile.name
+                self.factory.track_document("Role Profile", role_profile, priority=0)
 
+        # Create the membership type first (templates require membership_type link)
         membership_type = frappe.new_doc("Membership Type")
         membership_type.membership_type_name = unique_name
-        membership_type.amount = amount
         membership_type.is_active = 1
         membership_type.contribution_mode = kwargs.get("contribution_mode", "Fixed Amount")
+        membership_type.minimum_amount = kwargs.get("minimum_amount", amount)
+        membership_type.role_profile = role_profile
 
-        if template:
-            membership_type.dues_schedule_template = template
-
-        # Apply any additional kwargs
+        # Apply any additional kwargs (except dues_schedule_template which we handle below)
         for key, value in kwargs.items():
-            if hasattr(membership_type, key):
+            if key != "dues_schedule_template" and hasattr(membership_type, key):
                 setattr(membership_type, key, value)
 
+        # Insert membership type first (required before creating template)
         membership_type.insert()
-
-        # Track for cleanup
         self.factory.track_document("Membership Type", membership_type.name, priority=1)
+
+        # Now get or create a dues schedule template linked to this membership type
+        # Note: Membership Type's after_insert automatically creates a template with default amounts
+        # We need to update that template with the correct amounts for our test
+        template = kwargs.get("dues_schedule_template")
+        if not template:
+            # Try to find an existing template for THIS specific membership type
+            # (likely created by Membership Type's after_insert hook)
+            template = frappe.db.get_value(
+                "Membership Dues Schedule",
+                {"is_template": 1, "membership_type": membership_type.name},
+                "name"
+            )
+
+        if template:
+            # Update existing template with correct amounts
+            # This is necessary because after_insert creates templates with default 15.0 amounts
+            template_doc = frappe.get_doc("Membership Dues Schedule", template)
+            template_doc.suggested_amount = amount
+            template_doc.dues_rate = amount  # Must also set dues_rate as it's used in validation
+            template_doc.minimum_amount = amount * 0.5
+            template_doc.save(ignore_permissions=True)
+        else:
+            # Create a new template for this membership type
+            test_template = frappe.new_doc("Membership Dues Schedule")
+            test_template.schedule_name = f"{unique_name} Template"
+            test_template.is_template = 1
+            test_template.status = "Active"
+            test_template.billing_frequency = "Quarterly"
+            test_template.suggested_amount = amount
+            test_template.dues_rate = amount  # Set dues_rate to match suggested_amount
+            test_template.minimum_amount = amount * 0.5
+            test_template.membership_type = membership_type.name
+            test_template.insert(ignore_permissions=True)
+            template = test_template.name
+            self.factory.track_document("Membership Dues Schedule", template, priority=0)
+
+        # Link the template to the membership type
+        membership_type.dues_schedule_template = template
+        membership_type.save()
 
         return membership_type
 
