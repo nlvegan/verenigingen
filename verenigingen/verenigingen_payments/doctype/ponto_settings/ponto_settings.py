@@ -28,6 +28,27 @@ class PontoSettings(Document):
         self.validate_sync_interval()
         self.update_webhook_url()
 
+    def before_save(self):
+        """
+        Protect OAuth2 token fields from being deleted during save.
+
+        Frappe's _save_passwords() deletes Password fields from __Auth when
+        they appear empty in the document. Since we store tokens directly via
+        set_encrypted_password() (not through document fields), they appear
+        empty and get deleted on any save().
+
+        This hook tells Frappe to ignore these specific fields.
+        """
+        # Initialize if not already a list
+        if not isinstance(self.flags.ignore_save_passwords, list):
+            self.flags.ignore_save_passwords = []
+
+        # Protect OAuth2 token fields
+        token_fields = ["ibanity_refresh_token", "ibanity_access_token"]
+        for field in token_fields:
+            if field not in self.flags.ignore_save_passwords:
+                self.flags.ignore_save_passwords.append(field)
+
     def on_update(self):
         """Actions after settings are saved."""
         # Clear configuration cache
