@@ -573,14 +573,10 @@ class PontoSettings(Document):
             # Use PontoClient which handles mTLS if configured
             client = PontoClient()
 
-            # The userinfo endpoint path for Ibanity mTLS API
-            # For myponto.com it would be different, but mTLS uses ibanity.com
-            if client._use_mtls:
-                # Ibanity API userinfo endpoint
-                userinfo_endpoint = "/ponto-connect/userinfo"
-            else:
-                # Try multiple endpoints for non-mTLS (OAuth2 only)
-                userinfo_endpoint = "/userinfo"
+            # The userinfo endpoint path
+            # PontoClient.BASE_URL already includes /ponto-connect when mTLS is enabled,
+            # so we just use /userinfo in both cases
+            userinfo_endpoint = "/userinfo"
 
             try:
                 user_info = client.get(userinfo_endpoint)
