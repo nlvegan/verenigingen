@@ -115,16 +115,26 @@ class PontoWebhookVerifier:
 
     def _fetch_jwks_with_mtls(self) -> dict:
         """
-        Fetch JWKS using mTLS authentication.
+        Fetch JWKS using mTLS authentication with caching.
+
+        Uses Frappe's cache to store JWKS keys, falling back to cached keys
+        if Ibanity's endpoint is temporarily unavailable (503 errors).
 
         Returns:
             JWKS response as dict
 
         Raises:
-            PontoWebhookError: If fetch fails
+            PontoWebhookError: If fetch fails and no cached keys available
         """
+        # Try to get from cache first
+        cached_jwks = frappe.cache().get_value(self.JWKS_CACHE_KEY)
+
         with SecureCertManager() as cert_manager:
             if not cert_manager.setup_from_settings():
+                # If we have cached keys, use them during cert setup issues
+                if cached_jwks:
+                    frappe.logger().warning("mTLS cert setup failed, using cached JWKS keys")
+                    return cached_jwks
                 raise PontoWebhookError(
                     message="Failed to setup mTLS certificates for JWKS fetch",
                     details={"jwks_url": self.jwks_url},
@@ -138,11 +148,31 @@ class PontoWebhookVerifier:
                     timeout=30,
                 )
                 response.raise_for_status()
-                return response.json()
+                jwks_data = response.json()
+
+                # Cache the successful response
+                frappe.cache().set_value(
+                    self.JWKS_CACHE_KEY,
+                    jwks_data,
+                    expires_in_sec=self.JWKS_CACHE_TTL,
+                )
+
+                return jwks_data
+
             except requests.RequestException as e:
+                # If we have cached keys and this is a temporary error, use cache
+                error_str = str(e)
+                is_temporary = any(
+                    code in error_str for code in ["503", "502", "504", "Connection", "Timeout"]
+                )
+
+                if cached_jwks and is_temporary:
+                    frappe.logger().warning(f"JWKS fetch failed ({error_str}), using cached keys")
+                    return cached_jwks
+
                 raise PontoWebhookError(
                     message="Failed to fetch JWKS with mTLS",
-                    details={"error": str(e), "jwks_url": self.jwks_url},
+                    details={"error": error_str, "jwks_url": self.jwks_url},
                 )
 
     def _fetch_signing_key(self, token: str):
@@ -364,9 +394,9 @@ def verify_ponto_webhook(
     # Get application ID from settings if not provided
     if not application_id:
         settings = frappe.get_single("Ponto Settings")
-        # For Ponto Connect, the application ID is typically the client_id
-        # or a separate application identifier
-        application_id = settings.get_active_client_id()
+        # Use dedicated webhook application ID (from Ibanity developer console)
+        # Falls back to client_id if webhook_application_id not set
+        application_id = settings.get_webhook_application_id()
 
     if not application_id:
         raise PontoWebhookError(

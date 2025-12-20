@@ -110,6 +110,58 @@ def _get_webhook_type_from_event(event_type: str) -> str:
         return "ponto_sync"
 
 
+def _update_account_sync_status(
+    account_id: str,
+    status: str = "OK",
+    error: str = None,
+) -> bool:
+    """
+    Update the sync status on the Ponto Bank Account Mapping atomically.
+
+    Uses direct database updates to avoid read-modify-write race conditions
+    when multiple webhooks arrive concurrently.
+
+    Args:
+        account_id: Ponto account UUID
+        status: Sync status - "OK", "Failed", or "Needs Re-authorization"
+        error: Error message if status is Failed
+
+    Returns:
+        True if updated, False if account mapping not found
+    """
+    try:
+        # Check if mapping exists first
+        mapping_name = frappe.db.get_value(
+            "Ponto Bank Account Mapping", {"parent": "Ponto Settings", "ponto_account_id": account_id}, "name"
+        )
+
+        if not mapping_name:
+            frappe.logger().warning(f"No bank account mapping found for Ponto account {account_id}")
+            return False
+
+        # Build atomic update based on status
+        update_fields = {"sync_status": status}
+
+        if status == "OK":
+            update_fields["last_sync_time"] = now_datetime()
+            # Clear error on successful sync
+            update_fields["last_sync_error"] = None
+        elif status in ("Failed", "Needs Re-authorization"):
+            update_fields["last_sync_failure_time"] = now_datetime()
+            update_fields["last_sync_error"] = error
+
+        # Atomic update - no read-modify-write race condition
+        frappe.db.set_value("Ponto Bank Account Mapping", mapping_name, update_fields, update_modified=False)
+        frappe.db.commit()
+
+        frappe.logger().debug(f"Updated sync status for account {account_id}: {status}")
+        return True
+
+    except Exception as e:
+        frappe.logger().error(f"Failed to update account sync status: {e}")
+        return False
+
+
 # Ponto Connect webhook event types
 class PontoEventTypes:
     """Constants for Ponto webhook event types."""
@@ -452,6 +504,10 @@ def handle_sync_succeeded(event_data: Dict[str, Any]) -> Dict[str, Any]:
     account_id = extract_account_id(event_data)
     frappe.logger().info(f"Ponto sync succeeded for account {account_id}")
 
+    # Update bank account mapping sync status
+    if account_id:
+        _update_account_sync_status(account_id, status="OK")
+
     # Trigger transaction import
     if account_id:
         # Queue transaction import job
@@ -467,24 +523,81 @@ def handle_sync_succeeded(event_data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def handle_sync_failed(event_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle synchronization failed event."""
+    """
+    Handle synchronization failed event.
+
+    These failures occur when Ponto cannot sync with the bank (bank-side issue).
+    Common causes:
+    - Bank session expired (needs re-authorization in Ponto)
+    - Bank API temporarily unavailable
+    - Rate limiting by the bank
+    - Network issues between Ponto and bank
+
+    The sync_subtype indicates what was being synced:
+    - accountDetails: Account balance/details
+    - accountTransactionsWithUnsettled: Transactions including pending ones
+    """
     account_id = extract_account_id(event_data)
 
-    # Extract error details
+    # Extract error details from Ponto's response
     error_info = {}
     if "data" in event_data and "attributes" in event_data["data"]:
         attrs = event_data["data"]["attributes"]
         error_info = {
             "error_code": attrs.get("errorCode"),
             "error_message": attrs.get("errorMessage"),
+            "sync_subtype": attrs.get("synchronizationSubtype"),
         }
 
     frappe.logger().warning(f"Ponto sync failed for account {account_id}: {error_info}")
 
-    # Log error for admin review
+    # Determine if this is a re-authorization issue
+    error_code = error_info.get("error_code") or ""
+    error_message = error_info.get("error_message") or ""
+    needs_reauth = any(
+        term in str(error_code).lower() or term in str(error_message).lower()
+        for term in ["authorization", "consent", "expired", "revoked", "reauthorization"]
+    )
+
+    # Update bank account mapping sync status
+    if account_id:
+        if needs_reauth:
+            status = "Needs Re-authorization"
+            error_text = "Bank connection expired. Please re-authorize in Ponto dashboard."
+        else:
+            status = "Failed"
+            # Build user-friendly error message
+            sync_type = error_info.get("sync_subtype", "unknown")
+            sync_type_friendly = {
+                "accountDetails": "account balance sync",
+                "accountTransactionsWithUnsettled": "transaction sync",
+                "accountTransactions": "transaction sync",
+            }.get(sync_type, sync_type)
+
+            if error_message:
+                error_text = f"Bank {sync_type_friendly} failed: {error_message}"
+            elif error_code:
+                error_text = f"Bank {sync_type_friendly} failed (code: {error_code})"
+            else:
+                error_text = f"Bank {sync_type_friendly} failed (no details from bank)"
+
+        _update_account_sync_status(account_id, status=status, error=error_text)
+
+    # Log for admin review - only log to Error Log if it might need attention
+    # These are typically transient bank issues that resolve on next sync
+    sync_subtype = error_info.get("sync_subtype", "unknown")
     frappe.log_error(
-        title=f"Ponto sync failed: {account_id}",
-        message=f"Synchronization failed. Error: {error_info}",
+        title=f"Ponto bank sync failed ({sync_subtype})",
+        message=(
+            f"Ponto's synchronization with the bank failed.\n\n"
+            f"Account ID: {account_id}\n"
+            f"Sync Type: {sync_subtype}\n"
+            f"Error Code: {error_info.get('error_code') or 'None'}\n"
+            f"Error Message: {error_info.get('error_message') or 'None (bank did not provide details)'}\n\n"
+            f"This is typically a temporary issue on the bank's side. "
+            f"The next scheduled sync will retry automatically.\n\n"
+            f"If this persists, check the Ponto dashboard for re-authorization needs."
+        ),
     )
 
     return {"handled": True, "action": "error_logged", "error": error_info}
@@ -494,6 +607,11 @@ def handle_sync_no_change(event_data: Dict[str, Any]) -> Dict[str, Any]:
     """Handle synchronization succeeded without change event."""
     account_id = extract_account_id(event_data)
     frappe.logger().debug(f"Ponto sync completed with no changes for account {account_id}")
+
+    # Update bank account mapping sync status (successful sync, just no new data)
+    if account_id:
+        _update_account_sync_status(account_id, status="OK")
+
     return {"handled": True, "action": "no_action_needed"}
 
 

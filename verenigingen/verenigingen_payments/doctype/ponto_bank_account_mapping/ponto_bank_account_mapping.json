@@ -9,10 +9,16 @@
     "ponto_account_id",
     "ponto_account_name",
     "ponto_iban",
+    "ponto_currency",
     "column_break_mapping",
     "bank_account",
     "last_sync_time",
-    "transactions_imported"
+    "transactions_imported",
+    "sync_status_section",
+    "sync_status",
+    "last_sync_failure_time",
+    "column_break_sync_status",
+    "last_sync_error"
   ],
   "fields": [
     {
@@ -49,6 +55,15 @@
       "read_only": 1
     },
     {
+      "default": "EUR",
+      "description": "Currency of the Ponto account (from API)",
+      "fieldname": "ponto_currency",
+      "fieldtype": "Link",
+      "label": "Currency",
+      "options": "Currency",
+      "read_only": 1
+    },
+    {
       "fieldname": "column_break_mapping",
       "fieldtype": "Column Break"
     },
@@ -73,6 +88,39 @@
       "fieldname": "transactions_imported",
       "fieldtype": "Int",
       "label": "Transactions Imported",
+      "read_only": 1
+    },
+    {
+      "fieldname": "sync_status_section",
+      "fieldtype": "Section Break",
+      "label": "Sync Status"
+    },
+    {
+      "default": "OK",
+      "description": "Current synchronization status from Ponto",
+      "fieldname": "sync_status",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "label": "Sync Status",
+      "options": "OK\nFailed\nNeeds Re-authorization",
+      "read_only": 1
+    },
+    {
+      "description": "When the last sync failure occurred",
+      "fieldname": "last_sync_failure_time",
+      "fieldtype": "Datetime",
+      "label": "Last Failure",
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_sync_status",
+      "fieldtype": "Column Break"
+    },
+    {
+      "description": "Error details from last sync failure",
+      "fieldname": "last_sync_error",
+      "fieldtype": "Small Text",
+      "label": "Last Error",
       "read_only": 1
     }
   ],

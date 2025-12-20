@@ -426,47 +426,81 @@ class PontoConfigurationService:
     @classmethod
     def update_last_sync_time(cls, ponto_account_id: str = None):
         """
-        Update last sync time in settings.
+        Update last sync time in settings atomically.
+
+        Uses direct database updates to avoid "Document has been modified" race conditions
+        when multiple accounts are synced in parallel.
 
         Args:
             ponto_account_id: Ponto account ID that was synced (updates mapping row)
         """
         from frappe.utils import now_datetime
 
-        settings = frappe.get_single("Ponto Settings")
-        settings.last_sync_time = now_datetime()
+        now = now_datetime()
+
+        # Update global sync time atomically
+        frappe.db.set_value(
+            "Ponto Settings",
+            "Ponto Settings",
+            "last_sync_time",
+            now,
+            update_modified=False,
+        )
 
         # Also update the specific mapping row if account_id provided
         if ponto_account_id:
-            for row in settings.bank_account_mappings:
-                if row.ponto_account_id == ponto_account_id:
-                    row.last_sync_time = now_datetime()
-                    break
+            mapping_name = frappe.db.get_value(
+                "Ponto Bank Account Mapping",
+                {"parent": "Ponto Settings", "ponto_account_id": ponto_account_id},
+                "name",
+            )
+            if mapping_name:
+                frappe.db.set_value(
+                    "Ponto Bank Account Mapping",
+                    mapping_name,
+                    "last_sync_time",
+                    now,
+                    update_modified=False,
+                )
 
-        # SECURITY JUSTIFICATION: Sync time update is a system operation triggered by scheduled
-        # jobs or webhook callbacks. No user session during background sync. Audit trail via
-        # last_sync_time timestamp field. Only updating non-sensitive timestamp field.
-        settings.save(ignore_permissions=True)
+        frappe.db.commit()
         cls.clear_cache()
 
     @classmethod
     def increment_transactions_imported(cls, ponto_account_id: str, count: int):
         """
-        Increment the transactions imported counter for an account.
+        Increment the transactions imported counter for an account atomically.
+
+        Uses direct SQL to atomically increment the counter, avoiding race conditions
+        when multiple transactions are imported in quick succession.
 
         Args:
             ponto_account_id: Ponto account UUID
             count: Number of transactions to add
         """
-        settings = frappe.get_single("Ponto Settings")
-        for row in settings.bank_account_mappings:
-            if row.ponto_account_id == ponto_account_id:
-                row.transactions_imported = (row.transactions_imported or 0) + count
-                break
-        # SECURITY JUSTIFICATION: Transaction counter is a system operation triggered by sync jobs.
-        # No user session during background sync. Audit trail via transactions_imported counter.
-        # Only updating non-sensitive statistics field.
-        settings.save(ignore_permissions=True)
+        if count <= 0:
+            return
+
+        # Get the mapping row name for this account
+        mapping_name = frappe.db.get_value(
+            "Ponto Bank Account Mapping",
+            {"parent": "Ponto Settings", "ponto_account_id": ponto_account_id},
+            "name",
+        )
+
+        if not mapping_name:
+            return
+
+        # Use atomic SQL increment to avoid race conditions
+        frappe.db.sql(
+            """
+            UPDATE `tabPonto Bank Account Mapping`
+            SET transactions_imported = COALESCE(transactions_imported, 0) + %s
+            WHERE name = %s
+            """,
+            (count, mapping_name),
+        )
+        frappe.db.commit()
         cls.clear_cache()
 
 

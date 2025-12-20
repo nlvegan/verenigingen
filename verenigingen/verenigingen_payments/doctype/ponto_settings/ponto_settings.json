@@ -62,6 +62,7 @@
     "webhook_section",
     "enable_webhooks",
     "require_webhook_signature",
+    "webhook_application_id",
     "column_break_webhook",
     "webhook_url"
   ],
@@ -436,6 +437,13 @@
       "fieldname": "require_webhook_signature",
       "fieldtype": "Check",
       "label": "Require Webhook Signature"
+    },
+    {
+      "depends_on": "eval:doc.enable_webhooks && doc.require_webhook_signature",
+      "description": "Application ID for webhook JWT verification (from Ibanity developer console). This may differ from OAuth client_id.",
+      "fieldname": "webhook_application_id",
+      "fieldtype": "Data",
+      "label": "Webhook Application ID"
     },
     {
       "fieldname": "column_break_webhook",

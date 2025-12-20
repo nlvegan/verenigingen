@@ -106,6 +106,21 @@ class PontoSettings(Document):
             return self.get_password("sandbox_client_secret", raise_exception=False) or ""
         return self.get_password("production_client_secret", raise_exception=False) or ""
 
+    def get_webhook_application_id(self) -> str:
+        """
+        Get the application ID for webhook JWT verification.
+
+        The webhook application ID (from Ibanity developer console) may differ
+        from the OAuth client_id. Falls back to client_id if not set.
+
+        Returns:
+            str: Application ID for webhook verification
+        """
+        if self.webhook_application_id:
+            return self.webhook_application_id
+        # Fall back to client_id for backwards compatibility
+        return self.get_active_client_id()
+
     def validate_credentials(self) -> bool:
         """
         Test Ponto API credentials by attempting token fetch.
@@ -147,6 +162,72 @@ class PontoSettings(Document):
                 title=_("Credential Validation Failed"),
             )
 
+    def cleanup_duplicate_mappings(self) -> int:
+        """
+        Remove duplicate bank account mappings, keeping the first entry for each IBAN.
+
+        Returns:
+            int: Number of duplicates removed
+        """
+        seen_ibans = set()
+        duplicates_to_remove = []
+
+        for i, row in enumerate(self.bank_account_mappings or []):
+            if row.ponto_iban in seen_ibans:
+                duplicates_to_remove.append(i)
+            else:
+                seen_ibans.add(row.ponto_iban)
+
+        # Remove duplicates in reverse order to preserve indices
+        removed = 0
+        for idx in reversed(duplicates_to_remove):
+            self.bank_account_mappings.pop(idx)
+            removed += 1
+
+        if removed:
+            frappe.logger().info(f"Removed {removed} duplicate bank account mappings")
+
+        return removed
+
+    def _fix_bank_account_currency(self, bank_account_name: str, correct_currency: str) -> bool:
+        """
+        Fix Bank Account currency if it doesn't match.
+
+        Args:
+            bank_account_name: Name of the Bank Account to check/fix
+            correct_currency: The correct currency from Ponto
+
+        Returns:
+            True if currency was fixed, False if already correct or not fixable
+        """
+        try:
+            bank_account = frappe.get_doc("Bank Account", bank_account_name)
+
+            # Bank Account currency comes from the linked GL Account
+            if not bank_account.account:
+                frappe.logger().warning(
+                    f"Bank Account {bank_account_name} has no linked GL Account - cannot check currency"
+                )
+                return False
+
+            gl_account = frappe.get_doc("Account", bank_account.account)
+            current_currency = gl_account.account_currency or "EUR"
+
+            if current_currency != correct_currency:
+                frappe.logger().warning(
+                    f"Fixing GL Account {bank_account.account} currency: "
+                    f"{current_currency} -> {correct_currency}"
+                )
+                gl_account.account_currency = correct_currency
+                gl_account.save(ignore_permissions=True)
+                return True
+
+            return False
+
+        except Exception as e:
+            frappe.logger().error(f"Error fixing Bank Account currency: {e}")
+            return False
+
     @frappe.whitelist()
     def fetch_ponto_accounts(self):
         """
@@ -164,6 +245,12 @@ class PontoSettings(Document):
             from verenigingen.verenigingen_payments.ponto.utils.bank_account_creator import (
                 create_ponto_bank_account,
             )
+
+            # Clean up any existing duplicates first (by IBAN)
+            duplicates_removed = self.cleanup_duplicate_mappings()
+            if duplicates_removed:
+                self.save(ignore_permissions=True)
+                frappe.db.commit()
 
             # Get company from Verenigingen Settings
             verenigingen_settings = frappe.get_single("Verenigingen Settings")
@@ -184,20 +271,43 @@ class PontoSettings(Document):
             # Get fresh settings after all API calls are done
             settings = frappe.get_single("Ponto Settings")
 
-            # Build lookup of existing mappings
-            existing_mappings = {row.ponto_account_id: row for row in settings.bank_account_mappings}
+            # Build lookup of existing mappings from database (atomic check)
+            # This prevents race conditions when button is clicked multiple times
+            # Use IBAN as the unique identifier (more stable than Ponto account UUID)
+            existing_in_db = frappe.get_all(
+                "Ponto Bank Account Mapping",
+                filters={"parent": "Ponto Settings"},
+                fields=["name", "ponto_account_id", "ponto_iban"],
+            )
+            existing_ibans = {row.ponto_iban for row in existing_in_db if row.ponto_iban}
+
+            # Also build in-memory lookup for updates (by IBAN)
+            existing_mappings = {
+                row.ponto_iban: row for row in settings.bank_account_mappings if row.ponto_iban
+            }
 
             added = 0
             updated = 0
             bank_accounts_created = 0
             bank_account_errors = []
 
+            currency_fixes = 0
             for account in ponto_accounts:
-                if account.id in existing_mappings:
-                    # Update existing mapping with latest info
-                    row = existing_mappings[account.id]
-                    row.ponto_account_name = account.description or account.holder_name
-                    row.ponto_iban = account.iban
+                if account.iban in existing_ibans:
+                    # Already exists in database - update if we have it in memory
+                    if account.iban in existing_mappings:
+                        row = existing_mappings[account.iban]
+                        row.ponto_account_name = account.description or account.holder_name
+                        row.ponto_account_id = account.id  # Update Ponto ID in case it changed
+                        row.ponto_currency = account.currency or "EUR"
+
+                        # Fix linked Bank Account currency if mismatched
+                        if row.bank_account:
+                            fixed = self._fix_bank_account_currency(
+                                row.bank_account, account.currency or "EUR"
+                            )
+                            if fixed:
+                                currency_fixes += 1
                     updated += 1
                 else:
                     # Create GL Account, Bank, and Bank Account for new Ponto account
@@ -228,6 +338,7 @@ class PontoSettings(Document):
                             "ponto_account_id": account.id,
                             "ponto_account_name": account.description or account.holder_name,
                             "ponto_iban": account.iban,
+                            "ponto_currency": account.currency or "EUR",
                             "bank_account": bank_account_name,
                         },
                     )
@@ -245,6 +356,8 @@ class PontoSettings(Document):
             ]
             if bank_accounts_created:
                 message_parts.append(_("Created {0} Bank Accounts.").format(bank_accounts_created))
+            if currency_fixes:
+                message_parts.append(_("Fixed {0} Bank Account currencies.").format(currency_fixes))
 
             message = " ".join(message_parts)
 
