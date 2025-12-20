@@ -23,11 +23,12 @@ Usage:
 
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import frappe
 from frappe import _
 
+from verenigingen.e_boekhouden.utils.bank_transaction_parser import BankTransactionParser
 from verenigingen.verenigingen_payments.ponto.clients.transactions_client import (
     PontoTransactionsClient,
     get_transactions_client,
@@ -132,6 +133,7 @@ class PontoTransactionImporter:
         self._transactions_client = transactions_client or get_transactions_client()
         self._bank_tx_creator = get_bank_transaction_creator()
         self._config = get_ponto_config()
+        self._party_parser = BankTransactionParser()
 
     def import_transactions(
         self,
@@ -188,22 +190,32 @@ class PontoTransactionImporter:
 
         for ponto_tx in transactions:
             try:
-                bt_name = self._import_single_transaction(
+                bt_name, was_created = self._import_single_transaction(
                     ponto_tx=ponto_tx,
                     bank_account=bank_account,
                     company=company,
                 )
 
                 if bt_name:
-                    # Check if this is a new transaction or existing
-                    if self._is_existing_ponto_transaction(ponto_tx.id):
-                        result.skipped += 1
-                    else:
+                    if was_created:
                         result.imported += 1
                         result.bank_transactions.append(bt_name)
+                    else:
+                        # Transaction already existed
+                        result.skipped += 1
                 else:
-                    # create_from_dict returned None but no exception
-                    result.skipped += 1
+                    # create_from_dict returned None - this is a creation failure, not a skip
+                    frappe.logger().warning(
+                        f"Bank Transaction creation returned None for Ponto transaction {ponto_tx.id} "
+                        "(no exception raised)"
+                    )
+                    result.errors.append(
+                        ImportError(
+                            transaction_id=ponto_tx.id,
+                            error_type="creation",
+                            error_message="Bank Transaction creation failed without exception",
+                        )
+                    )
 
             except Exception as e:
                 frappe.logger().error(f"Failed to import Ponto transaction {ponto_tx.id}: {e}")
@@ -227,7 +239,7 @@ class PontoTransactionImporter:
         ponto_tx: PontoTransaction,
         bank_account: str,
         company: str,
-    ) -> Optional[str]:
+    ) -> Tuple[Optional[str], bool]:
         """
         Import a single Ponto transaction.
 
@@ -237,13 +249,16 @@ class PontoTransactionImporter:
             company: Company name
 
         Returns:
-            Bank Transaction name if created/exists, None on failure
+            Tuple of (Bank Transaction name, was_created)
+            - (name, False) if transaction already existed
+            - (name, True) if newly created
+            - (None, False) if creation failed
         """
         # Check for existing transaction first (idempotency via custom field)
         existing = self._check_existing_ponto_transaction(ponto_tx.id)
         if existing:
             frappe.logger().debug(f"Ponto transaction {ponto_tx.id} already imported as {existing}")
-            return existing
+            return (existing, False)  # Already existed
 
         # Transform to BankTransactionCreator format
         transaction_data = self._transform_transaction(ponto_tx)
@@ -258,12 +273,15 @@ class PontoTransactionImporter:
 
         if bt_name:
             frappe.logger().debug(f"Created Bank Transaction {bt_name} from Ponto transaction {ponto_tx.id}")
+            return (bt_name, True)  # Newly created
 
-        return bt_name
+        return (None, False)  # Creation failed
 
     def _transform_transaction(self, ponto_tx: PontoTransaction) -> Dict[str, Any]:
         """
         Transform Ponto transaction to BankTransactionCreator format.
+
+        Includes party matching/creation based on counterparty information.
 
         Args:
             ponto_tx: PontoTransaction object
@@ -271,7 +289,7 @@ class PontoTransactionImporter:
         Returns:
             Dict matching BankTransactionCreator.create_from_dict() expectations
         """
-        return {
+        transaction_data = {
             "date": ponto_tx.value_date,
             "amount": float(ponto_tx.amount),
             "currency": ponto_tx.currency,
@@ -283,6 +301,68 @@ class PontoTransactionImporter:
             "custom_ponto_transaction_id": ponto_tx.id,
             "custom_ponto_account_id": ponto_tx.account_id,
         }
+
+        # Match or create party based on counterparty information
+        if ponto_tx.counterpart_name:
+            try:
+                party_type, party = self._match_or_create_party(ponto_tx)
+                if party:
+                    transaction_data["party_type"] = party_type
+                    transaction_data["party"] = party
+            except Exception as e:
+                # Log but don't fail transaction import if party matching fails
+                frappe.logger().warning(f"Party matching failed for transaction {ponto_tx.id}: {e}")
+
+        return transaction_data
+
+    def _match_or_create_party(self, ponto_tx: PontoTransaction) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Match or create party based on Ponto transaction counterparty.
+
+        Uses BankTransactionParser.find_or_create_party() for intelligent matching:
+        - IBAN match (strongest signal)
+        - Exact name match
+        - Case-insensitive name match
+        - Fuzzy name match
+        - Create new party if no match
+
+        Party type is determined by transaction amount:
+        - Positive (deposit): Customer (income received)
+        - Negative (withdrawal): Supplier (expense paid)
+
+        Args:
+            ponto_tx: PontoTransaction with counterparty info
+
+        Returns:
+            Tuple of (party_type, party_name) or (None, None) if no counterparty
+        """
+        if not ponto_tx.counterpart_name:
+            return None, None
+
+        # Determine party type based on amount sign
+        # Positive amount = money coming IN = Customer
+        # Negative amount = money going OUT = Supplier
+        party_type = "Customer" if ponto_tx.amount > 0 else "Supplier"
+
+        # Use BankTransactionParser for party matching/creation
+        party_name, was_created = self._party_parser.find_or_create_party(
+            party_name=ponto_tx.counterpart_name,
+            party_type=party_type,
+            iban=ponto_tx.counterpart_reference,
+        )
+
+        if was_created:
+            frappe.logger().info(
+                f"Created new {party_type} '{party_name}' from Ponto transaction "
+                f"(counterpart: {ponto_tx.counterpart_name}, IBAN: {ponto_tx.counterpart_reference})"
+            )
+        else:
+            frappe.logger().debug(
+                f"Matched {party_type} '{party_name}' for Ponto transaction "
+                f"(counterpart: {ponto_tx.counterpart_name})"
+            )
+
+        return party_type, party_name
 
     def _build_description(self, ponto_tx: PontoTransaction) -> str:
         """
@@ -322,10 +402,6 @@ class PontoTransactionImporter:
             {"custom_ponto_transaction_id": ponto_transaction_id},
             "name",
         )
-
-    def _is_existing_ponto_transaction(self, ponto_transaction_id: str) -> bool:
-        """Check if transaction already exists."""
-        return bool(self._check_existing_ponto_transaction(ponto_transaction_id))
 
     def _classify_error(self, error: Exception) -> str:
         """
@@ -379,11 +455,12 @@ class PontoTransactionImporter:
             transaction_id=ponto_transaction_id,
         )
 
-        return self._import_single_transaction(
+        bt_name, _was_created = self._import_single_transaction(
             ponto_tx=ponto_tx,
             bank_account=bank_account,
             company=company,
         )
+        return bt_name
 
 
 def get_transaction_importer() -> PontoTransactionImporter:

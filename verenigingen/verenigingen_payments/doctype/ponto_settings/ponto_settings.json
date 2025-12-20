@@ -26,6 +26,7 @@
     "ibanity_authorization_status",
     "authorize_ibanity_button",
     "ibanity_refresh_token",
+    "ibanity_access_token",
     "credentials_tab",
     "sandbox_credentials_section",
     "sandbox_client_id",
@@ -198,7 +199,16 @@
       "fieldtype": "Password",
       "label": "Refresh Token",
       "hidden": 1,
+      "no_copy": 1,
       "description": "OAuth2 refresh token for Ibanity (stored securely, survives cache clears)"
+    },
+    {
+      "fieldname": "ibanity_access_token",
+      "fieldtype": "Password",
+      "label": "Access Token",
+      "hidden": 1,
+      "no_copy": 1,
+      "description": "OAuth2 access token for Ibanity (short-lived, cached in DB as backup)"
     },
     {
       "fieldname": "credentials_tab",

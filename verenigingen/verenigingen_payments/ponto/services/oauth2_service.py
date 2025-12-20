@@ -73,6 +73,17 @@ class PontoOAuth2Service:
     STATE_CACHE_TTL = 600  # 10 minutes - OAuth2 state/code_verifier expiry
     REFRESH_TOKEN_CACHE_TTL = 86400 * 30  # 30 days - Refresh token cache
 
+    # Access token storage failure tracking
+    ACCESS_TOKEN_STORAGE_FAILURES_KEY = "ponto_access_token_storage_failures"
+    ACCESS_TOKEN_STORAGE_FAILURE_THRESHOLD = 3  # Log ERROR after this many consecutive failures
+
+    # Token expiry buffer (seconds before expiry to trigger refresh)
+    TOKEN_EXPIRY_BUFFER = 300  # 5 minutes - allows for clock skew
+
+    # Distributed lock for token refresh (prevents race conditions)
+    TOKEN_REFRESH_LOCK_KEY = "ponto_token_refresh_lock"
+    TOKEN_REFRESH_LOCK_TTL = 30  # Lock expires after 30 seconds (timeout protection)
+
     def __init__(self):
         """Initialize OAuth2 service."""
         self._settings = None
@@ -402,58 +413,148 @@ class PontoOAuth2Service:
         """
         Store tokens in cache and database.
 
-        Access token is stored in cache (short-lived).
-        Refresh token is stored in both cache and database (survives cache clears).
+        CRITICAL: Tokens must be persisted to database FIRST before updating cache.
+        Ibanity invalidates refresh tokens immediately upon use, so if we lose the new
+        token, the user must re-authorize.
+
+        Order of operations (each independently committed):
+        1. Store refresh token to DB + commit (critical - must not fail)
+        2. Store access token to DB + commit (important - survives cache clears)
+        3. Update access_token_expiry (for UI visibility)
+        4. Update cache (convenience, can be regenerated from DB)
 
         Args:
             token_data: Token response from OAuth2 endpoint
+
+        Raises:
+            PontoAuthenticationError: If refresh token cannot be persisted to database
         """
+        from frappe.utils.password import set_encrypted_password
+
         access_token = token_data.get("access_token")
         refresh_token = token_data.get("refresh_token")
         expires_in = token_data.get("expires_in", 1800)
 
         expiry_time = datetime.now() + timedelta(seconds=expires_in)
 
-        cache = frappe.cache()
-        cache.set_value(self.ACCESS_TOKEN_CACHE_KEY, access_token, expires_in_sec=expires_in)
-        cache.set_value(self.TOKEN_EXPIRY_CACHE_KEY, expiry_time.isoformat(), expires_in_sec=expires_in)
-
+        # Step 1: CRITICAL - Store refresh token to database FIRST
+        # Ibanity invalidates refresh tokens immediately upon use, so we MUST persist
+        # the new one before doing anything else. If this fails, propagate the error.
         if refresh_token:
-            # Refresh tokens have longer expiry (typically 28 days)
-            cache.set_value(
-                self.REFRESH_TOKEN_CACHE_KEY, refresh_token, expires_in_sec=self.REFRESH_TOKEN_CACHE_TTL
-            )
-
-        # Update settings - store refresh token in database for persistence
-        try:
-            settings = frappe.get_single("Ponto Settings")
-            settings.access_token_expiry = expiry_time
-            # SECURITY JUSTIFICATION: OAuth2 token storage is a system operation triggered by
-            # OAuth2 callback flow (user just completed authorization). No persistent user session
-            # during callback. Audit trail via access_token_expiry timestamp. Only updating
-            # token-related fields as part of authorized OAuth2 flow.
-            settings.save(ignore_permissions=True)
-
-            # Password fields require special handling for Single DocTypes
-            if refresh_token:
-                from frappe.utils.password import set_encrypted_password
-
+            try:
                 set_encrypted_password(
                     "Ponto Settings",
                     "Ponto Settings",  # For Singles, name == doctype
                     refresh_token,
                     fieldname="ibanity_refresh_token",
                 )
-                frappe.db.commit()  # Ensure password is persisted immediately
-            frappe.logger().debug("Stored refresh token in database for persistence")
+                # Commit immediately - do NOT let this be rolled back by outer transaction
+                # Per Ibanity docs: "Make sure that the refresh token is renewed outside
+                # of the main database transaction"
+                frappe.db.commit()
+                frappe.logger().info("Ponto refresh token persisted to database")
+            except Exception as e:
+                frappe.logger().error(f"CRITICAL: Failed to persist Ponto refresh token: {e}")
+                # This is critical - without the refresh token, user must re-authorize
+                raise PontoAuthenticationError(
+                    "Failed to save authentication token. Please try again.",
+                    details={"error": str(e), "action": "retry_or_reauthorize"},
+                ) from e
+
+        # Step 2: Store access token to database (important - survives cache clears)
+        if access_token:
+            cache = frappe.cache()
+            try:
+                set_encrypted_password(
+                    "Ponto Settings",
+                    "Ponto Settings",
+                    access_token,
+                    fieldname="ibanity_access_token",
+                )
+                frappe.db.commit()
+                frappe.logger().info("Ponto access token persisted to database")
+                # Reset failure counter on success
+                cache.delete_value(self.ACCESS_TOKEN_STORAGE_FAILURES_KEY)
+            except Exception as e:
+                # Track consecutive failures
+                failure_count = cache.get_value(self.ACCESS_TOKEN_STORAGE_FAILURES_KEY) or 0
+                if isinstance(failure_count, bytes):
+                    failure_count = int(failure_count.decode("utf-8"))
+                failure_count = int(failure_count) + 1
+                cache.set_value(self.ACCESS_TOKEN_STORAGE_FAILURES_KEY, failure_count, expires_in_sec=3600)
+
+                if failure_count >= self.ACCESS_TOKEN_STORAGE_FAILURE_THRESHOLD:
+                    frappe.logger().error(
+                        f"DEGRADED: Ponto access token storage failed {failure_count} consecutive times. "
+                        f"System will rely on cache only. Error: {e}"
+                    )
+                    # Send notification to system managers on first threshold breach
+                    if failure_count == self.ACCESS_TOKEN_STORAGE_FAILURE_THRESHOLD:
+                        try:
+                            frappe.publish_realtime(
+                                "msgprint",
+                                {
+                                    "message": (
+                                        "Ponto Integration Alert: Token storage is degraded. "
+                                        "Access tokens cannot be persisted to database. "
+                                        "Please check Ponto Settings and database connectivity."
+                                    ),
+                                    "indicator": "orange",
+                                    "title": "Ponto Token Storage Degraded",
+                                },
+                                user="Administrator",
+                            )
+                            # Also create an Error Log for visibility
+                            frappe.log_error(
+                                title="Ponto Token Storage Degraded",
+                                message=(
+                                    f"Access token storage has failed {failure_count} consecutive times.\n"
+                                    f"The system is operating in degraded mode (cache only).\n"
+                                    f"Last error: {e}\n\n"
+                                    "Action required: Check database connectivity and Ponto Settings."
+                                ),
+                            )
+                        except Exception:
+                            pass  # Don't fail token flow due to notification errors
+                else:
+                    frappe.logger().warning(
+                        f"Could not persist access token to database (attempt {failure_count}): {e}"
+                    )
+
+        # Step 3: Update access_token_expiry in settings (for UI visibility)
+        try:
+            # Use direct DB update to avoid "Document has been modified" errors
+            frappe.db.set_value(
+                "Ponto Settings",
+                "Ponto Settings",
+                "access_token_expiry",
+                expiry_time,
+                update_modified=False,
+            )
         except Exception as e:
-            frappe.logger().warning(f"Could not update Ponto Settings: {e}")
+            # Non-critical - just for UI visibility
+            frappe.logger().warning(f"Could not update access_token_expiry: {e}")
+
+        # Step 4: Update cache (convenience, can be regenerated from DB if lost)
+        cache = frappe.cache()
+        cache.set_value(self.ACCESS_TOKEN_CACHE_KEY, access_token, expires_in_sec=expires_in)
+        cache.set_value(self.TOKEN_EXPIRY_CACHE_KEY, expiry_time.isoformat(), expires_in_sec=expires_in)
+
+        if refresh_token:
+            cache.set_value(
+                self.REFRESH_TOKEN_CACHE_KEY, refresh_token, expires_in_sec=self.REFRESH_TOKEN_CACHE_TTL
+            )
+
+        frappe.logger().debug(f"Ponto tokens stored, access token expires at {expiry_time.isoformat()}")
 
     def get_access_token(self) -> str:
         """
         Get a valid access token, refreshing if necessary.
 
-        Checks cache first, then falls back to database-stored refresh token.
+        Order of lookup:
+        1. Cache (fastest)
+        2. Database access token field (survives cache clears)
+        3. Refresh using refresh token (last resort, uses up refresh token)
 
         Returns:
             str: Valid access token
@@ -462,8 +563,9 @@ class PontoOAuth2Service:
             PontoAuthenticationError: If no valid token available
         """
         cache = frappe.cache()
+        now = datetime.now()
 
-        # Check cached access token
+        # Step 1: Check cached access token
         cached_token = cache.get_value(self.ACCESS_TOKEN_CACHE_KEY)
         cached_expiry = cache.get_value(self.TOKEN_EXPIRY_CACHE_KEY)
 
@@ -476,13 +578,51 @@ class PontoOAuth2Service:
         if cached_token and cached_expiry:
             try:
                 expiry_time = datetime.fromisoformat(cached_expiry)
-                # Refresh 60 seconds before expiry
-                if datetime.now() < expiry_time - timedelta(seconds=60):
+                # Return if still valid (with buffer for clock skew)
+                if now < expiry_time - timedelta(seconds=self.TOKEN_EXPIRY_BUFFER):
                     return cached_token
             except (ValueError, TypeError):
                 pass
 
-        # Try to refresh from cache first
+        # Step 2: Check database-stored access token (survives cache clears)
+        # Load settings once and reuse for both access token and refresh token lookups
+        settings = None
+        try:
+            settings = frappe.get_single("Ponto Settings")
+            db_access_token = settings.get_password("ibanity_access_token")
+            db_expiry = settings.access_token_expiry
+
+            if db_access_token:
+                # Make expiry check defensive - if expiry is invalid/missing, still try the token
+                token_valid = False
+                if db_expiry:
+                    try:
+                        if isinstance(db_expiry, str):
+                            db_expiry = datetime.fromisoformat(db_expiry)
+                        token_valid = now < db_expiry - timedelta(seconds=self.TOKEN_EXPIRY_BUFFER)
+                    except (ValueError, TypeError, AttributeError):
+                        # If expiry is corrupt, let API validation be the final arbiter
+                        frappe.logger().debug("DB token expiry invalid, attempting use anyway")
+                        token_valid = True
+
+                if token_valid:
+                    frappe.logger().debug("Using access token from database (cache miss)")
+                    # Re-populate cache from DB
+                    if db_expiry and isinstance(db_expiry, datetime):
+                        expires_in = int((db_expiry - now).total_seconds())
+                        if expires_in > 0:
+                            cache.set_value(
+                                self.ACCESS_TOKEN_CACHE_KEY, db_access_token, expires_in_sec=expires_in
+                            )
+                            cache.set_value(
+                                self.TOKEN_EXPIRY_CACHE_KEY, db_expiry.isoformat(), expires_in_sec=expires_in
+                            )
+                    return db_access_token
+        except Exception as e:
+            frappe.logger().debug(f"Could not get access token from database: {e}")
+
+        # Step 3: Refresh using refresh token (last resort)
+        # Try cache first for refresh token
         refresh_token = cache.get_value(self.REFRESH_TOKEN_CACHE_KEY)
         if isinstance(refresh_token, bytes):
             refresh_token = refresh_token.decode("utf-8")
@@ -490,7 +630,9 @@ class PontoOAuth2Service:
         # Fall back to database-stored refresh token if cache is empty
         if not refresh_token:
             try:
-                settings = frappe.get_single("Ponto Settings")
+                # Reuse settings if already loaded, otherwise fetch
+                if settings is None:
+                    settings = frappe.get_single("Ponto Settings")
                 refresh_token = settings.get_password("ibanity_refresh_token")
                 if refresh_token:
                     frappe.logger().debug("Retrieved refresh token from database (cache was empty)")
@@ -498,15 +640,61 @@ class PontoOAuth2Service:
                 frappe.logger().debug(f"Could not get refresh token from database: {e}")
 
         if refresh_token:
+            # Use distributed lock to prevent race conditions
+            # If two processes try to refresh simultaneously, only one should proceed
+            lock_acquired = self._acquire_refresh_lock(cache)
+            if not lock_acquired:
+                # Another process is refreshing - wait briefly and check cache again
+                import time
+
+                time.sleep(2)  # Give other process time to complete
+                cached_token = cache.get_value(self.ACCESS_TOKEN_CACHE_KEY)
+                if isinstance(cached_token, bytes):
+                    cached_token = cached_token.decode("utf-8")
+                if cached_token:
+                    frappe.logger().debug("Token refreshed by another process, using cached token")
+                    return cached_token
+                # Still no token after wait - fail fast to avoid race condition
+                # Don't retry lock acquisition as the other process may have failed
+                # and we risk consuming the refresh token simultaneously
+                raise PontoAuthenticationError(
+                    "Token refresh in progress by another process. Please retry.",
+                    details={"action": "retry_after_seconds", "retry_after": 2},
+                )
+
             try:
                 return self._refresh_access_token(refresh_token)
             except Exception as e:
                 frappe.logger().warning(f"Token refresh failed: {e}")
+                raise
+            finally:
+                self._release_refresh_lock(cache)
 
         raise PontoAuthenticationError(
             "No valid Ponto access token. Please authorize the application first.",
             details={"action": "authorize"},
         )
+
+    def _acquire_refresh_lock(self, cache) -> bool:
+        """
+        Acquire distributed lock for token refresh using Redis SETNX.
+
+        Returns:
+            bool: True if lock acquired, False if already held
+        """
+        # Use Redis SETNX pattern - set if not exists
+        redis = cache.redis
+        result = redis.set(
+            self.TOKEN_REFRESH_LOCK_KEY,
+            "1",
+            nx=True,  # Only set if not exists
+            ex=self.TOKEN_REFRESH_LOCK_TTL,  # Expire after TTL
+        )
+        return bool(result)
+
+    def _release_refresh_lock(self, cache):
+        """Release the distributed token refresh lock."""
+        cache.delete_value(self.TOKEN_REFRESH_LOCK_KEY)
 
     def _refresh_access_token(self, refresh_token: str) -> str:
         """

@@ -10,7 +10,11 @@ bank account TO your organization's account.
 
 Supports:
 - One-time payment requests (Payment Initiation Request)
-- Periodic payment requests (Periodic Payment Initiation Request / Standing Orders)
+
+NOTE: Periodic payment requests (standing orders) are NOT supported by Ponto Connect.
+      The periodic payment methods in this module are deprecated and will raise
+      NotImplementedError. For recurring payments, use SEPA Direct Debit or
+      Mollie subscriptions instead.
 
 Payment Flow:
 1. Create payment request via API (provides redirect URL)
@@ -36,20 +40,11 @@ Usage:
     )
 
     # Share result.redirect_link with customer
-
-    # Create periodic payment request (standing order)
-    result = client.create_periodic_payment_request(
-        amount=25.00,
-        creditor_name="Vegan Netwerk Nederland",
-        creditor_iban="NL91ABNA0417164300",
-        remittance_info="Monthly membership dues",
-        frequency="monthly",
-        redirect_uri="https://your-site.com/ponto/callback",
-    )
 """
 
 import re
 import unicodedata
+import warnings
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -176,8 +171,29 @@ class PaymentInitiationRequest:
 
         Returns:
             PaymentInitiationRequest instance
+
+        Raises:
+            PontoAPIError: If required fields are missing from response
         """
+        if not data:
+            raise PontoAPIError(
+                message="Empty response data from Ponto API",
+                details={"received": data},
+            )
+
+        request_id = data.get("id")
+        if not request_id:
+            raise PontoAPIError(
+                message="Missing 'id' field in Ponto API response",
+                details={"received_keys": list(data.keys())},
+            )
+
         attrs = data.get("attributes", {})
+        if not attrs:
+            raise PontoAPIError(
+                message="Missing 'attributes' in Ponto API response",
+                details={"id": request_id, "received_keys": list(data.keys())},
+            )
 
         # The signing/authorization URL is in attributes.signingUri
         # This is the URL customers use to authorize the payment
@@ -513,167 +529,26 @@ class PontoBetaalverzoekClient:
         end_to_end_id: str = None,
     ) -> PeriodicPaymentInitiationRequest:
         """
-        Create a periodic payment initiation request (standing order).
+        DEPRECATED: Ponto Connect does not support periodic payment initiation.
 
-        The customer will receive a link to authorize recurring payments
-        from their bank account to your creditor account.
-
-        Args:
-            amount: Payment amount per period (positive number, EUR)
-            creditor_name: Your organization name (receiver)
-            creditor_iban: Your organization IBAN (receiver)
-            remittance_info: Payment description shown to customer
-            frequency: Payment frequency (monthly, quarterly, annually)
-            start_date: First payment date (optional, defaults to now)
-            end_date: Last payment date (optional, None for open-ended)
-            redirect_uri: URL to redirect after authorization (optional)
-            creditor_bic: Your organization BIC/SWIFT code (optional)
-            end_to_end_id: End-to-end transaction ID for tracking (optional)
-
-        Returns:
-            PeriodicPaymentInitiationRequest with redirect_link for customer
+        This method is deprecated and will raise NotImplementedError.
+        For recurring payments, use SEPA Direct Debit or Mollie subscriptions.
 
         Raises:
-            PontoAPIError: If request creation fails
-            PontoIntegrationError: If invalid parameters
+            NotImplementedError: Always raised - periodic payments not supported
         """
-        if amount <= 0:
-            raise PontoIntegrationError(
-                message="Payment amount must be positive",
-                details={"amount": amount},
-            )
-
-        # SEPA amount limits and precision
-        SEPA_MAX_AMOUNT = 999999999.99
-        if amount > SEPA_MAX_AMOUNT:
-            raise PontoIntegrationError(
-                message=f"Payment amount exceeds SEPA maximum of {SEPA_MAX_AMOUNT:,.2f} EUR",
-                details={"amount": amount, "max_allowed": SEPA_MAX_AMOUNT},
-            )
-
-        # Validate decimal precision (max 2 decimal places for EUR)
-        amount_cents = round(amount * 100, 6)
-        if abs(amount_cents - round(amount_cents)) > 0.0001:
-            raise PontoIntegrationError(
-                message="Payment amount must have at most 2 decimal places",
-                details={"amount": amount},
-            )
-
-        # Map frequency to Ponto API value
-        ponto_frequency = self.FREQUENCY_MAP.get(frequency.lower())
-        if not ponto_frequency:
-            raise PontoIntegrationError(
-                message=f"Invalid frequency: {frequency}. Must be monthly, quarterly, or annually.",
-                details={"frequency": frequency},
-            )
-
-        # Validate creditor IBAN
-        iban_validation = validate_iban(creditor_iban)
-        if not iban_validation.get("valid"):
-            raise PontoIntegrationError(
-                message=f"Invalid creditor IBAN: {iban_validation.get('message', 'Validation failed')}",
-                details={"creditor_iban": creditor_iban},
-            )
-
-        # Sanitize text fields for SEPA compliance
-        creditor_name = sanitize_sepa_text(creditor_name, "creditorName")
-        remittance_info = sanitize_sepa_text(remittance_info, "remittanceInformation")
-
-        # Build periodic payment request payload (JSON:API format)
-        attributes = {
-            "amount": float(amount),
-            "currency": "EUR",
-            "creditorName": creditor_name,
-            "creditorAccountReference": creditor_iban.replace(" ", "").upper(),
-            "creditorAccountReferenceType": "IBAN",
-            "remittanceInformation": remittance_info,
-            "remittanceInformationType": "unstructured",
-            "frequency": ponto_frequency,
-        }
-
-        if start_date:
-            attributes["startDate"] = start_date.isoformat()
-
-        if end_date:
-            attributes["endDate"] = end_date.isoformat()
-        # Note: if end_date is None, the standing order is open-ended
-
-        if redirect_uri:
-            attributes["redirectUri"] = redirect_uri
-
-        if creditor_bic:
-            attributes["creditorAgent"] = creditor_bic
-            attributes["creditorAgentType"] = "BIC"
-
-        if end_to_end_id:
-            attributes["endToEndId"] = end_to_end_id
-
-        payload = {
-            "data": {
-                "type": "periodicPaymentInitiationRequest",
-                "attributes": attributes,
-            }
-        }
-
-        try:
-            # Periodic payment requests are scoped to a specific Ponto account
-            # Ponto Connect API uses "periodic-payment-requests" endpoint
-            account_id = self._get_account_id()
-            endpoint = f"/accounts/{account_id}/periodic-payment-requests"
-
-            frappe.logger().debug(f"Creating periodic payment request at endpoint: {endpoint}")
-
-            response = self._client.post(
-                endpoint,
-                data=payload,
-            )
-
-            # Log the full response for debugging redirect_link issues
-            frappe.logger().debug(f"Ponto periodic payment request response: {response}")
-
-            data = response.get("data", {})
-
-            # Check for redirect link in top-level links (JSON:API spec)
-            top_level_links = response.get("links", {})
-            if top_level_links and not data.get("links"):
-                data["links"] = top_level_links
-
-            request = PeriodicPaymentInitiationRequest.from_api_response(data)
-
-            frappe.logger().info(
-                f"Created Ponto periodic payment request {request.id} for {amount} EUR "
-                f"{ponto_frequency} to {creditor_name} ({creditor_iban})"
-            )
-
-            return request
-
-        except PontoAPIError:
-            # Re-raise Ponto-specific errors directly to preserve error details
-            raise
-        except Exception as e:
-            # Extract original error if wrapped by retry decorator
-            original = getattr(e, "original_error", None) or e
-            original_msg = str(original)
-
-            # Extract status code and error code if available
-            status_code = getattr(original, "status_code", None)
-            error_code = getattr(original, "error_code", None)
-
-            frappe.logger().error(
-                f"Failed to create Ponto periodic payment request: {original_msg}",
-                exc_info=True,
-            )
-            raise PontoAPIError(
-                message=f"Failed to create periodic payment request: {original_msg}",
-                status_code=status_code,
-                error_code=error_code,
-                details={
-                    "amount": amount,
-                    "frequency": frequency,
-                    "creditor_iban": creditor_iban,
-                    "original_error_type": type(original).__name__,
-                },
-            )
+        warnings.warn(
+            "create_periodic_payment_request is deprecated. "
+            "Ponto Connect does not support periodic payment initiation. "
+            "Use SEPA Direct Debit or Mollie subscriptions for recurring payments.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        raise NotImplementedError(
+            "Ponto Connect does not support periodic payment initiation requests. "
+            "The periodic-payment-requests endpoint does not exist in the Ponto Connect API. "
+            "For recurring payments, use SEPA Direct Debit or Mollie subscriptions."
+        )
 
     def get_payment_request(self, request_id: str) -> PaymentInitiationRequest:
         """
@@ -705,31 +580,18 @@ class PontoBetaalverzoekClient:
 
     def get_periodic_payment_request(self, request_id: str) -> PeriodicPaymentInitiationRequest:
         """
-        Get periodic payment request details and current status.
-
-        Args:
-            request_id: Periodic payment initiation request ID
-
-        Returns:
-            PeriodicPaymentInitiationRequest with current status
+        DEPRECATED: Ponto Connect does not support periodic payment initiation.
 
         Raises:
-            PontoAPIError: If request fails
+            NotImplementedError: Always raised - periodic payments not supported
         """
-        try:
-            account_id = self._get_account_id()
-            endpoint = f"/accounts/{account_id}/periodic-payment-requests/{request_id}"
-            response = self._client.get(endpoint)
-
-            data = response.get("data", {})
-            return PeriodicPaymentInitiationRequest.from_api_response(data)
-
-        except Exception as e:
-            frappe.logger().error(f"Failed to get Ponto periodic payment request {request_id}: {e}")
-            raise PontoAPIError(
-                message=f"Failed to get periodic payment request status: {e}",
-                details={"request_id": request_id},
-            )
+        warnings.warn(
+            "get_periodic_payment_request is deprecated. "
+            "Ponto Connect does not support periodic payments.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        raise NotImplementedError("Ponto Connect does not support periodic payment initiation requests.")
 
     def list_payment_requests(self, limit: int = 25) -> List[PaymentInitiationRequest]:
         """
@@ -765,35 +627,18 @@ class PontoBetaalverzoekClient:
 
     def list_periodic_payment_requests(self, limit: int = 25) -> List[PeriodicPaymentInitiationRequest]:
         """
-        List periodic payment initiation requests.
-
-        Args:
-            limit: Maximum number of results
-
-        Returns:
-            List of PeriodicPaymentInitiationRequest objects
+        DEPRECATED: Ponto Connect does not support periodic payment initiation.
 
         Raises:
-            PontoAPIError: If request fails
+            NotImplementedError: Always raised - periodic payments not supported
         """
-        try:
-            # List all periodic payment requests across accounts
-            response = self._client.get(
-                "/periodic-payment-requests",
-                params={"limit": limit},
-            )
-
-            requests = []
-            for item in response.get("data", []):
-                requests.append(PeriodicPaymentInitiationRequest.from_api_response(item))
-
-            return requests
-
-        except Exception as e:
-            frappe.logger().error(f"Failed to list Ponto periodic payment requests: {e}")
-            raise PontoAPIError(
-                message=f"Failed to list periodic payment requests: {e}",
-            )
+        warnings.warn(
+            "list_periodic_payment_requests is deprecated. "
+            "Ponto Connect does not support periodic payments.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        raise NotImplementedError("Ponto Connect does not support periodic payment initiation requests.")
 
     def delete_payment_request(self, request_id: str) -> bool:
         """
@@ -827,33 +672,18 @@ class PontoBetaalverzoekClient:
 
     def delete_periodic_payment_request(self, request_id: str) -> bool:
         """
-        Delete/cancel an unauthorized periodic payment request.
-
-        Only works for requests that haven't been authorized yet.
-
-        Args:
-            request_id: Periodic payment initiation request ID
-
-        Returns:
-            True if deleted successfully
+        DEPRECATED: Ponto Connect does not support periodic payment initiation.
 
         Raises:
-            PontoAPIError: If deletion fails
+            NotImplementedError: Always raised - periodic payments not supported
         """
-        try:
-            account_id = self._get_account_id()
-            endpoint = f"/accounts/{account_id}/periodic-payment-requests/{request_id}"
-            self._client.delete(endpoint)
-
-            frappe.logger().info(f"Deleted Ponto periodic payment request {request_id}")
-            return True
-
-        except Exception as e:
-            frappe.logger().error(f"Failed to delete Ponto periodic payment request {request_id}: {e}")
-            raise PontoAPIError(
-                message=f"Failed to delete periodic payment request: {e}",
-                details={"request_id": request_id},
-            )
+        warnings.warn(
+            "delete_periodic_payment_request is deprecated. "
+            "Ponto Connect does not support periodic payments.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        raise NotImplementedError("Ponto Connect does not support periodic payment initiation requests.")
 
 
 def get_betaalverzoek_client() -> PontoBetaalverzoekClient:

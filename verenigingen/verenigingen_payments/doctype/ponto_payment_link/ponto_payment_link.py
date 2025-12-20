@@ -10,7 +10,9 @@ bank account TO your organization's account.
 
 Supports:
 - One-time payment requests
-- Periodic payment requests (standing orders)
+
+NOTE: Periodic payment requests (standing orders) are NOT supported by Ponto Connect.
+      For recurring payments, use SEPA Direct Debit or Mollie subscriptions.
 
 Workflow:
 1. Create payment link (Draft)
@@ -97,13 +99,15 @@ class PontoPaymentLink(Document):
         self.creditor_iban = iban
 
     def validate_periodic_settings(self):
-        """Validate periodic payment settings."""
+        """Block periodic payment settings - not supported by Ponto Connect."""
         if self.payment_type == "Periodic":
-            if not self.frequency:
-                frappe.throw(
-                    _("Frequency is required for periodic payments"),
-                    title=_("Missing Frequency"),
-                )
+            frappe.throw(
+                _(
+                    "Periodic payments are not supported by Ponto Connect. "
+                    "For recurring payments, use SEPA Direct Debit or Mollie subscriptions."
+                ),
+                title=_("Feature Not Supported"),
+            )
 
     def set_defaults_from_settings(self):
         """Set default values from Verenigingen Settings."""
@@ -210,29 +214,15 @@ class PontoPaymentLink(Document):
         try:
             client = get_betaalverzoek_client()
 
-            if self.payment_type == "One-Time":
-                # Create one-time payment request
-                result = client.create_payment_request(
-                    amount=float(self.amount),
-                    creditor_name=self.creditor_name,
-                    creditor_iban=self.creditor_iban,
-                    remittance_info=formatted_description,
-                    redirect_uri=callback_url,
-                    end_to_end_id=self.name,
-                )
-            else:
-                # Create periodic payment request
-                result = client.create_periodic_payment_request(
-                    amount=float(self.amount),
-                    creditor_name=self.creditor_name,
-                    creditor_iban=self.creditor_iban,
-                    remittance_info=formatted_description,
-                    frequency=self.frequency.lower(),
-                    start_date=self.start_date,
-                    end_date=self.end_date,
-                    redirect_uri=callback_url,
-                    end_to_end_id=self.name,
-                )
+            # Create one-time payment request (periodic not supported by Ponto Connect)
+            result = client.create_payment_request(
+                amount=float(self.amount),
+                creditor_name=self.creditor_name,
+                creditor_iban=self.creditor_iban,
+                remittance_info=formatted_description,
+                redirect_uri=callback_url,
+                end_to_end_id=self.name,
+            )
 
             # Update document with Ponto response
             self.ponto_request_id = result.id
@@ -273,10 +263,7 @@ class PontoPaymentLink(Document):
 
         try:
             client = get_betaalverzoek_client()
-            if self.payment_type == "One-Time":
-                client.delete_payment_request(self.ponto_request_id)
-            else:
-                client.delete_periodic_payment_request(self.ponto_request_id)
+            client.delete_payment_request(self.ponto_request_id)
             frappe.logger().info(f"Cancelled Ponto payment request {self.ponto_request_id}")
         except Exception as e:
             frappe.logger().warning(f"Failed to cancel Ponto payment request {self.ponto_request_id}: {e}")
@@ -301,11 +288,7 @@ class PontoPaymentLink(Document):
 
         try:
             client = get_betaalverzoek_client()
-
-            if self.payment_type == "One-Time":
-                request = client.get_payment_request(self.ponto_request_id)
-            else:
-                request = client.get_periodic_payment_request(self.ponto_request_id)
+            request = client.get_payment_request(self.ponto_request_id)
 
             # Map Ponto status to our status
             status_map = {
@@ -463,6 +446,16 @@ class PontoPaymentLink(Document):
                 if debtor_info.get("bank"):
                     self.debtor_bank = debtor_info["bank"]
 
+            # SECURITY JUSTIFICATION: Webhook callbacks execute in a system context without
+            # user session. Permission bypass is acceptable because:
+            # 1. Webhook signature is verified before this method is called
+            # 2. This only updates status/debtor info on a document already created by user
+            # 3. Full audit trail is logged below
+            frappe.logger("security").info(
+                f"Webhook status update: Ponto Payment Link {self.name} "
+                f"status changed from {frappe.db.get_value('Ponto Payment Link', self.name, 'status')} "
+                f"to {new_status} (debtor: {debtor_info.get('name') if debtor_info else 'N/A'})"
+            )
             self.save(ignore_permissions=True)
 
             if new_status == "Executed":

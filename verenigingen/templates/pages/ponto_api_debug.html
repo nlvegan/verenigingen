@@ -414,21 +414,8 @@
                             <label for="amount">Amount (EUR) *</label>
                             <input type="number" id="amount" class="debug-input" step="0.01" min="0.01" placeholder="25.00" required>
                         </div>
-                        <div class="form-group">
-                            <label for="payment_type">Payment Type *</label>
-                            <select id="payment_type" class="debug-select">
-                                <option value="One-Time">One-Time Payment</option>
-                                <option value="Periodic">Periodic (Standing Order)</option>
-                            </select>
-                        </div>
-                        <div class="form-group" id="frequency_group" style="display: none;">
-                            <label for="frequency">Frequency</label>
-                            <select id="frequency" class="debug-select">
-                                <option value="Monthly">Monthly</option>
-                                <option value="Quarterly">Quarterly</option>
-                                <option value="Annually">Annually</option>
-                            </select>
-                        </div>
+                        <!-- Payment Type is always One-Time; Periodic payments not supported by Ponto Connect -->
+                        <input type="hidden" id="payment_type" value="One-Time">
                     </div>
 
                     <div class="form-group">
@@ -559,14 +546,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // Payment type toggle
-    const paymentTypeSelect = document.getElementById('payment_type');
-    const frequencyGroup = document.getElementById('frequency_group');
-
-    paymentTypeSelect.addEventListener('change', function() {
-        frequencyGroup.style.display = this.value === 'Periodic' ? 'block' : 'none';
-    });
-
     // Create Payment Link
     document.getElementById('btn-create').addEventListener('click', function() {
         createPaymentLink(false);
@@ -585,8 +564,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const data = {
             amount: document.getElementById('amount').value,
             description: document.getElementById('description').value,
-            payment_type: document.getElementById('payment_type').value,
-            frequency: document.getElementById('frequency').value,
+            payment_type: 'One-Time',  // Periodic payments not supported by Ponto Connect
             creditor_name: document.getElementById('creditor_name').value,
             creditor_iban: document.getElementById('creditor_iban').value,
             member: document.getElementById('member').value || null,
