@@ -510,3 +510,204 @@ def get_coverage_calculator(schedule_doc: Optional[Any] = None) -> CoverageCalcu
                      Optional - pass None for utility methods only (calculate_billing_period, etc.)
     """
     return CoverageCalculator(schedule_doc)
+
+
+def calculate_coverage_for_payment_date(
+    member_name: str,
+    payment_date: date,
+) -> tuple[date, date]:
+    """
+    Calculate coverage dates for a payment based on member's billing configuration.
+
+    This is the generalized, billing-frequency-aware replacement for the
+    hardcoded quarterly logic in DuesPaymentProcessor.
+
+    The function:
+    1. Looks up the member's active dues schedule to get billing_frequency
+    2. Uses billing_cutoff_frequency from Verenigingen Settings for period alignment
+    3. Calculates coverage dates appropriate for the billing frequency
+
+    Args:
+        member_name: Member document name
+        payment_date: Date the payment was made
+
+    Returns:
+        tuple: (coverage_start, coverage_end) as date objects
+
+    Example:
+        # Monthly billing member pays on 2024-05-15
+        >>> calculate_coverage_for_payment_date("MEM-001", date(2024, 5, 15))
+        (date(2024, 5, 1), date(2024, 5, 31))
+
+        # Quarterly billing member pays on 2024-05-15
+        >>> calculate_coverage_for_payment_date("MEM-002", date(2024, 5, 15))
+        (date(2024, 4, 1), date(2024, 6, 30))
+    """
+    from frappe.utils import getdate
+
+    payment_date = getdate(payment_date)
+
+    # Get member's active dues schedule
+    schedule = frappe.db.get_value(
+        "Membership Dues Schedule",
+        {"member": member_name, "status": "Active"},
+        ["billing_frequency", "custom_frequency_number", "custom_frequency_unit"],
+        as_dict=True,
+    )
+
+    if schedule:
+        billing_frequency = schedule.billing_frequency
+        custom_number = schedule.custom_frequency_number
+        custom_unit = schedule.custom_frequency_unit
+    else:
+        # Fallback: check for any non-cancelled schedule
+        schedule = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"member": member_name, "status": ["!=", "Cancelled"]},
+            ["billing_frequency", "custom_frequency_number", "custom_frequency_unit"],
+            as_dict=True,
+        )
+
+        if schedule:
+            billing_frequency = schedule.billing_frequency
+            custom_number = schedule.custom_frequency_number
+            custom_unit = schedule.custom_frequency_unit
+        else:
+            # Ultimate fallback: use billing_cutoff_frequency from settings
+            settings = frappe.get_single("Verenigingen Settings")
+            cutoff_freq = getattr(settings, "billing_cutoff_frequency", "Quarterly")
+
+            # Map cutoff frequency to billing frequency
+            freq_map = {"Monthly": "Monthly", "Quarterly": "Quarterly", "Yearly": "Annual"}
+            billing_frequency = freq_map.get(cutoff_freq, "Quarterly")
+            custom_number = None
+            custom_unit = None
+
+    # Use the billing_period_calculator to get period dates
+    from verenigingen.utils.billing_period_calculator import calculate_billing_period
+
+    coverage_start, coverage_end = calculate_billing_period(
+        billing_frequency, payment_date, custom_number, custom_unit
+    )
+
+    return coverage_start, coverage_end
+
+
+def find_invoice_for_payment(
+    member_name: str,
+    payment_date: date,
+    payment_amount: float,
+    remittance_info: Optional[str] = None,
+) -> Optional[str]:
+    """
+    Find the best matching Sales Invoice for a payment.
+
+    Matching strategy (in priority order):
+    1. Parse invoice number from remittance_info if present
+    2. Find invoice by exact coverage period match
+    3. Find invoice by member + amount + unpaid status within date window
+
+    Args:
+        member_name: Member document name
+        payment_date: Date the payment was made
+        payment_amount: Payment amount
+        remittance_info: Optional remittance information (may contain invoice reference)
+
+    Returns:
+        Sales Invoice name if found, None otherwise
+    """
+    import re
+
+    from frappe.utils import flt, getdate
+
+    payment_date = getdate(payment_date)
+
+    # Get member's customer
+    customer = frappe.db.get_value("Member", member_name, "customer")
+    if not customer:
+        frappe.logger().warning(f"Member {member_name} has no customer record")
+        return None
+
+    # Strategy 1: Parse invoice number from remittance info
+    if remittance_info:
+        # Common patterns: "ACC-SINV-2024-00001", "SINV-00001", "Invoice 12345"
+        invoice_patterns = [
+            r"(ACC-SINV-\d{4}-\d+)",  # ERPNext naming with accounting prefix
+            r"(SINV-\d+)",  # ERPNext default naming
+            r"(?:Invoice|Factuur|Inv)[:\s#]*(\d+)",  # "Invoice 12345" or "Factuur: 12345"
+        ]
+
+        for pattern in invoice_patterns:
+            match = re.search(pattern, remittance_info, re.IGNORECASE)
+            if match:
+                potential_invoice = match.group(1)
+                # Verify the invoice exists and belongs to this customer
+                if frappe.db.exists(
+                    "Sales Invoice",
+                    {"name": potential_invoice, "customer": customer, "docstatus": 1},
+                ):
+                    frappe.logger().info(
+                        f"Found invoice {potential_invoice} from remittance info for member {member_name}"
+                    )
+                    return potential_invoice
+
+    # Strategy 2: Find invoice by coverage period
+    coverage_start, coverage_end = calculate_coverage_for_payment_date(member_name, payment_date)
+
+    # Check for overlap with existing invoices using the coverage overlap detector
+    from verenigingen.services.billing.coverage_overlap_detector import check_coverage_overlap
+
+    overlap_result = check_coverage_overlap(
+        customer=customer,
+        proposed_start=coverage_start,
+        proposed_end=coverage_end,
+        exclude_cancelled=True,
+    )
+
+    if overlap_result.exact_match:
+        # Found exact coverage match - check if it has outstanding amount
+        outstanding = frappe.db.get_value("Sales Invoice", overlap_result.exact_match, "outstanding_amount")
+        if outstanding and flt(outstanding) > 0:
+            frappe.logger().info(
+                f"Found invoice {overlap_result.exact_match} by coverage period match "
+                f"({coverage_start} to {coverage_end}) for member {member_name}"
+            )
+            return overlap_result.exact_match
+
+    # Strategy 3: Find unpaid invoice by amount match
+    # Look for unpaid invoices within a reasonable date window (e.g., 3 months before payment)
+    amount_tolerance = 0.01  # Allow for small rounding differences
+
+    unpaid_invoices = frappe.db.sql(
+        """
+        SELECT name, grand_total, outstanding_amount, posting_date
+        FROM `tabSales Invoice`
+        WHERE customer = %s
+        AND docstatus = 1
+        AND outstanding_amount > 0
+        AND posting_date BETWEEN DATE_SUB(%s, INTERVAL 3 MONTH) AND %s
+        ORDER BY
+            ABS(outstanding_amount - %s) ASC,  -- Prefer exact amount match
+            posting_date DESC  -- Then most recent
+        LIMIT 1
+    """,
+        (customer, payment_date, payment_date, payment_amount),
+        as_dict=True,
+    )
+
+    if unpaid_invoices:
+        invoice = unpaid_invoices[0]
+        # Check if amount matches within tolerance
+        if abs(flt(invoice.outstanding_amount) - flt(payment_amount)) <= amount_tolerance:
+            frappe.logger().info(
+                f"Found invoice {invoice.name} by amount match "
+                f"(outstanding: {invoice.outstanding_amount}, payment: {payment_amount}) for member {member_name}"
+            )
+            return invoice.name
+
+    # No matching invoice found
+    frappe.logger().info(
+        f"No matching invoice found for member {member_name}, "
+        f"amount {payment_amount}, coverage {coverage_start} to {coverage_end}"
+    )
+    return None

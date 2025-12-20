@@ -97,14 +97,13 @@ def get_payment_processing_status(payment_id: str) -> Dict[str, any]:
     # If no linked SINV but we have a member and BT with date, check by coverage period
     # This handles invoices created independently (e.g., by Membership Dues Schedules)
     if not sinv and status["member"] and bt:
-        from verenigingen.integrations.mollie.services.dues_payment_processor import (
-            get_quarter_coverage_dates,
-        )
+        from verenigingen.services.billing.coverage_calculator import calculate_coverage_for_payment_date
 
         # Get payment date from Bank Transaction
         bt_date = frappe.db.get_value("Bank Transaction", bt.name, "date")
         if bt_date:
-            coverage_start, coverage_end = get_quarter_coverage_dates(bt_date)
+            # Calculate coverage based on member's billing frequency
+            coverage_start, coverage_end = calculate_coverage_for_payment_date(status["member"], bt_date)
 
             # Look for invoice matching coverage period with outstanding balance
             member = frappe.get_doc("Member", status["member"])
@@ -329,7 +328,7 @@ def complete_partial_payments(
         # Validate payment ID format before processing
         if not mollie_payment_pattern.match(payment_id):
             payment_result["status"] = "skipped"
-            payment_result["reason"] = f"Invalid payment ID format (not a Mollie payment ID)"
+            payment_result["reason"] = "Invalid payment ID format (not a Mollie payment ID)"
             result["skipped"] += 1
             result["results"].append(payment_result)
             frappe.logger().warning(f"Skipping invalid payment ID: {payment_id[:50]}...")
@@ -399,12 +398,15 @@ def complete_partial_payments(
             # Create missing documents
             if not status["has_sales_invoice"]:
                 # Check for overlapping coverage before creating invoice
-                from verenigingen.integrations.mollie.services.dues_payment_processor import (
-                    get_quarter_coverage_dates,
+                from verenigingen.services.billing.coverage_calculator import (
+                    calculate_coverage_for_payment_date,
                 )
                 from verenigingen.services.billing.coverage_overlap_detector import check_coverage_overlap
 
-                coverage_start, coverage_end = get_quarter_coverage_dates(payment_date)
+                # Calculate coverage based on member's billing frequency
+                coverage_start, coverage_end = calculate_coverage_for_payment_date(
+                    status["member"], payment_date
+                )
 
                 member = frappe.get_doc("Member", status["member"])
                 if member.customer:

@@ -695,6 +695,11 @@ def _update_payment_link_status(
     Uses explicit transaction boundaries (savepoints) for data integrity.
     Each payment link update is isolated so failures don't affect others.
 
+    When status becomes "Executed":
+    - Attempts to find matching Sales Invoice if not already linked
+    - Creates Payment Entry for the payment
+    - Links Payment Entry to the payment link
+
     Args:
         request_id: Ponto request ID
         new_status: New status value
@@ -733,6 +738,7 @@ def _update_payment_link_status(
     if mapped_status:
         updated_links = []
         failed_links = []
+        payment_entries_created = []
 
         for pl in payment_links:
             # Use savepoint for each update to isolate failures
@@ -743,6 +749,13 @@ def _update_payment_link_status(
                 doc.update_status_from_webhook(mapped_status, debtor_info)
                 frappe.logger().info(f"Updated Ponto Payment Link {pl.name} to status {mapped_status}")
                 updated_links.append(pl.name)
+
+                # If payment is executed, try to find invoice and create Payment Entry
+                if mapped_status == "Executed" and not doc.payment_entry:
+                    pe_result = _process_executed_payment(doc)
+                    if pe_result.get("payment_entry"):
+                        payment_entries_created.append(pe_result["payment_entry"])
+
             except Exception as e:
                 frappe.db.rollback(save_point=savepoint_name)
                 frappe.logger().error(f"Failed to update Ponto Payment Link {pl.name}: {e}")
@@ -759,9 +772,190 @@ def _update_payment_link_status(
             "new_status": mapped_status,
             "updated_links": updated_links,
             "failed_links": failed_links if failed_links else None,
+            "payment_entries_created": payment_entries_created if payment_entries_created else None,
         }
 
     return {"handled": True, "action": "logged", "reason": "unknown_status"}
+
+
+def _process_executed_payment(payment_link_doc) -> Dict[str, Any]:
+    """
+    Process an executed Ponto payment - find matching invoice and create Payment Entry.
+
+    Uses the generalized invoice matching from coverage_calculator.
+
+    Args:
+        payment_link_doc: Ponto Payment Link document
+
+    Returns:
+        Dict with processing result including payment_entry name if created
+    """
+    from frappe.utils import flt, getdate, today
+
+    from verenigingen.services.billing.coverage_calculator import find_invoice_for_payment
+
+    result = {
+        "payment_entry": None,
+        "sales_invoice": None,
+        "matched_by": None,
+    }
+
+    try:
+        # Get member if linked
+        member_name = payment_link_doc.member
+        if not member_name:
+            frappe.logger().info(
+                f"Ponto Payment Link {payment_link_doc.name} has no member linked - "
+                "cannot match invoice automatically"
+            )
+            return result
+
+        # Get payment details
+        amount = flt(payment_link_doc.amount)
+        payment_date = getdate(today())  # Use today as the payment date
+        description = payment_link_doc.description or ""
+
+        # Check if invoice is already linked
+        if payment_link_doc.sales_invoice:
+            result["sales_invoice"] = payment_link_doc.sales_invoice
+            result["matched_by"] = "pre_linked"
+        else:
+            # Use the generalized invoice matching service
+            matched_invoice = find_invoice_for_payment(
+                member_name=member_name,
+                payment_date=payment_date,
+                payment_amount=amount,
+                remittance_info=description,
+            )
+
+            if matched_invoice:
+                # Link the invoice to the payment link
+                payment_link_doc.sales_invoice = matched_invoice
+                # SECURITY JUSTIFICATION: Webhook handler updating payment link with matched invoice.
+                # No user session during webhook processing. Audit trail via webhook event logs.
+                payment_link_doc.save(ignore_permissions=True)
+                result["sales_invoice"] = matched_invoice
+                result["matched_by"] = "invoice_matcher"
+                frappe.logger().info(
+                    f"Matched Ponto Payment Link {payment_link_doc.name} to Sales Invoice {matched_invoice}"
+                )
+
+        # Create Payment Entry if we have an invoice
+        if result.get("sales_invoice"):
+            pe_name = _create_ponto_payment_entry(
+                payment_link_doc=payment_link_doc,
+                invoice_name=result["sales_invoice"],
+            )
+            if pe_name:
+                result["payment_entry"] = pe_name
+                # Link payment entry back to payment link
+                payment_link_doc.payment_entry = pe_name
+                # SECURITY JUSTIFICATION: Webhook handler updating payment link with Payment Entry.
+                # No user session during webhook processing. Audit trail via webhook event logs.
+                payment_link_doc.save(ignore_permissions=True)
+
+        return result
+
+    except Exception as e:
+        frappe.logger().error(f"Failed to process executed payment {payment_link_doc.name}: {e}")
+        frappe.log_error(
+            title=f"Ponto payment processing failed: {payment_link_doc.name}",
+            message=str(e),
+        )
+        return result
+
+
+def _create_ponto_payment_entry(payment_link_doc, invoice_name: str) -> Optional[str]:
+    """
+    Create a Payment Entry for a Ponto payment.
+
+    Args:
+        payment_link_doc: Ponto Payment Link document
+        invoice_name: Sales Invoice to allocate payment to
+
+    Returns:
+        Payment Entry name if created, None otherwise
+    """
+    from frappe.utils import flt, getdate, today
+
+    try:
+        # Get invoice document
+        invoice_doc = frappe.get_doc("Sales Invoice", invoice_name)
+
+        if invoice_doc.outstanding_amount <= 0:
+            frappe.logger().info(
+                f"Sales Invoice {invoice_name} already paid (outstanding: {invoice_doc.outstanding_amount})"
+            )
+            return None
+
+        # Get settings
+        settings = frappe.get_single("Verenigingen Settings")
+        company = invoice_doc.company or settings.company
+
+        # Get Ponto bank account from settings
+        ponto_bank_account = getattr(settings, "ponto_bank_account_parent", None)
+        if not ponto_bank_account:
+            # Try to find a Ponto account
+            ponto_bank_account = frappe.db.get_value(
+                "Account",
+                {"company": company, "account_name": ["like", "%Ponto%"], "is_group": 0},
+                "name",
+            )
+        if not ponto_bank_account:
+            ponto_bank_account = frappe.get_cached_value("Company", company, "default_bank_account")
+
+        if not ponto_bank_account:
+            frappe.logger().error(f"No Ponto bank account configured for company {company}")
+            return None
+
+        # Calculate allocation amount
+        amount = flt(payment_link_doc.amount)
+        allocation_amount = min(amount, flt(invoice_doc.outstanding_amount))
+
+        # Use ERPNext's get_payment_entry for proper account handling
+        from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
+        payment_entry = get_payment_entry(
+            dt="Sales Invoice",
+            dn=invoice_name,
+            party_amount=allocation_amount,
+            bank_account=ponto_bank_account,
+        )
+
+        # Override with Ponto-specific fields
+        payment_entry.posting_date = getdate(today())
+        payment_entry.reference_no = payment_link_doc.ponto_request_id or payment_link_doc.name
+        payment_entry.reference_date = getdate(today())
+        payment_entry.mode_of_payment = "Bank Transfer"
+        payment_entry.paid_to = ponto_bank_account
+        payment_entry.remarks = (
+            f"Ponto payment via payment link {payment_link_doc.name}. "
+            f"Description: {payment_link_doc.description or 'N/A'}"
+        )
+
+        # Link to member if available
+        if payment_link_doc.member:
+            payment_entry.custom_member = payment_link_doc.member
+
+        # SECURITY JUSTIFICATION: Creating Payment Entry from webhook callback.
+        # No user session during webhook processing. Audit trail via Payment Entry and webhook logs.
+        payment_entry.insert(ignore_permissions=True)
+        payment_entry.submit()
+
+        frappe.logger().info(
+            f"Created Payment Entry {payment_entry.name} for Ponto Payment Link {payment_link_doc.name} "
+            f"(amount: {allocation_amount}, invoice: {invoice_name})"
+        )
+
+        return payment_entry.name
+
+    except Exception as e:
+        frappe.logger().error(f"Failed to create Payment Entry for {payment_link_doc.name}: {e}")
+        frappe.log_error(
+            title=f"Ponto Payment Entry creation failed: {payment_link_doc.name}",
+            message=str(e),
+        )
+        return None
 
 
 def handle_payment_initiation_updated(event_data: Dict[str, Any]) -> Dict[str, Any]:

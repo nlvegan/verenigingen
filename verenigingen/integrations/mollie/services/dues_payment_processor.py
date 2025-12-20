@@ -8,7 +8,6 @@ Handles processing of Mollie payments for membership dues, including:
 - Proper idempotency to prevent duplicate processing
 """
 
-from calendar import monthrange
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
@@ -19,71 +18,14 @@ from frappe.utils import flt, getdate
 
 from verenigingen.integrations.mollie.core.client import MollieClient
 from verenigingen.integrations.mollie.domain.payment_classification import PaymentClassifier
+from verenigingen.services.billing.coverage_calculator import (
+    calculate_coverage_for_payment_date,
+    find_invoice_for_payment,
+)
 from verenigingen.utils.bank_utils import get_or_create_unknown_bank
 from verenigingen.verenigingen_payments.services.payment.payment_entry_creation_service import (
     payment_entry_service,
 )
-
-
-def get_quarter_coverage_dates(payment_date: date) -> Tuple[date, date]:
-    """
-    Calculate calendar quarter coverage dates for a payment.
-
-    Mijnrood logic: Payment in any part of quarter covers entire quarter.
-
-    Args:
-        payment_date: Date the payment was made
-
-    Returns:
-        Tuple of (quarter_start_date, quarter_end_date)
-    """
-    quarter = (payment_date.month - 1) // 3 + 1
-
-    quarter_start_months = {1: 1, 2: 4, 3: 7, 4: 10}
-    quarter_end_months = {1: 3, 2: 6, 3: 9, 4: 12}
-
-    start_month = quarter_start_months[quarter]
-    end_month = quarter_end_months[quarter]
-
-    coverage_start = date(payment_date.year, start_month, 1)
-    # Last day of the quarter end month
-    coverage_end = date(payment_date.year, end_month, monthrange(payment_date.year, end_month)[1])
-
-    return coverage_start, coverage_end
-
-
-def get_month_coverage_dates(payment_date: date) -> Tuple[date, date]:
-    """
-    Calculate month coverage dates for a payment.
-
-    Args:
-        payment_date: Date the payment was made
-
-    Returns:
-        Tuple of (month_start_date, month_end_date)
-    """
-    coverage_start = date(payment_date.year, payment_date.month, 1)
-    coverage_end = date(
-        payment_date.year, payment_date.month, monthrange(payment_date.year, payment_date.month)[1]
-    )
-
-    return coverage_start, coverage_end
-
-
-def get_year_coverage_dates(payment_date: date) -> Tuple[date, date]:
-    """
-    Calculate year coverage dates for a payment.
-
-    Args:
-        payment_date: Date the payment was made
-
-    Returns:
-        Tuple of (year_start_date, year_end_date)
-    """
-    coverage_start = date(payment_date.year, 1, 1)
-    coverage_end = date(payment_date.year, 12, 31)
-
-    return coverage_start, coverage_end
 
 
 class DuesPaymentProcessor:
@@ -286,11 +228,10 @@ class DuesPaymentProcessor:
         """
         Get existing invoice or create a new historical invoice for a payment.
 
-        MIJNROOD BUSINESS LOGIC:
-        Any payment made during a calendar quarter (Q1: Jan-Mar, Q2: Apr-Jun, Q3: Jul-Sep, Q4: Oct-Dec)
-        provides membership coverage for the ENTIRE quarter. This differs from standard monthly billing
-        where payments cover only the specific month. This "first payment covers quarter" approach was
-        used by mijnrood for simplified administration.
+        BILLING-FREQUENCY-AWARE COVERAGE:
+        Coverage period is calculated based on the member's dues schedule billing frequency,
+        not hardcoded quarterly logic. Falls back to the billing_cutoff_frequency from
+        Verenigingen Settings if no dues schedule exists.
 
         TECHNICAL IMPLEMENTATION:
         This method bypasses the standard InvoiceGenerator service because historical imports don't have
@@ -307,12 +248,12 @@ class DuesPaymentProcessor:
         - Coverage dates must be logically valid
 
         Database Impact:
-        - Reads: Member, Membership, Verenigingen Settings, Sales Invoice
+        - Reads: Member, Membership, Verenigingen Settings, Sales Invoice, Membership Dues Schedule
         - Writes: Sales Invoice (if created), Item (if dues item missing)
 
         Args:
             member_name: Member document name (e.g., "Assoc-Member-2024-01-0001")
-            payment_date: Date the payment was made (determines quarter coverage)
+            payment_date: Date the payment was made (determines coverage based on billing frequency)
             payment_amount: Amount in EUR (must be positive)
 
         Returns:
@@ -335,10 +276,10 @@ class DuesPaymentProcessor:
             >>> processor = DuesPaymentProcessor(mollie_client)
             >>> invoice = processor._get_or_create_historical_invoice(
             ...     "Assoc-Member-2024-01-0001",
-            ...     date(2024, 5, 15),  # Payment in May = Q2
+            ...     date(2024, 5, 15),  # Coverage depends on member's billing frequency
             ...     25.0
             ... )
-            >>> # Returns invoice covering 2024-04-01 to 2024-06-30 (entire Q2)
+            >>> # Returns invoice covering period based on billing frequency
         """
         # Input validation
         if payment_amount <= 0:
@@ -356,8 +297,8 @@ class DuesPaymentProcessor:
             raise ValueError(f"Payment date {payment_date} cannot be in the future")
 
         try:
-            # Calculate quarter coverage dates (mijnrood logic)
-            coverage_start, coverage_end = get_quarter_coverage_dates(payment_date)
+            # Calculate coverage dates based on member's billing frequency
+            coverage_start, coverage_end = calculate_coverage_for_payment_date(member_name, payment_date)
 
             frappe.logger().info(
                 f"Looking for invoice for {member_name} covering {coverage_start} to {coverage_end}"
