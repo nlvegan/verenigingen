@@ -794,46 +794,16 @@ workflow_action_handlers = {
 # Fixtures
 # --------
 fixtures = [
+    # ============================================================================
+    # SCHEMA ITEMS ONLY
+    # Reference data (Donation Types, Email Templates, Membership Types, etc.)
+    # is created via execute_after_install() which only runs once on app install.
+    # This prevents migrations from overwriting user customizations.
+    # ============================================================================
     # Property Setters (customize ERPNext DocTypes)
     "Property Setter",
     # Custom DocPerms (permissions for core DocTypes)
     "Custom DocPerm",
-    # Donation Types
-    {
-        "doctype": "Donation Type",
-        "filters": [
-            [
-                "name",
-                "in",
-                ["General", "Monthly", "One-time", "Campaign", "Emergency Relie", "Membership Support"],
-            ]
-        ],
-    },
-    # Email Templates
-    {"doctype": "Email Template", "filters": [["name", "like", "membership_%"]]},
-    {
-        "doctype": "Email Template",
-        "filters": [
-            [
-                "name",
-                "in",
-                [
-                    "expense_approval_request",
-                    "expense_approved",
-                    "expense_rejected",
-                    "donation_confirmation",
-                    "donation_payment_confirmation",
-                    "anbi_tax_receipt",
-                    "termination_overdue_notification",
-                    "member_contact_request_received",
-                ],
-            ]
-        ],
-    },
-    {
-        "doctype": "Email Template",
-        "filters": [["name", "in", ["Termination Approval Required", "Termination Execution Notice"]]],
-    },
     # Workflows
     {"doctype": "Workflow", "filters": [["name", "in", ["Membership Termination Workflow"]]]},
     {
@@ -949,49 +919,13 @@ fixtures = [
             ["fieldname", "=", "custom_eboekhouden_grootboek_nummer"],
         ],
     },
-    # Membership Types (Dutch association types)
-    {
-        "doctype": "Membership Type",
-        "filters": [["name", "in", ["Lid", "Huisgenootlid", "Aspirant", "Erelid", "Donateur"]]],
-    },
-    # Membership Dues Schedule Templates (Dutch)
-    {
-        "doctype": "Membership Dues Schedule",
-        "filters": [
-            [
-                "name",
-                "in",
-                [
-                    "Standaard Lid Template",
-                    "Huisgenootlid Template",
-                    "Aspirant Template",
-                    "Erelid Template",
-                    "Donateur Template",
-                ],
-            ]
-        ],
-    },
-    # Item Groups
-    {
-        "doctype": "Item Group",
-        "filters": [["name", "=", "Memberships"]],
-    },
-    # Items
-    {
-        "doctype": "Item",
-        "filters": [["item_code", "=", "MEMBERSHIP"]],
-    },
-    # Mode of Payment
-    {
-        "doctype": "Mode of Payment",
-        "filters": [["name", "=", "Mollie"]],
-    },
-    # Updated to use dues schedule system instead of subscription plans
-    # Team Roles
-    {
-        "doctype": "Team Role",
-        "filters": [["name", "in", ["Team Leader", "Team Member", "Coordinator", "Secretary", "Treasurer"]]],
-    },
+    # NOTE: Reference data moved to execute_after_install():
+    # - Membership Types (Lid, Huisgenootlid, Aspirant, Erelid, Donateur)
+    # - Membership Dues Schedule Templates
+    # - Item Groups (Memberships)
+    # - Items (MEMBERSHIP)
+    # - Mode of Payment (Mollie)
+    # - Team Roles
     # Workspaces
     {
         "doctype": "Workspace",

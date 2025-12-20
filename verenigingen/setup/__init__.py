@@ -274,12 +274,54 @@ def validate_app_dependencies():
         )
 
 
+def _is_initial_setup_complete() -> bool:
+    """
+    Check if initial setup has already been completed.
+
+    Returns True if the initial_setup_complete flag is set in Verenigingen Settings.
+    """
+    try:
+        if not frappe.db.exists("Verenigingen Settings", "Verenigingen Settings"):
+            return False
+        return bool(
+            frappe.db.get_value("Verenigingen Settings", "Verenigingen Settings", "initial_setup_complete")
+        )
+    except Exception:
+        return False
+
+
+def _mark_initial_setup_complete():
+    """
+    Mark initial setup as complete by setting the flag in Verenigingen Settings.
+    """
+    try:
+        if frappe.db.exists("Verenigingen Settings", "Verenigingen Settings"):
+            frappe.db.set_value(
+                "Verenigingen Settings",
+                "Verenigingen Settings",
+                "initial_setup_complete",
+                1,
+            )
+            frappe.db.commit()
+            print("✅ Marked initial setup as complete")
+    except Exception as e:
+        print(f"⚠️ Could not mark initial setup complete: {str(e)}")
+
+
 def execute_after_install():
     """
     Function executed after the app is installed
     Sets up necessary configurations for the Verenigingen app
+
+    This function is idempotent - it checks initial_setup_complete flag
+    and skips reference data creation if already run.
     """
     try:
+        # Check if initial setup has already been completed
+        if _is_initial_setup_complete():
+            print("✅ Initial setup already complete - skipping reference data creation")
+            return
+
         # Validate dependencies
         validate_app_dependencies()
 
@@ -294,6 +336,10 @@ def execute_after_install():
 
         # Execute the setup function from this file
         setup_verenigingen()
+
+        # Create all reference data (Membership Types, Team Roles, etc.)
+        # This is now done here instead of via fixtures to prevent migration overwrites
+        create_all_reference_data()
 
         # Set up membership application system
         setup_membership_application_system()
@@ -344,6 +390,9 @@ def execute_after_install():
         except Exception as e:
             print(f"⚠️ Public document creator setup failed: {str(e)}")
             frappe.logger().warning("Public document creator setup failed: %s", str(e))
+
+        # Mark initial setup as complete to prevent re-running on future migrations
+        _mark_initial_setup_complete()
 
         # Log the successful setup
         frappe.logger().info("Verenigingen setup completed successfully")
@@ -1330,6 +1379,176 @@ def create_default_donation_types():
             print(f"   ⚠️ Could not set default donation type: {str(e)}")
 
     return created_count
+
+
+def create_default_membership_types():
+    """Create default Dutch membership types if they don't exist"""
+    print("   👥 Setting up default membership types...")
+
+    # Dutch association membership types with their base rates
+    membership_types = [
+        {"membership_type_name": "Lid", "billing_frequency": "Annual", "membership_type": "Regular"},
+        {
+            "membership_type_name": "Huisgenootlid",
+            "billing_frequency": "Annual",
+            "membership_type": "Regular",
+        },
+        {"membership_type_name": "Aspirant", "billing_frequency": "Annual", "membership_type": "Regular"},
+        {"membership_type_name": "Erelid", "billing_frequency": "Annual", "membership_type": "Honorary"},
+        {"membership_type_name": "Donateur", "billing_frequency": "Annual", "membership_type": "Donor"},
+    ]
+
+    created_count = 0
+    for mt_data in membership_types:
+        name = mt_data["membership_type_name"]
+        if not frappe.db.exists("Membership Type", name):
+            try:
+                doc = frappe.get_doc({"doctype": "Membership Type", **mt_data})
+                doc.insert(ignore_permissions=True)
+                created_count += 1
+                print(f"   ✓ Created membership type: {name}")
+            except Exception as e:
+                print(f"   ⚠️ Could not create membership type '{name}': {str(e)}")
+        else:
+            print(f"   ✓ Membership type already exists: {name}")
+
+    if created_count > 0:
+        frappe.db.commit()
+        print(f"   👥 Created {created_count} default membership types")
+
+    return created_count
+
+
+def create_default_team_roles():
+    """Create default team roles if they don't exist"""
+    print("   🎭 Setting up default team roles...")
+
+    team_roles = ["Team Leader", "Team Member", "Coordinator", "Secretary", "Treasurer"]
+
+    created_count = 0
+    for role_name in team_roles:
+        if not frappe.db.exists("Team Role", role_name):
+            try:
+                doc = frappe.get_doc({"doctype": "Team Role", "role_name": role_name})
+                doc.insert(ignore_permissions=True)
+                created_count += 1
+                print(f"   ✓ Created team role: {role_name}")
+            except Exception as e:
+                print(f"   ⚠️ Could not create team role '{role_name}': {str(e)}")
+        else:
+            print(f"   ✓ Team role already exists: {role_name}")
+
+    if created_count > 0:
+        frappe.db.commit()
+        print(f"   🎭 Created {created_count} default team roles")
+
+    return created_count
+
+
+def create_default_payment_modes():
+    """Create default payment modes if they don't exist"""
+    print("   💳 Setting up default payment modes...")
+
+    payment_modes = [
+        {"mode_of_payment": "Mollie", "type": "General"},
+    ]
+
+    created_count = 0
+    for pm_data in payment_modes:
+        name = pm_data["mode_of_payment"]
+        if not frappe.db.exists("Mode of Payment", name):
+            try:
+                doc = frappe.get_doc({"doctype": "Mode of Payment", **pm_data})
+                doc.insert(ignore_permissions=True)
+                created_count += 1
+                print(f"   ✓ Created payment mode: {name}")
+            except Exception as e:
+                print(f"   ⚠️ Could not create payment mode '{name}': {str(e)}")
+        else:
+            print(f"   ✓ Payment mode already exists: {name}")
+
+    if created_count > 0:
+        frappe.db.commit()
+        print(f"   💳 Created {created_count} default payment modes")
+
+    return created_count
+
+
+def create_membership_items():
+    """Create membership-related items and item groups"""
+    print("   📦 Setting up membership items...")
+
+    # Ensure Memberships item group exists
+    if not frappe.db.exists("Item Group", "Memberships"):
+        try:
+            # Get parent item group
+            parent = "All Item Groups"
+            if not frappe.db.exists("Item Group", parent):
+                parent = ""
+
+            doc = frappe.get_doc(
+                {
+                    "doctype": "Item Group",
+                    "item_group_name": "Memberships",
+                    "is_group": 0,
+                    "parent_item_group": parent,
+                }
+            )
+            doc.insert(ignore_permissions=True)
+            print("   ✓ Created item group: Memberships")
+        except Exception as e:
+            print(f"   ⚠️ Could not create item group 'Memberships': {str(e)}")
+    else:
+        print("   ✓ Item group already exists: Memberships")
+
+    # Create MEMBERSHIP item
+    if not frappe.db.exists("Item", "MEMBERSHIP"):
+        try:
+            doc = frappe.get_doc(
+                {
+                    "doctype": "Item",
+                    "item_code": "MEMBERSHIP",
+                    "item_name": "Membership",
+                    "item_group": "Memberships"
+                    if frappe.db.exists("Item Group", "Memberships")
+                    else "Services",
+                    "stock_uom": "Nos",
+                    "is_stock_item": 0,
+                    "is_sales_item": 1,
+                    "is_service_item": 1,
+                    "description": "Standard membership item for association dues",
+                }
+            )
+            doc.insert(ignore_permissions=True)
+            print("   ✓ Created item: MEMBERSHIP")
+        except Exception as e:
+            print(f"   ⚠️ Could not create item 'MEMBERSHIP': {str(e)}")
+    else:
+        print("   ✓ Item already exists: MEMBERSHIP")
+
+    frappe.db.commit()
+
+
+def create_all_reference_data():
+    """
+    Create all reference data that was previously in fixtures.
+
+    This function is called by execute_after_install() and creates:
+    - Donation Types
+    - Membership Types
+    - Team Roles
+    - Payment Modes
+    - Membership Items
+    """
+    print("\n📊 Creating reference data...")
+
+    create_default_donation_types()
+    create_default_membership_types()
+    create_default_team_roles()
+    create_default_payment_modes()
+    create_membership_items()
+
+    print("📊 Reference data creation complete\n")
 
 
 @frappe.whitelist()
