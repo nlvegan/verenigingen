@@ -3,6 +3,11 @@
 
 frappe.ui.form.on("Ponto Settings", {
 	refresh: function (frm) {
+		// Guard against undefined doc (can happen during singleton initialization)
+		if (!frm.doc) {
+			return;
+		}
+
 		// Add custom button for fetching accounts
 		if (!frm.is_new()) {
 			frm.add_custom_button(__("Test Connection"), function () {
@@ -43,17 +48,36 @@ frappe.ui.form.on("Ponto Settings", {
 
 	use_ibanity_mtls: function (frm) {
 		// Update authorization status when mTLS is toggled
-		if (frm.doc.use_ibanity_mtls) {
+		if (frm.doc && frm.doc.use_ibanity_mtls) {
 			frm.trigger("update_ibanity_authorization_status");
 		}
 	},
 
 	update_ibanity_authorization_status: function (frm) {
+		// Guard: Check if form and field are available
+		if (
+			!frm.doc ||
+			!frm.fields_dict ||
+			!frm.fields_dict.ibanity_authorization_status
+		) {
+			return;
+		}
+
 		// Check and display Ibanity authorization status
 		frappe.call({
 			method:
 				"verenigingen.verenigingen_payments.ponto.api.oauth2_callback.check_authorization_status",
 			callback: function (r) {
+				// Guard: Verify form is still valid when callback fires
+				if (
+					!frm.doc ||
+					!frm.fields_dict ||
+					!frm.fields_dict.ibanity_authorization_status ||
+					!frm.fields_dict.ibanity_authorization_status.$wrapper
+				) {
+					return;
+				}
+
 				if (r.message) {
 					let status_html = "";
 					if (r.message.is_authorized) {
@@ -71,6 +95,10 @@ frappe.ui.form.on("Ponto Settings", {
 					}
 					frm.fields_dict.ibanity_authorization_status.$wrapper.html(status_html);
 				}
+			},
+			error: function () {
+				// Silently handle errors - the status field will just not be updated
+				// This prevents console errors when authorization check fails
 			},
 		});
 	},
@@ -119,7 +147,7 @@ frappe.ui.form.on("Ponto Settings", {
 			freeze: true,
 			freeze_message: __("Fetching accounts from Ponto..."),
 			callback: function (r) {
-				if (r.message && r.message.success) {
+				if (r.message && r.message.success && frm.doc) {
 					// Reload the form to show the new mappings
 					frm.reload_doc();
 				}
@@ -135,7 +163,7 @@ frappe.ui.form.on("Ponto Settings", {
 			freeze: true,
 			freeze_message: __("Importing transactions from Ponto..."),
 			callback: function (r) {
-				if (r.message && r.message.success) {
+				if (r.message && r.message.success && frm.doc) {
 					// Reload the form to show updated last_sync_time
 					frm.reload_doc();
 				}
@@ -151,7 +179,7 @@ frappe.ui.form.on("Ponto Settings", {
 			freeze: true,
 			freeze_message: __("Fetching status from Ponto..."),
 			callback: function (r) {
-				if (r.message && r.message.success) {
+				if (r.message && r.message.success && frm.doc) {
 					// Reload the form to show updated activation status
 					frm.reload_doc();
 				}
@@ -162,7 +190,9 @@ frappe.ui.form.on("Ponto Settings", {
 	sandbox_mode: function (frm) {
 		// Clear token cache when switching environments
 		// The form will show/hide the appropriate credential sections automatically
-		frm.trigger("refresh");
+		if (frm.doc) {
+			frm.trigger("refresh");
+		}
 	},
 });
 

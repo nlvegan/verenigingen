@@ -160,6 +160,9 @@ class PaymentInitiationRequest:
     debtor_bank: Optional[str]
     # Tracking
     end_to_end_id: Optional[str]
+    # Timestamps for status inference (Ponto doesn't return a status field)
+    signed_at: Optional[str] = None  # When customer authorized the payment
+    closed_at: Optional[str] = None  # When payment reached final state
 
     @classmethod
     def from_api_response(cls, data: Dict[str, Any]) -> "PaymentInitiationRequest":
@@ -199,9 +202,28 @@ class PaymentInitiationRequest:
         # This is the URL customers use to authorize the payment
         redirect_link = attrs.get("signingUri", "") or data.get("links", {}).get("redirect", "")
 
+        # Extract timestamps for status inference
+        signed_at = attrs.get("signedAt")
+        closed_at = attrs.get("closedAt")
+
+        # Infer status from timestamps since Ponto API doesn't return a status field
+        # Priority: closedAt > signedAt > pending
+        if attrs.get("status"):
+            # If API returns explicit status, use it
+            status = attrs.get("status")
+        elif closed_at:
+            # Payment has reached final state (executed, rejected, or expired)
+            status = "closed"
+        elif signed_at:
+            # Customer has authorized but payment not yet executed
+            status = "signed"
+        else:
+            # Waiting for customer authorization
+            status = "pending"
+
         return cls(
             id=data.get("id", ""),
-            status=attrs.get("status", ""),
+            status=status,
             amount=Decimal(str(attrs.get("amount", "0"))),
             currency=attrs.get("currency", "EUR"),
             creditor_name=attrs.get("creditorName", ""),
@@ -214,6 +236,8 @@ class PaymentInitiationRequest:
             debtor_iban=attrs.get("debtorAccountReference"),
             debtor_bank=attrs.get("debtorAgent"),
             end_to_end_id=attrs.get("endToEndId"),
+            signed_at=signed_at,
+            closed_at=closed_at,
         )
 
 

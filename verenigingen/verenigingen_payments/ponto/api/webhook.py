@@ -702,7 +702,24 @@ def handle_payment_request_closed(event_data: Dict[str, Any]) -> Dict[str, Any]:
     )
 
     if not payment_requests:
-        frappe.logger().warning(f"No Ponto Payment Request found for payment ID: {payment_id}")
+        # Fallback: Check if this is a Ponto Payment Link (betaalverzoek/incoming payment)
+        # Ponto may use the same paymentRequest.closed event for both outgoing and incoming payments
+        payment_links = frappe.get_all(
+            "Ponto Payment Link",
+            filters={"ponto_request_id": payment_id},
+            fields=["name"],
+        )
+
+        if payment_links:
+            # Route to payment initiation handler
+            frappe.logger().info(
+                f"Payment ID {payment_id} matched Ponto Payment Link, routing to initiation handler"
+            )
+            return handle_payment_initiation_closed(event_data)
+
+        frappe.logger().warning(
+            f"No Ponto Payment Request or Payment Link found for payment ID: {payment_id}"
+        )
         return {"handled": True, "action": "logged", "reason": "payment_request_not_found"}
 
     # Map Ponto status to our status

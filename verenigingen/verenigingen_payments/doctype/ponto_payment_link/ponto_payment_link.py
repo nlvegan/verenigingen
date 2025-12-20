@@ -291,11 +291,14 @@ class PontoPaymentLink(Document):
             request = client.get_payment_request(self.ponto_request_id)
 
             # Map Ponto status to our status
+            # Note: Ponto API doesn't return a 'status' field - we infer it from
+            # signedAt/closedAt timestamps in betaalverzoek_client.from_api_response()
             status_map = {
                 "pending": "Pending Authorization",
                 "unsigned": "Pending Authorization",
                 "signed": "Authorized",
                 "authorized": "Authorized",
+                "closed": "Executed",  # closedAt is set when payment reaches final state
                 "executed": "Executed",
                 "rejected": "Rejected",
                 "failed": "Failed",

@@ -81,8 +81,8 @@ class PontoOAuth2Service:
     TOKEN_EXPIRY_BUFFER = 300  # 5 minutes - allows for clock skew
 
     # Distributed lock for token refresh (prevents race conditions)
-    TOKEN_REFRESH_LOCK_KEY = "ponto_token_refresh_lock"
-    TOKEN_REFRESH_LOCK_TTL = 30  # Lock expires after 30 seconds (timeout protection)
+    TOKEN_REFRESH_LOCK_NAME = "ponto_token_refresh"
+    TOKEN_REFRESH_LOCK_TIMEOUT = 30  # Lock timeout in seconds
 
     def __init__(self):
         """Initialize OAuth2 service."""
@@ -642,59 +642,38 @@ class PontoOAuth2Service:
         if refresh_token:
             # Use distributed lock to prevent race conditions
             # If two processes try to refresh simultaneously, only one should proceed
-            lock_acquired = self._acquire_refresh_lock(cache)
-            if not lock_acquired:
-                # Another process is refreshing - wait briefly and check cache again
-                import time
+            from frappe.utils.file_lock import LockTimeoutError
+            from frappe.utils.synchronization import filelock
 
-                time.sleep(2)  # Give other process time to complete
+            try:
+                with filelock(self.TOKEN_REFRESH_LOCK_NAME, timeout=self.TOKEN_REFRESH_LOCK_TIMEOUT):
+                    # Double-check cache inside lock - another process may have refreshed
+                    cached_token = cache.get_value(self.ACCESS_TOKEN_CACHE_KEY)
+                    if isinstance(cached_token, bytes):
+                        cached_token = cached_token.decode("utf-8")
+                    if cached_token:
+                        frappe.logger().debug("Token refreshed by another process, using cached token")
+                        return cached_token
+
+                    # Proceed with refresh
+                    return self._refresh_access_token(refresh_token)
+            except LockTimeoutError:
+                # Lock held by another process - check if they refreshed
                 cached_token = cache.get_value(self.ACCESS_TOKEN_CACHE_KEY)
                 if isinstance(cached_token, bytes):
                     cached_token = cached_token.decode("utf-8")
                 if cached_token:
                     frappe.logger().debug("Token refreshed by another process, using cached token")
                     return cached_token
-                # Still no token after wait - fail fast to avoid race condition
-                # Don't retry lock acquisition as the other process may have failed
-                # and we risk consuming the refresh token simultaneously
                 raise PontoAuthenticationError(
                     "Token refresh in progress by another process. Please retry.",
                     details={"action": "retry_after_seconds", "retry_after": 2},
                 )
 
-            try:
-                return self._refresh_access_token(refresh_token)
-            except Exception as e:
-                frappe.logger().warning(f"Token refresh failed: {e}")
-                raise
-            finally:
-                self._release_refresh_lock(cache)
-
         raise PontoAuthenticationError(
             "No valid Ponto access token. Please authorize the application first.",
             details={"action": "authorize"},
         )
-
-    def _acquire_refresh_lock(self, cache) -> bool:
-        """
-        Acquire distributed lock for token refresh using Redis SETNX.
-
-        Returns:
-            bool: True if lock acquired, False if already held
-        """
-        # Use Redis SETNX pattern - set if not exists
-        redis = cache.redis
-        result = redis.set(
-            self.TOKEN_REFRESH_LOCK_KEY,
-            "1",
-            nx=True,  # Only set if not exists
-            ex=self.TOKEN_REFRESH_LOCK_TTL,  # Expire after TTL
-        )
-        return bool(result)
-
-    def _release_refresh_lock(self, cache):
-        """Release the distributed token refresh lock."""
-        cache.delete_value(self.TOKEN_REFRESH_LOCK_KEY)
 
     def _refresh_access_token(self, refresh_token: str) -> str:
         """
@@ -793,6 +772,10 @@ class PontoOAuth2Service:
             self.get_access_token()
             return True
         except PontoAuthenticationError:
+            return False
+        except Exception as e:
+            # Log unexpected errors but don't expose them as authorization failures
+            frappe.logger().warning(f"Unexpected error checking Ponto authorization: {e}")
             return False
 
 
