@@ -1450,8 +1450,13 @@ def create_default_payment_modes():
     print("   💳 Setting up default payment modes...")
 
     payment_modes = [
+        # Online payment gateways
         {"mode_of_payment": "Mollie", "type": "General"},
         {"mode_of_payment": "Ponto", "type": "Bank"},
+        # Traditional payment methods (for legacy data compatibility)
+        {"mode_of_payment": "Bank Transfer", "type": "Bank"},
+        {"mode_of_payment": "SEPA Direct Debit", "type": "Bank"},
+        {"mode_of_payment": "Cash", "type": "Cash"},
     ]
 
     created_count = 0
