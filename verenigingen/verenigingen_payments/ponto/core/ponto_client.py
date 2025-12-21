@@ -27,7 +27,7 @@ import requests
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
-from verenigingen.integrations.mollie.utils.error_recovery import (
+from verenigingen.verenigingen_payments.mollie.utils.error_recovery import (
     CircuitBreakerConfig,
     RetryConfig,
     with_circuit_breaker,

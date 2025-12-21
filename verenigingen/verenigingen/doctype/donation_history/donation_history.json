@@ -44,9 +44,9 @@
     },
     {
       "fieldname": "payment_method",
-      "fieldtype": "Select",
+      "fieldtype": "Link",
       "label": "Payment Method",
-      "options": "\nBank Transfer\nSEPA Direct Debit\nMollie\nCash\nCheck",
+      "options": "Mode of Payment",
       "read_only": 1
     },
     {

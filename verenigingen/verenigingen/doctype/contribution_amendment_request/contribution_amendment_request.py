@@ -416,7 +416,7 @@ class ContributionAmendmentRequest(Document):
                 # This ensures database transaction commits before external API calls
                 job_id = f"mollie_sync_{self.name}"
                 frappe.enqueue(
-                    "verenigingen.integrations.mollie.events.amendment_events.sync_mollie_subscription_on_amendment_applied",
+                    "verenigingen.verenigingen_payments.mollie.events.amendment_events.sync_mollie_subscription_on_amendment_applied",
                     queue="default",
                     timeout=60,
                     doc=self,

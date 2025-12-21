@@ -280,7 +280,7 @@ def complete_partial_payments(
     if isinstance(max_payments, str):
         max_payments = int(max_payments)
 
-    from verenigingen.integrations.mollie.services.dues_payment_processor import DuesPaymentProcessor
+    from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import DuesPaymentProcessor
 
     dues_processor = DuesPaymentProcessor()
 

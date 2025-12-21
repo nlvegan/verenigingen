@@ -39,6 +39,16 @@ def sync_donor_to_customer(doc, method=None):
             print("🔄 Skipping donor→customer sync: customer save in progress")
         return
 
+    # Prevent concurrent syncs for the same donor (race condition protection)
+    sync_lock_key = f"_donor_sync_in_progress_{doc.name}"
+    if getattr(frappe.local, sync_lock_key, False):
+        if frappe.flags.get("in_test"):
+            print(f"🔄 Skipping donor→customer sync: sync already in progress for {doc.name}")
+        return
+
+    # Set lock
+    setattr(frappe.local, sync_lock_key, True)
+
     try:
         # The sync logic is already in the Donor document class
         # Always call sync to ensure customer data stays up to date
@@ -82,6 +92,10 @@ def sync_donor_to_customer(doc, method=None):
 
         if frappe.flags.get("in_test"):
             print(f"❌ Hook error for donor {doc.name}: {str(e)}")
+
+    finally:
+        # Always release the lock
+        setattr(frappe.local, sync_lock_key, False)
 
 
 def sync_customer_to_donor(doc, method=None):

@@ -6,20 +6,20 @@ Unified service layer for all Mollie API debugging operations
 import frappe
 from frappe import _
 
-from verenigingen.integrations.mollie.core.client import MollieClient
-from verenigingen.integrations.mollie.utils.common_helpers import (
-    create_error_response,
-    create_success_response,
-    format_mollie_amount,
-    format_mollie_response_amount,
-    validate_mollie_amount,
-)
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.security.api_security_framework import OperationType
 from verenigingen.verenigingen_payments.core.compliance.audit_trail import (
     AuditEventType,
     AuditSeverity,
     get_audit_trail,
+)
+from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
+from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
+    create_error_response,
+    create_success_response,
+    format_mollie_amount,
+    format_mollie_response_amount,
+    validate_mollie_amount,
 )
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
@@ -217,8 +217,10 @@ class MollieDebugService(StatelessService):
                     else None
                 ),
                 # Try both snake_case (SDK) and camelCase (API) attribute names
-                "mandate_id": getattr(subscription, "mandate_id", None) or getattr(subscription, "mandateId", None),
-                "webhook_url": getattr(subscription, "webhook_url", None) or getattr(subscription, "webhookUrl", None),
+                "mandate_id": getattr(subscription, "mandate_id", None)
+                or getattr(subscription, "mandateId", None),
+                "webhook_url": getattr(subscription, "webhook_url", None)
+                or getattr(subscription, "webhookUrl", None),
                 "metadata": getattr(subscription, "metadata", {}),
             }
 
@@ -1405,7 +1407,7 @@ class MollieDebugService(StatelessService):
         if not payment_id:
             raise ValueError(_("Payment ID is required"))
 
-        from verenigingen.integrations.mollie.api.unified_payment_api import handle_payment_webhook
+        from verenigingen.verenigingen_payments.mollie.api.unified_payment_api import handle_payment_webhook
 
         result = {
             "payment_id": payment_id,
@@ -1419,7 +1421,9 @@ class MollieDebugService(StatelessService):
 
         try:
             # First, classify the payment to show what type it is
-            from verenigingen.integrations.mollie.services.payment_type_router import get_payment_router
+            from verenigingen.verenigingen_payments.mollie.services.payment_type_router import (
+                get_payment_router,
+            )
 
             router = get_payment_router()
             payment = router.fetch_payment(payment_id)
@@ -1617,7 +1621,8 @@ class MollieDebugService(StatelessService):
                     "amount": format_mollie_response_amount(subscription.amount),
                     "interval": subscription.interval,
                     "description": subscription.description,
-                    "webhook_url": getattr(subscription, "webhook_url", None) or getattr(subscription, "webhookUrl", None),
+                    "webhook_url": getattr(subscription, "webhook_url", None)
+                    or getattr(subscription, "webhookUrl", None),
                     "start_date": str(subscription.start_date)
                     if hasattr(subscription, "start_date") and subscription.start_date
                     else None,
@@ -1792,7 +1797,9 @@ class MollieDebugService(StatelessService):
             result["amount"] = format_mollie_response_amount(subscription.amount)
             result["interval"] = subscription.interval
             result["description"] = subscription.description
-            result["webhook_url"] = getattr(subscription, "webhook_url", None) or getattr(subscription, "webhookUrl", None)
+            result["webhook_url"] = getattr(subscription, "webhook_url", None) or getattr(
+                subscription, "webhookUrl", None
+            )
 
             # Add optional fields if present
             if hasattr(subscription, "start_date") and subscription.start_date:
@@ -1984,7 +1991,9 @@ class MollieDebugService(StatelessService):
 
         try:
             # Import dues processor
-            from verenigingen.integrations.mollie.services.dues_payment_processor import DuesPaymentProcessor
+            from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import (
+                DuesPaymentProcessor,
+            )
 
             dues_processor = DuesPaymentProcessor()
 
@@ -2103,8 +2112,12 @@ class MollieDebugService(StatelessService):
         }
 
         try:
-            from verenigingen.integrations.mollie.services.bulk_payment_checker import BulkPaymentChecker
-            from verenigingen.integrations.mollie.services.dues_payment_processor import DuesPaymentProcessor
+            from verenigingen.verenigingen_payments.mollie.services.bulk_payment_checker import (
+                BulkPaymentChecker,
+            )
+            from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import (
+                DuesPaymentProcessor,
+            )
 
             dues_processor = DuesPaymentProcessor()
             invoice_checker = BulkPaymentChecker()
@@ -2620,7 +2633,9 @@ class MollieDebugService(StatelessService):
                 }
 
             # Get bank transaction creator for idempotency checks (outside loop for efficiency)
-            from verenigingen.integrations.mollie.services.bulk_payment_checker import BulkPaymentChecker
+            from verenigingen.verenigingen_payments.mollie.services.bulk_payment_checker import (
+                BulkPaymentChecker,
+            )
             from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
                 get_bank_transaction_creator,
             )
@@ -2903,7 +2918,9 @@ class MollieDebugService(StatelessService):
         result["total_batches"] = 1
 
         try:
-            from verenigingen.integrations.mollie.services.dues_payment_processor import DuesPaymentProcessor
+            from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import (
+                DuesPaymentProcessor,
+            )
 
             dues_processor = DuesPaymentProcessor()
 

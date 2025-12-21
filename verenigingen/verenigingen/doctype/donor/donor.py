@@ -395,6 +395,14 @@ class Donor(Document):
         try:
             customer_doc = frappe.get_doc("Customer", customer_name)
 
+            # Clean up any broken link fields before modifying/saving
+            # This prevents validation errors from orphaned references (Member, Contact, Address)
+            from verenigingen.utils.link_sanitizer import sanitize_customer_links
+
+            cleared_fields = sanitize_customer_links(customer_doc)
+            if cleared_fields and frappe.flags.get("in_test"):
+                print(f"🧹 Cleared broken link fields on Customer: {cleared_fields}")
+
             # Debug logging during tests
             if frappe.flags.get("in_test"):
                 print(f"📋 Comparing values for sync (Donor: {self.name}):")

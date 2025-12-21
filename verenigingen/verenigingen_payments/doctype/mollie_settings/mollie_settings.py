@@ -275,7 +275,7 @@ class MollieSettings(Document):
             str: Complete webhook URL
         """
         # Use MollieClient as single source of truth for webhook URLs
-        from verenigingen.integrations.mollie.core.client import MollieClient
+        from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
 
         return MollieClient().get_webhook_url()
 
@@ -373,7 +373,7 @@ class MollieSettings(Document):
         try:
             # Reuse existing client method instead of creating new instance
             # This leverages any existing caching in get_mollie_client()
-            from verenigingen.integrations.mollie.core.client import MollieClient
+            from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
 
             # Create client with current API key to avoid additional database queries
             api_key = self.get_active_api_key()
@@ -546,10 +546,10 @@ class MollieSettings(Document):
             return {
                 "id": subscription.id,
                 "status": subscription.status,
-                "amount": subscription.amount,
-                "interval": subscription.interval,
+                "amount": subscription.amount,  # ast-skip: Mollie API object
+                "interval": subscription.interval,  # ast-skip: Mollie API object
                 "next_payment_date": subscription.next_payment_date,
-                "created_at": subscription.created_at,
+                "created_at": subscription.created_at,  # ast-skip: Mollie API object
                 "canceled_at": getattr(subscription, "canceled_at", None),
             }
 
@@ -860,4 +860,4 @@ def get_supported_currencies():
     Returns:
         list: List of supported currency codes
     """
-    return MollieSettings.supported_currencies
+    return MollieSettings.supported_currencies  # ast-skip: class attribute, not DocType field

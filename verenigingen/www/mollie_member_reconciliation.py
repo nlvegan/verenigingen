@@ -11,9 +11,9 @@ from typing import Any, Dict
 import frappe
 from frappe import _
 
-from verenigingen.integrations.mollie.core.mollie_client import MollieClient
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import critical_api
+from verenigingen.verenigingen_payments.mollie.core.mollie_client import MollieClient
 
 
 def get_context(context):

@@ -1451,6 +1451,7 @@ def create_default_payment_modes():
 
     payment_modes = [
         {"mode_of_payment": "Mollie", "type": "General"},
+        {"mode_of_payment": "Ponto", "type": "Bank"},
     ]
 
     created_count = 0

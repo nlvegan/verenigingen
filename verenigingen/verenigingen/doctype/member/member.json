@@ -206,9 +206,9 @@
   },
   {
    "fieldname": "payment_method",
-   "fieldtype": "Select",
+   "fieldtype": "Link",
    "label": "Payment Method",
-   "options": "Bank Transfer\nSEPA Direct Debit\nMollie\nCredit Card\nCash\nOther"
+   "options": "Mode of Payment"
   },
   {
    "collapsible": 1,

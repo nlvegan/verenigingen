@@ -809,7 +809,7 @@ class APISecurityFramework:
                 return True
 
             # Extract operation name from operation key
-            # e.g., "verenigingen.integrations.mollie.api.payment_webhook.handle_mollie_payment_webhook"
+            # e.g., "verenigingen.verenigingen_payments.mollie.api.payment_webhook.handle_mollie_payment_webhook"
             # -> "handle_mollie_payment_webhook"
             operation_name = operation_key.split(".")[-1] if "." in operation_key else operation_key
 
@@ -1036,9 +1036,7 @@ class APISecurityFramework:
                         )
                     validated_data[key] = decoded_value
                 else:
-                    validated_data[key] = APIValidator.sanitize_text(
-                        decoded_value, max_length=max_length
-                    )
+                    validated_data[key] = APIValidator.sanitize_text(decoded_value, max_length=max_length)
             elif isinstance(value, dict):
                 # Recursively validate dict inputs
                 validated_data[key] = self._validate_dict_input(value, max_length)

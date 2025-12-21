@@ -25,8 +25,8 @@ import frappe
 from frappe import _
 from frappe.utils import getdate
 
-from verenigingen.integrations.mollie.services.dues_payment_processor import DuesPaymentProcessor
 from verenigingen.verenigingen_payments.clients.settlements_client import SettlementsClient
+from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import DuesPaymentProcessor
 from verenigingen.verenigingen_payments.services.settlement_cache import get_settlement_cache
 
 

@@ -16,8 +16,8 @@ from unittest.mock import Mock, patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from verenigingen.integrations.mollie.api.unified_payment_api import handle_payment_webhook
-from verenigingen.integrations.mollie.services.unified_idempotency_manager import (
+from verenigingen.verenigingen_payments.mollie.api.unified_payment_api import handle_payment_webhook
+from verenigingen.verenigingen_payments.mollie.services.unified_idempotency_manager import (
     UnifiedIdempotencyManager,
 )
 
@@ -41,7 +41,7 @@ class TestUnifiedWebhookErrorScenarios(FrappeTestCase):
         This verifies Fix #1 from QCE review: proper error handling for API failures.
         """
         with patch(
-            "verenigingen.integrations.mollie.core.client.MollieClient"
+            "verenigingen.verenigingen_payments.mollie.core.client.MollieClient"
         ) as mock_client:
             # Simulate Mollie API failure
             mock_client_instance = Mock()
@@ -56,7 +56,7 @@ class TestUnifiedWebhookErrorScenarios(FrappeTestCase):
 
             # Mock successful authentication
             with patch(
-                "verenigingen.integrations.mollie.utils.webhook_security.authenticate_mollie_webhook"
+                "verenigingen.verenigingen_payments.mollie.utils.webhook_security.authenticate_mollie_webhook"
             ):
                 # Call webhook
                 result = handle_payment_webhook(payment_id=self.test_payment_id)
@@ -84,7 +84,7 @@ class TestUnifiedWebhookErrorScenarios(FrappeTestCase):
         This verifies that the system properly identifies and reports partial failures.
         """
         with patch(
-            "verenigingen.integrations.mollie.core.client.MollieClient"
+            "verenigingen.verenigingen_payments.mollie.core.client.MollieClient"
         ) as mock_client:
             mock_client_instance = Mock()
             mock_client.return_value = mock_client_instance
@@ -98,7 +98,7 @@ class TestUnifiedWebhookErrorScenarios(FrappeTestCase):
             payment_mock.chargebacks.list.return_value = []  # Chargebacks work fine
 
             with patch(
-                "verenigingen.integrations.mollie.utils.webhook_security.authenticate_mollie_webhook"
+                "verenigingen.verenigingen_payments.mollie.utils.webhook_security.authenticate_mollie_webhook"
             ):
                 result = handle_payment_webhook(payment_id=self.test_payment_id)
 

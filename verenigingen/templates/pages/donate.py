@@ -43,6 +43,7 @@ from verenigingen.utils.security.api_security_framework import (
     public_api,
 )
 from verenigingen.utils.validation_utilities import QueryBuilder
+from verenigingen.verenigingen_payments.hooks import PaymentHook
 
 
 def get_context(context):
@@ -69,7 +70,7 @@ def get_context(context):
                 if donation.payment_id:
                     # Check payment status from Mollie to get real status
                     try:
-                        from verenigingen.integrations.mollie.core.client import MollieClient
+                        from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
 
                         client = MollieClient()
                         payment = client.get_payment(donation.payment_id)
@@ -145,24 +146,42 @@ def get_context(context):
     context.donor_types = donor_types
     context.default_donor_type = getattr(settings, "default_donor_type", "Individual")
 
-    # Payment method configuration
-    context.payment_methods = [
-        {
-            "value": "Bank Transfer",
-            "label": _("Bank Transfer"),
-            "description": _("Transfer money directly to our bank account"),
-        },
-        {
-            "value": "SEPA Direct Debit",
-            "label": _("SEPA Direct Debit"),
-            "description": _("Authorize us to collect the donation from your account"),
-        },
-        {
+    # Payment method configuration - build dynamically based on what's available
+    from verenigingen.verenigingen_payments.hooks import PaymentHook
+
+    available_methods = PaymentHook.get_available_methods()
+
+    # Map PaymentHook method IDs back to form values and labels
+    method_display = {
+        PaymentHook.MOLLIE: {
             "value": "Mollie",
             "label": _("Online Payment"),
             "description": _("Pay online with iDEAL, credit card, or other methods"),
         },
-        {"value": "Cash", "label": _("Cash"), "description": _("Pay in cash at our office or events")},
+        PaymentHook.PONTO: {
+            "value": "Ponto",
+            "label": _("Bank Payment"),
+            "description": _("Pay directly from your bank account"),
+        },
+        PaymentHook.SEPA: {
+            "value": "SEPA Direct Debit",
+            "label": _("SEPA Direct Debit"),
+            "description": _("Authorize us to collect the donation from your account"),
+        },
+        PaymentHook.BANK_TRANSFER: {
+            "value": "Bank Transfer",
+            "label": _("Bank Transfer"),
+            "description": _("Transfer money directly to our bank account"),
+        },
+        PaymentHook.CASH: {
+            "value": "Cash",
+            "label": _("Cash"),
+            "description": _("Pay in cash at our office or events"),
+        },
+    }
+
+    context.payment_methods = [
+        method_display[m["id"]] for m in available_methods if m["id"] in method_display
     ]
 
     # Check if user is logged in and get existing donor info
@@ -527,27 +546,151 @@ def create_donation_record(donor, form_data):
 
 
 def process_payment_method(donation, form_data):
-    """Process payment based on selected method"""
+    """
+    Process payment based on selected method using PaymentHook.
+
+    This function delegates to the unified PaymentHook service while maintaining
+    backward compatibility with the existing response format.
+    """
     payment_method = form_data.payment_method
 
-    if payment_method == "Bank Transfer":
-        return process_bank_transfer(donation, form_data)
-    elif payment_method == "SEPA Direct Debit":
-        return process_sepa_direct_debit(donation, form_data)
-    elif payment_method == "Mollie":
-        try:
-            result = process_mollie_payment(donation, form_data)
-            return result
-        except Exception:
-            return {
-                "status": "error",
-                "message": "Payment setup failed. Please try again or contact support.",
-                "info": "Please try a different payment method or contact support",
-            }
-    elif payment_method == "Cash":
-        return process_cash_payment(donation, form_data)
-    else:
+    # Map form payment method names to PaymentHook method IDs
+    method_mapping = {
+        "Bank Transfer": PaymentHook.BANK_TRANSFER,
+        "SEPA Direct Debit": PaymentHook.SEPA,
+        "Mollie": PaymentHook.MOLLIE,
+        "Ponto": PaymentHook.PONTO,
+        "Cash": PaymentHook.CASH,
+    }
+
+    hook_method = method_mapping.get(payment_method)
+    if not hook_method:
         return {"status": "pending", "message": _("Payment method not yet implemented")}
+
+    # Update donation's mode_of_payment before processing
+    donation.mode_of_payment = payment_method
+    save_result = secure_document_operation(
+        operation="save",
+        doc=donation,
+        justification=f"Update donation {donation.name} with {payment_method} payment method",
+        required_permissions=[],
+        allow_system_user=True,
+    )
+
+    if not save_result.success:
+        frappe.log_error(
+            f"Failed to update donation payment method: {'; '.join(save_result.errors)}",
+            "Donation Payment Method Update Error",
+        )
+        return {
+            "status": "error",
+            "message": _("Failed to process payment method"),
+            "info": _("Please try again or contact support"),
+        }
+
+    # Build payer info from form data
+    payer_info = {
+        "email": form_data.get("donor_email"),
+        "name": form_data.get("donor_name"),
+        "iban": form_data.get("donor_iban"),
+        "account_holder": form_data.get("account_holder") or form_data.get("donor_name"),
+    }
+
+    # Determine if recurring
+    is_recurring = form_data.get("is_recurring") or form_data.get("donation_type") == "Recurring"
+    interval = form_data.get("subscription_interval") or form_data.get("recurring_interval")
+
+    # Build redirect URLs
+    redirect_urls = {
+        "success": form_data.get("success_url") or "/donation-success",
+        "cancel": form_data.get("cancel_url") or "/donate",
+    }
+
+    # Call PaymentHook
+    result = PaymentHook.initiate_payment(
+        method=hook_method,
+        amount=float(donation.amount),
+        reference_doctype="Donation",
+        reference_name=donation.name,
+        payer_info=payer_info,
+        redirect_urls=redirect_urls,
+        recurring=is_recurring,
+        interval=interval,
+    )
+
+    # Convert PaymentHook response to backward-compatible format
+    return _convert_payment_hook_response(result)
+
+
+def _convert_payment_hook_response(result: dict) -> dict:
+    """
+    Convert PaymentHook response format to backward-compatible format.
+
+    PaymentHook returns:
+        {"success": True, "action": "redirect", "data": {...}, "payment_id": "...", "message": "..."}
+
+    Old format expected:
+        {"status": "redirect_required", "payment_url": "...", "message": "..."}
+    """
+    from verenigingen.verenigingen_payments.hooks.payment_hook import PaymentAction
+
+    if not result.get("success"):
+        return {
+            "status": "error",
+            "message": result.get("message", _("Payment processing failed")),
+            "info": _("Please try again or contact support"),
+        }
+
+    action = result.get("action")
+    data = result.get("data", {})
+
+    # Map actions back to old status values
+    if action == PaymentAction.REDIRECT:
+        return {
+            "status": "redirect_required",
+            "payment_url": data.get("url"),
+            "checkout_url": data.get("url"),  # Alias for compatibility
+            "payment_id": result.get("payment_id"),
+            "expires_at": data.get("expires_at"),
+            "message": result.get("message"),
+        }
+
+    elif action == PaymentAction.MANDATE_FORM:
+        return {
+            "status": "mandate_required",
+            "mandate_id": data.get("mandate_id"),
+            "collection_date": data.get("collection_date"),
+            "next_step": "sepa_mandate_form",
+            "message": result.get("message"),
+            "info": _("You will be redirected to set up a SEPA mandate"),
+        }
+
+    elif action == PaymentAction.SHOW_INSTRUCTIONS:
+        # Could be bank transfer or cash
+        if data.get("bank_details"):
+            return {
+                "status": "awaiting_transfer",
+                "bank_details": data.get("bank_details"),
+                "payment_reference": data.get("payment_reference"),
+                "instructions": data.get("instructions"),
+                "message": result.get("message"),
+            }
+        else:
+            return {
+                "status": "cash_pending",
+                "reference": data.get("reference"),
+                "instructions": data.get("instructions"),
+                "contact_email": data.get("contact_email"),
+                "office_hours": data.get("office_hours"),
+                "message": result.get("message"),
+            }
+
+    # Fallback
+    return {
+        "status": "pending",
+        "message": result.get("message", _("Payment initiated")),
+        "data": data,
+    }
 
 
 def process_bank_transfer(donation, form_data):
@@ -635,7 +778,9 @@ def process_sepa_direct_debit(donation, form_data):
 def process_mollie_payment(donation, form_data):
     """Handle Mollie payment using the enhanced service layer architecture"""
     try:
-        from verenigingen.integrations.mollie.services.complete_payment_service import CompletePaymentService
+        from verenigingen.verenigingen_payments.mollie.services.complete_payment_service import (
+            CompletePaymentService,
+        )
 
         # Set payment method using secure operation
         donation.mode_of_payment = "Mollie"

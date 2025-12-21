@@ -514,7 +514,7 @@ class MijnroodCSVImport(Document):
                 # which would wipe out this unsaved field value
                 self.save(ignore_permissions=True)
                 frappe.db.commit()
-                frappe.logger().info(f"[CSV IMPORT] Saved bulk_operation_tracker link to database")
+                frappe.logger().info("[CSV IMPORT] Saved bulk_operation_tracker link to database")
 
             return summary
 
@@ -586,7 +586,7 @@ class MijnroodCSVImport(Document):
 
             # Fallback: Search for most recent BOT if no linked tracker
             if not tracker:
-                frappe.logger().info(f"[CSV IMPORT] No linked tracker, searching by creation time")
+                frappe.logger().info("[CSV IMPORT] No linked tracker, searching by creation time")
                 tracker = frappe.get_all(
                     "Bulk Operation Tracker",
                     filters={
@@ -1403,7 +1403,7 @@ class MijnroodCSVImport(Document):
         """Update the Customer record with Mollie subscription data."""
         try:
             # Validate Mollie data before processing
-            from verenigingen.integrations.mollie.utils.data_validator import get_mollie_validator
+            from verenigingen.verenigingen_payments.mollie.utils.data_validator import get_mollie_validator
 
             validator = get_mollie_validator()
             is_valid, errors, warnings = validator.validate_customer_data(mollie_data)

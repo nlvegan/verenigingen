@@ -855,7 +855,7 @@ def test_cancel_subscription():
 
         frappe.logger().info(f"TEST: Cancelling subscription {subscription_id} for customer {customer_id}")
 
-        from verenigingen.integrations.mollie.core.client import MollieClient
+        from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
 
         mollie_client = MollieClient()
         result = mollie_client.cancel_subscription(customer_id, subscription_id)

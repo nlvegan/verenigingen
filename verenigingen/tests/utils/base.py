@@ -267,7 +267,7 @@ class VereningingenTestCase(FrappeTestCase):
 
         # Mock Mollie validation that interferes with tests
         mollie_validator_mock = patch(
-            'verenigingen.integrations.mollie.utils.data_validator.validate_mollie_customer_data',
+            'verenigingen.verenigingen_payments.mollie.utils.data_validator.validate_mollie_customer_data',
             return_value=None
         )
         mollie_validator_mock.start()

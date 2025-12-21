@@ -31,7 +31,7 @@ def run_integration_test():
     print()
 
     # Import after frappe init
-    from verenigingen.integrations.mollie.services.bulk_payment_checker import (
+    from verenigingen.verenigingen_payments.mollie.services.bulk_payment_checker import (
         BulkPaymentChecker,
         BulkPaymentCheckerConfig,
     )
@@ -228,7 +228,7 @@ def run_integration_test():
     print()
     print("If everything looks good, you can run bulk discovery on all members:")
     print("  bench --site dev.veganisme.net console")
-    print("  >>> from verenigingen.integrations.mollie.services.bulk_payment_checker import BulkPaymentChecker")
+    print("  >>> from verenigingen.verenigingen_payments.mollie.services.bulk_payment_checker import BulkPaymentChecker")
     print("  >>> checker = BulkPaymentChecker()")
     print("  >>> result = checker.check_all_customers_for_new_payments(days_back=7)")
     print()

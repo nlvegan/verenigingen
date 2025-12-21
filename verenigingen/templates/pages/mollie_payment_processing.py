@@ -6,12 +6,12 @@ Streamlined interface for processing Mollie payments as membership dues and bank
 import frappe
 from frappe import _
 
-from verenigingen.integrations.mollie.utils.common_helpers import (
+from verenigingen.services.mollie_debug_service import MollieDebugService
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
     user_has_any_role,
     validate_mollie_payment_ids,
 )
-from verenigingen.services.mollie_debug_service import MollieDebugService
-from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 

@@ -80,7 +80,7 @@ TEST_CATEGORIES = {
     "mollie": {
         "description": "Mollie payment integration tests",
         "modules": [
-            "verenigingen.integrations.mollie.tests.test_core_integration",
+            "verenigingen.verenigingen_payments.mollie.tests.test_core_integration",
         ],
     },
     "performance": {

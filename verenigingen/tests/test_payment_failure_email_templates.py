@@ -112,7 +112,7 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
     @patch('verenigingen.services.communication.email_service.get_email_service')
     def test_payment_failure_first_template_rendering(self, mock_get_service):
         """Test first payment failure template rendering with proper context"""
-        from verenigingen.integrations.mollie.api.payment_webhook import _notify_member_of_payment_failure
+        from verenigingen.verenigingen_payments.mollie.api.payment_webhook import _notify_member_of_payment_failure
 
         # Mock email service
         mock_email_service = Mock()
@@ -151,7 +151,7 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
     @patch('verenigingen.services.communication.email_service.get_email_service')
     def test_payment_failure_escalation_templates(self, mock_get_service):
         """Test email template escalation based on failure count"""
-        from verenigingen.integrations.mollie.api.payment_webhook import _notify_member_of_payment_failure
+        from verenigingen.verenigingen_payments.mollie.api.payment_webhook import _notify_member_of_payment_failure
 
         # Mock email service
         mock_email_service = Mock()
@@ -186,7 +186,7 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
     @patch('verenigingen.services.communication.email_service.get_email_service')
     def test_email_template_fallback_mechanism(self, mock_get_service):
         """Test fallback to generic template when specific template doesn't exist"""
-        from verenigingen.integrations.mollie.api.payment_webhook import _notify_member_of_payment_failure
+        from verenigingen.verenigingen_payments.mollie.api.payment_webhook import _notify_member_of_payment_failure
 
         # Mock email service
         mock_email_service = Mock()
@@ -218,7 +218,7 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
     @patch('verenigingen.services.communication.email_service.get_email_service')
     def test_email_template_missing_graceful_handling(self, mock_get_service):
         """Test graceful handling when no email templates exist"""
-        from verenigingen.integrations.mollie.api.payment_webhook import _notify_member_of_payment_failure
+        from verenigingen.verenigingen_payments.mollie.api.payment_webhook import _notify_member_of_payment_failure
 
         # Mock email service (should not be called)
         mock_email_service = Mock()
@@ -242,7 +242,7 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
 
     def test_email_context_variable_validation(self):
         """Test that email context contains all required variables"""
-        from verenigingen.integrations.mollie.api.payment_webhook import _validate_payment_amount
+        from verenigingen.verenigingen_payments.mollie.api.payment_webhook import _validate_payment_amount
 
         # Mock payment with comprehensive data
         mock_payment = Mock()
@@ -279,7 +279,7 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
     @patch('verenigingen.services.communication.email_service.get_email_service')
     def test_email_service_error_handling(self, mock_get_service):
         """Test graceful handling of email service errors"""
-        from verenigingen.integrations.mollie.api.payment_webhook import _notify_member_of_payment_failure
+        from verenigingen.verenigingen_payments.mollie.api.payment_webhook import _notify_member_of_payment_failure
 
         # Mock email service that raises exception
         mock_email_service = Mock()
@@ -298,7 +298,7 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
 
     def test_subscription_status_change_notification_templates(self):
         """Test subscription status change notification templates"""
-        from verenigingen.integrations.mollie.api.sync import _notify_subscription_status_change
+        from verenigingen.verenigingen_payments.mollie.api.sync import _notify_subscription_status_change
 
         # Mock subscription status data
         subscription_status = {
@@ -350,7 +350,7 @@ class TestEmailTemplatePerformance(EnhancedTestCase):
     @patch('verenigingen.services.communication.email_service.get_email_service')
     def test_bulk_email_notification_performance(self, mock_get_service):
         """Test performance of bulk email notifications"""
-        from verenigingen.integrations.mollie.api.payment_webhook import _notify_member_of_payment_failure
+        from verenigingen.verenigingen_payments.mollie.api.payment_webhook import _notify_member_of_payment_failure
         import time
 
         # Mock email service
@@ -383,7 +383,7 @@ class TestEmailTemplatePerformance(EnhancedTestCase):
 
     def test_template_context_creation_performance(self):
         """Test performance of email template context creation"""
-        from verenigingen.integrations.mollie.api.payment_webhook import _validate_payment_amount
+        from verenigingen.verenigingen_payments.mollie.api.payment_webhook import _validate_payment_amount
         import time
 
         # Create mock payments

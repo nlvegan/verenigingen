@@ -36,7 +36,7 @@ class TestWebhookUserConfiguration(unittest.TestCase):
         Note: This test validates the code path reads from settings.
         The actual webhook user must exist in the database for production use.
         """
-        from verenigingen.integrations.mollie.utils.webhook_security import (
+        from verenigingen.verenigingen_payments.mollie.utils.webhook_security import (
             authenticate_mollie_webhook,
         )
 
@@ -62,7 +62,7 @@ class TestWebhookUserConfiguration(unittest.TestCase):
 
     def test_webhook_user_error_when_not_configured(self):
         """Webhook should fail gracefully if webhook_user not configured in settings."""
-        from verenigingen.integrations.mollie.utils.webhook_security import (
+        from verenigingen.verenigingen_payments.mollie.utils.webhook_security import (
             authenticate_mollie_webhook,
         )
 
@@ -486,7 +486,7 @@ class TestRefundIdempotencyCheck(unittest.TestCase):
         Bug: Old check only looked at payment_entry, missed Journal Entry refunds
         Fix: Check both payment_entry and journal_entry fields
         """
-        from verenigingen.integrations.mollie.services.webhook_wrapper_service_unified import (
+        from verenigingen.verenigingen_payments.mollie.services.webhook_wrapper_service_unified import (
             UnifiedWebhookWrapperService,
         )
         import inspect
@@ -576,7 +576,7 @@ class TestRefundBankTransactionCreation(unittest.TestCase):
         Bug: Old refund code only created Payment Entry, no Bank Transaction
         Fix: Now creates Bank Transaction with negative amount (withdrawal)
         """
-        from verenigingen.integrations.mollie.services.webhook_wrapper_service_unified import (
+        from verenigingen.verenigingen_payments.mollie.services.webhook_wrapper_service_unified import (
             UnifiedWebhookWrapperService,
         )
         import inspect

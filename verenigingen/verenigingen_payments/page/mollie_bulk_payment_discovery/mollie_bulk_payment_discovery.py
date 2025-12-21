@@ -19,7 +19,7 @@ def run_discovery(retrieval_mode="customer", days_back=7, max_members=None, date
     Returns:
         dict: Discovery results with payments, orphaned transactions, etc.
     """
-    from verenigingen.integrations.mollie.services.bulk_payment_checker import BulkPaymentChecker
+    from verenigingen.verenigingen_payments.mollie.services.bulk_payment_checker import BulkPaymentChecker
 
     # Convert string parameters to appropriate types
     days_back = int(days_back)
@@ -60,7 +60,7 @@ def process_payment(payment_id):
     Returns:
         dict: Processing result
     """
-    from verenigingen.integrations.mollie.services.payment_type_router import get_payment_router
+    from verenigingen.verenigingen_payments.mollie.services.payment_type_router import get_payment_router
 
     router = get_payment_router()
 
@@ -91,7 +91,7 @@ def process_bulk_payments(payment_ids):
     """
     import json
 
-    from verenigingen.integrations.mollie.services.payment_type_router import get_payment_router
+    from verenigingen.verenigingen_payments.mollie.services.payment_type_router import get_payment_router
 
     # Parse payment_ids if string
     if isinstance(payment_ids, str):

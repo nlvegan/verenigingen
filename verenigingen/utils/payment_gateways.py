@@ -7,7 +7,7 @@ The old complex webhook handler has been archived due to broken donation creatio
 
 import frappe
 
-from verenigingen.integrations.mollie.api.unified_payment_api import handle_payment_webhook
+from verenigingen.verenigingen_payments.mollie.api.unified_payment_api import handle_payment_webhook
 
 
 @frappe.whitelist(allow_guest=True)
@@ -74,7 +74,7 @@ def mollie_payment_webhook():
 
         # STEP 3: Forward to unified handler with clean parameter
         frappe.logger().info(f"🔧 Forwarding payment {payment_id} to unified handler")
-        from verenigingen.integrations.mollie.api.unified_payment_api import handle_payment_webhook
+        from verenigingen.verenigingen_payments.mollie.api.unified_payment_api import handle_payment_webhook
 
         return handle_payment_webhook(payment_id=payment_id)
 
@@ -87,6 +87,6 @@ def mollie_payment_webhook():
 def mollie_webhook():
     """Simplified Mollie webhook handler for existing donations"""
     frappe.logger().info("🔄 Main Mollie webhook redirecting to unified API")
-    from verenigingen.integrations.mollie.api.unified_payment_api import handle_payment_webhook
+    from verenigingen.verenigingen_payments.mollie.api.unified_payment_api import handle_payment_webhook
 
     return handle_payment_webhook()

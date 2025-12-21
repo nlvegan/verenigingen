@@ -9,10 +9,12 @@ from typing import Any, Dict, Optional
 
 import frappe
 
-from verenigingen.integrations.mollie.services.complete_payment_service import CompletePaymentService
+from verenigingen.verenigingen_payments.mollie.services.complete_payment_service import CompletePaymentService
 
 # Import from new service layer
-from verenigingen.integrations.mollie.services.payment_service import PaymentService as NewPaymentService
+from verenigingen.verenigingen_payments.mollie.services.payment_service import (
+    PaymentService as NewPaymentService,
+)
 
 
 class MolliePaymentService:

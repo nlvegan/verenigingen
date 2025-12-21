@@ -588,7 +588,7 @@ class ComprehensiveSEPAMandateTests(EnhancedTestCase):
 
         self.assertFalse(has_active_sepa_mandate(self.member_name))
 
-    @patch("verenigingen.integrations.mollie.utils.mollie_test_helpers.create_mollie_customer")
+    @patch("verenigingen.verenigingen_payments.mollie.utils.mollie_test_helpers.create_mollie_customer")
     def test_mollie_integration_mandate_creation(self, mock_mollie_customer):
         """
         Test SEPA mandate integration with Mollie payment gateway.

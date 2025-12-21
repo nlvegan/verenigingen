@@ -6,6 +6,8 @@
   "editable_grid": 1,
   "engine": "InnoDB",
   "field_order": [
+    "sepa_section",
+    "enable_sepa_direct_debit",
     "webhook_section",
     "webhook_user",
     "payment_classification_section",
@@ -14,6 +16,18 @@
     "order_keywords"
   ],
   "fields": [
+    {
+      "fieldname": "sepa_section",
+      "fieldtype": "Section Break",
+      "label": "SEPA Direct Debit"
+    },
+    {
+      "default": "0",
+      "description": "Enable SEPA Direct Debit as a payment method. Requires Company IBAN and SEPA Creditor ID to be configured in Verenigingen Settings.",
+      "fieldname": "enable_sepa_direct_debit",
+      "fieldtype": "Check",
+      "label": "Enable SEPA Direct Debit"
+    },
     {
       "fieldname": "webhook_section",
       "fieldtype": "Section Break",
@@ -59,7 +73,7 @@
   "is_single": 1,
   "issingle": 1,
   "links": [],
-  "modified": "2025-09-08 12:00:00.000000",
+  "modified": "2025-12-21 12:00:00.000000",
   "modified_by": "Administrator",
   "module": "Verenigingen",
   "name": "Verenigingen Payments Settings",

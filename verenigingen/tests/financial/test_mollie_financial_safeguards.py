@@ -30,7 +30,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import frappe
 from frappe.utils import flt, today, add_days
 
-from verenigingen.integrations.mollie.tests.fixtures.test_factory import MollieTestCase, MollieTestDataFactory
+from verenigingen.verenigingen_payments.mollie.tests.fixtures.test_factory import MollieTestCase, MollieTestDataFactory
 from verenigingen.verenigingen_payments.utils.payment_gateways import (
     _process_subscription_payment,
     PaymentGatewayFactory

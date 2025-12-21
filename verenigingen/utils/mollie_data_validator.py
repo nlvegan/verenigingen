@@ -7,7 +7,7 @@ to the new enhanced validation system at the correct location.
 """
 
 # Redirect to the new validation system
-from verenigingen.integrations.mollie.utils.data_validator import (
+from verenigingen.verenigingen_payments.mollie.utils.data_validator import (
     MollieDataValidator,
     get_mollie_validator,
     validate_mollie_customer_data,

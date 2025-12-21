@@ -31,7 +31,7 @@ import threading
 import frappe
 from frappe.utils import now_datetime, flt
 
-from verenigingen.integrations.mollie.tests.fixtures.test_factory import MollieTestCase, MollieTestDataFactory
+from verenigingen.verenigingen_payments.mollie.tests.fixtures.test_factory import MollieTestCase, MollieTestDataFactory
 from verenigingen.verenigingen_payments.utils.payment_gateways import (
     _process_subscription_payment,
     PaymentGatewayFactory

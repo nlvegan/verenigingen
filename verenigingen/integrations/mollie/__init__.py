@@ -1,61 +1,33 @@
+# Copyright (c) 2025, Verenigingen
+# License: MIT
+
 """
-Mollie Payment Integration v2.0
+Backwards-compatibility shim for mollie integration.
 
-Complete service-oriented architecture for Mollie payment processing with:
-- Payment processing (donations, membership dues, events)
-- Subscription management
-- Webhook handling with idempotency protection
-- Financial reconciliation
-- Comprehensive logging and monitoring
-- Health checks and performance tracking
+The mollie integration has been moved to verenigingen_payments.mollie.
+This module re-exports all public APIs for backwards compatibility.
 
-Architecture:
-- core/: API client and core data models
-- services/: Business logic service layer with clean interfaces
-- utils/: Utilities, validators, logging, and monitoring
-- api/: Secured HTTP endpoints with proper decorators
-- tests/: Comprehensive test suites
-- exceptions/: Custom exception hierarchy
-
-Service Layer:
-- WebhookWrapperServiceUnified: Unified webhook processing with idempotency protection
-- PaymentService: Core payment operations (basic structure)
-- CompletePaymentService: Full payment workflow management
-- MollieClient: Simplified API client for essential operations
-
-Key Features:
-- Gradual migration path from monolithic to service architecture
-- Comprehensive structured logging with security filtering
-- Performance monitoring and health checks
-- Idempotency protection for webhook processing
-- Security framework integration with proper operation types
-- Backward compatibility maintained during refactoring
+DEPRECATED: Import from verenigingen.verenigingen_payments.mollie instead.
 """
 
-# Import key classes for easy access
-# Note: Some services temporarily disabled due to missing dependencies
-# from .core.mollie_client import MollieClient
-# from .core.mollie_exceptions import MollieIntegrationError, MollieAPIError
-# from .services.payment_service import PaymentService
-# from .services.subscription_service import SubscriptionService
-# from .services.webhook_service import WebhookService
+import sys
 
-# Working services
-try:
-    from .services.payment_service import PaymentService
-    from .services.webhook_wrapper_service_unified import WebhookWrapperServiceUnified
-except ImportError:
-    WebhookWrapperServiceUnified = None
-    PaymentService = None
+# Import the new module
+from verenigingen.verenigingen_payments import mollie as _mollie
 
-__version__ = "2.0.0"
-__all__ = [
-    "WebhookWrapperServiceUnified",  # Unified webhook processing
-    "PaymentService",  # Basic structure, needs completion
-    # Still need to implement:
-    # "MollieClient",
-    # "MollieIntegrationError",
-    # "MollieAPIError",
-    # "SubscriptionService",
-    # "WebhookService",
-]
+# Register submodules under old path for backwards compatibility
+# This allows: from verenigingen.integrations.mollie.core.client import MollieClient
+_old_base = "verenigingen.integrations.mollie"
+_new_base = "verenigingen.verenigingen_payments.mollie"
+
+# Copy all submodule registrations from new path to old path
+for key in list(sys.modules.keys()):
+    if key.startswith(_new_base):
+        old_key = key.replace(_new_base, _old_base, 1)
+        if old_key not in sys.modules:
+            sys.modules[old_key] = sys.modules[key]
+
+# Re-export submodules
+from verenigingen.verenigingen_payments.mollie import api, core, exceptions, services, utils  # noqa: E402
+
+__all__ = ["api", "core", "services", "utils", "exceptions"]

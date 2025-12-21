@@ -9,7 +9,11 @@ import frappe
 from frappe import _
 from frappe.utils import getdate
 
-from verenigingen.integrations.mollie.utils.common_helpers import (
+from verenigingen.utils.member_utils import validate_member_ownership
+from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
     convert_frequency_to_mollie_interval,
     create_error_response,
     create_success_response,
@@ -20,10 +24,6 @@ from verenigingen.integrations.mollie.utils.common_helpers import (
     get_members_by_customer,
     log_mollie_error,
 )
-from verenigingen.utils.member_utils import validate_member_ownership
-from verenigingen.utils.secure_operations import secure_document_operation
-from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
-from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
 
 
@@ -811,6 +811,127 @@ class SEPAGateway(PaymentGateway):
         return frappe.utils.add_to_date(getdate(), days=2)
 
 
+class PontoGateway(PaymentGateway):
+    """
+    Handler for Ponto payment requests (betaalverzoek).
+
+    Creates a Ponto Payment Link that customers can use to authorize
+    a bank-to-bank payment from their account to the organization's account.
+    """
+
+    def process_payment(self, donation, form_data):
+        """
+        Create Ponto payment link for the donation.
+
+        Returns a redirect URL where the customer can authorize the payment
+        at their own bank.
+        """
+        settings = frappe.get_single("Verenigingen Settings")
+
+        # Get creditor details
+        creditor_name = getattr(settings, "company_account_holder", None) or frappe.get_value(
+            "Company", settings.company, "company_name"
+        )
+        creditor_iban = getattr(settings, "company_iban", "")
+
+        if not creditor_iban:
+            return {
+                "status": "error",
+                "message": _("Company IBAN not configured for Ponto payments"),
+            }
+
+        # Build description
+        description = f"Donation {donation.name}"
+        if form_data.get("donor_name"):
+            description = f"Donation from {form_data.get('donor_name')}"
+
+        try:
+            # Create Ponto Payment Link document
+            payment_link = frappe.new_doc("Ponto Payment Link")
+            payment_link.amount = donation.amount
+            payment_link.currency = "EUR"
+            payment_link.creditor_name = creditor_name
+            payment_link.creditor_iban = creditor_iban
+            payment_link.description = description
+            payment_link.reference_doctype = "Donation"
+            payment_link.reference_name = donation.name
+            payment_link.payment_type = "One-Time"
+
+            # Save using secure operation (public donation flow requires system context)
+            insert_result = secure_document_operation(
+                operation="insert",
+                doc=payment_link,
+                justification=f"Create Ponto payment link for donation {donation.name}",
+                required_permissions=[],
+                allow_system_user=True,
+            )
+
+            if not insert_result.success:
+                frappe.log_error(
+                    f"Failed to create Ponto payment link: {'; '.join(insert_result.errors)}",
+                    "Ponto Gateway - Insert Error",
+                )
+                return {
+                    "status": "error",
+                    "message": _("Failed to create payment link"),
+                }
+
+            # Submit triggers Ponto API call
+            payment_link.submit()
+
+            # Update donation with payment link reference
+            donation.db_set("payment_id", payment_link.name)
+
+            return {
+                "status": "redirect_required",
+                "payment_url": payment_link.redirect_link,
+                "payment_id": payment_link.name,
+                "ponto_request_id": payment_link.ponto_request_id,
+                "message": _("Redirecting to your bank for payment authorization..."),
+            }
+
+        except Exception as e:
+            frappe.log_error(f"Ponto payment link creation failed: {e}", "Ponto Gateway Error")
+            return {
+                "status": "error",
+                "message": _("Failed to create Ponto payment link: {0}").format(str(e)),
+            }
+
+    def handle_webhook(self, payload):
+        """
+        Handle Ponto webhook for payment status updates.
+
+        Ponto webhooks are handled separately via the betaalverzoek_callback endpoint.
+        """
+        # Ponto webhooks are handled by the Ponto Payment Link controller
+        return {"status": "delegated", "message": "Handled by Ponto Payment Link controller"}
+
+    def get_payment_status(self, payment_id):
+        """Get payment status from Ponto Payment Link document."""
+        try:
+            payment_link = frappe.get_doc("Ponto Payment Link", payment_id)
+
+            # Map Ponto statuses to standard statuses
+            status_mapping = {
+                "Draft": "pending",
+                "Pending Authorization": "pending",
+                "Authorized": "pending",
+                "Executed": "paid",
+                "Rejected": "failed",
+                "Cancelled": "cancelled",
+                "Expired": "expired",
+                "Failed": "failed",
+            }
+
+            return {
+                "status": status_mapping.get(payment_link.status, "unknown"),
+                "ponto_status": payment_link.status,
+                "redirect_link": payment_link.redirect_link,
+            }
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+
 class CashGateway(PaymentGateway):
     """Handler for cash payments"""
 
@@ -841,6 +962,7 @@ class PaymentGatewayFactory:
     _gateways = {
         "Bank Transfer": BankTransferGateway,
         "Mollie": MollieGateway,
+        "Ponto": PontoGateway,
         "SEPA Direct Debit": SEPAGateway,
         "Cash": CashGateway,
     }
@@ -1338,7 +1460,7 @@ def mollie_webhook():
     """
     frappe.logger().info("🔄 Main Mollie webhook redirecting to service handler")
 
-    from verenigingen.integrations.mollie.api.payment_webhook import handle_mollie_payment_webhook
+    from verenigingen.verenigingen_payments.mollie.api.payment_webhook import handle_mollie_payment_webhook
 
     return handle_mollie_payment_webhook()
 

@@ -6,15 +6,15 @@ Administrative interface for debugging Mollie API issues
 import frappe
 from frappe import _
 
-from verenigingen.integrations.mollie.utils.common_helpers import (
-    user_has_any_role,
-    validate_mollie_payment_ids,
-)
 from verenigingen.services.mollie_debug_service import MollieDebugService
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     development_only_api,
     high_security_api,
+)
+from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
+    user_has_any_role,
+    validate_mollie_payment_ids,
 )
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
@@ -1055,7 +1055,7 @@ def check_all_customers_for_new_payments(days_back=7, all_history=False, limit_p
         except (ValueError, TypeError):
             limit_per_customer = 250
 
-        from verenigingen.integrations.mollie.services.bulk_payment_checker import BulkPaymentChecker
+        from verenigingen.verenigingen_payments.mollie.services.bulk_payment_checker import BulkPaymentChecker
 
         frappe.logger().info(
             f"🔍 check_all_customers_for_new_payments called with days_back={days_back}, max_members=None"
@@ -1154,7 +1154,7 @@ def process_discovered_payments(payment_ids, dry_run=False):
                 )
             )
 
-        from verenigingen.integrations.mollie.services.bulk_payment_checker import BulkPaymentChecker
+        from verenigingen.verenigingen_payments.mollie.services.bulk_payment_checker import BulkPaymentChecker
 
         checker = BulkPaymentChecker()
         return checker.process_discovered_payments(payment_ids=payment_ids, dry_run=dry_run)
