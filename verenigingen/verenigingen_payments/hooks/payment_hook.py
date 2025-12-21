@@ -359,8 +359,11 @@ class PaymentHook:
                 "test_mode": bool(settings.test_mode),
             }
         except Exception as e:
-            frappe.log_error(f"Mollie config check failed: {e}", "Payment Configuration")
-            return {"available": False, "reason": "Configuration error"}
+            error_id = frappe.generate_hash(length=8)
+            frappe.log_error(
+                f"[{error_id}] Mollie config check failed: {e}", "Payment Configuration - Mollie"
+            )
+            return {"available": False, "reason": f"Configuration error (ref: {error_id})"}
 
     @classmethod
     def _get_sepa_config(cls) -> dict:
@@ -383,8 +386,9 @@ class PaymentHook:
                 "reason": None if (has_iban and has_creditor_id) else "Missing IBAN or Creditor ID",
             }
         except Exception as e:
-            frappe.log_error(f"SEPA config check failed: {e}", "Payment Configuration")
-            return {"available": False, "reason": "Configuration error"}
+            error_id = frappe.generate_hash(length=8)
+            frappe.log_error(f"[{error_id}] SEPA config check failed: {e}", "Payment Configuration - SEPA")
+            return {"available": False, "reason": f"Configuration error (ref: {error_id})"}
 
     @classmethod
     def _get_bank_transfer_config(cls) -> dict:
@@ -394,8 +398,12 @@ class PaymentHook:
             has_iban = bool(getattr(settings, "company_iban", None))
             return {"available": has_iban}
         except Exception as e:
-            frappe.log_error(f"Bank Transfer config check failed: {e}", "Payment Configuration")
-            return {"available": False, "reason": "Configuration error"}
+            error_id = frappe.generate_hash(length=8)
+            frappe.log_error(
+                f"[{error_id}] Bank Transfer config check failed: {e}",
+                "Payment Configuration - Bank Transfer",
+            )
+            return {"available": False, "reason": f"Configuration error (ref: {error_id})"}
 
     @classmethod
     def _get_ponto_config(cls) -> dict:
@@ -435,8 +443,9 @@ class PaymentHook:
                 "payment_requests_activated": payment_requests_activated,
             }
         except Exception as e:
-            frappe.log_error(f"Ponto config check failed: {e}", "Payment Configuration")
-            return {"available": False, "reason": "Configuration error"}
+            error_id = frappe.generate_hash(length=8)
+            frappe.log_error(f"[{error_id}] Ponto config check failed: {e}", "Payment Configuration - Ponto")
+            return {"available": False, "reason": f"Configuration error (ref: {error_id})"}
 
     # --- Response normalization ---
 

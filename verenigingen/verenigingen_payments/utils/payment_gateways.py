@@ -857,13 +857,35 @@ class PontoGateway(PaymentGateway):
             payment_link.reference_name = donation.name
             payment_link.payment_type = "One-Time"
 
-            # Save using secure operation (public donation flow requires system context)
+            # === System User Context for Public Donation Flow ===
+            # WHY allow_system_user=True is required here:
+            #
+            # 1. CONTEXT: Public donation page (allow_guest=True) runs as Guest user
+            #    who has no document creation permissions.
+            #
+            # 2. SECURITY MODEL:
+            #    - Donation has ALREADY been validated and created via secure_document_operation
+            #    - Ponto Payment Link is an internal tracking document, not user-facing data
+            #    - Payment Link creation is gated by donation existence (can't create orphaned links)
+            #    - All input (amount, creditor, description) comes from validated donation/settings
+            #
+            # 3. AUDIT TRAIL (automatic via secure_document_operation):
+            #    - Original user (Guest) is logged in audit_entry
+            #    - System user fallback is explicitly recorded with justification
+            #    - Full context preserved in SecureOperationResult.audit_trail
+            #
+            # 4. ALTERNATIVE APPROACHES REJECTED:
+            #    - Dedicated "Ponto Payment Processor" role: Over-engineering for single use case
+            #    - Anonymous API endpoint: Would bypass all permission checks entirely
+            #    - Deferred background job: Would break redirect flow timing
+            #
+            # See: secure_document_operation() in utils/secure_operations.py for audit implementation
             insert_result = secure_document_operation(
                 operation="insert",
                 doc=payment_link,
                 justification=f"Create Ponto payment link for donation {donation.name}",
-                required_permissions=[],
-                allow_system_user=True,
+                required_permissions=[],  # Guest has no permissions - system fallback expected
+                allow_system_user=True,  # Audited system user fallback for public donation flow
             )
 
             if not insert_result.success:
