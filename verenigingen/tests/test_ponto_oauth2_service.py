@@ -22,6 +22,7 @@ from verenigingen.tests.fixtures.ponto_test_data_factory import (
     PontoTestDataFactory,
     TestIBAN,
 )
+from verenigingen.tests.fixtures.singleton_backup import SingletonBackup
 
 
 class TestPontoOAuth2Service(FrappeTestCase):
@@ -31,8 +32,17 @@ class TestPontoOAuth2Service(FrappeTestCase):
     def setUpClass(cls):
         """Set up test fixtures."""
         super().setUpClass()
-        # Ensure Ponto Settings exists with test credentials
+        # Backup Ponto Settings before any modifications
+        cls._singleton_backup = SingletonBackup("Ponto Settings")
+        cls._singleton_backup.backup()
+        # Configure test credentials
         cls._setup_test_settings()
+
+    @classmethod
+    def tearDownClass(cls):
+        """Restore original settings after all tests."""
+        cls._singleton_backup.restore()
+        super().tearDownClass()
 
     @classmethod
     def _setup_test_settings(cls):
