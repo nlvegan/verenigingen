@@ -40,7 +40,6 @@ from verenigingen.verenigingen_payments.mollie.api.webhooks import handle_mollie
 
 # Core client classes
 from verenigingen.verenigingen_payments.mollie.core.client import MollieClient  # noqa: E402
-from verenigingen.verenigingen_payments.mollie.core.mollie_client import MollieAPIClient  # noqa: E402
 from verenigingen.verenigingen_payments.mollie.core.mollie_exceptions import (  # noqa: E402
     MollieAPIError,
     MollieConfigurationError,
@@ -50,10 +49,10 @@ from verenigingen.verenigingen_payments.mollie.core.mollie_exceptions import (  
 
 # Payment services
 from verenigingen.verenigingen_payments.mollie.services.payment_service import (  # noqa: E402
-    MolliePaymentService,
+    PaymentService as MolliePaymentService,
 )
 from verenigingen.verenigingen_payments.mollie.services.subscription_service import (  # noqa: E402
-    MollieSubscriptionService,
+    SubscriptionService as MollieSubscriptionService,
 )
 
 # === sys.modules aliasing for deep import paths ===
@@ -76,7 +75,6 @@ __all__ = [
     "utils",
     # Core classes
     "MollieClient",
-    "MollieAPIClient",
     "MollieAPIError",
     "MollieConfigurationError",
     "MolliePaymentError",

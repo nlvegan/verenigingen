@@ -70,7 +70,7 @@ def handle_unified_webhook():
 
 
 @frappe.whitelist(methods=["GET"])
-@public_api(operation_type=OperationType.SYSTEM_STATUS)
+@public_api(operation_type=OperationType.UTILITY)
 def webhook_health_check():
     """
     Health check endpoint for webhook monitoring.
