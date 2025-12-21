@@ -417,7 +417,7 @@ class MollieClient:
             Full webhook URL with environment parameter
         """
         site_url = frappe.utils.get_url()
-        base_url = f"{site_url}/api/method/verenigingen.utils.payment_gateways.{endpoint}"
+        base_url = f"{site_url}/api/method/verenigingen.verenigingen_payments.mollie.api.webhooks.{endpoint}"
 
         # Use explicit env parameter if provided, otherwise auto-detect
         if env is not None:
