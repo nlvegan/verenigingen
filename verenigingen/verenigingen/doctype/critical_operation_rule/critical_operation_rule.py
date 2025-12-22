@@ -167,58 +167,51 @@ class CriticalOperationRule(Document):
         frappe.cache().delete_value(specific_cache_key)
 
     def notify_policy_change(self):
-        """Send notifications about policy changes following reviewer's pattern"""
-        # Only attempt notifications for critical/high security rules
+        """Queue notifications about policy changes for aggregated digest.
+
+        Instead of sending individual emails for each rule change, we queue
+        changes and send a digest via scheduled task to prevent email flooding.
+        """
+        # Skip during fixture import/migration - these are bulk operations
+        if frappe.flags.in_import or frappe.flags.in_migrate or frappe.flags.in_install:
+            frappe.logger("critical_operation_rule").debug(
+                f"Skipping notification queue for COR '{self.operation_name}' - "
+                "in bulk operation (import/migrate/install)"
+            )
+            return
+
+        # Only queue notifications for critical/high security rules
         if self.security_level not in ["critical", "high"]:
             return
 
         try:
-            # Check if email is properly configured before attempting to send
-            if not self._is_email_configured():
-                frappe.logger("critical_operation_rule").info(
-                    f"Skipping email notification for COR '{self.operation_name}' - "
-                    "email not configured in this environment"
-                )
-                return
-
-            # Get administrators who should be notified
-            admin_emails = self._get_admin_emails()
-
-            if not admin_emails:
-                frappe.logger("critical_operation_rule").info(
-                    f"No admin emails found for COR notification: {self.operation_name}"
-                )
-                return
-
-            # MIGRATED: Use unified EmailService for security policy alerts
-            from verenigingen.services.communication.email_service import get_email_service
-
-            email_service = get_email_service()
-
-            context = {
+            # Queue the change for digest notification
+            change_record = {
                 "operation_name": self.operation_name,
                 "security_level": self.security_level,
                 "operation_type": self.operation_type,
                 "changed_by": frappe.session.user,
                 "changed_at": frappe.utils.now(),
                 "enabled_status": "Yes" if self.enabled else "No",
-                "company": get_mollie_config().get_default_company(),
             }
 
-            email_service.send_templated_email(
-                template_name="security_policy_change_alert",
-                recipients=admin_emails,
-                context=context,
-                subject_override=f"Security Policy Change Alert - {self.operation_name}",
-                reference_doctype="Critical Operation Rule",
-                reference_name=self.name,
-                priority=1,
+            # Use Redis list to queue changes
+            queue_key = "security_policy_change_queue"
+            import json
+
+            frappe.cache().lpush(queue_key, json.dumps(change_record))
+
+            # Set expiry on the queue (24 hours max retention)
+            frappe.cache().expire(queue_key, 86400)
+
+            frappe.logger("critical_operation_rule").debug(
+                f"Queued policy change notification for '{self.operation_name}'"
             )
 
         except Exception as e:
-            # Gracefully handle any notification failures - don't interrupt the main flow
+            # Gracefully handle any queue failures
             frappe.logger("critical_operation_rule").warning(
-                f"Could not send policy change notification for '{self.operation_name}': {str(e)}"
+                f"Could not queue policy change notification for '{self.operation_name}': {str(e)}"
             )
 
     def _is_email_configured(self):
@@ -333,3 +326,128 @@ class CriticalOperationRule(Document):
             frappe.cache().set_value(cache_key, rules, expires_in_sec=7200)
 
         return rules or {}
+
+
+def send_security_policy_change_digest():
+    """
+    Scheduled task to send aggregated security policy change notifications.
+
+    Processes the queue of policy changes and sends a single digest email
+    instead of individual emails for each change. This prevents email flooding
+    during bulk operations like fixture imports or migrations.
+
+    Run frequency: Every 15 minutes (via scheduler_events)
+    """
+    import json
+    from collections import defaultdict
+
+    queue_key = "security_policy_change_queue"
+
+    # Collect all queued changes
+    changes = []
+    while True:
+        raw = frappe.cache().rpop(queue_key)
+        if not raw:
+            break
+        try:
+            changes.append(json.loads(raw))
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+    if not changes:
+        return  # Nothing to send
+
+    # Deduplicate changes by operation_name (keep latest)
+    unique_changes = {}
+    for change in changes:
+        op_name = change.get("operation_name")
+        if op_name:
+            unique_changes[op_name] = change
+
+    changes = list(unique_changes.values())
+
+    if not changes:
+        return
+
+    # Group changes by security level for the digest
+    by_level = defaultdict(list)
+    for change in changes:
+        by_level[change.get("security_level", "unknown")].append(change)
+
+    # Check if email is configured
+    default_account = frappe.db.get_value(
+        "Email Account", {"default_outgoing": 1}, ["name", "email_id", "enable_outgoing"]
+    )
+    if not default_account or not default_account[1]:
+        frappe.logger("critical_operation_rule").info(
+            f"Skipping security policy digest - email not configured. {len(changes)} changes pending."
+        )
+        return
+
+    # Get admin emails
+    admins = frappe.get_all(
+        "Has Role", filters={"role": "System Manager", "parenttype": "User"}, fields=["parent"]
+    )
+    admin_emails = []
+    for admin in admins:
+        try:
+            user = frappe.get_doc("User", admin.parent)
+            if user.enabled and user.email and "@" in user.email:
+                admin_emails.append(user.email)
+        except Exception:
+            continue
+
+    if not admin_emails:
+        frappe.logger("critical_operation_rule").info(
+            f"No admin emails found for security policy digest. {len(changes)} changes pending."
+        )
+        return
+
+    # Build digest content
+    try:
+        company = get_mollie_config().get_default_company()
+    except Exception:
+        company = "Verenigingen"
+
+    # Create digest summary
+    digest_lines = []
+    for level in ["critical", "high"]:
+        if level in by_level:
+            digest_lines.append(f"\n**{level.upper()} Security Level Changes ({len(by_level[level])}):**")
+            for change in by_level[level]:
+                digest_lines.append(
+                    f"- {change['operation_name']} ({change['operation_type']}) - "
+                    f"Enabled: {change['enabled_status']} - "
+                    f"Changed by: {change['changed_by']} at {change['changed_at']}"
+                )
+
+    digest_text = "\n".join(digest_lines)
+
+    # Send digest email
+    try:
+        message = f"""
+<h2>Security Policy Change Digest</h2>
+<p><strong>{len(changes)} security rule(s)</strong> were modified and require your attention.</p>
+
+<pre style="background: #f4f4f4; padding: 15px; border-radius: 5px;">
+{digest_text}
+</pre>
+
+<p><strong>Action Required:</strong> Please review these changes to ensure they align with security policies.</p>
+<p>This is an automated digest from {company}.</p>
+"""
+
+        frappe.sendmail(
+            recipients=admin_emails,
+            subject=f"🔒 Security Policy Digest: {len(changes)} rule(s) modified",
+            message=message,
+            reference_doctype="Critical Operation Rule",
+            now=True,
+        )
+
+        frappe.logger("critical_operation_rule").info(
+            f"Sent security policy digest with {len(changes)} changes to {len(admin_emails)} admins"
+        )
+
+    except Exception as e:
+        frappe.logger("critical_operation_rule").warning(f"Could not send security policy digest: {str(e)}")

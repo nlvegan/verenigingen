@@ -626,6 +626,8 @@ scheduler_events = {
         "verenigingen.utils.bulk_queue_config.monitor_bulk_queue_health",
     ],
     "hourly": [
+        # Security policy change digest - sends aggregated notifications
+        "verenigingen.verenigingen.doctype.critical_operation_rule.critical_operation_rule.send_security_policy_change_digest",
         # Check analytics alert rules
         "verenigingen.verenigingen.doctype.analytics_alert_rule.analytics_alert_rule.check_all_active_alerts",
         # Monitoring and alerting system
