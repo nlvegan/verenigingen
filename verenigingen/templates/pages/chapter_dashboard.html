@@ -887,7 +887,7 @@
     // Pass dashboard data to JavaScript
     window.dashboardData = {{ dashboard_data | tojson | safe if dashboard_data else '{}' }};
     window.userPermissions = {{ user_board_role.permissions | tojson | safe if user_board_role and user_board_role.permissions else '{}' }};
-    window.selectedChapter = {{ selected_chapter|tojson }};
+    window.selectedChapter = {{ selected_chapter|tojson if selected_chapter is defined else 'null' }};
     window.company = {{ company|tojson|safe if company else 'null' }};
 
     // Member search filter function

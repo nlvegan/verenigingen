@@ -445,9 +445,12 @@ def get_payment_status(member, membership):
     try:
         # Import the coverage enhancement function
         from verenigingen.utils.member_portal_utils import enhance_outstanding_invoices_with_coverage
+        from verenigingen.services.member.financial.member_fee_calculation_service import (
+            get_member_fee_calculation_service,
+        )
 
         # Get current fee information
-        current_fee_info = member.get_current_membership_fee()
+        current_fee_info = get_member_fee_calculation_service().get_current_membership_fee(member)
 
         # Get membership billing frequency from the Membership Type doctype
         billing_frequency = "Monthly"  # Default fallback
@@ -564,7 +567,8 @@ def get_payment_status(member, membership):
 
     except Exception as e:
         frappe.log_error(
-            f"Error getting payment status for member {member.name}: {str(e)}", "Payment Status Error"
+            title="Payment Status Error",
+            message=f"Error getting payment status for member {member.name}: {str(e)}",
         )
         return None
 
