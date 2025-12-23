@@ -1,6 +1,14 @@
 """
 Notification utilities for membership applications
+
+.. deprecated:: 2.0
+    This module contains inline HTML notification functions that are being migrated
+    to Frappe's native Notification DocType. New code should use Frappe Notifications
+    instead for document-triggered notifications.
+    See: Setup > Email > Notification in Frappe Desk
 """
+
+import warnings
 
 import frappe
 from frappe.utils import add_days, getdate, today
@@ -32,7 +40,18 @@ def format_email_subject(template, **kwargs):
 
 
 def send_application_confirmation_email(member, application_id):
-    """Send confirmation email with application ID"""
+    """Send confirmation email with application ID.
+
+    .. deprecated:: 2.0
+        Uses inline HTML. Consider using Frappe Notification DocType for
+        document-triggered notifications.
+    """
+    warnings.warn(
+        "send_application_confirmation_email() uses inline HTML. "
+        "Consider using Frappe's native Notification DocType.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     try:
         message = f"""
         <h3>Thank you for your membership application!</h3>
@@ -72,7 +91,18 @@ def send_application_confirmation_email(member, application_id):
 
 
 def notify_reviewers_of_new_application(member, application_id):
-    """Notify reviewers with application ID"""
+    """Notify reviewers with application ID.
+
+    .. deprecated:: 2.0
+        Uses inline HTML. Replaced by 'New Membership Application Submitted'
+        Frappe Notification which sends to 'Verenigingen Administrator' role.
+    """
+    warnings.warn(
+        "notify_reviewers_of_new_application() is deprecated. "
+        "Use Frappe Notification 'New Membership Application Submitted' instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     reviewers = get_application_reviewers(member)
 
     if reviewers:
@@ -120,7 +150,18 @@ def notify_reviewers_of_new_application(member, application_id):
 
 
 def send_approval_email(member, invoice):
-    """Send email when application is approved with payment instructions"""
+    """Send email when application is approved with payment instructions.
+
+    .. deprecated:: 2.0
+        Uses inline HTML. Consider using 'Member Application Approved'
+        Frappe Notification for automatic triggering on application_status change.
+    """
+    warnings.warn(
+        "send_approval_email() uses inline HTML. "
+        "Consider using Frappe Notification 'Member Application Approved'.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     try:
         payment_url = frappe.utils.get_url() + f"/payment?invoice={invoice.name}"
 
@@ -173,7 +214,18 @@ def send_approval_email(member, invoice):
 
 
 def send_rejection_email(member, reason):
-    """Send email when application is rejected"""
+    """Send email when application is rejected.
+
+    .. deprecated:: 2.0
+        Uses inline HTML. Consider using 'Member Application Rejected'
+        Frappe Notification for automatic triggering on application_status change.
+    """
+    warnings.warn(
+        "send_rejection_email() uses inline HTML. "
+        "Consider using Frappe Notification 'Member Application Rejected'.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     try:
         message = f"""
         <h3>Regarding your membership application</h3>
@@ -210,7 +262,18 @@ def send_rejection_email(member, reason):
 
 
 def send_payment_confirmation_email(member, invoice):
-    """Send confirmation email after successful payment"""
+    """Send confirmation email after successful payment.
+
+    .. deprecated:: 2.0
+        Uses inline HTML. Consider using 'Member Status Changed to Active'
+        Frappe Notification which triggers when member status becomes Active.
+    """
+    warnings.warn(
+        "send_payment_confirmation_email() uses inline HTML. "
+        "Consider using Frappe Notification 'Member Status Changed to Active'.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     try:
         message = f"""
         <h3>Welcome! Your membership is now active</h3>
@@ -316,7 +379,18 @@ def get_application_reviewers(member):
 
 
 def notify_admins_of_new_application(member, invoice=None):
-    """Notify system administrators of new applications"""
+    """Notify system administrators of new applications.
+
+    .. deprecated:: 2.0
+        Uses inline HTML. Replaced by 'New Membership Application Submitted'
+        Frappe Notification which sends to 'Verenigingen Administrator' role.
+    """
+    warnings.warn(
+        "notify_admins_of_new_application() is deprecated. "
+        "Use Frappe Notification 'New Membership Application Submitted' instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     try:
         admins = frappe.db.sql(
             """
@@ -455,7 +529,18 @@ def check_overdue_applications():
 
 
 def send_simple_notification(data, member_id):
-    """Send simple notification about application submission"""
+    """Send simple notification about application submission.
+
+    .. deprecated:: 2.0
+        Uses inline HTML. Consider using Frappe Notification DocType
+        for document-triggered notifications.
+    """
+    warnings.warn(
+        "send_simple_notification() uses inline HTML. "
+        "Consider using Frappe's native Notification DocType.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     try:
         message = f"""
         <h3>Application Submitted Successfully</h3>

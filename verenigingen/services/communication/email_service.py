@@ -6,6 +6,7 @@ consistent service with proper error handling, logging, and security.
 """
 
 import time
+import warnings
 from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Union
 
@@ -203,6 +204,16 @@ class EmailService(StatelessService):
         """
         Send system notifications using predefined templates.
 
+        .. deprecated:: 2.0
+            This method uses hardcoded template mappings and will be removed in a future version.
+            Use Frappe's native Notification DocType instead, which provides:
+            - UI-configurable notifications without code changes
+            - Document-triggered events (New, Save, Value Change, etc.)
+            - Role-based and field-based recipient selection
+            - Condition-based filtering
+
+            See: Setup > Email > Notification in Frappe Desk
+
         Args:
             notification_type: Type of notification (approval, suspension, etc.)
             recipients: Email addresses
@@ -212,6 +223,13 @@ class EmailService(StatelessService):
         Returns:
             Dict with success status and details
         """
+        warnings.warn(
+            "EmailService.send_notification() is deprecated. "
+            "Use Frappe's native Notification DocType for document-triggered notifications. "
+            "Configure via Setup > Email > Notification in Frappe Desk.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         try:
             # Map notification types to templates
             template_mapping = {

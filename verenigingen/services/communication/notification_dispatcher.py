@@ -3,8 +3,14 @@ Notification Dispatcher
 
 Handles different types of system notifications with appropriate routing
 and template selection.
+
+.. deprecated:: 2.0
+    This module uses hardcoded template mappings. New code should use Frappe's
+    native Notification DocType instead for document-triggered notifications.
+    See: Setup > Email > Notification in Frappe Desk
 """
 
+import warnings
 from typing import Any, Dict, List, Union
 
 import frappe
@@ -48,6 +54,16 @@ class NotificationDispatcher(StatelessService):
         """
         Dispatch notification based on type and recipient preferences.
 
+        .. deprecated:: 2.0
+            This method uses hardcoded template mappings and will be removed in a future version.
+            Use Frappe's native Notification DocType instead, which provides:
+            - UI-configurable notifications without code changes
+            - Document-triggered events (New, Save, Value Change, etc.)
+            - Role-based and field-based recipient selection
+            - Condition-based filtering
+
+            See: Setup > Email > Notification in Frappe Desk
+
         Args:
             notification_type: Type of notification
             recipients: Target recipients
@@ -57,6 +73,13 @@ class NotificationDispatcher(StatelessService):
         Returns:
             OperationResult[Dict[str, Any]]: OperationResult with dispatch result data
         """
+        warnings.warn(
+            "NotificationDispatcher.dispatch_notification() is deprecated. "
+            "Use Frappe's native Notification DocType for document-triggered notifications. "
+            "Configure via Setup > Email > Notification in Frappe Desk.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         try:
             # Validate notification type
             if notification_type not in self.template_mapping:
