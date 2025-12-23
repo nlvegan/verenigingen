@@ -41,6 +41,7 @@ class AccountCreationRequest(Document):
 
     # Class constants
     MAX_RETRIES = 3  # Maximum number of retry attempts for failed requests
+    ACR_STALENESS_THRESHOLD_HOURS = 24  # Hours after which ACR is considered stale (skip approval emails)
 
     def validate(self):
         """Validate account creation request"""
@@ -129,13 +130,13 @@ class AccountCreationRequest(Document):
                     )
                     return
 
-                # Skip approval emails for stale ACRs (older than 24 hours)
+                # Skip approval emails for stale ACRs (older than threshold)
                 # This prevents old/retried ACRs from sending unexpected emails
                 acr_age_hours = self._get_acr_age_in_hours()
-                if acr_age_hours > 24:
+                if acr_age_hours > self.ACR_STALENESS_THRESHOLD_HOURS:
                     frappe.logger().info(
                         f"Skipping approval email for member {member.name} - "
-                        f"ACR {self.name} is {acr_age_hours:.1f} hours old (threshold: 24h)"
+                        f"ACR {self.name} is {acr_age_hours:.1f} hours old (threshold: {self.ACR_STALENESS_THRESHOLD_HOURS}h)"
                     )
                     return
 

@@ -34,9 +34,6 @@ from verenigingen.utils.application_helpers import (
 from verenigingen.utils.application_helpers import update_member_from_reapplication
 from verenigingen.utils.application_notifications import (
     check_overdue_applications,
-    notify_reviewers_of_new_application,
-    send_application_confirmation_email,
-    send_approval_email,
     send_payment_confirmation_email,
     send_rejection_email,
 )
@@ -690,15 +687,9 @@ def submit_application(**kwargs) -> OperationResult[Dict[str, Any]]:
                     frappe.logger().error(f"Chapter membership creation failed for {member.name}")
                 # Don't fail the application submission if chapter membership creation fails
 
-        # Send notifications
-        try:
-            send_application_confirmation_email(member, application_id)
-            notify_reviewers_of_new_application(member, application_id)
-        except Exception as e:
-            frappe.log_error(
-                f"Error sending notifications: {str(e)}\n{traceback.format_exc()}",
-                "Notification Error",
-            )
+        # Notifications are now handled via Frappe's native Notification system:
+        # - "New Membership Application Submitted" notifies administrators
+        # - "Member Application Approved/Rejected" notifies applicant on status change
 
         return OperationResult.ok(
             {
