@@ -264,10 +264,7 @@ def get_available_templates() -> OperationResult[Dict[str, Any]]:
         OperationResult with template names and details
     """
     try:
-        from verenigingen.services.communication.template_manager import TemplateManager
-
-        template_manager = TemplateManager()
-        templates = template_manager.get_available_templates()
+        templates = [t.name for t in frappe.get_all("Email Template", fields=["name"])]
 
         return OperationResult.ok(
             {"templates": templates, "count": len(templates)},
@@ -287,27 +284,35 @@ def get_available_templates() -> OperationResult[Dict[str, Any]]:
 @frappe.whitelist()
 def get_supported_notification_types() -> OperationResult[Dict[str, Any]]:
     """
-    Get list of supported notification types.
+    Get list of configured Frappe Notification DocTypes.
 
     Returns:
-        OperationResult with notification types
+        OperationResult with notification names and their document types
     """
     try:
-        from verenigingen.services.communication.notification_dispatcher import NotificationDispatcher
+        notifications = frappe.get_all(
+            "Notification",
+            filters={"enabled": 1},
+            fields=["name", "document_type", "event", "channel"]
+        )
 
-        dispatcher = NotificationDispatcher()
-        types = dispatcher.get_supported_notification_types()
+        # Extract just names for backwards compatibility
+        notification_names = [n.name for n in notifications]
 
         return OperationResult.ok(
-            {"notification_types": types, "count": len(types)},
-            message=_("Retrieved supported notification types successfully"),
+            {
+                "notifications": notifications,
+                "notification_types": notification_names,  # Backwards compatible
+                "count": len(notifications)
+            },
+            message=_("Retrieved configured notifications successfully"),
         )
 
     except Exception as e:
         frappe.log_error(f"Notification types API error: {str(e)}\n{traceback.format_exc()}", "Email API")
         return OperationResult.fail(
             error=str(e),
-            message=_("Failed to retrieve supported notification types"),
+            message=_("Failed to retrieve notification types"),
             details={"operation": "get_supported_notification_types", "traceback": traceback.format_exc()},
         )
 
@@ -325,10 +330,39 @@ def validate_template(template_name: str) -> OperationResult[Dict[str, Any]]:
         OperationResult with validation results
     """
     try:
-        from verenigingen.services.communication.template_manager import TemplateManager
+        from jinja2 import TemplateSyntaxError
 
-        template_manager = TemplateManager()
-        validation_result = template_manager.validate_template(template_name)
+        validation_result = {"valid": False, "errors": [], "warnings": []}
+
+        if not frappe.db.exists("Email Template", template_name):
+            validation_result["errors"].append(f"Template '{template_name}' not found")
+        else:
+            template_doc = frappe.get_doc("Email Template", template_name)
+            if not template_doc.subject:
+                validation_result["errors"].append("Template missing subject")
+            if not template_doc.response and not template_doc.response_html:
+                validation_result["errors"].append("Template missing content")
+
+            # Validate Jinja syntax in subject
+            if template_doc.subject:
+                try:
+                    frappe.render_template(template_doc.subject, {})
+                except TemplateSyntaxError as e:
+                    validation_result["errors"].append(f"Subject Jinja syntax error: {e.message}")
+                except Exception:
+                    pass  # Other errors (missing variables) are OK for syntax validation
+
+            # Validate Jinja syntax in content
+            content = template_doc.response_html if template_doc.use_html else template_doc.response
+            if content:
+                try:
+                    frappe.render_template(content, {})
+                except TemplateSyntaxError as e:
+                    validation_result["errors"].append(f"Content Jinja syntax error: {e.message}")
+                except Exception:
+                    pass  # Other errors (missing variables) are OK for syntax validation
+
+            validation_result["valid"] = len(validation_result["errors"]) == 0
 
         return OperationResult.ok(
             {"template": template_name, "validation": validation_result},

@@ -5,15 +5,13 @@ Test script to validate the unified EmailService consolidation.
 This script tests that:
 1. EmailService can be imported and instantiated
 2. Template loading works correctly
-3. Member notification compatibility layer works
-4. SEPA email compatibility layer works
-5. Chapter email compatibility layer works
+3. Compatibility layer works
 
 Run with: python scripts/test_email_consolidation.py
 """
 
 import sys
-import os
+
 
 def test_email_service_imports():
     """Test that all EmailService components can be imported."""
@@ -21,8 +19,6 @@ def test_email_service_imports():
 
     try:
         from verenigingen.services.communication.email_service import EmailService, get_email_service
-        from verenigingen.services.communication.template_manager import TemplateManager
-        from verenigingen.services.communication.notification_dispatcher import NotificationDispatcher
         from verenigingen.services.communication.compatibility import (
             send_member_notification,
             send_sepa_email,
@@ -53,48 +49,26 @@ def test_email_service_instantiation():
         print(f"❌ EmailService instantiation failed: {e}")
         return False
 
-def test_template_manager():
-    """Test that TemplateManager works correctly."""
-    print("Testing TemplateManager...")
+def test_template_loading():
+    """Test that EmailService can load templates from Email Template DocType."""
+    print("Testing template loading...")
 
     try:
-        from verenigingen.services.communication.template_manager import TemplateManager
+        from verenigingen.services.communication.email_service import get_email_service
 
-        template_manager = TemplateManager()
+        email_service = get_email_service()
 
-        # Test template validation for a template that definitely doesn't exist
-        validation_result = template_manager.validate_template("nonexistent_template_xyz")
+        # Test that a nonexistent template returns None
+        template = email_service._get_template("nonexistent_template_xyz")
 
-        if not validation_result["valid"] and "not found" in str(validation_result["errors"]):
-            print("✅ TemplateManager validation working correctly")
+        if template is None:
+            print("✅ Template loading correctly returns None for missing templates")
             return True
         else:
-            print(f"❌ TemplateManager validation unexpected result: {validation_result}")
+            print(f"❌ Expected None for missing template, got: {template}")
             return False
     except Exception as e:
-        print(f"❌ TemplateManager test failed: {e}")
-        return False
-
-def test_notification_dispatcher():
-    """Test that NotificationDispatcher works correctly."""
-    print("Testing NotificationDispatcher...")
-
-    try:
-        from verenigingen.services.communication.notification_dispatcher import NotificationDispatcher
-
-        dispatcher = NotificationDispatcher()
-
-        # Test that it recognizes our new template mappings
-        supported_types = dispatcher.get_supported_notification_types()
-
-        if "member_approval" in supported_types and "member_rejection" in supported_types:
-            print("✅ NotificationDispatcher has correct template mappings")
-            return True
-        else:
-            print(f"❌ NotificationDispatcher missing expected types: {supported_types}")
-            return False
-    except Exception as e:
-        print(f"❌ NotificationDispatcher test failed: {e}")
+        print(f"❌ Template loading test failed: {e}")
         return False
 
 def test_compatibility_layer():
@@ -127,8 +101,7 @@ def run_all_tests():
     tests = [
         test_email_service_imports,
         test_email_service_instantiation,
-        test_template_manager,
-        test_notification_dispatcher,
+        test_template_loading,
         test_compatibility_layer
     ]
 
