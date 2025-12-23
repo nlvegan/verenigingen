@@ -273,20 +273,28 @@ class MollieConfigurationService:
     @classmethod
     def get_dues_payment_creation_mode(cls) -> str:
         """
-        Get dues payment creation mode (Bank Transaction or Payment Entry).
+        Get dues payment creation mode.
+
+        DEPRECATED: "Payment Entry" mode has been disabled due to GL entry issues
+        when invoices are linked after PE submission. All payments now use
+        "Bank Transaction" mode for proper reconciliation workflow.
 
         Returns:
-            "Bank Transaction" (default) or "Payment Entry" (legacy mode)
-
-        Example:
-            mode = get_mollie_config().get_dues_payment_creation_mode()
-            if mode == "Payment Entry":
-                # Create Payment Entry directly (legacy)
-            else:
-                # Create Bank Transaction for reconciliation (default)
+            "Bank Transaction" (always - legacy mode disabled)
         """
         settings = cls.get_settings()
-        return settings.get("dues_payment_creation_mode", "Bank Transaction")
+        configured_mode = settings.get("dues_payment_creation_mode", "Bank Transaction")
+
+        if configured_mode == "Payment Entry":
+            import frappe
+
+            frappe.logger().warning(
+                "[Mollie] DEPRECATED: 'Payment Entry' dues_payment_creation_mode is disabled. "
+                "Using 'Bank Transaction' mode instead. Please update Mollie Settings."
+            )
+
+        # Always return Bank Transaction - legacy mode disabled
+        return "Bank Transaction"
 
     @classmethod
     def validate_configuration(cls) -> Dict[str, Any]:

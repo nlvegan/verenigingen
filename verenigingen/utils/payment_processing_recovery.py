@@ -451,7 +451,10 @@ def complete_partial_payments(
 
             if not status["has_payment_entry"] and payment:
                 # Create PE (needs payment object)
-                pe = dues_processor._create_payment_entry_for_dues(status["member"], payment)
+                # Pass invoice_name so reference is added BEFORE submission (ensures correct GL entries)
+                pe = dues_processor._create_payment_entry_for_dues(
+                    status["member"], payment, invoice_name=status.get("sales_invoice")
+                )
                 if pe:
                     payment_result["actions_taken"].append(f"Created Payment Entry: {pe}")
                     status["payment_entry"] = pe

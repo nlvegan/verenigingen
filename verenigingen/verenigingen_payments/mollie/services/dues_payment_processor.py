@@ -790,16 +790,17 @@ class DuesPaymentProcessor:
                         f"for existing Bank Transaction {idempotency_check['bank_transaction']}"
                     )
             elif creation_mode == "Payment Entry":
-                # Legacy mode: Create Payment Entry directly
-                record_name = self._create_payment_entry_for_dues(member_name, payment)
-                record_type = "Payment Entry"
+                # DEPRECATED: Legacy mode disabled - causes GL entry issues when invoice not linked
+                # All payments now go through Bank Transaction mode for proper reconciliation
+                frappe.logger().warning(
+                    f"[Mollie] DEPRECATED: 'Payment Entry' creation_mode is disabled. "
+                    f"Payment {payment_id} will use Bank Transaction mode instead. "
+                    f"Update Mollie Settings to remove this warning."
+                )
+                # Fall through to default Bank Transaction mode
+                creation_mode = "Bank Transaction"
 
-                if record_name:
-                    result["status"] = "success"
-                    result["payment_entry"] = record_name
-                    result["bank_transaction"] = None
-                    result["record_type"] = record_type
-            else:
+            if creation_mode == "Bank Transaction":
                 # Default mode: Create Bank Transaction for reconciliation
                 bt_name = self._create_bank_transaction_for_dues(member_name, payment)
                 record_type = "Bank Transaction"
