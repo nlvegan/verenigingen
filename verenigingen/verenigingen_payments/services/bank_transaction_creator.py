@@ -758,6 +758,89 @@ class BankTransactionCreator:
         # Should never reach here, but safety fallback
         return None
 
+    def link_payment_entry(
+        self,
+        bt_name: str,
+        pe_name: str,
+        allocated_amount: Optional[float] = None,
+    ) -> bool:
+        """
+        Link a Payment Entry to a Bank Transaction using ERPNext's reconciliation pattern.
+
+        This method properly reconciles a Bank Transaction with a Payment Entry,
+        following the same pattern as ERPNext's Bank Reconciliation Tool.
+
+        The proper ERPNext pattern is:
+            bt_doc.add_payment_entries([voucher])
+            bt_doc.validate_duplicate_references()
+            bt_doc.allocate_payment_entries()
+            bt_doc.update_allocated_amount()
+            bt_doc.set_status()
+            bt_doc.save()
+
+        Args:
+            bt_name: Bank Transaction name
+            pe_name: Payment Entry name
+            allocated_amount: Optional specific amount to allocate (auto-calculated if None)
+
+        Returns:
+            True if linked successfully, False otherwise
+
+        Example:
+            creator = get_bank_transaction_creator()
+            success = creator.link_payment_entry("ACC-BTN-2025-00001", "ACC-PAY-2025-00001")
+            if success:
+                print("Bank Transaction reconciled with Payment Entry")
+        """
+        try:
+            # Check if already linked (idempotent)
+            existing_link = frappe.db.exists(
+                "Bank Transaction Payments",
+                {"parent": bt_name, "payment_entry": pe_name},
+            )
+            if existing_link:
+                frappe.logger().debug(f"BT {bt_name} already linked to PE {pe_name}")
+                return True
+
+            bt_doc = frappe.get_doc("Bank Transaction", bt_name)
+
+            # Use ERPNext's standard reconciliation pattern
+            voucher = {
+                "payment_doctype": "Payment Entry",
+                "payment_name": pe_name,
+            }
+            bt_doc.add_payment_entries([voucher])  # Adds entry with allocated_amount=0
+            bt_doc.validate_duplicate_references()
+            bt_doc.allocate_payment_entries()  # Calculates actual allocation
+            bt_doc.update_allocated_amount()
+            bt_doc.set_status()
+            bt_doc.save()
+
+            # Reload to get updated status after save hooks run
+            bt_doc.reload()
+
+            # Get actual allocated amount for logging
+            actual_allocated = 0
+            for pe in bt_doc.payment_entries:
+                if pe.payment_entry == pe_name:
+                    actual_allocated = pe.allocated_amount
+                    break
+
+            # Set clearance date on PE if not already set
+            pe_doc = frappe.get_doc("Payment Entry", pe_name)
+            if not pe_doc.clearance_date and bt_doc.date:
+                pe_doc.db_set("clearance_date", bt_doc.date, update_modified=False)
+
+            frappe.logger().info(
+                f"✅ Linked Bank Transaction {bt_name} to Payment Entry {pe_name} "
+                f"(allocated: {actual_allocated}, status: {bt_doc.status})"
+            )
+            return True
+
+        except Exception as e:
+            frappe.logger().warning(f"Could not link BT {bt_name} to PE {pe_name}: {e}")
+            return False
+
 
 def get_bank_transaction_creator() -> BankTransactionCreator:
     """

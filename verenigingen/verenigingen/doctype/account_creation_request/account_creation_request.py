@@ -41,6 +41,7 @@ class AccountCreationRequest(Document):
 
     # Class constants
     MAX_RETRIES = 3  # Maximum number of retry attempts for failed requests
+    ACR_STALENESS_THRESHOLD_HOURS = 24  # Hours after which ACR is considered stale (skip approval emails)
 
     def validate(self):
         """Validate account creation request"""
@@ -120,6 +121,25 @@ class AccountCreationRequest(Document):
             if self.request_type == "Member":
                 member = frappe.get_doc("Member", self.source_record)
 
+                # Skip approval emails for CSV-imported members (they have no application_id)
+                # CSV imports set application_id = None explicitly
+                if not member.application_id:
+                    frappe.logger().info(
+                        f"Skipping approval email for member {member.name} - "
+                        f"no application_id (likely CSV-imported)"
+                    )
+                    return
+
+                # Skip approval emails for stale ACRs (older than threshold)
+                # This prevents old/retried ACRs from sending unexpected emails
+                acr_age_hours = self._get_acr_age_in_hours()
+                if acr_age_hours > self.ACR_STALENESS_THRESHOLD_HOURS:
+                    frappe.logger().info(
+                        f"Skipping approval email for member {member.name} - "
+                        f"ACR {self.name} is {acr_age_hours:.1f} hours old (threshold: {self.ACR_STALENESS_THRESHOLD_HOURS}h)"
+                    )
+                    return
+
                 # Only send approval email if this member has an approved application
                 if member.application_status == "Approved":
                     self.send_member_approval_email(member)
@@ -128,6 +148,14 @@ class AccountCreationRequest(Document):
                 f"Error handling account creation completion for {self.name}: {str(e)}",
                 "Account Creation Completion Error",
             )
+
+    def _get_acr_age_in_hours(self):
+        """Calculate age of this ACR in hours since creation"""
+        from frappe.utils import time_diff_in_hours
+
+        if not self.creation:
+            return 0
+        return time_diff_in_hours(now(), self.creation)
 
     def send_member_approval_email(self, member):
         """Send approval email with login credentials when account is ready"""

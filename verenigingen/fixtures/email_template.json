@@ -208,18 +208,6 @@
     "doctype": "Email Template",
     "enabled": 1,
     "modified": "2025-09-22 09:03:05",
-    "name": "security_policy_change_alert",
-    "reference_doctype": "Critical Operation Rule",
-    "response": null,
-    "response_html": "<div style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;\">\n    <div style=\"background-color: #f8d7da; padding: 20px; border-radius: 8px; margin-bottom: 20px;\">\n        <h2 style=\"color: #721c24; margin: 0;\">🔒 Security Policy Change Alert</h2>\n        <p style=\"color: #721c24; margin: 5px 0 0 0;\">{{ (company or \"Security Team\")|e }}</p>\n    </div>\n    \n    <div style=\"background-color: white; padding: 20px; border: 1px solid #e9ecef; border-radius: 8px;\">\n        <p><strong>A critical operation rule has been modified and requires your attention.</strong></p>\n        \n        <div style=\"background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;\">\n            <table style=\"width: 100%; border-collapse: collapse;\">\n                <tbody><tr>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\"><strong>Rule:</strong></td>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\">{{ operation_name|e }}</td>\n                </tr>\n                <tr>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\"><strong>Security Level:</strong></td>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\">{{ security_level|e }}</td>\n                </tr>\n                <tr>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\"><strong>Operation Type:</strong></td>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\">{{ operation_type|e }}</td>\n                </tr>\n                <tr>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\"><strong>Changed By:</strong></td>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\">{{ changed_by|e }}</td>\n                </tr>\n                <tr>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\"><strong>Changed At:</strong></td>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\">{{ changed_at|e }}</td>\n                </tr>\n                <tr>\n                    <td style=\"padding: 8px 0;\"><strong>Enabled:</strong></td>\n                    <td style=\"padding: 8px 0;\">{{ enabled_status|e }}</td>\n                </tr>\n            </tbody></table>\n        </div>\n        \n        <div style=\"background-color: #fff3cd; padding: 15px; border-radius: 5px; margin: 15px 0; border-left: 4px solid #ffc107;\">\n            <p style=\"margin: 0;\"><strong>Action Required:</strong> Please review this change to ensure it aligns with security policies.</p>\n        </div>\n        \n        <hr style=\"margin: 20px 0; border: none; border-top: 1px solid #e9ecef;\">\n        <p style=\"font-size: 12px; color: #6c757d;\">\n            This is an automated security alert from the system.<br>\n            {{ (company or \"Security Team\")|e }}\n        </p>\n    </div>\n</div>",
-    "subject": "Security Policy Change Alert - {{ operation_name|e }}",
-    "use_html": 1
-  },
-  {
-    "docstatus": 0,
-    "doctype": "Email Template",
-    "enabled": 1,
-    "modified": "2025-09-22 09:03:05",
     "name": "orphaned_records_report",
     "reference_doctype": "Membership",
     "response": null,

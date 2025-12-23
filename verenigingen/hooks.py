@@ -806,6 +806,25 @@ fixtures = [
     "Property Setter",
     # Custom DocPerms (permissions for core DocTypes)
     "Custom DocPerm",
+    # Notifications (Frappe native document-triggered notifications)
+    {
+        "doctype": "Notification",
+        "filters": [
+            [
+                "name",
+                "in",
+                [
+                    "Member Application Approved",
+                    "Member Application Rejected",
+                    "SEPA Mandate Created",
+                    "Member Status Changed to Active",
+                    "Invoice Payment Overdue",
+                    "New Membership Application Submitted",
+                    "Expense Submitted for Approval",
+                ],
+            ]
+        ],
+    },
     # Workflows
     {"doctype": "Workflow", "filters": [["name", "in", ["Membership Termination Workflow"]]]},
     {

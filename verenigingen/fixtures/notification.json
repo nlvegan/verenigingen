@@ -1,0 +1,118 @@
+[
+  {
+    "doctype": "Notification",
+    "name": "Member Application Approved",
+    "enabled": 1,
+    "channel": "Email",
+    "document_type": "Member",
+    "event": "Value Change",
+    "value_changed": "application_status",
+    "subject": "Membership Application Approved - {{ doc.full_name }}",
+    "condition": "doc.application_status == 'Approved'",
+    "message": "<div style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;\">\n    <div style=\"background-color: #d4edda; padding: 20px; border-radius: 8px; margin-bottom: 20px;\">\n        <h2 style=\"color: #155724; margin: 0;\">Membership Application Approved!</h2>\n    </div>\n    \n    <div style=\"background-color: white; padding: 20px; border: 1px solid #e9ecef; border-radius: 8px;\">\n        <p>Dear {{ doc.first_name or 'Member' }},</p>\n        \n        <p>Congratulations! Your membership application has been approved.</p>\n        \n        <div style=\"background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;\">\n            <h3 style=\"margin-top: 0; color: #2c3e50;\">Application Details:</h3>\n            <table style=\"width: 100%; border-collapse: collapse;\">\n                <tr>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\"><strong>Member ID:</strong></td>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\">{{ doc.name }}</td>\n                </tr>\n                <tr>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\"><strong>Membership Type:</strong></td>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\">{{ doc.current_membership_type or doc.selected_membership_type or 'Standard' }}</td>\n                </tr>\n                <tr>\n                    <td style=\"padding: 8px 0;\"><strong>Application Date:</strong></td>\n                    <td style=\"padding: 8px 0;\">{{ doc.application_date }}</td>\n                </tr>\n            </table>\n        </div>\n        \n        <p>Welcome to our community! You will receive further instructions regarding payment and membership benefits.</p>\n        \n        <hr style=\"margin: 20px 0; border: none; border-top: 1px solid #e9ecef;\">\n        <p style=\"font-size: 12px; color: #6c757d;\">\n            This is an automated notification from the membership system.\n        </p>\n    </div>\n</div>",
+    "recipients": [
+      {
+        "receiver_by_document_field": "email"
+      }
+    ]
+  },
+  {
+    "doctype": "Notification",
+    "name": "Member Application Rejected",
+    "enabled": 1,
+    "channel": "Email",
+    "document_type": "Member",
+    "event": "Value Change",
+    "value_changed": "application_status",
+    "subject": "Membership Application Update - {{ doc.full_name }}",
+    "condition": "doc.application_status == 'Rejected'",
+    "message": "<div style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;\">\n    <div style=\"background-color: #f8d7da; padding: 20px; border-radius: 8px; margin-bottom: 20px;\">\n        <h2 style=\"color: #721c24; margin: 0;\">Membership Application Update</h2>\n    </div>\n    \n    <div style=\"background-color: white; padding: 20px; border: 1px solid #e9ecef; border-radius: 8px;\">\n        <p>Dear {{ doc.first_name or 'Applicant' }},</p>\n        \n        <p>Thank you for your interest in joining our association.</p>\n        \n        <p>After careful review, we regret to inform you that your membership application has not been approved at this time.</p>\n        \n        {% if doc.review_notes %}\n        <div style=\"background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;\">\n            <h4 style=\"margin-top: 0; color: #2c3e50;\">Review Notes:</h4>\n            <p style=\"margin: 0;\">{{ doc.review_notes }}</p>\n        </div>\n        {% endif %}\n        \n        <p>If you have any questions or would like to discuss this decision, please don't hesitate to contact us.</p>\n        \n        <p>We appreciate your understanding and wish you well in your future endeavors.</p>\n        \n        <hr style=\"margin: 20px 0; border: none; border-top: 1px solid #e9ecef;\">\n        <p style=\"font-size: 12px; color: #6c757d;\">\n            Best regards,<br>\n            The Membership Team\n        </p>\n    </div>\n</div>",
+    "recipients": [
+      {
+        "receiver_by_document_field": "email"
+      }
+    ]
+  },
+  {
+    "doctype": "Notification",
+    "name": "SEPA Mandate Created",
+    "enabled": 1,
+    "channel": "Email",
+    "document_type": "SEPA Mandate",
+    "event": "New",
+    "subject": "SEPA Direct Debit Mandate Confirmation - {{ doc.mandate_id }}",
+    "condition": "doc.member",
+    "message": "<div style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;\">\n    <div style=\"background-color: #d1ecf1; padding: 20px; border-radius: 8px; margin-bottom: 20px;\">\n        <h2 style=\"color: #0c5460; margin: 0;\">SEPA Direct Debit Mandate Confirmation</h2>\n    </div>\n    \n    <div style=\"background-color: white; padding: 20px; border: 1px solid #e9ecef; border-radius: 8px;\">\n        <p>Dear {{ doc.account_holder_name or doc.member_name or 'Member' }},</p>\n        \n        <p>Your SEPA direct debit mandate has been successfully registered.</p>\n        \n        <div style=\"background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;\">\n            <h3 style=\"margin-top: 0; color: #2c3e50;\">Mandate Details:</h3>\n            <table style=\"width: 100%; border-collapse: collapse;\">\n                <tr>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\"><strong>Mandate Reference:</strong></td>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\">{{ doc.mandate_id }}</td>\n                </tr>\n                <tr>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\"><strong>Account Holder:</strong></td>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\">{{ doc.account_holder_name }}</td>\n                </tr>\n                <tr>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\"><strong>IBAN:</strong></td>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\">{% if doc.iban and doc.iban|length >= 8 %}{{ doc.iban[:4] }}****{{ doc.iban[-4:] }}{% elif doc.iban %}{{ doc.iban }}{% else %}N/A{% endif %}</td>\n                </tr>\n                <tr>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\"><strong>Sign Date:</strong></td>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\">{{ doc.sign_date }}</td>\n                </tr>\n                <tr>\n                    <td style=\"padding: 8px 0;\"><strong>Status:</strong></td>\n                    <td style=\"padding: 8px 0;\">{{ doc.status }}</td>\n                </tr>\n            </table>\n        </div>\n        \n        <p>This mandate authorizes us to collect payments from your bank account for membership dues and other authorized transactions.</p>\n        \n        <div style=\"background-color: #fff3cd; padding: 15px; border-radius: 5px; margin: 15px 0; border-left: 4px solid #ffc107;\">\n            <p style=\"margin: 0;\"><strong>Important:</strong> You can cancel this mandate at any time by contacting us. You also have the right to request a refund from your bank within 8 weeks of a debit.</p>\n        </div>\n        \n        <hr style=\"margin: 20px 0; border: none; border-top: 1px solid #e9ecef;\">\n        <p style=\"font-size: 12px; color: #6c757d;\">\n            This is an automated confirmation from the membership system.\n        </p>\n    </div>\n</div>",
+    "recipients": [
+      {
+        "receiver_by_document_field": "member"
+      }
+    ]
+  },
+  {
+    "doctype": "Notification",
+    "name": "Member Status Changed to Active",
+    "enabled": 1,
+    "channel": "Email",
+    "document_type": "Member",
+    "event": "Value Change",
+    "value_changed": "status",
+    "subject": "Welcome - Your Membership is Now Active!",
+    "condition": "doc.status == 'Active'",
+    "message": "<div style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;\">\n    <div style=\"background-color: #d4edda; padding: 20px; border-radius: 8px; margin-bottom: 20px;\">\n        <h2 style=\"color: #155724; margin: 0;\">Welcome - Your Membership is Active!</h2>\n    </div>\n    \n    <div style=\"background-color: white; padding: 20px; border: 1px solid #e9ecef; border-radius: 8px;\">\n        <p>Dear {{ doc.first_name or 'Member' }},</p>\n        \n        <p>Great news! Your membership is now active.</p>\n        \n        <div style=\"background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;\">\n            <h3 style=\"margin-top: 0; color: #2c3e50;\">Your Membership Details:</h3>\n            <table style=\"width: 100%; border-collapse: collapse;\">\n                <tr>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\"><strong>Member ID:</strong></td>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\">{{ doc.member_id or doc.name }}</td>\n                </tr>\n                <tr>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\"><strong>Name:</strong></td>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\">{{ doc.full_name }}</td>\n                </tr>\n                <tr>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\"><strong>Membership Type:</strong></td>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\">{{ doc.current_membership_type or 'Standard' }}</td>\n                </tr>\n                <tr>\n                    <td style=\"padding: 8px 0;\"><strong>Member Since:</strong></td>\n                    <td style=\"padding: 8px 0;\">{{ doc.member_since }}</td>\n                </tr>\n            </table>\n        </div>\n        \n        <p>You now have full access to all member benefits and services.</p>\n        \n        <hr style=\"margin: 20px 0; border: none; border-top: 1px solid #e9ecef;\">\n        <p style=\"font-size: 12px; color: #6c757d;\">\n            This is an automated notification from the membership system.\n        </p>\n    </div>\n</div>",
+    "recipients": [
+      {
+        "receiver_by_document_field": "email"
+      }
+    ]
+  },
+  {
+    "doctype": "Notification",
+    "name": "Invoice Payment Overdue",
+    "enabled": 1,
+    "channel": "Email",
+    "document_type": "Sales Invoice",
+    "event": "Value Change",
+    "value_changed": "status",
+    "subject": "Payment Reminder - Invoice {{ doc.name }} is Overdue",
+    "condition": "doc.status == 'Overdue' and doc.outstanding_amount > 0",
+    "message": "<div style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;\">\n    <div style=\"background-color: #fff3cd; padding: 20px; border-radius: 8px; margin-bottom: 20px;\">\n        <h2 style=\"color: #856404; margin: 0;\">Payment Reminder</h2>\n    </div>\n    \n    <div style=\"background-color: white; padding: 20px; border: 1px solid #e9ecef; border-radius: 8px;\">\n        <p>Dear {{ doc.customer_name or 'Customer' }},</p>\n        \n        <p>This is a friendly reminder that your invoice is now overdue.</p>\n        \n        <div style=\"background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;\">\n            <h3 style=\"margin-top: 0; color: #2c3e50;\">Invoice Details:</h3>\n            <table style=\"width: 100%; border-collapse: collapse;\">\n                <tr>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\"><strong>Invoice Number:</strong></td>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\">{{ doc.name }}</td>\n                </tr>\n                <tr>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\"><strong>Invoice Date:</strong></td>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\">{{ doc.posting_date }}</td>\n                </tr>\n                <tr>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\"><strong>Due Date:</strong></td>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\">{{ doc.due_date }}</td>\n                </tr>\n                <tr>\n                    <td style=\"padding: 8px 0;\"><strong>Outstanding Amount:</strong></td>\n                    <td style=\"padding: 8px 0; font-size: 18px; color: #dc3545;\">{{ doc.currency }} {{ doc.outstanding_amount }}</td>\n                </tr>\n            </table>\n        </div>\n        \n        <p>Please arrange payment at your earliest convenience to avoid any service interruptions.</p>\n        \n        <div style=\"background-color: #e9ecef; padding: 15px; border-radius: 5px; margin: 15px 0;\">\n            <p style=\"margin: 0;\">If you have already made this payment, please disregard this reminder. If you have any questions or need to discuss payment arrangements, please contact us.</p>\n        </div>\n        \n        <hr style=\"margin: 20px 0; border: none; border-top: 1px solid #e9ecef;\">\n        <p style=\"font-size: 12px; color: #6c757d;\">\n            This is an automated payment reminder from the membership system.\n        </p>\n    </div>\n</div>",
+    "recipients": [
+      {
+        "receiver_by_document_field": "contact_email"
+      }
+    ]
+  },
+  {
+    "doctype": "Notification",
+    "name": "New Membership Application Submitted",
+    "enabled": 1,
+    "channel": "Email",
+    "document_type": "Member",
+    "event": "New",
+    "subject": "New Membership Application: {{ doc.application_id or doc.name }} - {{ doc.full_name }}",
+    "condition": "doc.application_status == 'Pending'",
+    "message": "<div style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;\">\n    <div style=\"background-color: #cce5ff; padding: 20px; border-radius: 8px; margin-bottom: 20px;\">\n        <h2 style=\"color: #004085; margin: 0;\">New Membership Application</h2>\n    </div>\n    \n    <div style=\"background-color: white; padding: 20px; border: 1px solid #e9ecef; border-radius: 8px;\">\n        <p>A new membership application has been submitted and requires review.</p>\n        \n        <div style=\"background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;\">\n            <h3 style=\"margin-top: 0; color: #2c3e50;\">Application Details:</h3>\n            <table style=\"width: 100%; border-collapse: collapse;\">\n                <tr>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\"><strong>Application ID:</strong></td>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\">{{ doc.application_id or doc.name }}</td>\n                </tr>\n                <tr>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\"><strong>Name:</strong></td>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\">{{ doc.full_name }}</td>\n                </tr>\n                <tr>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\"><strong>Email:</strong></td>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\">{{ doc.email }}</td>\n                </tr>\n                <tr>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\"><strong>Membership Type:</strong></td>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\">{{ doc.selected_membership_type or 'Not specified' }}</td>\n                </tr>\n                <tr>\n                    <td style=\"padding: 8px 0;\"><strong>Applied On:</strong></td>\n                    <td style=\"padding: 8px 0;\">{{ doc.application_date }}</td>\n                </tr>\n            </table>\n        </div>\n        \n        <div style=\"text-align: center; margin: 20px 0;\">\n            <a href=\"{{ frappe.utils.get_url() }}/app/member/{{ doc.name | urlencode }}\" style=\"background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;\">Review Application</a>\n        </div>\n        \n        <hr style=\"margin: 20px 0; border: none; border-top: 1px solid #e9ecef;\">\n        <p style=\"font-size: 12px; color: #6c757d;\">\n            This is an automated notification from the membership system.\n        </p>\n    </div>\n</div>",
+    "recipients": [
+      {
+        "receiver_by_role": "Verenigingen Administrator"
+      }
+    ]
+  },
+  {
+    "doctype": "Notification",
+    "name": "Expense Submitted for Approval",
+    "enabled": 1,
+    "channel": "Email",
+    "document_type": "Volunteer Expense",
+    "event": "Submit",
+    "subject": "Expense Approval Required - {{ doc.name }}",
+    "condition": "",
+    "message": "<div style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;\">\n    <div style=\"background-color: #fff3cd; padding: 20px; border-radius: 8px; margin-bottom: 20px;\">\n        <h2 style=\"color: #856404; margin: 0;\">Expense Approval Required</h2>\n    </div>\n    \n    <div style=\"background-color: white; padding: 20px; border: 1px solid #e9ecef; border-radius: 8px;\">\n        <p>A new expense has been submitted and requires your approval.</p>\n        \n        <div style=\"background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;\">\n            <h3 style=\"margin-top: 0; color: #2c3e50;\">Expense Details:</h3>\n            <table style=\"width: 100%; border-collapse: collapse;\">\n                <tr>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\"><strong>Expense ID:</strong></td>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\">{{ doc.name }}</td>\n                </tr>\n                <tr>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\"><strong>Volunteer:</strong></td>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\">{{ doc.volunteer_name or doc.volunteer }}</td>\n                </tr>\n                <tr>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\"><strong>Amount:</strong></td>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6; font-size: 18px; color: #e74c3c;\">{{ doc.currency or 'EUR' }} {{ doc.amount }}</td>\n                </tr>\n                <tr>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\"><strong>Category:</strong></td>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\">{{ doc.category or 'Uncategorized' }}</td>\n                </tr>\n                <tr>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\"><strong>Date:</strong></td>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\">{{ doc.expense_date }}</td>\n                </tr>\n                <tr>\n                    <td style=\"padding: 8px 0;\"><strong>Description:</strong></td>\n                    <td style=\"padding: 8px 0;\">{{ doc.description or 'No description provided' }}</td>\n                </tr>\n            </table>\n        </div>\n        \n        <div style=\"text-align: center; margin: 20px 0;\">\n            <a href=\"{{ frappe.utils.get_url() }}/app/volunteer-expense/{{ doc.name | urlencode }}\" style=\"background-color: #28a745; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;\">Review Expense</a>\n        </div>\n        \n        <hr style=\"margin: 20px 0; border: none; border-top: 1px solid #e9ecef;\">\n        <p style=\"font-size: 12px; color: #6c757d;\">\n            This is an automated notification from the expense management system.\n        </p>\n    </div>\n</div>",
+    "recipients": [
+      {
+        "receiver_by_role": "Verenigingen Administrator"
+      }
+    ]
+  }
+]
