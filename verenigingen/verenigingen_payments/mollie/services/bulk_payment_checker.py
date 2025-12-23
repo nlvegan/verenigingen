@@ -79,16 +79,8 @@ class BulkPaymentChecker:
         """
         Find a matching unpaid dues invoice for a member and payment.
 
-        Matching criteria:
-        1. is_membership_invoice = 1
-        2. Has coverage_start_date and coverage_end_date
-        3. Amount matches exactly
-        4. Invoice is unpaid (outstanding_amount > 0, docstatus = 1)
-        5. Payment date within coverage period OR within 3-month buffer
-
-        Priority:
-        1. Primary: Payment date falls within coverage period
-        2. Fallback: Payment date within 3-month buffer of coverage period
+        DEPRECATED: Use InvoiceMatcher.find_matching_invoice() instead.
+        This method now delegates to the centralized InvoiceMatcher service.
 
         Args:
             member_name: Member record name
@@ -98,71 +90,33 @@ class BulkPaymentChecker:
         Returns:
             Dict with invoice details if found, None otherwise
         """
-        # Get member's customer
-        customer = frappe.db.get_value("Member", member_name, "customer")
-        if not customer:
-            return None
+        import warnings
 
-        # Validate and convert payment_date to date
-        if isinstance(payment_date, datetime):
-            payment_date_only = payment_date.date()
-        elif isinstance(payment_date, date):
-            payment_date_only = payment_date
-        else:
-            raise ValueError(f"payment_date must be date or datetime, got {type(payment_date).__name__}")
-
-        # Query for matching unpaid dues invoices
-        # Uses CASE to prioritize invoices where payment falls within coverage period
-        #
-        # Field validation note: This query uses custom fields on Sales Invoice:
-        # - custom_coverage_start_date, custom_coverage_end_date: Created via fixtures (custom_field.json)
-        # - is_membership_invoice: Standard field from verenigingen customizations
-        # Constants: INVOICE_AMOUNT_TOLERANCE_EUR (0.01), INVOICE_MATCH_BUFFER_MONTHS (3)
-        amount_tolerance = BulkPaymentCheckerConfig.INVOICE_AMOUNT_TOLERANCE_EUR
-        buffer_months = BulkPaymentCheckerConfig.INVOICE_MATCH_BUFFER_MONTHS
-
-        invoices = frappe.db.sql(
-            f"""
-            SELECT
-                name,
-                grand_total,
-                outstanding_amount,
-                custom_coverage_start_date,
-                custom_coverage_end_date,
-                posting_date,
-                CASE
-                    WHEN %s BETWEEN custom_coverage_start_date AND custom_coverage_end_date
-                    THEN 0
-                    ELSE 1
-                END as match_priority
-            FROM `tabSales Invoice`
-            WHERE customer = %s
-              AND is_membership_invoice = 1
-              AND docstatus = 1
-              AND outstanding_amount > 0
-              AND ABS(grand_total - %s) < {amount_tolerance}
-              AND custom_coverage_start_date IS NOT NULL
-              AND custom_coverage_end_date IS NOT NULL
-              AND %s BETWEEN
-                  DATE_SUB(custom_coverage_start_date, INTERVAL {buffer_months} MONTH)
-                  AND DATE_ADD(custom_coverage_end_date, INTERVAL {buffer_months} MONTH)
-            ORDER BY match_priority ASC, custom_coverage_start_date DESC
-            LIMIT 1
-            """,
-            (payment_date_only, customer, payment_amount, payment_date_only),
-            as_dict=True,
+        warnings.warn(
+            "BulkPaymentChecker.find_matching_unpaid_dues_invoice() is deprecated. "
+            "Use InvoiceMatcher.find_matching_invoice() instead.",
+            DeprecationWarning,
+            stacklevel=2,
         )
 
-        if invoices:
-            invoice = invoices[0]
+        from verenigingen.services.billing.invoice_matcher import find_matching_invoice
+
+        result = find_matching_invoice(
+            member_name=member_name,
+            payment_date=payment_date,
+            payment_amount=payment_amount,
+            check_overlap=False,  # Preserve original behavior (no overlap warning)
+        )
+
+        if result.found:
             return {
-                "invoice_name": invoice.name,
-                "invoice_amount": float(invoice.grand_total),
-                "outstanding_amount": float(invoice.outstanding_amount),
-                "coverage_start": str(invoice.custom_coverage_start_date),
-                "coverage_end": str(invoice.custom_coverage_end_date),
-                "posting_date": str(invoice.posting_date),
-                "match_type": "within_coverage" if invoice.match_priority == 0 else "within_buffer",
+                "invoice_name": result.invoice_name,
+                "invoice_amount": result.invoice_amount,
+                "outstanding_amount": result.outstanding_amount,
+                "coverage_start": str(result.coverage_start) if result.coverage_start else None,
+                "coverage_end": str(result.coverage_end) if result.coverage_end else None,
+                "posting_date": None,  # InvoiceMatcher doesn't return posting_date
+                "match_type": result.match_type,
             }
 
         return None
@@ -175,8 +129,8 @@ class BulkPaymentChecker:
         """
         Check if an SDK payment matches an unpaid dues invoice.
 
-        Convenience method that handles date parsing from SDK payment objects
-        and delegates to find_matching_unpaid_dues_invoice.
+        DEPRECATED: Use InvoiceMatcher.find_matching_invoice_for_payment() instead.
+        This method now delegates to the centralized InvoiceMatcher service.
 
         Args:
             sdk_payment: Raw Mollie SDK payment object (supports dict-like access)
@@ -185,36 +139,35 @@ class BulkPaymentChecker:
         Returns:
             Dict with invoice details if found, None otherwise
         """
-        try:
-            # Extract amount
-            amount_obj = sdk_payment.amount if hasattr(sdk_payment, "amount") else sdk_payment.get("amount")
-            if not amount_obj:
-                return None
+        import warnings
 
-            payment_amount = float(
-                amount_obj["value"] if isinstance(amount_obj, dict) else amount_obj.get("value")
-            )
+        warnings.warn(
+            "BulkPaymentChecker.check_invoice_match_for_payment() is deprecated. "
+            "Use InvoiceMatcher.find_matching_invoice_for_payment() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
-            # Parse payment date - prefer paid_at for accuracy
-            paid_at = getattr(sdk_payment, "paid_at", None) or sdk_payment.get("paidAt")
-            created_at = getattr(sdk_payment, "created_at", None) or sdk_payment.get("createdAt")
+        from verenigingen.services.billing.invoice_matcher import find_matching_invoice_for_payment
 
-            date_str = paid_at or created_at
-            if not date_str:
-                return None
+        result = find_matching_invoice_for_payment(
+            sdk_payment=sdk_payment,
+            member_name=member_name,
+            check_overlap=False,
+        )
 
-            # Parse ISO date string to datetime
-            if isinstance(date_str, str):
-                payment_date = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-            else:
-                payment_date = date_str  # Already a datetime
+        if result.found:
+            return {
+                "invoice_name": result.invoice_name,
+                "invoice_amount": result.invoice_amount,
+                "outstanding_amount": result.outstanding_amount,
+                "coverage_start": str(result.coverage_start) if result.coverage_start else None,
+                "coverage_end": str(result.coverage_end) if result.coverage_end else None,
+                "posting_date": None,
+                "match_type": result.match_type,
+            }
 
-            return self.find_matching_unpaid_dues_invoice(
-                member_name=member_name, payment_amount=payment_amount, payment_date=payment_date
-            )
-        except Exception as e:
-            frappe.logger().warning(f"Error checking invoice match for payment: {e}")
-            return None
+        return None
 
     def get_members_with_mollie_customers(
         self, limit: Optional[int] = None, offset: int = 0

@@ -280,10 +280,6 @@ def complete_partial_payments(
     if isinstance(max_payments, str):
         max_payments = int(max_payments)
 
-    from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import DuesPaymentProcessor
-
-    dues_processor = DuesPaymentProcessor()
-
     result = {
         "total_requested": 0,
         "completed": 0,
@@ -322,321 +318,69 @@ def complete_partial_payments(
 
     mollie_payment_pattern = re.compile(r"^tr_[a-zA-Z0-9]+$")
 
-    for payment_id in payment_ids:
-        payment_result = {"payment_id": payment_id, "status": "pending", "actions_taken": [], "error": None}
+    # Use the orchestrator for processing (recovery mode with create_missing_invoice=True)
+    from verenigingen.verenigingen_payments.services.mollie_payment_orchestrator import get_payment_orchestrator
 
+    orchestrator = get_payment_orchestrator()
+
+    for payment_id in payment_ids:
         # Validate payment ID format before processing
         if not mollie_payment_pattern.match(payment_id):
-            payment_result["status"] = "skipped"
-            payment_result["reason"] = "Invalid payment ID format (not a Mollie payment ID)"
+            result["results"].append({
+                "payment_id": payment_id,
+                "status": "skipped",
+                "reason": "Invalid payment ID format (not a Mollie payment ID)",
+            })
             result["skipped"] += 1
-            result["results"].append(payment_result)
             frappe.logger().warning(f"Skipping invalid payment ID: {payment_id[:50]}...")
             continue
 
-        try:
-            # Check current status
-            status = get_payment_processing_status(payment_id)
+        if dry_run:
+            # Use orchestrator's status check for dry run
+            status = orchestrator.get_processing_status(payment_id)
+            result["results"].append({
+                "payment_id": payment_id,
+                "status": "dry_run",
+                "current_status": status.status,
+                "would_create": status.missing_documents,
+                "member": status.member,
+            })
+            continue
 
-            if status["status"] == "complete":
-                payment_result["status"] = "skipped"
-                payment_result["reason"] = "Already complete"
-                result["skipped"] += 1
-                result["results"].append(payment_result)
-                continue
+        # Process using orchestrator with create_missing_invoice=True (recovery mode)
+        processing_result = orchestrator.process_payment(
+            payment_id=payment_id,
+            create_missing_invoice=True,  # Recovery mode: create invoice if not found
+        )
 
-            if not status["member"]:
-                payment_result["status"] = "error"
-                payment_result["error"] = "Cannot determine member for payment"
-                result["errors"] += 1
-                result["results"].append(payment_result)
-                continue
+        # Convert orchestrator result to legacy format
+        payment_result = {
+            "payment_id": payment_id,
+            "status": (
+                "completed" if processing_result.status == "success"
+                else "skipped" if processing_result.status in ["already_processed", "skipped"]
+                else processing_result.status
+            ),
+            "actions_taken": processing_result.actions_taken,
+            "error": processing_result.error,
+            "member": processing_result.member,
+            "bank_transaction": processing_result.bank_transaction,
+            "payment_entry": processing_result.payment_entry,
+            "sales_invoice": processing_result.sales_invoice,
+        }
 
-            if dry_run:
-                payment_result["status"] = "dry_run"
-                payment_result["would_create"] = status["missing_documents"]
-                result["results"].append(payment_result)
-                continue
-
-            # Get payment date and amount from Bank Transaction if it exists
-            # Otherwise fetch from Mollie (needed for PE/BT creation anyway)
-            payment = None
-            if status["has_bank_transaction"]:
-                bt_doc = frappe.get_doc("Bank Transaction", status["bank_transaction"])
-                payment_date = bt_doc.date
-                payment_amount = abs(bt_doc.unallocated_amount or bt_doc.deposit)
-
-            # Fetch payment from Mollie if we need it for PE or BT creation
-            if not status["has_payment_entry"] or not status["has_bank_transaction"]:
-                payment = dues_processor.mollie_client.sdk_client.payments.get(payment_id)
-
-                # If we didn't get date/amount from BT, get from payment
-                if not status["has_bank_transaction"]:
-                    # Handle both dict and object responses from Mollie
-                    if isinstance(payment, dict):
-                        payment_date = datetime.strptime(
-                            payment.get("createdAt", payment.get("created_at"))[:10], "%Y-%m-%d"
-                        ).date()
-                        payment_amount = float(payment["amount"]["value"])
-                    else:
-                        payment_date = datetime.strptime(payment.created_at[:10], "%Y-%m-%d").date()
-                        payment_amount = float(payment.amount.value)
-
-            # Ensure fiscal year exists for the payment date (required for invoice/PE creation)
-            from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_exists
-
-            verenigingen_settings = frappe.get_single("Verenigingen Settings")
-            company = verenigingen_settings.company or frappe.defaults.get_global_default("company")
-            try:
-                fiscal_year = ensure_fiscal_year_exists(payment_date, company)
-                if fiscal_year:
-                    payment_result["actions_taken"].append(f"Ensured Fiscal Year: {fiscal_year}")
-            except Exception as fy_error:
-                frappe.logger().warning(f"Could not ensure fiscal year for {payment_date}: {fy_error}")
-                # Continue anyway - will fail later if truly missing
-
-            # Create missing documents
-            if not status["has_sales_invoice"]:
-                # Check for overlapping coverage before creating invoice
-                from verenigingen.services.billing.coverage_calculator import (
-                    calculate_coverage_for_payment_date,
-                )
-                from verenigingen.services.billing.coverage_overlap_detector import check_coverage_overlap
-
-                # Calculate coverage based on member's billing frequency
-                coverage_start, coverage_end = calculate_coverage_for_payment_date(
-                    status["member"], payment_date
-                )
-
-                member = frappe.get_doc("Member", status["member"])
-                if member.customer:
-                    # Use proper overlap detection (not just exact match)
-                    overlap_result = check_coverage_overlap(
-                        customer=member.customer,
-                        proposed_start=coverage_start,
-                        proposed_end=coverage_end,
-                        exclude_cancelled=True,
-                    )
-
-                    if overlap_result.has_overlap:
-                        if overlap_result.exact_match:
-                            # Exact match found - can link to it
-                            payment_result["actions_taken"].append(
-                                f"Found existing Sales Invoice: {overlap_result.exact_match}"
-                            )
-                            status["sales_invoice"] = overlap_result.exact_match
-                            status["has_sales_invoice"] = True
-                        else:
-                            # Overlapping but not exact match - flag for manual review
-                            overlapping_names = [inv["name"] for inv in overlap_result.overlapping_invoices]
-                            payment_result["status"] = "needs_review"
-                            payment_result["error"] = (
-                                f"Coverage overlap detected: proposed {coverage_start} to {coverage_end} "
-                                f"overlaps with existing invoice(s): {', '.join(overlapping_names)}. "
-                                f"Manual review required."
-                            )
-                            payment_result["overlapping_invoices"] = overlapping_names
-                            result["errors"] += 1
-                            result["results"].append(payment_result)
-                            continue  # Skip this payment - needs manual intervention
-                    else:
-                        # No overlap - safe to create new invoice
-                        sinv = dues_processor._get_or_create_historical_invoice(
-                            status["member"], payment_date, payment_amount
-                        )
-                        if sinv:
-                            payment_result["actions_taken"].append(f"Created Sales Invoice: {sinv}")
-                            status["sales_invoice"] = sinv
-                            status["has_sales_invoice"] = True
-
-            if not status["has_payment_entry"] and payment:
-                # Create PE (needs payment object)
-                # Pass invoice_name so reference is added BEFORE submission (ensures correct GL entries)
-                pe = dues_processor._create_payment_entry_for_dues(
-                    status["member"], payment, invoice_name=status.get("sales_invoice")
-                )
-                if pe:
-                    payment_result["actions_taken"].append(f"Created Payment Entry: {pe}")
-                    status["payment_entry"] = pe
-                    status["has_payment_entry"] = True
-
-            if not status["has_bank_transaction"] and payment:
-                # Double-check before creating BT to minimize race condition window
-                # Re-query database immediately before creation attempt
-                existing_bt_check = frappe.db.get_value(
-                    "Bank Transaction", {"reference_number": payment_id}, "name"
-                )
-
-                if existing_bt_check:
-                    # BT was created by another process between status check and now
-                    frappe.logger().info(
-                        f"⏭️ Bank Transaction {existing_bt_check} created by another process for {payment_id}"
-                    )
-                    payment_result["actions_taken"].append(
-                        f"Bank Transaction already exists: {existing_bt_check}"
-                    )
-                    status["bank_transaction"] = existing_bt_check
-                    status["has_bank_transaction"] = True
-                else:
-                    # Create BT (needs payment object)
-                    # Handle race condition where another process creates BT concurrently
-                    try:
-                        bt_result = dues_processor.process_dues_payment(
-                            payment_id, payment, creation_mode="Bank Transaction"
-                        )
-                        if bt_result.get("status") == "success":
-                            payment_result["actions_taken"].append(
-                                f"Created Bank Transaction: {bt_result['bank_transaction']}"
-                            )
-                            status["bank_transaction"] = bt_result["bank_transaction"]
-                            status["has_bank_transaction"] = True
-                        elif bt_result.get("status") == "already_processed":
-                            # BT already existed (race condition or concurrent webhook)
-                            payment_result["actions_taken"].append(
-                                f"Bank Transaction already exists: {bt_result.get('bank_transaction', 'unknown')}"
-                            )
-                            status["bank_transaction"] = bt_result.get("bank_transaction")
-                            status["has_bank_transaction"] = True
-                    except (frappe.UniqueValidationError, frappe.DuplicateEntryError) as e:
-                        # Another process created the Bank Transaction between our check and insert
-                        # This is expected in concurrent webhook scenarios
-                        frappe.logger().info(
-                            f"⏭️ Bank Transaction race condition for {payment_id}: {str(e)[:100]}"
-                        )
-                        # Re-check for existing Bank Transaction
-                        existing_bt = frappe.db.get_value(
-                            "Bank Transaction", {"reference_number": payment_id}, "name"
-                        )
-                        if existing_bt:
-                            payment_result["actions_taken"].append(
-                                f"Bank Transaction exists (race condition): {existing_bt}"
-                            )
-                            status["bank_transaction"] = existing_bt
-                            status["has_bank_transaction"] = True
-                        else:
-                            # Unexpected: duplicate error but can't find the document
-                            raise
-
-            # Link BT to PE if needed (handles both newly created and pre-existing documents)
-            # This ensures proper reconciliation even if documents were created separately
-            if status["has_bank_transaction"] and status["has_payment_entry"]:
-                # Check if already linked (idempotent check)
-                existing_link = frappe.db.exists(
-                    "Bank Transaction Payments",
-                    {"parent": status["bank_transaction"], "payment_entry": status["payment_entry"]},
-                )
-
-                if not existing_link:
-                    bt_doc = frappe.get_doc("Bank Transaction", status["bank_transaction"])
-                    pe_doc = frappe.get_doc("Payment Entry", status["payment_entry"])
-
-                    # Use ERPNext's standard reconciliation pattern (same as Bank Reconciliation Tool)
-                    # This properly handles submitted Bank Transactions
-                    voucher = {
-                        "payment_doctype": "Payment Entry",
-                        "payment_name": status["payment_entry"],
-                    }
-                    bt_doc.add_payment_entries([voucher])  # Adds with allocated_amount=0
-                    bt_doc.validate_duplicate_references()
-                    bt_doc.allocate_payment_entries()  # Calculates actual allocation
-                    bt_doc.update_allocated_amount()
-                    bt_doc.set_status()
-                    bt_doc.save()
-
-                    # Reload to get updated status after save hooks run
-                    bt_doc.reload()
-
-                    # Get actual allocated amount for logging
-                    allocated_amount = 0
-                    for pe in bt_doc.payment_entries:
-                        if pe.payment_entry == status["payment_entry"]:
-                            allocated_amount = pe.allocated_amount
-                            break
-
-                    # Set clearance date on PE if not already set
-                    if not pe_doc.clearance_date and bt_doc.date:
-                        pe_doc.db_set("clearance_date", bt_doc.date, update_modified=False)
-                        payment_result["actions_taken"].append(
-                            f"Linked BT to PE and set clearance_date={bt_doc.date} (BT status: {bt_doc.status})"
-                        )
-                    else:
-                        payment_result["actions_taken"].append(
-                            f"Linked BT to PE (BT status: {bt_doc.status})"
-                        )
-
-                    frappe.logger().info(
-                        f"✅ Linked Bank Transaction {bt_doc.name} to Payment Entry {pe_doc.name} "
-                        f"(allocated: {allocated_amount}, status: {bt_doc.status})"
-                    )
-                else:
-                    frappe.logger().debug(
-                        f"BT {status['bank_transaction']} already linked to PE {status['payment_entry']}"
-                    )
-
-            # Link Sales Invoice to Payment Entry and reconcile if needed
-            if status["has_payment_entry"] and status["has_sales_invoice"]:
-                pe_doc = frappe.get_doc("Payment Entry", status["payment_entry"])
-
-                # Check if SINV already linked
-                existing_sinv_link = frappe.db.exists(
-                    "Payment Entry Reference",
-                    {"parent": pe_doc.name, "reference_name": status["sales_invoice"]},
-                )
-
-                if not existing_sinv_link:
-                    # Get SINV details for linking
-                    sinv_doc = frappe.get_doc("Sales Invoice", status["sales_invoice"])
-                    outstanding = sinv_doc.outstanding_amount
-
-                    if outstanding > 0:
-                        allocated = min(outstanding, pe_doc.unallocated_amount)
-
-                        pe_doc.append(
-                            "references",
-                            {
-                                "reference_doctype": "Sales Invoice",
-                                "reference_name": sinv_doc.name,
-                                "total_amount": sinv_doc.grand_total,
-                                "outstanding_amount": outstanding,
-                                "allocated_amount": allocated,
-                            },
-                        )
-
-                        # Update PE unallocated amount
-                        pe_doc.unallocated_amount = pe_doc.unallocated_amount - allocated
-
-                        # Submit PE if it's still in draft and fully allocated
-                        if pe_doc.docstatus == 0 and pe_doc.unallocated_amount == 0:
-                            pe_doc.submit()
-                            payment_result["actions_taken"].append("Linked PE to SINV and submitted PE")
-                        else:
-                            pe_doc.save()
-                            payment_result["actions_taken"].append("Linked PE to SINV")
-
-                        # Reload SINV to check if now paid
-                        sinv_doc.reload()
-                        if sinv_doc.outstanding_amount == 0:
-                            payment_result["actions_taken"].append(f"Reconciled SINV {sinv_doc.name} (paid)")
-                    else:
-                        payment_result["actions_taken"].append(f"SINV {sinv_doc.name} already paid")
-                else:
-                    payment_result["actions_taken"].append("PE already linked to SINV")
-
-            payment_result["status"] = "completed"
-            result["completed"] += 1
-
-        except Exception as e:
-            payment_result["status"] = "error"
-            payment_result["error"] = str(e)
-            result["errors"] += 1
-            # Truncate payment_id in title to stay under 140 char limit
-            short_id = payment_id[:30] + "..." if len(payment_id) > 30 else payment_id
-            frappe.log_error(
-                message=f"Error completing payment {payment_id}: {e}",
-                title=f"Payment Recovery Error: {short_id}",
-            )
+        if processing_result.skipped_reason:
+            payment_result["reason"] = processing_result.skipped_reason
 
         result["results"].append(payment_result)
+
+        # Update counters based on orchestrator result
+        if processing_result.status == "success":
+            result["completed"] += 1
+        elif processing_result.status in ["already_processed", "skipped"]:
+            result["skipped"] += 1
+        elif processing_result.status == "error":
+            result["errors"] += 1
 
     return result
 

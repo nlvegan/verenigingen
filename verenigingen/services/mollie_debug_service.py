@@ -2816,37 +2816,29 @@ class MollieDebugService(StatelessService):
 
     def bulk_process_member_payments(self, payment_ids: list, docstatus: int = 0, payment_modes: dict = None):
         """
-        Bulk process selected payments with intelligent per-payment mode selection.
+        Bulk process selected payments using the MolliePaymentOrchestrator.
 
-        Strategy:
-        1. Group payments by member to avoid concurrent updates to same customer
-        2. Process each member's payments sequentially
-        3. Use payment_modes to determine per-payment processing (BT only vs BT+PE+reconcile)
-        4. Add deadlock retry with exponential backoff
+        Uses the consolidated orchestrator for consistent processing flow.
+        The orchestrator handles invoice matching, BT creation, PE creation, and BT-PE linking.
 
         Args:
             payment_ids: List of Mollie payment IDs to process
             docstatus: 0 for Draft, 1 for Submitted (default: 0)
             payment_modes: Dict mapping payment_id to {mode, matching_invoice}
-                          Modes: 'bt_pe_reconcile' or 'bt_only' (default)
+                          (Legacy parameter - matching_invoice still used if provided)
 
         Returns:
             Dict with processing results
         """
         import random
         import time
-        from collections import defaultdict
 
         # Default to empty dict if not provided
         if payment_modes is None:
             payment_modes = {}
 
         # Auto-batch large requests to prevent deadlocks and timeouts
-        SAFE_BATCH_SIZE = 250  # Safe batch size to prevent MySQL deadlocks
-
-        # Count modes for stats
-        bt_pe_count = sum(1 for pm in payment_modes.values() if pm and pm.get("mode") == "bt_pe_reconcile")
-        bt_only_count = len(payment_ids) - bt_pe_count
+        SAFE_BATCH_SIZE = 250
 
         result = {
             "total_requested": len(payment_ids),
@@ -2856,9 +2848,7 @@ class MollieDebugService(StatelessService):
             "results": [],
             "timestamp": frappe.utils.now(),
             "docstatus": docstatus,
-            "intelligent_processing": True,
-            "bt_pe_reconcile_count": bt_pe_count,
-            "bt_only_count": bt_only_count,
+            "orchestrator_mode": True,  # Indicates using new consolidated orchestrator
             "batches_processed": 0,
             "total_batches": 0,
         }
@@ -2903,7 +2893,7 @@ class MollieDebugService(StatelessService):
                 result["batches_processed"] += 1
 
                 # Add random delay between batches to reduce contention (0.5-2 seconds)
-                if batch_num < total_batches - 1:  # Don't delay after last batch
+                if batch_num < total_batches - 1:
                     delay = random.uniform(0.5, 2.0)
                     self.logger.info(
                         f"Batch {batch_num + 1} complete. Waiting {delay:.2f}s before next batch..."
@@ -2913,202 +2903,83 @@ class MollieDebugService(StatelessService):
             result["message"] = f"Completed {total_batches} batches successfully"
             return result
 
-        # Single batch processing (original logic below)
+        # Single batch processing using orchestrator
         result["batches_processed"] = 1
         result["total_batches"] = 1
 
         try:
-            from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import (
-                DuesPaymentProcessor,
+            from verenigingen.verenigingen_payments.services.mollie_payment_orchestrator import (
+                get_payment_orchestrator,
             )
 
-            dues_processor = DuesPaymentProcessor()
-
-            # Step 1: Group payments by member to prevent deadlocks
-            self.logger.info(f"Grouping {len(payment_ids)} payments by member...")
-            payments_by_member = defaultdict(list)
+            orchestrator = get_payment_orchestrator()
 
             for payment_id in payment_ids:
-                try:
-                    # Quick member lookup
-                    payment = dues_processor.mollie_client.sdk_client.payments.get(payment_id)
-                    customer_id = getattr(payment, "customerId", None)
+                # Extract pre-matched invoice if provided in payment_modes
+                payment_mode_info = payment_modes.get(payment_id, {})
+                matching_invoice = payment_mode_info.get("matching_invoice") if payment_mode_info else None
 
-                    if customer_id:
-                        member = frappe.db.get_value("Member", {"mollie_customer_id": customer_id}, "name")
-                        group_key = member if member else f"no_member_{customer_id}"
+                # Normalize invoice name (can be dict or string from frontend)
+                invoice_name = None
+                if matching_invoice:
+                    if isinstance(matching_invoice, dict):
+                        invoice_name = matching_invoice.get("invoice_name")
                     else:
-                        group_key = "no_customer"
+                        invoice_name = matching_invoice
 
-                    payments_by_member[group_key].append(payment_id)
-                except Exception as e:
-                    # On error, process individually
-                    payments_by_member[f"error_{payment_id}"].append(payment_id)
-                    self.logger.warning(f"Failed to group payment {payment_id}: {e}")
+                # Process using orchestrator (discovery mode: don't create invoices)
+                processing_result = orchestrator.process_payment(
+                    payment_id=payment_id,
+                    invoice_name=invoice_name,
+                    create_missing_invoice=False,  # Discovery mode
+                )
 
-            self.logger.info(
-                f"Grouped into {len(payments_by_member)} groups: "
-                + ", ".join(f"{k}({len(v)})" for k, v in list(payments_by_member.items())[:5])
-            )
+                # Convert orchestrator result to legacy format
+                payment_result = {
+                    "payment_id": payment_id,
+                    "status": processing_result.status,
+                    "bank_transaction": processing_result.bank_transaction,
+                    "payment_entry": processing_result.payment_entry,
+                    "member": processing_result.member,
+                    "sales_invoice": processing_result.sales_invoice,
+                    "actions_taken": processing_result.actions_taken,
+                    "reconciled": processing_result.reconciled,
+                }
 
-            # Step 2: Process each member's payments sequentially
-            for member_key, member_payment_ids in payments_by_member.items():
-                for payment_id in member_payment_ids:
-                    # Retry logic for deadlocks
-                    max_retries = 3
-                    retry_count = 0
-                    payment_result = None
+                if processing_result.error:
+                    payment_result["error"] = processing_result.error
+                if processing_result.skipped_reason:
+                    payment_result["skipped_reason"] = processing_result.skipped_reason
 
-                    # Get per-payment processing mode
-                    payment_mode_info = payment_modes.get(payment_id, {})
-                    processing_mode = (
-                        payment_mode_info.get("mode", "bt_only") if payment_mode_info else "bt_only"
-                    )
-                    matching_invoice = (
-                        payment_mode_info.get("matching_invoice") if payment_mode_info else None
-                    )
+                # Handle submission if requested (docstatus=1)
+                if processing_result.status == "success" and docstatus == 1:
+                    try:
+                        if processing_result.bank_transaction:
+                            bt_doc = frappe.get_doc("Bank Transaction", processing_result.bank_transaction)
+                            if bt_doc.docstatus == 0:
+                                if frappe.has_permission("Bank Transaction", "submit", bt_doc):
+                                    bt_doc.submit()
+                                    payment_result["bank_transaction_submitted"] = True
 
-                    while retry_count < max_retries:
-                        try:
-                            # Process payment (Frappe handles transactions automatically)
-                            if processing_mode == "bt_only":
-                                # Strategy 1: Bank Transaction only (no matching invoice)
-                                payment_result = dues_processor.process_dues_payment(
-                                    payment_id, creation_mode="Bank Transaction"
-                                )
-                                if payment_result.get("status") == "success":
-                                    payment_result["processing_mode"] = "bt_only"
-                            else:
-                                # Strategy 2: BT + PE + Reconcile (matching invoice found)
-                                # IMPORTANT: PE creation is INSIDE the retry loop to handle deadlocks
-                                # Pass invoice_name so partial_processing uses our matched invoice
-                                # Handle both dict (from retrieval) and string (from frontend data-attr)
-                                if matching_invoice:
-                                    if isinstance(matching_invoice, dict):
-                                        invoice_to_use = matching_invoice.get("invoice_name")
-                                    else:
-                                        # Frontend passes just the invoice name as a string
-                                        invoice_to_use = matching_invoice
-                                else:
-                                    invoice_to_use = None
-                                bt_result = dues_processor.process_dues_payment(
-                                    payment_id, creation_mode="Bank Transaction", invoice_name=invoice_to_use
-                                )
+                        if processing_result.payment_entry:
+                            pe_doc = frappe.get_doc("Payment Entry", processing_result.payment_entry)
+                            if pe_doc.docstatus == 0:
+                                if frappe.has_permission("Payment Entry", "submit", pe_doc):
+                                    pe_doc.submit()
+                                    payment_result["payment_entry_submitted"] = True
+                    except Exception as submit_error:
+                        payment_result["submit_error"] = str(submit_error)
+                        self.logger.error(f"Submission error for {payment_id}: {submit_error}")
 
-                                if bt_result.get("status") == "success" and bt_result.get("bank_transaction"):
-                                    # Check if partial_processing already created a PE
-                                    # (happens when BT exists from a previous failed attempt)
-                                    if bt_result.get("payment_entry"):
-                                        # PE was already created during partial_processing
-                                        payment_result = bt_result
-                                        payment_result["processing_mode"] = "bt_pe_reconcile"
-                                        payment_result[
-                                            "note"
-                                        ] = "PE created during partial_processing recovery"
-                                    else:
-                                        payment = dues_processor.mollie_client.sdk_client.payments.get(
-                                            payment_id
-                                        )
-                                        member_name = bt_result.get("member")
+                # Update counters
+                if processing_result.status == "success":
+                    result["processed"] += 1
+                elif processing_result.status in ["skipped", "already_processed"]:
+                    result["skipped"] += 1
+                else:
+                    result["errors"] += 1
 
-                                        if member_name:
-                                            # invoice_to_use already set above for process_dues_payment call
-                                            pe_name = dues_processor._create_payment_entry_for_dues(
-                                                member_name, payment, invoice_name=invoice_to_use
-                                            )
-                                            bt_name = bt_result.get("bank_transaction")
-                                            bt_doc = frappe.get_doc("Bank Transaction", bt_name)
-                                            bt_doc.append(
-                                                "payment_entries",
-                                                {
-                                                    "payment_document": "Payment Entry",
-                                                    "payment_entry": pe_name,
-                                                    "allocated_amount": abs(bt_doc.unallocated_amount),
-                                                },
-                                            )
-                                            bt_doc.save()
-                                            payment_result = {
-                                                "payment_id": payment_id,
-                                                "status": "success",
-                                                "bank_transaction": bt_name,
-                                                "payment_entry": pe_name,
-                                                "payment_type": bt_result.get("payment_type"),
-                                                "member": member_name,
-                                                "processing_mode": "bt_pe_reconcile",
-                                                "matching_invoice": matching_invoice,
-                                            }
-                                        else:
-                                            payment_result = bt_result
-                                            payment_result["processing_mode"] = "bt_only"
-                                            payment_result["note"] = "No member found, fell back to BT only"
-                                else:
-                                    payment_result = bt_result
-
-                            # Handle submission if requested
-                            if payment_result.get("status") == "success" and docstatus == 1:
-                                try:
-                                    if payment_result.get("bank_transaction"):
-                                        bt_doc = frappe.get_doc(
-                                            "Bank Transaction", payment_result["bank_transaction"]
-                                        )
-                                        if bt_doc.docstatus == 0:
-                                            if not frappe.has_permission(
-                                                "Bank Transaction", "submit", bt_doc
-                                            ):
-                                                raise frappe.PermissionError(
-                                                    f"User {frappe.session.user} lacks submit permission"
-                                                )
-                                            bt_doc.submit()
-                                            payment_result["bank_transaction_submitted"] = True
-
-                                    if payment_result.get("payment_entry"):
-                                        pe_doc = frappe.get_doc(
-                                            "Payment Entry", payment_result["payment_entry"]
-                                        )
-                                        if pe_doc.docstatus == 0:
-                                            if not frappe.has_permission("Payment Entry", "submit", pe_doc):
-                                                raise frappe.PermissionError(
-                                                    f"User {frappe.session.user} lacks submit permission"
-                                                )
-                                            pe_doc.submit()
-                                            payment_result["payment_entry_submitted"] = True
-                                except Exception as submit_error:
-                                    payment_result["submit_error"] = str(submit_error)
-                                    self.logger.error(f"Submission error for {payment_id}: {submit_error}")
-
-                            # Success - break retry loop
-                            break
-
-                        except Exception as e:
-                            retry_count += 1
-                            error_str = str(e)
-                            is_deadlock = "1213" in error_str or "Deadlock" in error_str
-
-                            if is_deadlock and retry_count < max_retries:
-                                wait_time = 0.1 * (2 ** (retry_count - 1))
-                                self.logger.warning(
-                                    f"Deadlock on {payment_id}, retry {retry_count}/{max_retries} after {wait_time}s"
-                                )
-                                time.sleep(wait_time)
-                                continue
-                            else:
-                                payment_result = {
-                                    "payment_id": payment_id,
-                                    "status": "error",
-                                    "error": error_str,
-                                }
-                                self.logger.error(f"Error processing {payment_id}: {e}")
-                                break
-
-                    # Record result
-                    if payment_result:
-                        if payment_result.get("status") == "success":
-                            result["processed"] += 1
-                        elif payment_result.get("status") in ["skipped", "already_processed"]:
-                            result["skipped"] += 1
-                        else:
-                            result["errors"] += 1
-                        result["results"].append(payment_result)
+                result["results"].append(payment_result)
 
             self.logger.info(
                 f"Bulk processing complete: {result['processed']} processed, "
