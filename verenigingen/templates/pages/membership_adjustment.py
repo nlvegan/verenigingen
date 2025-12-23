@@ -893,36 +893,54 @@ def submit_membership_type_change_request(
 
 def send_membership_type_change_notification(member, old_type, new_type, reason):
     """Send notification about membership type change request"""
-    try:
-        # Get notification recipients (membership committee)
-        settings = frappe.get_single("Verenigingen Settings")
-        recipients = []
+    from frappe.utils import escape_html
 
-        if hasattr(settings, "membership_committee_email"):
-            recipients.append(settings.membership_committee_email)
+    from verenigingen.utils.notification_helpers import (
+        create_system_notification,
+        get_notification_recipients,
+    )
+
+    try:
+        # Get notification recipients (membership committee + chapter admins)
+        recipients = get_notification_recipients(
+            "membership_committee_email",
+            default_roles=["Verenigingen Administrator", "System Manager"],
+        )
 
         # Also notify chapter administrators
         if hasattr(member, "chapter") and member.chapter:
             chapter_doc = frappe.get_doc("Chapter", member.chapter)
             for board_member in chapter_doc.board_members:
                 if board_member.is_active and board_member.chapter_role in ["Chapter Head", "Secretary"]:
-                    recipients.append(board_member.email)
+                    if board_member.email:
+                        recipients.append(board_member.email)
 
         if recipients:
-            frappe.sendmail(
-                recipients=list(set(recipients)),  # Remove duplicates
-                subject=f"Membership Type Change Request - {member.full_name}",
-                message=f"""
+            # Escape user-controlled data to prevent XSS
+            safe_full_name = escape_html(member.full_name or "")
+            safe_member_name = escape_html(member.name or "")
+            safe_old_type = escape_html(old_type.membership_type_name or "")
+            safe_new_type = escape_html(new_type.membership_type_name or "")
+            safe_reason = escape_html(reason or "")
+
+            message = f"""
                 <h3>Membership Type Change Request</h3>
-                <p><strong>Member:</strong> {member.full_name} ({member.name})</p>
-                <p><strong>Current Type:</strong> {old_type.membership_type_name} (€{old_type.minimum_amount:.2f})</p>
-                <p><strong>Requested Type:</strong> {new_type.membership_type_name} (€{new_type.minimum_amount:.2f})</p>
-                <p><strong>Reason:</strong> {reason}</p>
+                <p><strong>Member:</strong> {safe_full_name} ({safe_member_name})</p>
+                <p><strong>Current Type:</strong> {safe_old_type} (€{old_type.minimum_amount:.2f})</p>
+                <p><strong>Requested Type:</strong> {safe_new_type} (€{new_type.minimum_amount:.2f})</p>
+                <p><strong>Reason:</strong> {safe_reason}</p>
                 <p><strong>Submitted:</strong> {frappe.utils.now_datetime()}</p>
                 <br>
                 <p>Please review this request in the system.</p>
-                """,
-                delayed=False,
+                """
+
+            create_system_notification(
+                recipients=list(set(recipients)),  # Remove duplicates
+                subject=f"Membership Type Change Request - {safe_full_name}",
+                message=message,
+                notification_type="Alert",
+                document_type="Member",
+                document_name=member.name,
             )
 
     except Exception as e:

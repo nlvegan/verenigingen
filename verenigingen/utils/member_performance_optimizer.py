@@ -160,7 +160,7 @@ class MemberPerformanceOptimizer:
         """Create related records efficiently"""
 
         # Create customer if needed
-        if not member.customer and member.email_address:
+        if not member.customer and member.email:
             customer_data = {
                 "customer_name": member.full_name or f"{member.first_name} {member.last_name}",
                 "customer_type": "Individual",
@@ -389,19 +389,32 @@ def process_member_post_creation(member_name: str):
         member = frappe.get_doc("Member", member_name)
 
         # Send welcome email (can be delayed)
-        if member.email_address:
+        if member.email:
             try:
-                frappe.sendmail(
-                    recipients=[member.email_address],
-                    subject=f"Welcome to {frappe.db.get_single_value('System Settings', 'company')}!",
+                from verenigingen.services.communication.email_service import get_email_service
+
+                email_service = get_email_service()
+                company = frappe.db.get_single_value("System Settings", "company") or "Our Organization"
+
+                result = email_service.send_simple_email(
+                    recipients=[member.email],
+                    subject=f"Welcome to {company}!",
                     message=f"""
                     <h3>Welcome {member.full_name}!</h3>
                     <p>Your membership application has been processed successfully.</p>
                     <p>Member ID: {member.name}</p>
                     <p>You can access your member portal at: {frappe.utils.get_url()}/member-portal</p>
                     """,
+                    reference_doctype="Member",
+                    reference_name=member.name,
                 )
-                frappe.logger().info(f"Welcome email sent to {member.email_address}")
+
+                if result.get("success"):
+                    frappe.logger().info(f"Welcome email sent to {member.email}")
+                else:
+                    frappe.log_error(
+                        f"Welcome email failed for {member_name}: {result.get('error', 'Unknown error')}"
+                    )
             except Exception as e:
                 frappe.log_error(f"Welcome email failed for {member_name}: {str(e)}")
 

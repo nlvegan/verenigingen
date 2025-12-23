@@ -389,25 +389,14 @@ def check_and_notify_stuck_schedules():
         admin_emails = get_notification_recipients("stuck_schedule_notification_emails")
 
         if admin_emails:
-            # Send email notification
             # Determine urgency level based on critical issues
-            urgency = "CRITICAL" if any(s.get("severity") == "CRITICAL" for s in critical_stuck) else "URGENT"
+            urgency_emoji = "🔥" if any(s.get("severity") == "CRITICAL" for s in critical_stuck) else "🚨"
 
-            frappe.sendmail(
-                recipients=admin_emails,
-                subject=f"[{urgency}] {critical_count} Stuck Dues Schedules Found - Action Required",
-                message=notification_html,
-                now=True,
-            )
-
-            # Create in-app notifications
+            # Create in-app notifications (email delivery is controlled by user preferences)
             for user in admin_users:
                 if user.email:
                     try:
                         notification = frappe.new_doc("Notification Log")
-                        urgency_emoji = (
-                            "🔥" if any(s.get("severity") == "CRITICAL" for s in critical_stuck) else "🚨"
-                        )
                         notification.subject = f"{urgency_emoji} {critical_count} Stuck Dues Schedules"
                         notification.for_user = user.email
                         notification.type = "Alert"
@@ -469,16 +458,15 @@ def check_and_notify_stuck_schedules():
 
         # Try to notify admins about the error too
         try:
-            admin_emails = frappe.get_all(
-                "User", filters=[["Has Role", "role", "=", "System Manager"]], pluck="email"
+            from verenigingen.utils.notification_helpers import notify_administrators
+
+            notify_administrators(
+                subject="[ERROR] Stuck Schedule Check Failed",
+                message=f"<p>The daily stuck schedule check failed with error:</p><pre>{str(e)}</pre>",
+                default_roles=["System Manager"],
+                notification_type="Alert",
+                document_type="Membership Dues Schedule",
             )
-            if admin_emails:
-                frappe.sendmail(
-                    recipients=admin_emails,
-                    subject="[ERROR] Stuck Schedule Check Failed",
-                    message=f"<p>The daily stuck schedule check failed with error:</p><pre>{str(e)}</pre>",
-                    now=True,
-                )
         except:
             pass  # Don't let notification failure prevent error logging
 

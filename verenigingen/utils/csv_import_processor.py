@@ -260,51 +260,63 @@ class CSVImportBackgroundProcessor:
         frappe.db.commit()
 
     def _send_completion_notification(self, created: int, updated: int, skipped: int):
-        """Send email notification on successful completion."""
+        """Send in-app notification on successful completion."""
+        from verenigingen.utils.notification_helpers import create_system_notification
+
         try:
             if not self.import_doc.owner:
                 return
 
-            frappe.sendmail(
+            message = _(
+                """
+                <p>Your CSV import has completed successfully.</p>
+                <ul>
+                    <li>Created: {0}</li>
+                    <li>Updated: {1}</li>
+                    <li>Skipped: {2}</li>
+                </ul>
+                <p><a href="/app/{3}/{4}">View Import Document</a></p>
+            """
+            ).format(created, updated, skipped, self.doctype.lower().replace(" ", "-"), self.import_doc_name)
+
+            create_system_notification(
                 recipients=[self.import_doc.owner],
                 subject=_("CSV Import Completed: {0}").format(self.import_doc_name),
-                message=_(
-                    """
-                    <p>Your CSV import has completed successfully.</p>
-                    <ul>
-                        <li>Created: {0}</li>
-                        <li>Updated: {1}</li>
-                        <li>Skipped: {2}</li>
-                    </ul>
-                    <p><a href="/app/{3}/{4}">View Import Document</a></p>
-                """
-                ).format(
-                    created, updated, skipped, self.doctype.lower().replace(" ", "-"), self.import_doc_name
-                ),
+                message=message,
+                notification_type="Alert",
+                document_type=self.doctype,
+                document_name=self.import_doc_name,
             )
         except Exception as e:
             frappe.logger().error(f"Failed to send completion notification: {str(e)}")
 
     def _send_failure_notification(self, error_msg: str):
-        """Send email notification on import failure."""
+        """Send in-app notification on import failure."""
+        from verenigingen.utils.notification_helpers import create_system_notification
+
         try:
             if not self.import_doc.owner:
                 return
 
-            frappe.sendmail(
+            message = _(
+                """
+                <p>Your CSV import has failed.</p>
+                <p><strong>Error:</strong> {0}</p>
+                <p><a href="/app/{1}/{2}">View Import Document</a></p>
+            """
+            ).format(
+                error_msg[:500],  # Limit error message length
+                self.doctype.lower().replace(" ", "-"),
+                self.import_doc_name,
+            )
+
+            create_system_notification(
                 recipients=[self.import_doc.owner],
                 subject=_("CSV Import Failed: {0}").format(self.import_doc_name),
-                message=_(
-                    """
-                    <p>Your CSV import has failed.</p>
-                    <p><strong>Error:</strong> {0}</p>
-                    <p><a href="/app/{1}/{2}">View Import Document</a></p>
-                """
-                ).format(
-                    error_msg[:500],  # Limit error message length
-                    self.doctype.lower().replace(" ", "-"),
-                    self.import_doc_name,
-                ),
+                message=message,
+                notification_type="Alert",
+                document_type=self.doctype,
+                document_name=self.import_doc_name,
             )
         except Exception as e:
             frappe.logger().error(f"Failed to send failure notification: {str(e)}")

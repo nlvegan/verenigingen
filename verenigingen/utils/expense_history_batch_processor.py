@@ -182,29 +182,24 @@ class ExpenseHistoryBatchProcessor:
         return False
 
     def _notify_administrators_of_errors(self, error_count: int):
-        """Send notification to administrators about processing errors"""
+        """Send in-app notification to administrators about processing errors"""
+        from verenigingen.utils.notification_helpers import notify_administrators
+
         try:
-            # Get administrators
-            admins = frappe.get_all(
-                "User", filters={"role_profile_name": "System Manager", "enabled": 1}, fields=["email"]
-            )
-
-            if not admins:
-                return
-
-            # Send email notification
             subject = f"Expense History Processing Errors - {error_count} failures"
             message = f"""
-            The scheduled expense history batch processing encountered {error_count} errors.
-
-            Please check the Error Log for details and resolve any issues.
-
-            Date: {now()}
+            <p>The scheduled expense history batch processing encountered <strong>{error_count}</strong> errors.</p>
+            <p>Please check the Error Log for details and resolve any issues.</p>
+            <p>Date: {now()}</p>
             """
 
-            for admin in admins:
-                if admin.email:
-                    frappe.sendmail(recipients=[admin.email], subject=subject, message=message)
+            notify_administrators(
+                subject=subject,
+                message=message,
+                default_roles=["System Manager", "Verenigingen Administrator"],
+                notification_type="Alert",
+                document_type="Volunteer Expense",
+            )
 
         except Exception as e:
             frappe.log_error(

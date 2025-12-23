@@ -791,7 +791,11 @@ def execute_critical_operation(
 
 
 def _send_critical_operation_alert(operation_name: str, doc, config: dict, result: SecureOperationResult):
-    """Send alert for critical operation execution"""
+    """Send in-app alert for critical operation execution"""
+    from frappe.utils import escape_html
+
+    from verenigingen.utils.notification_helpers import create_system_notification
+
     try:
         recipients = config.get("notification_recipients", "")
         if not recipients:
@@ -802,26 +806,38 @@ def _send_critical_operation_alert(operation_name: str, doc, config: dict, resul
         if not recipient_list:
             return
 
+        # Escape user-controlled data to prevent XSS
+        safe_operation = escape_html(operation_name or "")
+        safe_doctype = escape_html(doc.doctype or "")
+        safe_docname = escape_html(getattr(doc, "name", "New") or "New")
+        safe_user = escape_html(frappe.session.user or "")
+
+        # Escape warnings and errors
+        safe_warnings = "<br>".join(escape_html(str(w)) for w in (result.warnings or []))
+        safe_errors = "<br>".join(escape_html(str(e)) for e in (result.errors or []))
+
         # Create alert message
-        subject = f"Critical Operation Executed: {operation_name}"
+        subject = f"Critical Operation Executed: {safe_operation}"
         message = f"""
         <h3>Critical Operation Alert</h3>
-        <p><strong>Operation:</strong> {operation_name}</p>
-        <p><strong>Document:</strong> {doc.doctype} - {getattr(doc, 'name', 'New')}</p>
-        <p><strong>Executed By:</strong> {frappe.session.user}</p>
+        <p><strong>Operation:</strong> {safe_operation}</p>
+        <p><strong>Document:</strong> {safe_doctype} - {safe_docname}</p>
+        <p><strong>Executed By:</strong> {safe_user}</p>
         <p><strong>Execution Time:</strong> {result.duration * 1000:.1f}ms</p>
         <p><strong>Success:</strong> {'Yes' if result.success else 'No'}</p>
         <p><strong>Timestamp:</strong> {frappe.utils.now()}</p>
 
-        {f'<p><strong>Warnings:</strong><br>{"<br>".join(result.warnings)}</p>' if result.warnings else ''}
-        {f'<p><strong>Errors:</strong><br>{"<br>".join(result.errors)}</p>' if result.errors else ''}
+        {f'<p><strong>Warnings:</strong><br>{safe_warnings}</p>' if result.warnings else ''}
+        {f'<p><strong>Errors:</strong><br>{safe_errors}</p>' if result.errors else ''}
         """
 
-        frappe.sendmail(
+        create_system_notification(
             recipients=recipient_list,
             subject=subject,
             message=message,
-            send_priority=1 if config.get("security_level") == "critical" else 0,
+            notification_type="Alert",
+            document_type=doc.doctype,
+            document_name=getattr(doc, "name", None),
         )
 
     except Exception as e:

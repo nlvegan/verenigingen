@@ -266,55 +266,55 @@ def process_overdue_termination_requests():
         )
 
         if overdue_requests:
+            from frappe.utils import escape_html
+
+            from verenigingen.utils.notification_helpers import notify_administrators
+
             frappe.logger().warning(f"Found {len(overdue_requests)} overdue termination requests")
 
-            # Send notification to administrators
-            administrators = frappe.get_all(
-                "User", filters={"role_profile_name": ["like", "%System Manager%"]}, fields=["email"]
+            # Create notification content
+            notification_content = """
+            <h3>Overdue Termination Requests</h3>
+            <p>The following termination requests have been pending for more than 7 days:</p>
+            <table border="1" style="border-collapse: collapse;">
+                <tr>
+                    <th>Request ID</th>
+                    <th>Member</th>
+                    <th>Type</th>
+                    <th>Request Date</th>
+                    <th>Days Overdue</th>
+                </tr>
+            """
+
+            for request in overdue_requests:
+                days_overdue = (getdate(today()) - getdate(request.request_date)).days
+                # Escape user-controlled data to prevent XSS
+                notification_content += f"""
+                <tr>
+                    <td>{escape_html(request.name or "")}</td>
+                    <td>{escape_html(request.member_name or "")}</td>
+                    <td>{escape_html(request.termination_type or "")}</td>
+                    <td>{request.request_date}</td>
+                    <td>{days_overdue}</td>
+                </tr>
+                """
+
+            notification_content += "</table>"
+
+            # Send in-app notification to administrators
+            result = notify_administrators(
+                subject=f"Overdue Termination Requests - {len(overdue_requests)} items",
+                message=notification_content,
+                setting_field="termination_notification_emails",
+                default_roles=["System Manager", "Verenigingen Administrator"],
+                notification_type="Alert",
+                document_type="Membership Termination Request",
             )
 
-            if administrators:
-                admin_emails = [admin.email for admin in administrators if admin.email]
-
-                if admin_emails:
-                    # Create email content
-                    email_content = """
-                    <h3>Overdue Termination Requests</h3>
-                    <p>The following termination requests have been pending for more than 7 days:</p>
-                    <table border="1" style="border-collapse: collapse;">
-                        <tr>
-                            <th>Request ID</th>
-                            <th>Member</th>
-                            <th>Type</th>
-                            <th>Request Date</th>
-                            <th>Days Overdue</th>
-                        </tr>
-                    """
-
-                    for request in overdue_requests:
-                        days_overdue = (getdate(today()) - getdate(request.request_date)).days
-                        email_content += f"""
-                        <tr>
-                            <td>{request.name}</td>
-                            <td>{request.member_name}</td>
-                            <td>{request.termination_type}</td>
-                            <td>{request.request_date}</td>
-                            <td>{days_overdue}</td>
-                        </tr>
-                        """
-
-                    email_content += "</table>"
-
-                    # Send email
-                    frappe.sendmail(
-                        recipients=admin_emails,
-                        subject=f"Overdue Termination Requests - {len(overdue_requests)} items",
-                        message=email_content,
-                    )
-
-                    frappe.logger().info(
-                        f"Sent overdue termination notification to {len(admin_emails)} administrators"
-                    )
+            if result.get("success"):
+                frappe.logger().info(
+                    f"Sent overdue termination notification to {result.get('notifications_created', 0)} administrators"
+                )
 
         return {"processed": len(overdue_requests)}
 
@@ -534,43 +534,42 @@ def audit_termination_compliance():
 
             # If critical issues, notify administrators
             if audit_results["orphaned_records"] > 0 or audit_results["stale_requests"] > 5:
-                administrators = frappe.get_all(
-                    "User", filters={"role_profile_name": ["like", "%System Manager%"]}, fields=["email"]
+                from frappe.utils import escape_html
+
+                from verenigingen.utils.notification_helpers import notify_administrators
+
+                notification_content = f"""
+                <h3>Termination Compliance Alert</h3>
+                <p>The daily audit has identified compliance issues that require attention:</p>
+
+                <h4>Summary</h4>
+                <ul>
+                    <li>Orphaned Records: {audit_results['orphaned_records']}</li>
+                    <li>Stale Requests: {audit_results['stale_requests']}</li>
+                    <li>Total Issues: {total_issues}</li>
+                </ul>
+                """
+
+                if audit_results["compliance_issues"]:
+                    notification_content += "<h4>Compliance Issues</h4><ul>"
+                    for issue in audit_results["compliance_issues"][:10]:  # Limit to first 10
+                        notification_content += f"<li>{escape_html(str(issue))}</li>"
+                    notification_content += "</ul>"
+
+                if audit_results["data_integrity_issues"]:
+                    notification_content += "<h4>Data Integrity Issues</h4><ul>"
+                    for issue in audit_results["data_integrity_issues"][:10]:  # Limit to first 10
+                        notification_content += f"<li>{escape_html(str(issue))}</li>"
+                    notification_content += "</ul>"
+
+                notify_administrators(
+                    subject="Termination Compliance Issues Detected",
+                    message=notification_content,
+                    setting_field="termination_notification_emails",
+                    default_roles=["System Manager", "Verenigingen Administrator"],
+                    notification_type="Alert",
+                    document_type="Membership Termination Request",
                 )
-
-                if administrators:
-                    admin_emails = [admin.email for admin in administrators if admin.email]
-
-                    if admin_emails:
-                        email_content = f"""
-                        <h3>Termination Compliance Alert</h3>
-                        <p>The daily audit has identified compliance issues that require attention:</p>
-
-                        <h4>Summary</h4>
-                        <ul>
-                            <li>Orphaned Records: {audit_results['orphaned_records']}</li>
-                            <li>Stale Requests: {audit_results['stale_requests']}</li>
-                            <li>Total Issues: {total_issues}</li>
-                        </ul>
-                        """
-
-                        if audit_results["compliance_issues"]:
-                            email_content += "<h4>Compliance Issues</h4><ul>"
-                            for issue in audit_results["compliance_issues"][:10]:  # Limit to first 10
-                                email_content += f"<li>{issue}</li>"
-                            email_content += "</ul>"
-
-                        if audit_results["data_integrity_issues"]:
-                            email_content += "<h4>Data Integrity Issues</h4><ul>"
-                            for issue in audit_results["data_integrity_issues"][:10]:  # Limit to first 10
-                                email_content += f"<li>{issue}</li>"
-                            email_content += "</ul>"
-
-                        frappe.sendmail(
-                            recipients=admin_emails,
-                            subject="Termination Compliance Issues Detected",
-                            message=email_content,
-                        )
         else:
             frappe.logger().info("Termination compliance audit completed - no issues found")
 

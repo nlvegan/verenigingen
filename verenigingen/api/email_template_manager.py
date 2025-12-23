@@ -652,11 +652,13 @@ def send_template_email(template_name, recipients, context=None, **kwargs):
         template_name: Name of the Email Template
         recipients: List of email addresses
         context: Dict of variables for template rendering
-        **kwargs: Additional frappe.sendmail arguments
+        **kwargs: Additional email options (reference_doctype, reference_name, etc.)
 
     Returns:
         bool: Success status
     """
+    from verenigingen.services.communication.email_service import get_email_service
+
     if context is None:
         context = {}
 
@@ -664,12 +666,17 @@ def send_template_email(template_name, recipients, context=None, **kwargs):
         # Get rendered template
         template = get_email_template(template_name, context)
 
-        # Send email
-        frappe.sendmail(
-            recipients=recipients, subject=template["subject"], message=template["message"], **kwargs
+        # Send email via EmailService
+        email_service = get_email_service()
+        result = email_service.send_simple_email(
+            recipients=recipients,
+            subject=template["subject"],
+            message=template["message"],
+            reference_doctype=kwargs.get("reference_doctype"),
+            reference_name=kwargs.get("reference_name"),
         )
 
-        return True
+        return result.get("success", False)
 
     except Exception as e:
         frappe.log_error(f"Failed to send template email '{template_name}': {str(e)}", "Template Email Error")
