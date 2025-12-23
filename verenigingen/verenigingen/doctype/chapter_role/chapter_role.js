@@ -95,8 +95,52 @@ frappe.ui.form.on('Chapter Role', {
 		frm.add_custom_button(
 			__('View Chapters Using This Role'),
 			() => {
-				frappe.set_route('List', 'Chapter Board Member', {
-					chapter_role: frm.doc.name
+				// Chapter Board Member is a child table, so we query it and show results in a dialog
+				frappe.call({
+					method: 'frappe.client.get_list',
+					args: {
+						doctype: 'Chapter Board Member',
+						filters: { chapter_role: frm.doc.name },
+						fields: ['parent', 'member', 'member_name', 'is_active'],
+						limit_page_length: 0
+					},
+					callback(r) {
+						if (r.message && r.message.length > 0) {
+							// Group by chapter
+							const chapters = {};
+							r.message.forEach(row => {
+								if (!chapters[row.parent]) {
+									chapters[row.parent] = [];
+								}
+								chapters[row.parent].push(row);
+							});
+
+							// Build HTML table
+							let html = `<p><strong>${Object.keys(chapters).length}</strong> chapter(s) use this role:</p>`;
+							html += '<table class="table table-bordered table-sm">';
+							html += '<thead><tr><th>Chapter</th><th>Member</th><th>Status</th></tr></thead><tbody>';
+
+							Object.entries(chapters).forEach(([chapter, members]) => {
+								members.forEach((m, idx) => {
+									html += `<tr>
+										<td>${idx === 0 ? `<a href="/app/chapter/${encodeURIComponent(chapter)}">${chapter}</a>` : ''}</td>
+										<td><a href="/app/member/${encodeURIComponent(m.member)}">${m.member_name || m.member}</a></td>
+										<td>${m.is_active ? '<span class="indicator-pill green">Active</span>' : '<span class="indicator-pill gray">Inactive</span>'}</td>
+									</tr>`;
+								});
+							});
+
+							html += '</tbody></table>';
+
+							frappe.msgprint({
+								title: __('Chapters Using Role: {0}', [frm.doc.role_name]),
+								message: html,
+								wide: true
+							});
+						} else {
+							frappe.msgprint(__('No chapters are currently using this role.'));
+						}
+					}
 				});
 			},
 			__('View')
