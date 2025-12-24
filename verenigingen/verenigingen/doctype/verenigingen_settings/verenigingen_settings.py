@@ -20,6 +20,7 @@ class VerenigingenSettings(Document):
         self.validate_donation_accounts()
         self.validate_grace_period_settings()  # Moved from hooks.py
         self.validate_chapter_dues_accounts()
+        self._check_deprecated_email_fields()
 
     def validate_donation_accounts(self):
         """Validate donation account configuration"""
@@ -87,6 +88,40 @@ class VerenigingenSettings(Document):
             default_pct = float(self.default_chapter_split_percentage)
             if default_pct < 0 or default_pct > 100:
                 frappe.throw(_("Default Chapter Split Percentage must be between 0 and 100"))
+
+    def _check_deprecated_email_fields(self):
+        """Show deprecation warnings for fields now managed by Email Configuration.
+
+        These fields have been migrated to the Email Configuration DocType which provides:
+        - Centralized email enable/disable control
+        - Per-notification-type settings
+        - Cooldown tracking per recipient
+        - Better recipient management with role-based and fixed policies
+        """
+        deprecated_fields = {
+            "send_termination_notifications": "termination_overdue",
+            "send_chapter_assignment_notifications": "chapter_assignment",
+            "financial_admin_emails": "Admin category recipients",
+            "stuck_schedule_notification_emails": "system_stuck_schedules",
+        }
+
+        deprecated_used = []
+        for field, replacement in deprecated_fields.items():
+            value = getattr(self, field, None)
+            if value:
+                deprecated_used.append(f"<li><b>{field}</b> → Email Configuration: {replacement}</li>")
+
+        if deprecated_used:
+            frappe.msgprint(
+                _(
+                    "<p>The following email notification fields are deprecated and now managed "
+                    "via <b>Email Configuration</b>:</p><ul>{0}</ul>"
+                    "<p>Please update your notification settings in Email Configuration and "
+                    "clear these fields to remove this warning.</p>"
+                ).format("".join(deprecated_used)),
+                title=_("Deprecated Email Settings"),
+                indicator="orange",
+            )
 
     @frappe.whitelist()
     @critical_api(operation_type=OperationType.ADMIN)

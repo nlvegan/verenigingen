@@ -69,7 +69,14 @@ class BaseManager(ABC):
         else:
             self._cache.clear()
 
-    def send_notification(self, template: str, recipients: List[str], context: Dict, subject: str = None):
+    def send_notification(
+        self,
+        template: str,
+        recipients: List[str],
+        context: Dict,
+        subject: str = None,
+        notification_key: str = None,
+    ):
         """
         Send email notification using template
 
@@ -78,6 +85,8 @@ class BaseManager(ABC):
             recipients: List of email addresses
             context: Template context variables
             subject: Email subject (optional)
+            notification_key: Key for Email Configuration lookup (enables per-notification
+                             settings and cooldown tracking)
         """
         if not recipients:
             return
@@ -103,7 +112,8 @@ class BaseManager(ABC):
                 context=context,
                 reference_doctype="Chapter",
                 reference_name=self.chapter_name,
-                subject=subject,
+                subject_override=subject,
+                notification_key=notification_key,
             )
 
             if result.success:

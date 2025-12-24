@@ -194,20 +194,25 @@ function get_status_class(status) {
 }
 
 function create_volunteer_from_member(frm) {
-	// Create dialog with account creation option
+	// Create dialog with two paths: interest registration vs full activation
 	const d = new frappe.ui.Dialog({
 		title: __('Create Volunteer Profile'),
 		fields: [
 			{
 				fieldtype: 'HTML',
-				options: `<p class="text-muted">${__('Create a volunteer profile for')} <strong>${frm.doc.full_name || frm.doc.name}</strong></p>`
+				options: `<p class="text-muted">${__('Create a volunteer profile for')} <strong>${frappe.utils.escape_html(frm.doc.full_name || frm.doc.name)}</strong></p>
+				<p class="text-muted small">${__('A volunteer profile tracks interests, skills, and background. You can activate full volunteer access later.')}</p>`
+			},
+			{
+				fieldtype: 'Section Break',
+				label: __('Activation Options')
 			},
 			{
 				fieldtype: 'Check',
-				fieldname: 'create_user_account',
-				label: __('Create User Account'),
+				fieldname: 'activate_volunteer',
+				label: __('Activate as Full Volunteer'),
 				description: __(
-					'Create login credentials for volunteer portal access via AccountCreationManager'
+					'Grant volunteer portal access, assign Volunteer role, and create Employee record for expense claims'
 				),
 				default: 0
 			},
@@ -220,33 +225,43 @@ function create_volunteer_from_member(frm) {
 					'Volunteer Team Member',
 					'Volunteer Team Leader'
 				],
-				depends_on: 'eval:doc.create_user_account',
-				description: __('Roles to assign to the user account (default: Verenigingen Volunteer)')
+				depends_on: 'eval:doc.activate_volunteer',
+				description: __('Roles to assign (Verenigingen Volunteer is always included)')
 			},
 			{
 				fieldtype: 'HTML',
+				fieldname: 'activation_note',
 				options: `<div class="alert alert-info" style="margin-top: 10px;">
-					<strong>${__('Note:')}</strong> ${__('Account creation will be processed in the background. You can monitor progress via Account Creation Request.')}
+					<strong>${__('Note:')}</strong> ${__('Activation will be processed via Account Creation Request. An Employee record will be created for expense functionality.')}
 				</div>`,
-				depends_on: 'eval:doc.create_user_account'
+				depends_on: 'eval:doc.activate_volunteer'
 			}
 		],
 		primary_action_label: __('Create Volunteer Profile'),
 		primary_action(values) {
 			// Prepare API call arguments
 			const args = {
-				member: frm.doc.name,
-				create_user_account: values.create_user_account ? 1 : 0
+				member_name: frm.doc.name,
+				create_user_account: values.activate_volunteer ? 1 : 0
 			};
 
-			// Add roles if account creation is enabled
-			if (values.create_user_account && values.roles) {
-				args.roles = values.roles;
+			// Add roles if activation is enabled (always include Verenigingen Volunteer)
+			if (values.activate_volunteer) {
+				let roles = ['Verenigingen Volunteer'];
+				if (values.roles && values.roles.length > 0) {
+					// Add additional selected roles, avoiding duplicates
+					values.roles.forEach(role => {
+						if (!roles.includes(role)) {
+							roles.push(role);
+						}
+					});
+				}
+				args.roles = roles;
 			}
 
 			frappe.call({
 				method:
-					'verenigingen.verenigingen.doctype.volunteer.volunteer.create_from_member',
+					'verenigingen.verenigingen.doctype.volunteer.volunteer.create_volunteer_from_member',
 				args: args,
 				freeze: true,
 				freeze_message: __('Creating volunteer profile...'),
@@ -256,9 +271,9 @@ function create_volunteer_from_member(frm) {
 					if (data && data.success) {
 						let message = __('Volunteer profile created successfully');
 
-						// Add account creation info if queued
+						// Add activation info if queued
 						if (data.account_creation_queued) {
-							message += `<br><small>${__('User account creation queued')}: ${data.account_request}</small>`;
+							message += `<br><small>${__('Volunteer activation queued')}: ${data.account_request}</small>`;
 						}
 
 						frappe.show_alert(
@@ -304,10 +319,93 @@ function show_volunteer_assignments(member_name) {
 	frappe.set_route('List', 'Volunteer Assignment');
 }
 
-// Export functions for use in member.js
+/**
+ * Show volunteer activation dialog
+ * Shared function used by both Member and Volunteer forms
+ * @param {Object} options - Activation options
+ * @param {string} options.member_name - Member document name
+ * @param {string} options.display_name - Name to display in dialog
+ * @param {Function} options.on_success - Callback on successful activation
+ */
+function show_volunteer_activation_dialog(options) {
+	const { member_name, display_name, on_success } = options;
+
+	const d = new frappe.ui.Dialog({
+		title: __('Activate Volunteer'),
+		fields: [
+			{
+				fieldtype: 'HTML',
+				options: `<p>${__('Activate full volunteer access for')} <strong>${frappe.utils.escape_html(display_name)}</strong></p>
+				<p class="text-muted small">${__('This will:')}</p>
+				<ul class="text-muted small">
+					<li>${__('Assign Verenigingen Volunteer role')}</li>
+					<li>${__('Create Employee record for expense claims')}</li>
+					<li>${__('Grant access to volunteer portal features')}</li>
+				</ul>`
+			},
+			{
+				fieldtype: 'MultiSelect',
+				fieldname: 'additional_roles',
+				label: __('Additional Roles'),
+				options: [
+					'Volunteer Team Member',
+					'Volunteer Team Leader'
+				],
+				description: __('Optional additional roles to assign')
+			}
+		],
+		primary_action_label: __('Activate'),
+		primary_action(values) {
+			// Build roles list - always include Verenigingen Volunteer
+			let roles = ['Verenigingen Volunteer'];
+			if (values.additional_roles && values.additional_roles.length > 0) {
+				values.additional_roles.forEach(role => {
+					if (!roles.includes(role)) {
+						roles.push(role);
+					}
+				});
+			}
+
+			frappe.call({
+				method: 'verenigingen.utils.account_creation_manager.queue_account_creation_for_member',
+				args: {
+					member_name: member_name,
+					roles: roles,
+					role_profile: 'Verenigingen Volunteer',
+					priority: 'Normal'
+				},
+				freeze: true,
+				freeze_message: __('Activating volunteer...'),
+				callback(r) {
+					if (r.message && r.message.success) {
+						frappe.show_alert({
+							message: __('Volunteer activation queued: {0}', [r.message.data.request_name]),
+							indicator: 'green'
+						}, 7);
+						d.hide();
+						if (on_success) on_success(r.message);
+					} else {
+						// Extract error from OperationResult format
+						const errorMsg = getErrorMessage(r.message, __('Failed to activate volunteer'));
+						frappe.msgprint({
+							title: __('Error'),
+							message: errorMsg,
+							indicator: 'red'
+						});
+					}
+				}
+			});
+		}
+	});
+
+	d.show();
+}
+
+// Export functions for use in member.js and volunteer.js
 window.VolunteerUtils = {
 	show_volunteer_info,
 	create_volunteer_from_member,
 	show_volunteer_activities,
-	show_volunteer_assignments
+	show_volunteer_assignments,
+	show_volunteer_activation_dialog
 };

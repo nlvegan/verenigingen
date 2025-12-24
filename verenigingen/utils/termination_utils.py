@@ -309,6 +309,8 @@ def process_overdue_termination_requests():
                 default_roles=["System Manager", "Verenigingen Administrator"],
                 notification_type="Alert",
                 document_type="Membership Termination Request",
+                notification_key="termination_overdue",
+                category="Admin",
             )
 
             if result.get("success"):
@@ -408,11 +410,15 @@ def generate_weekly_termination_report():
 
                 report_content += "</ul>"
 
-                # Send email
-                frappe.sendmail(
+                # Send email using unified EmailService
+                from verenigingen.services.communication.email_service import get_email_service
+
+                email_service = get_email_service()
+                email_service.send_simple_email(
                     recipients=admin_emails,
                     subject=f"Weekly Termination Report - {report_data['total_requests']} requests",
                     message=report_content,
+                    notification_key="termination_overdue",
                 )
 
                 frappe.logger().info(f"Sent weekly termination report to {len(admin_emails)} administrators")
@@ -569,6 +575,8 @@ def audit_termination_compliance():
                     default_roles=["System Manager", "Verenigingen Administrator"],
                     notification_type="Alert",
                     document_type="Membership Termination Request",
+                    notification_key="termination_overdue",
+                    category="Admin",
                 )
         else:
             frappe.logger().info("Termination compliance audit completed - no issues found")

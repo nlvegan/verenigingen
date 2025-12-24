@@ -141,6 +141,19 @@ frappe.ui.form.on('Volunteer', {
 				},
 				__('View')
 			);
+
+			// Add "Activate Volunteer" button if not yet fully activated
+			// Full activation is indicated by employee_id being set (non-empty string)
+			const isFullyActivated = frm.doc.employee_id && frm.doc.employee_id.trim() !== '';
+			if (!isFullyActivated) {
+				frm.add_custom_button(
+					__('Activate Volunteer'),
+					() => {
+						activate_volunteer(frm);
+					},
+					__('Actions')
+				);
+			}
 		} else {
 			frappe.contacts.clear_address_and_contact(frm);
 		}
@@ -1082,3 +1095,35 @@ frappe.ui.form.on('Volunteer Skill', {
 		}
 	}
 });
+
+/**
+ * Activate a volunteer - grant full volunteer access with Employee record
+ * This adds the Verenigingen Volunteer role and creates an Employee record
+ * for expense claim functionality
+ */
+function activate_volunteer(frm) {
+	// Validate member link exists
+	if (!frm.doc.member) {
+		frappe.msgprint({
+			title: __('Error'),
+			message: __('Cannot activate volunteer: No linked member record'),
+			indicator: 'red'
+		});
+		return;
+	}
+
+	// Use shared activation dialog from VolunteerUtils
+	if (window.VolunteerUtils && window.VolunteerUtils.show_volunteer_activation_dialog) {
+		window.VolunteerUtils.show_volunteer_activation_dialog({
+			member_name: frm.doc.member,
+			display_name: frm.doc.volunteer_name,
+			on_success: () => frm.refresh()
+		});
+	} else {
+		frappe.msgprint({
+			title: __('Error'),
+			message: __('Volunteer utilities not loaded. Please refresh the page.'),
+			indicator: 'red'
+		});
+	}
+}

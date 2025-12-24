@@ -1296,7 +1296,8 @@ function add_volunteer_view_buttons(frm) {
 			doctype: 'Volunteer',
 			filters: {
 				member: frm.doc.name
-			}
+			},
+			fields: ['name', 'volunteer_name', 'employee_id']
 		},
 		callback(r) {
 			if (r.message && r.message.length > 0) {
@@ -1309,6 +1310,19 @@ function add_volunteer_view_buttons(frm) {
 					},
 					__('View')
 				);
+
+				// Add "Activate Volunteer" button if volunteer not yet fully activated
+				// Full activation is indicated by employee_id being set (non-empty string)
+				const isFullyActivated = volunteer.employee_id && volunteer.employee_id.trim() !== '';
+				if (!isFullyActivated) {
+					frm.add_custom_button(
+						__('Activate Volunteer'),
+						() => {
+							activate_volunteer_from_member(frm, volunteer);
+						},
+						__('Actions')
+					);
+				}
 			}
 		}
 	});
@@ -2669,40 +2683,62 @@ function show_approval_dialog(frm) {
 		callback(r) {
 			const membership_types = r.message || [];
 
-			const d = new frappe.ui.Dialog({
-				title: __('Approve Membership Application'),
-				fields: [
+			// Build dialog fields dynamically
+			let dialogFields = [
+				{
+					fieldname: 'membership_type',
+					fieldtype: 'Select',
+					label: __('Membership Type'),
+					options: membership_types.map((t) => t.name).join('\n'),
+					reqd: 1,
+					default: frm.doc.selected_membership_type || ''
+				},
+				{
+					fieldname: 'create_invoice',
+					fieldtype: 'Check',
+					label: __('Create Invoice'),
+					default: 1,
+					description: __('Generate an invoice for the first membership fee')
+				},
+				{
+					fieldname: 'assign_chapter',
+					fieldtype: 'Link',
+					label: __('Assign to Chapter'),
+					options: 'Chapter',
+					default: frm.doc.suggested_chapter
+				},
+				{
+					fieldname: 'welcome_message',
+					fieldtype: 'Small Text',
+					label: __('Additional Welcome Message'),
+					description: __(
+						'Optional personalized message to include in welcome email'
+					)
+				}
+			];
+
+			// Add volunteer activation section if member indicated interest
+			if (frm.doc.interested_in_volunteering) {
+				dialogFields.push(
 					{
-						fieldname: 'membership_type',
-						fieldtype: 'Select',
-						label: __('Membership Type'),
-						options: membership_types.map((t) => t.name).join('\n'),
-						reqd: 1,
-						default: frm.doc.selected_membership_type || ''
+						fieldtype: 'Section Break',
+						label: __('Volunteer Activation')
 					},
 					{
-						fieldname: 'create_invoice',
+						fieldname: 'activate_volunteer',
 						fieldtype: 'Check',
-						label: __('Create Invoice'),
-						default: 1,
-						description: __('Generate an invoice for the first membership fee')
-					},
-					{
-						fieldname: 'assign_chapter',
-						fieldtype: 'Link',
-						label: __('Assign to Chapter'),
-						options: 'Chapter',
-						default: frm.doc.suggested_chapter
-					},
-					{
-						fieldname: 'welcome_message',
-						fieldtype: 'Small Text',
-						label: __('Additional Welcome Message'),
+						label: __('Activate as Full Volunteer'),
+						default: 0,
 						description: __(
-							'Optional personalized message to include in welcome email'
+							'Grant full volunteer access with Employee record for expense claims. If unchecked, only a volunteer interest record will be created.'
 						)
 					}
-				],
+				);
+			}
+
+			const d = new frappe.ui.Dialog({
+				title: __('Approve Membership Application'),
+				fields: dialogFields,
 				primary_action_label: __('Approve'),
 				primary_action(values) {
 					// Update chapter if changed
@@ -2727,7 +2763,8 @@ function show_approval_dialog(frm) {
 							create_invoice: values.create_invoice,
 							membership_type: values.membership_type,
 							chapter: values.assign_chapter,
-							notes: values.welcome_message
+							notes: values.welcome_message,
+							activate_as_volunteer: values.activate_volunteer || false
 						},
 						freeze: true,
 						freeze_message: __('Approving application...'),
@@ -4014,5 +4051,26 @@ function add_mollie_mandate_actions(frm) {
 			},
 			__('Member Actions')
 		);
+	}
+}
+
+/**
+ * Activate a volunteer from the Member form
+ * Uses the shared VolunteerUtils activation dialog
+ */
+function activate_volunteer_from_member(frm, volunteer) {
+	// Use shared activation dialog from VolunteerUtils
+	if (window.VolunteerUtils && window.VolunteerUtils.show_volunteer_activation_dialog) {
+		window.VolunteerUtils.show_volunteer_activation_dialog({
+			member_name: frm.doc.name,
+			display_name: volunteer.volunteer_name || frm.doc.full_name,
+			on_success: () => frm.refresh()
+		});
+	} else {
+		frappe.msgprint({
+			title: __('Error'),
+			message: __('Volunteer utilities not loaded. Please refresh the page.'),
+			indicator: 'red'
+		});
 	}
 }

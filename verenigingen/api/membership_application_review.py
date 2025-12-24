@@ -345,23 +345,48 @@ def approve_membership_application(
         f"(source: {'invoice' if invoice and hasattr(invoice, 'grand_total') else 'member_rate' if hasattr(member, 'dues_rate') and member.dues_rate else 'membership_type'})"
     )
 
-    # Activate volunteer record automatically when interested_in_volunteering is checked
-    # The volunteer record was created during application submission
+    # Activate volunteer record only when explicitly requested via checkbox
+    # The volunteer record was created during application submission if interested_in_volunteering
     should_activate_volunteer = False
-    if hasattr(member, "interested_in_volunteering") and member.interested_in_volunteering:
+    has_volunteer_interest = (
+        hasattr(member, "interested_in_volunteering") and member.interested_in_volunteering
+    )
+
+    if has_volunteer_interest and activate_as_volunteer:
+        # Full activation: checkbox was checked for member with volunteer interest
+        # Validate age requirement (volunteers must be 16+)
+        if member.birth_date:
+            from verenigingen.utils.validation_utilities import AgeValidator
+
+            age_result = AgeValidator.validate_age(
+                member.birth_date, context="volunteer", throw_on_error=False
+            )
+            if not age_result.get("valid"):
+                frappe.throw(
+                    _("Cannot activate as volunteer: {0}").format(
+                        age_result.get("message", "Age requirement not met")
+                    )
+                )
+
         try:
             activate_volunteer_record(member)
-            should_activate_volunteer = True  # Set flag for user account creation
-            frappe.logger().info(f"Activated volunteer record for {member.name} during approval")
+            should_activate_volunteer = True  # Set flag for user account creation with Volunteer role
+            frappe.logger().info(
+                f"Activated volunteer record for {member.name} during approval (full activation)"
+            )
         except Exception as e:
             safe_log_error(f"Non-critical: Failed to activate volunteer record for {member.name}: {str(e)}")
             # Continue with approval - this is not critical
-    elif activate_as_volunteer:
-        # Only warn if volunteer activation was explicitly requested but member isn't interested
-        frappe.logger().warning(
-            f"Cannot activate as volunteer for {member.name} - no interested_in_volunteering flag"
+    elif has_volunteer_interest:
+        # Interest-only: volunteer record exists but no full activation requested
+        frappe.logger().info(
+            f"Volunteer interest registered for {member.name} - full activation deferred (checkbox not checked)"
         )
-        should_activate_volunteer = activate_as_volunteer
+    elif activate_as_volunteer:
+        # Edge case: explicit activation requested but no volunteer interest flag
+        frappe.logger().warning(
+            f"Cannot activate as volunteer for {member.name} - no interested_in_volunteering flag set"
+        )
 
     # Create user account for portal access using secure AccountCreationManager
     # Pass should_activate_volunteer to ensure correct role profile assignment
@@ -695,6 +720,10 @@ def create_secure_user_account_for_member(member, activate_as_volunteer=False):
 
 def activate_volunteer_record(member):
     """Activate volunteer record when membership application is approved"""
+    # Permission check - ensure user can write to Volunteer records
+    if not frappe.has_permission("Volunteer", "write"):
+        frappe.throw(_("You don't have permission to activate volunteers"))
+
     try:
         # Find existing volunteer record for this member
         volunteer_name = get_volunteer_for_member(member.name)

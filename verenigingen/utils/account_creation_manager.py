@@ -1260,11 +1260,17 @@ def queue_account_creation_for_member(
                 },
             )
 
-        # Set default roles if not provided
-        if not roles:
+        # Set default roles if not provided (handles None and empty list)
+        if not roles or len(roles) == 0:
             roles = ["Verenigingen Member"]
         if not role_profile:
-            role_profile = "Verenigingen Member"
+            # Infer role_profile from roles - volunteers need employee records
+            # Check for any role containing "Volunteer" keyword
+            has_volunteer_role = any("Volunteer" in r for r in roles) if roles else False
+            if has_volunteer_role:
+                role_profile = "Verenigingen Volunteer"
+            else:
+                role_profile = "Verenigingen Member"
 
         # All member account requests use "Member" type (source_record links to Member DocType)
         # Employee creation is controlled via create_employee_record flag

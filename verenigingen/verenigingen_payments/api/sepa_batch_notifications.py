@@ -16,9 +16,39 @@ from verenigingen.utils.security.authorization import (
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 
-def get_financial_admin_emails():
-    """Get email addresses for financial administrators"""
+def _get_email_config_service():
+    """Get EmailConfigurationService if available.
+
+    Returns None if the service or DocType is not yet installed,
+    allowing graceful degradation during migrations.
+    """
     try:
+        from verenigingen.services.communication.email_configuration_service import (
+            get_email_configuration_service,
+        )
+
+        return get_email_configuration_service()
+    except Exception:
+        return None
+
+
+def get_financial_admin_emails():
+    """Get email addresses for financial administrators
+
+    Priority:
+    1. Email Configuration (Admin category recipients)
+    2. Verenigingen Settings.financial_admin_emails
+    3. Users with Financial Admin roles
+    4. Administrator (final fallback)
+    """
+    try:
+        # Try Email Configuration first
+        config_service = _get_email_config_service()
+        if config_service:
+            recipients = config_service.get_category_recipients("Admin")
+            if recipients:
+                return recipients
+
         settings = frappe.get_single("Verenigingen Settings")
 
         # Get from settings if available
@@ -86,6 +116,7 @@ def send_critical_batch_notification(batch, errors):
             subject_override=subject,
             reference_doctype="Direct Debit Batch",
             reference_name=batch.name,
+            notification_key="sepa_batch_error",
             priority="high",
         )
 
@@ -136,6 +167,7 @@ def send_batch_warning_notification(batch, warnings):
             subject_override=subject,
             reference_doctype="Direct Debit Batch",
             reference_name=batch.name,
+            notification_key="sepa_batch_warning",
         )
 
         frappe.logger().info(
@@ -189,6 +221,7 @@ def send_daily_batch_summary(validation_summary, batch_result):
             subject_override=subject,
             reference_doctype=None,
             reference_name=None,
+            notification_key="sepa_batch_success",
         )
 
         frappe.logger().info(f"Daily batch summary sent to {len(recipients)} recipients")
@@ -228,6 +261,7 @@ def send_system_error_notification(error_message):
             subject_override=subject,
             reference_doctype=None,
             reference_name=None,
+            notification_key="sepa_batch_error",
             priority="high",
         )
 

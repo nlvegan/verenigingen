@@ -1,0 +1,224 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2025-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "global_controls_section",
+  "master_email_enabled",
+  "email_mode",
+  "column_break_pause",
+  "pause_until",
+  "pause_reason",
+  "recipient_defaults_section",
+  "admin_notification_emails",
+  "financial_admin_emails",
+  "column_break_recipients",
+  "system_alert_emails",
+  "fallback_admin_role",
+  "notification_registry_section",
+  "notification_types",
+  "operational_settings_section",
+  "default_retry_attempts",
+  "batch_size",
+  "column_break_operational",
+  "rate_limit_per_hour",
+  "enable_audit_logging",
+  "integration_settings_section",
+  "use_frappe_notifications",
+  "respect_user_preferences",
+  "column_break_integration",
+  "suppress_during_imports"
+ ],
+ "fields": [
+  {
+   "fieldname": "global_controls_section",
+   "fieldtype": "Section Break",
+   "label": "Global Controls"
+  },
+  {
+   "default": "1",
+   "fieldname": "master_email_enabled",
+   "fieldtype": "Check",
+   "label": "Master Email Enabled",
+   "description": "Master kill switch - uncheck to disable ALL email notifications immediately"
+  },
+  {
+   "default": "Active",
+   "fieldname": "email_mode",
+   "fieldtype": "Select",
+   "label": "Email Mode",
+   "options": "Active\nPaused\nScheduled",
+   "description": "Active: Normal operation. Paused: All emails held until pause_until. Scheduled: Emails batched for scheduled delivery."
+  },
+  {
+   "fieldname": "column_break_pause",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.email_mode=='Paused'",
+   "fieldname": "pause_until",
+   "fieldtype": "Datetime",
+   "label": "Pause Until",
+   "description": "Emails will automatically resume after this datetime"
+  },
+  {
+   "depends_on": "eval:doc.email_mode=='Paused'",
+   "fieldname": "pause_reason",
+   "fieldtype": "Small Text",
+   "label": "Pause Reason",
+   "description": "Optional: Why emails are paused (for audit trail)"
+  },
+  {
+   "fieldname": "recipient_defaults_section",
+   "fieldtype": "Section Break",
+   "label": "Recipient Defaults"
+  },
+  {
+   "fieldname": "admin_notification_emails",
+   "fieldtype": "Small Text",
+   "label": "Admin Notification Emails",
+   "description": "Comma-separated email addresses for general admin notifications"
+  },
+  {
+   "fieldname": "financial_admin_emails",
+   "fieldtype": "Small Text",
+   "label": "Financial Admin Emails",
+   "description": "Comma-separated email addresses for SEPA, payment, and financial notifications"
+  },
+  {
+   "fieldname": "column_break_recipients",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "system_alert_emails",
+   "fieldtype": "Small Text",
+   "label": "System Alert Emails",
+   "description": "Comma-separated email addresses for system alerts (stuck schedules, errors, etc.)"
+  },
+  {
+   "default": "System Manager",
+   "fieldname": "fallback_admin_role",
+   "fieldtype": "Link",
+   "label": "Fallback Admin Role",
+   "options": "Role",
+   "description": "Role to use when no specific recipients are configured"
+  },
+  {
+   "fieldname": "notification_registry_section",
+   "fieldtype": "Section Break",
+   "label": "Notification Registry"
+  },
+  {
+   "fieldname": "notification_types",
+   "fieldtype": "Table",
+   "label": "Notification Types",
+   "options": "Email Notification Type",
+   "description": "Registry of all notification types with individual enable/disable controls"
+  },
+  {
+   "fieldname": "operational_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Operational Settings",
+   "collapsible": 1
+  },
+  {
+   "default": "3",
+   "fieldname": "default_retry_attempts",
+   "fieldtype": "Int",
+   "label": "Default Retry Attempts",
+   "description": "Number of retry attempts for failed email delivery"
+  },
+  {
+   "default": "50",
+   "fieldname": "batch_size",
+   "fieldtype": "Int",
+   "label": "Batch Size",
+   "description": "Maximum emails to send in a single batch"
+  },
+  {
+   "fieldname": "column_break_operational",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "500",
+   "fieldname": "rate_limit_per_hour",
+   "fieldtype": "Int",
+   "label": "Rate Limit Per Hour",
+   "description": "Maximum emails to send per hour (0 = unlimited)"
+  },
+  {
+   "default": "1",
+   "fieldname": "enable_audit_logging",
+   "fieldtype": "Check",
+   "label": "Enable Audit Logging",
+   "description": "Log notification events for audit trail"
+  },
+  {
+   "fieldname": "integration_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Integration Settings",
+   "collapsible": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "use_frappe_notifications",
+   "fieldtype": "Check",
+   "label": "Use Frappe Notifications",
+   "description": "Enable integration with Frappe's native Notification system"
+  },
+  {
+   "default": "1",
+   "fieldname": "respect_user_preferences",
+   "fieldtype": "Check",
+   "label": "Respect User Preferences",
+   "description": "Honor user-level notification opt-outs when using Frappe Notifications"
+  },
+  {
+   "fieldname": "column_break_integration",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "suppress_during_imports",
+   "fieldtype": "Check",
+   "label": "Suppress During Imports",
+   "description": "Automatically suppress notifications during CSV imports and bulk operations"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "issingle": 1,
+ "links": [],
+ "modified": "2025-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Email Configuration",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

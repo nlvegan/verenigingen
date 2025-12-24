@@ -760,11 +760,14 @@ class APISecurityFramework:
             func_name = func.__name__.lower()
 
             # Skip for membership operations that have CSRF compatibility issues
+            # These are called internally during the membership application flow
+            # where the user context switches but original request lacks CSRF token
             skip_csrf_functions = [
                 "approve_membership_application",
                 "reject_membership_application",
                 "create_membership_from_application",
                 "update_membership_status",
+                "create_volunteer_from_member",  # Called during application when wants_to_volunteer=True
             ]
             if func_name in skip_csrf_functions:
                 return True

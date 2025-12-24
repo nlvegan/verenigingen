@@ -503,20 +503,6 @@ class Volunteer(Document):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def create_from_member(member):
-    """Wrapper function for JavaScript compatibility
-
-    Args:
-        member: Member name to create volunteer from
-
-    Returns:
-        dict: Result from create_volunteer_from_member
-    """
-    return create_volunteer_from_member(member)
-
-
-@frappe.whitelist()
-@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def create_volunteer_from_member(
     member_name,
     volunteer_name=None,
@@ -642,6 +628,9 @@ def create_volunteer_from_member(
         # Save volunteer with proper permissions - no bypasses
         # User must have proper permissions to create volunteer records
         volunteer.insert()
+
+        # Update member's volunteer_record reference
+        frappe.db.set_value("Member", member_name, "volunteer_record", volunteer.name, update_modified=False)
 
         # Queue account creation if requested
         account_request_name = None

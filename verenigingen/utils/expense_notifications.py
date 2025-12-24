@@ -70,6 +70,7 @@ class ExpenseNotificationManager:
             subject_override=f"✅ Expense Approved - {expense_doc.name}",
             reference_doctype="Volunteer Expense",
             reference_name=expense_doc.name,
+            notification_key="expense_approved",
         )
 
     def send_rejection_notification(self, expense_doc, reason):
@@ -102,6 +103,7 @@ class ExpenseNotificationManager:
             subject_override=f"❌ Expense Rejected - {expense_doc.name}",
             reference_doctype="Volunteer Expense",
             reference_name=expense_doc.name,
+            notification_key="expense_rejected",
         )
 
     def send_escalation_notification(self, expense_doc, escalation_reason):
@@ -154,6 +156,7 @@ class ExpenseNotificationManager:
             subject_override=f"🔺 Expense Escalated - {expense_doc.name}",
             reference_doctype="Volunteer Expense",
             reference_name=expense_doc.name,
+            notification_key="expense_approval_request",  # Uses same key as approval request
         )
 
     def send_overdue_reminder(self, days_overdue=7):
@@ -229,6 +232,7 @@ class ExpenseNotificationManager:
             subject_override=subject,
             reference_doctype="Volunteer Expense",
             reference_name=expense_doc.name,
+            notification_key="expense_approval_request",
         )
 
     def _send_overdue_reminder_email(self, approver_email, approver_name, expenses, days_overdue):
@@ -255,6 +259,7 @@ class ExpenseNotificationManager:
             subject_override=f"⏰ Overdue Expense Approvals ({len(expenses)} pending)",
             reference_doctype="Volunteer Expense",
             reference_name=expenses[0].name if expenses else None,
+            notification_key="expense_approval_request",  # Uses same key as approval request
         )
 
     def _get_expense_details(self, expense_doc):

@@ -41,6 +41,7 @@ verenigingen.utils.unwrapOperationResult = function(message) {
 
 /**
  * Get error message from OperationResult or plain response
+ * Handles multiple error formats: error_message, errors[], message
  * @param {*} message - Response from frappe.call (r.message)
  * @param {string} defaultMsg - Default message if none found
  * @returns {string} Error message
@@ -48,7 +49,19 @@ verenigingen.utils.unwrapOperationResult = function(message) {
 verenigingen.utils.getErrorMessage = function(message, defaultMsg) {
     if (message && typeof message === 'object') {
         if ('success' in message && !message.success) {
+            // Check for error_message (common in OperationResult)
+            if (message.error_message) return message.error_message;
+            // Check for errors array (common in validation results)
+            if (message.errors && Array.isArray(message.errors) && message.errors.length > 0) {
+                return message.errors.join('; ');
+            }
+            // Fall back to generic message field
             return message.message || defaultMsg;
+        }
+        // Check individual fields even without success flag
+        if (message.error_message) return message.error_message;
+        if (message.errors && Array.isArray(message.errors) && message.errors.length > 0) {
+            return message.errors.join('; ');
         }
         if (message.message) return message.message;
     }

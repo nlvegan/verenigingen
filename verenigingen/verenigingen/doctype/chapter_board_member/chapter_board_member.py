@@ -13,12 +13,16 @@ class ChapterBoardMember(Document):
         self.assign_board_member_role()
         # Clear permission cache when board membership changes
         clear_permission_cache()
+        # Send notification to the new board member
+        self._send_board_added_notification()
 
     def on_trash(self):
         """Remove Chapter Board Member role if no longer on any board"""
         self.remove_board_member_role()
         # Clear permission cache when board membership changes
         clear_permission_cache()
+        # Send notification to the removed board member
+        self._send_board_removed_notification()
 
     def on_update(self):
         """Handle role changes when board member status changes"""
@@ -72,8 +76,6 @@ class ChapterBoardMember(Document):
                 frappe.msgprint(f"Assigned Chapter Board Member role to {user}")
             else:
                 frappe.log_error(f"Could not assign board member role to user {user}: Permission denied")
-
-            frappe.msgprint(f"Assigned Chapter Board Member role to {user}")
 
     def remove_board_member_role(self):
         """Remove Chapter Board Member role if user is no longer on any board"""
@@ -200,3 +202,43 @@ class ChapterBoardMember(Document):
                         f"Warning: Volunteer {self.volunteer} does not have a linked user account. Board member role cannot be assigned.",
                         indicator="orange",
                     )
+
+    def _send_board_added_notification(self):
+        """Send notification when a volunteer is added to the board."""
+        from verenigingen.utils.notification_helpers import send_volunteer_email
+
+        chapter_name = frappe.db.get_value("Chapter", self.chapter, "name") or self.chapter
+
+        send_volunteer_email(
+            volunteer=self.volunteer,
+            template_name="chapter_board_notification",
+            notification_key="chapter_board_added",
+            subject=f"Board Appointment - {chapter_name}",
+            extra_context={
+                "chapter_name": chapter_name,
+                "board_position": self.chapter_role,
+                "from_date": frappe.utils.formatdate(self.from_date),
+            },
+            reference_doctype="Chapter Board Member",
+            reference_name=self.name,
+        )
+
+    def _send_board_removed_notification(self):
+        """Send notification when a volunteer is removed from the board."""
+        from verenigingen.utils.notification_helpers import send_volunteer_email
+
+        chapter_name = frappe.db.get_value("Chapter", self.chapter, "name") or self.chapter
+
+        send_volunteer_email(
+            volunteer=self.volunteer,
+            template_name="chapter_board_notification",
+            notification_key="chapter_board_removed",
+            subject=f"Board Position Ended - {chapter_name}",
+            extra_context={
+                "chapter_name": chapter_name,
+                "board_position": self.chapter_role,
+                "to_date": frappe.utils.formatdate(self.to_date) if self.to_date else frappe.utils.today(),
+            },
+            reference_doctype="Chapter Board Member",
+            reference_name=self.name,
+        )

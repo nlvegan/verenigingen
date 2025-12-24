@@ -423,6 +423,7 @@ def _send_board_member_added_notification(chapter, volunteer, role):
                 subject_override=f"Board Appointment - {chapter.name}",
                 reference_doctype="Chapter",
                 reference_name=chapter.name,
+                notification_key="chapter_board_added",
             )
 
 

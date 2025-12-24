@@ -1,0 +1,166 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2025-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "enabled",
+  "label",
+  "category",
+  "priority",
+  "cooldown_minutes",
+  "notification_key",
+  "column_break_config",
+  "section_break_template",
+  "email_template",
+  "frappe_notification",
+  "column_break_recipient",
+  "recipient_policy",
+  "fixed_recipients",
+  "recipient_roles",
+  "recipient_field",
+  "section_break_description",
+  "description"
+ ],
+ "fields": [
+  {
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "On",
+   "columns": 1,
+   "default": "1",
+   "description": "Toggle to enable/disable this specific notification type"
+  },
+  {
+   "fieldname": "label",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Notification",
+   "columns": 3,
+   "reqd": 1,
+   "description": "Human-readable name for this notification type"
+  },
+  {
+   "fieldname": "category",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Category",
+   "columns": 2,
+   "options": "Member\nPayment\nChapter\nVolunteer\nAdmin\nSystem",
+   "reqd": 1
+  },
+  {
+   "fieldname": "priority",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Priority",
+   "columns": 1,
+   "default": "Medium",
+   "options": "Low\nMedium\nHigh\nCritical",
+   "description": "Priority level affects delivery urgency and retry behavior"
+  },
+  {
+   "fieldname": "cooldown_minutes",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Cooldown",
+   "columns": 1,
+   "default": "60",
+   "description": "Minimum time between duplicate notifications to same recipient (minutes). 0 = no cooldown."
+  },
+  {
+   "fieldname": "notification_key",
+   "fieldtype": "Data",
+   "in_list_view": 0,
+   "label": "Notification Key",
+   "reqd": 1,
+   "unique": 1,
+   "read_only_depends_on": "eval:!doc.__islocal",
+   "description": "Unique identifier used in code (e.g., 'chapter_assignment', 'payment_failure_first')"
+  },
+  {
+   "fieldname": "column_break_config",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "section_break_template",
+   "fieldtype": "Section Break",
+   "label": "Template & Integration"
+  },
+  {
+   "fieldname": "email_template",
+   "fieldtype": "Link",
+   "label": "Email Template",
+   "options": "Email Template",
+   "description": "Email template to use for this notification"
+  },
+  {
+   "fieldname": "frappe_notification",
+   "fieldtype": "Link",
+   "label": "Frappe Notification",
+   "options": "Notification",
+   "description": "Link to Frappe native Notification (if applicable)"
+  },
+  {
+   "fieldname": "column_break_recipient",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Document-Field",
+   "fieldname": "recipient_policy",
+   "fieldtype": "Select",
+   "label": "Recipient Policy",
+   "options": "Fixed\nRole-Based\nDocument-Field\nCustom",
+   "description": "How recipients are determined for this notification"
+  },
+  {
+   "depends_on": "eval:doc.recipient_policy=='Fixed'",
+   "fieldname": "fixed_recipients",
+   "fieldtype": "Small Text",
+   "label": "Fixed Recipients",
+   "description": "Comma-separated email addresses for Fixed policy"
+  },
+  {
+   "depends_on": "eval:doc.recipient_policy=='Role-Based'",
+   "fieldname": "recipient_roles",
+   "fieldtype": "Small Text",
+   "label": "Recipient Roles",
+   "description": "Comma-separated role names (e.g., 'System Manager, Verenigingen Administrator')"
+  },
+  {
+   "depends_on": "eval:doc.recipient_policy=='Document-Field'",
+   "fieldname": "recipient_field",
+   "fieldtype": "Data",
+   "label": "Recipient Field",
+   "description": "Document field path for recipient email (e.g., 'member.email', 'owner')"
+  },
+  {
+   "fieldname": "section_break_description",
+   "fieldtype": "Section Break",
+   "collapsible": 1,
+   "label": "Description"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description",
+   "description": "Description of what triggers this notification and who receives it"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2025-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Email Notification Type",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

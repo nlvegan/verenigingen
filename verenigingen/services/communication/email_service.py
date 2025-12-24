@@ -103,6 +103,7 @@ class EmailService(StatelessService):
         reference_doctype: str = None,
         reference_name: str = None,
         create_communication: bool = True,
+        notification_key: str = None,
         **options,
     ) -> Dict[str, Any]:
         """
@@ -116,6 +117,8 @@ class EmailService(StatelessService):
             reference_doctype: Link to specific DocType
             reference_name: Link to specific document
             create_communication: Whether to create Communication record
+            notification_key: Optional key for Email Configuration lookup.
+                             Enables per-notification settings and cooldown tracking.
             **options: Additional email options
 
         Returns:
@@ -164,6 +167,7 @@ class EmailService(StatelessService):
                 reference_doctype=reference_doctype,
                 reference_name=reference_name,
                 create_communication=create_communication,
+                notification_key=notification_key,
                 **options,
             )
 
@@ -339,6 +343,7 @@ class EmailService(StatelessService):
         message: str,
         reference_doctype: str = None,
         reference_name: str = None,
+        notification_key: str = None,
         **options,
     ) -> Dict[str, Any]:
         """
@@ -356,6 +361,8 @@ class EmailService(StatelessService):
             message: Email content (plain text or HTML)
             reference_doctype: Optional DocType reference for tracking
             reference_name: Optional document name for tracking
+            notification_key: Optional key for Email Configuration lookup.
+                             Enables per-notification settings and cooldown tracking.
             **options: Additional options (delayed, etc.)
 
         Returns:
@@ -372,6 +379,7 @@ class EmailService(StatelessService):
                 content=message,
                 reference_doctype=reference_doctype,
                 reference_name=reference_name,
+                notification_key=notification_key,
                 **options,
             )
 
@@ -395,6 +403,7 @@ class EmailService(StatelessService):
         reference_doctype: str = None,
         reference_name: str = None,
         create_communication: bool = True,  # Deprecated - kept for backward compatibility
+        notification_key: str = None,
         **options,
     ) -> Dict[str, Any]:
         """
@@ -406,8 +415,53 @@ class EmailService(StatelessService):
 
         Note: Tracking is handled by Email Queue records, not Communication records.
         Use Email Queue reports for delivery status and audit trails.
+
+        Args:
+            notification_key: Optional key for Email Configuration lookup. If provided,
+                             checks per-notification-type settings and cooldown.
         """
         try:
+            # Check Email Configuration if available
+            config_service = self._get_config_service()
+            if config_service:
+                # Check master email enable
+                if not config_service.is_email_enabled():
+                    self.logger.info("Email sending disabled via Email Configuration")
+                    return create_service_result(
+                        success=True,
+                        data={"skipped": True, "reason": "Email disabled in configuration"},
+                        service_name="EmailService",
+                        operation="_send_email_internal",
+                    )
+
+                # Check notification-specific settings if key provided
+                if notification_key:
+                    if not config_service.is_notification_enabled(notification_key):
+                        self.logger.info(f"Notification '{notification_key}' disabled in Email Configuration")
+                        return create_service_result(
+                            success=True,
+                            data={"skipped": True, "reason": f"Notification '{notification_key}' disabled"},
+                            service_name="EmailService",
+                            operation="_send_email_internal",
+                        )
+
+                    # Check cooldown for each recipient
+                    recipients_to_send = []
+                    for recipient in recipients:
+                        if config_service.check_cooldown(notification_key, recipient):
+                            recipients_to_send.append(recipient)
+                        else:
+                            self.logger.debug(f"Skipping {recipient} for '{notification_key}' - in cooldown")
+
+                    if not recipients_to_send:
+                        return create_service_result(
+                            success=True,
+                            data={"skipped": True, "reason": "All recipients in cooldown"},
+                            service_name="EmailService",
+                            operation="_send_email_internal",
+                        )
+                    recipients = recipients_to_send
+
             # Input validation
             if not recipients:
                 return create_service_result(
@@ -474,6 +528,10 @@ class EmailService(StatelessService):
             # 2. Communication records would stay "Queued" forever (no automatic status updates)
             # 3. Email Queue records provide better observability (retries, failures, etc.)
             # For audit trails, use Email Queue reports instead of Communication records.
+
+            # Record cooldown for sent emails
+            if notification_key:
+                self._record_cooldown(notification_key, recipients)
 
             return create_service_result(
                 success=True,
@@ -557,6 +615,37 @@ class EmailService(StatelessService):
         except Exception as e:
             self.logger.error(f"Communication record creation failed: {str(e)}")
             return None
+
+    def _get_config_service(self):
+        """Get EmailConfigurationService if available.
+
+        Returns None if the service or DocType is not yet installed,
+        allowing graceful degradation during migrations.
+        """
+        try:
+            from verenigingen.services.communication.email_configuration_service import (
+                get_email_configuration_service,
+            )
+
+            return get_email_configuration_service()
+        except Exception:
+            # Configuration service not available - continue without it
+            return None
+
+    def _record_cooldown(self, notification_key: str, recipients: List[str]) -> None:
+        """Record send timestamp for cooldown tracking.
+
+        Args:
+            notification_key: The notification type key.
+            recipients: List of recipients that were sent to.
+        """
+        try:
+            config_service = self._get_config_service()
+            if config_service and notification_key:
+                for recipient in recipients:
+                    config_service.record_send(notification_key, recipient)
+        except Exception as e:
+            self.logger.debug(f"Cooldown recording failed: {e}")
 
     def _get_template(self, template_name: str) -> Optional[Dict[str, Any]]:
         """Load email template with bounded caching."""

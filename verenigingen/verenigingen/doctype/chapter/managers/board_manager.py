@@ -1124,6 +1124,7 @@ class BoardManager(BaseManager):
                 [member_doc.email],
                 context,
                 f"Board Role Assignment: {self.chapter_name}",
+                notification_key="chapter_board_added",
             )
 
         except Exception as e:
