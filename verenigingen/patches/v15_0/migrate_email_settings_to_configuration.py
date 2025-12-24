@@ -595,7 +595,7 @@ def _get_default_notification_types(old_settings: dict, existing_templates: set)
         {
             "notification_key": "periodic_donation_confirmation",
             "label": "Periodic Donation Confirmed",
-            "category": "Donation",
+            "category": "Payment",
             "enabled": 1,
             "priority": "Medium",
             "cooldown_minutes": 0,
@@ -607,7 +607,7 @@ def _get_default_notification_types(old_settings: dict, existing_templates: set)
         {
             "notification_key": "periodic_donation_expiry",
             "label": "Periodic Donation Expiring",
-            "category": "Donation",
+            "category": "Payment",
             "enabled": 1,
             "priority": "Medium",
             "cooldown_minutes": 1440,
@@ -619,7 +619,7 @@ def _get_default_notification_types(old_settings: dict, existing_templates: set)
         {
             "notification_key": "periodic_donation_cancellation",
             "label": "Periodic Donation Cancelled",
-            "category": "Donation",
+            "category": "Payment",
             "enabled": 1,
             "priority": "Medium",
             "cooldown_minutes": 0,
