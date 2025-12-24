@@ -426,39 +426,43 @@ class BaseRoleProfileManager(ABC):
             # Remove role profile if currently assigned
             if user_doc.role_profile_name == role_profile:
                 previous_role_profile = user_doc.role_profile_name
-                user_doc.role_profile_name = None
 
-                # Save with proper permission validation
-                result = secure_document_operation(
-                    operation="save",
-                    doc=user_doc,
-                    justification=f"Remove role profile '{role_profile}' from user {user} for {self.config.entity_type} {entity_name} - role profile management cleanup for access control",
-                    required_permissions=["User:write"],
-                )
-                if not result.success:
-                    frappe.db.rollback()
-                    return self._create_response(
-                        success=False,
-                        error=f"Failed to remove role profile: {'; '.join(result.errors)}",
-                        error_code=ERROR_CODES["PERMISSION_ERROR"],
-                    )
-
-                # Clear user permissions cache to reflect role profile removal
-                frappe.cache().delete_key(f"user_roles:{user}")
-                frappe.cache().delete_key(f"user_permissions:{user}")
-
-                # Commit transaction
+                # Commit the transaction first (entity membership changes are already committed)
                 frappe.db.commit()
 
-                # Log the removal
-                self._log_role_assignment("removed", role_profile, user, entity_name, role)
+                # Log the removal intent
+                self._log_role_assignment("removing", role_profile, user, entity_name, role)
 
-                return self._create_response(
-                    success=True,
-                    message=f"Removed role profile '{role_profile}' from user",
-                    previous_role_profile=previous_role_profile,
-                    action="removed",
-                )
+                # Now recalculate the correct profile based on remaining positions
+                # This ensures volunteers keep "Verenigingen Volunteer" profile if status is Active
+                from verenigingen.utils.user_role_profile_calculator import sync_user_role_profile
+
+                sync_result = sync_user_role_profile(user)
+
+                if sync_result.get("success"):
+                    new_profile = sync_result.get("new_profile")
+                    # Clear user permissions cache
+                    frappe.cache().delete_key(f"user_roles:{user}")
+                    frappe.cache().delete_key(f"user_permissions:{user}")
+
+                    return self._create_response(
+                        success=True,
+                        message=f"Updated role profile from '{previous_role_profile}' to '{new_profile}'",
+                        previous_role_profile=previous_role_profile,
+                        new_role_profile=new_profile,
+                        action="recalculated",
+                    )
+                else:
+                    # Sync failed, log the error but don't fail the operation
+                    frappe.logger().warning(
+                        f"Failed to recalculate role profile for {user}: {sync_result.get('error')}"
+                    )
+                    return self._create_response(
+                        success=True,
+                        message=f"Removed role profile '{role_profile}', recalculation pending",
+                        previous_role_profile=previous_role_profile,
+                        action="removed_pending_recalc",
+                    )
             else:
                 frappe.db.commit()
                 return self._create_response(
