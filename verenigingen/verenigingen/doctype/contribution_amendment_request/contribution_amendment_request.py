@@ -534,6 +534,9 @@ class ContributionAmendmentRequest(Document):
             self.internal_notes = (self.internal_notes or "") + f"\nApproval Notes: {approval_notes}"
 
         self.save()
+
+        # Notify the requester
+        self.send_approval_notification(approval_notes)
         frappe.msgprint(_("Amendment approved successfully"))
 
     @frappe.whitelist()
@@ -1185,6 +1188,7 @@ class ContributionAmendmentRequest(Document):
                 },
                 reference_doctype="Contribution Amendment Request",
                 reference_name=self.name,
+                notification_key="dues_amendment_rejected",
             )
 
             if not result.get("success"):
@@ -1194,6 +1198,53 @@ class ContributionAmendmentRequest(Document):
                 )
         except Exception as e:
             frappe.log_error(f"Error sending rejection notification: {str(e)}")
+
+    def send_approval_notification(self, approval_notes=None):
+        """Send notification to requester about approval using EmailService template"""
+        if not self.requested_by:
+            return
+
+        try:
+            from verenigingen.services.communication.email_service import get_email_service
+
+            # Get member details for personalization
+            membership = frappe.get_doc("Membership", self.membership)
+            member = frappe.get_doc("Member", membership.member)
+
+            email_service = get_email_service()
+            result = email_service.send_templated_email(
+                template_name="amendment_approved",
+                recipients=[self.requested_by],
+                context={
+                    "member_name": member.full_name,
+                    "amendment_id": self.name,
+                    "amendment_type": self.amendment_type or "N/A",
+                    "new_amount": (
+                        frappe.format_value(self.requested_amount, "Currency")
+                        if self.requested_amount
+                        else None
+                    ),
+                    "effective_date": (
+                        frappe.utils.formatdate(self.effective_date) if self.effective_date else None
+                    ),
+                    "approval_notes": approval_notes,
+                    "portal_link": frappe.utils.get_url()
+                    + "/app/contribution-amendment-request/"
+                    + self.name,
+                    "current_year": frappe.utils.now_datetime().year,
+                },
+                reference_doctype="Contribution Amendment Request",
+                reference_name=self.name,
+                notification_key="dues_amendment_approved",
+            )
+
+            if not result.get("success"):
+                frappe.log_error(
+                    f"Failed to send approval notification: {result.get('message')}",
+                    "Amendment Approval Email Error",
+                )
+        except Exception as e:
+            frappe.log_error(f"Error sending approval notification: {str(e)}")
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.FINANCIAL)

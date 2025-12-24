@@ -183,8 +183,20 @@ class Volunteer(Document):
 
     def before_save(self) -> None:
         """Actions before saving volunteer record"""
+        # Track status before update for auto-activation check in on_update
+        self._old_status = self.get_db_value("status") if not self.is_new() else None
+
         # Update volunteer status based on assignments
         self.update_status()
+
+    def on_update(self) -> None:
+        """Actions after volunteer record is saved and committed"""
+        # Auto-queue activation if transitioning from New to Active with assignments
+        # but without an employee record yet. Done in on_update to ensure
+        # the save is committed before background job processes.
+        old_status = getattr(self, "_old_status", None)
+        if old_status is not None:
+            self._check_auto_activation(old_status)
 
     def after_insert(self):
         """Actions after inserting new volunteer record"""
@@ -227,12 +239,126 @@ class Volunteer(Document):
     def update_status(self):
         """Update volunteer status based on assignments"""
         if not self.status or self.status == "New":
-            # If this is a new volunteer record
-            assignments = self.get_aggregated_assignments()
-            if assignments:
+            # Use cheaper existence checks instead of full aggregation query
+            has_assignments = self._has_any_assignment()
+            if has_assignments:
                 self.status = "Active"
             else:
                 self.status = "New"
+
+    def _has_any_assignment(self):
+        """
+        Check if volunteer has any active assignments using cheap existence queries.
+
+        Returns True if volunteer has assignments in any of:
+        - Chapter Board Member
+        - Volunteer Team Member
+        - Assignment history child table
+        """
+        # Check assignment_history child table first (in-memory, no DB query)
+        if self.assignment_history and len(self.assignment_history) > 0:
+            return True
+
+        # Check Chapter Board Member (single indexed query)
+        if frappe.db.exists("Chapter Board Member", {"volunteer": self.name}):
+            return True
+
+        # Check Volunteer Team Member (single indexed query)
+        if frappe.db.exists("Volunteer Team Member", {"volunteer": self.name}):
+            return True
+
+        return False
+
+    def _check_auto_activation(self, old_status):
+        """
+        Auto-queue volunteer activation when assignments are added.
+
+        If a volunteer is transitioning from "New" status to an active status
+        (due to assignments being added) but doesn't have an employee record yet,
+        automatically queue an Account Creation Request to complete activation.
+
+        This ensures volunteers who join teams or chapter boards are fully activated
+        for expense claim functionality without requiring manual intervention.
+
+        Auto-activation uses base "Verenigingen Volunteer" role. Team-specific roles
+        are assigned separately via team/board join workflows.
+        """
+        # Only process if status changed from "New" to something else
+        if old_status != "New" or self.status == "New":
+            return
+
+        # Skip if already has employee record (already fully activated)
+        if self.employee_id:
+            return
+
+        # Skip if no member linked (can't create ACR without member)
+        if not self.member:
+            frappe.logger().warning(
+                f"Volunteer {self.name} activated by assignment but has no linked member - "
+                "cannot auto-queue activation"
+            )
+            return
+
+        # Skip during bulk operations
+        if getattr(frappe.flags, "bulk_member_operations", False):
+            return
+
+        # Check if ACR already exists for this member (prevent duplicates)
+        existing_acr = frappe.db.exists(
+            "Account Creation Request",
+            {"source_record": self.member, "status": ["not in", ["Completed", "Cancelled", "Failed"]]},
+        )
+        if existing_acr:
+            frappe.logger().info(
+                f"ACR {existing_acr} already exists for member {self.member} - skipping auto-activation"
+            )
+            return
+
+        try:
+            from verenigingen.utils.account_creation_manager import queue_account_creation_for_member
+
+            # Queue activation with volunteer role - role_profile inference will set
+            # "Verenigingen Volunteer" which triggers Employee record creation.
+            result = queue_account_creation_for_member(
+                member_name=self.member,
+                roles=["Verenigingen Volunteer"],  # Base volunteer role
+                role_profile=None,  # Inferred from roles → "Verenigingen Volunteer"
+            )
+
+            # Handle OperationResult properly (has .success attribute, not dict)
+            if result and result.success:
+                request_name = result.data.get("request_name", "unknown") if result.data else "unknown"
+                frappe.logger().info(
+                    f"Auto-queued activation for volunteer {self.name} via member {self.member}: {request_name}"
+                )
+            else:
+                error_msg = result.message if result else "No result returned"
+                frappe.logger().warning(
+                    f"Failed to auto-queue activation for volunteer {self.name}: {error_msg}"
+                )
+
+        except frappe.PermissionError as e:
+            # Re-raise permission errors - indicates security misconfiguration
+            frappe.log_error(
+                title="Volunteer Auto-Activation Permission Error",
+                message=f"Permission denied when auto-activating volunteer {self.name}: {str(e)}",
+            )
+            raise
+
+        except frappe.ValidationError as e:
+            # Re-raise validation errors - data integrity issue
+            frappe.log_error(
+                title="Volunteer Auto-Activation Validation Error",
+                message=f"Validation failed when auto-activating volunteer {self.name}: {str(e)}",
+            )
+            raise
+
+        except Exception as e:
+            # Log unexpected errors but don't fail the save
+            frappe.log_error(
+                title="Volunteer Auto-Activation Error",
+                message=f"Unexpected error auto-activating volunteer {self.name}: {str(e)}",
+            )
 
     def on_trash(self):
         """Clean up child table records before deletion to prevent orphaned data"""

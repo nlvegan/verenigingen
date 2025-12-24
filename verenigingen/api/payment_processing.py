@@ -499,6 +499,15 @@ def send_payment_reminder_email(
 
     template_name = template_map.get(reminder_type, "payment_reminder_friendly")
 
+    # Map reminder type to notification key
+    notification_key_map = {
+        "Friendly Reminder": "payment_reminder_friendly",
+        "Urgent Notice": "payment_reminder_urgent",
+        "Final Notice": "payment_reminder_urgent",  # Use urgent for final notices
+        "Bulk Reminder": "payment_reminder_friendly",
+    }
+    notification_key = notification_key_map.get(reminder_type, "payment_reminder_friendly")
+
     # Prepare email context
     context = {
         "member": member,
@@ -522,6 +531,7 @@ def send_payment_reminder_email(
             subject_override=get_reminder_subject(reminder_type, payment_info),
             reference_doctype="Member",
             reference_name=member_name,
+            notification_key=notification_key,
         )
 
         # If template not found, send with fallback content

@@ -83,6 +83,7 @@ def notify_about_orphaned_records():
                 context=context,
                 reference_doctype="Membership",
                 reference_name="Report",
+                notification_key="system_stuck_schedules",  # Admin notification about data issues
             )
     except ImportError as e:
         frappe.log_error(
@@ -179,6 +180,7 @@ def send_renewal_reminders():
                 subject_override=f"Membership Renewal Reminder: {membership.days_to_expiry} days left",
                 reference_doctype="Membership",
                 reference_name=membership.name,
+                notification_key="membership_renewal_reminder",
             )
 
             # Log the email

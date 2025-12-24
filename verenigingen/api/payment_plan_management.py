@@ -436,6 +436,7 @@ def send_payment_plan_request_notification(payment_plan):
             subject_override=f"Payment Plan Request - {member.full_name}",
             reference_doctype="Payment Plan",
             reference_name=payment_plan.name,
+            notification_key="payment_plan_request",
         )
 
     except Exception as e:
@@ -478,6 +479,8 @@ def send_payment_plan_approval_notification(payment_plan, approved=True, reason=
             }
             subject = f"Payment Plan Request - {payment_plan.name}"
 
+        notification_key = "payment_plan_approved" if approved else "payment_plan_rejected"
+
         email_service.send_templated_email(
             template_name="payment_notification",
             recipients=[member.email],
@@ -485,6 +488,7 @@ def send_payment_plan_approval_notification(payment_plan, approved=True, reason=
             subject_override=subject,
             reference_doctype="Payment Plan",
             reference_name=payment_plan.name,
+            notification_key=notification_key,
         )
 
     except Exception as e:

@@ -538,6 +538,7 @@ def send_donation_confirmation_email(donation_id):
             subject_override=_("Thank you for your donation - {0}").format(donation.name),
             reference_doctype="Donation",
             reference_name=donation.name,
+            notification_key="donation_confirmation",
         )
 
         return result.get("success", False)
@@ -598,6 +599,7 @@ def send_payment_confirmation_email(donation_id):
             subject_override=_("Payment Received - Donation {0}").format(donation.name),
             reference_doctype="Donation",
             reference_name=donation.name,
+            notification_key="donation_payment_confirmation",
         )
 
         return result.get("success", False)

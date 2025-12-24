@@ -229,6 +229,7 @@ class PeriodicDonationAgreement(Document):
                 ),
                 reference_doctype=self.doctype,
                 reference_name=self.name,
+                notification_key="periodic_donation_confirmation",
             )
         except Exception as e:
             frappe.log_error(
@@ -266,6 +267,7 @@ class PeriodicDonationAgreement(Document):
                 ),
                 reference_doctype=self.doctype,
                 reference_name=self.name,
+                notification_key="periodic_donation_expiry",
             )
         except Exception as e:
             frappe.log_error(
@@ -403,6 +405,7 @@ class PeriodicDonationAgreement(Document):
                 ),
                 reference_doctype=self.doctype,
                 reference_name=self.name,
+                notification_key="periodic_donation_cancellation",
             )
 
             self.db_set("cancellation_confirmation_sent", 1)

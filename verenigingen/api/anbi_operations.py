@@ -670,6 +670,7 @@ def send_consent_requests(filters=None) -> OperationResult[Dict[str, Any]]:
                     subject=_("ANBI Consent Request - Tax Benefits for Your Donations"),
                     reference_doctype="Donor",
                     reference_name=donor.name,
+                    notification_key="anbi_consent_request",
                 )
 
                 if result.success:

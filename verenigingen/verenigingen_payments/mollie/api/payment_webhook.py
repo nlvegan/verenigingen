@@ -1220,12 +1220,22 @@ def _notify_member_of_payment_failure(member, payment, failure_count):
             "next_payment_date": member.next_payment_date,
         }
 
+        # Map template to notification key
+        notification_key_map = {
+            "payment_failure_first": "payment_failure_first",
+            "payment_failure_second": "payment_failure_second",
+            "payment_failure_final": "payment_failure_final",
+            "payment_failure_generic": "payment_failure_first",  # Fallback to first
+        }
+        notification_key = notification_key_map.get(template_name, "payment_failure_first")
+
         result = email_service.send_templated_email(
             template_name=template_name,
             recipients=[member.email],
             context=context,
             reference_doctype="Member",
             reference_name=member.name,
+            notification_key=notification_key,
         )
 
         if result.get("status") == "success":

@@ -450,12 +450,20 @@ def _notify_subscription_status_change(member, old_status, new_status, subscript
             "next_payment_date": subscription_status.get("next_payment_date"),
         }
 
+        # Map template to notification key
+        notification_key_map = {
+            "subscription_cancelled": "subscription_cancelled",
+            "subscription_suspended": "subscription_suspended",
+        }
+        notification_key = notification_key_map.get(template_name, "subscription_cancelled")
+
         result = email_service.send_templated_email(
             template_name=template_name,
             recipients=[member.email],
             context=context,
             reference_doctype="Member",
             reference_name=member.name,
+            notification_key=notification_key,
         )
 
         if result.get("status") == "success":

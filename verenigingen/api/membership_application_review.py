@@ -1169,6 +1169,7 @@ def send_rejection_notification(member, reason, email_template=None, rejection_c
         context=context,
         reference_doctype="Member",
         reference_name=member.name,
+        notification_key="member_application_rejected",
     )
 
     if not result.get("success"):

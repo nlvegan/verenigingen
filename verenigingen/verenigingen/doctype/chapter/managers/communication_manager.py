@@ -65,6 +65,7 @@ class CommunicationManager(BaseManager):
                 context=context,
                 reference_doctype="Chapter",
                 reference_name=self.chapter_name,
+                notification_key="chapter_board_added",
             )
 
         except Exception as e:
@@ -119,6 +120,7 @@ class CommunicationManager(BaseManager):
                 context=context,
                 reference_doctype="Chapter",
                 reference_name=self.chapter_name,
+                notification_key="chapter_board_removed",
             )
 
         except Exception as e:
@@ -179,6 +181,7 @@ class CommunicationManager(BaseManager):
                 context=context,
                 reference_doctype="Chapter",
                 reference_name=self.chapter_name,
+                notification_key="chapter_board_added",  # Role change treated as board update
             )
 
         except Exception as e:
@@ -221,6 +224,7 @@ class CommunicationManager(BaseManager):
                 context=context,
                 reference_doctype="Chapter",
                 reference_name=self.chapter_name,
+                notification_key="chapter_member_joined",
             )
 
         except Exception as e:
@@ -267,6 +271,7 @@ class CommunicationManager(BaseManager):
                 context=context,
                 reference_doctype="Chapter",
                 reference_name=self.chapter_name,
+                notification_key="chapter_member_left",
             )
 
         except Exception as e:
@@ -545,6 +550,7 @@ class CommunicationManager(BaseManager):
         context: Dict,
         reference_doctype: str = None,
         reference_name: str = None,
+        notification_key: str = None,
     ) -> bool:
         """Send email using template - MIGRATED to unified EmailService"""
         try:
@@ -560,6 +566,7 @@ class CommunicationManager(BaseManager):
                 communication_type="Email",
                 reference_doctype=reference_doctype,
                 reference_name=reference_name,
+                notification_key=notification_key,
             )
 
             if result.get("success"):

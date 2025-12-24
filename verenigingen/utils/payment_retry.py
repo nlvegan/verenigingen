@@ -236,6 +236,7 @@ class PaymentRetryManager:
                 reference_doctype="Member",
                 reference_name=member.name,
                 priority="high",
+                notification_key="payment_failure_final",
             )
 
 

@@ -207,6 +207,7 @@ class AnalyticsAlertRule(Document):
                 subject_override=f"Analytics Alert: {self.rule_name}",
                 reference_doctype="Analytics Alert Rule",
                 reference_name=self.name,
+                notification_key="analytics_alert",
             )
 
     def format_message(self, alert_data):

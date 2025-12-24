@@ -325,6 +325,7 @@ class PaymentPlan(Document):
                 subject_override=_("Payment Received - Payment Plan {0}").format(self.name),
                 reference_doctype="Payment Plan",
                 reference_name=self.name,
+                notification_key="payment_success",
             )
 
         except Exception as e:
@@ -373,6 +374,7 @@ class PaymentPlan(Document):
                 subject_override=_("Payment Overdue - Payment Plan {0}").format(self.name),
                 reference_doctype="Payment Plan",
                 reference_name=self.name,
+                notification_key="payment_reminder_urgent",
             )
 
         except Exception as e:

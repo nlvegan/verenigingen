@@ -822,6 +822,7 @@ def send_application_confirmation(application, invoice):
             subject_override=subject,
             reference_doctype="Membership Application",
             reference_name=application.name,
+            notification_key="member_application_confirmation",
         )
 
     except Exception as e:
