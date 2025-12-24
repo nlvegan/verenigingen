@@ -61,7 +61,7 @@ def handle_status_change_notifications(event_name, event_data, is_bulk_import=Fa
             f"Sent status change notification for {member_name}: {old_status} -> {new_status}"
         )
 
-    except Exception as e:
+    except Exception:
         # Log production errors with full traceback for audit trail
         # Bulk import skip already handled above, so this is a real error
         frappe.log_error(
@@ -116,7 +116,7 @@ def handle_chapter_assignment_updates(event_name, event_data, is_bulk_import=Fal
 
         frappe.logger("events").info(f"Updated chapter assignments for {member_name}")
 
-    except Exception as e:
+    except Exception:
         # Log production errors with full traceback for audit trail
         # Bulk import skip already handled above, so this is a real error
         frappe.log_error(
@@ -168,7 +168,7 @@ def handle_lifecycle_notifications(event_name, event_data, is_bulk_import=False,
             f"Sent lifecycle notification for {member_name}: {old_status} -> {new_status}"
         )
 
-    except Exception as e:
+    except Exception:
         frappe.log_error(
             f"Failed to send lifecycle notification: {str(e)}", "Member Lifecycle Notification Error"
         )
@@ -227,7 +227,7 @@ def handle_user_account_updates(event_name, event_data, is_bulk_import=False, **
 
         frappe.logger("events").info(f"Updated user account for {member_name}")
 
-    except Exception as e:
+    except Exception:
         # Use shorter error message to avoid field length issues
         error_msg = str(e)[:100]  # Truncate to avoid field length errors
         frappe.log_error(f"User account update failed: {error_msg}", "User Account Update")
@@ -269,7 +269,7 @@ def handle_cache_invalidation(event_name, event_data, is_bulk_import=False, **kw
 
         frappe.logger("events").info(f"Cleared caches for member {member_name}")
 
-    except Exception as e:
+    except Exception:
         frappe.log_error(f"Failed to clear caches: {str(e)}", "Cache Invalidation Error")
 
 
@@ -298,7 +298,7 @@ def _send_approval_notification(member):
                 f"Failed to send approval notification: {'; '.join(result.get('errors', []))}"
             )
 
-    except Exception as e:
+    except Exception:
         frappe.logger("events").error(f"Failed to send approval notification: {str(e)}")
 
 
@@ -326,6 +326,7 @@ def _send_lifecycle_notification(member, old_status, new_status):
         subject_override=f"Membership Status Update: {old_status} to {new_status}",
         reference_doctype="Member",
         reference_name=member.name,
+        notification_key="member_status_change",
     )
 
 
@@ -351,7 +352,7 @@ def _send_suspension_notification(member):
                 f"Failed to send suspension notification: {'; '.join(result.get('errors', []))}"
             )
 
-    except Exception as e:
+    except Exception:
         frappe.logger("events").error(f"Failed to send suspension notification: {str(e)}")
 
 
@@ -377,7 +378,7 @@ def _send_termination_notification(member):
                 f"Failed to send termination notification: {'; '.join(result.get('errors', []))}"
             )
 
-    except Exception as e:
+    except Exception:
         frappe.logger("events").error(f"Failed to send termination notification: {str(e)}")
 
 
@@ -403,7 +404,7 @@ def _send_reactivation_notification(member):
                 f"Failed to send reactivation notification: {'; '.join(result.get('errors', []))}"
             )
 
-    except Exception as e:
+    except Exception:
         frappe.logger("events").error(f"Failed to send reactivation notification: {str(e)}")
 
 
@@ -483,7 +484,7 @@ def _assign_member_to_chapter(member):
             # to handle concurrent modifications during bulk processing
             try:
                 _add_member_to_chapter_with_retry(chapter_doc, member.name, best_chapter)
-            except Exception as e:
+            except Exception:
                 # Log the error properly without triggering broken pipe
                 frappe.logger("events").error(
                     f"Failed to assign member {member.name} to chapter {best_chapter} "

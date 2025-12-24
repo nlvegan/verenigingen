@@ -84,15 +84,13 @@ def handle_board_notifications(event_name, event_data, is_bulk_import=False, **k
         chapter = frappe.get_doc("Chapter", chapter_name)
 
         # Send notifications based on action
-        if action == "added":
-            _send_board_member_added_notification(chapter, volunteer, role)
-        elif action == "removed":
-            _send_board_member_removed_notification(chapter, volunteer, role)
-        elif action == "role_changed":
+        # NOTE: "added" and "removed" notifications are handled directly by
+        # ChapterBoardMember.after_insert and ChapterBoardMember.on_trash
+        # to avoid duplicate emails. Only role_changed is handled here.
+        if action == "role_changed":
             old_role = event_data.get("old_role")
             _send_board_role_changed_notification(chapter, volunteer, old_role, role)
-
-        frappe.logger("events").info(f"Sent board notifications for {volunteer} in {chapter_name}")
+            frappe.logger("events").info(f"Sent role change notification for {volunteer} in {chapter_name}")
 
     except Exception as e:
         frappe.log_error(f"Failed to send board notifications: {str(e)}", "Chapter Board Notification Error")
@@ -183,7 +181,7 @@ def handle_membership_notifications(event_name, event_data, is_bulk_import=False
 
         frappe.logger("events").info(f"Sent membership notifications for {member} in {chapter_name}")
 
-    except Exception as e:
+    except Exception:
         # Log production errors with full traceback for audit trail
         # Bulk import skip already handled above, so this is a real error
         frappe.log_error(
@@ -395,67 +393,9 @@ def _update_board_role_profile(chapter, volunteer, old_role, new_role):
             auto_sync_on_role_change(member_doc.user)
 
 
-def _send_board_member_added_notification(chapter, volunteer, role):
-    """Send notification when board member is added"""
-    volunteer_doc = frappe.get_doc("Volunteer", volunteer)
-    if volunteer_doc.member:
-        member_doc = frappe.get_doc("Member", volunteer_doc.member)
-
-        if member_doc.email:
-            # MIGRATED: Use unified EmailService with professional template
-            from verenigingen.services.communication.email_service import get_email_service
-
-            email_service = get_email_service()
-            context = {
-                "member_name": member_doc.full_name or f"{member_doc.first_name} {member_doc.last_name}",
-                "chapter_name": chapter.name,
-                "change_type": "Board Appointment",
-                "board_position": role,
-                "effective_date": frappe.utils.today(),
-                "additional_message": "Congratulations! Welcome to the board!",
-                "company": get_mollie_config().get_default_company(),
-            }
-
-            email_service.send_templated_email(
-                template_name="chapter_board_notification",
-                recipients=[member_doc.email],
-                context=context,
-                subject_override=f"Board Appointment - {chapter.name}",
-                reference_doctype="Chapter",
-                reference_name=chapter.name,
-                notification_key="chapter_board_added",
-            )
-
-
-def _send_board_member_removed_notification(chapter, volunteer, role):
-    """Send notification when board member is removed"""
-    volunteer_doc = frappe.get_doc("Volunteer", volunteer)
-    if volunteer_doc.member:
-        member_doc = frappe.get_doc("Member", volunteer_doc.member)
-
-        if member_doc.email:
-            # MIGRATED: Use unified EmailService with professional template
-            from verenigingen.services.communication.email_service import get_email_service
-
-            email_service = get_email_service()
-            context = {
-                "member_name": member_doc.full_name or f"{member_doc.first_name} {member_doc.last_name}",
-                "chapter_name": chapter.name,
-                "change_type": "Board Tenure Ended",
-                "board_position": role,
-                "effective_date": frappe.utils.today(),
-                "additional_message": "Thank you for your service!",
-                "company": get_mollie_config().get_default_company(),
-            }
-
-            email_service.send_templated_email(
-                template_name="chapter_board_notification",
-                recipients=[member_doc.email],
-                context=context,
-                subject_override=f"Board Tenure Ended - {chapter.name}",
-                reference_doctype="Chapter",
-                reference_name=chapter.name,
-            )
+# NOTE: _send_board_member_added_notification and _send_board_member_removed_notification
+# were removed as dead code. These notifications are now handled directly by
+# ChapterBoardMember.after_insert and ChapterBoardMember.on_trash respectively.
 
 
 def _send_board_role_changed_notification(chapter, volunteer, old_role, new_role):
@@ -486,6 +426,7 @@ def _send_board_role_changed_notification(chapter, volunteer, old_role, new_role
                 subject_override=f"Board Role Update - {chapter.name}",
                 reference_doctype="Chapter",
                 reference_name=chapter.name,
+                notification_key="chapter_board_role_changed",
             )
 
 
@@ -506,12 +447,13 @@ def _send_member_welcome_notification(chapter, member_doc):
         }
 
         email_service.send_templated_email(
-            template_name="chapter_board_notification",
+            template_name="chapter_member_notification",
             recipients=[member_doc.email],
             context=context,
             subject_override=f"Welcome to {chapter.name}",
             reference_doctype="Chapter",
             reference_name=chapter.name,
+            notification_key="chapter_member_joined",
         )
 
 
@@ -539,12 +481,13 @@ def _send_member_farewell_notification(chapter, member_doc, reason):
         }
 
         email_service.send_templated_email(
-            template_name="chapter_board_notification",
+            template_name="chapter_member_notification",
             recipients=[member_doc.email],
             context=context,
             subject_override=f"Farewell from {chapter.name}",
             reference_doctype="Chapter",
             reference_name=chapter.name,
+            notification_key="chapter_member_left",
         )
 
 

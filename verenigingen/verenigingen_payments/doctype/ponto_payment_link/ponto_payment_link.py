@@ -500,33 +500,30 @@ class PontoPaymentLink(Document):
 
         payment_url = self.redirect_link or self.get_payment_url()
 
-        # Send email
-        frappe.sendmail(
+        # Send email using EmailService for UI-controllable notifications
+        from verenigingen.services.communication.email_service import get_email_service
+
+        email_service = get_email_service()
+        context = {
+            "member_name": "Dear Customer",
+            "notification_message": f"You have received a payment request for {self.amount} EUR.",
+            "payment_reference": self.name,
+            "amount": f"€{self.amount}",
+            "payment_date": str(frappe.utils.today()),
+            "payment_method": "Ponto Payment Link",
+            "action_required": f"Description: {self.description}\n\nPlease click the following link to authorize the payment:\n{payment_url}",
+            "next_steps": f"This payment request was created by {self.creditor_name}.",
+            "company": self.creditor_name,
+        }
+
+        email_service.send_templated_email(
+            template_name="payment_notification",
             recipients=[email],
-            subject=_("Payment Request - {0}").format(self.creditor_name),
-            message=_(
-                """
-Dear Customer,
-
-You have received a payment request for {amount} EUR.
-
-Description: {description}
-
-Please click the following link to authorize the payment:
-{payment_url}
-
-This payment request was created by {creditor_name}.
-
-Thank you.
-            """
-            ).format(
-                amount=self.amount,
-                description=self.description,
-                payment_url=payment_url,
-                creditor_name=self.creditor_name,
-            ),
+            context=context,
+            subject_override=_("Payment Request - {0}").format(self.creditor_name),
             reference_doctype=self.doctype,
             reference_name=self.name,
+            notification_key="ponto_payment_link_request",
         )
 
         frappe.msgprint(

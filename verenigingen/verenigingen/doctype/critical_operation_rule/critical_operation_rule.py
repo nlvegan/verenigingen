@@ -423,26 +423,34 @@ def send_security_policy_change_digest():
 
     digest_text = "\n".join(digest_lines)
 
-    # Send digest email
+    # Send digest email using EmailService for UI controllability
     try:
-        message = f"""
-<h2>Security Policy Change Digest</h2>
-<p><strong>{len(changes)} security rule(s)</strong> were modified and require your attention.</p>
+        from verenigingen.services.communication.email_service import get_email_service
 
-<pre style="background: #f4f4f4; padding: 15px; border-radius: 5px;">
-{digest_text}
-</pre>
+        email_service = get_email_service()
 
-<p><strong>Action Required:</strong> Please review these changes to ensure they align with security policies.</p>
-<p>This is an automated digest from {company}.</p>
-"""
+        # Build context for the template
+        context = {
+            "member_name": "System Administrator",
+            "notification_message": f"{len(changes)} security rule(s) were modified and require your attention.",
+            "payment_reference": f"Security Digest {frappe.utils.today()}",
+            "amount": f"{len(changes)} rules",
+            "payment_date": str(frappe.utils.now()),
+            "payment_method": "Security Policy Change",
+            "action_required": digest_text,
+            "next_steps": "Please review these changes to ensure they align with security policies.",
+            "company": company,
+        }
 
-        frappe.sendmail(
+        email_service.send_templated_email(
+            template_name="payment_notification",
             recipients=admin_emails,
-            subject=f"🔒 Security Policy Digest: {len(changes)} rule(s) modified",
-            message=message,
+            context=context,
+            subject_override=f"Security Policy Digest: {len(changes)} rule(s) modified",
             reference_doctype="Critical Operation Rule",
-            now=True,
+            reference_name=None,
+            priority="high",
+            notification_key="security_policy_digest",
         )
 
         frappe.logger("critical_operation_rule").info(

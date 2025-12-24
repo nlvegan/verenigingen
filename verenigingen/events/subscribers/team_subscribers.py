@@ -408,6 +408,7 @@ def _send_team_member_added_notification(team, volunteer_doc, role):
                 subject_override=f"Team Assignment - {team.name}",
                 reference_doctype="Team",
                 reference_name=team.name,
+                notification_key="team_member_added",
             )
 
 
@@ -437,6 +438,7 @@ def _send_team_member_removed_notification(team, volunteer_doc, role):
                 subject_override=f"Team Assignment Ended - {team.name}",
                 reference_doctype="Team",
                 reference_name=team.name,
+                notification_key="team_member_removed",
             )
 
 
@@ -466,6 +468,7 @@ def _send_team_role_changed_notification(team, volunteer_doc, old_role, new_role
                 subject_override=f"Team Role Update - {team.name}",
                 reference_doctype="Team",
                 reference_name=team.name,
+                notification_key="team_role_changed",
             )
 
 
@@ -531,6 +534,7 @@ def _send_team_settings_notification(team, changed_fields):
                         subject_override=f"Team Settings Updated - {team.name}",
                         reference_doctype="Team",
                         reference_name=team.name,
+                        notification_key="team_settings_changed",
                     )
 
 
@@ -607,6 +611,7 @@ def _send_leadership_change_notification(team, old_lead, new_lead):
                             subject_override=subject,
                             reference_doctype="Team",
                             reference_name=team.name,
+                            notification_key="team_leadership_changed",
                         )
 
         frappe.logger("events").info(f"Sent leadership change notifications for {team.name}")

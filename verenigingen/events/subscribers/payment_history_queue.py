@@ -355,6 +355,7 @@ def _alert_payment_history_failures(failed_count, processed_count):
                 reference_doctype=None,
                 reference_name=None,
                 priority="high",
+                notification_key="payment_history_failure_alert",
             )
 
             frappe.logger("payment_history").info(f"Sent failure alert to {len(admin_emails)} administrators")
@@ -397,6 +398,7 @@ def _alert_payment_history_critical_error(error_msg):
                 reference_doctype=None,
                 reference_name=None,
                 priority="high",
+                notification_key="payment_history_critical_error",
             )
 
             frappe.logger("payment_history").error(

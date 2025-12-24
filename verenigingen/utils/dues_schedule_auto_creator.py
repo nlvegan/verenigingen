@@ -368,7 +368,34 @@ def _send_enhanced_summary_email(main_result, retry_result):
         </p>
         """
 
-        frappe.sendmail(recipients=admins, subject=subject, message=message, delayed=False)
+        # Use EmailService for UI-controllable notifications
+        from verenigingen.services.communication.email_service import get_email_service
+        from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
+
+        email_service = get_email_service()
+        context = {
+            "member_name": "System Administrator",
+            "notification_message": f"Enhanced dues schedule auto-creation completed. {total_created} schedules created, {total_errors} errors.",
+            "payment_reference": f"Dues Schedule Task {today()}",
+            "amount": f"{total_created} created",
+            "payment_date": str(today()),
+            "payment_method": "Scheduled Task",
+            "action_required": message,
+            "next_steps": "Review any errors in the system logs."
+            if total_errors > 0
+            else "No action required.",
+            "company": get_mollie_config().get_default_company(),
+        }
+
+        email_service.send_templated_email(
+            template_name="payment_notification",
+            recipients=admins,
+            context=context,
+            subject_override=subject,
+            reference_doctype=None,
+            reference_name=None,
+            notification_key="dues_schedule_auto_creation_summary",
+        )
 
     except Exception as e:
         frappe.logger().error(f"Error sending enhanced summary email: {str(e)}")
@@ -448,7 +475,34 @@ def send_summary_email(created_count, error_count, total_found):
         </p>
         """
 
-        frappe.sendmail(recipients=admins, subject=subject, message=message, delayed=False)
+        # Use EmailService for UI-controllable notifications
+        from verenigingen.services.communication.email_service import get_email_service
+        from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
+
+        email_service = get_email_service()
+        context = {
+            "member_name": "System Administrator",
+            "notification_message": f"Dues schedule auto-creation completed. {created_count} schedules created, {error_count} errors.",
+            "payment_reference": f"Dues Schedule Task {today()}",
+            "amount": f"{created_count} created",
+            "payment_date": str(today()),
+            "payment_method": "Scheduled Task",
+            "action_required": message,
+            "next_steps": "Review any errors in the system logs."
+            if error_count > 0
+            else "No action required.",
+            "company": get_mollie_config().get_default_company(),
+        }
+
+        email_service.send_templated_email(
+            template_name="payment_notification",
+            recipients=admins,
+            context=context,
+            subject_override=subject,
+            reference_doctype=None,
+            reference_name=None,
+            notification_key="dues_schedule_auto_creation_summary",
+        )
 
     except Exception as e:
         frappe.logger().error(f"Error sending summary email: {str(e)}")
@@ -759,7 +813,34 @@ def _send_summary_email(result):
     """
 
     try:
-        frappe.sendmail(recipients=admins, subject=subject, message=message, delayed=False)
+        # Use EmailService for UI-controllable notifications
+        from verenigingen.services.communication.email_service import get_email_service
+        from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
+
+        email_service = get_email_service()
+        context = {
+            "member_name": "System Administrator",
+            "notification_message": f"Manual dues schedule creation completed. {result['created_count']} schedules created by {frappe.session.user}.",
+            "payment_reference": f"Manual Creation {today()}",
+            "amount": f"{result['created_count']} created",
+            "payment_date": str(today()),
+            "payment_method": "Manual Admin Action",
+            "action_required": message,
+            "next_steps": f"Review any errors ({result['error_count']}) in the system logs."
+            if result["error_count"] > 0
+            else "No action required.",
+            "company": get_mollie_config().get_default_company(),
+        }
+
+        email_service.send_templated_email(
+            template_name="payment_notification",
+            recipients=admins,
+            context=context,
+            subject_override=subject,
+            reference_doctype=None,
+            reference_name=None,
+            notification_key="dues_schedule_manual_creation",
+        )
     except Exception as e:
         frappe.logger().error(f"Error sending manual dues schedule creation email: {str(e)}")
 
