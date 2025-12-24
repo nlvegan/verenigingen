@@ -12,11 +12,15 @@ class TeamMember(Document):
         """Assign Team Lead role when someone becomes a team leader"""
         if self.is_team_leader_role():
             self.assign_team_lead_role()
+        # Send notification to the new team member
+        self._send_team_member_added_notification()
 
     def on_trash(self):
         """Remove Team Lead role if no longer on any team as leader"""
         if self.is_team_leader_role():
             self.remove_team_lead_role()
+        # Send notification to the removed team member
+        self._send_team_member_removed_notification()
 
     def on_update(self):
         """Handle role changes when team member status changes"""
@@ -262,3 +266,49 @@ class TeamMember(Document):
                 f"Please remove the existing assignment before assigning this role to another member.",
                 title="Unique Role Violation",
             )
+
+    def _send_team_member_added_notification(self):
+        """Send notification when a volunteer is added to the team."""
+        from verenigingen.utils.notification_helpers import send_volunteer_email
+
+        # Get team name from parent
+        team_name = frappe.db.get_value("Team", self.parent, "team_name") or self.parent
+
+        send_volunteer_email(
+            volunteer=self.volunteer,
+            template_name="team_role_notification",
+            notification_key="team_member_added",
+            subject=f"Team Assignment - {team_name}",
+            extra_context={
+                "team_name": team_name,
+                "team_role": self.team_role,
+                "from_date": frappe.utils.formatdate(self.from_date),
+                "change_type": "Team Assignment",
+                "additional_message": "Welcome to the team!",
+            },
+            reference_doctype="Team",
+            reference_name=self.parent,
+        )
+
+    def _send_team_member_removed_notification(self):
+        """Send notification when a volunteer is removed from the team."""
+        from verenigingen.utils.notification_helpers import send_volunteer_email
+
+        # Get team name from parent
+        team_name = frappe.db.get_value("Team", self.parent, "team_name") or self.parent
+
+        send_volunteer_email(
+            volunteer=self.volunteer,
+            template_name="team_role_notification",
+            notification_key="team_member_removed",
+            subject=f"Team Assignment Ended - {team_name}",
+            extra_context={
+                "team_name": team_name,
+                "team_role": self.team_role,
+                "to_date": frappe.utils.formatdate(self.to_date) if self.to_date else frappe.utils.today(),
+                "change_type": "Team Assignment Ended",
+                "additional_message": "Thank you for your contribution!",
+            },
+            reference_doctype="Team",
+            reference_name=self.parent,
+        )

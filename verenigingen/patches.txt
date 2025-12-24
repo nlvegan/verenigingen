@@ -30,3 +30,4 @@ verenigingen.patches.v15_0.add_volunteer_performance_indexes
 verenigingen.patches.v15_0.add_team_performance_indexes
 verenigingen.patches.v1_0.enable_chapter_notifications_for_existing_installations
 verenigingen.patches.v15_0.migrate_email_settings_to_configuration
+verenigingen.patches.v15_0.add_team_chapter_notification_types

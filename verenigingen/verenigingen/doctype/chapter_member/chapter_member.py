@@ -7,6 +7,14 @@ from frappe.model.document import Document
 
 
 class ChapterMember(Document):
+    def after_insert(self):
+        """Handle new chapter member creation"""
+        self._send_chapter_welcome_notification()
+
+    def on_trash(self):
+        """Handle chapter member removal"""
+        self._send_chapter_farewell_notification()
+
     def validate(self):
         """Validate chapter member operations and ensure proper history tracking"""
         self.validate_chapter_membership_tracking()
@@ -82,3 +90,80 @@ class ChapterMember(Document):
         # via application_helpers.py and other modules. No automatic hook-based
         # history creation to avoid duplicates.
         pass
+
+    def _send_chapter_welcome_notification(self):
+        """Send welcome notification when a member joins a chapter."""
+        if not self.member:
+            return
+
+        member_doc = frappe.get_doc("Member", self.member)
+        if not member_doc.email:
+            return
+
+        # Get chapter name from parent
+        chapter_name = frappe.db.get_value("Chapter", self.parent, "name") or self.parent
+
+        from verenigingen.services.communication.email_service import get_email_service
+        from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
+
+        email_service = get_email_service()
+        context = {
+            "member_name": member_doc.full_name or f"{member_doc.first_name} {member_doc.last_name}",
+            "chapter_name": chapter_name,
+            "change_type": "Chapter Welcome",
+            "effective_date": frappe.utils.formatdate(self.chapter_join_date or frappe.utils.today()),
+            "additional_message": f"Welcome to {chapter_name}! We're excited to have you as part of our chapter.",
+            "company": get_mollie_config().get_default_company(),
+        }
+
+        email_service.send_templated_email(
+            template_name="chapter_board_notification",
+            recipients=[member_doc.email],
+            context=context,
+            subject_override=f"Welcome to {chapter_name}",
+            reference_doctype="Chapter",
+            reference_name=self.parent,
+            notification_key="chapter_member_joined",
+        )
+
+    def _send_chapter_farewell_notification(self):
+        """Send farewell notification when a member leaves a chapter."""
+        if not self.member:
+            return
+
+        member_doc = frappe.get_doc("Member", self.member)
+        if not member_doc.email:
+            return
+
+        # Get chapter name from parent
+        chapter_name = frappe.db.get_value("Chapter", self.parent, "name") or self.parent
+
+        from verenigingen.services.communication.email_service import get_email_service
+        from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
+
+        email_service = get_email_service()
+        farewell_message = (
+            f"We're sorry to see you leave {chapter_name}. Thank you for being part of our community."
+        )
+        if self.leave_reason:
+            farewell_message += f"\n\nReason: {self.leave_reason}"
+        farewell_message += "\n\nYou're always welcome back!"
+
+        context = {
+            "member_name": member_doc.full_name or f"{member_doc.first_name} {member_doc.last_name}",
+            "chapter_name": chapter_name,
+            "change_type": "Chapter Departure",
+            "effective_date": frappe.utils.formatdate(frappe.utils.today()),
+            "additional_message": farewell_message,
+            "company": get_mollie_config().get_default_company(),
+        }
+
+        email_service.send_templated_email(
+            template_name="chapter_board_notification",
+            recipients=[member_doc.email],
+            context=context,
+            subject_override=f"Farewell from {chapter_name}",
+            reference_doctype="Chapter",
+            reference_name=self.parent,
+            notification_key="chapter_member_left",
+        )

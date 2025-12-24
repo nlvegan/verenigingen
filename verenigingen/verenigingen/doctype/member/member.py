@@ -659,6 +659,9 @@ class Member(
                     {"old_status": old_status, "new_status": new_status, "status_type": "membership"},
                 )
 
+                # Send status change notification
+                self._send_member_status_notification(old_status, new_status)
+
             # Bidirectional sync removed - Chapter and Volunteer are sources of truth
             # Member displays this data read-only (editable only for Verenigingen Staff/Administrator)
 
@@ -709,6 +712,62 @@ class Member(
         from verenigingen.services.member.lifecycle.member_cleanup_service import get_member_cleanup_service
 
         return get_member_cleanup_service().handle_member_deletion(self)
+
+    def _send_member_status_notification(self, old_status: str, new_status: str) -> None:
+        """Send notification when member status changes.
+
+        Args:
+            old_status: Previous status value
+            new_status: New status value
+        """
+        if not self.email:
+            return
+
+        from verenigingen.services.communication.email_service import get_email_service
+        from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
+
+        email_service = get_email_service()
+
+        # Determine notification key based on status transition
+        if new_status == "Active":
+            notification_key = "member_activated"
+            subject = "Your Membership is Now Active"
+            message = "Your membership has been activated. Welcome to our community!"
+        elif new_status == "Suspended":
+            notification_key = "member_suspended"
+            subject = "Membership Suspended"
+            message = (
+                "Your membership has been temporarily suspended. Please contact us for more information."
+            )
+        elif new_status == "Terminated":
+            notification_key = "member_terminated"
+            subject = "Membership Terminated"
+            message = "Your membership has been terminated. Thank you for being part of our community."
+        else:
+            # Generic status change
+            notification_key = "member_status_change"
+            subject = f"Membership Status Update: {new_status}"
+            message = f"Your membership status has been updated from {old_status} to {new_status}."
+
+        context = {
+            "member_name": self.full_name or f"{self.first_name} {self.last_name}",
+            "old_status": old_status,
+            "new_status": new_status,
+            "change_type": "Status Change",
+            "effective_date": frappe.utils.formatdate(frappe.utils.today()),
+            "additional_message": message,
+            "company": get_mollie_config().get_default_company(),
+        }
+
+        email_service.send_templated_email(
+            template_name="member_lifecycle_notification",
+            recipients=[self.email],
+            context=context,
+            subject_override=subject,
+            reference_doctype="Member",
+            reference_name=self.name,
+            notification_key=notification_key,
+        )
 
     def _unlink_from_customer(self):
         """
