@@ -119,6 +119,18 @@ def execute():
             "recipient_field": "volunteer.email",
             "description": "Email sent when a board member's role is updated",
         },
+        {
+            "notification_key": "chapter_settings_changed",
+            "label": "Chapter Settings Changed",
+            "category": "Chapter",
+            "enabled": 1,
+            "priority": "Low",
+            "cooldown_minutes": 60,
+            "email_template": "chapter_board_notification",
+            "recipient_policy": "Document-Field",
+            "recipient_field": "board_member.email",
+            "description": "Email sent to board members when chapter settings are updated",
+        },
         # Member Status Notifications
         {
             "notification_key": "member_activated",
@@ -259,7 +271,7 @@ def execute():
         {
             "notification_key": "periodic_donation_confirmation",
             "label": "Periodic Donation Confirmed",
-            "category": "Donation",
+            "category": "Payment",
             "enabled": 1,
             "priority": "Medium",
             "cooldown_minutes": 0,
@@ -271,7 +283,7 @@ def execute():
         {
             "notification_key": "periodic_donation_expiry",
             "label": "Periodic Donation Expiring",
-            "category": "Donation",
+            "category": "Payment",
             "enabled": 1,
             "priority": "Medium",
             "cooldown_minutes": 1440,
@@ -283,7 +295,7 @@ def execute():
         {
             "notification_key": "periodic_donation_cancellation",
             "label": "Periodic Donation Cancelled",
-            "category": "Donation",
+            "category": "Payment",
             "enabled": 1,
             "priority": "Medium",
             "cooldown_minutes": 0,
@@ -296,7 +308,7 @@ def execute():
         {
             "notification_key": "anbi_consent_request",
             "label": "ANBI Consent Request",
-            "category": "Donation",
+            "category": "Payment",
             "enabled": 1,
             "priority": "Low",
             "cooldown_minutes": 10080,

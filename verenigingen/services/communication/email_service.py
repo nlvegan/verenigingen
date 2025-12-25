@@ -248,6 +248,19 @@ class EmailService(StatelessService):
                 "board_member_added": "Board Member Added",
             }
 
+            # Map notification types to notification keys for Email Configuration control
+            key_mapping = {
+                "member_approval": "member_application_approved",
+                "chapter_membership_approval": "chapter_membership_approved",
+                "member_suspension": "member_suspended",
+                "member_termination": "member_terminated",
+                "member_reactivation": "member_activated",
+                "member_rejection": "member_application_rejected",
+                "payment_failure": "payment_failure",
+                "sepa_mandate_created": "sepa_mandate_created",
+                "board_member_added": "board_member_added",
+            }
+
             template_name = template_mapping.get(notification_type)
             if not template_name:
                 return create_service_result(
@@ -257,8 +270,15 @@ class EmailService(StatelessService):
                     operation="send_notification",
                 )
 
+            # Get the notification key for configuration-based control
+            notification_key = key_mapping.get(notification_type)
+
             return self.send_templated_email(
-                template_name=template_name, recipients=recipients, context=data, **options
+                template_name=template_name,
+                recipients=recipients,
+                context=data,
+                notification_key=notification_key,
+                **options,
             )
 
         except Exception as e:

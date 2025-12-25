@@ -287,3 +287,73 @@ class SingletonBackupMixin:
         if hasattr(self, "_singleton_backup"):
             self._singleton_backup.restore()
         super().tearDown()
+
+
+class FlagBackupMixin:
+    """
+    Mixin class for test cases that need frappe.flags backup/restore.
+
+    Usage:
+        class TestMyFeature(FlagBackupMixin, FrappeTestCase):
+            # Specify which flags to manage
+            protected_flags = ["suppress_notifications", "suppress_all_notifications", "in_import"]
+
+            def test_something(self):
+                frappe.flags.suppress_notifications = True
+                # Flag will be automatically restored after test
+                pass
+
+    The mixin automatically:
+    - Backs up flag values in setUp()
+    - Restores them in tearDown()
+    """
+
+    # Override in subclass to specify which flags to protect
+    protected_flags: List[str] = []
+
+    def setUp(self):
+        """Back up flags before each test."""
+        super().setUp()
+        self._flag_backup = {}
+        for flag_name in self.protected_flags:
+            self._flag_backup[flag_name] = getattr(frappe.flags, flag_name, None)
+
+    def tearDown(self):
+        """Restore flags after each test."""
+        for flag_name, original_value in self._flag_backup.items():
+            if original_value is None:
+                # Remove the flag if it wasn't set before
+                if hasattr(frappe.flags, flag_name):
+                    delattr(frappe.flags, flag_name)
+            else:
+                setattr(frappe.flags, flag_name, original_value)
+        super().tearDown()
+
+
+@contextmanager
+def flag_backup(*flag_names: str):
+    """
+    Context manager for backing up and restoring frappe.flags.
+
+    Usage:
+        with flag_backup("suppress_notifications", "in_import"):
+            frappe.flags.suppress_notifications = True
+            # ... test code ...
+        # Flags automatically restored
+
+    Args:
+        *flag_names: Names of flags to backup
+    """
+    backup = {}
+    for flag_name in flag_names:
+        backup[flag_name] = getattr(frappe.flags, flag_name, None)
+
+    try:
+        yield
+    finally:
+        for flag_name, original_value in backup.items():
+            if original_value is None:
+                if hasattr(frappe.flags, flag_name):
+                    delattr(frappe.flags, flag_name)
+            else:
+                setattr(frappe.flags, flag_name, original_value)

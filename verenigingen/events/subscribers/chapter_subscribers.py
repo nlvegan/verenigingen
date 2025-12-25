@@ -582,6 +582,7 @@ def _send_settings_change_notification(chapter, changed_fields):
                 subject_override=f"Chapter Settings Updated - {chapter.name}",
                 reference_doctype="Chapter",
                 reference_name=chapter.name,
+                notification_key="chapter_settings_changed",
             )
 
 

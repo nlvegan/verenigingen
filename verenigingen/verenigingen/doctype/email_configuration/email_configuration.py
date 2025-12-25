@@ -170,11 +170,13 @@ def send_test_email(recipient: str) -> dict:
 
     Returns:
         Dict with success status and message.
-    """
-    from verenigingen.utils.security.api_security_framework import OperationType, validate_api_operation
 
-    # Validate permissions
-    validate_api_operation(OperationType.ADMIN)
+    Raises:
+        frappe.PermissionError: If user lacks write permission on Email Configuration.
+    """
+    # Require write permission on Email Configuration (System Manager role)
+    if not frappe.has_permission("Email Configuration", "write"):
+        frappe.throw("You need System Manager permissions to send test emails", frappe.PermissionError)
 
     # Validate email format
     if not recipient or not frappe.utils.validate_email_address(recipient):
