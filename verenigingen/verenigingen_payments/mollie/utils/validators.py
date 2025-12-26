@@ -421,3 +421,34 @@ class BusinessRuleValidator:
         # Additional volunteer-specific checks could go here
 
         return errors
+
+
+# Module-level convenience functions for backward compatibility
+def validate_iban(iban: str) -> bool:
+    """
+    Validate IBAN format and checksum.
+
+    This is a module-level convenience wrapper around IBANValidator.validate_iban.
+
+    Args:
+        iban: IBAN string to validate
+
+    Returns:
+        True if IBAN is valid, False otherwise
+    """
+    return IBANValidator.validate_iban(iban)
+
+
+def format_iban(iban: str) -> str:
+    """
+    Format IBAN with standard spacing.
+
+    This is a module-level convenience wrapper around IBANValidator.format_iban.
+
+    Args:
+        iban: Raw IBAN string
+
+    Returns:
+        Formatted IBAN with spaces every 4 characters
+    """
+    return IBANValidator.format_iban(iban)
