@@ -737,7 +737,7 @@ class EmailService(StatelessService):
         """Check if there's at least one active email account configured."""
         try:
             # Check for any enabled email accounts
-            active_accounts = frappe.get_all("Email Account", filters={"enable_outgoing": 1}, limit=1)
+            active_accounts = frappe.get_all("Email Account", filters={"enable_outgoing": 1, "default_outgoing": 1}, limit=1)
             return len(active_accounts) > 0
         except Exception as e:
             self.logger.error(f"Error checking email accounts: {str(e)}")
