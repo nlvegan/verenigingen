@@ -2917,7 +2917,10 @@ class MollieDebugService(StatelessService):
             for payment_id in payment_ids:
                 # Extract pre-matched invoice if provided in payment_modes
                 payment_mode_info = payment_modes.get(payment_id, {})
-                matching_invoice = payment_mode_info.get("matching_invoice") if payment_mode_info else None
+                # Handle case where payment_mode_info might be a boolean or other non-dict type
+                matching_invoice = None
+                if isinstance(payment_mode_info, dict):
+                    matching_invoice = payment_mode_info.get("matching_invoice")
 
                 # Normalize invoice name (can be dict or string from frontend)
                 invoice_name = None
