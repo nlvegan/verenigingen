@@ -2136,7 +2136,7 @@ class MollieDebugService(StatelessService):
                         matching_invoice = invoice_checker.check_invoice_match_for_payment(
                             sdk_payment=payment, member_name=member_name
                         )
-                        if matching_invoice:
+                        if matching_invoice and isinstance(matching_invoice, dict):
                             invoice_name = matching_invoice.get("invoice_name")
                             self.logger.info(
                                 f"Found matching invoice {invoice_name} for payment {payment_id}"
