@@ -138,8 +138,8 @@ class DuesPaymentProcessor:
             # Validate IBAN format
             from verenigingen.verenigingen_payments.mollie.utils.validators import validate_iban
 
-            iban_result = validate_iban(consumer_account)
-            if not iban_result.get("valid"):
+            is_valid_iban = validate_iban(consumer_account)
+            if not is_valid_iban:
                 frappe.logger().debug(
                     f"Consumer account {consumer_account} is not a valid IBAN, skipping bank data save"
                 )
