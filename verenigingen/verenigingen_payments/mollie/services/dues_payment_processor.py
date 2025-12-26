@@ -916,7 +916,11 @@ class DuesPaymentProcessor:
         return result
 
     def _create_payment_entry_for_dues(
-        self, member_name: str, payment, invoice_name: Optional[str] = None
+        self,
+        member_name: str,
+        payment,
+        invoice_name: Optional[str] = None,
+        allow_invoice_creation: bool = True,
     ) -> Optional[str]:
         """
         Create a Payment Entry for a membership dues payment from Mollie.
@@ -929,6 +933,8 @@ class DuesPaymentProcessor:
             member_name: Member document name
             payment: Mollie payment object
             invoice_name: Optional specific invoice to allocate to (skips lookup)
+            allow_invoice_creation: If False, won't create invoices when none found.
+                                   Used by orchestrator in discovery mode.
 
         Returns:
             str: Payment Entry name if created, None otherwise
@@ -1021,7 +1027,7 @@ class DuesPaymentProcessor:
                 )
 
         # Use provided invoice_name if given, otherwise try to get or create one
-        if invoice_name is None:
+        if invoice_name is None and allow_invoice_creation:
             invoice_name = self._get_or_create_historical_invoice(member_name, payment_date, amount)
 
         # If we have a valid invoice, use ERPNext's get_payment_entry for proper account handling

@@ -522,10 +522,10 @@ def calculate_coverage_for_payment_date(
     This is the generalized, billing-frequency-aware replacement for the
     hardcoded quarterly logic in DuesPaymentProcessor.
 
-    The function:
-    1. Looks up the member's active dues schedule to get billing_frequency
-    2. Uses billing_cutoff_frequency from Verenigingen Settings for period alignment
-    3. Calculates coverage dates appropriate for the billing frequency
+    The function uses priority hierarchy:
+    1. Member's current_dues_schedule link field (if set and schedule is Active)
+    2. Fallback query for any non-cancelled schedule for this member
+    3. Ultimate fallback: billing_cutoff_frequency from Verenigingen Settings
 
     Args:
         member_name: Member document name
@@ -547,41 +547,61 @@ def calculate_coverage_for_payment_date(
 
     payment_date = getdate(payment_date)
 
-    # Get member's active dues schedule
-    schedule = frappe.db.get_value(
-        "Membership Dues Schedule",
-        {"member": member_name, "status": "Active"},
-        ["billing_frequency", "custom_frequency_number", "custom_frequency_unit"],
-        as_dict=True,
-    )
+    billing_frequency = None
+    custom_number = None
+    custom_unit = None
 
-    if schedule:
-        billing_frequency = schedule.billing_frequency
-        custom_number = schedule.custom_frequency_number
-        custom_unit = schedule.custom_frequency_unit
-    else:
-        # Fallback: check for any non-cancelled schedule
+    # Priority 1: Use Member's current_dues_schedule link field
+    current_schedule_name = frappe.db.get_value("Member", member_name, "current_dues_schedule")
+
+    if current_schedule_name:
+        schedule = frappe.db.get_value(
+            "Membership Dues Schedule",
+            current_schedule_name,
+            ["status", "billing_frequency", "custom_frequency_number", "custom_frequency_unit"],
+            as_dict=True,
+        )
+
+        if schedule and schedule.status == "Active":
+            billing_frequency = schedule.billing_frequency
+            custom_number = schedule.custom_frequency_number
+            custom_unit = schedule.custom_frequency_unit
+            frappe.logger().debug(
+                f"Using current_dues_schedule {current_schedule_name} "
+                f"(billing_frequency={billing_frequency}) for member {member_name}"
+            )
+
+    # Priority 2: Fallback query for any non-cancelled schedule
+    if not billing_frequency:
         schedule = frappe.db.get_value(
             "Membership Dues Schedule",
             {"member": member_name, "status": ["!=", "Cancelled"]},
             ["billing_frequency", "custom_frequency_number", "custom_frequency_unit"],
             as_dict=True,
+            order_by="creation desc",  # Most recent first
         )
 
         if schedule:
             billing_frequency = schedule.billing_frequency
             custom_number = schedule.custom_frequency_number
             custom_unit = schedule.custom_frequency_unit
-        else:
-            # Ultimate fallback: use billing_cutoff_frequency from settings
-            settings = frappe.get_single("Verenigingen Settings")
-            cutoff_freq = getattr(settings, "billing_cutoff_frequency", "Quarterly")
+            frappe.logger().debug(
+                f"Using fallback schedule query (billing_frequency={billing_frequency}) "
+                f"for member {member_name}"
+            )
 
-            # Map cutoff frequency to billing frequency
-            freq_map = {"Monthly": "Monthly", "Quarterly": "Quarterly", "Yearly": "Annual"}
-            billing_frequency = freq_map.get(cutoff_freq, "Quarterly")
-            custom_number = None
-            custom_unit = None
+    # Priority 3: Ultimate fallback to settings
+    if not billing_frequency:
+        settings = frappe.get_single("Verenigingen Settings")
+        cutoff_freq = getattr(settings, "billing_cutoff_frequency", "Quarterly")
+
+        # Map cutoff frequency to billing frequency
+        freq_map = {"Monthly": "Monthly", "Quarterly": "Quarterly", "Yearly": "Annual"}
+        billing_frequency = freq_map.get(cutoff_freq, "Quarterly")
+        frappe.logger().debug(
+            f"Using settings fallback (billing_cutoff_frequency={cutoff_freq} -> "
+            f"billing_frequency={billing_frequency}) for member {member_name}"
+        )
 
     # Use the billing_period_calculator to get period dates
     from verenigingen.utils.billing_period_calculator import calculate_billing_period

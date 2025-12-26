@@ -20,10 +20,7 @@ from typing import Any, Dict, List, Optional, Union
 import frappe
 from frappe.utils import getdate
 
-from verenigingen.services.billing.invoice_matcher import (
-    InvoiceMatchResult,
-    find_matching_invoice,
-)
+from verenigingen.services.billing.invoice_matcher import InvoiceMatchResult, find_matching_invoice
 
 
 @dataclass
@@ -147,8 +144,12 @@ class MolliePaymentOrchestrator:
     def __init__(self):
         """Initialize with required services."""
         from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
-        from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import DuesPaymentProcessor
-        from verenigingen.verenigingen_payments.services.bank_transaction_creator import get_bank_transaction_creator
+        from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import (
+            DuesPaymentProcessor,
+        )
+        from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+            get_bank_transaction_creator,
+        )
 
         self.mollie_client = MollieClient()
         self.dues_processor = DuesPaymentProcessor()
@@ -376,7 +377,9 @@ class MolliePaymentOrchestrator:
             result.member = member_name
 
             # Extract payment data
-            from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
+            from verenigingen.verenigingen_payments.utils.payment_data_extractor import (
+                get_payment_data_extractor,
+            )
 
             extractor = get_payment_data_extractor()
             payment_amount = extractor.extract_amount(payment)
@@ -396,9 +399,7 @@ class MolliePaymentOrchestrator:
 
                 if match_result.found:
                     invoice_name = match_result.invoice_name
-                    result.actions_taken.append(
-                        f"Matched invoice {invoice_name} ({match_result.match_type})"
-                    )
+                    result.actions_taken.append(f"Matched invoice {invoice_name} ({match_result.match_type})")
                     if match_result.overlap_warning:
                         result.actions_taken.append(f"Warning: {match_result.overlap_warning}")
                 elif create_missing_invoice:
@@ -435,7 +436,10 @@ class MolliePaymentOrchestrator:
             # Step 3: Create Payment Entry (if not exists and we have invoice)
             if not status.has_payment_entry:
                 pe_name = self.dues_processor._create_payment_entry_for_dues(
-                    member_name, payment, invoice_name=invoice_name
+                    member_name,
+                    payment,
+                    invoice_name=invoice_name,
+                    allow_invoice_creation=create_missing_invoice,
                 )
                 if pe_name:
                     result.payment_entry = pe_name
@@ -447,11 +451,7 @@ class MolliePaymentOrchestrator:
                 result.actions_taken.append(f"Payment Entry exists: {status.payment_entry}")
 
             # Step 4: Link BT ↔ PE (if both exist but not linked)
-            if (
-                status.has_bank_transaction
-                and status.has_payment_entry
-                and not status.bt_pe_linked
-            ):
+            if status.has_bank_transaction and status.has_payment_entry and not status.bt_pe_linked:
                 linked = self._link_bt_to_pe(
                     bt_name=result.bank_transaction,
                     pe_name=result.payment_entry,
@@ -639,11 +639,13 @@ class MolliePaymentOrchestrator:
             if dry_run:
                 # Just check status
                 status = self.get_processing_status(payment_id)
-                batch_result["results"].append({
-                    "payment_id": payment_id,
-                    "status": "dry_run",
-                    "current_status": status.to_dict(),
-                })
+                batch_result["results"].append(
+                    {
+                        "payment_id": payment_id,
+                        "status": "dry_run",
+                        "current_status": status.to_dict(),
+                    }
+                )
                 continue
 
             result = self.process_payment(
