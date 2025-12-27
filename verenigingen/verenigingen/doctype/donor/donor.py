@@ -61,7 +61,8 @@ class Donor(Document):
     def validate_tax_identifiers(self):
         """Validate BSN and RSIN format"""
         # BSN validation (9 digits)
-        if self.bsn_citizen_service_number:
+        # Skip validation if already encrypted (was validated during original save)
+        if self.bsn_citizen_service_number and not self.is_encrypted(self.bsn_citizen_service_number):
             bsn = re.sub(r"\D", "", self.bsn_citizen_service_number)  # Remove non-digits
             if len(bsn) != 9:
                 frappe.throw(_("BSN must be exactly 9 digits"))
@@ -74,7 +75,8 @@ class Donor(Document):
             self.bsn_citizen_service_number = bsn
 
         # RSIN validation (8 or 9 digits)
-        if self.rsin_organization_tax_number:
+        # Skip validation if already encrypted (was validated during original save)
+        if self.rsin_organization_tax_number and not self.is_encrypted(self.rsin_organization_tax_number):
             rsin = re.sub(r"\D", "", self.rsin_organization_tax_number)  # Remove non-digits
             if len(rsin) not in [8, 9]:
                 frappe.throw(_("RSIN must be 8 or 9 digits"))
