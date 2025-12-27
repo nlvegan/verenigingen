@@ -13,7 +13,7 @@
     "doctype": "Membership Type",
     "name": "Huisgenootlid",
     "membership_type_name": "Huisgenootlid",
-    "minimum_amount": 1.5,
+    "minimum_amount": 0.0,
     "dues_schedule_template": "Huisgenootlid Template",
     "is_active": 1,
     "description": "Lidmaatschap voor huisgenoten van bestaande leden (gereduceerd tarief)",
@@ -23,31 +23,10 @@
     "doctype": "Membership Type",
     "name": "Aspirant",
     "membership_type_name": "Aspirant",
-    "minimum_amount": 0.0,
+    "minimum_amount": 3.0,
     "dues_schedule_template": "Aspirant Template",
     "is_active": 1,
     "description": "Proeflidmaatschap voor nieuwe aanmeldingen (geen contributie)",
     "role_profile": "Verenigingen Member"
   },
-  {
-    "doctype": "Membership Type",
-    "name": "Erelid",
-    "membership_type_name": "Erelid",
-    "minimum_amount": 0.0,
-    "billing_period": "Lifetime",
-    "dues_schedule_template": "Erelid Template",
-    "is_active": 1,
-    "description": "Erelidmaatschap toegekend door de ALV (geen contributie)",
-    "role_profile": "Verenigingen Member"
-  },
-  {
-    "doctype": "Membership Type",
-    "name": "Donateur",
-    "membership_type_name": "Donateur",
-    "minimum_amount": 5.0,
-    "dues_schedule_template": "Donateur Template",
-    "is_active": 1,
-    "description": "Steunend lid zonder stemrecht",
-    "role_profile": "Verenigingen Guest"
-  }
 ]
