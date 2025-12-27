@@ -1423,24 +1423,205 @@ def create_default_team_roles():
     """Create default team roles if they don't exist"""
     print("   🎭 Setting up default team roles...")
 
-    team_roles = ["Team Leader", "Team Member", "Coordinator", "Secretary", "Treasurer"]
+    team_roles = [
+        {
+            "role_name": "Team Leader",
+            "description": "Leads the team and coordinates activities. Responsible for team management and decision-making.",
+            "permissions_level": "Leader",
+            "is_team_leader": 1,
+            "is_unique": 1,
+            "is_active": 1,
+        },
+        {
+            "role_name": "Team Member",
+            "description": "General team member participating in team activities and projects.",
+            "permissions_level": "Basic",
+            "is_team_leader": 0,
+            "is_unique": 0,
+            "is_active": 1,
+        },
+        {
+            "role_name": "Coordinator",
+            "description": "Coordinates specific aspects of team work and assists team leadership.",
+            "permissions_level": "Coordinator",
+            "is_team_leader": 0,
+            "is_unique": 0,
+            "is_active": 1,
+        },
+        {
+            "role_name": "Secretary",
+            "description": "Maintains team records, minutes, and handles administrative tasks.",
+            "permissions_level": "Coordinator",
+            "is_team_leader": 0,
+            "is_unique": 1,
+            "is_active": 1,
+        },
+        {
+            "role_name": "Treasurer",
+            "description": "Manages team finances, budgets, and financial reporting.",
+            "permissions_level": "Coordinator",
+            "is_team_leader": 0,
+            "is_unique": 1,
+            "is_active": 1,
+        },
+        {
+            "role_name": "Verenigingen Auditor",
+            "description": "Audit committee member with read-only access to all financial records, accounting transactions, and compliance reports. Responsible for financial oversight and audit functions.",
+            "permissions_level": "Coordinator",
+            "is_team_leader": 0,
+            "is_unique": 0,
+            "is_active": 1,
+        },
+    ]
 
     created_count = 0
-    for role_name in team_roles:
-        if not frappe.db.exists("Team Role", role_name):
+    for role_data in team_roles:
+        name = role_data["role_name"]
+        if not frappe.db.exists("Team Role", name):
             try:
-                doc = frappe.get_doc({"doctype": "Team Role", "role_name": role_name})
+                doc = frappe.get_doc({"doctype": "Team Role", **role_data})
                 doc.insert(ignore_permissions=True)
                 created_count += 1
-                print(f"   ✓ Created team role: {role_name}")
+                print(f"   ✓ Created team role: {name}")
             except Exception as e:
-                print(f"   ⚠️ Could not create team role '{role_name}': {str(e)}")
+                print(f"   ⚠️ Could not create team role '{name}': {str(e)}")
         else:
-            print(f"   ✓ Team role already exists: {role_name}")
+            print(f"   ✓ Team role already exists: {name}")
 
     if created_count > 0:
         frappe.db.commit()
         print(f"   🎭 Created {created_count} default team roles")
+
+    return created_count
+
+
+def create_default_teams():
+    """Create default teams if they don't exist"""
+    print("   👥 Setting up default teams...")
+
+    teams = [
+        {
+            "team_name": "Kascommissie",
+            "description": "Audit committee responsible for financial oversight, reviewing accounting practices, ensuring compliance with financial regulations, and providing independent financial audit services for the association.",
+            "status": "Active",
+            "team_type": "Committee",
+            "is_association_wide": 1,
+            "start_date": "2024-01-01",
+            "objectives": "<p>The Kascommissie (Audit Committee) provides independent oversight of the association's financial operations.</p>",
+        },
+    ]
+
+    created_count = 0
+    for team_data in teams:
+        name = team_data["team_name"]
+        if not frappe.db.exists("Team", name):
+            try:
+                doc = frappe.get_doc({"doctype": "Team", **team_data})
+                doc.insert(ignore_permissions=True)
+                created_count += 1
+                print(f"   ✓ Created team: {name}")
+            except Exception as e:
+                print(f"   ⚠️ Could not create team '{name}': {str(e)}")
+        else:
+            print(f"   ✓ Team already exists: {name}")
+
+    if created_count > 0:
+        frappe.db.commit()
+        print(f"   👥 Created {created_count} default teams")
+
+    return created_count
+
+
+def create_default_regions():
+    """Create default Dutch regions if they don't exist"""
+    print("   🗺️ Setting up default regions...")
+
+    regions = [
+        {
+            "region_name": "Noord-Holland",
+            "region_code": "NH",
+            "country": "Netherlands",
+            "is_active": 1,
+            "postal_code_patterns": "1000-1999",
+            "coverage_description": "Amsterdam and surrounding areas",
+            "preferred_language": "Dutch",
+            "time_zone": "Europe/Amsterdam",
+            "membership_fee_adjustment": 1.0,
+        },
+        {
+            "region_name": "Utrecht",
+            "region_code": "UT",
+            "country": "Netherlands",
+            "is_active": 1,
+            "postal_code_patterns": "3400-3999",
+            "coverage_description": "Utrecht province",
+            "preferred_language": "Dutch",
+            "time_zone": "Europe/Amsterdam",
+            "membership_fee_adjustment": 1.0,
+        },
+        {
+            "region_name": "Zuid-Holland",
+            "region_code": "ZH",
+            "country": "Netherlands",
+            "is_active": 1,
+            "postal_code_patterns": "2000-2999",
+            "coverage_description": "Rotterdam, Den Haag and surrounding areas",
+            "preferred_language": "Dutch",
+            "time_zone": "Europe/Amsterdam",
+            "membership_fee_adjustment": 1.0,
+        },
+        {
+            "region_name": "Gelderland",
+            "region_code": "GLD",
+            "country": "Netherlands",
+            "is_active": 1,
+            "postal_code_patterns": "6500-7000,8200-8299",
+            "coverage_description": "Arnhem, Nijmegen and surrounding areas",
+            "preferred_language": "Dutch",
+            "time_zone": "Europe/Amsterdam",
+            "membership_fee_adjustment": 1.0,
+        },
+        {
+            "region_name": "Noord-Brabant",
+            "region_code": "NB",
+            "country": "Netherlands",
+            "is_active": 1,
+            "postal_code_patterns": "4700-5000,5100-5299",
+            "coverage_description": "Eindhoven, Breda, Tilburg and surrounding areas",
+            "preferred_language": "Dutch",
+            "time_zone": "Europe/Amsterdam",
+            "membership_fee_adjustment": 1.0,
+        },
+        {
+            "region_name": "Limburg",
+            "region_code": "LB",
+            "country": "Netherlands",
+            "is_active": 1,
+            "postal_code_patterns": "5900-6500",
+            "coverage_description": "Maastricht and surrounding areas",
+            "preferred_language": "Dutch",
+            "time_zone": "Europe/Amsterdam",
+            "membership_fee_adjustment": 1.0,
+        },
+    ]
+
+    created_count = 0
+    for region_data in regions:
+        name = region_data["region_name"]
+        if not frappe.db.exists("Region", name):
+            try:
+                doc = frappe.get_doc({"doctype": "Region", **region_data})
+                doc.insert(ignore_permissions=True)
+                created_count += 1
+                print(f"   ✓ Created region: {name}")
+            except Exception as e:
+                print(f"   ⚠️ Could not create region '{name}': {str(e)}")
+        else:
+            print(f"   ✓ Region already exists: {name}")
+
+    if created_count > 0:
+        frappe.db.commit()
+        print(f"   🗺️ Created {created_count} default regions")
 
     return created_count
 
@@ -1543,6 +1724,8 @@ def create_all_reference_data():
     - Donation Types
     - Membership Types
     - Team Roles
+    - Teams (e.g., Kascommissie)
+    - Regions (Dutch provinces)
     - Payment Modes
     - Membership Items
     """
@@ -1551,6 +1734,8 @@ def create_all_reference_data():
     create_default_donation_types()
     create_default_membership_types()
     create_default_team_roles()
+    create_default_teams()
+    create_default_regions()
     create_default_payment_modes()
     create_membership_items()
 
