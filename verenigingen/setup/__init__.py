@@ -1385,17 +1385,44 @@ def create_default_membership_types():
     """Create default Dutch membership types if they don't exist"""
     print("   👥 Setting up default membership types...")
 
-    # Dutch association membership types with their base rates
+    # Dutch association membership types
+    # Note: dues_schedule_template is created automatically via after_insert hook
     membership_types = [
-        {"membership_type_name": "Lid", "billing_frequency": "Annual", "membership_type": "Regular"},
+        {
+            "membership_type_name": "Lid",
+            "minimum_amount": 3.0,
+            "is_active": 1,
+            "description": "Standaard lidmaatschap met volledige rechten",
+            "role_profile": "Verenigingen Member",
+        },
         {
             "membership_type_name": "Huisgenootlid",
-            "billing_frequency": "Annual",
-            "membership_type": "Regular",
+            "minimum_amount": 0.0,
+            "is_active": 1,
+            "description": "Lidmaatschap voor huisgenoten van bestaande leden (gereduceerd tarief)",
+            "role_profile": "Verenigingen Member",
         },
-        {"membership_type_name": "Aspirant", "billing_frequency": "Annual", "membership_type": "Regular"},
-        {"membership_type_name": "Erelid", "billing_frequency": "Annual", "membership_type": "Honorary"},
-        {"membership_type_name": "Donateur", "billing_frequency": "Annual", "membership_type": "Donor"},
+        {
+            "membership_type_name": "Aspirant",
+            "minimum_amount": 3.0,
+            "is_active": 1,
+            "description": "Proeflidmaatschap voor nieuwe aanmeldingen (geen contributie)",
+            "role_profile": "Verenigingen Member",
+        },
+        {
+            "membership_type_name": "Erelid",
+            "minimum_amount": 0.0,
+            "is_active": 1,
+            "description": "Erelidmaatschap - geen contributie verschuldigd",
+            "role_profile": "Verenigingen Member",
+        },
+        {
+            "membership_type_name": "Donateur",
+            "minimum_amount": 0.0,
+            "is_active": 1,
+            "description": "Donateur - steunt de vereniging zonder lidmaatschapsrechten",
+            "role_profile": "Verenigingen Member",
+        },
     ]
 
     created_count = 0
@@ -1716,6 +1743,41 @@ def create_membership_items():
     frappe.db.commit()
 
 
+def configure_website_cors():
+    """Configure CORS settings if not already set.
+
+    Only enables CORS if cors_allowed_origins is empty.
+    Uses the site URL to determine allowed origins automatically.
+    """
+    print("   🌐 Checking CORS configuration...")
+
+    try:
+        website_settings = frappe.get_single("Website Settings")
+
+        # Only configure if CORS origins not already set
+        if website_settings.get("cors_allowed_origins"):
+            print("   ✓ CORS already configured, skipping")
+            return
+
+        # Get the site URL to use as allowed origin
+        site_url = frappe.utils.get_url()
+
+        website_settings.enable_cors = 1
+        website_settings.cors_allowed_origins = site_url
+        website_settings.cors_allowed_methods = "GET, POST, PUT, DELETE, OPTIONS"
+        website_settings.cors_allowed_headers = (
+            "Content-Type, Authorization, X-Frappe-CSRF-Token, X-Frappe-Cmd"
+        )
+        website_settings.cors_allow_credentials = 1
+        website_settings.cors_max_age = 86400
+        website_settings.save(ignore_permissions=True)
+        frappe.db.commit()
+        print(f"   ✓ CORS configured with origin: {site_url}")
+
+    except Exception as e:
+        print(f"   ⚠️ Could not configure CORS: {str(e)}")
+
+
 def create_all_reference_data():
     """
     Create all reference data that was previously in fixtures.
@@ -1728,6 +1790,7 @@ def create_all_reference_data():
     - Regions (Dutch provinces)
     - Payment Modes
     - Membership Items
+    - CORS configuration
     """
     print("\n📊 Creating reference data...")
 
@@ -1738,6 +1801,7 @@ def create_all_reference_data():
     create_default_regions()
     create_default_payment_modes()
     create_membership_items()
+    configure_website_cors()
 
     print("📊 Reference data creation complete\n")
 
