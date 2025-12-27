@@ -1346,7 +1346,7 @@ def create_default_donation_types():
     """Create default donation types if they don't exist"""
     print("   💰 Setting up default donation types...")
 
-    default_types = ["General", "Monthly", "One-time", "Campaign", "Emergency Relie", "Membership Support"]
+    default_types = ["General", "Monthly", "One-time", "Campaign", "Emergency Relief", "Membership Support"]
 
     created_count = 0
 
