@@ -1,20 +1,14 @@
 """
-Email Address Fixtures for Verenigingen App
+Email Address Utilities for Verenigingen App
 
-This module provides centralized email address management for the Verenigingen app.
-It categorizes emails by their purpose and provides easy access methods.
+This module provides centralized email address management for testing
+and placeholder purposes. Production emails should come from Verenigingen
+Settings or site configuration.
 """
 
-import os
-from typing import Any, Dict
+from typing import Dict
 
-# Production/Live Email Addresses (these should be configurable)
-PRODUCTION_EMAILS = {
-    "app_contact": "info@verenigingen.org",
-    "member_administration": "ledenadministratie@veganisme.org",
-    "general_support": "info@vereniging.nl",
-    "admin_notifications": "admin@veganisme.net",
-}
+import frappe
 
 # Test Email Addresses (safe for testing environments)
 TEST_EMAILS = {
@@ -22,21 +16,14 @@ TEST_EMAILS = {
     "admin_test": "test_admin@example.com",
     "member_test": "test_member@example.com",
     "guest_test": "test_guest@example.com",
-    "volunteer_test": "test.volunteer.js@example.org",
-    "donor_test": "test@example.com",
-    "payment_test": "phase22payment@test.com",
-    "invoice_test": "phase22invoice@test.com",
-    "background_job_test": "phase22bg@test.com",
+    "volunteer_test": "test.volunteer@example.org",
+    "donor_test": "test_donor@example.com",
+    "payment_test": "payment_test@example.com",
+    "invoice_test": "invoice_test@example.com",
+    "background_job_test": "background_job@example.com",
     "validation_test": "validation.test@example.com",
     "workflow_test": "workflow.test@example.com",
-    "integration_test": "volunteer.integration@example.com",
-}
-
-# Development-specific Email Addresses (user-specific, temporary)
-DEV_EMAILS = {
-    "foppe": "foppe@veganisme.org",
-    "fjdh_leden": "fjdh@leden.socialisten.org",
-    "foppe_rsp": "foppe.haan@leden.rsp.nu",
+    "integration_test": "integration.test@example.com",
 }
 
 # Placeholder/Example Email Addresses (for forms and documentation)
@@ -45,7 +32,7 @@ PLACEHOLDER_EMAILS = {
     "example_support": "support@example.com",
     "example_complex": "test.email+tag@example.co.uk",
     "example_subdomain": "user@mail.example.com",
-    "example_long": "very.long.email.address.for.testing.purposes@very.long.domain.name.example.com",
+    "example_long": "very.long.email.address@very.long.domain.example.com",
     "example_case": "Test.EMAIL@EXAMPLE.COM",
     "example_numbers": "user123@example123.com",
     "example_dots": "user.name.test@example.co.uk",
@@ -54,12 +41,56 @@ PLACEHOLDER_EMAILS = {
 
 # Security Test Email Addresses (for security testing)
 SECURITY_TEST_EMAILS = {
-    "xss_test": "test@example.com",  # Used with XSS payloads in other fields
-    "sql_injection_test": "hacked@evil.com",  # Used in SQL injection tests
-    "ldap_injection_test": "test*)(mail=*))%00@example.com",
-    "header_injection_test": "test@example.com\nBcc: hacker@evil.com",
+    "xss_test": "test@example.com",
+    "sql_injection_test": "test_sql@example.com",
+    "ldap_injection_test": "test_ldap@example.com",
+    "header_injection_test": "test_header@example.com",
     "email_injection_victim": "victim@example.com",
 }
+
+
+def get_production_email(key: str) -> str:
+    """
+    Get a production email from Verenigingen Settings.
+
+    Args:
+        key: The email key (e.g., 'support_email', 'admin_email')
+
+    Returns:
+        str: The email address from settings, or empty string if not found
+    """
+    try:
+        settings = frappe.get_single("Verenigingen Settings")
+        return settings.get(key) or ""
+    except Exception:
+        return ""
+
+
+def get_support_email() -> str:
+    """
+    Get the support email from settings.
+
+    Returns:
+        str: Support email address
+    """
+    # Try to get from Verenigingen Settings
+    email = get_production_email("support_email")
+    if email:
+        return email
+
+    # Fallback to default outgoing email account
+    try:
+        default_account = frappe.db.get_value(
+            "Email Account",
+            {"default_outgoing": 1, "enable_outgoing": 1},
+            "email_id",
+        )
+        if default_account:
+            return default_account
+    except Exception:
+        pass
+
+    return ""
 
 
 def get_email(category: str, key: str, fallback: str = None) -> str:
@@ -67,7 +98,7 @@ def get_email(category: str, key: str, fallback: str = None) -> str:
     Get an email address from the fixtures.
 
     Args:
-        category: The email category (production, test, dev, placeholder, security_test)
+        category: The email category (test, placeholder, security_test)
         key: The specific email key within the category
         fallback: Fallback email if key not found
 
@@ -78,9 +109,7 @@ def get_email(category: str, key: str, fallback: str = None) -> str:
         KeyError: If category or key not found and no fallback provided
     """
     categories = {
-        "production": PRODUCTION_EMAILS,
         "test": TEST_EMAILS,
-        "dev": DEV_EMAILS,
         "placeholder": PLACEHOLDER_EMAILS,
         "security_test": SECURITY_TEST_EMAILS,
     }
@@ -96,24 +125,6 @@ def get_email(category: str, key: str, fallback: str = None) -> str:
         raise KeyError(f"Email key '{key}' not in category '{category}'")
 
     return categories[category][key]
-
-
-def get_support_email(environment: str = None) -> str:
-    """
-    Get the appropriate support email based on environment.
-
-    Args:
-        environment: Environment name (production, development, test)
-
-    Returns:
-        str: Support email address
-    """
-    if environment == "production":
-        return get_email("production", "member_administration")
-    elif environment == "development":
-        return get_email("placeholder", "example_support")
-    else:
-        return get_email("test", "generic_test")
 
 
 def get_test_email(purpose: str = "generic") -> str:
@@ -187,19 +198,6 @@ def is_test_email(email: str) -> bool:
     return email.lower() in {e.lower() for e in all_test_emails}
 
 
-def is_dev_email(email: str) -> bool:
-    """
-    Check if an email address is a development-specific email.
-
-    Args:
-        email: Email address to check
-
-    Returns:
-        bool: True if the email is a dev email
-    """
-    return email.lower() in {e.lower() for e in DEV_EMAILS.values()}
-
-
 def get_all_emails() -> Dict[str, Dict[str, str]]:
     """
     Get all email fixtures organized by category.
@@ -208,9 +206,7 @@ def get_all_emails() -> Dict[str, Dict[str, str]]:
         dict: All email fixtures
     """
     return {
-        "production": PRODUCTION_EMAILS,
         "test": TEST_EMAILS,
-        "dev": DEV_EMAILS,
         "placeholder": PLACEHOLDER_EMAILS,
         "security_test": SECURITY_TEST_EMAILS,
     }
@@ -230,39 +226,33 @@ def get_emails_for_cleanup() -> list:
     return cleanup_emails
 
 
-# Environment-aware email retrieval
+# Backwards compatibility aliases
 def get_environment_email(key: str, fallback: str = None) -> str:
     """
     Get email based on current environment.
-    Checks environment variables to determine if we're in development/test.
-
-    Args:
-        key: Email key to retrieve
-        fallback: Fallback email if not found
-
-    Returns:
-        str: Email address appropriate for current environment
+    Deprecated: Use get_test_email() or get_production_email() instead.
     """
-    # Check if we're in a development environment
-    is_development = (
-        os.getenv("FRAPPE_ENV") == "development"
-        or os.getenv("ENVIRONMENT") == "development"
-        or "dev.veganisme.net" in os.getenv("SITE_NAME", "")
-    )
+    # Try test emails first
+    if key in TEST_EMAILS:
+        return TEST_EMAILS[key]
+    if key in PLACEHOLDER_EMAILS:
+        return PLACEHOLDER_EMAILS[key]
 
-    if is_development:
-        # Try to get from test emails first
-        if key in TEST_EMAILS:
-            return TEST_EMAILS[key]
-        elif key in PLACEHOLDER_EMAILS:
-            return PLACEHOLDER_EMAILS[key]
-
-    # Try production emails
-    if key in PRODUCTION_EMAILS:
-        return PRODUCTION_EMAILS[key]
-
-    # Return fallback or raise error
     if fallback:
         return fallback
 
-    raise KeyError(f"Email key '{key}' not in any category")
+    raise KeyError(f"Email key '{key}' not found")
+
+
+def is_dev_email(email: str) -> bool:
+    """
+    Check if an email address is a development-specific email.
+    Deprecated: Dev-specific emails are no longer tracked in code.
+
+    Args:
+        email: Email address to check
+
+    Returns:
+        bool: Always returns False (dev emails removed from codebase)
+    """
+    return False

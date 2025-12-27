@@ -7,7 +7,7 @@ with the email fixtures and Frappe settings.
 
 import frappe
 
-from verenigingen.fixtures.email_addresses import (
+from verenigingen.utils.email_addresses import (
     get_email,
     get_environment_email,
     get_placeholder_email,
