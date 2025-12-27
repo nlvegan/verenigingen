@@ -1802,8 +1802,45 @@ def create_all_reference_data():
     create_default_payment_modes()
     create_membership_items()
     configure_website_cors()
+    create_background_service_user()
 
     print("📊 Reference data creation complete\n")
+
+
+def create_background_service_user():
+    """Create background service user for webhooks and scheduled tasks.
+
+    Only creates if user doesn't exist. Uses .local domain to indicate
+    this is a system user, not a real email address.
+    """
+    print("   🤖 Setting up background service user...")
+
+    user_email = "background.service@verenigingen.local"
+
+    if frappe.db.exists("User", user_email):
+        print(f"   ✓ Service user already exists: {user_email}")
+        return
+
+    try:
+        user = frappe.get_doc(
+            {
+                "doctype": "User",
+                "email": user_email,
+                "first_name": "Background",
+                "last_name": "Service",
+                "enabled": 1,
+                "user_type": "System User",
+                "send_welcome_email": 0,
+                "language": "en",
+                "time_zone": "Europe/Amsterdam",
+                "roles": [{"role": "Verenigingen Webhook User"}],
+            }
+        )
+        user.insert(ignore_permissions=True)
+        frappe.db.commit()
+        print(f"   ✓ Created service user: {user_email}")
+    except Exception as e:
+        print(f"   ⚠️ Could not create service user: {str(e)}")
 
 
 @frappe.whitelist()
