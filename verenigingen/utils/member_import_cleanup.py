@@ -1898,7 +1898,7 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
     MEMBER-RELATED:
     - Member Payment History, Chapter Member, Chapter Board Member
     - Volunteer Assignment, Volunteer Skill, Volunteer Interest Area, Volunteer Development Goal
-    - SEPA Mandate, Contribution Amendment Request, Membership Termination Request
+    - SEPA Mandate, Contribution Amendment Request, Membership Termination Request, Account Creation Request
     - Volunteer, Membership, Membership Type, Donor, Member, Employee
 
     CONTACT/ADDRESS (ALL records, not just member-linked):
@@ -1996,6 +1996,7 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
             ("tabSEPA Mandate", False, "SEPA direct debit mandates"),
             ("tabContribution Amendment Request", False, "Contribution change requests"),
             ("tabMembership Termination Request", False, "Membership termination requests"),
+            ("tabAccount Creation Request", False, "Account creation requests"),
             ("tabVolunteer", False, "Volunteer records"),
             ("tabMembership", False, "Membership records"),
             ("tabMembership Type", False, "Membership type definitions"),

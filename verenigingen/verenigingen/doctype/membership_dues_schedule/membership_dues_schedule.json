@@ -8,10 +8,10 @@
   "schedule_name",
   "is_template",
   "section_membership",
-  "member",
-  "membership",
   "member_name",
+  "member",
   "membership_type",
+  "membership",
   "template_reference",
   "column_break_1",
   "status",
@@ -19,7 +19,6 @@
   "custom_frequency_number",
   "custom_frequency_unit",
   "auto_generate",
-  "test_mode",
   "section_schedule",
   "next_invoice_date",
   "last_invoice_date",
@@ -30,6 +29,7 @@
   "payment_terms_template",
   "currency",
   "dues_rate",
+  "uses_custom_amount",
   "section_coverage_tracking",
   "last_generated_invoice",
   "last_invoice_coverage_start",
@@ -46,7 +46,6 @@
   "column_break_contrib",
   "minimum_amount",
   "suggested_amount",
-  "uses_custom_amount",
   "section_custom_amount",
   "custom_amount_reason",
   "custom_amount_approved",
@@ -146,7 +145,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Billing Frequency",
-   "options": "Annual\nSemi-Annual\nQuarterly\nMonthly\nDaily\nCustom",
+   "options": "\nAnnual\nSemi-Annual\nQuarterly\nMonthly\nDaily\nCustom",
    "reqd": 1
   },
   {
@@ -171,12 +170,6 @@
    "label": "Auto Generate Invoices"
   },
   {
-   "default": "0",
-   "fieldname": "test_mode",
-   "fieldtype": "Check",
-   "label": "Test Mode (Don't create actual invoices)"
-  },
-  {
    "fieldname": "section_schedule",
    "fieldtype": "Section Break",
    "label": "Billing Schedule"
@@ -191,7 +184,7 @@
   {
    "fieldname": "last_invoice_date",
    "fieldtype": "Date",
-   "label": "Last Invoice Date",
+   "label": "Previous Invoice Date",
    "read_only": 1
   },
   {
@@ -224,7 +217,7 @@
    "description": "Direct link to the most recently generated invoice",
    "fieldname": "last_generated_invoice",
    "fieldtype": "Link",
-   "label": "Last Generated Invoice",
+   "label": "Previous Generated Invoice",
    "options": "Sales Invoice",
    "read_only": 1
   },
@@ -232,14 +225,14 @@
    "description": "Coverage start date for the last generated invoice",
    "fieldname": "last_invoice_coverage_start",
    "fieldtype": "Date",
-   "label": "Last Invoice Coverage Start",
+   "label": "Previous Invoice Coverage Start",
    "read_only": 1
   },
   {
    "description": "Coverage end date for the last generated invoice",
    "fieldname": "last_invoice_coverage_end",
    "fieldtype": "Date",
-   "label": "Last Invoice Coverage End",
+   "label": "Previous Invoice Coverage End",
    "read_only": 1
   },
   {
@@ -342,7 +335,7 @@
   },
   {
    "default": "0",
-   "description": "Indicates member selected their own contribution amount (standard practice)",
+   "description": "Indicates member selected their own contribution amount",
    "fieldname": "uses_custom_amount",
    "fieldtype": "Check",
    "label": "Member-Selected Amount"
@@ -450,7 +443,7 @@
   }
  ],
  "links": [],
- "modified": "2025-11-18 19:10:00.831788",
+ "modified": "2025-12-28 12:15:19.750288",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Membership Dues Schedule",
