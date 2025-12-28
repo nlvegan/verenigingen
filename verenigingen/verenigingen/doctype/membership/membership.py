@@ -502,19 +502,24 @@ class Membership(Document):
         """
         Set the commitment end date - the minimum period members must remain before quitting.
         This is typically 1 year from start date for members who receive welcome gifts.
+
+        Only sets commitment_end_date if enforce_minimum_period is enabled on the Membership Type.
         """
         if not self.start_date:
             return
 
+        # Check if minimum period enforcement is enabled for this membership type
+        if self.membership_type:
+            membership_type = frappe.get_doc("Membership Type", self.membership_type)
+            enforce_minimum = membership_type.get("enforce_minimum_period", True)
+            if not enforce_minimum:
+                # Don't set commitment_end_date if minimum period is not enforced
+                return
+
         # Default to 1 year commitment period (welcome gift eligibility requirement)
         # Can be overridden if needed for special cases
         if not self.commitment_end_date:
-            reference_date = self.start_date
-            if getattr(self, "_is_csv_import", False) and getdate(self.start_date) < getdate(today()):
-                # For historic imports, calculate from today
-                reference_date = today()
-
-            self.commitment_end_date = add_to_date(reference_date, months=12)
+            self.commitment_end_date = add_to_date(self.start_date, months=12)
 
     def get_months_from_period(self, period, custom_months=None):
         period_months = {
