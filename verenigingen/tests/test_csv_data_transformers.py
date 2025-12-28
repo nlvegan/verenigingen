@@ -7,11 +7,15 @@ Tests pure functions extracted from MijnroodCSVImport for data cleaning and tran
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from unittest.mock import MagicMock, patch
+
 from verenigingen.utils.csv.data_transformers import (
     clean_phone_number,
     clean_value,
     convert_country_code,
     convert_membership_type,
+    determine_membership_type_for_csv_import,
+    get_dues_schedule_template_from_payment_period,
     parse_date,
 )
 
@@ -198,3 +202,166 @@ class TestCSVDataTransformers(FrappeTestCase):
         # Unknown field types just clean whitespace and return string
         self.assertEqual(clean_value("  test value  ", "unknown_field"), "test value")
         self.assertEqual(clean_value("123", "unknown_field"), "123")
+
+
+class TestMembershipTypeForCSVImport(FrappeTestCase):
+    """Test suite for membership type determination based on Lidmaatschapstype"""
+
+    def _create_mock_settings(self, default_type="Standard Member", aspirant_type="Aspirant Member"):
+        """Create a mock settings object"""
+        mock_settings = MagicMock()
+        mock_settings.default_membership_type = default_type
+        mock_settings.default_aspirant_membership_type = aspirant_type
+        return mock_settings
+
+    @patch("verenigingen.utils.csv.data_transformers.frappe")
+    def test_regular_member_uses_default_type(self, mock_frappe):
+        """Test that regular members (Lid) use default_membership_type"""
+        mock_settings = self._create_mock_settings()
+        mock_frappe.get_single.return_value = mock_settings
+        mock_frappe.db.exists.return_value = True
+
+        row_data = {"membership_type": "Lid"}
+        result = determine_membership_type_for_csv_import(row_data)
+
+        self.assertEqual(result, "Standard Member")
+
+    @patch("verenigingen.utils.csv.data_transformers.frappe")
+    def test_aspirant_member_uses_aspirant_type(self, mock_frappe):
+        """Test that aspirant members use default_aspirant_membership_type"""
+        mock_settings = self._create_mock_settings()
+        mock_frappe.get_single.return_value = mock_settings
+        mock_frappe.db.exists.return_value = True
+
+        row_data = {"membership_type": "Aspirant"}
+        result = determine_membership_type_for_csv_import(row_data)
+
+        self.assertEqual(result, "Aspirant Member")
+
+    @patch("verenigingen.utils.csv.data_transformers.frappe")
+    def test_aspirant_case_insensitive(self, mock_frappe):
+        """Test that aspirant detection is case-insensitive"""
+        mock_settings = self._create_mock_settings()
+        mock_frappe.get_single.return_value = mock_settings
+        mock_frappe.db.exists.return_value = True
+
+        # Test various case combinations
+        for membership_type in ["aspirant", "ASPIRANT", "Aspirant", "aspirant-lid"]:
+            row_data = {"membership_type": membership_type}
+            result = determine_membership_type_for_csv_import(row_data)
+            self.assertEqual(result, "Aspirant Member", f"Failed for: {membership_type}")
+
+    @patch("verenigingen.utils.csv.data_transformers.frappe")
+    def test_empty_membership_type_uses_default(self, mock_frappe):
+        """Test that empty membership_type uses default_membership_type"""
+        mock_settings = self._create_mock_settings()
+        mock_frappe.get_single.return_value = mock_settings
+        mock_frappe.db.exists.return_value = True
+
+        row_data = {"membership_type": ""}
+        result = determine_membership_type_for_csv_import(row_data)
+
+        self.assertEqual(result, "Standard Member")
+
+    @patch("verenigingen.utils.csv.data_transformers.frappe")
+    def test_missing_default_type_throws(self, mock_frappe):
+        """Test that missing default_membership_type throws error"""
+        mock_settings = MagicMock()
+        mock_settings.default_membership_type = None
+        mock_settings.default_aspirant_membership_type = None
+        mock_frappe.get_single.return_value = mock_settings
+
+        row_data = {"membership_type": "Lid", "member_id": "12345"}
+        with self.assertRaises(Exception):
+            mock_frappe.throw.side_effect = frappe.ValidationError("No default membership type")
+            determine_membership_type_for_csv_import(row_data)
+
+
+class TestDuesScheduleTemplateFromPaymentPeriod(FrappeTestCase):
+    """Test suite for dues schedule template lookup from payment period"""
+
+    def _create_mock_settings(self, monthly="Monthly Template", quarterly="Quarterly Template", annual="Annual Template"):
+        """Create a mock settings object"""
+        mock_settings = MagicMock()
+        mock_settings.csv_monthly_dues_schedule = monthly
+        mock_settings.csv_quarterly_dues_schedule = quarterly
+        mock_settings.csv_annual_dues_schedule = annual
+        return mock_settings
+
+    def _create_mock_template(self, is_template=True):
+        """Create a mock template document"""
+        mock_doc = MagicMock()
+        mock_doc.is_template = is_template
+        return mock_doc
+
+    @patch("verenigingen.utils.csv.data_transformers.frappe")
+    def test_monthly_payment_period(self, mock_frappe):
+        """Test that Maandelijks maps to csv_monthly_dues_schedule"""
+        mock_settings = self._create_mock_settings()
+        mock_frappe.get_single.return_value = mock_settings
+        mock_frappe.db.exists.return_value = True
+        mock_frappe.get_doc.return_value = self._create_mock_template()
+
+        for period in ["Maandelijks", "maandelijks", "Monthly", "per maand"]:
+            row_data = {"payment_period": period}
+            result = get_dues_schedule_template_from_payment_period(row_data)
+            self.assertEqual(result, "Monthly Template", f"Failed for: {period}")
+
+    @patch("verenigingen.utils.csv.data_transformers.frappe")
+    def test_quarterly_payment_period(self, mock_frappe):
+        """Test that Kwartaal maps to csv_quarterly_dues_schedule"""
+        mock_settings = self._create_mock_settings()
+        mock_frappe.get_single.return_value = mock_settings
+        mock_frappe.db.exists.return_value = True
+        mock_frappe.get_doc.return_value = self._create_mock_template()
+
+        for period in ["Kwartaal", "kwartaal", "Quarterly", "per kwartaal", "driemaandelijks"]:
+            row_data = {"payment_period": period}
+            result = get_dues_schedule_template_from_payment_period(row_data)
+            self.assertEqual(result, "Quarterly Template", f"Failed for: {period}")
+
+    @patch("verenigingen.utils.csv.data_transformers.frappe")
+    def test_annual_payment_period(self, mock_frappe):
+        """Test that Jaarlijks maps to csv_annual_dues_schedule"""
+        mock_settings = self._create_mock_settings()
+        mock_frappe.get_single.return_value = mock_settings
+        mock_frappe.db.exists.return_value = True
+        mock_frappe.get_doc.return_value = self._create_mock_template()
+
+        for period in ["Jaarlijks", "jaarlijks", "Annual", "per jaar", "jaar"]:
+            row_data = {"payment_period": period}
+            result = get_dues_schedule_template_from_payment_period(row_data)
+            self.assertEqual(result, "Annual Template", f"Failed for: {period}")
+
+    @patch("verenigingen.utils.csv.data_transformers.frappe")
+    def test_missing_payment_period_throws(self, mock_frappe):
+        """Test that missing payment_period throws error"""
+        mock_frappe.throw.side_effect = frappe.ValidationError("Payment period required")
+
+        row_data = {"payment_period": ""}
+        with self.assertRaises(frappe.ValidationError):
+            get_dues_schedule_template_from_payment_period(row_data)
+
+    @patch("verenigingen.utils.csv.data_transformers.frappe")
+    def test_unknown_payment_period_throws(self, mock_frappe):
+        """Test that unknown payment_period throws error"""
+        mock_settings = self._create_mock_settings()
+        mock_frappe.get_single.return_value = mock_settings
+        mock_frappe.throw.side_effect = frappe.ValidationError("Unknown payment period")
+
+        row_data = {"payment_period": "Unknown Period"}
+        with self.assertRaises(frappe.ValidationError):
+            get_dues_schedule_template_from_payment_period(row_data)
+
+    @patch("verenigingen.utils.csv.data_transformers.frappe")
+    def test_non_template_throws(self, mock_frappe):
+        """Test that non-template dues schedule throws error"""
+        mock_settings = self._create_mock_settings()
+        mock_frappe.get_single.return_value = mock_settings
+        mock_frappe.db.exists.return_value = True
+        mock_frappe.get_doc.return_value = self._create_mock_template(is_template=False)
+        mock_frappe.throw.side_effect = frappe.ValidationError("Not a template")
+
+        row_data = {"payment_period": "Maandelijks"}
+        with self.assertRaises(frappe.ValidationError):
+            get_dues_schedule_template_from_payment_period(row_data)

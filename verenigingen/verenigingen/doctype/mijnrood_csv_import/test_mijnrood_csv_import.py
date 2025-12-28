@@ -4,7 +4,7 @@
 import csv
 import io
 import unittest
-from unittest.mock import mock_open, patch
+from unittest.mock import MagicMock, mock_open, patch
 
 import frappe
 
@@ -427,3 +427,85 @@ class TestMijnroodCSVImportPerformance(unittest.TestCase):
         self.assertLess(processing_time, 5.0, f"Validation took too long: {processing_time:.2f}s")
         self.assertEqual(len(mapped_data), 1000)
         self.assertEqual(len(errors), 0)
+
+
+class TestMijnroodCSVImportSettings(unittest.TestCase):
+    """Test cases for CSV import settings validation."""
+
+    def setUp(self):
+        """Set up test document."""
+        self.doc = frappe.get_doc({"doctype": "Mijnrood CSV Import"})
+
+    @patch("frappe.get_single")
+    def test_validate_settings_all_configured(self, mock_get_single):
+        """Test that validation passes when all settings are configured."""
+        mock_settings = MagicMock()
+        mock_settings.csv_monthly_dues_schedule = "Monthly Template"
+        mock_settings.csv_annual_dues_schedule = "Annual Template"
+        mock_settings.default_membership_type = "Standard Member"
+        mock_get_single.return_value = mock_settings
+
+        # Should not raise
+        self.doc._validate_csv_import_settings()
+
+    @patch("frappe.throw")
+    @patch("frappe.get_single")
+    def test_validate_settings_missing_monthly(self, mock_get_single, mock_throw):
+        """Test that validation fails when csv_monthly_dues_schedule is missing."""
+        mock_settings = MagicMock()
+        mock_settings.csv_monthly_dues_schedule = None
+        mock_settings.csv_annual_dues_schedule = "Annual Template"
+        mock_settings.default_membership_type = "Standard Member"
+        mock_get_single.return_value = mock_settings
+
+        self.doc._validate_csv_import_settings()
+        mock_throw.assert_called_once()
+        call_args = str(mock_throw.call_args)
+        self.assertIn("CSV Monthly Dues Schedule", call_args)
+
+    @patch("frappe.throw")
+    @patch("frappe.get_single")
+    def test_validate_settings_missing_annual(self, mock_get_single, mock_throw):
+        """Test that validation fails when csv_annual_dues_schedule is missing."""
+        mock_settings = MagicMock()
+        mock_settings.csv_monthly_dues_schedule = "Monthly Template"
+        mock_settings.csv_annual_dues_schedule = None
+        mock_settings.default_membership_type = "Standard Member"
+        mock_get_single.return_value = mock_settings
+
+        self.doc._validate_csv_import_settings()
+        mock_throw.assert_called_once()
+        call_args = str(mock_throw.call_args)
+        self.assertIn("CSV Annual Dues Schedule", call_args)
+
+    @patch("frappe.throw")
+    @patch("frappe.get_single")
+    def test_validate_settings_missing_default_type(self, mock_get_single, mock_throw):
+        """Test that validation fails when default_membership_type is missing."""
+        mock_settings = MagicMock()
+        mock_settings.csv_monthly_dues_schedule = "Monthly Template"
+        mock_settings.csv_annual_dues_schedule = "Annual Template"
+        mock_settings.default_membership_type = None
+        mock_get_single.return_value = mock_settings
+
+        self.doc._validate_csv_import_settings()
+        mock_throw.assert_called_once()
+        call_args = str(mock_throw.call_args)
+        self.assertIn("Default Membership Type", call_args)
+
+    @patch("frappe.throw")
+    @patch("frappe.get_single")
+    def test_validate_settings_multiple_missing(self, mock_get_single, mock_throw):
+        """Test that validation reports all missing settings."""
+        mock_settings = MagicMock()
+        mock_settings.csv_monthly_dues_schedule = None
+        mock_settings.csv_annual_dues_schedule = None
+        mock_settings.default_membership_type = None
+        mock_get_single.return_value = mock_settings
+
+        self.doc._validate_csv_import_settings()
+        mock_throw.assert_called_once()
+        call_args = str(mock_throw.call_args)
+        self.assertIn("CSV Monthly Dues Schedule", call_args)
+        self.assertIn("CSV Annual Dues Schedule", call_args)
+        self.assertIn("Default Membership Type", call_args)

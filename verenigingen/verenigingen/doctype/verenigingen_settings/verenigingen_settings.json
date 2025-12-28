@@ -77,9 +77,10 @@
   "chapter_dues_income_account",
   "national_dues_income_account",
   "csv_import_section",
-  "csv_monthly_membership_type",
-  "csv_quarterly_membership_type",
-  "csv_annual_membership_type",
+  "csv_monthly_dues_schedule",
+  "csv_quarterly_dues_schedule",
+  "csv_annual_dues_schedule",
+  "default_aspirant_membership_type",
   "sepa_settings_tab",
   "financial_section",
   "company_account_holder",
@@ -441,24 +442,31 @@
    "label": "Mijnrood CSV Import Settings"
   },
   {
-   "description": "Membership type to use for CSV imports with monthly payment period (Maandelijks)",
-   "fieldname": "csv_monthly_membership_type",
+   "description": "Dues schedule template to use for CSV imports with monthly payment period (Maandelijks). Must be a template with Monthly billing frequency.",
+   "fieldname": "csv_monthly_dues_schedule",
    "fieldtype": "Link",
-   "label": "CSV Monthly Membership Type",
-   "options": "Membership Type"
+   "label": "CSV Monthly Dues Schedule",
+   "options": "Membership Dues Schedule"
   },
   {
-   "description": "Membership type to use for CSV imports with quarterly payment period (Kwartaal)",
-   "fieldname": "csv_quarterly_membership_type",
+   "description": "Dues schedule template to use for CSV imports with quarterly payment period (Kwartaal). Must be a template with Quarterly billing frequency.",
+   "fieldname": "csv_quarterly_dues_schedule",
    "fieldtype": "Link",
-   "label": "CSV Quarterly Membership Type",
-   "options": "Membership Type"
+   "label": "CSV Quarterly Dues Schedule",
+   "options": "Membership Dues Schedule"
   },
   {
-   "description": "Membership type to use for CSV imports with annual payment period (Jaarlijks)",
-   "fieldname": "csv_annual_membership_type",
+   "description": "Dues schedule template to use for CSV imports with annual payment period (Jaarlijks). Must be a template with Annual billing frequency.",
+   "fieldname": "csv_annual_dues_schedule",
    "fieldtype": "Link",
-   "label": "CSV Annual Membership Type",
+   "label": "CSV Annual Dues Schedule",
+   "options": "Membership Dues Schedule"
+  },
+  {
+   "description": "Default membership type for aspirant members (when CSV Lidmaatschapstype contains 'aspirant')",
+   "fieldname": "default_aspirant_membership_type",
+   "fieldtype": "Link",
+   "label": "Default Aspirant Membership Type",
    "options": "Membership Type"
   },
   {

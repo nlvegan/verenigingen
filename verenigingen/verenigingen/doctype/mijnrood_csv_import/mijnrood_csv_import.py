@@ -23,7 +23,8 @@ from verenigingen.utils.csv.data_transformers import (
     clean_value,
     convert_country_code,
     convert_membership_type,
-    determine_membership_type_from_payment_period,
+    determine_membership_type_for_csv_import,
+    get_dues_schedule_template_from_payment_period,
     map_payment_period_to_billing_frequency,
     parse_date,
 )
@@ -57,16 +58,21 @@ class MijnroodCSVImport(Document):
         pass
 
     def _validate_csv_import_settings(self):
-        """Validate that CSV import membership type settings are configured."""
+        """Validate that CSV import settings are configured."""
         settings = frappe.get_single("Verenigingen Settings")
 
         missing_settings = []
 
-        if not settings.csv_monthly_membership_type:
-            missing_settings.append("CSV Monthly Membership Type")
+        # Check dues schedule templates
+        if not settings.csv_monthly_dues_schedule:
+            missing_settings.append("CSV Monthly Dues Schedule")
 
-        if not settings.csv_annual_membership_type:
-            missing_settings.append("CSV Annual Membership Type")
+        if not settings.csv_annual_dues_schedule:
+            missing_settings.append("CSV Annual Dues Schedule")
+
+        # Check membership type defaults
+        if not settings.default_membership_type:
+            missing_settings.append("Default Membership Type")
 
         if missing_settings:
             frappe.throw(
@@ -1760,12 +1766,12 @@ class MijnroodCSVImport(Document):
 
     def _create_membership_unified_path(self, member_doc: Document, row_data: dict):
         """Create membership using unified normal approval workflow (Phase 3)."""
-        # Determine membership type from payment period
-        membership_type = determine_membership_type_from_payment_period(row_data)
+        # Determine membership type from Lidmaatschapstype (aspirant vs regular)
+        membership_type = determine_membership_type_for_csv_import(row_data)
 
         if not membership_type:
             frappe.throw(
-                f"Could not determine membership type for payment period: {row_data.get('betaalperiode')}"
+                f"Could not determine membership type for member: {row_data.get('member_id')}"
             )
 
         # Set member fields for unified path
@@ -1796,8 +1802,8 @@ class MijnroodCSVImport(Document):
         return map_payment_period_to_billing_frequency(payment_period)
 
     def _determine_membership_type(self, row_data: dict) -> str:
-        """Determine membership type from payment period."""
-        return determine_membership_type_from_payment_period(row_data)
+        """Determine membership type from Lidmaatschapstype (aspirant vs regular)."""
+        return determine_membership_type_for_csv_import(row_data)
 
     def _calculate_next_invoice_date(self, start_date, billing_frequency: str) -> str:
         """Calculate next invoice date based on billing frequency."""

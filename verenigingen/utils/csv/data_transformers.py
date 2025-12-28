@@ -291,87 +291,163 @@ def map_payment_period_to_billing_frequency(payment_period: str) -> str:
     return payment_period_mapping.get(normalized, "Annual")
 
 
-def determine_membership_type_from_payment_period(row_data: dict) -> str:
+def determine_membership_type_for_csv_import(row_data: dict) -> str:
     """
-    Determine membership type from payment period or settings default.
+    Determine membership type for CSV import based on Lidmaatschapstype.
 
-    NOTE: CSV's membership_type column maps to Member.status, NOT Membership Type.
-    This function determines the Verenigingen Membership Type for billing purposes.
+    NOTE: CSV's membership_type column (Lidmaatschapstype) maps to Member.status.
+    This function determines the Verenigingen Membership Type for billing purposes
+    based on whether the member is an aspirant or regular member.
 
     Args:
-        row_data: CSV row data with payment_period field
+        row_data: CSV row data with membership_type field (from Lidmaatschapstype column)
 
     Returns:
         Membership type name
 
-    Priority:
-        1. Map payment_period to membership type (Monthly/Quarterly/Annual) from settings
-        2. Settings default membership type
-        3. Fail loudly with clear error message
+    Logic:
+        1. If membership_type contains 'aspirant' → use default_aspirant_membership_type
+        2. Otherwise → use default_membership_type
+        3. Fail loudly if neither is configured
 
     Raises:
         frappe.ValidationError: If membership type cannot be determined
 
     Example:
-        row_data = {"payment_period": "Maandelijks"}
-        → Returns settings.csv_monthly_membership_type
+        row_data = {"membership_type": "Aspirant"}
+        → Returns settings.default_aspirant_membership_type
     """
-    # Priority 1: Map payment period to membership type from settings
-    if row_data and row_data.get("payment_period"):
-        payment_period = row_data["payment_period"].lower().strip()
-        settings = frappe.get_single("Verenigingen Settings")
+    settings = frappe.get_single("Verenigingen Settings")
+    membership_type_value = row_data.get("membership_type", "") if row_data else ""
 
-        if payment_period in ["maandelijks", "monthly", "per maand"]:
-            if settings.csv_monthly_membership_type:
-                return settings.csv_monthly_membership_type
-            else:
+    # Check if this is an aspirant member
+    is_aspirant = membership_type_value and "aspirant" in membership_type_value.lower()
+
+    if is_aspirant:
+        if settings.default_aspirant_membership_type:
+            if not frappe.db.exists("Membership Type", settings.default_aspirant_membership_type):
                 frappe.throw(
-                    "Payment period is 'Maandelijks' but no CSV Monthly Membership Type is configured in Verenigingen Settings. "
-                    "Please set the 'CSV Monthly Membership Type' field."
+                    f"Default aspirant membership type '{settings.default_aspirant_membership_type}' "
+                    "from settings does not exist"
                 )
-        elif payment_period in ["kwartaal", "quarterly", "per kwartaal", "driemaandelijks"]:
-            if settings.csv_quarterly_membership_type:
-                return settings.csv_quarterly_membership_type
-            else:
-                frappe.throw(
-                    "Payment period is 'Kwartaal' but no CSV Quarterly Membership Type is configured in Verenigingen Settings. "
-                    "Please set the 'CSV Quarterly Membership Type' field."
-                )
-        elif payment_period in ["halfjaar", "halfjaarlijks", "semi-annual", "per halfjaar"]:
+            return settings.default_aspirant_membership_type
+        else:
             frappe.throw(
-                f"Payment period '{payment_period}' maps to Semi-Annual membership, "
-                "but there is no CSV Semi-Annual Membership Type setting. "
-                "Please add this field to Verenigingen Settings or change the payment period."
+                "Member has Lidmaatschapstype 'Aspirant' but no Default Aspirant Membership Type "
+                "is configured in Verenigingen Settings. Please set the 'Default Aspirant Membership Type' field."
             )
-        elif payment_period in ["jaar", "jaarlijks", "annual", "per jaar"]:
-            if settings.csv_annual_membership_type:
-                return settings.csv_annual_membership_type
-            else:
-                frappe.throw(
-                    "Payment period is 'Jaarlijks' but no CSV Annual Membership Type is configured in Verenigingen Settings. "
-                    "Please set the 'CSV Annual Membership Type' field."
-                )
 
-    # Priority 2: Get default from settings
-    try:
-        settings = frappe.get_single("Verenigingen Settings")
-        if settings and settings.default_membership_type:
-            if not frappe.db.exists("Membership Type", settings.default_membership_type):
-                frappe.throw(
-                    f"Default membership type '{settings.default_membership_type}' from settings does not exist"
-                )
-            return settings.default_membership_type
-    except Exception as e:
-        frappe.logger().warning("Could not get default membership type from settings: %s", str(e))
+    # Regular member - use default membership type
+    if settings.default_membership_type:
+        if not frappe.db.exists("Membership Type", settings.default_membership_type):
+            frappe.throw(
+                f"Default membership type '{settings.default_membership_type}' from settings does not exist"
+            )
+        return settings.default_membership_type
 
     # NO FALLBACK - fail loudly with member context
     member_id = row_data.get("member_id", "") if row_data else ""
-    payment_period_value = row_data.get("payment_period") if row_data else None
     frappe.throw(
         f"Cannot determine membership type for member {member_id}. "
-        f"Payment period: '{payment_period_value}', no default membership type configured. "
-        f"Either provide a valid payment period in CSV or set a default membership type in Verenigingen Settings."
+        f"Lidmaatschapstype: '{membership_type_value}', no default membership type configured. "
+        "Please set a default membership type in Verenigingen Settings."
     )
+
+
+def get_dues_schedule_template_from_payment_period(row_data: dict) -> str:
+    """
+    Get the dues schedule template based on payment period from CSV.
+
+    Maps the Dutch payment period (Betaalperiode) to the corresponding
+    dues schedule template configured in Verenigingen Settings.
+
+    Args:
+        row_data: CSV row data with payment_period field (from Betaalperiode column)
+
+    Returns:
+        Dues schedule template name
+
+    Raises:
+        frappe.ValidationError: If template cannot be determined or doesn't exist
+
+    Example:
+        row_data = {"payment_period": "Maandelijks"}
+        → Returns settings.csv_monthly_dues_schedule
+    """
+    settings = frappe.get_single("Verenigingen Settings")
+    payment_period = row_data.get("payment_period", "") if row_data else ""
+
+    if not payment_period:
+        frappe.throw(
+            "Payment period (Betaalperiode) is required for CSV import. "
+            "Please ensure the CSV has a valid Betaalperiode column."
+        )
+
+    payment_period_lower = payment_period.lower().strip()
+
+    # Map payment period to dues schedule template
+    if payment_period_lower in ["maandelijks", "monthly", "per maand"]:
+        template_name = settings.csv_monthly_dues_schedule
+        if not template_name:
+            frappe.throw(
+                "Payment period is 'Maandelijks' but no CSV Monthly Dues Schedule is configured "
+                "in Verenigingen Settings. Please set the 'CSV Monthly Dues Schedule' field."
+            )
+    elif payment_period_lower in ["kwartaal", "quarterly", "per kwartaal", "driemaandelijks"]:
+        template_name = settings.csv_quarterly_dues_schedule
+        if not template_name:
+            frappe.throw(
+                "Payment period is 'Kwartaal' but no CSV Quarterly Dues Schedule is configured "
+                "in Verenigingen Settings. Please set the 'CSV Quarterly Dues Schedule' field."
+            )
+    elif payment_period_lower in ["halfjaar", "halfjaarlijks", "semi-annual", "per halfjaar"]:
+        frappe.throw(
+            f"Payment period '{payment_period}' maps to Semi-Annual billing, "
+            "but there is no CSV Semi-Annual Dues Schedule setting. "
+            "Please add this field to Verenigingen Settings or change the payment period."
+        )
+    elif payment_period_lower in ["jaar", "jaarlijks", "annual", "per jaar"]:
+        template_name = settings.csv_annual_dues_schedule
+        if not template_name:
+            frappe.throw(
+                "Payment period is 'Jaarlijks' but no CSV Annual Dues Schedule is configured "
+                "in Verenigingen Settings. Please set the 'CSV Annual Dues Schedule' field."
+            )
+    else:
+        frappe.throw(
+            f"Unknown payment period '{payment_period}'. Valid values are: "
+            "Maandelijks, Kwartaal, Jaarlijks (or English equivalents)."
+        )
+
+    # Validate template exists and is actually a template
+    if not frappe.db.exists("Membership Dues Schedule", template_name):
+        frappe.throw(
+            f"Dues schedule template '{template_name}' does not exist. "
+            "Please create it or update Verenigingen Settings."
+        )
+
+    template_doc = frappe.get_doc("Membership Dues Schedule", template_name)
+    if not template_doc.is_template:
+        frappe.throw(
+            f"Dues schedule '{template_name}' is not marked as a template. "
+            "Please check 'Is Template' on the Membership Dues Schedule or select a different one."
+        )
+
+    return template_name
+
+
+def determine_membership_type_from_payment_period(row_data: dict) -> str:
+    """
+    DEPRECATED: Use determine_membership_type_for_csv_import() instead.
+
+    This function is kept for backwards compatibility but now delegates to
+    the new function that uses Lidmaatschapstype instead of payment period.
+    """
+    frappe.logger().warning(
+        "determine_membership_type_from_payment_period() is deprecated. "
+        "Use determine_membership_type_for_csv_import() instead."
+    )
+    return determine_membership_type_for_csv_import(row_data)
 
 
 def calculate_next_invoice_date(start_date, billing_frequency: str) -> str:
