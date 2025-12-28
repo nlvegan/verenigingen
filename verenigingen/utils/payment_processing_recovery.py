@@ -196,13 +196,13 @@ def get_incomplete_payments(payment_ids: List[str] = None) -> Dict[str, any]:
     }
 
     if not payment_ids:
-        # Get all payment IDs from Bank Transactions
+        # Get all payment IDs from Bank Transactions (oldest first)
         payment_ids = frappe.db.sql_list(
             """
             SELECT DISTINCT reference_number
             FROM `tabBank Transaction`
             WHERE reference_number LIKE 'tr_%%'
-            ORDER BY creation DESC
+            ORDER BY creation ASC
             LIMIT 2500
         """
         )
