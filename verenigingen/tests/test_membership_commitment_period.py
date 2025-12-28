@@ -33,7 +33,8 @@ class TestMembershipCommitmentPeriod(EnhancedTestCase):
                 "doctype": "Membership Type",
                 "membership_type_name": "Test Annual",
                 "billing_period": "Annual",
-                "amount": 50.0,
+                "minimum_amount": 50.0,
+                "role_profile": "Verenigingen Staff",
             }
         ).insert()
 
@@ -56,19 +57,21 @@ class TestMembershipCommitmentPeriod(EnhancedTestCase):
         )
 
     def test_commitment_end_date_historic_import(self):
-        """Test that historic CSV imports calculate commitment from today"""
+        """Test that historic CSV imports calculate commitment from original start date"""
         # Create a test member
         member = self.create_test_member(
             first_name="Historic", last_name="Import", birth_date="1990-01-01"
         )
 
-        # Create membership type
+        # Create membership type with enforce_minimum_period=True (default)
         membership_type = frappe.get_doc(
             {
                 "doctype": "Membership Type",
                 "membership_type_name": "Test Historic",
                 "billing_period": "Annual",
-                "amount": 50.0,
+                "minimum_amount": 50.0,
+                "role_profile": "Verenigingen Staff",
+                "enforce_minimum_period": 1,
             }
         ).insert()
 
@@ -85,11 +88,46 @@ class TestMembershipCommitmentPeriod(EnhancedTestCase):
         membership._is_csv_import = True
         membership.insert()
 
-        # Verify commitment_end_date is calculated from today, not historic start
-        expected_commitment_end = add_to_date(today(), months=12)
+        # Verify commitment_end_date is calculated from original start_date
+        # (not from import date - that was the bug we fixed)
+        expected_commitment_end = add_to_date(historic_start, months=12)
         self.assertEqual(
             getdate(membership.commitment_end_date), getdate(expected_commitment_end)
         )
+
+    def test_commitment_end_date_not_set_when_enforce_minimum_disabled(self):
+        """Test that commitment_end_date is NOT set when enforce_minimum_period is disabled"""
+        # Create a test member
+        member = self.create_test_member(
+            first_name="No", last_name="Minimum", birth_date="1990-01-01"
+        )
+
+        # Create membership type with enforce_minimum_period DISABLED
+        membership_type = frappe.get_doc(
+            {
+                "doctype": "Membership Type",
+                "membership_type_name": "Test No Minimum",
+                "billing_period": "Annual",
+                "minimum_amount": 50.0,
+                "role_profile": "Verenigingen Staff",
+                "enforce_minimum_period": 0,  # Disabled!
+            }
+        ).insert()
+
+        # Create membership (with or without CSV import flag - shouldn't matter)
+        membership = frappe.get_doc(
+            {
+                "doctype": "Membership",
+                "member": member.name,
+                "membership_type": membership_type.name,
+                "start_date": today(),
+            }
+        )
+        membership._is_csv_import = True  # Even with CSV import flag
+        membership.insert()
+
+        # Verify commitment_end_date is NOT set
+        self.assertIsNone(membership.commitment_end_date)
 
     def test_commitment_end_date_not_overwritten(self):
         """Test that commitment_end_date is not overwritten if already set"""
@@ -104,7 +142,8 @@ class TestMembershipCommitmentPeriod(EnhancedTestCase):
                 "doctype": "Membership Type",
                 "membership_type_name": "Test Keep",
                 "billing_period": "Annual",
-                "amount": 50.0,
+                "minimum_amount": 50.0,
+                "role_profile": "Verenigingen Staff",
             }
         ).insert()
 
@@ -147,7 +186,8 @@ class TestMembershipTerminationCommitmentValidation(EnhancedTestCase):
                 "doctype": "Membership Type",
                 "membership_type_name": "Test Block Early",
                 "billing_period": "Annual",
-                "amount": 50.0,
+                "minimum_amount": 50.0,
+                "role_profile": "Verenigingen Staff",
             }
         ).insert()
 
@@ -199,7 +239,8 @@ class TestMembershipTerminationCommitmentValidation(EnhancedTestCase):
                 "doctype": "Membership Type",
                 "membership_type_name": "Test Allow After",
                 "billing_period": "Annual",
-                "amount": 50.0,
+                "minimum_amount": 50.0,
+                "role_profile": "Verenigingen Staff",
             }
         ).insert()
 
@@ -248,7 +289,8 @@ class TestMembershipTerminationCommitmentValidation(EnhancedTestCase):
                 "doctype": "Membership Type",
                 "membership_type_name": "Test Disciplinary Bypass",
                 "billing_period": "Annual",
-                "amount": 50.0,
+                "minimum_amount": 50.0,
+                "role_profile": "Verenigingen Staff",
             }
         ).insert()
 
@@ -299,7 +341,8 @@ class TestMembershipTerminationCommitmentValidation(EnhancedTestCase):
                 "doctype": "Membership Type",
                 "membership_type_name": "Test No Commitment",
                 "billing_period": "Annual",
-                "amount": 50.0,
+                "minimum_amount": 50.0,
+                "role_profile": "Verenigingen Staff",
             }
         ).insert()
 
