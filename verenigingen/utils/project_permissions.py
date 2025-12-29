@@ -126,7 +126,7 @@ def validate_identifier(value, max_length=140, context="identifier"):
     if len(value) > max_length:
         frappe.log_error(
             title=f"Security: Identifier Validation ({context})",
-            message=f"[{context}] Identifier too long (>{max_length}): {value[:50]}..."
+            message=f"[{context}] Identifier too long (>{max_length}): {value[:50]}...",
         )
         return False
 
@@ -135,7 +135,7 @@ def validate_identifier(value, max_length=140, context="identifier"):
     if not re.match(r"^[\w\s\-]+$", value, re.UNICODE):
         frappe.log_error(
             title=f"Security: Identifier Validation ({context})",
-            message=f"[{context}] Invalid characters in identifier: {value}"
+            message=f"[{context}] Invalid characters in identifier: {value}",
         )
         return False
 
@@ -186,25 +186,29 @@ def get_volunteer_for_user(user):
         raise PermissionSystemError("Unexpected error during volunteer lookup") from e
 
 
-def has_project_permission_via_team(doc, permission_type, user):
+def has_project_permission_via_team(doc, ptype="read", user=None, debug=False):
     """
     Check if user has project permission through team membership or chapter board membership
 
     Args:
         doc: Project document or None for list access
-        permission_type: 'read', 'write', 'create', 'delete', etc.
-        user: User email
+        ptype: 'read', 'write', 'create', 'delete', etc.
+        user: User email (defaults to current user if None)
+        debug: Debug flag (unused, but required by Frappe's permission interface)
 
     Returns:
         bool: True if user has permission through team or chapter membership
     """
+    if user is None:
+        user = frappe.session.user
+
     if not doc:
         # For list view, check if user is a volunteer on any team or chapter board
         return user_has_any_team_projects(user) or user_has_any_chapter_projects(user)
 
     # For specific project, check both team and chapter access
-    return user_has_project_team_access(user, doc.name, permission_type) or user_has_project_chapter_access(
-        user, doc.name, permission_type
+    return user_has_project_team_access(user, doc.name, ptype) or user_has_project_chapter_access(
+        user, doc.name, ptype
     )
 
 
