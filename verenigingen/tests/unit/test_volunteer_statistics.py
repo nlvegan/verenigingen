@@ -74,29 +74,8 @@ class TestVolunteerStatistics(EnhancedTestCase):
         # For new volunteer, recent_count should be 0
         self.assertEqual(result["recent_count"], 0)
     
-    def test_status_mapping_comprehensive(self):
-        """Test ERPNext to Volunteer status mapping comprehensively"""
-        # Test all ERPNext status combinations
-        test_cases = [
-            # (erpnext_status, approval_status, expected_volunteer_status)
-            ("Draft", "Draft", "Awaiting Approval"),
-            ("Submitted", "Approved", "Approved"),
-            ("Submitted", "Rejected", "Rejected"), 
-            ("Submitted", None, "Submitted"),
-            ("Unpaid", "Approved", "Approved"),
-            ("Unpaid", "Rejected", "Rejected"),
-            ("Unpaid", None, "Submitted"),
-            ("Paid", "Approved", "Reimbursed"),
-            ("Paid", "Rejected", "Reimbursed"),  # Paid overrides approval
-            ("Cancelled", "Approved", "Rejected"),  # Cancelled -> Rejected
-            ("Unknown Status", "Approved", "Submitted"),  # Default fallback
-        ]
-        
-        for erpnext_status, approval_status, expected in test_cases:
-            with self.subTest(erpnext_status=erpnext_status, approval_status=approval_status):
-                result = _map_erpnext_status_to_volunteer_status(erpnext_status, approval_status)
-                self.assertEqual(result, expected, 
-                    f"Status mapping failed: {erpnext_status}/{approval_status} -> {result}, expected {expected}")
+    # NOTE: test_status_mapping_comprehensive removed - _map_erpnext_status_to_volunteer_status
+    # was part of the archived Volunteer Expense DocType. Native Expense Claim uses ERPNext statuses.
     
     def test_volunteer_expense_statistics_with_nonexistent_volunteer(self):
         """Test statistics function handles non-existent volunteer gracefully"""
@@ -150,40 +129,8 @@ class TestVolunteerStatistics(EnhancedTestCase):
         self.assertIsInstance(result["recent_count"], int)
         self.assertGreaterEqual(result["recent_count"], 0)
     
-    def test_map_erpnext_status_to_volunteer_status(self):
-        """Test ERPNext status mapping function"""
-        
-        # Test Draft status
-        result = _map_erpnext_status_to_volunteer_status("Draft", "Draft")
-        self.assertEqual(result, "Awaiting Approval")
-        
-        # Test Submitted with Approved
-        result = _map_erpnext_status_to_volunteer_status("Submitted", "Approved") 
-        self.assertEqual(result, "Approved")
-        
-        # Test Submitted with Rejected
-        result = _map_erpnext_status_to_volunteer_status("Submitted", "Rejected")
-        self.assertEqual(result, "Rejected")
-        
-        # Test Submitted without approval status
-        result = _map_erpnext_status_to_volunteer_status("Submitted", "Draft")
-        self.assertEqual(result, "Submitted")
-        
-        # Test Unpaid with Approved
-        result = _map_erpnext_status_to_volunteer_status("Unpaid", "Approved")
-        self.assertEqual(result, "Approved")
-        
-        # Test Paid status
-        result = _map_erpnext_status_to_volunteer_status("Paid", "Approved")
-        self.assertEqual(result, "Reimbursed")
-        
-        # Test Cancelled status
-        result = _map_erpnext_status_to_volunteer_status("Cancelled", "Draft")
-        self.assertEqual(result, "Rejected")
-        
-        # Test unknown status (fallback)
-        result = _map_erpnext_status_to_volunteer_status("Unknown", "Draft")
-        self.assertEqual(result, "Submitted")
+    # NOTE: test_map_erpnext_status_to_volunteer_status removed - function was part of archived
+    # Volunteer Expense DocType. Native Expense Claim uses standard ERPNext statuses directly.
         
     def test_error_handling_integration(self):
         """Test error handling with invalid input returns safe defaults"""
