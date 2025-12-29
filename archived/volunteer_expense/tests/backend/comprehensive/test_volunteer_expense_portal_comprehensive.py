@@ -5,6 +5,7 @@ import unittest
 
 import frappe
 from frappe.utils import add_days, flt, today
+
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
@@ -14,20 +15,20 @@ class TestVolunteerExpensePortal(EnhancedTestCase):
     def setUp(self):
         """Set up test data using Enhanced Test Factory"""
         super().setUp()
-        
+
         # Create test member and volunteer using Enhanced Test Factory
         self.test_member = self.create_test_member(
             first_name="Test",
             last_name="Volunteer",
             email="test.volunteer.comprehensive@example.com",
-            birth_date="1990-01-01"
+            birth_date="1990-01-01",
         )
-        
+
         self.test_volunteer = self.create_test_volunteer(
             member_name=self.test_member.name,
             volunteer_name="Test Volunteer Comprehensive",
             email=self.test_member.email,
-            status="Active"
+            status="Active",
         )
 
         # Create test expense category if needed (without permission bypass)
@@ -36,19 +37,21 @@ class TestVolunteerExpensePortal(EnhancedTestCase):
             current_user = frappe.session.user
             try:
                 frappe.set_user(test_admin.email)
-                
+
                 # Get a default expense account if it exists
                 expense_account = frappe.db.get_value("Account", {"account_type": "Expense"}, "name")
                 if not expense_account:
                     expense_account = "Miscellaneous Expenses - Test"
-                
-                test_category = frappe.get_doc({
-                    "doctype": "Expense Category",
-                    "category_name": "Test Travel Comprehensive",
-                    "description": "Test category for comprehensive tests", 
-                    "is_active": 1,
-                    "expense_account": expense_account
-                })
+
+                test_category = frappe.get_doc(
+                    {
+                        "doctype": "Expense Category",
+                        "category_name": "Test Travel Comprehensive",
+                        "description": "Test category for comprehensive tests",
+                        "is_active": 1,
+                        "expense_account": expense_account,
+                    }
+                )
                 test_category.insert()
                 self.test_category = test_category
             except Exception as e:
@@ -62,8 +65,7 @@ class TestVolunteerExpensePortal(EnhancedTestCase):
         # Create test chapter using Enhanced Test Factory (if needed for tests)
         try:
             self.test_chapter = self.create_test_chapter(
-                chapter_head="Test Comprehensive Chapter Head",
-                status="Active"
+                chapter_head="Test Comprehensive Chapter Head", status="Active"
             )
         except Exception:
             # Skip chapter creation if it fails - not all tests may need it
@@ -72,31 +74,31 @@ class TestVolunteerExpensePortal(EnhancedTestCase):
         # Create test team using Enhanced Test Factory (if needed for tests)
         try:
             self.test_team = self.create_test_team(
-                team_name="Test Comprehensive Team",
-                team_description="Test team for comprehensive tests"
+                team_name="Test Comprehensive Team", team_description="Test team for comprehensive tests"
             )
         except Exception:
-            # Skip team creation if it fails - not all tests may need it  
+            # Skip team creation if it fails - not all tests may need it
             self.test_team = None
-        
+
         # Enhanced Test Factory handles cleanup automatically
 
     def test_submit_expense_success(self):
         """Test successful expense submission"""
         from verenigingen.templates.pages.volunteer.expenses import submit_expense
-        
+
         # Skip test if required test data is not available
         if not self.test_category or not self.test_chapter:
             self.skipTest("Required test data (category or chapter) not available")
 
         expense_data = {
             "description": "Test expense",
-            "amount": "50.00", 
+            "amount": "50.00",
             "expense_date": today(),
             "category": self.test_category.name,
             "organization_type": "Chapter",
             "chapter": self.test_chapter.name,
-            "notes": "Test notes"}
+            "notes": "Test notes",
+        }
 
         result = submit_expense(expense_data)
 
@@ -122,7 +124,8 @@ class TestVolunteerExpensePortal(EnhancedTestCase):
                 "expense_date": today(),
                 "category": self.test_category.name,
                 "organization_type": "Chapter",
-                "chapter": self.test_chapter.name}
+                "chapter": self.test_chapter.name,
+            }
         )
 
         result = submit_expense(expense_data)
@@ -141,7 +144,8 @@ class TestVolunteerExpensePortal(EnhancedTestCase):
             "expense_date": today(),
             "category": self.test_category.name,
             "organization_type": "Chapter",
-            "chapter": self.test_chapter.name}
+            "chapter": self.test_chapter.name,
+        }
 
         result = submit_expense(expense_data)
         self.assertFalse(result["success"])
@@ -176,7 +180,8 @@ class TestVolunteerExpensePortal(EnhancedTestCase):
             "category": self.test_category.name,
             "organization_type": "Chapter",
             "chapter": self.test_chapter.name,
-            "receipt_attachment": "/files/test_receipt.pdf"}
+            "receipt_attachment": "/files/test_receipt.pdf",
+        }
 
         result = submit_expense(expense_data)
 
@@ -194,7 +199,8 @@ class TestVolunteerExpensePortal(EnhancedTestCase):
             "expense_date": today(),
             "category": self.test_category.name,
             "organization_type": "Chapter",
-            "chapter": self.test_chapter.name}
+            "chapter": self.test_chapter.name,
+        }
 
         result = submit_expense(expense_data)
         expense_name = result["expense_name"]
@@ -245,7 +251,8 @@ class TestVolunteerExpensePortal(EnhancedTestCase):
             "expense_date": today(),
             "category": self.test_category.name,
             "organization_type": "Chapter",
-            "chapter": self.test_chapter.name}
+            "chapter": self.test_chapter.name,
+        }
         submit_expense(expense_data)
 
         # Get expenses for volunteer
@@ -272,7 +279,8 @@ class TestVolunteerExpensePortal(EnhancedTestCase):
                 "expense_date": today(),
                 "category": self.test_category.name,
                 "organization_type": "Chapter",
-                "chapter": self.test_chapter.name}
+                "chapter": self.test_chapter.name,
+            }
             result = submit_expense(expense_data)
 
             # Update status for testing
@@ -300,7 +308,8 @@ class TestVolunteerExpensePortal(EnhancedTestCase):
             "expense_date": future_date,
             "category": self.test_category.name,
             "organization_type": "Chapter",
-            "chapter": self.test_chapter.name}
+            "chapter": self.test_chapter.name,
+        }
 
         result = submit_expense(expense_data)
         self.assertFalse(result["success"])
@@ -331,7 +340,8 @@ class TestVolunteerExpensePortal(EnhancedTestCase):
             "expense_date": today(),
             "category": self.test_category.name,
             "organization_type": "Chapter",
-            "chapter": self.test_chapter.name}
+            "chapter": self.test_chapter.name,
+        }
 
         result = submit_expense(expense_data)
         expense = frappe.get_doc("Volunteer Expense", result["expense_name"])

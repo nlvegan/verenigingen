@@ -460,11 +460,20 @@ doc_events = {
     "Purchase Invoice": {
         "validate": "verenigingen.utils.account_group_validation_hooks.validate_purchase_invoice"
     },
-    # Chapter Board Member permission automation
+    # Chapter Board Member permission automation and department approver sync
     "Verenigingen Chapter Board Member": {
-        "after_insert": "verenigingen.utils.chapter_role_events.on_chapter_board_member_after_insert",
-        "on_update": "verenigingen.utils.chapter_role_events.on_chapter_board_member_on_update",
-        "on_trash": "verenigingen.utils.chapter_role_events.on_chapter_board_member_on_trash",
+        "after_insert": [
+            "verenigingen.utils.chapter_role_events.on_chapter_board_member_after_insert",
+            "verenigingen.utils.department_approver_sync.on_board_member_change",
+        ],
+        "on_update": [
+            "verenigingen.utils.chapter_role_events.on_chapter_board_member_on_update",
+            "verenigingen.utils.department_approver_sync.on_board_member_change",
+        ],
+        "on_trash": [
+            "verenigingen.utils.chapter_role_events.on_chapter_board_member_on_trash",
+            "verenigingen.utils.department_approver_sync.on_board_member_change",
+        ],
     },
     # Chapter Role changes affect board member permissions
     "Chapter Role": {
@@ -520,10 +529,6 @@ doc_events = {
         "on_submit": "verenigingen.utils.cache_invalidation.on_document_submit",
         "on_cancel": "verenigingen.utils.cache_invalidation.on_document_cancel",
         "on_trash": "verenigingen.utils.cache_invalidation.on_document_update",
-    },
-    # Volunteer Expense approval validation
-    "Volunteer Expense": {
-        "before_submit": "verenigingen.utils.chapter_role_events.before_volunteer_expense_submit",
     },
     # Team Member role profile automation
     "Team Member": {
@@ -602,6 +607,8 @@ scheduler_events = {
         "verenigingen.verenigingen_payments.utils.sepa_notifications.check_and_send_expiry_notifications",
         # Native expense approver sync
         "verenigingen.utils.native_expense_helpers.refresh_all_expense_approvers",
+        # Department approver sync (safety net for board member changes)
+        "verenigingen.utils.department_approver_sync.sync_all_department_approvers",
         # Expense history batch processing
         "verenigingen.utils.expense_history_batch_processor.process_pending_expense_history_updates",
         # SEPA Direct Debit batch optimization
@@ -769,7 +776,6 @@ has_permission = {
     "Member": "verenigingen.permissions.has_member_permission",
     "Membership": "verenigingen.permissions.has_membership_permission",
     "Membership Termination Request": "verenigingen.permissions.has_membership_termination_request_permission",
-    "Volunteer Expense": "verenigingen.permissions.has_volunteer_expense_permission",
     "Address": "verenigingen.permissions.has_address_permission",
     "Donor": "verenigingen.permissions.has_donor_permission",
     "Donation": "verenigingen.permissions.has_donation_permission",

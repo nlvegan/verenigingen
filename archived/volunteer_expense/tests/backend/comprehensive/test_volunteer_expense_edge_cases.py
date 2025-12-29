@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 import frappe
 from frappe.utils import add_days, add_months, today
+
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
@@ -46,30 +47,17 @@ class TestVolunteerExpenseEdgeCases(EnhancedTestCase):
             "expense_date": today(),
             "category": "test",
             "organization_type": "Chapter",
-            "chapter": "test"}
+            "chapter": "test",
+        }
 
         result = submit_expense(expense_data)
         self.assertFalse(result["success"])
         self.assertIn("volunteer record", result["message"])
 
-    def test_no_default_company(self):
-        """Test expense submission with no default company"""
-        from verenigingen.templates.pages.volunteer.expenses import submit_expense
-
-        # Mock no companies existing
-        with patch("frappe.defaults.get_global_default", return_value=None):
-            with patch("frappe.get_all", return_value=[]):
-                expense_data = {
-                    "description": "Test expense",
-                    "amount": "50.00",
-                    "expense_date": today(),
-                    "category": "test",
-                    "organization_type": "Chapter",
-                    "chapter": "test"}
-
-                result = submit_expense(expense_data)
-                self.assertFalse(result["success"])
-                self.assertIn("company", result["message"])
+    # ARCHIVED: Test removed - used prohibited mock patterns
+    # def test_no_default_company(self):
+    #     """Test expense submission with no default company"""
+    #     pass
 
     def test_invalid_json_input(self):
         """Test with various invalid JSON inputs"""
@@ -112,7 +100,8 @@ class TestVolunteerExpenseEdgeCases(EnhancedTestCase):
                 "expense_date": today(),
                 "category": test_category.name,
                 "organization_type": "Chapter",
-                "chapter": test_chapter.name}
+                "chapter": test_chapter.name,
+            }
 
             result = submit_expense(expense_data)
             if amount == "0.01":
@@ -147,7 +136,8 @@ class TestVolunteerExpenseEdgeCases(EnhancedTestCase):
                 "expense_date": today(),
                 "category": test_category.name,
                 "organization_type": "Chapter",
-                "chapter": test_chapter.name}
+                "chapter": test_chapter.name,
+            }
 
             result = submit_expense(expense_data)
             if desc == "":
@@ -174,7 +164,8 @@ class TestVolunteerExpenseEdgeCases(EnhancedTestCase):
                 "expense_date": today(),
                 "category": test_category.name,
                 "organization_type": "Chapter",
-                "chapter": test_chapter.name}
+                "chapter": test_chapter.name,
+            }
 
             result = submit_expense(expense_data)
             results.append(result)
@@ -214,7 +205,8 @@ class TestVolunteerExpenseEdgeCases(EnhancedTestCase):
                 "expense_date": test_date,
                 "category": test_category.name,
                 "organization_type": "Chapter",
-                "chapter": test_chapter.name}
+                "chapter": test_chapter.name,
+            }
 
             result = submit_expense(expense_data)
 
@@ -237,25 +229,10 @@ class TestVolunteerExpenseEdgeCases(EnhancedTestCase):
         self.assertIsInstance(expenses, list)
         self.assertLessEqual(len(expenses), 100)
 
-    def test_database_connection_issues(self):
-        """Test handling of database connection issues"""
-        from verenigingen.templates.pages.volunteer.expenses import submit_expense
-
-        # Mock database errors
-        with patch("frappe.get_doc") as mock_get_doc:
-            mock_get_doc.side_effect = Exception("Database connection error")
-
-            expense_data = {
-                "description": "Test db error",
-                "amount": "50.00",
-                "expense_date": today(),
-                "category": "test",
-                "organization_type": "Chapter",
-                "chapter": "test"}
-
-            result = submit_expense(expense_data)
-            self.assertFalse(result["success"])
-            self.assertIn("error", result["message"].lower())
+    # ARCHIVED: Test removed - used prohibited mock patterns
+    # def test_database_connection_issues(self):
+    #     """Test handling of database connection issues"""
+    #     pass
 
     def test_unicode_and_encoding(self):
         """Test Unicode and encoding handling"""
@@ -282,7 +259,8 @@ class TestVolunteerExpenseEdgeCases(EnhancedTestCase):
                 "expense_date": today(),
                 "category": test_category.name,
                 "organization_type": "Chapter",
-                "chapter": test_chapter.name}
+                "chapter": test_chapter.name,
+            }
 
             result = submit_expense(expense_data)
             self.assertTrue(result["success"])
@@ -299,7 +277,8 @@ class TestVolunteerExpenseEdgeCases(EnhancedTestCase):
                     "doctype": "Volunteer",
                     "volunteer_name": "Edge Test Volunteer",
                     "email": self.test_user,
-                    "status": "Active"}
+                    "status": "Active",
+                }
             ).insert()
         return frappe.get_doc("Volunteer", {"email": self.test_user})
 
@@ -311,7 +290,8 @@ class TestVolunteerExpenseEdgeCases(EnhancedTestCase):
                     "doctype": "Expense Category",
                     "category_name": "Edge Test Category",
                     "description": "Test category for edge cases",
-                    "is_active": 1}
+                    "is_active": 1,
+                }
             ).insert()
         return frappe.get_doc("Expense Category", "Edge Test Category")
 

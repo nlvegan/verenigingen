@@ -29,75 +29,43 @@ def get_volunteer_expense_statistics(volunteer_name, months_back=12):
     """
     Get comprehensive expense statistics for a volunteer
 
-    This function uses the EXACT same data source as get_volunteer_expenses()
-    to ensure consistency between displayed recent expenses and statistics.
+    Uses native Expense Claim data via Employee linkage.
     """
     try:
-        # Mirror the exact logic from get_volunteer_expenses function
         volunteer_doc = frappe.get_doc("Volunteer", volunteer_name)
-        if not volunteer_doc.member:
-            return _get_empty_statistics()
 
-        # Get member document to access stored expense history
-        member_doc = frappe.get_doc("Member", volunteer_doc.member)
-
-        # Get expenses from Member's volunteer_expenses child table (same as recent expenses)
-        if not (hasattr(member_doc, "volunteer_expenses") and member_doc.volunteer_expenses):
+        # Check if volunteer has an employee_id linked
+        if not volunteer_doc.employee_id:
             return _get_empty_statistics()
 
         # Calculate date range for filtering
         from_date = add_months(today(), -months_back)
 
+        # Query native Expense Claims for this employee
+        expense_claims = frappe.get_all(
+            "Expense Claim",
+            filters={
+                "employee": volunteer_doc.employee_id,
+                "posting_date": [">=", from_date],
+            },
+            fields=["total_claimed_amount", "total_sanctioned_amount", "status", "docstatus"],
+        )
+
         total_submitted = 0
         total_approved = 0
         pending_count = 0
         approved_count = 0
-        total_count = 0
+        total_count = len(expense_claims)
 
-        # DEBUG: Log what we're processing
-        debug_info = f"STATS FUNCTION: volunteer_name='{volunteer_name}', member='{volunteer_doc.member}'"
-        debug_info += f"\nProcessing {len(member_doc.volunteer_expenses)} expenses, from_date={from_date}"
-
-        for stored_expense in member_doc.volunteer_expenses:
-            expense_date_raw = stored_expense.get("expense_date")
-            amount = flt(stored_expense.get("amount", 0))
-            status = stored_expense.get("status", "Draft")
-
-            # Convert expense_date to date object if it's a string
-            if isinstance(expense_date_raw, str):
-                from datetime import datetime
-
-                try:
-                    expense_date = datetime.strptime(expense_date_raw, "%Y-%m-%d").date()
-                except:
-                    expense_date = None
-            else:
-                expense_date = expense_date_raw
-
-            debug_info += f"\nExpense: raw_date={expense_date_raw} ({type(expense_date_raw)}), converted_date={expense_date}, amount={amount}, status={status}"
-            debug_info += f", from_date={from_date} ({type(from_date)}), comparison={expense_date >= from_date if expense_date else False}"
-
-            # TEMPORARY: Skip date filtering to test if that's the issue
-            # if not expense_date or expense_date < from_date:
-            #     debug_info += " -> SKIPPED (date filter)"
-            #     continue
-
-            total_count += 1
+        for claim in expense_claims:
+            amount = flt(claim.total_claimed_amount)
             total_submitted += amount
-            debug_info += f" -> COUNTED (total_submitted now {total_submitted})"
 
-            if status == "Approved":
-                total_approved += amount
+            if claim.docstatus == 1 and claim.status in ["Approved", "Paid"]:
+                total_approved += flt(claim.total_sanctioned_amount)
                 approved_count += 1
-            elif status in ["Submitted", "Draft", "Awaiting Approval"]:
+            elif claim.docstatus == 0 or claim.status in ["Draft", "Unpaid"]:
                 pending_count += 1
-
-        # Log the complete debug info AND store it for template display
-        frappe.log_error(debug_info, "Expense Statistics Debug")
-
-        # HACK: Store debug info in response for immediate visibility
-        if hasattr(frappe.local, "response"):
-            frappe.local.response.setdefault("debug_info", []).append(debug_info)
 
         return {
             "total_submitted": total_submitted,
@@ -133,14 +101,15 @@ def get_volunteer_expense_summary(volunteer_name):
 
         recent_count = 0
 
-        # Count recent expenses from Member's volunteer_expenses child table
-        if volunteer_doc.member:
-            member_doc = frappe.get_doc("Member", volunteer_doc.member)
-            if hasattr(member_doc, "volunteer_expenses") and member_doc.volunteer_expenses:
-                for expense in member_doc.volunteer_expenses:
-                    expense_date = expense.get("expense_date")
-                    if expense_date and expense_date >= recent_date:
-                        recent_count += 1
+        # Count recent expenses from native Expense Claims
+        if volunteer_doc.employee_id:
+            recent_count = frappe.db.count(
+                "Expense Claim",
+                filters={
+                    "employee": volunteer_doc.employee_id,
+                    "posting_date": [">=", recent_date],
+                },
+            )
 
         # Add recent count to stats
         stats["recent_count"] = recent_count

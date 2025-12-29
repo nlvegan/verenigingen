@@ -557,27 +557,7 @@ class StreamlinedTestDataFactory:
         self.track_doc("SEPA Mandate", mandate.name)
         return mandate
 
-    # CORE METHOD 7: Expense Creation
-    def create_test_expense(self, volunteer=None, **kwargs):
-        """Create test volunteer expense"""
-        if volunteer is None:
-            volunteer = self.create_test_volunteer()
-        
-        defaults = {
-            "volunteer": volunteer.name if hasattr(volunteer, 'name') else volunteer,
-            "expense_date": today(),
-            "description": f"Test expense - {self.fake.sentence(nb_words=4)}",
-            "amount": flt(self.fake.random_int(min=10, max=500)),
-            "status": "Draft"
-        }
-        defaults.update(kwargs)
-        
-        expense = frappe.get_doc({"doctype": "Volunteer Expense", **defaults})
-        expense.insert(ignore_permissions=True)
-        self.track_doc("Volunteer Expense", expense.name)
-        return expense
-
-    # CORE METHOD 8: Complete Business Scenario
+    # CORE METHOD 7: Complete Business Scenario
     def create_complete_test_scenario(self, member_count: int = 10):
         """Create complete test scenario with all related documents"""
         print(f"🏗️  Creating complete test scenario with {member_count} members...")
@@ -596,15 +576,9 @@ class StreamlinedTestDataFactory:
                      for member in random.sample(members, max(1, member_count // 3))]
         
         # Create SEPA mandates (60% of members)
-        mandates = [self.create_test_sepa_mandate(member=member) 
+        mandates = [self.create_test_sepa_mandate(member=member)
                    for member in random.sample(members, max(1, (member_count * 6) // 10))]
-        
-        # Create some expenses
-        expenses = []
-        for volunteer in volunteers:
-            expense_count = random.randint(1, 3)
-            expenses.extend([self.create_test_expense(volunteer=volunteer) for _ in range(expense_count)])
-        
+
         return {
             "chapters": chapters,
             "membership_types": membership_types,
@@ -612,7 +586,6 @@ class StreamlinedTestDataFactory:
             "memberships": memberships,
             "volunteers": volunteers,
             "mandates": mandates,
-            "expenses": expenses
         }
 
     # UTILITY METHODS (Enhanced)

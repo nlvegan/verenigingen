@@ -25,7 +25,9 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
         # Create national board chapter in settings
         settings = frappe.get_single("Verenigingen Settings")
         # Check if chapter exists, not just if setting is set (rollback issue)
-        if not settings.national_board_chapter or not frappe.db.exists("Chapter", settings.national_board_chapter):
+        if not settings.national_board_chapter or not frappe.db.exists(
+            "Chapter", settings.national_board_chapter
+        ):
             # Create national chapter (no chapter_name parameter needed - autoname)
             national_chapter = self.create_test_chapter()
             settings.national_board_chapter = national_chapter.name
@@ -35,16 +37,19 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
         """Test approver selection for national board members"""
         # Create treasurer for national board
         treasurer_member = self.create_test_member(
-            first_name="National",
-            last_name="Treasurer",
-            email="treasurer@example.com"
+            first_name="National", last_name="Treasurer", email="treasurer@example.com"
         )
         frappe.db.commit()  # Ensure member is committed before creating volunteer
 
         # Explicitly create user for treasurer
         if not frappe.db.exists("User", treasurer_member.email):
-            from verenigingen.services.member.account.member_user_account_service import get_member_user_account_service
-            get_member_user_account_service().create_member_user_account(treasurer_member.name, send_welcome_email=False)
+            from verenigingen.services.member.account.member_user_account_service import (
+                get_member_user_account_service,
+            )
+
+            get_member_user_account_service().create_member_user_account(
+                treasurer_member.name, send_welcome_email=False
+            )
             treasurer_member.reload()
 
         treasurer_volunteer = self.create_test_volunteer(
@@ -54,9 +59,7 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
 
         # Create the volunteer who needs an approver
         member = self.create_test_member(
-            first_name="Board",
-            last_name="Member",
-            email="boardmember@example.com"
+            first_name="Board", last_name="Member", email="boardmember@example.com"
         )
         frappe.db.commit()  # Ensure member is committed before creating volunteer
 
@@ -68,20 +71,21 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
         national_chapter = frappe.get_doc("Chapter", settings.national_board_chapter)
 
         # Add treasurer
-        national_chapter.append("board_members", {
-            "volunteer": treasurer_volunteer.name,
-            "chapter_role": "Treasurer",
-            "is_active": 1,
-            "from_date": today()
-        })
+        national_chapter.append(
+            "board_members",
+            {
+                "volunteer": treasurer_volunteer.name,
+                "chapter_role": "Treasurer",
+                "is_active": 1,
+                "from_date": today(),
+            },
+        )
 
         # Add board member
-        national_chapter.append("board_members", {
-            "volunteer": volunteer.name,
-            "chapter_role": "Secretary",
-            "is_active": 1,
-            "from_date": today()
-        })
+        national_chapter.append(
+            "board_members",
+            {"volunteer": volunteer.name, "chapter_role": "Secretary", "is_active": 1, "from_date": today()},
+        )
 
         national_chapter.save()  # Save chapter with board members
 
@@ -97,16 +101,19 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
         chapter = self.create_test_chapter()
 
         treasurer_member = self.create_test_member(
-            first_name="Chapter",
-            last_name="Treasurer",
-            email="chaptertreasurer@example.com"
+            first_name="Chapter", last_name="Treasurer", email="chaptertreasurer@example.com"
         )
         frappe.db.commit()  # Ensure member is committed
 
         # Explicitly create user for treasurer
         if not frappe.db.exists("User", treasurer_member.email):
-            from verenigingen.services.member.account.member_user_account_service import get_member_user_account_service
-            get_member_user_account_service().create_member_user_account(treasurer_member.name, send_welcome_email=False)
+            from verenigingen.services.member.account.member_user_account_service import (
+                get_member_user_account_service,
+            )
+
+            get_member_user_account_service().create_member_user_account(
+                treasurer_member.name, send_welcome_email=False
+            )
             treasurer_member.reload()
 
         treasurer_volunteer = self.create_test_volunteer(
@@ -115,19 +122,20 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
         frappe.db.commit()  # Ensure volunteer is committed
 
         # Add treasurer to chapter
-        chapter.append("board_members", {
-            "volunteer": treasurer_volunteer.name,
-            "chapter_role": "Treasurer",
-            "is_active": 1,
-            "from_date": today()
-        })
+        chapter.append(
+            "board_members",
+            {
+                "volunteer": treasurer_volunteer.name,
+                "chapter_role": "Treasurer",
+                "is_active": 1,
+                "from_date": today(),
+            },
+        )
         chapter.save()
 
         # Create chapter member
         member = self.create_test_member(
-            first_name="Chapter",
-            last_name="Member",
-            email="chaptermember@example.com"
+            first_name="Chapter", last_name="Member", email="chaptermember@example.com"
         )
         frappe.db.commit()  # Ensure member is committed
 
@@ -135,11 +143,7 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
         frappe.db.commit()  # Ensure volunteer is committed
 
         # Add member to chapter
-        chapter.append("members", {
-            "member": member.name,
-            "enabled": 1,
-            "join_date": today()
-        })
+        chapter.append("members", {"member": member.name, "enabled": 1, "join_date": today()})
         chapter.save()
 
         # Test: Chapter member's approver should be chapter treasurer
@@ -154,16 +158,19 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
         chapter = self.create_test_chapter()
 
         treasurer_member = self.create_test_member(
-            first_name="Team",
-            last_name="Treasurer",
-            email="teamtreasurer@example.com"
+            first_name="Team", last_name="Treasurer", email="teamtreasurer@example.com"
         )
         frappe.db.commit()  # Ensure member is committed
 
         # Explicitly create user for treasurer
         if not frappe.db.exists("User", treasurer_member.email):
-            from verenigingen.services.member.account.member_user_account_service import get_member_user_account_service
-            get_member_user_account_service().create_member_user_account(treasurer_member.name, send_welcome_email=False)
+            from verenigingen.services.member.account.member_user_account_service import (
+                get_member_user_account_service,
+            )
+
+            get_member_user_account_service().create_member_user_account(
+                treasurer_member.name, send_welcome_email=False
+            )
             treasurer_member.reload()
 
         treasurer_volunteer = self.create_test_volunteer(
@@ -172,29 +179,27 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
         frappe.db.commit()  # Ensure volunteer is committed
 
         # Add treasurer to chapter
-        chapter.append("board_members", {
-            "volunteer": treasurer_volunteer.name,
-            "chapter_role": "Treasurer",
-            "is_active": 1,
-            "from_date": today()
-        })
+        chapter.append(
+            "board_members",
+            {
+                "volunteer": treasurer_volunteer.name,
+                "chapter_role": "Treasurer",
+                "is_active": 1,
+                "from_date": today(),
+            },
+        )
         chapter.save()
 
         # Create team linked to chapter
         import time
+
         unique_team_name = f"Test Team {int(time.time() * 1000)}"
-        team = frappe.get_doc({
-            "doctype": "Team",
-            "team_name": unique_team_name,
-            "chapter": chapter.name
-        })
+        team = frappe.get_doc({"doctype": "Team", "team_name": unique_team_name, "chapter": chapter.name})
         team.insert()
 
         # Create team member
         member = self.create_test_member(
-            first_name="Team",
-            last_name="Member",
-            email="teammember@example.com"
+            first_name="Team", last_name="Member", email="teammember@example.com"
         )
         frappe.db.commit()  # Ensure member is committed
 
@@ -203,19 +208,14 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
 
         # Create or get a Team Role
         if not frappe.db.exists("Team Role", "Member"):
-            team_role = frappe.get_doc({
-                "doctype": "Team Role",
-                "role_name": "Member"
-            })
+            team_role = frappe.get_doc({"doctype": "Team Role", "role_name": "Member"})
             team_role.insert()
 
         # Add volunteer to team
-        team.append("team_members", {
-            "volunteer": volunteer.name,
-            "team_role": "Member",
-            "status": "Active",
-            "from_date": today()
-        })
+        team.append(
+            "team_members",
+            {"volunteer": volunteer.name, "team_role": "Member", "status": "Active", "from_date": today()},
+        )
         team.save()
 
         # Test: Team member's approver should be chapter treasurer
@@ -228,9 +228,7 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
         """Test fallback to system manager"""
         # Create volunteer with no organizational ties
         member = self.create_test_member(
-            first_name="Standalone",
-            last_name="Volunteer",
-            email="standalone@example.com"
+            first_name="Standalone", last_name="Volunteer", email="standalone@example.com"
         )
         volunteer = self.create_test_volunteer(member.name)
 
@@ -240,9 +238,7 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
 
         self.assertIsNotNone(approver)
         # Should be either a system user or Administrator
-        self.assertTrue(
-            frappe.db.exists("User", approver) or approver == "Administrator"
-        )
+        self.assertTrue(frappe.db.exists("User", approver) or approver == "Administrator")
 
     def test_financial_role_priority_order(self):
         """Test that Treasurer is preferred over Secretary"""
@@ -250,16 +246,19 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
 
         # Create both treasurer and secretary
         treasurer_member = self.create_test_member(
-            first_name="Priority",
-            last_name="Treasurer",
-            email="priority_treasurer@example.com"
+            first_name="Priority", last_name="Treasurer", email="priority_treasurer@example.com"
         )
         frappe.db.commit()  # Ensure member is committed
 
         # Explicitly create user for treasurer
         if not frappe.db.exists("User", treasurer_member.email):
-            from verenigingen.services.member.account.member_user_account_service import get_member_user_account_service
-            get_member_user_account_service().create_member_user_account(treasurer_member.name, send_welcome_email=False)
+            from verenigingen.services.member.account.member_user_account_service import (
+                get_member_user_account_service,
+            )
+
+            get_member_user_account_service().create_member_user_account(
+                treasurer_member.name, send_welcome_email=False
+            )
             treasurer_member.reload()
 
         treasurer_volunteer = self.create_test_volunteer(
@@ -268,16 +267,19 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
         frappe.db.commit()  # Ensure volunteer is committed
 
         secretary_member = self.create_test_member(
-            first_name="Priority",
-            last_name="Secretary",
-            email="priority_secretary@example.com"
+            first_name="Priority", last_name="Secretary", email="priority_secretary@example.com"
         )
         frappe.db.commit()  # Ensure member is committed
 
         # Explicitly create user for secretary
         if not frappe.db.exists("User", secretary_member.email):
-            from verenigingen.services.member.account.member_user_account_service import get_member_user_account_service
-            get_member_user_account_service().create_member_user_account(secretary_member.name, send_welcome_email=False)
+            from verenigingen.services.member.account.member_user_account_service import (
+                get_member_user_account_service,
+            )
+
+            get_member_user_account_service().create_member_user_account(
+                secretary_member.name, send_welcome_email=False
+            )
             secretary_member.reload()
 
         secretary_volunteer = self.create_test_volunteer(
@@ -286,19 +288,25 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
         frappe.db.commit()  # Ensure volunteer is committed
 
         # Add both to chapter (secretary first to test priority)
-        chapter.append("board_members", {
-            "volunteer": secretary_volunteer.name,
-            "chapter_role": "Secretary",
-            "is_active": 1,
-            "from_date": today()
-        })
+        chapter.append(
+            "board_members",
+            {
+                "volunteer": secretary_volunteer.name,
+                "chapter_role": "Secretary",
+                "is_active": 1,
+                "from_date": today(),
+            },
+        )
 
-        chapter.append("board_members", {
-            "volunteer": treasurer_volunteer.name,
-            "chapter_role": "Treasurer",
-            "is_active": 1,
-            "from_date": today()
-        })
+        chapter.append(
+            "board_members",
+            {
+                "volunteer": treasurer_volunteer.name,
+                "chapter_role": "Treasurer",
+                "is_active": 1,
+                "from_date": today(),
+            },
+        )
         chapter.save()
 
         # Test: Should return treasurer, not secretary
@@ -313,9 +321,7 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
 
         # Create volunteer who is the treasurer
         member = self.create_test_member(
-            first_name="Self",
-            last_name="Treasurer",
-            email="selftreasurer@example.com"
+            first_name="Self", last_name="Treasurer", email="selftreasurer@example.com"
         )
         frappe.db.commit()  # Ensure member is committed
 
@@ -323,12 +329,10 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
         frappe.db.commit()  # Ensure volunteer is committed
 
         # Add as treasurer
-        chapter.append("board_members", {
-            "volunteer": volunteer.name,
-            "chapter_role": "Treasurer",
-            "is_active": 1,
-            "from_date": today()
-        })
+        chapter.append(
+            "board_members",
+            {"volunteer": volunteer.name, "chapter_role": "Treasurer", "is_active": 1, "from_date": today()},
+        )
         chapter.save()
 
         # Test: Should NOT return self as approver
@@ -343,15 +347,18 @@ class TestVolunteerExpenseApproverService(EnhancedTestCase):
         """Test automatic role assignment"""
         # Create user without expense approver role (use unique email)
         import time
+
         unique_email = f"needsrole{int(time.time() * 1000)}@example.com"
 
-        user = frappe.get_doc({
-            "doctype": "User",
-            "email": unique_email,
-            "first_name": "Needs",
-            "last_name": "Role",
-            "send_welcome_email": 0
-        })
+        user = frappe.get_doc(
+            {
+                "doctype": "User",
+                "email": unique_email,
+                "first_name": "Needs",
+                "last_name": "Role",
+                "send_welcome_email": 0,
+            }
+        )
         user.insert()
 
         # Verify user doesn't have role initially
@@ -375,9 +382,7 @@ class TestVolunteerExpenseApproverServiceEdgeCases(EnhancedTestCase):
 
         # Create inactive treasurer
         inactive_member = self.create_test_member(
-            first_name="Inactive",
-            last_name="Treasurer",
-            email="inactivetreasurer@example.com"
+            first_name="Inactive", last_name="Treasurer", email="inactivetreasurer@example.com"
         )
         frappe.db.commit()  # Ensure member is committed
 
@@ -385,12 +390,15 @@ class TestVolunteerExpenseApproverServiceEdgeCases(EnhancedTestCase):
         frappe.db.commit()  # Ensure volunteer is committed
 
         # Add as treasurer but inactive
-        chapter.append("board_members", {
-            "volunteer": inactive_volunteer.name,
-            "chapter_role": "Treasurer",
-            "is_active": 0,  # Inactive!
-            "from_date": today()
-        })
+        chapter.append(
+            "board_members",
+            {
+                "volunteer": inactive_volunteer.name,
+                "chapter_role": "Treasurer",
+                "is_active": 0,  # Inactive!
+                "from_date": today(),
+            },
+        )
         chapter.save()
 
         # Test: Should not return inactive treasurer
@@ -405,9 +413,7 @@ class TestVolunteerExpenseApproverServiceEdgeCases(EnhancedTestCase):
 
         # Create member with disabled user
         member = self.create_test_member(
-            first_name="Disabled",
-            last_name="Treasurer",
-            email="disableduser@example.com"
+            first_name="Disabled", last_name="Treasurer", email="disableduser@example.com"
         )
         frappe.db.commit()  # Ensure member is committed
 
@@ -421,12 +427,10 @@ class TestVolunteerExpenseApproverServiceEdgeCases(EnhancedTestCase):
             user.save()
 
         # Add as treasurer
-        chapter.append("board_members", {
-            "volunteer": volunteer.name,
-            "chapter_role": "Treasurer",
-            "is_active": 1,
-            "from_date": today()
-        })
+        chapter.append(
+            "board_members",
+            {"volunteer": volunteer.name, "chapter_role": "Treasurer", "is_active": 1, "from_date": today()},
+        )
         chapter.save()
 
         # Test: Should not return disabled user

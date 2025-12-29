@@ -186,13 +186,13 @@ def get_volunteer_for_user(user):
         raise PermissionSystemError("Unexpected error during volunteer lookup") from e
 
 
-def has_project_permission_via_team(doc, ptype="read", user=None, debug=False):
+def has_project_permission_via_team(doc, ptype=None, user=None, debug=False):
     """
     Check if user has project permission through team membership or chapter board membership
 
     Args:
         doc: Project document or None for list access
-        ptype: 'read', 'write', 'create', 'delete', etc.
+        ptype: 'read', 'write', 'create', 'delete', etc. (defaults to 'read' if None)
         user: User email (defaults to current user if None)
         debug: Debug flag (unused, but required by Frappe's permission interface)
 
@@ -201,6 +201,10 @@ def has_project_permission_via_team(doc, ptype="read", user=None, debug=False):
     """
     if user is None:
         user = frappe.session.user
+
+    # Default to 'read' if ptype is None (Frappe passes None for general permission checks)
+    if ptype is None:
+        ptype = "read"
 
     if not doc:
         # For list view, check if user is a volunteer on any team or chapter board

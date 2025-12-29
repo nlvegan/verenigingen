@@ -119,22 +119,24 @@ def validate_termination_readiness(member_name):
         if volunteer_records > 0:
             readiness["warnings"].append(f"Member has {volunteer_records} active volunteer record(s)")
 
-            # Check pending volunteer expenses
+            # Note: Volunteer Expense DocType was archived - expenses now use native Expense Claim
+            # Check pending native expense claims instead
             pending_expenses = frappe.db.sql(
                 """
                 SELECT COUNT(*)
-                FROM `tabVolunteer Expense` ve
-                INNER JOIN `tabVolunteer` v ON ve.volunteer = v.name
+                FROM `tabExpense Claim` ec
+                INNER JOIN `tabEmployee` e ON ec.employee = e.name
+                INNER JOIN `tabVolunteer` v ON v.employee_id = e.name
                 WHERE v.member = %s
-                AND ve.docstatus = 0
-                AND ve.status IN ('Pending', 'Under Review')
+                AND ec.docstatus = 0
+                AND ec.status IN ('Draft', 'Unpaid')
             """,
                 (member_name,),
             )[0][0]
 
             readiness["impact"]["pending_volunteer_expenses"] = pending_expenses
             if pending_expenses > 0:
-                readiness["warnings"].append(f"Member has {pending_expenses} pending volunteer expense(s)")
+                readiness["warnings"].append(f"Member has {pending_expenses} pending expense claim(s)")
 
         # Check employee records and user account
         user_email = frappe.db.get_value("Member", member_name, "user")

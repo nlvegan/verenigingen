@@ -95,7 +95,6 @@ class DepartmentHierarchyManager:
                 )
                 frappe.throw(_("Unable to create department: Security validation failed"))
 
-            frappe.db.commit()
             return dept
 
         return frappe.get_doc("Department", dept_name)
@@ -210,49 +209,110 @@ class DepartmentHierarchyManager:
         """Sync approvers for teams that have financial responsibilities"""
         # This is optional - only if teams have their own budgets
 
+    def sync_chapter_approvers_for_chapter(self, chapter_name):
+        """
+        Sync approvers for a single chapter to its department.
+
+        Called by board member hooks when financial role holders change.
+        More efficient than sync_all_approvers() for single-chapter updates.
+
+        Args:
+            chapter_name: Name of the chapter to sync
+        """
+        if not frappe.db.exists("Chapter", chapter_name):
+            frappe.logger().warning(
+                f"Cannot sync department approvers: Chapter {chapter_name} does not exist"
+            )
+            return
+
+        chapter_doc = frappe.get_doc("Chapter", chapter_name)
+        approvers = self._get_financial_approvers(chapter_name)
+
+        if approvers:
+            # Update chapter board department
+            dept_name = f"Chapter {chapter_doc.name} Board"
+            self._update_department_approvers(dept_name, approvers)
+
+            # Also update parent chapter department for fallback
+            parent_dept = f"Chapter {chapter_doc.name}"
+            self._update_department_approvers(parent_dept, approvers)
+
+            frappe.logger().info(
+                f"Synced {len(approvers)} approver(s) to departments for chapter {chapter_name}"
+            )
+        else:
+            frappe.logger().debug(f"No financial approvers found for chapter {chapter_name}")
+
     def _get_financial_approvers(self, chapter_name):
         """Get users who can approve expenses for a chapter"""
-        approvers = []
-
         # Priority order: Treasurer, Financial Officer, Secretary-Treasurer, Board Chair
         financial_roles = ["Treasurer", "Financial Officer", "Secretary-Treasurer", "Board Chair"]
 
-        for role in financial_roles:
-            board_members = frappe.get_all(
-                "Verenigingen Chapter Board Member",
-                filters={"parent": chapter_name, "chapter_role": role, "is_active": 1},
-                fields=["volunteer"],
+        # Single query for all financial roles
+        board_members = frappe.get_all(
+            "Verenigingen Chapter Board Member",
+            filters={"parent": chapter_name, "chapter_role": ["in", financial_roles], "is_active": 1},
+            fields=["volunteer", "chapter_role"],
+        )
+
+        if not board_members:
+            return []
+
+        # Sort by role priority
+        role_priority = {role: idx for idx, role in enumerate(financial_roles)}
+        board_members.sort(key=lambda x: role_priority.get(x.chapter_role, 999))
+
+        # Process in priority order and return first valid approver
+        for member in board_members:
+            # Use db.get_value for efficiency - only need email fields
+            volunteer_data = frappe.db.get_value(
+                "Volunteer", member.volunteer, ["email", "personal_email"], as_dict=True
             )
+            if not volunteer_data:
+                continue
 
-            for member in board_members:
-                volunteer = frappe.get_doc("Volunteer", member.volunteer)
-                user_email = volunteer.email or volunteer.personal_email
+            user_email = volunteer_data.email or volunteer_data.personal_email
 
-                if user_email and frappe.db.exists("User", user_email):
-                    user = frappe.get_doc("User", user_email)
-                    if user.enabled:
-                        approvers.append(user_email)
-                        # Add expense approver role if not present
-                        self._ensure_expense_approver_role(user_email)
+            if user_email:
+                # Check if user exists and is enabled in single query
+                is_enabled = frappe.db.get_value("User", user_email, "enabled")
+                if is_enabled:
+                    # Add expense approver role if not present
+                    self._ensure_expense_approver_role(user_email)
+                    return [user_email]  # Return first valid approver
 
-            # Return after finding first valid approver
-            if approvers:
-                return approvers
-
-        return approvers
+        return []
 
     def _update_department_approvers(self, dept_name, approver_emails):
         """Update department's expense approvers"""
         if not frappe.db.exists("Department", dept_name):
+            frappe.logger().debug(f"Department {dept_name} does not exist, skipping approver sync")
             return
 
         dept = frappe.get_doc("Department", dept_name)
 
-        # Clear existing approvers
-        dept.expense_approvers = []
+        # Validate expense_approvers field exists (requires HRMS)
+        if not hasattr(dept, "expense_approvers"):
+            frappe.logger().warning(
+                f"Department {dept_name} does not have expense_approvers field - HRMS may not be installed"
+            )
+            return
 
-        # Add new approvers
+        # Validate approver emails before clearing existing approvers
+        valid_approvers = []
         for email in approver_emails:
+            if frappe.db.exists("User", email):
+                valid_approvers.append(email)
+            else:
+                frappe.logger().warning(f"User {email} does not exist, skipping as department approver")
+
+        if not valid_approvers:
+            frappe.logger().info(f"No valid approvers found for department {dept_name}")
+            return
+
+        # Clear existing approvers and add validated ones
+        dept.expense_approvers = []
+        for email in valid_approvers:
             dept.append("expense_approvers", {"approver": email})
 
         result = secure_document_operation(
@@ -267,9 +327,6 @@ class DepartmentHierarchyManager:
                 f"Failed to update department approvers for {dept_name}: {'; '.join(result.errors)}",
                 "Department Approver Update Security",
             )
-            return  # Don't commit if update failed
-
-        frappe.db.commit()
 
     def _ensure_expense_approver_role(self, user_email):
         """Ensure user has expense approver role"""
@@ -314,7 +371,6 @@ class DepartmentHierarchyManager:
                         f"Department '{department}' does not exist"
                     )
 
-        frappe.db.commit()
         return updated
 
 

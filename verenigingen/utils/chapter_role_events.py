@@ -164,57 +164,6 @@ def on_member_on_update(doc, method):
         frappe.log_error(f"Error in member update handler: {str(e)}")
 
 
-@frappe.whitelist()
-@high_security_api(operation_type=OperationType.FINANCIAL)
-def validate_volunteer_expense_approval(expense_name, action):
-    """
-    Validate volunteer expense approval actions
-    Only treasurers can approve/reject expenses
-    """
-    try:
-        from verenigingen.permissions import can_approve_volunteer_expense
-
-        expense_doc = frappe.get_doc("Volunteer Expense", expense_name)
-        user = frappe.session.user
-
-        if action in ["approve", "reject"] and not can_approve_volunteer_expense(expense_doc, user):
-            frappe.throw("Only treasurers can approve or reject volunteer expenses.", frappe.PermissionError)
-
-        return True
-
-    except Exception as e:
-        frappe.log_error(f"Error validating expense approval: {str(e)}")
-        frappe.throw(f"Error validating approval permissions: {str(e)}")
-
-
-def before_volunteer_expense_submit(doc, method):
-    """
-    Before submit handler for Volunteer Expense
-    Validates approval permissions before status changes
-    """
-    try:
-        # If status is being changed to Approved or Rejected, validate permissions
-        if doc.status in ["Approved", "Rejected"]:
-            from verenigingen.permissions import can_approve_volunteer_expense
-
-            if not can_approve_volunteer_expense(doc):
-                frappe.throw(
-                    "Only treasurers can approve or reject volunteer expenses.", frappe.PermissionError
-                )
-
-            # Set approval metadata
-            if not doc.approved_by:
-                doc.approved_by = frappe.session.user
-            if not doc.approved_on:
-                doc.approved_on = frappe.utils.now()
-
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        frappe.log_error(f"Error in volunteer expense before submit handler: {str(e)}")
-        frappe.throw(f"Error validating expense approval: {str(e)}")
-
-
 def on_chapter_role_on_update(doc, method):
     """
     Event handler for Chapter Role updates

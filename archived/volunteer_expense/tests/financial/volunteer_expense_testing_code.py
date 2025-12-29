@@ -1,6 +1,7 @@
 import frappe
-from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 from verenigingen.utils.secure_service_account import background_service_context
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 
 
 @frappe.whitelist()
@@ -31,6 +32,7 @@ def test_expense_query_fix():
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
+
 
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.UTILITY)
@@ -368,6 +370,7 @@ def test_expense_integration():
         # Commit changes to see test results
         frappe.db.commit()
 
+
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.UTILITY)
 def test_expense_form_with_foppe():
@@ -582,6 +585,7 @@ def test_expense_form_with_foppe():
         "foppe_volunteer": foppe_volunteer["name"] if foppe_volunteer else None,
     }
 
+
 def debug_volunteer_access():
     """Debug function to help administrators troubleshoot volunteer access issues"""
     # Security check: Only allow debug functions in development or for System Managers
@@ -620,7 +624,6 @@ def debug_volunteer_access():
     result["volunteer_direct"] = volunteer_direct
 
     return result
-
 
 
 @frappe.whitelist()
