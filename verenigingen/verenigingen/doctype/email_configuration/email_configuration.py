@@ -5,6 +5,10 @@ Centralized management of email and notification settings for the Verenigingen a
 Provides master enable/disable, per-notification-type controls, and recipient management.
 """
 
+import os
+import re
+import subprocess
+
 import frappe
 from frappe.model.document import Document
 from frappe.utils import get_datetime, now_datetime
@@ -213,3 +217,305 @@ def send_test_email(recipient: str) -> dict:
     except Exception as e:
         frappe.log_error(f"Test email failed: {str(e)}", "Email Configuration Test")
         return {"success": False, "error": str(e)}
+
+
+def _infer_category_from_path(file_path: str) -> str:
+    """Infer notification category from file path.
+
+    Args:
+        file_path: Path to the Python file containing the notification key.
+
+    Returns:
+        Category string (Member, Payment, Chapter, Volunteer, Admin, System).
+    """
+    path_lower = file_path.lower()
+
+    # Payment-related paths
+    if any(
+        pattern in path_lower
+        for pattern in [
+            "payment",
+            "sepa",
+            "mollie",
+            "ponto",
+            "billing",
+            "invoice",
+            "dues",
+            "donation",
+        ]
+    ):
+        return "Payment"
+
+    # Chapter-related paths
+    if "chapter" in path_lower:
+        return "Chapter"
+
+    # Volunteer-related paths
+    if any(pattern in path_lower for pattern in ["volunteer", "expense", "team"]):
+        return "Volunteer"
+
+    # Member-related paths
+    if any(pattern in path_lower for pattern in ["member", "membership", "application"]):
+        return "Member"
+
+    # System/scheduler paths
+    if any(pattern in path_lower for pattern in ["scheduler", "alert", "analytics", "critical"]):
+        return "System"
+
+    # Default to Admin for anything else
+    return "Admin"
+
+
+def _make_label_from_key(notification_key: str) -> str:
+    """Convert notification_key to human-readable label.
+
+    Args:
+        notification_key: Snake_case notification key.
+
+    Returns:
+        Title Case label.
+    """
+    # Replace underscores with spaces and title case
+    return notification_key.replace("_", " ").title()
+
+
+def _discover_notification_keys() -> dict:
+    """Discover all notification keys used in the codebase.
+
+    Returns:
+        Dict with keys:
+            - found: List of dicts with notification_key, file_path, category, label, description
+            - unregistered: List of keys found in code but not in notification_registry.py
+            - errors: List of error messages if any
+    """
+    from verenigingen.notification_registry import NOTIFICATION_KEYS, get_notification_meta
+
+    app_path = frappe.get_app_path("verenigingen")
+    results = {"found": [], "unregistered": [], "errors": []}
+
+    try:
+        # Use grep to find all notification_key= patterns
+        # Exclude test files, __pycache__, and .pyc files
+        cmd = [
+            "grep",
+            "-rn",
+            "--include=*.py",
+            r'notification_key\s*=\s*["\']',
+            app_path,
+        ]
+
+        process = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+        if process.returncode not in (0, 1):  # 1 means no matches, which is ok
+            results["errors"].append(f"grep failed: {process.stderr}")
+            return results
+
+        # Parse grep output
+        # Format: filepath:lineno:content
+        pattern = re.compile(r'notification_key\s*=\s*["\']([^"\']+)["\']')
+        seen_keys = {}  # key -> first file found in
+
+        for line in process.stdout.splitlines():
+            # Skip test files
+            if "/tests/" in line or "test_" in line:
+                continue
+
+            # Skip __pycache__
+            if "__pycache__" in line:
+                continue
+
+            # Skip the notification_registry.py itself (has example in docstring)
+            if "notification_registry.py" in line:
+                continue
+
+            # Extract file path
+            parts = line.split(":", 2)
+            if len(parts) < 3:
+                continue
+
+            file_path = parts[0]
+            content = parts[2]
+
+            # Extract notification key from the line
+            match = pattern.search(content)
+            if match:
+                key = match.group(1)
+                # Track first occurrence of each key
+                if key not in seen_keys:
+                    # Make path relative to app
+                    rel_path = os.path.relpath(file_path, app_path)
+                    seen_keys[key] = rel_path
+
+        # Build result list with metadata from registry (or inferred)
+        for key, file_path in sorted(seen_keys.items()):
+            meta = get_notification_meta(key)
+
+            if meta:
+                # Key is in the registry - use registry metadata
+                results["found"].append(
+                    {
+                        "notification_key": key,
+                        "file_path": file_path,
+                        "category": meta.get("category", "Admin"),
+                        "label": meta.get("label", _make_label_from_key(key)),
+                        "description": meta.get("description", ""),
+                        "priority": meta.get("priority", "Medium"),
+                        "recipient_policy": meta.get("recipient_policy", "Document-Field"),
+                        "in_registry": True,
+                    }
+                )
+            else:
+                # Key not in registry - infer metadata and flag it
+                results["found"].append(
+                    {
+                        "notification_key": key,
+                        "file_path": file_path,
+                        "category": _infer_category_from_path(file_path),
+                        "label": _make_label_from_key(key),
+                        "description": "(Not documented - add to notification_registry.py)",
+                        "priority": "Medium",
+                        "recipient_policy": "Document-Field",
+                        "in_registry": False,
+                    }
+                )
+                results["unregistered"].append(key)
+
+    except subprocess.TimeoutExpired:
+        results["errors"].append("Discovery timed out after 30 seconds")
+    except Exception as e:
+        results["errors"].append(f"Discovery failed: {str(e)}")
+
+    return results
+
+
+@frappe.whitelist()
+def discover_notification_keys() -> dict:
+    """API endpoint to discover notification keys in the codebase.
+
+    Returns:
+        Dict with:
+            - discovered: List of notification keys found in code (with metadata from registry)
+            - configured: List of keys already configured in Email Configuration
+            - new_keys: List of keys in code but not configured
+            - orphaned_keys: List of keys configured but not in code
+            - undocumented_keys: List of keys in code but not in notification_registry.py
+            - errors: Any errors during discovery
+    """
+    # Require write permission on Email Configuration
+    if not frappe.has_permission("Email Configuration", "write"):
+        frappe.throw(
+            "You need System Manager permissions to sync notification registry",
+            frappe.PermissionError,
+        )
+
+    # Get currently configured keys in Email Configuration (database)
+    config = get_email_configuration()
+    configured_keys = {nt.notification_key for nt in config.notification_types if nt.notification_key}
+
+    # Discover keys in codebase (with metadata from notification_registry.py)
+    discovery = _discover_notification_keys()
+    discovered_keys = {item["notification_key"] for item in discovery["found"]}
+
+    # Calculate differences
+    new_keys = discovered_keys - configured_keys  # In code, not in Email Configuration
+    orphaned_keys = configured_keys - discovered_keys  # In Email Configuration, not in code
+
+    # Build detailed response
+    new_keys_detail = [item for item in discovery["found"] if item["notification_key"] in new_keys]
+
+    return {
+        "discovered": discovery["found"],
+        "configured": list(configured_keys),
+        "new_keys": new_keys_detail,
+        "orphaned_keys": list(orphaned_keys),
+        "undocumented_keys": discovery.get("unregistered", []),
+        "errors": discovery["errors"],
+        "summary": {
+            "total_discovered": len(discovered_keys),
+            "total_configured": len(configured_keys),
+            "new_count": len(new_keys),
+            "orphaned_count": len(orphaned_keys),
+            "undocumented_count": len(discovery.get("unregistered", [])),
+        },
+    }
+
+
+@frappe.whitelist()
+def add_notification_types(notification_types: str) -> dict:
+    """Add new notification types to Email Configuration.
+
+    Uses metadata from notification_registry.py when available.
+
+    Args:
+        notification_types: JSON string of list of notification type dicts.
+            Each dict should have: notification_key (required), and optionally
+            label, category, description, priority, recipient_policy.
+
+    Returns:
+        Dict with success status and count of added types.
+    """
+    import json
+
+    from verenigingen.notification_registry import get_notification_meta
+
+    # Require write permission on Email Configuration
+    if not frappe.has_permission("Email Configuration", "write"):
+        frappe.throw(
+            "You need System Manager permissions to modify notification registry",
+            frappe.PermissionError,
+        )
+
+    try:
+        types_to_add = json.loads(notification_types)
+    except json.JSONDecodeError as e:
+        return {"success": False, "error": f"Invalid JSON: {str(e)}"}
+
+    if not isinstance(types_to_add, list):
+        return {"success": False, "error": "Expected a list of notification types"}
+
+    config = frappe.get_single("Email Configuration")
+    existing_keys = {nt.notification_key for nt in config.notification_types if nt.notification_key}
+
+    added_count = 0
+    skipped = []
+
+    for nt_data in types_to_add:
+        key = nt_data.get("notification_key")
+        if not key:
+            continue
+
+        if key in existing_keys:
+            skipped.append(key)
+            continue
+
+        # Get metadata from registry (if available) and merge with provided data
+        registry_meta = get_notification_meta(key)
+
+        # Add new row to child table - prefer provided data, fall back to registry, then defaults
+        config.append(
+            "notification_types",
+            {
+                "notification_key": key,
+                "label": nt_data.get("label") or registry_meta.get("label") or _make_label_from_key(key),
+                "category": nt_data.get("category") or registry_meta.get("category") or "Admin",
+                "description": nt_data.get("description") or registry_meta.get("description") or "",
+                "priority": nt_data.get("priority") or registry_meta.get("priority") or "Medium",
+                "cooldown_minutes": nt_data.get("cooldown_minutes", 60),
+                "enabled": 1,
+                "recipient_policy": nt_data.get("recipient_policy")
+                or registry_meta.get("recipient_policy")
+                or "Document-Field",
+            },
+        )
+        existing_keys.add(key)
+        added_count += 1
+
+    if added_count > 0:
+        config.save()
+
+    return {
+        "success": True,
+        "added": added_count,
+        "skipped": skipped,
+        "message": f"Added {added_count} notification type(s)",
+    }
