@@ -1519,6 +1519,7 @@ function show_transaction_import_dialog(frm) {
 				description: 'Choose how many transactions to import',
 				onchange() {
 					const method = dialog.get_value('import_method');
+					const isCustomDateRange = method.includes('Custom');
 					dialog.set_df_property(
 						'rest_note',
 						'hidden',
@@ -1528,8 +1529,11 @@ function show_transaction_import_dialog(frm) {
 					dialog.set_df_property(
 						'date_range_section',
 						'hidden',
-						!method.includes('Custom')
+						!isCustomDateRange
 					);
+					// Only require dates for custom date range
+					dialog.set_df_property('date_from', 'reqd', isCustomDateRange ? 1 : 0);
+					dialog.set_df_property('date_to', 'reqd', isCustomDateRange ? 1 : 0);
 				}
 			},
 			{
@@ -1550,14 +1554,14 @@ function show_transaction_import_dialog(frm) {
 				fieldname: 'date_from',
 				fieldtype: 'Date',
 				description: 'Start date for transaction import',
-				reqd: 1
+				reqd: 0  // Only required when "Custom Date Range" is selected
 			},
 			{
 				label: 'To Date',
 				fieldname: 'date_to',
 				fieldtype: 'Date',
 				description: 'End date for transaction import',
-				reqd: 1
+				reqd: 0  // Only required when "Custom Date Range" is selected
 			},
 			{
 				fieldname: 'mutation_types_section',
