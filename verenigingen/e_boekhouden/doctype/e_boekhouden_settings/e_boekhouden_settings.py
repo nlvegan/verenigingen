@@ -294,6 +294,27 @@ class EBoekhoudenSettings(Document):
             frappe.msgprint(f"Connection failed: {error_msg}", indicator="red")
             return False
 
+    def validate_api_connection(self):
+        """Validate API connection without UI side effects.
+
+        Returns:
+            dict: {"success": True/False, "error": str (on failure)}
+
+        Use this method for programmatic connection validation before
+        starting migrations or imports. Unlike test_connection(), this
+        method does not update status fields or show frappe.msgprint messages.
+        """
+        try:
+            session_token = self._get_session_token()
+            if not session_token:
+                return {
+                    "success": False,
+                    "error": "Failed to authenticate. Please check your API token.",
+                }
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)[:200]}
+
     def _get_session_token(self):
         """Get session token using API token"""
         try:
@@ -566,7 +587,7 @@ def create_cost_centers_from_mappings():
 
             if mapping.create_cost_center and mapping.cost_center_name:
                 mappings_to_create.append(mapping)
-                frappe.logger().info(f"  → INCLUDED for creation")
+                frappe.logger().info("  → INCLUDED for creation")
             else:
                 skip_reason = []
                 if not mapping.create_cost_center:

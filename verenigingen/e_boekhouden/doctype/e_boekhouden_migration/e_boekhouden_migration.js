@@ -1428,33 +1428,64 @@ function update_all_account_types(dialog, recommendations, company) {
 
 	// Show progress
 	frappe.show_alert({
-		message: __(`Updating ${updates.length} accounts...`),
+		message: __(`Updating ${updates.length} accounts sequentially...`),
 		indicator: 'blue'
 	});
 
-	// Update accounts one by one
+	// Process updates sequentially to avoid nested set deadlocks
 	let completed = 0;
-	updates.forEach((update) => {
+	let failed = 0;
+
+	function processNextUpdate(index) {
+		if (index >= updates.length) {
+			// All done
+			dialog.hide();
+			if (failed > 0) {
+				frappe.msgprint({
+					title: __('Update Complete'),
+					message: __(`Updated ${completed} accounts. ${failed} failed (check console for details).`),
+					indicator: 'orange'
+				});
+			} else {
+				frappe.show_alert({
+					message: __(`All ${completed} account types updated successfully!`),
+					indicator: 'green'
+				});
+			}
+			return;
+		}
+
+		const update = updates[index];
+
 		frappe.call({
 			method:
-        'verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration.update_account_type_mapping',
+				'verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration.update_account_type_mapping',
 			args: {
-				account_name: update.account, // Use the doctype name
+				account_name: update.account,
 				new_account_type: update.new_type,
 				company
 			},
 			callback(r) {
-				completed++;
-				if (completed === updates.length) {
-					dialog.hide();
-					frappe.show_alert({
-						message: __('All account types updated successfully!'),
-						indicator: 'green'
-					});
+				if (r.message && r.message.success) {
+					completed++;
+				} else {
+					failed++;
+					console.error(`Failed to update ${update.account_name}:`, r.message?.error);
 				}
+				// Process next update after a small delay to avoid overwhelming the server
+				setTimeout(() => processNextUpdate(index + 1), 100);
+			},
+			error() {
+				failed++;
+				console.error(`Error updating ${update.account_name}`);
+				// Continue with next update even on error
+				setTimeout(() => processNextUpdate(index + 1), 100);
 			}
 		});
-	});
+	}
+
+	// Start sequential processing
+	processNextUpdate(0);
 }
 
 function handle_import_transactions(frm) {
