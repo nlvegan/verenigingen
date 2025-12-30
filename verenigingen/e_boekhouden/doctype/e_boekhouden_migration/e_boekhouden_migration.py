@@ -2890,13 +2890,6 @@ def update_account_type_mapping(account_name, new_account_type, company):
         dict: {"success": bool, "message": str (success), "error": str (failure),
                "error_code": str (optional)}
     """
-    # Retry configuration: 3 retries typically handles ~95% of nested set deadlocks
-    # while avoiding indefinite retry loops
-    MAX_RETRIES = 3
-    # Linear backoff (0.5s, 1s, 1.5s) chosen because nested set deadlocks typically
-    # resolve within 1-2 seconds; exponential would cause unnecessarily long waits
-    BACKOFF_BASE_SECONDS = 0.5
-
     # Validate required inputs
     if not account_name or not new_account_type or not company:
         return {
@@ -2972,66 +2965,48 @@ def update_account_type_mapping(account_name, new_account_type, company):
             "error_code": "LOOKUP_ERROR",
         }
 
-    # Retry loop for deadlock-prone save operation
-    for attempt in range(MAX_RETRIES):
-        try:
-            # Reload account in case of retry to get fresh data
-            if attempt > 0:
-                account.reload()
+    # Use direct db.set_value instead of full document save
+    # This avoids triggering nested set updates (on_update hook) which cause:
+    # 1. Deadlocks when multiple accounts are updated concurrently
+    # 2. Cache invalidation that corrupts session data
+    # Since we're only changing account_type (not parent_account), nested set is unnecessary
+    try:
+        frappe.db.set_value(
+            "Account",
+            account.name,
+            "account_type",
+            new_account_type,
+            update_modified=True,
+        )
 
-            # Update account type
-            account.account_type = new_account_type
-            validate_and_save(account)
-            frappe.db.commit()
+        return {
+            "success": True,
+            "message": f"Updated {account.account_name} to {new_account_type}",
+        }
 
-            return {
-                "success": True,
-                "message": f"Updated {account.account_name} to {new_account_type}",
-            }
+    except frappe.PermissionError as e:
+        # Security audit - log permission denials
+        frappe.log_error(
+            f"Permission denied for user {frappe.session.user} updating account {account_name}: {str(e)[:150]}",
+            "Account Update Permission Denied",
+        )
+        return {
+            "success": False,
+            "error": "You do not have permission to update account types.",
+            "error_code": "PERMISSION_DENIED",
+        }
 
-        except frappe.QueryDeadlockError:
-            frappe.db.rollback()
-            if attempt < MAX_RETRIES - 1:
-                wait_time = BACKOFF_BASE_SECONDS * (attempt + 1)
-                frappe.logger().warning(
-                    f"Deadlock updating account {account_name}, retry {attempt + 1}/{MAX_RETRIES} after {wait_time}s"
-                )
-                time.sleep(wait_time)
-                continue
-            # Final attempt failed - log for investigation
-            frappe.log_error(
-                f"Persistent deadlock updating {account_name} after {MAX_RETRIES} attempts",
-                "Account Update Deadlock",
-            )
-            return {
-                "success": False,
-                "error": f"Database deadlock persists after {MAX_RETRIES} attempts. Please try again in a few moments.",
-                "error_code": "DEADLOCK_PERSISTENT",
-            }
-
-        except frappe.PermissionError as e:
-            # Security audit - log permission denials
-            frappe.log_error(
-                f"Permission denied for user {frappe.session.user} updating account {account_name}: {str(e)[:150]}",
-                "Account Update Permission Denied",
-            )
-            return {
-                "success": False,
-                "error": "You do not have permission to update account types.",
-                "error_code": "PERMISSION_DENIED",
-            }
-
-        except Exception as e:
-            error_short = str(e)[:100]
-            frappe.log_error(
-                f"Account update failed for {account_name}: {error_short}",
-                "Account Update Error",
-            )
-            return {
-                "success": False,
-                "error": f"Update failed: {error_short}",
-                "error_code": "UPDATE_ERROR",
-            }
+    except Exception as e:
+        error_short = str(e)[:100]
+        frappe.log_error(
+            f"Account update failed for {account_name}: {error_short}",
+            "Account Update Error",
+        )
+        return {
+            "success": False,
+            "error": f"Update failed: {error_short}",
+            "error_code": "UPDATE_ERROR",
+        }
 
     def _get_migration_currency(self, settings):
         """Get currency for migration with explicit validation"""
