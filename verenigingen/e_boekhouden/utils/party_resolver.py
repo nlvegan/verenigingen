@@ -250,6 +250,15 @@ class EBoekhoudenPartyResolver:
             else:
                 # Different relation, make name unique by appending relation ID
                 proposed_name = f"{customer_name[:120]} ({relation_details['id']})"
+
+                # Check if this unique name already exists (e.g., from partial retry)
+                if frappe.db.exists("Customer", proposed_name):
+                    debug_info.append(f"Customer {proposed_name} already exists (from previous attempt)")
+                    return proposed_name
+
+                # IMPORTANT: Must also update customer_name because ERPNext's autoname()
+                # sets self.name = self.customer_name when cust_master_name = "Customer Name"
+                customer.customer_name = proposed_name
                 debug_info.append(
                     f"Customer name '{customer_name}' exists with different relation, using unique name: {proposed_name}"
                 )
@@ -404,6 +413,15 @@ class EBoekhoudenPartyResolver:
             else:
                 # Different relation, make name unique by appending relation ID
                 proposed_name = f"{supplier_name[:120]} ({relation_details['id']})"
+
+                # Check if this unique name already exists (e.g., from partial retry)
+                if frappe.db.exists("Supplier", proposed_name):
+                    debug_info.append(f"Supplier {proposed_name} already exists (from previous attempt)")
+                    return proposed_name
+
+                # IMPORTANT: Must also update supplier_name because ERPNext's autoname()
+                # sets self.name = self.supplier_name when supp_master_name = "Supplier Name"
+                supplier.supplier_name = proposed_name
                 debug_info.append(
                     f"Supplier name '{supplier_name}' exists with different relation, using unique name: {proposed_name}"
                 )
