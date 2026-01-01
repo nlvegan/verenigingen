@@ -80,18 +80,33 @@ class ConfigurableAccountMapper:
 
     def _find_main_bank_account(self) -> Optional[str]:
         """Find the main bank account (typically the first/primary one)."""
-        # Look for account with "primary" or "main" in name first
+        # Look for account with "main" in name first
         main_account = frappe.db.get_value(
             "Account",
-            filters=[
-                ["company", "=", self.company],
-                ["account_type", "=", "Bank"],
-                ["is_group", "=", 0],
-                ["disabled", "=", 0],
-                ["name", "like", "%main%"],
-                ["or"],
-                ["name", "like", "%primary%"],
-            ],
+            filters={
+                "company": self.company,
+                "account_type": "Bank",
+                "is_group": 0,
+                "disabled": 0,
+                "name": ["like", "%main%"],
+            },
+            fieldname="name",
+            order_by="name",
+        )
+
+        if main_account:
+            return main_account
+
+        # Try "primary" in name
+        main_account = frappe.db.get_value(
+            "Account",
+            filters={
+                "company": self.company,
+                "account_type": "Bank",
+                "is_group": 0,
+                "disabled": 0,
+                "name": ["like", "%primary%"],
+            },
             fieldname="name",
             order_by="name",
         )
@@ -136,12 +151,32 @@ class ConfigurableAccountMapper:
         if cash_account:
             return cash_account
 
-        # Fallback to account with "kas" or "cash" in name
+        # Fallback to account with "kas" in name
+        cash_account = frappe.db.get_value(
+            "Account",
+            filters={
+                "company": self.company,
+                "is_group": 0,
+                "disabled": 0,
+                "name": ["like", "%kas%"],
+            },
+            fieldname="name",
+            order_by="name",
+        )
+
+        if cash_account:
+            return cash_account
+
+        # Fallback to account with "cash" in name
         return frappe.db.get_value(
             "Account",
-            {"company": self.company, "is_group": 0, "disabled": 0},
-            "name",
-            filters=[["name", "like", "%kas%"], ["or"], ["name", "like", "%cash%"]],
+            filters={
+                "company": self.company,
+                "is_group": 0,
+                "disabled": 0,
+                "name": ["like", "%cash%"],
+            },
+            fieldname="name",
             order_by="name",
         )
 
