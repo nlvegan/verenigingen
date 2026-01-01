@@ -2015,19 +2015,16 @@ def generate_dues_invoices(test_mode=False):
         coverage_gaps = []
         for invoice_data in successful_invoices:
             try:
-                invoice = frappe.get_doc("Sales Invoice", invoice_data["invoice"])
+                # invoice_data["invoice"] is already the document object from generate_invoice()
+                invoice = invoice_data["invoice"]
                 if hasattr(invoice, "custom_coverage_end_date") and invoice.custom_coverage_end_date:
                     if invoice.custom_coverage_end_date < cutoff_date:
-                        # Get member name from schedule
-                        schedule = frappe.get_doc(
-                            "Membership Dues Schedule", invoice.membership_dues_schedule_display
-                        )
                         gap_days = (cutoff_date - invoice.custom_coverage_end_date).days
 
                         coverage_gaps.append(
                             {
-                                "member": schedule.member,
-                                "schedule": schedule.name,
+                                "member": invoice_data["member_id"],
+                                "schedule": invoice_data["schedule"],
                                 "invoice": invoice.name,
                                 "coverage_end": invoice.custom_coverage_end_date,
                                 "cutoff_date": cutoff_date,
