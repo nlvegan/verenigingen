@@ -6,6 +6,10 @@ frappe.ui.form.on('Mollie Settings', {
 		// Add custom buttons and form enhancements
 		add_custom_buttons(frm);
 		setup_form_indicators(frm);
+
+		// Disable browser autocomplete on all password/sensitive fields
+		// Firefox aggressively tries to fill these with login credentials
+		disable_autofill(frm);
 	},
 
 	test_mode(frm) {
@@ -236,3 +240,67 @@ frappe.ui.form.on('Mollie Settings', 'before_save', (frm) => {
 		frappe.throw(__('Live Secret Key is required when Test Mode is disabled'));
 	}
 });
+
+function disable_autofill(frm) {
+	// Firefox aggressively autofills password fields with saved login credentials.
+	// This function uses multiple strategies to prevent that behavior.
+
+	const sensitive_fields = [
+		'profile_id',
+		'test_secret_key',
+		'live_secret_key',
+		'testing_webhook_secret_key',
+		'live_webhook_secret_key',
+		'organization_access_token',
+		'backend_webhook_secret',
+		'organization_id'
+	];
+
+	// Strategy 1: Add hidden honeypot fields to catch autofill
+	// Firefox will fill these instead of real fields
+	const form = frm.page.wrapper.find('form');
+	if (!form.find('#autofill-trap').length) {
+		form.prepend(`
+			<div id="autofill-trap" style="position:absolute;left:-9999px;opacity:0;pointer-events:none;" aria-hidden="true">
+				<input type="text" name="fake-username-field" tabindex="-1" autocomplete="username">
+				<input type="password" name="fake-password-field" tabindex="-1" autocomplete="current-password">
+			</div>
+		`);
+	}
+
+	// Strategy 2: Set autocomplete attributes on real fields
+	sensitive_fields.forEach(fieldname => {
+		const field = frm.fields_dict[fieldname];
+		if (field && field.$input) {
+			// 'new-password' tells browser this is NOT a login form
+			field.$input.attr('autocomplete', 'new-password');
+			// Attributes for password managers
+			field.$input.attr('data-lpignore', 'true');
+			field.$input.attr('data-1p-ignore', 'true');
+			field.$input.attr('data-form-type', 'other');
+		}
+	});
+
+	// Strategy 3: Clear any autofilled values that don't match saved doc
+	// Run after a brief delay to catch Firefox's autofill
+	setTimeout(() => {
+		sensitive_fields.forEach(fieldname => {
+			const field = frm.fields_dict[fieldname];
+			if (field && field.$input) {
+				const input_val = field.$input.val();
+				const doc_val = frm.doc[fieldname] || '';
+
+				// If input has a value but doc doesn't, Firefox autofilled it
+				if (input_val && !doc_val) {
+					field.$input.val('');
+				}
+				// For password fields, Frappe uses placeholder bullets
+				// so we need to check if it was tampered with
+				if (field.df.fieldtype === 'Password' && doc_val && input_val !== doc_val) {
+					// Restore the masked value indicator
+					field.refresh();
+				}
+			}
+		});
+	}, 100);
+}

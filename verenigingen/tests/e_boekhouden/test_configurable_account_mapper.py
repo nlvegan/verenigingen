@@ -174,6 +174,28 @@ class TestConfigurableAccountMapperDetection(unittest.TestCase):
 
         self.assertEqual(result, "Sales - TC")
 
+    @patch("frappe.get_doc")
+    @patch("frappe.db.get_value")
+    def test_find_default_income_account_fallback(self, mock_get_value, mock_get_doc):
+        """Test _find_default_income_account falls back to any income account"""
+        mock_company = MagicMock()
+        mock_company.default_income_account = None
+        mock_get_doc.return_value = mock_company
+        mock_get_value.return_value = "General Income - TC"
+
+        result = self.mapper._find_default_income_account()
+
+        self.assertEqual(result, "General Income - TC")
+
+    @patch("frappe.db.get_value")
+    def test_find_bank_by_name_no_match(self, mock_get_value):
+        """Test _find_bank_by_name returns None when no match found"""
+        mock_get_value.return_value = None
+
+        result = self.mapper._find_bank_by_name("nonexistent")
+
+        self.assertIsNone(result)
+
 
 class TestConfigurableAccountMapperCaching(unittest.TestCase):
     """Test caching behavior"""

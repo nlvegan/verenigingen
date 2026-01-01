@@ -12,7 +12,6 @@ dynamic lookups based on account purpose/type.
 from typing import Dict, List, Optional
 
 import frappe
-from frappe.utils import cint
 
 
 class ConfigurableAccountMapper:
