@@ -171,7 +171,8 @@ class PaymentProcessor(BaseTransactionProcessor):
         rows = mutation.get("rows", [])
 
         if amount == 0 and rows:
-            row_amounts = [abs(frappe.utils.flt(row.get("amount", 0), 2)) for row in rows]
+            # Keep sign to detect reversed transactions (negative amount = opposite direction)
+            row_amounts = [frappe.utils.flt(row.get("amount", 0), 2) for row in rows]
             amount = sum(row_amounts)
             self.debug_info.append(f"Main amount was 0, calculated {amount} from {len(rows)} rows")
 
@@ -360,7 +361,12 @@ class PaymentProcessor(BaseTransactionProcessor):
             je.cheque_no = f"EB-{mutation_id}"
             je.cheque_date = posting_date
 
-            if mutation_type == 5:  # Money Received
+            # Determine actual direction: mutation_type gives intent, but amount sign can reverse it
+            # Type 5 (Money Received) with positive amount = incoming, with negative = outgoing
+            # Type 6 (Money Paid) with positive amount = outgoing, with negative = incoming
+            is_incoming = (mutation_type == 5 and amount >= 0) or (mutation_type == 6 and amount < 0)
+
+            if is_incoming:
                 # Bank account debited (money comes in) - use total of all rows
                 bank_entry = {
                     "account": gl_account,
@@ -412,7 +418,7 @@ class PaymentProcessor(BaseTransactionProcessor):
                     f"Money Received: Bank {gl_account} debited {total_row_amount}, "
                     f"{len(row_entries)} income line(s) credited"
                 )
-            else:  # Money Paid (type 6)
+            else:  # Money going out
                 # Bank account credited (money goes out) - use total of all rows
                 bank_entry = {
                     "account": gl_account,

@@ -3231,6 +3231,10 @@ def _create_zero_amount_payment_entry(mutation, company, cost_center, debug_info
     description = mutation.get("description", f"eBoekhouden Zero-Amount Import {mutation_id}")
     ledger_id = mutation.get("ledgerId")
 
+    # Check row amounts for direction hint (even if sum is zero, individual rows have signs)
+    rows = mutation.get("Regels", []) or mutation.get("rows", [])
+    row_sum = sum(frappe.utils.flt(row.get("amount", 0), 2) for row in rows) if rows else 0
+
     try:
         # Create Payment Entry with minimal amount (0.01) to satisfy ERPNext validation
         pe = frappe.new_doc("Payment Entry")
@@ -3241,12 +3245,21 @@ def _create_zero_amount_payment_entry(mutation, company, cost_center, debug_info
         pe.reference_no = f"EBH-Zero-{mutation_id}"
         pe.reference_date = mutation.get("date")
 
-        # Set payment type based on mutation type
+        # Determine direction: mutation_type gives intent, but row sum sign can override
+        # For zero-amount transactions, use mutation_type unless rows indicate otherwise
         if mutation_type == 5:  # Money Received
-            pe.payment_type = "Receive"
+            # If row_sum is negative, this is actually outgoing
+            if row_sum < 0:
+                pe.payment_type = "Pay"
+            else:
+                pe.payment_type = "Receive"
             pe.mode_of_payment = "Bank Transfer"
         elif mutation_type == 6:  # Money Paid
-            pe.payment_type = "Pay"
+            # If row_sum is positive, this is actually incoming
+            if row_sum > 0:
+                pe.payment_type = "Receive"
+            else:
+                pe.payment_type = "Pay"
             pe.mode_of_payment = "Bank Transfer"
         elif mutation_type == 3:  # Customer Payment
             pe.payment_type = "Receive"
@@ -3386,9 +3399,10 @@ def _create_money_transfer_payment_entry(mutation, company, cost_center, debug_i
     # Handle both detailed data format ("Regels") and summary data format ("rows")
     rows = mutation.get("Regels", []) or mutation.get("rows", [])
 
-    # If main amount is zero, try to get amount from rows
+    # If main amount is zero, try to get amount from rows (keeping the sign!)
     if amount == 0 and rows:
-        row_amounts = [abs(frappe.utils.flt(row.get("amount", 0), 2)) for row in rows]
+        # Keep sign to detect reversed transactions (negative amount = opposite direction)
+        row_amounts = [frappe.utils.flt(row.get("amount", 0), 2) for row in rows]
         amount = sum(row_amounts)
         debug_info.append(f"Main amount was 0, calculated {amount} from {len(rows)} rows")
 
@@ -3477,7 +3491,12 @@ def _create_money_transfer_payment_entry(mutation, company, cost_center, debug_i
     je.cheque_no = f"EB-{mutation_id}"
     je.cheque_date = mutation.get("date")
 
-    if mutation_type == 5:  # Money Received
+    # Determine actual direction: mutation_type gives intent, but amount sign can reverse it
+    # Type 5 (Money Received) with positive amount = incoming, with negative = outgoing
+    # Type 6 (Money Paid) with positive amount = outgoing, with negative = incoming
+    is_incoming = (mutation_type == 5 and amount >= 0) or (mutation_type == 6 and amount < 0)
+
+    if is_incoming:
         # Bank account debited (money comes in)
         je.append(
             "accounts",
@@ -3503,7 +3522,7 @@ def _create_money_transfer_payment_entry(mutation, company, cost_center, debug_i
         debug_info.append(
             f"Money Received: Bank {bank_account} debited, Income {target_account} credited: {abs(amount)}"
         )
-    else:  # Money Paid (type 6)
+    else:
         # Bank account credited (money goes out)
         je.append(
             "accounts",
