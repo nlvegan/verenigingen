@@ -703,7 +703,7 @@ class ContributionAmendmentApprovalService(StatefulService):
 
             if not result.get("success"):
                 frappe.log_error(
-                    f"Failed to send approval notification: {result.get('message')}",
+                    f"Failed to send approval notification: {result.get('error')}",
                     "Amendment Approval Email Error",
                 )
         except Exception as e:
@@ -746,7 +746,7 @@ class ContributionAmendmentApprovalService(StatefulService):
 
             if not result.get("success"):
                 frappe.log_error(
-                    f"Failed to send rejection notification: {result.get('message')}",
+                    f"Failed to send rejection notification: {result.get('error')}",
                     "Amendment Rejection Email Error",
                 )
         except Exception as e:

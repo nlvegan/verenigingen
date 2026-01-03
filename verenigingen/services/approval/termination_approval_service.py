@@ -223,7 +223,7 @@ class TerminationApprovalService(StatefulService):
 
             email_service = get_email_service()
             result = email_service.send_templated_email(
-                template_name="termination_pending_approval",
+                template_name="Termination Approval Required",
                 recipients=[self.request.secondary_approver],
                 context={
                     "member_name": member.full_name,
@@ -245,7 +245,7 @@ class TerminationApprovalService(StatefulService):
 
             if not result.get("success"):
                 frappe.log_error(
-                    f"Failed to send approval notification: {result.get('message')}",
+                    f"Failed to send approval notification: {result.get('error')}",
                     "Termination Approval Email Error",
                 )
             else:
@@ -265,7 +265,7 @@ class TerminationApprovalService(StatefulService):
 
             email_service = get_email_service()
             result = email_service.send_templated_email(
-                template_name="termination_approved",
+                template_name="Termination Execution Notice",
                 recipients=[self.request.requested_by],
                 context={
                     "member_name": member.full_name,
@@ -290,7 +290,7 @@ class TerminationApprovalService(StatefulService):
 
             if not result.get("success"):
                 frappe.log_error(
-                    f"Failed to send approved notification: {result.get('message')}",
+                    f"Failed to send approved notification: {result.get('error')}",
                     "Termination Approved Email Error",
                 )
             else:
@@ -330,7 +330,7 @@ class TerminationApprovalService(StatefulService):
 
             if not result.get("success"):
                 frappe.log_error(
-                    f"Failed to send rejection notification: {result.get('message')}",
+                    f"Failed to send rejection notification: {result.get('error')}",
                     "Termination Rejection Email Error",
                 )
             else:

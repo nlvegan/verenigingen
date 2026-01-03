@@ -38,67 +38,60 @@ class MemberIDManager:
     @staticmethod
     def get_next_member_id():
         """
-        Get the next available member ID with atomic increment
+        Get the next available member ID with atomic increment.
+
+        Uses FOR UPDATE row locking within Frappe's existing transaction.
+        Do NOT use explicit frappe.db.begin()/commit() - Frappe manages transactions
+        during document lifecycle operations (before_insert, validate, etc.).
+
         Returns: int - the next member ID to use
         """
-        # Use database transaction with row locking for better atomicity
         try:
-            # Start a database transaction
-            frappe.db.begin()
-            try:
-                # Use a dedicated settings table for better concurrency control
-                settings_name = "Verenigingen Settings"
+            settings_name = "Verenigingen Settings"
 
-                # Lock the settings row to prevent concurrent access
-                current_id = frappe.db.sql(
-                    """
-                    SELECT last_member_id
-                    FROM `tabVerenigingen Settings`
-                    WHERE name = %s
-                    FOR UPDATE
+            # Lock the settings row to prevent concurrent access
+            # FOR UPDATE works within Frappe's existing transaction
+            current_id = frappe.db.sql(
+                """
+                SELECT last_member_id
+                FROM `tabVerenigingen Settings`
+                WHERE name = %s
+                FOR UPDATE
                 """,
-                    (settings_name,),
-                    as_dict=True,
-                )
+                (settings_name,),
+                as_dict=True,
+            )
 
-                if not current_id or current_id[0].last_member_id is None:
-                    # Initialize from existing data
-                    initialized_id = MemberIDManager._initialize_counter()
-                    frappe.db.sql(
-                        """
-                        UPDATE `tabVerenigingen Settings`
-                        SET last_member_id = %s
-                        WHERE name = %s
-                    """,
-                        (initialized_id, settings_name),
-                    )
-                    next_id = initialized_id + 1
-                else:
-                    next_id = current_id[0].last_member_id + 1
-
-                # Update to next value atomically
+            if not current_id or current_id[0].last_member_id is None:
+                # Initialize from existing data
+                initialized_id = MemberIDManager._initialize_counter()
                 frappe.db.sql(
                     """
                     UPDATE `tabVerenigingen Settings`
                     SET last_member_id = %s
                     WHERE name = %s
-                """,
-                    (next_id, settings_name),
+                    """,
+                    (initialized_id, settings_name),
                 )
+                next_id = initialized_id + 1
+            else:
+                next_id = current_id[0].last_member_id + 1
 
-                # Ensure the transaction is committed
-                frappe.db.commit()
+            # Update to next value atomically
+            frappe.db.sql(
+                """
+                UPDATE `tabVerenigingen Settings`
+                SET last_member_id = %s
+                WHERE name = %s
+                """,
+                (next_id, settings_name),
+            )
 
-                # Update cache for performance (but don't rely on it for atomicity)
-                counter_key = "member_id_counter"
-                frappe.cache().set(counter_key, next_id)
+            # Update cache for performance (but don't rely on it for atomicity)
+            counter_key = "member_id_counter"
+            frappe.cache().set(counter_key, next_id)
 
-                return next_id
-
-            except Exception as transaction_error:
-                # Rollback the transaction on error
-                frappe.db.rollback()
-                raise transaction_error
+            return next_id
 
         except Exception as e:
             frappe.log_error(f"Error generating member ID: {str(e)}", "Member ID Generation")
