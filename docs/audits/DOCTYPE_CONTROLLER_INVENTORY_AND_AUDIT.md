@@ -1,8 +1,52 @@
 # DocType Controller Inventory and Refactoring Audit
 
 **Generated**: 2026-01-02
+**Last Updated**: 2026-01-03
 **Total Files**: 149 Python files in doctype directories
 **Total LOC**: 57,323 lines of code
+
+---
+
+## Progress Update (2026-01-03)
+
+### Phase 0: Immediate Actions ✅ COMPLETE
+
+| Action | Status | Notes |
+|--------|--------|-------|
+| Delete backup files | ✅ Done | Moved to `archived/doctype_controller_backups/` (gitignored) |
+| `chapter_controller_backup.py` | ✅ Archived | No longer in active codebase |
+| `donation_original.py` | ✅ Archived | No longer in active codebase |
+| `team_original_backup.py` | ✅ Archived | No longer in active codebase |
+| `payment_mixin_optimized.py` | ✅ Archived | No longer in active codebase |
+
+### Phase 1: Surgical Fixes ✅ SIGNIFICANT PROGRESS
+
+| Action | Status | Notes |
+|--------|--------|-------|
+| E-Boekhouden Migration refactoring | ✅ 34% reduction | **3,239 → 2,140 LOC** (1,099 lines extracted) |
+| Services extracted | ✅ 6 services | 3,703 LOC now in dedicated services |
+| ANBI integration check | ✅ Verified | `PeriodicDonationAgreement` properly uses `ANBIValidationService` |
+
+**Extracted E-Boekhouden Services:**
+- `account_migration_service.py` - Account migration logic
+- `account_classification_service.py` - Account classification
+- `account_organization_service.py` - Account organization
+- `account_diagnostics_service.py` - Diagnostic utilities
+- `relation_migration_service.py` - Relation migration
+- `migration_data_quality_service.py` - Data quality checks
+
+### Remaining Work
+
+| Item | Priority | Estimated Effort |
+|------|----------|------------------|
+| ~~Member ID consolidation~~ | ✅ Done | Completed 2026-01-03 - See [MEMBER_ID_CONSOLIDATION_PLAN.md](MEMBER_ID_CONSOLIDATION_PLAN.md) |
+| Further e_boekhouden_migration extraction | Medium | Controller at 2,140 LOC; target ~1,000 LOC |
+| membership_dues_schedule.py (2,917 LOC) | Low | Partially uses services; evaluate if further extraction adds value |
+| Import tools (MijnRood, VIP) | Low | Measure usage before investing effort |
+
+**Member ID Issue**: Two ID generation implementations exist - one atomic (with DB locking), one non-atomic. The non-atomic version is used in production. Plan consolidates by having the non-atomic delegate to the atomic version.
+
+---
 
 ## Executive Summary
 
@@ -26,9 +70,9 @@ This audit identifies DocType controllers containing business logic that should 
 - `direct_debit_batch.py` (844 LOC) - Uses batch processing services
 
 **Controllers Needing Refactoring** (business logic embedded):
-- `e_boekhouden_migration.py` (3239 LOC) - Massive migration logic ← **Primary target**
+- ~~`e_boekhouden_migration.py` (3239 LOC)~~ → **2,140 LOC** (34% reduced, 6 services extracted)
 - `membership_dues_schedule.py` (2917 LOC) - Billing calculations inline
-- `mijnrood_csv_import.py` (2407 LOC) - CSV parsing logic embedded
+- `mijnrood_csv_import.py` (2407 LOC) - CSV parsing logic embedded (measure usage first)
 - ~~`donor.py` (935 LOC)~~ - Keep as-is (see Expert Review below)
 
 ---

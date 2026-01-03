@@ -25,35 +25,27 @@ logger = logging.getLogger(__name__)
 
 
 def generate_member_id():
-    """Generate a unique member ID using settings-based sequential numbering.
+    """Generate a unique member ID using atomic counter.
 
-    Extracted from member.py without modification. Uses Verenigingen Settings
-    to maintain sequential numbering with fallback to timestamp-based IDs.
+    Delegates to MemberIDManager for proper database-level locking (FOR UPDATE).
+    This ensures uniqueness under concurrent member creation.
+
+    The atomic implementation uses database transactions with row locking to
+    prevent duplicate IDs even under concurrent load.
 
     Returns:
-        str: Unique member ID
+        str: Unique member ID, or None for Guest users
+
+    Note:
+        Falls back to timestamp-based ID if atomic generation fails.
     """
     if frappe.session.user == "Guest":
         return None
 
     try:
-        settings = frappe.get_single("Verenigingen Settings")
+        from verenigingen.verenigingen.doctype.member.member_id_manager import MemberIDManager
 
-        # Check if the field exists
-        if not hasattr(settings, "last_member_id"):
-            # Use a simple timestamp-based ID if settings field doesn't exist
-            return str(int(time.time() * 1000))[-8:]  # Last 8 digits of timestamp
-
-        if not settings.last_member_id:
-            start_id = getattr(settings, "member_id_start", 10000)
-            settings.last_member_id = start_id - 1
-
-        new_id = int(settings.last_member_id) + 1
-
-        settings.last_member_id = new_id
-        settings.save()
-
-        return str(new_id)
+        return str(MemberIDManager.get_next_member_id())
     except Exception as e:
         # Log error and fallback to simple ID generation
         handle_service_error(

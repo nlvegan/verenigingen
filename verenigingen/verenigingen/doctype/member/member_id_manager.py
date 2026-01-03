@@ -1,6 +1,21 @@
 """
-Member ID Counter Management
-verenigingen/verenigingen/doctype/member/member_id_manager.py
+Member ID Counter Management - CANONICAL IMPLEMENTATION
+
+This module provides atomic member ID generation with database-level locking.
+All other ID generation code should delegate to MemberIDManager.get_next_member_id().
+
+Implementation Details:
+    - Uses FOR UPDATE row locking for atomicity
+    - Prevents duplicate IDs under concurrent member creation
+    - Falls back to timestamp-based IDs on error
+
+Consumers:
+    - services/member/core/member_id_service.py (delegates here)
+    - services/member/identification/member_id_service.py (delegates here)
+    - Member DocType hooks (generate_member_id, validate_member_id_change)
+
+See Also:
+    - docs/audits/MEMBER_ID_CONSOLIDATION_PLAN.md
 """
 
 import frappe
@@ -12,7 +27,13 @@ from verenigingen.utils.security.api_security_framework import OperationType, cr
 
 
 class MemberIDManager:
-    """Manages member ID counter with atomic operations"""
+    """Manages member ID counter with atomic database operations.
+
+    This is the CANONICAL implementation for member ID generation.
+    Uses FOR UPDATE row locking to prevent duplicate IDs under concurrent load.
+
+    All other ID generation code should delegate to this class.
+    """
 
     @staticmethod
     def get_next_member_id():
