@@ -3257,13 +3257,16 @@ def _create_zero_amount_payment_entry(mutation, company, cost_center, debug_info
         else:
             pe.payment_type = "Internal Transfer"
 
-        # Get bank account from main ledger
-        # Get bank account from ledger mapping (no auto-create, will use fallback)
+        # Get bank account from main ledger - MUST be mapped, no fallbacks
         bank_account = get_erpnext_account_from_ledger_id(ledger_id, company, debug_info, auto_create=False)
 
-        # Fallback to default bank account
         if not bank_account:
-            bank_account = _get_appropriate_payment_account(company, debug_info)
+            # Get ledger code for better error message
+            ledger_code = frappe.db.get_value("E-Boekhouden Ledger Mapping", {"ledger_id": str(ledger_id)}, "ledger_code")
+            raise frappe.ValidationError(
+                f"No ERPNext account mapped for E-Boekhouden ledger {ledger_id} (code: {ledger_code}). "
+                f"Please link the ledger mapping to an ERPNext account before importing."
+            )
 
         # Set accounts properly for Payment Entry
         if pe.payment_type == "Receive":
@@ -3393,16 +3396,17 @@ def _create_money_transfer_payment_entry(mutation, company, cost_center, debug_i
         f"Creating money transfer Payment Entry: ID={mutation_id}, Type={mutation_type}, Amount={amount}"
     )
 
-    # Get bank account from main ledgerId
-    # Get bank account from ledger mapping (no auto-create, will use fallback)
+    # Get bank account from main ledgerId - MUST be mapped, no fallbacks
     bank_account = get_erpnext_account_from_ledger_id(ledger_id, company, debug_info, auto_create=False)
     if bank_account:
         debug_info.append(f"Mapped main ledger {ledger_id} to bank account: {bank_account}")
-
-    if not bank_account:
-        # Fallback to default payment account
-        bank_account = _get_appropriate_payment_account(company, debug_info)["erpnext_account"]
-        debug_info.append(f"Using fallback bank account: {bank_account}")
+    else:
+        # Get ledger code for better error message
+        ledger_code = frappe.db.get_value("E-Boekhouden Ledger Mapping", {"ledger_id": str(ledger_id)}, "ledger_code")
+        raise frappe.ValidationError(
+            f"No ERPNext account mapped for E-Boekhouden ledger {ledger_id} (code: {ledger_code}). "
+            f"Please link the ledger mapping to an ERPNext account before importing."
+        )
 
     # Get income/expense account from rows
     target_account = None

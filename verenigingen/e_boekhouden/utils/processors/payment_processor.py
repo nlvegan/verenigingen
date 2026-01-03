@@ -189,10 +189,12 @@ class PaymentProcessor(BaseTransactionProcessor):
             )
 
         if not bank_account:
-            self.debug_info.append(f"Could not find bank account for ledger {ledger_id}, using fallback")
-            from ..eboekhouden_rest_full_migration import _get_appropriate_payment_account
-
-            bank_account = _get_appropriate_payment_account(self.company, self.debug_info)["erpnext_account"]
+            # Get ledger code for better error message
+            ledger_code = frappe.db.get_value("E-Boekhouden Ledger Mapping", {"ledger_id": str(ledger_id)}, "ledger_code")
+            raise frappe.ValidationError(
+                f"No ERPNext account mapped for E-Boekhouden ledger {ledger_id} (code: {ledger_code}). "
+                f"Please link the ledger mapping to an ERPNext account before importing."
+            )
 
         self.debug_info.append(f"Using GL account from mapping: {bank_account}")
 
