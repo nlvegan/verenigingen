@@ -44,7 +44,60 @@
 | membership_dues_schedule.py (2,917 LOC) | Low | Partially uses services; evaluate if further extraction adds value |
 | Import tools (MijnRood, VIP) | Low | Measure usage before investing effort |
 
-**Member ID Issue**: Two ID generation implementations exist - one atomic (with DB locking), one non-atomic. The non-atomic version is used in production. Plan consolidates by having the non-atomic delegate to the atomic version.
+**Member ID Issue**: ✅ RESOLVED - Consolidated to atomic implementation. See [MEMBER_ID_CONSOLIDATION_PLAN.md](MEMBER_ID_CONSOLIDATION_PLAN.md)
+
+---
+
+## Approval Workflow Consolidation Opportunity
+
+**Analysis Date**: 2026-01-03
+
+Three DocTypes have similar approval workflows but use different patterns:
+
+| DocType | LOC | Pattern | Status |
+|---------|-----|---------|--------|
+| `membership_termination_request.py` | 673 | Service delegation (`TerminationApprovalService`) | **MODEL** |
+| `contribution_amendment_request.py` | 1,611 | All inline | **NEEDS EXTRACTION** |
+| `chapter_join_request.py` | 446 | Partial delegation | **ACCEPTABLE** |
+
+### Pattern Comparison
+
+| Aspect | Termination (Model) | Amendment (Inline) | Chapter Join |
+|--------|---------------------|-------------------|--------------|
+| Auto-approval | Service (simple rules) | Inline (30+ LOC complex fee validation) | N/A |
+| Approve/Reject | `approval_service.approve_request()` | `self.approve_amendment()` inline | `self.approve_request()` inline |
+| Execute/Apply | `TerminationExecutionService` | `apply_amendment()` inline (200+ LOC) | `ChapterMembershipManager` |
+| Audit trail | `TerminationAuditService` | Inline | N/A |
+| Notifications | Service method | Inline (100+ LOC) | Inline (80 LOC) |
+
+### Recommendation
+
+**Extract `ContributionAmendmentApprovalService`** following the termination pattern:
+
+```python
+# Proposed structure (mirrors TerminationApprovalService)
+class ContributionAmendmentApprovalService(StatefulService):
+    def check_auto_approval(self) -> bool
+    def check_respects_minimum_fee(self) -> bool
+    def approve_amendment(self, notes=None)
+    def reject_amendment(self, reason)
+    def apply_amendment(self)
+    def apply_fee_change(self, membership)
+    def apply_membership_type_change(self, membership)
+    def cancel_conflicting_amendments(self)
+    def send_approval_notification()
+    def send_rejection_notification()
+```
+
+**Estimated Impact**:
+- Controller: 1,611 → ~600 LOC
+- New service: ~600 LOC
+- Effort: 4-6 hours
+
+**Benefits**:
+- Testable approval logic independent of controller
+- Reusable pattern for future approval workflows
+- Consistent architecture across approval DocTypes
 
 ---
 
@@ -134,7 +187,7 @@ This audit was reviewed by architecture experts. Key feedback incorporated:
 | `membership_dues_schedule.py` | 2917 | Billing calculations, progressive dues logic, template sync | Partially uses services; extract remaining to `ProgressiveDuesCalculator` |
 | `mijnrood_csv_import.py` | 2407 | CSV parsing, data transformation, validation logic | Extract to `MijnRoodImportService`, `CSVValidationService` |
 | `member.py` | 1963 | Well-factored with mixins; address normalization inline | Generally good; minor cleanup of inline utilities |
-| `contribution_amendment_request.py` | 1611 | Fee validation, minimum calculations, approval logic | Extract to `ContributionAmendmentService`, `FeeValidationService` |
+| `contribution_amendment_request.py` | 1611 | Fee validation, approval workflow, amendment application | **CONSOLIDATION OPPORTUNITY** - Should follow `membership_termination_request.py` pattern: extract `ContributionAmendmentApprovalService` (~600 LOC) for auto-approval logic, approve/reject methods, apply methods, notifications. See Approval Workflow Consolidation section below. |
 | `chapter_controller_backup.py` | 1360 | Backup file - DELETE | Remove from codebase |
 | `chapter/managers/member_manager.py` | 1323 | Part of manager pattern - OK but large | Consider splitting into smaller managers |
 | `membership.py` | 1305 | Dues schedule creation, member updates inline | **EXTRACTION COMPLETE** - Delegates to 5,430 LOC in billing services (DuesScheduleCreationService, ValidationService, InvoiceGenerator, CoverageCalculator, etc.); controller orchestrates calls and updates Member doc |
@@ -161,7 +214,7 @@ This audit was reviewed by architecture experts. Key feedback incorporated:
 | `membership_termination_analytics.py` | 739 | Analytics calculations | Extract to `TerminationAnalyticsService` |
 | `chapter/managers/communication_manager.py` | 726 | Part of manager pattern - OK | Model example |
 | `ponto_settings.py` | 699 | Ponto API configuration | Extract to `PontoConfigurationService` |
-| `membership_termination_request.py` | 673 | Termination workflow logic | Partially uses services; continue extraction |
+| `membership_termination_request.py` | 673 | Termination workflow logic | **MODEL PATTERN** - Well-factored approval workflow: delegates to `TerminationApprovalService` (356 LOC), `TerminationExecutionService`, `TerminationAuditService`. Use as template for other approval DocTypes. |
 | `e_boekhouden_account_mapping/api.py` | 666 | API endpoints | **SECURED** - Added security decorators to all 15 endpoints (5 @standard_api, 8 @high_security_api, 2 @critical_api) |
 | `member/mixins/payment_mixin_optimized.py` | 653 | Duplicate of payment_mixin - DELETE or merge | Consolidate with payment_mixin.py |
 | `account_creation_request.py` | 649 | Account creation logic | Uses AccountCreationManager - GOOD |
@@ -187,7 +240,7 @@ This audit was reviewed by architecture experts. Key feedback incorporated:
 | `e_boekhouden_dashboard.py` | 459 | Dashboard logic | Extract to `EBoekhoudenDashboardService` |
 | `analytics_alert_rule.py` | 458 | Alert rule logic | Extract to `AnalyticsAlertService` |
 | `dues_schedule_manager.py` | 450 | Should be a service | Move to `services/billing/` |
-| `chapter_join_request.py` | 445 | Join request logic | Extract to `ChapterJoinService` |
+| `chapter_join_request.py` | 445 | Join request approval workflow | **ACCEPTABLE** - Simpler workflow (446 LOC); uses `ChapterMembershipManager` for membership creation. Optional extraction to match termination pattern, but low priority given size. |
 | `sepa_audit_log.py` | 431 | Audit log operations | Extract to `SEPAAuditService` |
 | `donation_campaign.py` | 408 | Campaign logic | Extract to `DonationCampaignService` |
 | `bulk_operation_tracker.py` | 402 | Tracking logic | Extract to `BulkOperationService` |
