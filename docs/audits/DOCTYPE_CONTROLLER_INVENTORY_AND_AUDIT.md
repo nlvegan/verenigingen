@@ -51,14 +51,31 @@
 ## Approval Workflow Consolidation Opportunity
 
 **Analysis Date**: 2026-01-03
+**Status**: ✅ **COMPLETE** (2026-01-03)
 
-Three DocTypes have similar approval workflows but use different patterns:
+Three DocTypes have similar approval workflows. Extraction complete for contribution amendment:
 
 | DocType | LOC | Pattern | Status |
 |---------|-----|---------|--------|
 | `membership_termination_request.py` | 673 | Service delegation (`TerminationApprovalService`) | **MODEL** |
-| `contribution_amendment_request.py` | 1,611 | All inline | **NEEDS EXTRACTION** |
+| `contribution_amendment_request.py` | 808 | Service delegation (`ContributionAmendmentApprovalService`) | ✅ **EXTRACTED** |
 | `chapter_join_request.py` | 446 | Partial delegation | **ACCEPTABLE** |
+
+### Extraction Summary (2026-01-03)
+
+**Commit**: `3f5817c7`
+
+| Metric | Before | After |
+|--------|--------|-------|
+| Controller LOC | 1,611 | 808 |
+| Service LOC | 0 | 828 |
+| Reduction | - | 50% |
+
+**Also added to TerminationApprovalService**:
+- Implemented `send_approval_notification()` using EmailService
+- Added `send_approved_notification()` and `send_rejection_notification()`
+- Added section comments for organization
+- Registered 3 new notification keys in notification_registry.py
 
 ### Pattern Comparison
 
@@ -187,7 +204,7 @@ This audit was reviewed by architecture experts. Key feedback incorporated:
 | `membership_dues_schedule.py` | 2917 | Billing calculations, progressive dues logic, template sync | Partially uses services; extract remaining to `ProgressiveDuesCalculator` |
 | `mijnrood_csv_import.py` | 2407 | CSV parsing, data transformation, validation logic | Extract to `MijnRoodImportService`, `CSVValidationService` |
 | `member.py` | 1963 | Well-factored with mixins; address normalization inline | Generally good; minor cleanup of inline utilities |
-| `contribution_amendment_request.py` | 1611 | Fee validation, approval workflow, amendment application | **CONSOLIDATION OPPORTUNITY** - Should follow `membership_termination_request.py` pattern: extract `ContributionAmendmentApprovalService` (~600 LOC) for auto-approval logic, approve/reject methods, apply methods, notifications. See Approval Workflow Consolidation section below. |
+| `contribution_amendment_request.py` | 808 | Fee validation, approval workflow, amendment application | ✅ **EXTRACTION COMPLETE** - Delegates to `ContributionAmendmentApprovalService` (828 LOC) following TerminationApprovalService pattern. Controller reduced from 1,611 to 808 LOC (50% reduction). |
 | `chapter_controller_backup.py` | 1360 | Backup file - DELETE | Remove from codebase |
 | `chapter/managers/member_manager.py` | 1323 | Part of manager pattern - OK but large | Consider splitting into smaller managers |
 | `membership.py` | 1305 | Dues schedule creation, member updates inline | **EXTRACTION COMPLETE** - Delegates to 5,430 LOC in billing services (DuesScheduleCreationService, ValidationService, InvoiceGenerator, CoverageCalculator, etc.); controller orchestrates calls and updates Member doc |
