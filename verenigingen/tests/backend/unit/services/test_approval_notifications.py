@@ -64,6 +64,11 @@ class TestApprovalTemplatesExist(FrappeTestCase):
         exists = frappe.db.exists("Email Template", "amendment_rejected")
         self.assertTrue(exists, "Email template 'amendment_rejected' must exist")
 
+    def test_termination_rejected_template_exists(self):
+        """termination_rejected template must exist."""
+        exists = frappe.db.exists("Email Template", "termination_rejected")
+        self.assertTrue(exists, "Email template 'termination_rejected' must exist")
+
 
 class TestMemberIDGenerationNoExplicitTransaction(FrappeTestCase):
     """Verify member ID generation doesn't cause transaction errors."""

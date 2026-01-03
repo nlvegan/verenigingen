@@ -27,6 +27,18 @@
     "docstatus": 0,
     "doctype": "Email Template",
     "enabled": 1,
+    "modified": "2026-01-03 12:00:00",
+    "name": "termination_rejected",
+    "reference_doctype": null,
+    "response": null,
+    "response_html": "<div style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;\">\n    <div style=\"background-color: #f8d7da; padding: 20px; border-radius: 8px; margin-bottom: 20px;\">\n        <h2 style=\"color: #721c24; margin: 0;\">Termination Request Rejected</h2>\n        <p style=\"color: #721c24; margin: 5px 0 0 0;\">{{ (company or \"Our Organization\")|e }}</p>\n    </div>\n    \n    <div style=\"background-color: white; padding: 20px; border: 1px solid #e9ecef; border-radius: 8px;\">\n        <p>Dear Colleague,</p>\n        \n        <p>A membership termination request you submitted has been rejected.</p>\n        \n        <div style=\"background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;\">\n            <h3 style=\"margin-top: 0; color: #2c3e50;\">Request Details:</h3>\n            <table style=\"width: 100%; border-collapse: collapse;\">\n                <tbody><tr>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\"><strong>Request ID:</strong></td>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\">{{ request_id|e }}</td>\n                </tr>\n                <tr>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\"><strong>Member:</strong></td>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\">{{ member_name|e }}</td>\n                </tr>\n                <tr>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\"><strong>Termination Type:</strong></td>\n                    <td style=\"padding: 8px 0; border-bottom: 1px solid #dee2e6;\">{{ termination_type|e }}</td>\n                </tr>\n                <tr>\n                    <td style=\"padding: 8px 0;\"><strong>Rejected By:</strong></td>\n                    <td style=\"padding: 8px 0;\">{{ rejected_by|e }}</td>\n                </tr>\n            </tbody></table>\n        </div>\n        \n        <div style=\"background-color: #fff3cd; padding: 15px; border-radius: 5px; margin: 15px 0; border-left: 4px solid #ffc107;\">\n            <h4 style=\"margin-top: 0; color: #856404;\">Reason for Rejection:</h4>\n            <p style=\"margin: 0;\">{{ rejection_reason|e }}</p>\n        </div>\n        \n        <p>If you believe this decision was made in error or would like to discuss this further, please contact the approver directly or submit a new request with additional documentation.</p>\n        \n        <div style=\"text-align: center; margin: 30px 0;\">\n            <a href=\"{{ portal_link }}\" style=\"background-color: #6c757d; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;\">View Request Details</a>\n        </div>\n        \n        <hr style=\"margin: 20px 0; border: none; border-top: 1px solid #e9ecef;\">\n        <p style=\"font-size: 12px; color: #6c757d;\">\n            This is an automated notification from the membership management system.<br>\n            {{ (company or \"Our Organization\")|e }} - {{ current_year }}\n        </p>\n    </div>\n</div>",
+    "subject": "Termination Request Rejected - {{ member_name|e }}",
+    "use_html": 1
+  },
+  {
+    "docstatus": 0,
+    "doctype": "Email Template",
+    "enabled": 1,
     "modified": "2025-09-22 09:03:05",
     "name": "membership_applications_overdue",
     "reference_doctype": null,
