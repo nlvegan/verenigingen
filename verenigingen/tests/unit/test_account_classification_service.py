@@ -190,7 +190,8 @@ class TestAccountClassificationService(unittest.TestCase):
         self.assertEqual(result.account_type, "Income Account")
         self.assertEqual(result.root_type, "Income")
         self.assertEqual(result.confidence, ClassificationConfidence.HIGH)
-        self.assertEqual(result.strategy_used, "profit_loss_group_055")
+        # Code ranges (8xxx = income) have higher priority than group codes
+        self.assertEqual(result.strategy_used, "profit_loss_income_range")
 
     def test_vw_expense_group_056(self):
         """Test VW category with group 056 (expenses)"""
@@ -203,15 +204,16 @@ class TestAccountClassificationService(unittest.TestCase):
         self.assertEqual(result.confidence, ClassificationConfidence.HIGH)
 
     def test_vw_income_by_keyword(self):
-        """Test VW category with income keyword"""
+        """Test VW category with income keyword - 8xxx code takes priority"""
         result = self.service.classify_account(
             {"code": "8100", "description": "Opbrengst donaties", "category": "VW", "group": ""}
         )
 
         self.assertEqual(result.account_type, "Income Account")
         self.assertEqual(result.root_type, "Income")
-        self.assertEqual(result.confidence, ClassificationConfidence.MEDIUM)
-        self.assertIn("income_keyword", result.strategy_used)
+        # Code ranges (8xxx = income) have higher priority than keywords, so HIGH confidence
+        self.assertEqual(result.confidence, ClassificationConfidence.HIGH)
+        self.assertIn("income_range", result.strategy_used)
 
     def test_vw_income_by_code_8xxx(self):
         """Test VW category with 8xxx income code"""
@@ -222,14 +224,18 @@ class TestAccountClassificationService(unittest.TestCase):
         self.assertEqual(result.account_type, "Income Account")
         self.assertEqual(result.root_type, "Income")
 
-    def test_vw_expense_fallback(self):
-        """Test VW category defaults to expense"""
+    def test_vw_no_match_requires_review(self):
+        """Test VW category without matching patterns returns NONE confidence for manual review"""
         result = self.service.classify_account(
             {"code": "6500", "description": "Algemene kosten", "category": "VW", "group": ""}
         )
 
-        self.assertEqual(result.account_type, "Expense Account")
-        self.assertEqual(result.root_type, "Expense")
+        # VW accounts without group match, keyword match, or code pattern match
+        # now return NONE confidence to flag for manual review rather than defaulting to expense
+        self.assertEqual(result.account_type, "")
+        self.assertIsNone(result.root_type)
+        self.assertEqual(result.confidence, ClassificationConfidence.NONE)
+        self.assertEqual(result.strategy_used, "profit_loss_no_match")
 
     def test_code_pattern_bank_10xx(self):
         """Test code pattern classification for 10xx (bank)"""
