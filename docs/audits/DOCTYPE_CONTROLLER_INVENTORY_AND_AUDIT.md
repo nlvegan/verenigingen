@@ -137,7 +137,7 @@ This audit was reviewed by architecture experts. Key feedback incorporated:
 | `contribution_amendment_request.py` | 1611 | Fee validation, minimum calculations, approval logic | Extract to `ContributionAmendmentService`, `FeeValidationService` |
 | `chapter_controller_backup.py` | 1360 | Backup file - DELETE | Remove from codebase |
 | `chapter/managers/member_manager.py` | 1323 | Part of manager pattern - OK but large | Consider splitting into smaller managers |
-| `membership.py` | 1305 | Dues schedule creation, member updates inline | Extract schedule creation to `DuesScheduleCreationService` (partially done) |
+| `membership.py` | 1305 | Dues schedule creation, member updates inline | **EXTRACTION COMPLETE** - Delegates to 5,430 LOC in billing services (DuesScheduleCreationService, ValidationService, InvoiceGenerator, CoverageCalculator, etc.); controller orchestrates calls and updates Member doc |
 | `chapter/managers/board_manager.py` | 1240 | Part of manager pattern - OK but large | Consider splitting |
 | `direct_debit_batch/sepa_processor.py` | 1203 | SEPA processing logic | Already modular; consider merging with sepa_xml_service |
 | `chapter.py` | 1162 | Uses manager pattern - GOOD | Model example |
@@ -150,7 +150,7 @@ This audit was reviewed by architecture experts. Key feedback incorporated:
 
 | File | LOC | Issues | Recommended Actions |
 |------|-----|--------|---------------------|
-| `member/mixins/payment_mixin.py` | 997 | Payment processing logic | Extract remaining logic to `PaymentProcessingService` |
+| `member/mixins/payment_mixin.py` | 997 | Payment processing logic | **ALREADY WELL-FACTORED** - Delegates 2,167 LOC to services (validation_service, background_jobs, payment_history_builder, batch_processor); remaining logic is Member document-specific |
 | `donation_original.py` | 971 | Backup file - DELETE | Remove from codebase |
 | `team_original_backup.py` | 966 | Backup file - DELETE | Remove from codebase |
 | `donor.py` | 935 | BSN/RSIN eleven-proof validation (17 LOC), encryption | **KEEP LOCAL** - Domain-specific, single-use logic; extraction adds indirection without benefit |
@@ -162,7 +162,7 @@ This audit was reviewed by architecture experts. Key feedback incorporated:
 | `chapter/managers/communication_manager.py` | 726 | Part of manager pattern - OK | Model example |
 | `ponto_settings.py` | 699 | Ponto API configuration | Extract to `PontoConfigurationService` |
 | `membership_termination_request.py` | 673 | Termination workflow logic | Partially uses services; continue extraction |
-| `e_boekhouden_account_mapping/api.py` | 666 | API endpoints - should use @whitelisted methods | Refactor to use API security framework |
+| `e_boekhouden_account_mapping/api.py` | 666 | API endpoints | **SECURED** - Added security decorators to all 15 endpoints (5 @standard_api, 8 @high_security_api, 2 @critical_api) |
 | `member/mixins/payment_mixin_optimized.py` | 653 | Duplicate of payment_mixin - DELETE or merge | Consolidate with payment_mixin.py |
 | `account_creation_request.py` | 649 | Account creation logic | Uses AccountCreationManager - GOOD |
 | `periodic_donation_agreement.py` | 643 | Donation agreement logic | Extract to `PeriodicDonationService` |
@@ -227,7 +227,7 @@ These files are generally well-sized for controllers. Only those with specific i
 |------------|-----|---------------------------|
 | `e_boekhouden_migration.py` | 3239 | Migration orchestration, cleanup, API calls |
 | `e_boekhouden_settings.py` | 791 | API configuration validation |
-| `e_boekhouden_account_mapping/api.py` | 666 | Account mapping API operations |
+| `e_boekhouden_account_mapping/api.py` | 666 | Account mapping API operations (SECURED) |
 | `e_boekhouden_dashboard.py` | 459 | Dashboard data aggregation |
 
 **Proposed Services**:
@@ -476,7 +476,7 @@ The original 250 LOC target was **unrealistic for Frappe**. Frappe controllers h
 1611 contribution_amendment_request.py
 1360 chapter_controller_backup.py (DELETE)
 1323 chapter/managers/member_manager.py
-1305 membership.py
+1305 membership.py (EXTRACTION COMPLETE - delegates to 5,430 LOC billing services)
 1240 chapter/managers/board_manager.py
 1203 direct_debit_batch/sepa_processor.py
 1162 chapter.py
@@ -484,7 +484,7 @@ The original 250 LOC target was **unrealistic for Frappe**. Frappe controllers h
 1132 vip_import.py
 1083 brand_settings.py
 1022 member_utils.py
-997 member/mixins/payment_mixin.py
+997 member/mixins/payment_mixin.py (WELL-FACTORED - delegates to services)
 971 donation_original.py (DELETE)
 966 team_original_backup.py (DELETE)
 935 donor.py

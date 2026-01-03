@@ -9,8 +9,16 @@ from datetime import datetime
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_migration_config_status():
     """Get the current status of migration configuration"""
     try:
@@ -50,6 +58,7 @@ def get_migration_config_status():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def stage_eboekhouden_data(from_date, to_date):
     """Stage E-Boekhouden data for configuration"""
     try:
@@ -140,6 +149,7 @@ def stage_eboekhouden_data(from_date, to_date):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_staged_data_summary():
     """Get summary of staged data for review"""
     try:
@@ -189,6 +199,7 @@ def get_staged_data_summary():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def add_account_mapping(account_code, account_type, notes=None):
     """Add a manual account mapping"""
     try:
@@ -237,6 +248,7 @@ def add_account_mapping(account_code, account_type, notes=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def remove_account_mapping(mapping_id):
     """Remove an account mapping"""
     try:
@@ -248,6 +260,7 @@ def remove_account_mapping(mapping_id):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def preview_migration_impact():
     """Preview what will be created during migration"""
     try:
@@ -307,6 +320,7 @@ def preview_migration_impact():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def start_configured_migration(use_staged_data=True, apply_mappings=True):
     """Start migration with current configuration"""
     try:
@@ -352,6 +366,7 @@ def start_configured_migration(use_staged_data=True, apply_mappings=True):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def export_migration_config():
     """Export current migration configuration"""
     try:
@@ -390,6 +405,7 @@ def export_migration_config():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def import_migration_config(config):
     """Import migration configuration"""
     try:
@@ -437,6 +453,7 @@ def import_migration_config(config):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def clear_all_mappings():
     """Clear all account mappings"""
     try:
@@ -528,6 +545,7 @@ def suggest_account_type(account_code, account_name, category=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def update_account_mapping(mapping_id, account_type, notes=None):
     """Update an existing account mapping"""
     try:
@@ -552,6 +570,7 @@ def update_account_mapping(mapping_id, account_type, notes=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def bulk_update_mappings(updates):
     """Bulk update multiple mappings"""
     try:
@@ -583,6 +602,7 @@ def bulk_update_mappings(updates):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def suggest_account_mappings():
     """Analyze staged data and suggest account mappings"""
     try:
@@ -638,6 +658,7 @@ def suggest_account_mappings():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def apply_suggested_mappings(suggestions):
     """Apply selected mapping suggestions"""
     try:
