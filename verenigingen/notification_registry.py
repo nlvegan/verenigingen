@@ -111,6 +111,27 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
     },
+    "termination_pending_approval": {
+        "label": "Termination Pending Approval",
+        "category": CATEGORY_ADMIN,
+        "description": "Sent to designated approver when a termination request requires secondary approval (disciplinary cases).",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+    },
+    "termination_approved": {
+        "label": "Termination Request Approved",
+        "category": CATEGORY_MEMBER,
+        "description": "Sent to requester when their termination request is approved.",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+    },
+    "termination_rejected": {
+        "label": "Termination Request Rejected",
+        "category": CATEGORY_MEMBER,
+        "description": "Sent to requester when their termination request is rejected, including the reason.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+    },
     # =========================================================================
     # CHAPTER NOTIFICATIONS
     # =========================================================================

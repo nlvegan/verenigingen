@@ -46,6 +46,8 @@ class TerminationApprovalService(StatefulService):
         super().__init__(service_name="TerminationApprovalService")
         self.request = termination_request
 
+    # ====== Approval Requirements ======
+
     def requires_secondary_approval(self) -> bool:
         """Check if termination type requires secondary approval"""
         return self.request.termination_type in self.DISCIPLINARY_TERMINATION_TYPES
@@ -72,6 +74,8 @@ class TerminationApprovalService(StatefulService):
         # Check disciplinary documentation requirement
         if self.requires_secondary_approval() and not self.request.disciplinary_documentation:
             frappe.throw(_("Documentation is required for disciplinary actions"))
+
+    # ====== Submission and Approval ======
 
     def submit_for_approval(self) -> Dict[str, str]:
         """
@@ -167,6 +171,9 @@ class TerminationApprovalService(StatefulService):
 
         self.request.add_audit_entry("Request Approved", f"Approved by {frappe.session.user}")
 
+        # Send notification to requester
+        self.send_approved_notification()
+
     def _handle_rejection(self, notes: str) -> None:
         """Handle rejection of the request"""
         self.request.status = "Rejected"
@@ -175,6 +182,11 @@ class TerminationApprovalService(StatefulService):
         self.request.approver_notes = notes
 
         self.request.add_audit_entry("Request Rejected", f"Rejected by {frappe.session.user}: {notes}")
+
+        # Send notification to requester
+        self.send_rejection_notification()
+
+    # ====== Status Handlers ======
 
     def handle_approved_status(self) -> None:
         """Handle when termination request transitions to approved status"""
@@ -197,14 +209,136 @@ class TerminationApprovalService(StatefulService):
         if not self.request.approval_date:
             self.request.approval_date = now()
 
+    # ====== Notifications ======
+
     def send_approval_notification(self) -> None:
-        """Send notification to approver"""
+        """Send notification to secondary approver that a request is pending their review."""
+        if not self.request.secondary_approver:
+            return
+
         try:
-            if self.request.secondary_approver:
-                # TODO: Implement email notification
-                self.logger.info(f"Approval notification should be sent to {self.request.secondary_approver}")
+            from verenigingen.services.communication.email_service import get_email_service
+
+            member = frappe.get_doc("Member", self.request.member)
+
+            email_service = get_email_service()
+            result = email_service.send_templated_email(
+                template_name="termination_pending_approval",
+                recipients=[self.request.secondary_approver],
+                context={
+                    "member_name": member.full_name,
+                    "member_id": self.request.member,
+                    "request_id": self.request.name,
+                    "termination_type": self.request.termination_type,
+                    "termination_reason": self.request.termination_reason,
+                    "requested_by": self.request.requested_by,
+                    "requires_documentation": self.requires_secondary_approval(),
+                    "portal_link": frappe.utils.get_url()
+                    + "/app/membership-termination-request/"
+                    + self.request.name,
+                    "current_year": frappe.utils.now_datetime().year,
+                },
+                reference_doctype="Membership Termination Request",
+                reference_name=self.request.name,
+                notification_key="termination_pending_approval",
+            )
+
+            if not result.get("success"):
+                frappe.log_error(
+                    f"Failed to send approval notification: {result.get('message')}",
+                    "Termination Approval Email Error",
+                )
+            else:
+                self.logger.info(f"Approval notification sent to {self.request.secondary_approver}")
         except Exception as e:
-            self.logger.error(f"Failed to send approval notification: {str(e)}")
+            frappe.log_error(f"Error sending approval notification: {str(e)}")
+
+    def send_approved_notification(self) -> None:
+        """Send notification to requester that their termination request was approved."""
+        if not self.request.requested_by:
+            return
+
+        try:
+            from verenigingen.services.communication.email_service import get_email_service
+
+            member = frappe.get_doc("Member", self.request.member)
+
+            email_service = get_email_service()
+            result = email_service.send_templated_email(
+                template_name="termination_approved",
+                recipients=[self.request.requested_by],
+                context={
+                    "member_name": member.full_name,
+                    "request_id": self.request.name,
+                    "termination_type": self.request.termination_type,
+                    "termination_date": (
+                        frappe.utils.formatdate(self.request.termination_date)
+                        if self.request.termination_date
+                        else None
+                    ),
+                    "approved_by": self.request.approved_by,
+                    "approver_notes": self.request.approver_notes,
+                    "portal_link": frappe.utils.get_url()
+                    + "/app/membership-termination-request/"
+                    + self.request.name,
+                    "current_year": frappe.utils.now_datetime().year,
+                },
+                reference_doctype="Membership Termination Request",
+                reference_name=self.request.name,
+                notification_key="termination_approved",
+            )
+
+            if not result.get("success"):
+                frappe.log_error(
+                    f"Failed to send approved notification: {result.get('message')}",
+                    "Termination Approved Email Error",
+                )
+            else:
+                self.logger.info(f"Approved notification sent to {self.request.requested_by}")
+        except Exception as e:
+            frappe.log_error(f"Error sending approved notification: {str(e)}")
+
+    def send_rejection_notification(self) -> None:
+        """Send notification to requester that their termination request was rejected."""
+        if not self.request.requested_by:
+            return
+
+        try:
+            from verenigingen.services.communication.email_service import get_email_service
+
+            member = frappe.get_doc("Member", self.request.member)
+
+            email_service = get_email_service()
+            result = email_service.send_templated_email(
+                template_name="termination_rejected",
+                recipients=[self.request.requested_by],
+                context={
+                    "member_name": member.full_name,
+                    "request_id": self.request.name,
+                    "termination_type": self.request.termination_type,
+                    "rejection_reason": self.request.approver_notes or "No reason provided",
+                    "rejected_by": self.request.approved_by,
+                    "portal_link": frappe.utils.get_url()
+                    + "/app/membership-termination-request/"
+                    + self.request.name,
+                    "current_year": frappe.utils.now_datetime().year,
+                },
+                reference_doctype="Membership Termination Request",
+                reference_name=self.request.name,
+                notification_key="termination_rejected",
+            )
+
+            if not result.get("success"):
+                frappe.log_error(
+                    f"Failed to send rejection notification: {result.get('message')}",
+                    "Termination Rejection Email Error",
+                )
+            else:
+                self.logger.info(f"Rejection notification sent to {self.request.requested_by}")
+        except Exception as e:
+            frappe.log_error(f"Error sending rejection notification: {str(e)}")
+
+    # ====== Helper Methods ======
 
     def _add_to_expulsion_report(self) -> None:
         """Add disciplinary termination to expulsion report"""
