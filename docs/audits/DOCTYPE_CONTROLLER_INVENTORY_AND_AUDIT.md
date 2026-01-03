@@ -139,7 +139,7 @@ This audit was reviewed by architecture experts. Key feedback incorporated:
 | `chapter/managers/member_manager.py` | 1323 | Part of manager pattern - OK but large | Consider splitting into smaller managers |
 | `membership.py` | 1305 | Dues schedule creation, member updates inline | **EXTRACTION COMPLETE** - Delegates to 5,430 LOC in billing services (DuesScheduleCreationService, ValidationService, InvoiceGenerator, CoverageCalculator, etc.); controller orchestrates calls and updates Member doc |
 | `chapter/managers/board_manager.py` | 1240 | Part of manager pattern - OK but large | Consider splitting |
-| `direct_debit_batch/sepa_processor.py` | 1203 | SEPA processing logic | Already modular; consider merging with sepa_xml_service |
+| `direct_debit_batch/sepa_processor.py` | 1203 | SEPA processing logic | **ALREADY WELL-FACTORED** - Correct SRP separation: processor handles business orchestration (what/when to collect), XML service handles technical formatting (pain.008.001.08). Delegates to 4 services (config_manager, mandate_service, error_handler, performance_optimizer). Do NOT merge. |
 | `chapter.py` | 1162 | Uses manager pattern - GOOD | Model example |
 | `volunteer.py` | 1142 | Age validation, assignment aggregation inline | Extract to `VolunteerValidationService`, `AssignmentAggregationService` |
 | `vip_import.py` | 1132 | Import logic, data transformation embedded | Extract to `VIPImportService` |
