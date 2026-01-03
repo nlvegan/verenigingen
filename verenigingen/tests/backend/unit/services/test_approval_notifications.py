@@ -9,10 +9,12 @@ Catches:
 """
 
 import inspect
-import unittest
+import re
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+
+from verenigingen.tests.fixtures.singleton_backup import SingletonBackupMixin
 
 
 class TestEmailServiceResultFormat(FrappeTestCase):
@@ -70,8 +72,38 @@ class TestApprovalTemplatesExist(FrappeTestCase):
         self.assertTrue(exists, "Email template 'termination_rejected' must exist")
 
 
-class TestMemberIDGenerationNoExplicitTransaction(FrappeTestCase):
-    """Verify member ID generation doesn't cause transaction errors."""
+class TestMemberIDGenerationNoExplicitTransaction(SingletonBackupMixin, FrappeTestCase):
+    """Verify member ID generation doesn't cause transaction errors.
+
+    Uses SingletonBackupMixin to ensure Verenigingen Settings exists and is
+    restored after tests. This allows testing the real code path rather than
+    the fallback path that activates when the singleton is missing.
+    """
+
+    protected_singletons = ["Verenigingen Settings"]
+
+    @classmethod
+    def setUpClass(cls):
+        """Ensure Verenigingen Settings singleton exists for tests."""
+        super().setUpClass()
+
+        # Create singleton if it doesn't exist (e.g., in isolated test database)
+        if not frappe.db.exists("Verenigingen Settings", "Verenigingen Settings"):
+            doc = frappe.new_doc("Verenigingen Settings")
+            doc.member_id_start = 1000
+            doc.insert(ignore_permissions=True)
+            frappe.db.commit()
+            cls._created_singleton = True
+        else:
+            cls._created_singleton = False
+
+    @classmethod
+    def tearDownClass(cls):
+        """Clean up singleton if we created it."""
+        if getattr(cls, "_created_singleton", False):
+            frappe.db.delete("Verenigingen Settings", "Verenigingen Settings")
+            frappe.db.commit()
+        super().tearDownClass()
 
     def test_member_id_generation_works(self):
         """Member ID generation must work without transaction errors."""
@@ -88,11 +120,6 @@ class TestMemberIDGenerationNoExplicitTransaction(FrappeTestCase):
         from verenigingen.verenigingen.doctype.member.member_id_manager import MemberIDManager
 
         source = inspect.getsource(MemberIDManager.get_next_member_id)
-
-        # Filter out comments and docstrings - look for actual code calls
-        # Real calls would be indented: "    frappe.db.begin()"
-        # or at start of line in single-line context
-        import re
 
         # Pattern matches actual function calls, not mentions in comments/docstrings
         begin_call_pattern = r"^\s*frappe\.db\.begin\(\)"

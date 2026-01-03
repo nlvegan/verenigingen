@@ -301,6 +301,10 @@ web_include_js = [
     "/assets/verenigingen/js/utils/operation-result-helpers.js",
 ]
 
+# Email CSS - Frappe's premailer inlines these at send time
+# Uses literal hex values (not CSS variables) for email client compatibility
+email_css = ["/css/email_brand.css"]
+
 # include js in doctype views
 doctype_js = {
     "Member": "verenigingen/doctype/member/member.js",

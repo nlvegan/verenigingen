@@ -703,19 +703,33 @@ class EmailService(StatelessService):
             raise e
 
     def _get_default_context(self) -> Dict[str, Any]:
-        """Get default context variables for all emails."""
+        """Get default context variables for all emails.
+
+        Includes organization info and brand settings for template styling.
+        Brand colors are provided for inline style fallbacks in templates
+        (CSS classes from email_brand.css are preferred when available).
+        """
         try:
             settings = frappe.get_single("Verenigingen Settings")
+            brand = frappe.get_single("Brand Settings")
+
             return {
+                # Organization info
                 "organization_name": getattr(settings, "company_name", ""),
                 "contact_email": getattr(settings, "contact_email", ""),
                 "website_url": getattr(settings, "website_url", ""),
                 "current_date": get_datetime(),
+                "current_year": get_datetime().year,
+                # Brand assets for templates
+                "brand_logo": getattr(brand, "logo", None),
+                "brand_primary_color": getattr(brand, "primary_color", "#007bff"),
+                "brand_secondary_color": getattr(brand, "secondary_color", "#6c757d"),
             }
         except Exception:
             return {
                 "organization_name": "",
                 "current_date": get_datetime(),
+                "current_year": get_datetime().year,
             }
 
     def _load_email_settings(self) -> Dict[str, Any]:
@@ -737,7 +751,9 @@ class EmailService(StatelessService):
         """Check if there's at least one active email account configured."""
         try:
             # Check for any enabled email accounts
-            active_accounts = frappe.get_all("Email Account", filters={"enable_outgoing": 1, "default_outgoing": 1}, limit=1)
+            active_accounts = frappe.get_all(
+                "Email Account", filters={"enable_outgoing": 1, "default_outgoing": 1}, limit=1
+            )
             return len(active_accounts) > 0
         except Exception as e:
             self.logger.error(f"Error checking email accounts: {str(e)}")

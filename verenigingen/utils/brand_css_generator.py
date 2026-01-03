@@ -14,6 +14,46 @@ from verenigingen.utils.security.api_security_framework import (
 )
 
 
+def is_light_color(hex_color):
+    """Calculate if a color is light (needs dark text) or dark (needs light text).
+
+    Uses the standard luminance formula: (R*299 + G*587 + B*114) / 1000
+    Colors with brightness > 128 are considered "light" and need dark text.
+
+    Args:
+        hex_color: CSS hex color string (e.g., "#F99F21" or "#fff")
+
+    Returns:
+        bool: True if the color is light (brightness > 128), False otherwise
+    """
+    if not hex_color or not hex_color.startswith("#"):
+        return False
+    hex_part = hex_color[1:]
+    # Convert 3-digit hex to 6-digit
+    if len(hex_part) == 3:
+        hex_part = "".join([c * 2 for c in hex_part])
+    try:
+        r = int(hex_part[0:2], 16)
+        g = int(hex_part[2:4], 16)
+        b = int(hex_part[4:6], 16)
+        brightness = (r * 299 + g * 587 + b * 114) / 1000
+        return brightness > 128
+    except (ValueError, IndexError):
+        return False
+
+
+def get_contrasting_text_color(background_color):
+    """Get white or black text color based on background brightness.
+
+    Args:
+        background_color: CSS hex color string
+
+    Returns:
+        str: "#000000" for light backgrounds, "#ffffff" for dark backgrounds
+    """
+    return "#000000" if is_light_color(background_color) else "#ffffff"
+
+
 def generate_brand_css_file(doc=None, method=None):
     """Generate static brand CSS file when Brand Settings is saved"""
     try:
@@ -30,23 +70,6 @@ def generate_brand_css_file(doc=None, method=None):
         # Ensure we have the required field values
         if not brand_settings.primary_color:
             raise Exception("Brand Settings primary_color is empty")
-
-        # Helper function to determine if a color is light or dark
-        def is_light_color(hex_color):
-            """Calculate if a color is light (needs dark text) or dark (needs light text)"""
-            if not hex_color or not hex_color.startswith("#"):
-                return False
-            hex_part = hex_color[1:]
-            if len(hex_part) == 3:
-                hex_part = "".join([c * 2 for c in hex_part])
-            try:
-                r = int(hex_part[0:2], 16)
-                g = int(hex_part[2:4], 16)
-                b = int(hex_part[4:6], 16)
-                brightness = (r * 299 + g * 587 + b * 114) / 1000
-                return brightness > 128
-            except (ValueError, IndexError):
-                return False
 
         # Generate CSS content with full color scale
         css_content = f"""/* Brand CSS - Auto-generated from Brand Settings */
@@ -324,6 +347,9 @@ def generate_brand_css_file(doc=None, method=None):
 
         frappe.logger().info(f"Generated brand CSS file: {css_path}")
 
+        # Also generate email CSS (with literal hex values for email clients)
+        generate_email_css_file(doc=brand_settings, method=method)
+
         return css_path
 
     except Exception as e:
@@ -349,6 +375,189 @@ def get_brand_css_file_path():
         os.makedirs(css_dir, exist_ok=True)
 
     return os.path.join(css_dir, "brand_colors.css")
+
+
+def get_email_css_file_path():
+    """Get the path for the email brand CSS file"""
+    site_path = frappe.get_site_path()
+    css_dir = os.path.join(site_path, "public", "css")
+
+    if not os.path.exists(css_dir):
+        os.makedirs(css_dir, exist_ok=True)
+
+    return os.path.join(css_dir, "email_brand.css")
+
+
+def generate_email_css_file(doc=None, method=None):
+    """Generate email CSS with literal hex values.
+
+    Email clients don't support CSS variables, so we bake in the actual
+    color values. This file is loaded via Frappe's email_css hook and
+    inlined by premailer at send time.
+    """
+    try:
+        brand_settings = doc or frappe.get_single("Brand Settings")
+
+        # Get contrasting text color for primary header
+        primary_text = get_contrasting_text_color(brand_settings.primary_color)
+
+        email_css = f"""/* Email Brand CSS - Auto-generated from Brand Settings */
+/* Generated at: {frappe.utils.now()} */
+/* NOTE: Literal hex values - email clients don't support CSS variables */
+
+/* Email container and layout */
+.email-container {{
+    font-family: Arial, 'Helvetica Neue', Helvetica, sans-serif;
+    max-width: 600px;
+    margin: 0 auto;
+    font-size: 14px;
+    line-height: 1.5;
+    color: {brand_settings.text_primary_color or '#333333'};
+}}
+
+/* Brand headers for different message types */
+.email-header-primary {{
+    background-color: {brand_settings.primary_color or '#007bff'};
+    color: {primary_text};
+    padding: 20px;
+    border-radius: 8px 8px 0 0;
+}}
+
+.email-header-success {{
+    background-color: {brand_settings.success_color or '#d4edda'};
+    color: #155724;
+    padding: 20px;
+    border-radius: 8px 8px 0 0;
+}}
+
+.email-header-danger {{
+    background-color: {brand_settings.error_color or '#f8d7da'};
+    color: #721c24;
+    padding: 20px;
+    border-radius: 8px 8px 0 0;
+}}
+
+.email-header-warning {{
+    background-color: {brand_settings.warning_color or '#fff3cd'};
+    color: #856404;
+    padding: 20px;
+    border-radius: 8px 8px 0 0;
+}}
+
+.email-header-info {{
+    background-color: {brand_settings.info_color or '#d1ecf1'};
+    color: #0c5460;
+    padding: 20px;
+    border-radius: 8px 8px 0 0;
+}}
+
+/* Content sections */
+.email-content {{
+    background-color: {brand_settings.background_primary_color or '#ffffff'};
+    padding: 20px;
+    border: 1px solid #e9ecef;
+    border-top: none;
+}}
+
+.email-content-box {{
+    background-color: {brand_settings.background_secondary_color or '#f8f9fa'};
+    padding: 15px;
+    border-radius: 5px;
+    margin: 15px 0;
+}}
+
+/* Buttons */
+.email-btn-primary {{
+    background-color: {brand_settings.primary_color or '#007bff'};
+    color: {brand_settings.primary_button_text_color or '#ffffff'};
+    padding: 15px 30px;
+    text-decoration: none;
+    border-radius: 5px;
+    display: inline-block;
+    font-weight: bold;
+}}
+
+.email-btn-secondary {{
+    background-color: {brand_settings.secondary_color or '#6c757d'};
+    color: {brand_settings.secondary_button_text_color or '#ffffff'};
+    padding: 15px 30px;
+    text-decoration: none;
+    border-radius: 5px;
+    display: inline-block;
+    font-weight: bold;
+}}
+
+/* Alert/callout boxes */
+.email-alert-warning {{
+    background-color: {brand_settings.warning_color or '#fff3cd'};
+    padding: 15px;
+    border-radius: 5px;
+    border-left: 4px solid #ffc107;
+    margin: 15px 0;
+}}
+
+.email-alert-info {{
+    background-color: {brand_settings.info_color or '#d1ecf1'};
+    padding: 15px;
+    border-radius: 5px;
+    border-left: 4px solid #17a2b8;
+    margin: 15px 0;
+}}
+
+/* Footer */
+.email-footer {{
+    font-size: 12px;
+    color: {brand_settings.text_secondary_color or '#6c757d'};
+    padding: 20px;
+    text-align: center;
+    border-top: 1px solid #e9ecef;
+}}
+
+/* Typography */
+.email-title {{
+    margin: 0;
+    font-size: 24px;
+}}
+
+.email-subtitle {{
+    margin: 5px 0 0 0;
+    font-size: 14px;
+    opacity: 0.9;
+}}
+
+/* Tables */
+.email-data-table {{
+    width: 100%;
+    border-collapse: collapse;
+}}
+
+.email-data-table td {{
+    padding: 8px 0;
+    border-bottom: 1px solid #dee2e6;
+}}
+
+.email-data-table td:first-child {{
+    font-weight: bold;
+    width: 40%;
+}}
+
+/* Logo */
+.email-logo {{
+    max-height: 50px;
+    max-width: 150px;
+    margin-bottom: 10px;
+}}
+"""
+
+        css_path = get_email_css_file_path()
+        write_css_file(css_path, email_css)
+
+        frappe.logger().info(f"Generated email brand CSS file: {css_path}")
+        return css_path
+
+    except Exception as e:
+        frappe.log_error(f"Error generating email CSS: {str(e)}", "Email CSS Generation")
+        return None
 
 
 def write_css_file(file_path, content):
