@@ -9,6 +9,27 @@ import requests
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 
+def _find_erpnext_account_by_code(ledger_code: str, company: str = None) -> str | None:
+    """
+    Find ERPNext Account by matching account_number to ledger_code.
+
+    Args:
+        ledger_code: E-Boekhouden ledger code (e.g., "1110")
+        company: Optional company filter
+
+    Returns:
+        Account name if found, None otherwise
+    """
+    if not ledger_code:
+        return None
+
+    filters = {"account_number": ledger_code, "disabled": 0}
+    if company:
+        filters["company"] = company
+
+    return frappe.db.get_value("Account", filters, "name")
+
+
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def fetch_and_create_ledger_mapping():
@@ -65,9 +86,15 @@ def fetch_and_create_ledger_mapping():
         if not ledgers:
             return {"success": False, "error": "No ledgers returned from API"}
 
+        # Get default company for account matching
+        company = frappe.db.get_single_value("Verenigingen Settings", "company") or frappe.db.get_value(
+            "Company", {}, "name"
+        )
+
         # Create or update mapping doctype entries
         created = 0
         updated = 0
+        auto_linked = 0
         errors = []
 
         for ledger in ledgers:
@@ -87,6 +114,14 @@ def fetch_and_create_ledger_mapping():
                     doc = frappe.get_doc("E-Boekhouden Ledger Mapping", existing)
                     doc.ledger_code = ledger_code
                     doc.ledger_name = ledger_name
+
+                    # Auto-link if not already linked
+                    if not doc.erpnext_account:
+                        erpnext_account = _find_erpnext_account_by_code(ledger_code, company)
+                        if erpnext_account:
+                            doc.erpnext_account = erpnext_account
+                            auto_linked += 1
+
                     doc.save()
                     updated += 1
                 else:
@@ -95,6 +130,13 @@ def fetch_and_create_ledger_mapping():
                     doc.ledger_id = ledger_id
                     doc.ledger_code = ledger_code
                     doc.ledger_name = ledger_name
+
+                    # Auto-link based on account_number match
+                    erpnext_account = _find_erpnext_account_by_code(ledger_code, company)
+                    if erpnext_account:
+                        doc.erpnext_account = erpnext_account
+                        auto_linked += 1
+
                     doc.insert()
                     created += 1
 
@@ -107,9 +149,10 @@ def fetch_and_create_ledger_mapping():
             "success": True,
             "created": created,
             "updated": updated,
+            "auto_linked": auto_linked,
             "errors": errors,
             "total_ledgers": len(ledgers),
-            "message": "Created {created} and updated {updated} ledger mappings",
+            "message": f"Created {created}, updated {updated}, auto-linked {auto_linked} ledger mappings",
         }
 
     except Exception as e:
