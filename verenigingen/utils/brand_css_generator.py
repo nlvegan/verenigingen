@@ -403,8 +403,11 @@ def generate_email_css_file(doc=None, method=None):
     try:
         brand_settings = doc or frappe.get_single("Brand Settings")
 
-        # Get contrasting text color for primary header
+        # Get contrasting text colors for headers based on background brightness
         primary_text = get_contrasting_text_color(brand_settings.primary_color)
+        success_text = get_contrasting_text_color(brand_settings.success_color or "#d4edda")
+        danger_text = get_contrasting_text_color(brand_settings.error_color or "#f8d7da")
+        info_text = get_contrasting_text_color(brand_settings.info_color or "#d1ecf1")
 
         email_css = f"""/* Email Brand CSS - Auto-generated from Brand Settings */
 /* Generated at: {frappe.utils.now()} */
@@ -430,14 +433,14 @@ def generate_email_css_file(doc=None, method=None):
 
 .email-header-success {{
     background-color: {brand_settings.success_color or '#d4edda'};
-    color: #155724;
+    color: {success_text};
     padding: 20px;
     border-radius: 8px 8px 0 0;
 }}
 
 .email-header-danger {{
     background-color: {brand_settings.error_color or '#f8d7da'};
-    color: #721c24;
+    color: {danger_text};
     padding: 20px;
     border-radius: 8px 8px 0 0;
 }}
@@ -451,7 +454,7 @@ def generate_email_css_file(doc=None, method=None):
 
 .email-header-info {{
     background-color: {brand_settings.info_color or '#d1ecf1'};
-    color: #0c5460;
+    color: {info_text};
     padding: 20px;
     border-radius: 8px 8px 0 0;
 }}
