@@ -146,31 +146,42 @@ def get_data(filters):
 def get_gl_expenses_by_anbi_parent(company, from_date, to_date):
     """Get GL expenses grouped by ANBI parent account (61, 62, 63).
 
-    Excludes personnel cost accounts (64xx) as those come from Staff ANBI Allocation.
+    Uses nested set model (lft/rgt) to sum all descendant accounts.
     """
-    # Find all expense accounts under 61, 62, 63 parents
-    # Debit = expense, so we sum debit - credit for expense accounts
+    totals = {}
 
-    result = frappe.db.sql(
-        """
-        SELECT
-            SUBSTRING(parent_acc.account_number, 1, 2) as anbi_parent,
-            SUM(gl.debit - gl.credit) as total_expense
-        FROM `tabGL Entry` gl
-        JOIN `tabAccount` acc ON gl.account = acc.name
-        JOIN `tabAccount` parent_acc ON acc.parent_account = parent_acc.name
-        WHERE gl.company = %s
-        AND gl.posting_date BETWEEN %s AND %s
-        AND gl.is_cancelled = 0
-        AND parent_acc.account_number IN ('61', '62', '63')
-        AND acc.account_number NOT LIKE '64%%'
-        GROUP BY SUBSTRING(parent_acc.account_number, 1, 2)
-        """,
-        (company, from_date, to_date),
-        as_dict=True,
-    )
+    for acc_num in ["61", "62", "63"]:
+        # Get the ANBI parent account's lft/rgt bounds
+        parent = frappe.db.get_value(
+            "Account",
+            {"company": company, "account_number": acc_num, "is_group": 1},
+            ["name", "lft", "rgt"],
+            as_dict=True,
+        )
 
-    return {row.anbi_parent: row.total_expense or 0 for row in result}
+        if not parent:
+            totals[acc_num] = 0
+            continue
+
+        # Sum GL entries for all accounts within this parent's hierarchy
+        result = frappe.db.sql(
+            """
+            SELECT COALESCE(SUM(gl.debit - gl.credit), 0) as total_expense
+            FROM `tabGL Entry` gl
+            JOIN `tabAccount` acc ON gl.account = acc.name
+            WHERE gl.company = %s
+            AND gl.posting_date BETWEEN %s AND %s
+            AND gl.is_cancelled = 0
+            AND acc.lft > %s
+            AND acc.rgt < %s
+            """,
+            (company, from_date, to_date, parent.lft, parent.rgt),
+            as_dict=True,
+        )
+
+        totals[acc_num] = result[0].total_expense if result else 0
+
+    return totals
 
 
 def get_personnel_allocations(fiscal_year):
