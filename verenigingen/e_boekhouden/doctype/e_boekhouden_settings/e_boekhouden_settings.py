@@ -820,34 +820,35 @@ def preview_cost_center_creation():
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def parse_groups_and_suggest_type_mappings():
+def parse_groups_and_suggest_type_mappings(merge_mode=False):
     """Parse account group mappings and suggest ERPNext account types.
 
     Reads the balance_sheet_group_mappings and pl_group_mappings text fields
     and generates suggested type mappings based on group codes and names.
 
+    Args:
+        merge_mode: If True, only return new groups not already in group_type_mappings.
+                   If False (default), return all parsed groups (replacing existing).
+
     Returns:
         dict: {
             "success": True/False,
-            "suggestions": [
-                {
-                    "group_code": "001",
-                    "group_name": "Vaste activa",
-                    "root_type": "Asset",
-                    "account_type": "Fixed Asset",
-                    "confidence": "High",
-                    "notes": "Fixed assets based on group name"
-                },
-                ...
-            ],
+            "suggestions": [...],
             "total_groups": int,
-            "suggested_count": int
+            "suggested_count": int,
+            "duplicates": [{"code": "...", "name": "...", "existing_name": "..."}],
+            "merge_mode": bool,
+            "skipped_existing": int  # Only in merge mode
         }
     """
     import html
     import re
 
     try:
+        # Convert string to boolean if needed (from JS)
+        if isinstance(merge_mode, str):
+            merge_mode = merge_mode.lower() == "true"
+
         settings = frappe.get_single("E-Boekhouden Settings")
 
         balance_sheet_text = settings.get("balance_sheet_group_mappings", "") or ""
@@ -856,42 +857,71 @@ def parse_groups_and_suggest_type_mappings():
         if not balance_sheet_text.strip() and not pl_text.strip():
             return {"success": False, "error": "No account group mappings found. Please enter Balance Sheet and/or P&L group mappings first."}
 
+        # Track existing mappings for merge mode and duplicate detection
+        existing_mappings = {}
+        for row in settings.get("group_type_mappings", []):
+            if row.group_code:
+                existing_mappings[row.group_code] = row.group_name
+
         suggestions = []
+        duplicates = []
+        seen_codes = {}  # Track codes seen in THIS parse (for duplicate detection in source text)
+        skipped_existing = 0
+
+        def process_line(line, is_balance_sheet):
+            nonlocal skipped_existing
+            line = line.strip()
+            if not line:
+                return
+
+            parts = re.split(r"\s+", line, maxsplit=1)
+            if len(parts) >= 2:
+                code = parts[0].strip()
+                name = html.unescape(parts[1].strip())
+
+                # Check for duplicate in source text
+                if code in seen_codes:
+                    duplicates.append({
+                        "code": code,
+                        "name": name,
+                        "existing_name": seen_codes[code],
+                        "source": "input_text"
+                    })
+                    return  # Skip duplicates from source text
+
+                seen_codes[code] = name
+
+                # In merge mode, skip codes that already exist in saved mappings
+                if merge_mode and code in existing_mappings:
+                    skipped_existing += 1
+                    return
+
+                suggestion = _suggest_account_type_for_group(code, name, is_balance_sheet=is_balance_sheet)
+                suggestions.append(suggestion)
 
         # Parse balance sheet groups
         for line in balance_sheet_text.strip().split("\n"):
-            line = line.strip()
-            if not line:
-                continue
-
-            parts = re.split(r"\s+", line, maxsplit=1)
-            if len(parts) >= 2:
-                code = parts[0].strip()
-                name = html.unescape(parts[1].strip())
-                suggestion = _suggest_account_type_for_group(code, name, is_balance_sheet=True)
-                suggestions.append(suggestion)
+            process_line(line, is_balance_sheet=True)
 
         # Parse P&L groups
         for line in pl_text.strip().split("\n"):
-            line = line.strip()
-            if not line:
-                continue
-
-            parts = re.split(r"\s+", line, maxsplit=1)
-            if len(parts) >= 2:
-                code = parts[0].strip()
-                name = html.unescape(parts[1].strip())
-                suggestion = _suggest_account_type_for_group(code, name, is_balance_sheet=False)
-                suggestions.append(suggestion)
+            process_line(line, is_balance_sheet=False)
 
         suggested_count = len([s for s in suggestions if s.get("root_type")])
 
-        return {
+        result = {
             "success": True,
             "suggestions": suggestions,
             "total_groups": len(suggestions),
             "suggested_count": suggested_count,
+            "duplicates": duplicates,
+            "merge_mode": merge_mode,
         }
+
+        if merge_mode:
+            result["skipped_existing"] = skipped_existing
+
+        return result
 
     except Exception as e:
         frappe.log_error(f"Error parsing groups for type mappings: {str(e)}")

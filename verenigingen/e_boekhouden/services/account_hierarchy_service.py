@@ -17,14 +17,9 @@ from verenigingen.utils.security.api_security_framework import OperationType, cr
 def derive_group_code(account_number):
     """Derive the group code from an account number.
 
-    E-Boekhouden accounts use a hierarchical numbering system where
-    the first 3 digits typically represent the group.
-
-    Examples:
-        "0060" -> "006"
-        "10460" -> "104"
-        "8000" -> "800"
-        "55" -> "055" (padded)
+    NOTE: This function is DEPRECATED for e-Boekhouden group matching.
+    E-Boekhouden uses semantic group codes (001-055) that don't correspond
+    to account number prefixes. Use match_account_to_group() instead.
 
     Args:
         account_number: The account number string
@@ -35,20 +30,275 @@ def derive_group_code(account_number):
     if not account_number:
         return None
 
-    # Clean up the account number
     account_number = str(account_number).strip()
-
-    # Remove any non-numeric characters
     numeric_only = "".join(c for c in account_number if c.isdigit())
 
     if not numeric_only:
         return None
 
-    # Take first 3 digits, padding with zeros if needed
     if len(numeric_only) < 3:
         return numeric_only.zfill(3)
 
     return numeric_only[:3]
+
+
+# Keyword mappings for e-Boekhouden groups
+# Maps group names to keywords that identify accounts belonging to that group
+# Keywords are matched against account names (case-insensitive)
+# Longer keywords are preferred over shorter ones to avoid false matches
+#
+# IMPORTANT: Some account names contain ambiguous terms (e.g., "inventaris" appears
+# in both Asset accounts AND Expense accounts like "Afschrijving Inventaris").
+# We handle this by:
+# 1. Using more specific keywords where possible
+# 2. Using EXCLUDE_PATTERNS to skip certain matches
+# 3. Preferring longer (more specific) keyword matches
+
+GROUP_KEYWORDS = {
+    # Balance sheet groups - Assets
+    # NOTE: Be careful with these - "inventaris", "apparatuur" also appear in expense account names
+    "Materiële vaste activa": [
+        "cum. afschrijving",  # Contra-assets - most specific, check first
+        "kantoorinventaris",
+    ],
+    "Liquide middelen": [
+        "bank", " kas ", "kasgeld", "giro", "spaar", "rekening courant", "deposito",
+        "paypal", "mollie", "ideal", "ing bank", "abn amro", "rabobank", "triodos", "asn bank",
+        "betaalrekening", "spaarrekening",
+    ],
+    "Voorraden": ["voorraad", "magazijn", "handelsgoederen"],
+    "Vorderingen": [
+        "debiteuren", "vordering", "te ontvangen", "vooruitbetaalde",
+        "nog te factureren",
+    ],
+
+    # Balance sheet groups - Equity & Liabilities
+    "Eigen Vermogen": [
+        "eigen vermogen", "algemene reserve", "bestemmingsreserve", "kapitaal",
+        "resultaat voorgaand", "beginvermogen", "stichtingskapitaal",
+    ],
+    "Schulden": [
+        "crediteuren", "schuld aan", "te betalen kosten", "vooruit ontvangen",
+        "btw af te dragen", "btw te betalen", "loonheffing te betalen",
+        "belasting te betalen", "nog te betalen",
+    ],
+
+    # P&L expense groups
+    "Personeelskosten": [
+        "lonen en salaris", "salaris", "personeel", "medewerk",
+        "sociale lasten", "vakantiegeld", "pensioen", "vacatiegeld",
+        "reiskosten medewerk", "opleidingskosten", "werving",
+    ],
+    "Promotiekosten": [
+        "promotie", "marketing", "reclame", "advertentie", "campagne",
+        "pr-kosten", "communicatiekosten", "huisstijl", "branding",
+    ],
+    "Algemene kosten": [
+        "algemene kosten", "bankkosten", "onvoorziene kosten",
+        "huur locatie", "netwerk", "conferentie",
+    ],
+    "Verzekeringen": ["verzekering", "wa-verzekering", "aansprakelijkheid"],
+    "Kantoorkosten": [
+        "kantoor:", "telefoon", "porto", "drukwerk",
+        "kantoormateriaal", "kantoorbenodigdheden", "postbus", "opslagbox",
+    ],
+    "Ledenadministratie": [
+        "ledenservice", "lidmaatschap", "ledenadmin",
+        "ledenbinding", "ledenwerving",
+    ],
+    "Programma's": ["programma "],  # Space after to avoid partial matches
+    "Evenementen": [
+        "evenement", "festival", "beurs", "congres", "alv ",
+        "bijeenkomst", "potluck",
+    ],
+    "Afschrijvingen": [
+        "afschrijving ",  # Space after - matches "Afschrijving Inventaris" etc.
+        "afschrijvingskosten", "amortisatie", "waardevermindering",
+    ],
+    "Administratiekosten": [
+        "administratiekosten", "boekhouding", "accountant", "audit",
+        "jaarrekening", "salarisadministratie", "notaris", "juridisch",
+    ],
+    "ICT-Kosten": [
+        "ict-", "ict ", "software", "hosting", "domein", "website",
+        "webserver", "licentie", "cloud", "saas", "hardware",
+    ],
+    "Bestuur": [
+        "bestuurskosten", "directiekosten", "raad van toezicht",
+        "vergaderkosten bestuur", "presentjes - bestuur",
+    ],
+    "Overige kosten": ["overige bedrijfskosten"],
+
+    # P&L income groups
+    # NOTE: These keywords should be specific to income accounts
+    # Many expense keywords appear in income account names with ": inkomsten" suffix
+    "Opbrengsten": [
+        "opbrengst", "omzet", "inkomsten", "verkoop", "donaties:",
+        "subsidie", "sponsoring", "legaat", "erfenis",
+        "contributie leden",  # Income from member contributions
+        "advertenties in",  # Revenue from ads in magazine
+        "advertenties v",  # Revenue from ads in vegan cookbook/festival
+        "donaties",  # Receiving donations (not expense)
+        "giften",  # Receiving gifts
+        ": inkomsten",  # Pattern like "Promotie: inkomsten"
+        "bijdrage",  # Contributions/income
+    ],
+}
+
+# Patterns that should EXCLUDE an account from matching certain groups
+# Format: {group_name: [patterns that disqualify an account from this group]}
+#
+# CRITICAL: Many Dutch keywords appear in both income and expense contexts:
+# - "contributie" can be expense (paying) or income (receiving)
+# - "advertentie" can be expense (paying for ads) or income (selling ad space)
+# - "promotie" can be expense (costs) or income (revenue)
+# - "donatie" can be expense (giving) or income (receiving)
+#
+# We use income-signaling patterns to exclude accounts from expense groups
+INCOME_SIGNALS = [
+    "inkomsten", "opbrengsten", "ontvangen", "omzet", "verkoop",
+    "donaties", "giften", "subsidie", "sponsoring", "bijdrage",
+]
+
+EXCLUDE_PATTERNS = {
+    # Don't match expense accounts to Asset groups
+    "Materiële vaste activa": ["afschrijving ", "kosten", "huur"],
+    "Liquide middelen": ["kosten", "vergoeding"],
+    "Voorraden": ["afschrijving", "kosten"],
+    # Don't match liability reserves to Expense
+    "Personeelskosten": ["reservering", "te betalen"],
+    "Schulden": ["kosten", "lasten"],
+    # Don't match expense items to Income
+    "Opbrengsten": ["kosten", "uitgaven"],
+    # Don't match income accounts to Expense groups (income signals)
+    "Promotiekosten": INCOME_SIGNALS,
+    "Ledenadministratie": INCOME_SIGNALS,
+    "Algemene kosten": INCOME_SIGNALS,
+    "Evenementen": INCOME_SIGNALS,
+    "Programma's": INCOME_SIGNALS,
+    # Don't match contra-asset accounts to Expense
+    # "Cum. Afschrijving X" = accumulated depreciation (contra-asset, stays in Asset)
+    # "Afschrijving X" = depreciation expense (Expense)
+    "Afschrijvingen": ["cum."],
+}
+
+
+def _get_keywords_for_group(group_name):
+    """Get keywords for a group, with fallback to group name words.
+
+    If explicit keywords are defined in GROUP_KEYWORDS, use those.
+    Otherwise, extract meaningful words from the group name itself.
+
+    This makes the system more generalizable - groups like "Programma Educatie"
+    will match accounts containing "educatie" even without explicit configuration.
+
+    Args:
+        group_name: The group name to get keywords for
+
+    Returns:
+        list: Keywords to match against account names
+    """
+    # Check for explicit keywords first
+    if group_name in GROUP_KEYWORDS:
+        return GROUP_KEYWORDS[group_name]
+
+    # Fallback: extract words from group name (excluding common filler words)
+    # These words are too generic or appear in many account names unrelated to the group
+    FILLER_WORDS = {
+        "programma", "programma's", "kosten", "overige", "algemene",
+        "en", "van", "de", "het", "een", "voor", "met", "naar",
+        "je", "kan", "kun", "zonder", "niet",  # Common Dutch words
+        "interne", "externe",  # Too generic
+        "vegan",  # Useless for a vegan org - everything is vegan
+    }
+
+    words = group_name.lower().split()
+    keywords = []
+    for word in words:
+        # Skip short words (< 4 chars) and filler words for derived keywords
+        # Use stricter length requirement than explicit keywords
+        if len(word) >= 4 and word not in FILLER_WORDS:
+            keywords.append(word)
+
+    # Also try the full name (minus "Programma " prefix if present)
+    # But only if it's reasonably specific (> 4 chars)
+    if group_name.lower().startswith("programma "):
+        suffix = group_name[10:].strip()  # Everything after "Programma "
+        if suffix and len(suffix) >= 5:
+            keywords.append(suffix.lower())
+
+    return keywords
+
+
+def match_account_to_group(account_name, group_mappings):
+    """Match an account to a group based on account name keywords.
+
+    E-Boekhouden uses semantic group classifications (Personeelskosten,
+    Promotiekosten, etc.) that are matched by keywords in account names,
+    NOT by account number prefixes.
+
+    The matching algorithm:
+    1. Checks each group's keywords against the account name
+    2. Falls back to using words from group_name if no explicit keywords
+    3. Applies EXCLUDE_PATTERNS to filter out false positives
+    4. Applies INCOME_SIGNALS to exclude income accounts from Expense groups
+    5. Prefers longer (more specific) keyword matches
+
+    Args:
+        account_name: The account name to match
+        group_mappings: Dict of {group_code: {"group_name": str, "root_type": str, ...}}
+
+    Returns:
+        tuple: (group_code, group_name, match_reason) or (None, None, None) if no match
+    """
+    if not account_name:
+        return None, None, None
+
+    account_name_lower = account_name.lower()
+
+    # Check if this account has income signals (should not match Expense groups)
+    has_income_signal = any(sig.lower() in account_name_lower for sig in INCOME_SIGNALS)
+
+    # Collect all potential matches with scores
+    matches = []
+
+    for group_code, mapping in group_mappings.items():
+        group_name = mapping.get("group_name", "")
+        root_type = mapping.get("root_type", "")
+        if not group_name:
+            continue
+
+        # Apply INCOME_SIGNALS exclusion to ALL Expense groups
+        # This prevents income accounts from being matched to expense groups
+        if has_income_signal and root_type == "Expense":
+            continue
+
+        # Check if this account should be excluded from this group (explicit patterns)
+        exclude_patterns = EXCLUDE_PATTERNS.get(group_name, [])
+        is_excluded = any(excl.lower() in account_name_lower for excl in exclude_patterns)
+        if is_excluded:
+            continue
+
+        # Get keywords for this group (explicit or derived from name)
+        keywords = _get_keywords_for_group(group_name)
+
+        # Check for keyword matches
+        for keyword in keywords:
+            if keyword.lower() in account_name_lower:
+                # Score by keyword length (longer = more specific = better)
+                score = len(keyword)
+                # Bonus score for explicit keywords (from GROUP_KEYWORDS)
+                if group_name in GROUP_KEYWORDS:
+                    score += 5
+                matches.append((score, group_code, group_name, keyword))
+
+    if not matches:
+        return None, None, None
+
+    # Return the best match (highest score)
+    matches.sort(reverse=True, key=lambda x: x[0])
+    best = matches[0]
+    return (best[1], best[2], f"Matched keyword '{best[3]}'")
 
 
 def get_group_type_mappings_dict(settings=None):
@@ -178,8 +428,8 @@ def find_or_create_group_account(
 def reorganize_account_hierarchy(dry_run=True):
     """Reorganize existing accounts into proper group hierarchy based on group_type_mappings.
 
-    For each account with an account_number:
-    1. Derives the group code from the account number (first 3 digits)
+    For each account:
+    1. Matches account name to a group using keyword matching
     2. Looks up the group mapping to get group_name and root_type
     3. Finds or creates the group parent account
     4. Moves the account under the correct parent if needed
@@ -218,13 +468,12 @@ def reorganize_account_hierarchy(dry_run=True):
         if not group_type_mappings:
             return {"success": False, "error": "No group type mappings configured. Please configure mappings first using 'Parse & Suggest Types'."}
 
-        # Get all non-group accounts with account numbers
+        # Get all non-group accounts (with or without account numbers)
         accounts = frappe.get_all(
             "Account",
             filters={
                 "company": company,
                 "is_group": 0,
-                "account_number": ["is", "set"],
             },
             fields=["name", "account_name", "account_number", "parent_account", "root_type"],
         )
@@ -238,21 +487,37 @@ def reorganize_account_hierarchy(dry_run=True):
         created_groups = {}
 
         for account in accounts:
-            account_number = account.account_number or ""
-            group_code = derive_group_code(account_number)
+            # Use keyword matching to find the appropriate group
+            group_code, group_name, match_reason = match_account_to_group(
+                account.account_name, group_type_mappings
+            )
 
             if not group_code:
                 skipped_count += 1
-                continue
-
-            # Check if we have a mapping for this group
-            if group_code not in group_type_mappings:
-                skipped_count += 1
+                changes.append({
+                    "account": account.account_number or account.name,
+                    "account_name": account.account_name,
+                    "group_code": None,
+                    "status": "skipped",
+                    "reason": "No matching group found for account name",
+                })
                 continue
 
             mapping = group_type_mappings[group_code]
-            group_name = mapping["group_name"]
             group_root_type = mapping["root_type"]
+
+            # Skip if the matched group would change the account's root_type
+            # Hierarchy reorganization should only organize within the same root_type
+            if account.root_type and account.root_type != group_root_type:
+                skipped_count += 1
+                changes.append({
+                    "account": account.account_number or account.name,
+                    "account_name": account.account_name,
+                    "group_code": group_code,
+                    "status": "skipped",
+                    "reason": f"Would change root_type from {account.root_type} to {group_root_type}",
+                })
+                continue
 
             # Find or create the group parent account
             group_account_name = find_or_create_group_account(
@@ -345,8 +610,8 @@ def reorganize_account_hierarchy(dry_run=True):
 def reclassify_accounts_by_group_mappings(dry_run=True):
     """Re-classify existing ERPNext accounts based on configured group type mappings.
 
-    Derives the group code from the account number (first 3 digits) and applies
-    the configured group_type_mappings to update account_type and root_type.
+    Uses keyword matching to find the appropriate group for each account,
+    then applies the configured group_type_mappings to update account_type and root_type.
 
     Args:
         dry_run: If True, returns preview of changes without applying them.
@@ -371,13 +636,12 @@ def reclassify_accounts_by_group_mappings(dry_run=True):
         if not group_type_mappings:
             return {"success": False, "error": "No group type mappings configured. Please configure mappings first using 'Parse & Suggest Types'."}
 
-        # Get all non-group accounts with account numbers
+        # Get all non-group accounts
         accounts = frappe.get_all(
             "Account",
             filters={
                 "company": settings.default_company,
                 "is_group": 0,
-                "account_number": ["is", "set"],
             },
             fields=["name", "account_name", "account_number", "account_type", "root_type"],
         )
@@ -387,26 +651,23 @@ def reclassify_accounts_by_group_mappings(dry_run=True):
         skipped_count = 0
 
         for account in accounts:
-            account_number = account.account_number or ""
-            group_code = derive_group_code(account_number)
+            # Use keyword matching to find the appropriate group
+            group_code, group_name, match_reason = match_account_to_group(
+                account.account_name, group_type_mappings
+            )
 
             if not group_code:
                 skipped_count += 1
-                continue
-
-            # Check if we have a mapping for this group
-            if group_code not in group_type_mappings:
-                skipped_count += 1
                 changes.append({
-                    "account": account.account_number,
+                    "account": account.account_number or account.name,
                     "account_name": account.account_name,
-                    "group_code": group_code,
+                    "group_code": None,
                     "old_root_type": account.root_type,
                     "old_account_type": account.account_type,
                     "new_root_type": None,
                     "new_account_type": None,
                     "status": "skipped",
-                    "reason": f"No mapping for group {group_code}",
+                    "reason": "No matching group found for account name",
                 })
                 continue
 
@@ -414,15 +675,31 @@ def reclassify_accounts_by_group_mappings(dry_run=True):
             new_root_type = mapping.get("root_type")
             new_account_type = mapping.get("account_type", "")
 
+            # Skip if this would change the root_type - only reclassify within same root
+            if account.root_type and account.root_type != new_root_type:
+                skipped_count += 1
+                changes.append({
+                    "account": account.account_number or account.name,
+                    "account_name": account.account_name,
+                    "group_code": group_code,
+                    "old_root_type": account.root_type,
+                    "new_root_type": new_root_type,
+                    "status": "skipped",
+                    "reason": f"Would change root_type from {account.root_type} to {new_root_type}",
+                })
+                continue
+
             # Check if anything would change
             if account.root_type == new_root_type and account.account_type == new_account_type:
                 skipped_count += 1
                 continue
 
             change_record = {
-                "account": account.account_number,
+                "account": account.account_number or account.name,
                 "account_name": account.account_name,
                 "group_code": group_code,
+                "group_name": group_name,
+                "match_reason": match_reason,
                 "old_root_type": account.root_type,
                 "old_account_type": account.account_type,
                 "new_root_type": new_root_type,

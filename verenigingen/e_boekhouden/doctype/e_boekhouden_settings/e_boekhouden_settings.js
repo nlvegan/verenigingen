@@ -1074,46 +1074,102 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 			return;
 		}
 
-		frappe.call({
-			method:
-        'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.parse_groups_and_suggest_type_mappings',
-			callback(r) {
-				if (r.message && r.message.success) {
-					// Clear existing mappings
-					frm.clear_table('group_type_mappings');
+		// Helper function to actually do the parsing
+		const do_parse = (merge_mode) => {
+			frappe.call({
+				method:
+					'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.parse_groups_and_suggest_type_mappings',
+				args: { merge_mode: merge_mode },
+				callback(r) {
+					if (r.message && r.message.success) {
+						// Show duplicate warnings if any
+						if (r.message.duplicates && r.message.duplicates.length > 0) {
+							const dup_list = r.message.duplicates.map(d =>
+								`<li>Code <code>${frm.escape_html(d.code)}</code>: "${frm.escape_html(d.name)}" duplicates "${frm.escape_html(d.existing_name)}"</li>`
+							).join('');
+							frappe.msgprint({
+								title: __('Duplicate Groups Found'),
+								message: `<p>The following duplicate group codes were found in the source text and skipped:</p><ul>${dup_list}</ul>`,
+								indicator: 'orange'
+							});
+						}
 
-					// Add suggested mappings
-					r.message.suggestions.forEach((suggestion) => {
-						const row = frm.add_child('group_type_mappings');
-						row.group_code = suggestion.group_code;
-						row.group_name = suggestion.group_name;
-						row.root_type = suggestion.root_type;
-						row.account_type = suggestion.account_type;
-						row.confidence = suggestion.confidence;
-						row.notes = suggestion.notes;
-					});
+						if (!merge_mode) {
+							// Replace mode: clear existing mappings
+							frm.clear_table('group_type_mappings');
+						}
 
-					frm.refresh_field('group_type_mappings');
+						// Add suggested mappings
+						r.message.suggestions.forEach((suggestion) => {
+							const row = frm.add_child('group_type_mappings');
+							row.group_code = suggestion.group_code;
+							row.group_name = suggestion.group_name;
+							row.root_type = suggestion.root_type;
+							row.account_type = suggestion.account_type;
+							row.confidence = suggestion.confidence;
+							row.notes = suggestion.notes;
+						});
 
-					frappe.show_alert({
-						message: __('Parsed {0} groups with {1} type suggestions', [
+						frm.refresh_field('group_type_mappings');
+
+						let msg = __('Parsed {0} groups with {1} type suggestions', [
 							r.message.total_groups,
 							r.message.suggested_count
-						]),
-						indicator: 'green'
-					});
+						]);
+						if (merge_mode && r.message.skipped_existing > 0) {
+							msg += __(', skipped {0} existing', [r.message.skipped_existing]);
+						}
 
-					// Mark form as dirty so user knows to save
-					frm.dirty();
-				} else {
-					frappe.msgprint({
-						title: 'Parse Failed',
-						message: r.message.error || 'Failed to parse account groups for type mappings',
-						indicator: 'red'
-					});
+						frappe.show_alert({
+							message: msg,
+							indicator: 'green'
+						});
+
+						// Mark form as dirty so user knows to save
+						frm.dirty();
+					} else {
+						frappe.msgprint({
+							title: 'Parse Failed',
+							message: r.message.error || 'Failed to parse account groups for type mappings',
+							indicator: 'red'
+						});
+					}
 				}
-			}
-		});
+			});
+		};
+
+		// Check if there are existing mappings - offer merge mode
+		const has_existing = frm.doc.group_type_mappings && frm.doc.group_type_mappings.length > 0;
+
+		if (has_existing) {
+			const dialog = new frappe.ui.Dialog({
+				title: __('Parse Group Types'),
+				fields: [
+					{
+						fieldtype: 'HTML',
+						options: `<p>You have <strong>${frm.doc.group_type_mappings.length}</strong> existing group type mappings.</p>`
+					},
+					{
+						fieldname: 'mode',
+						fieldtype: 'Select',
+						label: __('Parse Mode'),
+						options: [
+							{ value: 'replace', label: __('Replace All (clear existing, add all parsed)') },
+							{ value: 'merge', label: __('Merge (keep existing, add only new groups)') }
+						],
+						default: 'merge'
+					}
+				],
+				primary_action_label: __('Parse'),
+				primary_action(values) {
+					dialog.hide();
+					do_parse(values.mode === 'merge');
+				}
+			});
+			dialog.show();
+		} else {
+			do_parse(false);
+		}
 	}
 });
 
