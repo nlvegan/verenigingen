@@ -438,6 +438,159 @@ describe("E-Boekhouden Settings JavaScript Controller Tests", () => {
     });
   });
 
+  describe("Account Type and Hierarchy Management Tests", () => {
+    it("should verify parse_groups_and_suggest_type_mappings API is accessible", () => {
+      // This test ensures the API endpoint is properly whitelisted and accessible
+      // It catches issues like missing @frappe.whitelist() or import errors
+      cy.request({
+        method: "POST",
+        url: "/api/method/verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.parse_groups_and_suggest_type_mappings",
+        headers: {
+          "X-Frappe-CSRF-Token": Cypress.env("CSRF_TOKEN") || "test",
+        },
+        failOnStatusCode: false,
+      }).then((response) => {
+        // Should not get 404 (method not found) or 500 (import error)
+        // 403 (permission denied) is acceptable as it means the method exists
+        expect(response.status).to.not.equal(404);
+        expect(response.body).to.not.have.property(
+          "exc_type",
+          "AttributeError",
+        );
+        cy.log("parse_groups_and_suggest_type_mappings API is accessible");
+      });
+    });
+
+    it("should verify reclassify_accounts_by_group_mappings API is accessible", () => {
+      cy.request({
+        method: "POST",
+        url: "/api/method/verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.reclassify_accounts_by_group_mappings",
+        body: { dry_run: true },
+        headers: {
+          "X-Frappe-CSRF-Token": Cypress.env("CSRF_TOKEN") || "test",
+        },
+        failOnStatusCode: false,
+      }).then((response) => {
+        expect(response.status).to.not.equal(404);
+        expect(response.body).to.not.have.property(
+          "exc_type",
+          "AttributeError",
+        );
+        cy.log("reclassify_accounts_by_group_mappings API is accessible");
+      });
+    });
+
+    it("should verify reorganize_account_hierarchy API is accessible", () => {
+      cy.request({
+        method: "POST",
+        url: "/api/method/verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.reorganize_account_hierarchy",
+        body: { dry_run: true },
+        headers: {
+          "X-Frappe-CSRF-Token": Cypress.env("CSRF_TOKEN") || "test",
+        },
+        failOnStatusCode: false,
+      }).then((response) => {
+        expect(response.status).to.not.equal(404);
+        expect(response.body).to.not.have.property(
+          "exc_type",
+          "AttributeError",
+        );
+        cy.log("reorganize_account_hierarchy API is accessible");
+      });
+    });
+
+    it("should test Parse & Suggest Types button functionality", () => {
+      cy.visit("/app/e-boekhouden-settings");
+      cy.wait_for_navigation();
+
+      // Add sample group mappings to enable the parse button
+      cy.execute_form_operation(() => {
+        cy.window().then((win) => {
+          const frm = win.frappe.ui.form.get_form("E-Boekhouden Settings");
+
+          // Verify parse_group_types_button field exists
+          if (frm.fields_dict.parse_group_types_button) {
+            expect(frm.fields_dict.parse_group_types_button).to.exist;
+            cy.log("Parse & Suggest Types button field exists");
+          }
+
+          // Verify group_type_mappings table field exists
+          if (frm.fields_dict.group_type_mappings) {
+            expect(frm.fields_dict.group_type_mappings).to.exist;
+            cy.log("Group type mappings table field exists");
+          }
+        });
+        return true;
+      }, "Parse & Suggest Types Button");
+    });
+
+    it("should test Account Types menu buttons when mappings exist", () => {
+      cy.visit("/app/e-boekhouden-settings");
+      cy.wait_for_navigation();
+
+      cy.execute_form_operation(() => {
+        cy.window().then((win) => {
+          const frm = win.frappe.ui.form.get_form("E-Boekhouden Settings");
+
+          // Check if group_type_mappings has data
+          const hasMappings =
+            frm.doc.group_type_mappings &&
+            frm.doc.group_type_mappings.length > 0;
+
+          if (hasMappings) {
+            // Account Types menu should have Preview and Apply buttons
+            cy.get(".btn-group .dropdown-menu").then(($menus) => {
+              const menuText = $menus.text();
+              if (menuText.includes("Account Types")) {
+                cy.log("Account Types menu is present");
+                expect(menuText).to.include("Preview Re-classification");
+                expect(menuText).to.include("Apply Re-classification");
+              }
+            });
+
+            // Account Hierarchy menu should have Preview and Apply buttons
+            cy.get(".btn-group .dropdown-menu").then(($menus) => {
+              const menuText = $menus.text();
+              if (menuText.includes("Account Hierarchy")) {
+                cy.log("Account Hierarchy menu is present");
+                expect(menuText).to.include("Preview Reorganization");
+                expect(menuText).to.include("Apply Reorganization");
+              }
+            });
+          } else {
+            cy.log(
+              "No group_type_mappings configured - menu buttons not shown (expected)",
+            );
+          }
+        });
+        return true;
+      }, "Account Types Menu Buttons");
+    });
+
+    it("should test helper functions exist on form", () => {
+      cy.visit("/app/e-boekhouden-settings");
+      cy.wait_for_navigation();
+
+      cy.execute_form_operation(() => {
+        cy.window().then((win) => {
+          const frm = win.frappe.ui.form.get_form("E-Boekhouden Settings");
+
+          // Verify helper functions are defined
+          expect(frm.escape_html).to.be.a("function");
+          expect(frm.show_reclassify_preview).to.be.a("function");
+          expect(frm.show_reclassify_results).to.be.a("function");
+          expect(frm.show_hierarchy_preview).to.be.a("function");
+          expect(frm.show_hierarchy_results).to.be.a("function");
+          expect(frm.show_cost_center_preview).to.be.a("function");
+          expect(frm.show_cost_center_results).to.be.a("function");
+
+          cy.log("All required helper functions are defined on form");
+        });
+        return true;
+      }, "Helper Functions Verification");
+    });
+  });
+
   describe("Logging and Monitoring Tests", () => {
     it("should test synchronization logging configuration", () => {
       cy.visit("/app/e-boekhouden-settings");

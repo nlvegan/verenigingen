@@ -17,12 +17,14 @@ class EBoekhoudenSettings(Document):
 
         Returns:
             dict: Classification configuration with ranges, keywords, and group mappings
+                  including group_type_mappings for the AccountClassificationService
         """
         return {
             "use_classification_service": self.get("enable_account_classification_service", 1),
             "strategy": self.get("classification_strategy", "Prefer Groups"),
             "balance_sheet_group_mappings": self._parse_balance_sheet_group_mappings(),
             "pl_group_mappings": self._parse_pl_group_mappings(),
+            "group_type_mappings": self._parse_group_type_mappings(),
             "bal_rules": {
                 "asset_ranges": self._parse_ranges(self.get("bal_asset_ranges", "")),
                 "liability_ranges": self._parse_ranges(self.get("bal_liability_ranges", "")),
@@ -36,6 +38,31 @@ class EBoekhoudenSettings(Document):
                 "expense_keywords": self._parse_keywords(self.get("vw_expense_keywords", "")),
             },
         }
+
+    def _parse_group_type_mappings(self):
+        """Parse the group_type_mappings child table into the format expected by
+        AccountClassificationService.
+
+        Returns:
+            dict: Group code to account type mapping in format:
+                  {"001": {"account_type": "Fixed Asset", "root_type": "Asset"}, ...}
+        """
+        mappings = {}
+        group_type_mappings = self.get("group_type_mappings", [])
+
+        for row in group_type_mappings:
+            if not row.group_code or not row.root_type:
+                continue
+
+            mappings[row.group_code] = {
+                "account_type": row.account_type or "",
+                "root_type": row.root_type,
+                "group_name": row.group_name or "",
+                "confidence": row.confidence or "High",
+                "notes": row.notes or "",
+            }
+
+        return mappings
 
     def _parse_balance_sheet_group_mappings(self):
         """Parse balance sheet account group mappings
@@ -789,3 +816,242 @@ def preview_cost_center_creation():
     except Exception as e:
         frappe.log_error(f"Error previewing cost center creation: {str(e)}")
         return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def parse_groups_and_suggest_type_mappings():
+    """Parse account group mappings and suggest ERPNext account types.
+
+    Reads the balance_sheet_group_mappings and pl_group_mappings text fields
+    and generates suggested type mappings based on group codes and names.
+
+    Returns:
+        dict: {
+            "success": True/False,
+            "suggestions": [
+                {
+                    "group_code": "001",
+                    "group_name": "Vaste activa",
+                    "root_type": "Asset",
+                    "account_type": "Fixed Asset",
+                    "confidence": "High",
+                    "notes": "Fixed assets based on group name"
+                },
+                ...
+            ],
+            "total_groups": int,
+            "suggested_count": int
+        }
+    """
+    import html
+    import re
+
+    try:
+        settings = frappe.get_single("E-Boekhouden Settings")
+
+        balance_sheet_text = settings.get("balance_sheet_group_mappings", "") or ""
+        pl_text = settings.get("pl_group_mappings", "") or ""
+
+        if not balance_sheet_text.strip() and not pl_text.strip():
+            return {"success": False, "error": "No account group mappings found. Please enter Balance Sheet and/or P&L group mappings first."}
+
+        suggestions = []
+
+        # Parse balance sheet groups
+        for line in balance_sheet_text.strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+
+            parts = re.split(r"\s+", line, maxsplit=1)
+            if len(parts) >= 2:
+                code = parts[0].strip()
+                name = html.unescape(parts[1].strip())
+                suggestion = _suggest_account_type_for_group(code, name, is_balance_sheet=True)
+                suggestions.append(suggestion)
+
+        # Parse P&L groups
+        for line in pl_text.strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+
+            parts = re.split(r"\s+", line, maxsplit=1)
+            if len(parts) >= 2:
+                code = parts[0].strip()
+                name = html.unescape(parts[1].strip())
+                suggestion = _suggest_account_type_for_group(code, name, is_balance_sheet=False)
+                suggestions.append(suggestion)
+
+        suggested_count = len([s for s in suggestions if s.get("root_type")])
+
+        return {
+            "success": True,
+            "suggestions": suggestions,
+            "total_groups": len(suggestions),
+            "suggested_count": suggested_count,
+        }
+
+    except Exception as e:
+        frappe.log_error(f"Error parsing groups for type mappings: {str(e)}")
+        return {"success": False, "error": str(e)}
+
+
+def _suggest_account_type_for_group(code, name, is_balance_sheet=True):
+    """Suggest ERPNext account type based on group code and name.
+
+    Args:
+        code: Group code (e.g., "001", "055")
+        name: Group name (e.g., "Vaste activa", "Opbrengsten")
+        is_balance_sheet: True for balance sheet groups, False for P&L
+
+    Returns:
+        dict: Suggestion with group_code, group_name, root_type, account_type, confidence, notes
+    """
+    name_lower = name.lower()
+
+    # Default values
+    suggestion = {
+        "group_code": code,
+        "group_name": name,
+        "root_type": "",
+        "account_type": "",
+        "confidence": "Medium",
+        "notes": "",
+    }
+
+    # P&L accounts
+    if not is_balance_sheet:
+        # Income patterns
+        income_keywords = ["opbrengst", "omzet", "verkoop", "inkomst", "baten", "ontvangst", "revenue", "income", "sales"]
+        if any(kw in name_lower for kw in income_keywords):
+            suggestion["root_type"] = "Income"
+            suggestion["account_type"] = "Income Account"
+            suggestion["confidence"] = "High"
+            suggestion["notes"] = "Income based on group name keywords"
+            return suggestion
+
+        # Expense patterns
+        expense_keywords = ["kosten", "uitgaven", "lasten", "onkosten", "afschrijving", "expense", "cost", "personeel", "salaris"]
+        if any(kw in name_lower for kw in expense_keywords):
+            suggestion["root_type"] = "Expense"
+            suggestion["account_type"] = "Expense Account"
+            suggestion["confidence"] = "High"
+            suggestion["notes"] = "Expense based on group name keywords"
+            return suggestion
+
+        # Default P&L to Expense (more common)
+        suggestion["root_type"] = "Expense"
+        suggestion["account_type"] = "Expense Account"
+        suggestion["confidence"] = "Low"
+        suggestion["notes"] = "Defaulted to Expense for P&L group"
+        return suggestion
+
+    # Balance sheet accounts
+    # Fixed assets
+    fixed_asset_keywords = ["vaste activa", "materiele activa", "immateriele activa", "fixed asset", "inventaris", "machines", "gebouw"]
+    if any(kw in name_lower for kw in fixed_asset_keywords):
+        suggestion["root_type"] = "Asset"
+        suggestion["account_type"] = "Fixed Asset"
+        suggestion["confidence"] = "High"
+        suggestion["notes"] = "Fixed assets based on group name"
+        return suggestion
+
+    # Bank/Cash (liquide middelen)
+    bank_keywords = ["liquide", "bank", "geld", "kas", "cash", "liquid"]
+    if any(kw in name_lower for kw in bank_keywords):
+        suggestion["root_type"] = "Asset"
+        # Distinguish between bank and cash
+        if "kas" in name_lower and "bank" not in name_lower:
+            suggestion["account_type"] = "Cash"
+        else:
+            suggestion["account_type"] = "Bank"
+        suggestion["confidence"] = "High"
+        suggestion["notes"] = "Bank/Cash based on group name"
+        return suggestion
+
+    # Receivables (vorderingen)
+    receivable_keywords = ["vordering", "debiteur", "receivable", "te ontvangen"]
+    if any(kw in name_lower for kw in receivable_keywords):
+        suggestion["root_type"] = "Asset"
+        suggestion["account_type"] = "Receivable"
+        suggestion["confidence"] = "High"
+        suggestion["notes"] = "Receivables based on group name"
+        return suggestion
+
+    # Payables (schulden)
+    payable_keywords = ["schuld", "crediteur", "te betalen", "payable", "creditor"]
+    if any(kw in name_lower for kw in payable_keywords):
+        suggestion["root_type"] = "Liability"
+        suggestion["account_type"] = "Payable"
+        suggestion["confidence"] = "High"
+        suggestion["notes"] = "Payables based on group name"
+        return suggestion
+
+    # General liabilities
+    liability_keywords = ["passiva", "voorziening", "lening", "obligatie", "liability", "provision", "loan"]
+    if any(kw in name_lower for kw in liability_keywords):
+        suggestion["root_type"] = "Liability"
+        suggestion["account_type"] = "Current Liability"
+        suggestion["confidence"] = "Medium"
+        suggestion["notes"] = "Liability based on group name"
+        return suggestion
+
+    # Equity
+    equity_keywords = ["eigen vermogen", "kapitaal", "reserve", "equity", "capital", "retained"]
+    if any(kw in name_lower for kw in equity_keywords):
+        suggestion["root_type"] = "Equity"
+        suggestion["account_type"] = "Equity"
+        suggestion["confidence"] = "High"
+        suggestion["notes"] = "Equity based on group name"
+        return suggestion
+
+    # Code-based fallbacks for balance sheet
+    first_digit = code[0] if code else ""
+
+    if first_digit in ("0", "1", "2"):
+        # Typical asset range in Dutch accounting
+        suggestion["root_type"] = "Asset"
+        suggestion["account_type"] = ""
+        suggestion["confidence"] = "Low"
+        suggestion["notes"] = f"Asset suggested based on code range (starts with {first_digit})"
+    elif first_digit in ("3", "4"):
+        # Could be liability or equity
+        suggestion["root_type"] = "Liability"
+        suggestion["account_type"] = "Current Liability"
+        suggestion["confidence"] = "Low"
+        suggestion["notes"] = f"Liability suggested based on code range (starts with {first_digit})"
+    else:
+        # Leave empty for manual classification
+        suggestion["notes"] = "Unable to determine type - please configure manually"
+
+    return suggestion
+
+
+@frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
+def reclassify_accounts_by_group_mappings(dry_run=True):
+    """Re-classify existing ERPNext accounts based on configured group type mappings.
+
+    Thin wrapper that delegates to account_hierarchy_service.
+    """
+    from verenigingen.e_boekhouden.services.account_hierarchy_service import (
+        reclassify_accounts_by_group_mappings as _reclassify,
+    )
+
+    return _reclassify(dry_run=dry_run)
+
+
+@frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
+def reorganize_account_hierarchy(dry_run=True):
+    """Reorganize existing accounts into proper group hierarchy based on group_type_mappings.
+
+    Thin wrapper that delegates to account_hierarchy_service.
+    """
+    from verenigingen.e_boekhouden.services.account_hierarchy_service import (
+        reorganize_account_hierarchy as _reorganize,
+    )
+
+    return _reorganize(dry_run=dry_run)

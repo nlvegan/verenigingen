@@ -28,6 +28,9 @@
     "balance_sheet_group_mappings",
     "column_break_balance_groups",
     "pl_group_mappings",
+    "group_type_mapping_section",
+    "parse_group_types_button",
+    "group_type_mappings",
     "balance_sheet_organization_section",
     "rebuild_account_tree_button",
     "vorderingen_group_name",
@@ -193,6 +196,25 @@
       "fieldtype": "Long Text",
       "label": "P&L Group Mappings",
       "description": "Profit & Loss account groups in format: 'code name' (one per line).\nExample:\n055 Opbrengsten\n056 Personeelskosten\n057 Overige kosten"
+    },
+    {
+      "fieldname": "group_type_mapping_section",
+      "fieldtype": "Section Break",
+      "label": "Account Group Type Mappings",
+      "description": "Map account groups to ERPNext account types for accurate classification during import. Click 'Parse & Suggest Types' to auto-populate from the group mappings above."
+    },
+    {
+      "fieldname": "parse_group_types_button",
+      "fieldtype": "Button",
+      "label": "Parse & Suggest Types",
+      "description": "Analyze the group mappings above and suggest account types based on group names and codes"
+    },
+    {
+      "fieldname": "group_type_mappings",
+      "fieldtype": "Table",
+      "label": "Group Type Mappings",
+      "options": "E-Boekhouden Group Type Mapping",
+      "description": "Configure the ERPNext account type for each account group. Used by the classification service to assign correct account types during import."
     },
     {
       "fieldname": "balance_sheet_organization_section",

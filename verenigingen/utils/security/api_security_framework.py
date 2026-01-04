@@ -42,6 +42,21 @@ from verenigingen.utils.security.types import (
 from verenigingen.utils.validation.api_validators import APIValidator
 
 
+def _safe_debug_log(message: str) -> None:
+    """Safely log debug messages, handling cases where Frappe isn't fully initialized.
+
+    This is needed because decorators execute at import time, before Frappe has
+    a site context. frappe.logger() fails without a site context.
+    """
+    try:
+        # Check if we have a valid site context
+        if hasattr(frappe.local, "site") and frappe.local.site:
+            frappe.logger("verenigingen.security").debug(message)
+    except Exception:
+        # Silently ignore logging failures during import
+        pass
+
+
 class SecurityProfile:
     """Security profile defining requirements for each security level"""
 
@@ -1596,21 +1611,21 @@ def api_security_framework(
         # First, check direct attribute
         if hasattr(func, "__func_is_whitelisted__"):
             wrapper.__func_is_whitelisted__ = func.__func_is_whitelisted__
-            frappe.logger("verenigingen.security").debug(
+            _safe_debug_log(
                 f"Preserved __func_is_whitelisted__ from func: {func.__func_is_whitelisted__}"
             )
 
         # Check for allow_guest attribute (legacy pattern)
         elif hasattr(func, "allow_guest") and func.allow_guest:
             wrapper.__func_is_whitelisted__ = True
-            frappe.logger("verenigingen.security").debug("Set __func_is_whitelisted__ from allow_guest")
+            _safe_debug_log("Set __func_is_whitelisted__ from allow_guest")
 
         # Check wrapped function if exists
         elif hasattr(func, "__wrapped__"):
             wrapped_func = func.__wrapped__
             if hasattr(wrapped_func, "__func_is_whitelisted__"):
                 wrapper.__func_is_whitelisted__ = wrapped_func.__func_is_whitelisted__
-                frappe.logger("verenigingen.security").debug(
+                _safe_debug_log(
                     f"Preserved __func_is_whitelisted__ from wrapped: {wrapped_func.__func_is_whitelisted__}"
                 )
 
@@ -1619,7 +1634,7 @@ def api_security_framework(
                 wrapped_func.__wrapped__, "__func_is_whitelisted__"
             ):
                 wrapper.__func_is_whitelisted__ = wrapped_func.__wrapped__.__func_is_whitelisted__
-                frappe.logger("verenigingen.security").debug(
+                _safe_debug_log(
                     f"Preserved __func_is_whitelisted__ from deep wrapped: {wrapped_func.__wrapped__.__func_is_whitelisted__}"
                 )
 
@@ -1630,13 +1645,13 @@ def api_security_framework(
             method_path = f"{func.__module__}.{func.__name__}"
             if method_path in getattr(frappe, "_whitelisted_methods", set()):
                 wrapper.__func_is_whitelisted__ = True
-                frappe.logger("verenigingen.security").debug(
+                _safe_debug_log(
                     f"Set __func_is_whitelisted__ from whitelist registry for {method_path}"
                 )
             else:
                 # As a last resort, assume True since our decorator is typically only used on whitelisted functions
                 wrapper.__func_is_whitelisted__ = True
-                frappe.logger("verenigingen.security").debug(
+                _safe_debug_log(
                     f"Fallback: Set __func_is_whitelisted__ = True for {method_path}"
                 )
 
@@ -1665,7 +1680,7 @@ def api_security_framework(
                 elif isinstance(frappe.whitelisted, list):
                     if wrapper not in frappe.whitelisted:
                         frappe.whitelisted.append(wrapper)
-                frappe.logger("verenigingen.security").debug(
+                _safe_debug_log(
                     f"Added wrapper to frappe.whitelisted for {func.__name__}"
                 )
 
@@ -1685,13 +1700,13 @@ def api_security_framework(
             # If we found allowed methods (or if inner was whitelisted), register wrapper
             if allowed_methods is not None:
                 http_methods_dict[wrapper] = allowed_methods
-                frappe.logger("verenigingen.security").debug(
+                _safe_debug_log(
                     f"Added wrapper to allowed_http_methods_for_whitelisted_func for {func.__name__}: {allowed_methods}"
                 )
             elif "inner_was_whitelisted" in locals() and inner_was_whitelisted:
                 # Default to GET and POST if inner was whitelisted but not in http_methods dict
                 http_methods_dict[wrapper] = ["GET", "POST"]
-                frappe.logger("verenigingen.security").debug(
+                _safe_debug_log(
                     f"Added wrapper to allowed_http_methods_for_whitelisted_func with default methods for {func.__name__}"
                 )
 

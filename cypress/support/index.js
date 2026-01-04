@@ -185,7 +185,10 @@ import "cypress-wait-until";
 
 // Global before hook
 before(() => {
-  cy.login();
+  // Use credentials from cypress.env.json or fall back to defaults
+  const user = Cypress.env("ADMIN_USER") || "Administrator";
+  const pass = Cypress.env("ADMIN_PASSWORD") || "admin";
+  cy.login(user, pass);
   cy.visit("/app");
 });
 

@@ -685,15 +685,49 @@ class AccountMigrationService:
             return frappe.db.get_value("Account", {"company": company, "is_group": 1}, "name", order_by="lft")
 
     def get_or_create_group_account(
-        self, group_code: str, root_type: str, company: str = None
+        self, group_code: str, root_type: str = None, company: str = None
     ) -> Optional[str]:
-        """Find or create an intermediate group account based on group mapping."""
+        """Find or create an intermediate group account based on group mapping.
+
+        Args:
+            group_code: The group code (e.g., "001", "055")
+            root_type: The root type (Asset, Liability, etc.). If None, will be read from mapping.
+            company: The company name. Defaults to self.company.
+
+        Returns:
+            The account name of the group account, or None if not found/created.
+
+        The mapping can be in two formats:
+        - New format (from group_type_mappings table):
+            {"001": {"group_name": "Vaste activa", "root_type": "Asset", "account_type": "Fixed Asset"}}
+        - Legacy format (from text fields):
+            {"001": "Vaste activa"}
+        """
         company = company or self.company
         try:
             if not self._account_group_mappings or group_code not in self._account_group_mappings:
                 return None
 
-            group_name = self._account_group_mappings[group_code]
+            mapping = self._account_group_mappings[group_code]
+
+            # Handle both new format (dict) and legacy format (string)
+            if isinstance(mapping, dict):
+                group_name = mapping.get("group_name", "")
+                # Use root_type from mapping if not provided as argument
+                if not root_type:
+                    root_type = mapping.get("root_type")
+            else:
+                # Legacy format - mapping is just the group name string
+                group_name = mapping
+
+            if not group_name:
+                return None
+
+            if not root_type:
+                frappe.logger().warning(
+                    f"No root_type for group {group_code} - cannot determine hierarchy"
+                )
+                return None
 
             # Check if group account already exists
             existing_group = frappe.db.get_value(

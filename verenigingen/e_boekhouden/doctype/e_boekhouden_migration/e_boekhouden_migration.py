@@ -286,10 +286,35 @@ class EBoekhoudenMigration(Document):
             return {"success": False, "error": str(e)}
 
     def parse_account_group_mappings(self, settings):
-        """Parse account group mappings from settings in format 'number <space> <group name>'"""
+        """Parse account group mappings from settings.
+
+        Prefers the structured group_type_mappings table over text fields.
+        Returns a dict mapping group codes to group info:
+            {"001": {"group_name": "Vaste activa", "root_type": "Asset"}, ...}
+
+        For backwards compatibility, if only text fields are configured,
+        returns simple format: {"001": "Vaste activa", ...}
+        """
         try:
             mappings = {}
 
+            # PREFERRED: Use group_type_mappings table (includes root_type for hierarchy)
+            group_type_mappings = settings.get("group_type_mappings", [])
+            if group_type_mappings:
+                for row in group_type_mappings:
+                    if row.group_code and row.group_name and row.root_type:
+                        mappings[row.group_code] = {
+                            "group_name": row.group_name,
+                            "root_type": row.root_type,
+                            "account_type": row.account_type or "",
+                        }
+                if mappings:
+                    frappe.logger().info(
+                        f"Using {len(mappings)} group mappings from group_type_mappings table"
+                    )
+                    return mappings
+
+            # FALLBACK: Parse text fields (legacy format, no root_type)
             # Parse balance sheet group mappings
             if hasattr(settings, "balance_sheet_group_mappings") and settings.balance_sheet_group_mappings:
                 lines = settings.balance_sheet_group_mappings.strip().split("\n")
@@ -318,7 +343,7 @@ class EBoekhoudenMigration(Document):
                             if code and name:
                                 mappings[code] = name
 
-            frappe.logger().info(f"Parsed {len(mappings)} account group mappings")
+            frappe.logger().info(f"Parsed {len(mappings)} account group mappings from text fields")
             return mappings
         except Exception as e:
             frappe.logger().error(f"Error parsing account group mappings: {str(e)}")

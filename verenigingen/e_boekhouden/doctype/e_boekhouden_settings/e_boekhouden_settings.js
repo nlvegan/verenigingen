@@ -83,6 +83,108 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 			})
 			.addClass('btn-primary');
 
+		// Group Type Mapping buttons - for re-classifying existing accounts
+		if (
+			frm.doc.group_type_mappings
+			&& frm.doc.group_type_mappings.length > 0
+		) {
+			// Account Types menu (classification - root_type and account_type)
+			frm
+				.add_custom_button(__('Preview Re-classification'), () => {
+					frappe.call({
+						method:
+							'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.reclassify_accounts_by_group_mappings',
+						args: { dry_run: true },
+						callback(r) {
+							if (r.message && r.message.success) {
+								frm.show_reclassify_preview(r.message);
+							} else {
+								frappe.msgprint({
+									title: 'Preview Failed',
+									message: r.message.error || 'Failed to preview account re-classification',
+									indicator: 'red'
+								});
+							}
+						}
+					});
+				}, __('Account Types'));
+
+			frm
+				.add_custom_button(__('Apply Re-classification'), () => {
+					frappe.confirm(
+						__(
+							'This will update account types for existing accounts based on your group type mappings. This affects financial reporting. Continue?'
+						),
+						() => {
+							frappe.call({
+								method:
+									'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.reclassify_accounts_by_group_mappings',
+								args: { dry_run: false },
+								callback(r) {
+									if (r.message && r.message.success) {
+										frm.show_reclassify_results(r.message);
+									} else {
+										frappe.msgprint({
+											title: 'Re-classification Failed',
+											message: r.message.error || 'Failed to re-classify accounts',
+											indicator: 'red'
+										});
+									}
+								}
+							});
+						}
+					);
+				}, __('Account Types'));
+
+			// Account Hierarchy menu (parent-child organization)
+			frm
+				.add_custom_button(__('Preview Reorganization'), () => {
+					frappe.call({
+						method:
+							'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.reorganize_account_hierarchy',
+						args: { dry_run: true },
+						callback(r) {
+							if (r.message && r.message.success) {
+								frm.show_hierarchy_preview(r.message);
+							} else {
+								frappe.msgprint({
+									title: 'Preview Failed',
+									message: r.message.error || 'Failed to preview hierarchy reorganization',
+									indicator: 'red'
+								});
+							}
+						}
+					});
+				}, __('Account Hierarchy'));
+
+			frm
+				.add_custom_button(__('Apply Reorganization'), () => {
+					frappe.confirm(
+						__(
+							'This will reorganize the Chart of Accounts hierarchy, moving accounts under their group parent accounts based on your group type mappings. Continue?'
+						),
+						() => {
+							frappe.call({
+								method:
+									'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.reorganize_account_hierarchy',
+								args: { dry_run: false },
+								callback(r) {
+									if (r.message && r.message.success) {
+										frm.show_hierarchy_results(r.message);
+									} else {
+										frappe.msgprint({
+											title: 'Reorganization Failed',
+											message: r.message.error || 'Failed to reorganize account hierarchy',
+											indicator: 'red'
+										});
+									}
+								}
+							});
+						}
+					);
+				}, __('Account Hierarchy'));
+		}
+
 		// Phase 2: Cost Center Creation Engine buttons
 		if (
 			frm.doc.cost_center_mappings
@@ -209,16 +311,16 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 		.map(
 			(item) => `
 									<tr>
-										<td><code>${item.group_code}</code><br><small class="text-muted">${item.group_name}</small></td>
+										<td><code>${frm.escape_html(item.group_code)}</code><br><small class="text-muted">${frm.escape_html(item.group_name)}</small></td>
 										<td>
-											<strong>${item.cost_center_name}</strong>
-											${item.parent_cost_center ? `<br><small class="text-muted">Parent: ${item.parent_cost_center}</small>` : ''}
+											<strong>${frm.escape_html(item.cost_center_name)}</strong>
+											${item.parent_cost_center ? `<br><small class="text-muted">Parent: ${frm.escape_html(item.parent_cost_center)}</small>` : ''}
 										</td>
 										<td>
 											<span class="badge ${item.already_exists ? 'badge-warning' : 'badge-success'}">
-												${item.action}
+												${frm.escape_html(item.action)}
 											</span>
-											${item.existing_id ? `<br><small class="text-muted">Existing: ${item.existing_id}</small>` : ''}
+											${item.existing_id ? `<br><small class="text-muted">Existing: ${frm.escape_html(item.existing_id)}</small>` : ''}
 										</td>
 										<td>
 											<span class="badge ${item.is_group ? 'badge-info' : 'badge-light'}">
@@ -260,6 +362,400 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 				.replace(/>/g, '&gt;')
 				.replace(/"/g, '&quot;')
 				.replace(/'/g, '&#39;');
+		};
+
+		// Helper function to show re-classification preview
+		frm.show_reclassify_preview = function (results) {
+			const changes_to_show = results.changes.filter(c => c.status === 'would_update');
+			const skipped_no_mapping = results.changes.filter(c => c.status === 'skipped' && c.reason);
+
+			const preview_html = `
+				<div class="reclassify-preview">
+					<h5>Account Re-classification Preview</h5>
+					<div class="row">
+						<div class="col-md-3">
+							<div class="preview-stat">
+								<h6>Total Accounts</h6>
+								<span class="badge badge-primary">${results.total_accounts}</span>
+							</div>
+						</div>
+						<div class="col-md-3">
+							<div class="preview-stat">
+								<h6>Would Update</h6>
+								<span class="badge badge-success">${results.would_update}</span>
+							</div>
+						</div>
+						<div class="col-md-3">
+							<div class="preview-stat">
+								<h6>Skipped</h6>
+								<span class="badge badge-secondary">${results.skipped}</span>
+							</div>
+						</div>
+						<div class="col-md-3">
+							<div class="preview-stat">
+								<h6>Mappings Used</h6>
+								<span class="badge badge-info">${results.mappings_used}</span>
+							</div>
+						</div>
+					</div>
+					${changes_to_show.length > 0 ? `
+						<hr>
+						<h6>Accounts to Update:</h6>
+						<div class="preview-table" style="max-height: 300px; overflow-y: auto;">
+							<table class="table table-sm table-bordered">
+								<thead>
+									<tr>
+										<th>Account</th>
+										<th>Group</th>
+										<th>Current Type</th>
+										<th>New Type</th>
+									</tr>
+								</thead>
+								<tbody>
+									${changes_to_show.map(item => `
+										<tr>
+											<td>
+												<code>${frm.escape_html(item.account)}</code><br>
+												<small class="text-muted">${frm.escape_html(item.account_name)}</small>
+											</td>
+											<td><code>${frm.escape_html(item.group_code)}</code></td>
+											<td>
+												<span class="text-danger">${frm.escape_html(item.old_root_type || '-')}/${frm.escape_html(item.old_account_type || '-')}</span>
+											</td>
+											<td>
+												<span class="text-success">${frm.escape_html(item.new_root_type || '-')}/${frm.escape_html(item.new_account_type || '-')}</span>
+											</td>
+										</tr>
+									`).join('')}
+								</tbody>
+							</table>
+						</div>
+					` : '<p class="text-muted">No accounts need updating.</p>'}
+					${skipped_no_mapping.length > 0 ? `
+						<hr>
+						<h6 class="text-warning">Skipped (No Mapping):</h6>
+						<div style="max-height: 150px; overflow-y: auto;">
+							<small class="text-muted">
+								${skipped_no_mapping.slice(0, 20).map(item =>
+									`${frm.escape_html(item.account)} (group ${frm.escape_html(item.group_code)})`
+								).join(', ')}
+								${skipped_no_mapping.length > 20 ? `... and ${skipped_no_mapping.length - 20} more` : ''}
+							</small>
+						</div>
+					` : ''}
+				</div>
+			`;
+
+			const dialog = new frappe.ui.Dialog({
+				title: 'Account Re-classification Preview',
+				size: 'large',
+				fields: [{ fieldtype: 'HTML', options: preview_html }],
+				primary_action_label: 'Close',
+				primary_action() { dialog.hide(); }
+			});
+			dialog.show();
+		};
+
+		// Helper function to show re-classification results
+		frm.show_reclassify_results = function (results) {
+			const updated = results.changes.filter(c => c.status === 'updated');
+			const errors = results.changes.filter(c => c.status === 'error');
+
+			const results_html = `
+				<div class="reclassify-results">
+					<h5>Account Re-classification Results</h5>
+					<div class="row">
+						<div class="col-md-4">
+							<div class="result-stat">
+								<h6>Total Processed</h6>
+								<span class="badge badge-primary">${results.total_accounts}</span>
+							</div>
+						</div>
+						<div class="col-md-4">
+							<div class="result-stat">
+								<h6>Updated</h6>
+								<span class="badge badge-success">${results.updated}</span>
+							</div>
+						</div>
+						<div class="col-md-4">
+							<div class="result-stat">
+								<h6>Skipped</h6>
+								<span class="badge badge-secondary">${results.skipped}</span>
+							</div>
+						</div>
+					</div>
+					${updated.length > 0 ? `
+						<hr>
+						<h6 class="text-success">Successfully Updated:</h6>
+						<div style="max-height: 250px; overflow-y: auto;">
+							<table class="table table-sm table-bordered">
+								<thead>
+									<tr><th>Account</th><th>Old Type</th><th>New Type</th></tr>
+								</thead>
+								<tbody>
+									${updated.map(item => `
+										<tr>
+											<td><code>${frm.escape_html(item.account)}</code> - ${frm.escape_html(item.account_name)}</td>
+											<td><span class="text-muted">${frm.escape_html(item.old_root_type)}/${frm.escape_html(item.old_account_type || '-')}</span></td>
+											<td><span class="text-success">${frm.escape_html(item.new_root_type)}/${frm.escape_html(item.new_account_type || '-')}</span></td>
+										</tr>
+									`).join('')}
+								</tbody>
+							</table>
+						</div>
+					` : ''}
+					${errors.length > 0 ? `
+						<hr>
+						<h6 class="text-danger">Errors:</h6>
+						<div style="max-height: 150px; overflow-y: auto;">
+							<table class="table table-sm table-bordered">
+								<tbody>
+									${errors.map(item => `
+										<tr>
+											<td><code>${frm.escape_html(item.account)}</code></td>
+											<td class="text-danger">${frm.escape_html(item.error)}</td>
+										</tr>
+									`).join('')}
+								</tbody>
+							</table>
+						</div>
+					` : ''}
+				</div>
+			`;
+
+			const dialog = new frappe.ui.Dialog({
+				title: 'Account Re-classification Results',
+				size: 'large',
+				fields: [{ fieldtype: 'HTML', options: results_html }],
+				primary_action_label: 'Close',
+				primary_action() { dialog.hide(); }
+			});
+			dialog.show();
+
+			if (results.updated > 0) {
+				frappe.show_alert({
+					message: __('Updated {0} accounts successfully', [results.updated]),
+					indicator: 'green'
+				});
+			}
+		};
+
+		// Helper function to show hierarchy reorganization preview
+		frm.show_hierarchy_preview = function (results) {
+			const moves_to_show = results.changes.filter(c => c.status === 'would_move');
+			const skipped = results.changes.filter(c => c.status === 'skipped');
+			const groups_to_create = results.groups.filter(g => g.status === 'would_create');
+
+			const preview_html = `
+				<div class="hierarchy-preview">
+					<h5>Account Hierarchy Reorganization Preview</h5>
+					<div class="row">
+						<div class="col-md-3">
+							<div class="preview-stat">
+								<h6>Total Accounts</h6>
+								<span class="badge badge-primary">${results.total_accounts}</span>
+							</div>
+						</div>
+						<div class="col-md-3">
+							<div class="preview-stat">
+								<h6>Would Move</h6>
+								<span class="badge badge-success">${results.would_move}</span>
+							</div>
+						</div>
+						<div class="col-md-3">
+							<div class="preview-stat">
+								<h6>Groups to Create</h6>
+								<span class="badge badge-info">${results.groups_created}</span>
+							</div>
+						</div>
+						<div class="col-md-3">
+							<div class="preview-stat">
+								<h6>Skipped</h6>
+								<span class="badge badge-secondary">${results.skipped}</span>
+							</div>
+						</div>
+					</div>
+					${groups_to_create.length > 0 ? `
+						<hr>
+						<h6>Group Accounts to Create:</h6>
+						<div class="preview-table" style="max-height: 150px; overflow-y: auto;">
+							<table class="table table-sm table-bordered">
+								<thead>
+									<tr>
+										<th>Group Code</th>
+										<th>Group Name</th>
+										<th>Root Type</th>
+										<th>Parent</th>
+									</tr>
+								</thead>
+								<tbody>
+									${groups_to_create.map(item => `
+										<tr>
+											<td><code>${frm.escape_html(item.group_code)}</code></td>
+											<td><strong>${frm.escape_html(item.group_name)}</strong></td>
+											<td><span class="badge badge-light">${frm.escape_html(item.root_type)}</span></td>
+											<td><small class="text-muted">${frm.escape_html(item.parent)}</small></td>
+										</tr>
+									`).join('')}
+								</tbody>
+							</table>
+						</div>
+					` : ''}
+					${moves_to_show.length > 0 ? `
+						<hr>
+						<h6>Accounts to Move:</h6>
+						<div class="preview-table" style="max-height: 300px; overflow-y: auto;">
+							<table class="table table-sm table-bordered">
+								<thead>
+									<tr>
+										<th>Account</th>
+										<th>Group</th>
+										<th>Current Parent</th>
+										<th>New Parent</th>
+									</tr>
+								</thead>
+								<tbody>
+									${moves_to_show.map(item => `
+										<tr>
+											<td>
+												<code>${frm.escape_html(item.account)}</code><br>
+												<small class="text-muted">${frm.escape_html(item.account_name)}</small>
+											</td>
+											<td><code>${frm.escape_html(item.group_code)}</code></td>
+											<td>
+												<span class="text-danger">${frm.escape_html(item.old_parent || '-')}</span>
+											</td>
+											<td>
+												<span class="text-success">${frm.escape_html(item.new_parent_name)}</span>
+											</td>
+										</tr>
+									`).join('')}
+								</tbody>
+							</table>
+						</div>
+					` : '<p class="text-muted">No accounts need to be moved.</p>'}
+				</div>
+			`;
+
+			const dialog = new frappe.ui.Dialog({
+				title: 'Account Hierarchy Reorganization Preview',
+				size: 'large',
+				fields: [{ fieldtype: 'HTML', options: preview_html }],
+				primary_action_label: 'Close',
+				primary_action() { dialog.hide(); }
+			});
+			dialog.show();
+		};
+
+		// Helper function to show hierarchy reorganization results
+		frm.show_hierarchy_results = function (results) {
+			const moved = results.changes.filter(c => c.status === 'moved');
+			const errors = results.changes.filter(c => c.status === 'error');
+			const groups_created = results.groups.filter(g => g.status === 'created');
+
+			const results_html = `
+				<div class="hierarchy-results">
+					<h5>Account Hierarchy Reorganization Results</h5>
+					<div class="row">
+						<div class="col-md-3">
+							<div class="result-stat">
+								<h6>Total Processed</h6>
+								<span class="badge badge-primary">${results.total_accounts}</span>
+							</div>
+						</div>
+						<div class="col-md-3">
+							<div class="result-stat">
+								<h6>Moved</h6>
+								<span class="badge badge-success">${results.moved}</span>
+							</div>
+						</div>
+						<div class="col-md-3">
+							<div class="result-stat">
+								<h6>Groups Created</h6>
+								<span class="badge badge-info">${results.groups_created}</span>
+							</div>
+						</div>
+						<div class="col-md-3">
+							<div class="result-stat">
+								<h6>Skipped</h6>
+								<span class="badge badge-secondary">${results.skipped}</span>
+							</div>
+						</div>
+					</div>
+					${groups_created.length > 0 ? `
+						<hr>
+						<h6 class="text-info">Created Group Accounts:</h6>
+						<div style="max-height: 150px; overflow-y: auto;">
+							<table class="table table-sm table-bordered">
+								<thead>
+									<tr><th>Group Code</th><th>Group Name</th><th>Root Type</th></tr>
+								</thead>
+								<tbody>
+									${groups_created.map(item => `
+										<tr>
+											<td><code>${frm.escape_html(item.group_code)}</code></td>
+											<td><strong>${frm.escape_html(item.group_name)}</strong></td>
+											<td>${frm.escape_html(item.root_type)}</td>
+										</tr>
+									`).join('')}
+								</tbody>
+							</table>
+						</div>
+					` : ''}
+					${moved.length > 0 ? `
+						<hr>
+						<h6 class="text-success">Successfully Moved:</h6>
+						<div style="max-height: 250px; overflow-y: auto;">
+							<table class="table table-sm table-bordered">
+								<thead>
+									<tr><th>Account</th><th>Old Parent</th><th>New Parent</th></tr>
+								</thead>
+								<tbody>
+									${moved.map(item => `
+										<tr>
+											<td><code>${frm.escape_html(item.account)}</code> - ${frm.escape_html(item.account_name)}</td>
+											<td><span class="text-muted">${frm.escape_html(item.old_parent || '-')}</span></td>
+											<td><span class="text-success">${frm.escape_html(item.new_parent_name)}</span></td>
+										</tr>
+									`).join('')}
+								</tbody>
+							</table>
+						</div>
+					` : ''}
+					${errors.length > 0 ? `
+						<hr>
+						<h6 class="text-danger">Errors:</h6>
+						<div style="max-height: 150px; overflow-y: auto;">
+							<table class="table table-sm table-bordered">
+								<tbody>
+									${errors.map(item => `
+										<tr>
+											<td><code>${frm.escape_html(item.account)}</code></td>
+											<td class="text-danger">${frm.escape_html(item.error)}</td>
+										</tr>
+									`).join('')}
+								</tbody>
+							</table>
+						</div>
+					` : ''}
+				</div>
+			`;
+
+			const dialog = new frappe.ui.Dialog({
+				title: 'Account Hierarchy Reorganization Results',
+				size: 'large',
+				fields: [{ fieldtype: 'HTML', options: results_html }],
+				primary_action_label: 'Close',
+				primary_action() { dialog.hide(); }
+			});
+			dialog.show();
+
+			if (results.moved > 0 || results.groups_created > 0) {
+				frappe.show_alert({
+					message: __('Reorganized hierarchy: {0} accounts moved, {1} groups created', [results.moved, results.groups_created]),
+					indicator: 'green'
+				});
+			}
 		};
 
 		// Helper function to show cost center creation results
@@ -561,6 +1057,58 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 					frappe.msgprint({
 						title: 'Parse Failed',
 						message: r.message.error || 'Failed to parse account groups',
+						indicator: 'red'
+					});
+				}
+			}
+		});
+	},
+
+	parse_group_types_button(frm) {
+		// Parse the account group mappings and suggest account type mappings
+		const balance_sheet_mappings = frm.doc.balance_sheet_group_mappings || '';
+		const pl_mappings = frm.doc.pl_group_mappings || '';
+
+		if (!balance_sheet_mappings && !pl_mappings) {
+			frappe.msgprint(__('Please enter Balance Sheet or P&L group mappings first.'));
+			return;
+		}
+
+		frappe.call({
+			method:
+        'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.parse_groups_and_suggest_type_mappings',
+			callback(r) {
+				if (r.message && r.message.success) {
+					// Clear existing mappings
+					frm.clear_table('group_type_mappings');
+
+					// Add suggested mappings
+					r.message.suggestions.forEach((suggestion) => {
+						const row = frm.add_child('group_type_mappings');
+						row.group_code = suggestion.group_code;
+						row.group_name = suggestion.group_name;
+						row.root_type = suggestion.root_type;
+						row.account_type = suggestion.account_type;
+						row.confidence = suggestion.confidence;
+						row.notes = suggestion.notes;
+					});
+
+					frm.refresh_field('group_type_mappings');
+
+					frappe.show_alert({
+						message: __('Parsed {0} groups with {1} type suggestions', [
+							r.message.total_groups,
+							r.message.suggested_count
+						]),
+						indicator: 'green'
+					});
+
+					// Mark form as dirty so user knows to save
+					frm.dirty();
+				} else {
+					frappe.msgprint({
+						title: 'Parse Failed',
+						message: r.message.error || 'Failed to parse account groups for type mappings',
 						indicator: 'red'
 					});
 				}
