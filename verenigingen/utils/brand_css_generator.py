@@ -378,9 +378,14 @@ def get_brand_css_file_path():
 
 
 def get_email_css_file_path():
-    """Get the path for the email brand CSS file"""
-    site_path = frappe.get_site_path()
-    css_dir = os.path.join(site_path, "public", "css")
+    """Get the path for the email brand CSS file.
+
+    Uses the app's public/css folder so premailer can find it via
+    the /assets/verenigingen/css/ path. This is required because
+    Frappe's email_css hook expects bundled assets, not site-specific files.
+    """
+    app_path = frappe.get_app_path("verenigingen")
+    css_dir = os.path.join(app_path, "public", "css")
 
     if not os.path.exists(css_dir):
         os.makedirs(css_dir, exist_ok=True)

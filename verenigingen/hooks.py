@@ -303,7 +303,8 @@ web_include_js = [
 
 # Email CSS - Frappe's premailer inlines these at send time
 # Uses literal hex values (not CSS variables) for email client compatibility
-email_css = ["/css/email_brand.css"]
+# Path must be in /assets/ for premailer to find it
+email_css = ["/assets/verenigingen/css/email_brand.css"]
 
 # include js in doctype views
 doctype_js = {
