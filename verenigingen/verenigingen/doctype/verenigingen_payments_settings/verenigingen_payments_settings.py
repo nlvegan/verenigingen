@@ -14,6 +14,7 @@ class VerenigingenPaymentsSettings(Document):
         """Validate payment settings configuration"""
         self._validate_webhook_user()
         self._validate_sepa_configuration()
+        self._validate_ing_checkout_configuration()
 
     def _validate_webhook_user(self):
         """Validate webhook user has appropriate role and security requirements"""
@@ -84,6 +85,45 @@ class VerenigingenPaymentsSettings(Document):
             result = validate_iban(self.company_iban)
             if not result.get("valid"):
                 frappe.throw(_("Invalid Company IBAN: {0}").format(result.get("message")))
+
+    def _validate_ing_checkout_configuration(self):
+        """Validate ING Checkout (Pay.nl) configuration"""
+        # Check if ING Checkout is enabled (via ING Checkout Settings)
+        ing_checkout_enabled = False
+        try:
+            ing_settings = frappe.get_single("ING Checkout Settings")
+            ing_checkout_enabled = ing_settings.enabled
+        except Exception:
+            pass
+
+        if not ing_checkout_enabled:
+            return
+
+        # Validate bank account is configured when ING Checkout is enabled
+        if not self.ing_checkout_bank_account:
+            frappe.msgprint(
+                _(
+                    "Warning: ING Checkout Bank Account is not configured. "
+                    "Payment Entry creation will fail until this is set."
+                ),
+                indicator="orange",
+            )
+            return
+
+        # Validate bank account exists
+        if not frappe.db.exists("Account", self.ing_checkout_bank_account):
+            frappe.throw(
+                _("ING Checkout Bank Account '{0}' does not exist").format(self.ing_checkout_bank_account)
+            )
+
+        # Validate it's a bank-type account
+        account_type = frappe.db.get_value("Account", self.ing_checkout_bank_account, "account_type")
+        if account_type != "Bank":
+            frappe.throw(
+                _("ING Checkout Bank Account must be a Bank type account. " "'{0}' is type '{1}'.").format(
+                    self.ing_checkout_bank_account, account_type
+                )
+            )
 
     @frappe.whitelist()
     @critical_api(operation_type=OperationType.ADMIN)

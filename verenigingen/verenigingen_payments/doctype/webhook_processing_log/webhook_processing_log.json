@@ -38,7 +38,7 @@
       "fieldtype": "Select",
       "in_list_view": 1,
       "label": "Webhook Type",
-      "options": "\npayment\nsubscription\ncustomer\nchargeback\nponto_sync\nponto_payment\nponto_account",
+      "options": "\npayment\nsubscription\ncustomer\nchargeback\nponto_sync\nponto_payment\nponto_account\ning_checkout_payment\ning_checkout_mandate\ning_checkout_direct_debit",
       "reqd": 1
     },
     {

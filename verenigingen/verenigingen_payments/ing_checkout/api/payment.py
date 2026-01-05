@@ -101,8 +101,15 @@ def create_ideal_payment(
             "verenigingen.verenigingen_payments.ing_checkout.api.webhook.handle_payment"
         )
 
-        # Create unique reference
-        reference = f"{reference_doctype[:3].upper()}-{reference_name}"
+        # Create structured reference for reliable parsing
+        # Format: DOCTYPE_CODE:DOCUMENT_NAME
+        DOCTYPE_CODES = {
+            "Sales Invoice": "SINV",
+            "Member": "MEM",
+            "Purchase Invoice": "PINV",
+        }
+        doctype_code = DOCTYPE_CODES.get(reference_doctype, reference_doctype[:4].upper())
+        reference = f"{doctype_code}:{reference_name}"
 
         # Convert amount to cents
         amount_cents = int(amount * 100)
@@ -137,10 +144,29 @@ def create_ideal_payment(
 
         order_id = response.get("id")
 
-        # TODO: Create ING Checkout Transaction record
+        # Create ING Checkout Transaction record for tracking
+        from verenigingen.verenigingen_payments.doctype.ing_checkout_transaction.ing_checkout_transaction import (
+            get_or_create_transaction,
+        )
+
+        transaction = get_or_create_transaction(
+            transaction_id=order_id,
+            reference_doctype=reference_doctype,
+            reference_name=reference_name,
+            amount=amount,
+            payment_method="iDEAL",
+        )
+        transaction.redirect_url = redirect_url
+        transaction.return_url = return_url
+        transaction.raw_request = frappe.as_json(order_data)
+        transaction.raw_response = frappe.as_json(response)
+        # SECURITY JUSTIFICATION: API endpoint creates transaction for tracking.
+        # User has already been authenticated by Frappe for whitelisted methods.
+        transaction.save(ignore_permissions=True)
 
         frappe.logger().info(
-            f"Created iDEAL payment: order_id={order_id}, " f"reference={reference}, amount={amount}"
+            f"Created iDEAL payment: order_id={order_id}, transaction={transaction.name}, "
+            f"reference={reference}, amount={amount}"
         )
 
         return {

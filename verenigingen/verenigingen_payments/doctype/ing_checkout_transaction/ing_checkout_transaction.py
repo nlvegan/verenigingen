@@ -85,10 +85,22 @@ class INGCheckoutTransaction(Document):
                 self._create_payment_entry()
             except Exception as e:
                 frappe.db.rollback(save_point=savepoint_name)
+
+                # Mark transaction with failure status for visibility
+                self.db_set("status", "Paid - Payment Entry Failed")
+                self.add_comment(
+                    "Comment",
+                    f"Payment Entry creation failed: {str(e)}\n\n"
+                    "Manual intervention required to create Payment Entry.",
+                )
+
                 frappe.log_error(
                     title="ING Checkout: Payment Entry creation failed",
                     message=f"Transaction: {self.name}\nError: {str(e)}",
                 )
+
+                # Alert system managers about failed payment entry
+                self._send_payment_entry_failure_alert(str(e))
 
     def _create_payment_entry(self):
         """
@@ -168,6 +180,11 @@ class INGCheckoutTransaction(Document):
             )
             return
 
+        # Check for overpayment and alert
+        if transaction_amount > outstanding_amount:
+            overpayment = transaction_amount - outstanding_amount
+            self._handle_overpayment(overpayment, outstanding_amount)
+
         # Calculate allocation - allocate up to outstanding amount
         allocation_amount = min(transaction_amount, outstanding_amount)
 
@@ -210,6 +227,79 @@ class INGCheckoutTransaction(Document):
                 message=f"Transaction: {self.name}\nInvoice: {self.reference_name}\nError: {str(e)}",
             )
             raise
+
+    def _handle_overpayment(self, overpayment: float, outstanding: float):
+        """
+        Handle overpayment detection - log and alert for manual review.
+
+        Args:
+            overpayment: Amount paid over the outstanding amount
+            outstanding: The outstanding amount that was due
+        """
+        transaction_amount = flt(self.amount)
+
+        # Log for review
+        frappe.log_error(
+            title=f"ING Checkout: Overpayment detected - {self.name}",
+            message=(
+                f"Transaction: {self.name}\n"
+                f"Invoice: {self.reference_name}\n"
+                f"Transaction Amount: €{transaction_amount:.2f}\n"
+                f"Outstanding Amount: €{outstanding:.2f}\n"
+                f"Overpayment: €{overpayment:.2f}\n\n"
+                "Action Required: Review for refund or credit note."
+            ),
+        )
+
+        # Add comment to transaction
+        self.add_comment(
+            "Comment",
+            f"⚠️ Overpayment of €{overpayment:.2f} detected.\n"
+            f"Customer paid €{transaction_amount:.2f} but only €{outstanding:.2f} was due.\n"
+            f"Allocated €{outstanding:.2f} to invoice. Review for refund.",
+        )
+
+        # Send alert email
+        try:
+            frappe.sendmail(
+                recipients=frappe.get_hooks("accounts_managers_email") or [],
+                subject=f"ING Checkout Overpayment: {self.name} - €{overpayment:.2f}",
+                message=(
+                    f"<p>An overpayment has been detected for ING Checkout transaction.</p>"
+                    f"<p><strong>Transaction:</strong> {self.name}</p>"
+                    f"<p><strong>Invoice:</strong> {self.reference_name}</p>"
+                    f"<p><strong>Amount Paid:</strong> €{transaction_amount:.2f}</p>"
+                    f"<p><strong>Amount Due:</strong> €{outstanding:.2f}</p>"
+                    f"<p><strong>Overpayment:</strong> €{overpayment:.2f}</p>"
+                    f"<p>Please review and process a refund or credit note as appropriate.</p>"
+                ),
+            )
+        except Exception as e:
+            frappe.logger().warning(f"Failed to send overpayment alert email: {e}")
+
+    def _send_payment_entry_failure_alert(self, error_message: str):
+        """
+        Send alert email when Payment Entry creation fails.
+
+        Args:
+            error_message: The error that occurred
+        """
+        try:
+            frappe.sendmail(
+                recipients=frappe.get_hooks("accounts_managers_email") or [],
+                subject=f"URGENT: ING Checkout Payment Entry Failed - {self.name}",
+                message=(
+                    f"<p><strong>Payment Entry creation failed for ING Checkout transaction.</strong></p>"
+                    f"<p><strong>Transaction:</strong> {self.name}</p>"
+                    f"<p><strong>Invoice:</strong> {self.reference_name or 'N/A'}</p>"
+                    f"<p><strong>Amount:</strong> €{flt(self.amount):.2f}</p>"
+                    f"<p><strong>Error:</strong></p>"
+                    f"<pre>{error_message}</pre>"
+                    f"<p>Manual intervention is required to create the Payment Entry.</p>"
+                ),
+            )
+        except Exception as e:
+            frappe.logger().warning(f"Failed to send payment entry failure alert email: {e}")
 
 
 def get_or_create_transaction(

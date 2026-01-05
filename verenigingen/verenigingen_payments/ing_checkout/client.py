@@ -17,6 +17,8 @@ from typing import Any, Optional
 import frappe
 import requests
 from frappe import _
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 
 class PayNLError(Exception):
@@ -96,9 +98,22 @@ class PayNLClient:
 
     @property
     def session(self) -> requests.Session:
-        """Get or create a requests session with authentication."""
+        """Get or create a requests session with authentication and retry logic."""
         if self._session is None:
             self._session = requests.Session()
+
+            # Configure retry strategy for transient failures
+            retry_strategy = Retry(
+                total=self.MAX_RETRIES,
+                backoff_factor=1,  # 1s, 2s, 4s exponential backoff
+                status_forcelist=[429, 500, 502, 503, 504],
+                allowed_methods=["GET", "POST", "PUT", "DELETE"],
+                raise_on_status=False,  # We handle status codes ourselves
+            )
+            adapter = HTTPAdapter(max_retries=retry_strategy)
+            self._session.mount("https://", adapter)
+            self._session.mount("http://", adapter)
+
             self._session.headers.update(
                 {
                     "Content-Type": "application/json",

@@ -428,11 +428,9 @@ def _parse_reference(reference: str) -> tuple:
     """
     Parse Pay.nl reference to extract DocType and document name.
 
-    Supports multiple reference formats:
-    - "SAL-INV-2025-00001" -> ("Sales Invoice", "SAL-INV-2025-00001")
-    - "ACC-SINV-2025-00001" -> ("Sales Invoice", "ACC-SINV-2025-00001")
-    - "MEM-MEMBER-0001" -> ("Member", "MEM-MEMBER-0001")
-    - Plain names like "ACC-SINV-2025-00001" (verify existence)
+    Supports formats:
+    - New format: "DOCTYPE_CODE:DOCUMENT_NAME" (e.g., "SINV:ACC-SINV-2025-00001")
+    - Legacy format: Direct document name (e.g., "ACC-SINV-2025-00001")
 
     Args:
         reference: Reference string from Pay.nl
@@ -443,28 +441,49 @@ def _parse_reference(reference: str) -> tuple:
     if not reference:
         return None, None
 
-    # First, try to find the document directly (most common case)
-    # Sales Invoice naming series typically: ACC-SINV-YYYY-##### or SAL-INV-YYYY-#####
+    # DocType code mapping
+    DOCTYPE_MAP = {
+        "SINV": "Sales Invoice",
+        "MEM": "Member",
+        "PINV": "Purchase Invoice",
+    }
+
+    # New format: DOCTYPE_CODE:DOCUMENT_NAME
+    if ":" in reference:
+        parts = reference.split(":", 1)
+        if len(parts) == 2:
+            doctype_code, doc_name = parts
+            doctype = DOCTYPE_MAP.get(doctype_code.upper())
+            if doctype:
+                if frappe.db.exists(doctype, doc_name):
+                    return doctype, doc_name
+                else:
+                    frappe.logger().warning(
+                        f"Document not found: {doctype} '{doc_name}' from reference '{reference}'"
+                    )
+                    return None, None
+            else:
+                frappe.logger().warning(f"Unknown doctype code: {doctype_code}")
+                # Fall through to legacy parsing
+
+    # Legacy format: Try to find document directly
     for doctype in ["Sales Invoice", "Member"]:
         if frappe.db.exists(doctype, reference):
             return doctype, reference
 
-    # If not found directly, try prefix-based mapping
-    # Common prefix patterns
-    prefix_map = {
+    # Legacy prefix-based mapping (for backwards compatibility)
+    legacy_prefix_map = {
         "SAL-INV": "Sales Invoice",
         "ACC-SINV": "Sales Invoice",
         "SINV": "Sales Invoice",
         "MEM": "Member",
     }
 
-    # Check each prefix
-    for prefix, doctype in prefix_map.items():
+    for prefix, doctype in legacy_prefix_map.items():
         if reference.startswith(prefix):
             if frappe.db.exists(doctype, reference):
                 return doctype, reference
 
-    # No match found
     frappe.logger().debug(f"Could not match reference '{reference}' to any document")
     return None, None
 

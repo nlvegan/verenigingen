@@ -138,12 +138,13 @@ def verify_webhook_ip(remote_ip: str) -> bool:
     valid_ips = fetch_paynl_ip_addresses()
 
     if not valid_ips:
-        # If we couldn't fetch IPs, log warning and allow (fail-open for availability)
-        frappe.logger().warning(
-            "Could not fetch Pay.nl IP addresses - skipping IP validation. "
-            "Configure webhook secret as fallback security."
+        # SECURITY: Fail-closed - reject when IP list unavailable and no signature fallback
+        frappe.logger().error(
+            "Could not fetch Pay.nl IP addresses - IP validation unavailable. "
+            "Configure ing_checkout_webhook_secret in Verenigingen Payments Settings as fallback."
         )
-        return True
+        # Return False to indicate IP validation failed - signature can still validate
+        return False
 
     return remote_ip in valid_ips
 
@@ -240,13 +241,10 @@ def verify_ing_checkout_webhook(
         if remote_ip:
             ip_validated = verify_webhook_ip(remote_ip)
             if not ip_validated:
-                frappe.log_error(
-                    title="ING Checkout webhook from unknown IP",
-                    message=f"Webhook received from IP {remote_ip} which is not in Pay.nl IP list",
-                )
-                raise INGCheckoutWebhookError(
-                    message="Webhook from unauthorized IP address",
-                    details={"reason": "IP not in Pay.nl IP list", "ip": remote_ip},
+                # Don't raise yet - signature verification may still pass
+                frappe.logger().warning(
+                    f"ING Checkout webhook from IP {remote_ip} not validated. "
+                    "Will check signature if configured."
                 )
 
     # Layer 2: Signature verification (if secret configured)
@@ -270,13 +268,30 @@ def verify_ing_checkout_webhook(
     if ip_validated or signature_validated:
         return True
 
-    # No security configured - development mode warning
-    frappe.logger().warning(
-        "ING Checkout webhook received without security verification. "
-        "For production, configure ing_checkout_webhook_secret in Verenigingen Payments Settings "
-        "or ensure Pay.nl IP validation is working."
+    # SECURITY: Fail-closed - reject webhooks that fail all validation
+    # This prevents accepting webhooks when:
+    # 1. IP list fetch failed AND no signature configured
+    # 2. IP not in whitelist AND no signature configured
+    # 3. IP not in whitelist AND signature verification failed
+    remote_ip = get_request_ip() if not skip_ip_validation else "unknown"
+    frappe.log_error(
+        title="ING Checkout webhook rejected - no valid security layer",
+        message=(
+            f"Webhook from IP {remote_ip} rejected. "
+            "Neither IP validation nor signature verification passed. "
+            "Configure ing_checkout_webhook_secret in Verenigingen Payments Settings."
+        ),
     )
-    return True
+    raise INGCheckoutWebhookError(
+        message="Webhook security validation failed",
+        details={
+            "reason": "No valid security layer",
+            "ip": remote_ip,
+            "ip_validated": ip_validated,
+            "signature_validated": signature_validated,
+            "secret_configured": bool(secret),
+        },
+    )
 
 
 def get_webhook_user() -> str:
