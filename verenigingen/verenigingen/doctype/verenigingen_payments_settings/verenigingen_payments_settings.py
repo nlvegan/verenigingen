@@ -5,10 +5,8 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
-from verenigingen.utils.security.api_security_framework import (
-    OperationType,
-    critical_api,
-)
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.validation.iban_validator import validate_iban
 
 
 class VerenigingenPaymentsSettings(Document):
@@ -33,17 +31,19 @@ class VerenigingenPaymentsSettings(Document):
 
         if not webhook_role_assigned:
             frappe.throw(
-                _("User {0} must have the 'Verenigingen Webhook User' role assigned. "
-                  "This role is required for webhook operations and provides minimal security permissions.").format(
-                    self.webhook_user
-                )
+                _(
+                    "User {0} must have the 'Verenigingen Webhook User' role assigned. "
+                    "This role is required for webhook operations and provides minimal security permissions."
+                ).format(self.webhook_user)
             )
 
         # Security validation: ensure webhook user is not Administrator
         if self.webhook_user == "Administrator":
             frappe.throw(
-                _("Administrator account cannot be used as webhook user. "
-                  "Please create a dedicated webhook user account with 'Verenigingen Webhook User' role for security.")
+                _(
+                    "Administrator account cannot be used as webhook user. "
+                    "Please create a dedicated webhook user account with 'Verenigingen Webhook User' role for security."
+                )
             )
 
         # Ensure user doesn't have excessive permissions
@@ -53,11 +53,10 @@ class VerenigingenPaymentsSettings(Document):
 
         if has_dangerous_roles:
             frappe.throw(
-                _("Security violation: Webhook user {0} has excessive permissions ({1}). "
-                  "Webhook users should only have the 'Verenigingen Webhook User' role for security.").format(
-                    self.webhook_user,
-                    ", ".join([r for r in user_roles if r in dangerous_roles])
-                )
+                _(
+                    "Security violation: Webhook user {0} has excessive permissions ({1}). "
+                    "Webhook users should only have the 'Verenigingen Webhook User' role for security."
+                ).format(self.webhook_user, ", ".join([r for r in user_roles if r in dangerous_roles]))
             )
 
     def _validate_sepa_configuration(self):
@@ -73,16 +72,18 @@ class VerenigingenPaymentsSettings(Document):
             creditor_id = self.creditor_id.replace(" ", "").upper()
             if len(creditor_id) < 8 or len(creditor_id) > 35:
                 frappe.msgprint(
-                    _("SEPA Creditor ID should be between 8 and 35 characters. "
-                      "Dutch format: NL + 2 check digits + ZZZ + up to 11 alphanumeric chars."),
-                    indicator="yellow"
+                    _(
+                        "SEPA Creditor ID should be between 8 and 35 characters. "
+                        "Dutch format: NL + 2 check digits + ZZZ + up to 11 alphanumeric chars."
+                    ),
+                    indicator="yellow",
                 )
 
-        # Validate IBAN format if provided
+        # Validate IBAN format if provided (uses comprehensive mod-97 checksum validation)
         if self.company_iban:
-            iban = self.company_iban.replace(" ", "").upper()
-            if len(iban) < 15 or len(iban) > 34:
-                frappe.throw(_("Invalid IBAN format. IBAN should be between 15 and 34 characters."))
+            result = validate_iban(self.company_iban)
+            if not result.get("valid"):
+                frappe.throw(_("Invalid Company IBAN: {0}").format(result.get("message")))
 
     @frappe.whitelist()
     @critical_api(operation_type=OperationType.ADMIN)

@@ -4,6 +4,29 @@
 import frappe
 from frappe import _
 
+# ANBI expense categories per Dutch tax regulations (ANBI jaarverslag format)
+# These account numbers map to the standard Dutch ANBI reporting structure:
+# - 61: Program expenses (besteed aan doelstellingen)
+# - 62: Fundraising costs (kosten werving baten)
+# - 63: Administration costs (beheer en administratie)
+ANBI_EXPENSE_CATEGORIES = {
+    "61": {
+        "name": "Besteed aan doelstellingen",
+        "description": "Program costs",
+    },
+    "62": {
+        "name": "Kosten werving baten",
+        "description": "Fundraising costs",
+    },
+    "63": {
+        "name": "Beheer en administratie",
+        "description": "Administration costs",
+    },
+}
+
+# Account numbers as a list for iteration
+ANBI_ACCOUNT_NUMBERS = list(ANBI_EXPENSE_CATEGORIES.keys())
+
 
 def execute(filters=None):
     columns = get_columns()
@@ -73,26 +96,8 @@ def get_data(filters):
     if not fy_dates:
         return []
 
-    # ANBI categories mapping
-    anbi_categories = {
-        "61": {
-            "name": "Besteed aan doelstellingen",
-            "description": "Program costs",
-        },
-        "62": {
-            "name": "Kosten werving baten",
-            "description": "Fundraising costs",
-        },
-        "63": {
-            "name": "Beheer en administratie",
-            "description": "Administration costs",
-        },
-    }
-
     # Get GL expenses grouped by ANBI parent
-    gl_expenses = get_gl_expenses_by_anbi_parent(
-        company, fy_dates.year_start_date, fy_dates.year_end_date
-    )
+    gl_expenses = get_gl_expenses_by_anbi_parent(company, fy_dates.year_start_date, fy_dates.year_end_date)
 
     # Get personnel allocations
     personnel = get_personnel_allocations(fiscal_year)
@@ -101,8 +106,8 @@ def get_data(filters):
     data = []
     grand_total = 0
 
-    for acc_num in ["61", "62", "63"]:
-        cat = anbi_categories[acc_num]
+    for acc_num in ANBI_ACCOUNT_NUMBERS:
+        cat = ANBI_EXPENSE_CATEGORIES[acc_num]
         personnel_cost = personnel.get(acc_num, 0)
         other_cost = gl_expenses.get(acc_num, 0)
         total = personnel_cost + other_cost
@@ -144,13 +149,13 @@ def get_data(filters):
 
 
 def get_gl_expenses_by_anbi_parent(company, from_date, to_date):
-    """Get GL expenses grouped by ANBI parent account (61, 62, 63).
+    """Get GL expenses grouped by ANBI parent account.
 
     Uses nested set model (lft/rgt) to sum all descendant accounts.
     """
     totals = {}
 
-    for acc_num in ["61", "62", "63"]:
+    for acc_num in ANBI_ACCOUNT_NUMBERS:
         # Get the ANBI parent account's lft/rgt bounds
         parent = frappe.db.get_value(
             "Account",
@@ -192,7 +197,8 @@ def get_personnel_allocations(fiscal_year):
         fields=["amount_doelstelling", "amount_werving", "amount_beheer"],
     )
 
-    totals = {"61": 0, "62": 0, "63": 0}
+    # Initialize totals for each ANBI category
+    totals = {acc_num: 0 for acc_num in ANBI_ACCOUNT_NUMBERS}
 
     for alloc in allocations:
         totals["61"] += alloc.amount_doelstelling or 0
@@ -239,9 +245,7 @@ def get_summary(data):
         return []
 
     # Find doelstelling row for percentage
-    doelstelling = next(
-        (row for row in data if row.get("account_number") == "61"), None
-    )
+    doelstelling = next((row for row in data if row.get("account_number") == "61"), None)
 
     summary = [
         {
