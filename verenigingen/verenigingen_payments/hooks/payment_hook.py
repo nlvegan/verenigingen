@@ -30,6 +30,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
+from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.utils.validation.api_validators import APIValidator
 from verenigingen.utils.validation.iban_validator import validate_iban
 from verenigingen.verenigingen_payments.utils.payment_gateways import PaymentGatewayFactory
@@ -370,7 +371,7 @@ class PaymentHook:
         """Check if SEPA Direct Debit is properly configured."""
         try:
             # Check the enable flag in Verenigingen Payments Settings
-            payment_settings = frappe.get_single("Verenigingen Payments Settings")
+            payment_settings = get_payments_settings()
             if not getattr(payment_settings, "enable_sepa_direct_debit", False):
                 return {"available": False, "reason": "SEPA not enabled"}
 

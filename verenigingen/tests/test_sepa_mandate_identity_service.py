@@ -345,8 +345,8 @@ class TestSEPAMandateIdentityService(EnhancedTestCase):
             # Second call should use cache
             settings2 = self.service._get_settings()
 
-            # Should only call database once
-            mock_get_single.assert_called_once_with("Verenigingen Settings")
+            # Should only call database once (SEPA fields now in Payments Settings)
+            mock_get_single.assert_called_once_with("Verenigingen Payments Settings")
             self.assertEqual(settings1, settings2)
 
     def test_clear_settings_cache(self):

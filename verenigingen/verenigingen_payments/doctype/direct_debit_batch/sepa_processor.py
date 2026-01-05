@@ -16,6 +16,7 @@ from verenigingen.verenigingen_payments.utils.batch_performance_optimizer import
 )
 from verenigingen.verenigingen_payments.utils.sepa_config_manager import get_sepa_config_manager
 from verenigingen.verenigingen_payments.utils.sepa_error_handler import get_sepa_error_handler, sepa_retry
+from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.verenigingen_payments.utils.sepa_mandate_service import get_sepa_mandate_service
 
 
@@ -1163,7 +1164,7 @@ def get_upcoming_dues_collections(days_ahead=30):
 @critical_api(operation_type=OperationType.FINANCIAL)
 def validate_sepa_configuration():
     """Validate SEPA configuration is complete"""
-    settings = frappe.get_single("Verenigingen Settings")
+    payments_settings = get_payments_settings()
 
     required_fields = {
         "company_iban": "Company IBAN",
@@ -1173,7 +1174,7 @@ def validate_sepa_configuration():
 
     missing = []
     for field, label in required_fields.items():
-        if not getattr(settings, field, None):
+        if not getattr(payments_settings, field, None):
             missing.append(label)
 
     if missing:
@@ -1183,7 +1184,7 @@ def validate_sepa_configuration():
     try:
         from verenigingen.utils.validation.iban_validator import validate_iban
 
-        iban_validation = validate_iban(settings.company_iban)
+        iban_validation = validate_iban(payments_settings.company_iban)
     except ImportError:
         # Fallback if IBAN validator is not available
         iban_validation = {"valid": True, "bic": None}
@@ -1195,9 +1196,9 @@ def validate_sepa_configuration():
         "valid": True,
         "message": _("SEPA configuration is valid"),
         "config": {
-            "iban": settings.company_iban,
-            "bic": settings.company_bic or iban_validation.get("bic"),
-            "creditor_id": settings.creditor_id,
-            "account_holder": settings.company_account_holder,
+            "iban": payments_settings.company_iban,
+            "bic": payments_settings.company_bic or iban_validation.get("bic"),
+            "creditor_id": payments_settings.creditor_id,
+            "account_holder": payments_settings.company_account_holder,
         },
     }

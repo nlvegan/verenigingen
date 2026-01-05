@@ -24,6 +24,7 @@ from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
     get_members_by_customer,
     log_mollie_error,
 )
+from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
 
 
@@ -49,6 +50,7 @@ class BankTransferGateway(PaymentGateway):
     def process_payment(self, donation, form_data):
         """Generate bank transfer instructions"""
         settings = frappe.get_single("Verenigingen Settings")
+        payments_settings = get_payments_settings()
         company = frappe.get_doc("Company", settings.company)
 
         # Generate unique payment reference
@@ -62,8 +64,8 @@ class BankTransferGateway(PaymentGateway):
             "payment_reference": payment_reference,
             "bank_details": {
                 "account_holder": company.company_name,
-                "iban": getattr(settings, "company_iban", ""),
-                "bic": getattr(settings, "company_bic", ""),
+                "iban": getattr(payments_settings, "company_iban", ""),
+                "bic": getattr(payments_settings, "company_bic", ""),
                 "reference": payment_reference,
                 "amount": donation.amount,
             },
@@ -827,12 +829,13 @@ class PontoGateway(PaymentGateway):
         at their own bank.
         """
         settings = frappe.get_single("Verenigingen Settings")
+        payments_settings = get_payments_settings()
 
         # Get creditor details
-        creditor_name = getattr(settings, "company_account_holder", None) or frappe.get_value(
+        creditor_name = getattr(payments_settings, "company_account_holder", None) or frappe.get_value(
             "Company", settings.company, "company_name"
         )
-        creditor_iban = getattr(settings, "company_iban", "")
+        creditor_iban = getattr(payments_settings, "company_iban", "")
 
         if not creditor_iban:
             return {

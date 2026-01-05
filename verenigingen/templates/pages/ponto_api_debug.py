@@ -7,6 +7,7 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+from verenigingen.utils.settings_utils import get_payments_settings
 
 
 def get_context(context):
@@ -47,10 +48,12 @@ def get_context(context):
         context.payment_requests_activation_requested = ponto_settings.payment_requests_activation_requested
         context.last_status_refresh = ponto_settings.last_status_refresh
 
-        # Get default creditor info from Verenigingen Settings
+        # Get default creditor info from Verenigingen Payments Settings
+        payments_settings = get_payments_settings()
+        context.default_creditor_name = payments_settings.company_account_holder or ""
+        context.default_creditor_iban = payments_settings.company_iban or ""
+        # ponto_payment_description_template remains in Verenigingen Settings
         verenigingen_settings = frappe.get_single("Verenigingen Settings")
-        context.default_creditor_name = verenigingen_settings.company_account_holder or ""
-        context.default_creditor_iban = verenigingen_settings.company_iban or ""
         context.description_template = (
             verenigingen_settings.ponto_payment_description_template
             or "Membership dues MEMBER_NAME (MEMBER_ID) - COVERAGE_START to COVERAGE_END"
@@ -141,14 +144,14 @@ def create_payment_link(
 
         # Get defaults if not provided
         if not creditor_name or not creditor_iban:
-            settings = frappe.get_single("Verenigingen Settings")
+            payments_settings = get_payments_settings()
             if not creditor_name:
-                creditor_name = settings.company_account_holder
+                creditor_name = payments_settings.company_account_holder
             if not creditor_iban:
-                creditor_iban = settings.company_iban
+                creditor_iban = payments_settings.company_iban
 
         if not creditor_name or not creditor_iban:
-            frappe.throw(_("Creditor name and IBAN are required. Configure them in Verenigingen Settings."))
+            frappe.throw(_("Creditor name and IBAN are required. Configure them in Verenigingen Payments Settings."))
 
         # Create the payment link document
         doc = frappe.new_doc("Ponto Payment Link")

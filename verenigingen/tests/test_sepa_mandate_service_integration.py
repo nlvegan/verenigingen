@@ -37,10 +37,11 @@ class TestSEPAMandateServiceIntegration(VereningingenTestCase):
 
     def setup_verenigingen_settings(self):
         """Set up test settings for SEPA mandate generation"""
-        settings = frappe.get_single("Verenigingen Settings")
-        settings.sepa_mandate_naming_pattern = "MANDATE-.YY.-.MM.-.####"
-        settings.sepa_mandate_starting_counter = 1
-        settings.save()
+        # SEPA naming fields moved to Vereiningen Payments Settings
+        payments_settings = frappe.get_single("Verenigingen Payments Settings")
+        payments_settings.sepa_mandate_naming_pattern = "MANDATE-.YY.-.MM.-.####"
+        payments_settings.sepa_mandate_starting_counter = 1
+        payments_settings.save()
 
     def test_complete_mandate_creation_workflow(self):
         """Test complete mandate creation workflow using all services"""

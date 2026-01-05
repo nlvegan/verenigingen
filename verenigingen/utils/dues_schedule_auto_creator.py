@@ -15,6 +15,7 @@ from verenigingen.utils.security.api_security_framework import (
     high_security_api,
     standard_api,
 )
+from verenigingen.utils.settings_utils import get_payments_settings
 
 
 def _calculate_next_invoice_date(billing_frequency):
@@ -277,6 +278,7 @@ def _send_enhanced_summary_email(main_result, retry_result):
         if not admins:
             try:
                 settings = frappe.get_single("Verenigingen Settings")
+                payments_settings = get_payments_settings()
                 # Try to get notification emails from settings
                 if (
                     hasattr(settings, "stuck_schedule_notification_emails")
@@ -287,9 +289,9 @@ def _send_enhanced_summary_email(main_result, retry_result):
                         for email in settings.stuck_schedule_notification_emails.split(",")
                         if email.strip()
                     ]
-                elif hasattr(settings, "financial_admin_emails") and settings.financial_admin_emails:
+                elif payments_settings and hasattr(payments_settings, "financial_admin_emails") and payments_settings.financial_admin_emails:
                     admins = [
-                        email.strip() for email in settings.financial_admin_emails.split(",") if email.strip()
+                        email.strip() for email in payments_settings.financial_admin_emails.split(",") if email.strip()
                     ]
                 elif hasattr(settings, "member_contact_email") and settings.member_contact_email:
                     admins = [settings.member_contact_email]
@@ -298,7 +300,7 @@ def _send_enhanced_summary_email(main_result, retry_result):
 
             if not admins:
                 frappe.logger().warning(
-                    "Enhanced dues schedule auto-creator: No valid admin emails found for notifications. Configure stuck_schedule_notification_emails or financial_admin_emails in Verenigingen Settings."
+                    "Enhanced dues schedule auto-creator: No valid admin emails found for notifications. Configure stuck_schedule_notification_emails in Verenigingen Settings or financial_admin_emails in Verenigingen Payments Settings."
                 )
                 return
 
@@ -418,6 +420,7 @@ def send_summary_email(created_count, error_count, total_found):
         if not admins:
             try:
                 settings = frappe.get_single("Verenigingen Settings")
+                payments_settings = get_payments_settings()
                 # Try to get notification emails from settings
                 if (
                     hasattr(settings, "stuck_schedule_notification_emails")
@@ -428,9 +431,9 @@ def send_summary_email(created_count, error_count, total_found):
                         for email in settings.stuck_schedule_notification_emails.split(",")
                         if email.strip()
                     ]
-                elif hasattr(settings, "financial_admin_emails") and settings.financial_admin_emails:
+                elif payments_settings and hasattr(payments_settings, "financial_admin_emails") and payments_settings.financial_admin_emails:
                     admins = [
-                        email.strip() for email in settings.financial_admin_emails.split(",") if email.strip()
+                        email.strip() for email in payments_settings.financial_admin_emails.split(",") if email.strip()
                     ]
                 elif hasattr(settings, "member_contact_email") and settings.member_contact_email:
                     admins = [settings.member_contact_email]
@@ -439,7 +442,7 @@ def send_summary_email(created_count, error_count, total_found):
 
             if not admins:
                 frappe.logger().warning(
-                    "Dues schedule auto-creator: No valid admin emails found for notifications. Configure stuck_schedule_notification_emails or financial_admin_emails in Verenigingen Settings."
+                    "Dues schedule auto-creator: No valid admin emails found for notifications. Configure stuck_schedule_notification_emails in Verenigingen Settings or financial_admin_emails in Verenigingen Payments Settings."
                 )
                 return
 
@@ -762,6 +765,7 @@ def _send_summary_email(result):
     if not admins:
         try:
             settings = frappe.get_single("Verenigingen Settings")
+            payments_settings = get_payments_settings()
             # Try to get notification emails from settings
             if (
                 hasattr(settings, "stuck_schedule_notification_emails")
@@ -772,9 +776,9 @@ def _send_summary_email(result):
                     for email in settings.stuck_schedule_notification_emails.split(",")
                     if email.strip()
                 ]
-            elif hasattr(settings, "financial_admin_emails") and settings.financial_admin_emails:
+            elif payments_settings and hasattr(payments_settings, "financial_admin_emails") and payments_settings.financial_admin_emails:
                 admins = [
-                    email.strip() for email in settings.financial_admin_emails.split(",") if email.strip()
+                    email.strip() for email in payments_settings.financial_admin_emails.split(",") if email.strip()
                 ]
             elif hasattr(settings, "member_contact_email") and settings.member_contact_email:
                 admins = [settings.member_contact_email]
@@ -783,7 +787,7 @@ def _send_summary_email(result):
 
         if not admins:
             frappe.logger().warning(
-                "Manual dues schedule creation: No valid admin emails found for notifications. Configure stuck_schedule_notification_emails or financial_admin_emails in Verenigingen Settings."
+                "Manual dues schedule creation: No valid admin emails found for notifications. Configure stuck_schedule_notification_emails in Verenigingen Settings or financial_admin_emails in Verenigingen Payments Settings."
             )
             return
 

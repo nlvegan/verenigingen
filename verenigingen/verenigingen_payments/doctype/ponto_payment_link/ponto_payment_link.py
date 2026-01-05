@@ -35,6 +35,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import get_url
 
+from verenigingen.utils.settings_utils import get_payments_settings
+
 
 class PontoPaymentLink(Document):
     """Controller for Ponto Payment Link DocType."""
@@ -110,15 +112,15 @@ class PontoPaymentLink(Document):
             )
 
     def set_defaults_from_settings(self):
-        """Set default values from Verenigingen Settings."""
+        """Set default values from Verenigingen Payments Settings."""
         if not self.creditor_name or not self.creditor_iban:
-            settings = frappe.get_single("Verenigingen Settings")
+            payments_settings = get_payments_settings()
 
-            if not self.creditor_name and settings.company_account_holder:
-                self.creditor_name = settings.company_account_holder
+            if not self.creditor_name and payments_settings.company_account_holder:
+                self.creditor_name = payments_settings.company_account_holder
 
-            if not self.creditor_iban and settings.company_iban:
-                self.creditor_iban = settings.company_iban.replace(" ", "").upper()
+            if not self.creditor_iban and payments_settings.company_iban:
+                self.creditor_iban = payments_settings.company_iban.replace(" ", "").upper()
 
     def format_description(self, template: str = None) -> str:
         """

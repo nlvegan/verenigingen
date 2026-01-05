@@ -32,3 +32,4 @@ verenigingen.patches.v1_0.enable_chapter_notifications_for_existing_installation
 verenigingen.patches.v15_0.migrate_email_settings_to_configuration
 verenigingen.patches.v15_0.add_team_chapter_notification_types
 verenigingen.patches.v15_0.add_sepa_performance_indexes
+verenigingen.patches.v2_1.migrate_financial_settings_to_payments

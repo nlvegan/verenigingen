@@ -1158,29 +1158,29 @@ class VereningingenTestCase(FrappeTestCase):
     
     def create_test_sepa_mandate_with_pattern(self, pattern, starting_counter, **kwargs):
         """Create a test SEPA mandate with specific naming pattern for testing"""
-        # Store current settings
-        settings = frappe.get_single("Verenigingen Settings")
-        original_pattern = getattr(settings, 'sepa_mandate_naming_pattern', None)
-        original_counter = getattr(settings, 'sepa_mandate_starting_counter', None)
-        
+        # Store current payments settings (SEPA fields moved to Payments Settings)
+        payments_settings = frappe.get_single("Verenigingen Payments Settings")
+        original_pattern = getattr(payments_settings, 'sepa_mandate_naming_pattern', None)
+        original_counter = getattr(payments_settings, 'sepa_mandate_starting_counter', None)
+
         try:
-            # Set test pattern
-            settings.sepa_mandate_naming_pattern = pattern
-            settings.sepa_mandate_starting_counter = starting_counter
-            settings.save()
-            
+            # Set test pattern on payments settings
+            payments_settings.sepa_mandate_naming_pattern = pattern
+            payments_settings.sepa_mandate_starting_counter = starting_counter
+            payments_settings.save()
+
             # Create mandate with test pattern
             mandate = self.create_test_sepa_mandate(**kwargs)
-            
+
             return mandate
-            
+
         finally:
             # Restore original settings
             if original_pattern is not None:
-                settings.sepa_mandate_naming_pattern = original_pattern
+                payments_settings.sepa_mandate_naming_pattern = original_pattern
             if original_counter is not None:
-                settings.sepa_mandate_starting_counter = original_counter
-            settings.save()
+                payments_settings.sepa_mandate_starting_counter = original_counter
+            payments_settings.save()
     
     def assert_sepa_mandate_pattern(self, mandate, expected_prefix, expected_counter=None):
         """Assert that a SEPA mandate follows expected naming pattern"""
@@ -1193,22 +1193,22 @@ class VereningingenTestCase(FrappeTestCase):
                          f"mandate_id '{mandate.mandate_id}' should contain counter '{expected_counter}'")
     
     def get_sepa_settings_backup(self):
-        """Get current SEPA settings for backup/restore"""
-        settings = frappe.get_single("Verenigingen Settings")
+        """Get current SEPA settings for backup/restore (from Payments Settings)"""
+        payments_settings = frappe.get_single("Verenigingen Payments Settings")
         return {
-            "pattern": getattr(settings, 'sepa_mandate_naming_pattern', None),
-            "counter": getattr(settings, 'sepa_mandate_starting_counter', None)
+            "pattern": getattr(payments_settings, 'sepa_mandate_naming_pattern', None),
+            "counter": getattr(payments_settings, 'sepa_mandate_starting_counter', None)
         }
     
     def restore_sepa_settings(self, backup):
-        """Restore SEPA settings from backup"""
-        settings = frappe.get_single("Verenigingen Settings")
-        settings.reload()  # Refresh to avoid timestamp issues
+        """Restore SEPA settings from backup (to Payments Settings)"""
+        payments_settings = frappe.get_single("Verenigingen Payments Settings")
+        payments_settings.reload()  # Refresh to avoid timestamp issues
         if backup["pattern"] is not None:
-            settings.sepa_mandate_naming_pattern = backup["pattern"]
+            payments_settings.sepa_mandate_naming_pattern = backup["pattern"]
         if backup["counter"] is not None:
-            settings.sepa_mandate_starting_counter = backup["counter"]
-        settings.save()
+            payments_settings.sepa_mandate_starting_counter = backup["counter"]
+        payments_settings.save()
 
     def create_test_membership_application(self, **kwargs):
         """Create a test membership application with default values"""

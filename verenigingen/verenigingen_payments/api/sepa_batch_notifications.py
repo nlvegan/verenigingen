@@ -13,6 +13,7 @@ from verenigingen.utils.security.authorization import (
     SEPAPermissionLevel,
     require_sepa_permission,
 )
+from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 
@@ -37,7 +38,7 @@ def get_financial_admin_emails():
 
     Priority:
     1. Email Configuration (Admin category recipients)
-    2. Verenigingen Settings.financial_admin_emails
+    2. Verenigingen Payments Settings.financial_admin_emails
     3. Users with Financial Admin roles
     4. Administrator (final fallback)
     """
@@ -49,11 +50,11 @@ def get_financial_admin_emails():
             if recipients:
                 return recipients
 
-        settings = frappe.get_single("Verenigingen Settings")
+        payments_settings = get_payments_settings()
 
         # Get from settings if available
-        if hasattr(settings, "financial_admin_emails") and settings.financial_admin_emails:
-            return [email.strip() for email in settings.financial_admin_emails.split(",")]
+        if hasattr(payments_settings, "financial_admin_emails") and payments_settings.financial_admin_emails:
+            return [email.strip() for email in payments_settings.financial_admin_emails.split(",")]
 
         # Fallback: get users with Financial Admin roles
         financial_admins = frappe.get_all(

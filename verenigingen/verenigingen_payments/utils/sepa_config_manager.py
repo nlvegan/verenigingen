@@ -16,10 +16,11 @@ Key Features:
     * Environment-specific configuration support
 
 Configuration Sources:
-    1. Verenigingen Settings DocType (primary configuration)
-    2. Company DocType (company-specific information)
-    3. System defaults and fallback values
-    4. Environment-specific overrides
+    1. Verenigingen Payments Settings DocType (financial/SEPA configuration)
+    2. Verenigingen Settings DocType (general settings, company reference)
+    3. Company DocType (company-specific information)
+    4. System defaults and fallback values
+    5. Environment-specific overrides
 
 SEPA Compliance:
     Ensures all configuration parameters comply with SEPA regulations including
@@ -38,6 +39,7 @@ import frappe
 from frappe.utils import add_days, getdate, today
 
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+from verenigingen.utils.settings_utils import get_payments_settings
 
 
 class SEPAConfigManager:
@@ -92,46 +94,48 @@ class SEPAConfigManager:
         if "company_sepa" in self._settings_cache:
             return self._settings_cache["company_sepa"]
 
-        # Get settings from Verenigingen Settings
-        settings = frappe.get_single("Verenigingen Settings")
+        # Get general settings (for company reference)
+        general_settings = frappe.get_single("Verenigingen Settings")
+        # Get payment/SEPA-specific settings
+        payment_settings = get_payments_settings()
 
         # Get company information
-        company_name = getattr(settings, "company", None) or frappe.defaults.get_global_default("company")
+        company_name = getattr(general_settings, "company", None) or frappe.defaults.get_global_default("company")
         company = frappe.get_doc("Company", company_name) if company_name else None
 
         config = {
             # Company basics
             "company_name": company.company_name if company else "",
             "company": company_name or "",
-            # SEPA specific settings from Verenigingen Settings
-            "company_iban": getattr(settings, "company_iban", ""),
-            "company_bic": getattr(settings, "company_bic", ""),
-            "creditor_id": getattr(settings, "creditor_id", ""),
-            "company_account_holder": getattr(settings, "company_account_holder", "")
+            # SEPA specific settings from Verenigingen Payments Settings
+            "company_iban": getattr(payment_settings, "company_iban", ""),
+            "company_bic": getattr(payment_settings, "company_bic", ""),
+            "creditor_id": getattr(payment_settings, "creditor_id", ""),
+            "company_account_holder": getattr(payment_settings, "company_account_holder", "")
             or (company.company_name if company else ""),
             # Batch processing settings
-            "batch_creation_days": getattr(settings, "batch_creation_days", "19,20"),
-            "enable_auto_batch_creation": getattr(settings, "enable_auto_batch_creation", 0),
-            "auto_submit_sepa_batches": getattr(settings, "auto_submit_sepa_batches", 0),
-            "batch_processing_lead_time": getattr(settings, "batch_processing_lead_time", 7),
+            "batch_creation_days": getattr(payment_settings, "batch_creation_days", "19,20"),
+            "enable_auto_batch_creation": getattr(payment_settings, "enable_auto_batch_creation", 0),
+            "auto_submit_sepa_batches": getattr(payment_settings, "auto_submit_sepa_batches", 0),
+            "batch_processing_lead_time": getattr(payment_settings, "batch_processing_lead_time", 7),
             # Notification settings
-            "financial_admin_emails": getattr(settings, "financial_admin_emails", ""),
-            "send_batch_notifications": getattr(settings, "send_batch_notifications", 1),
-            "notification_critical_errors": getattr(settings, "notification_critical_errors", 1),
-            "notification_warnings": getattr(settings, "notification_warnings", 1),
+            "financial_admin_emails": getattr(payment_settings, "financial_admin_emails", ""),
+            "send_batch_notifications": getattr(payment_settings, "send_batch_notifications", 1),
+            "notification_critical_errors": getattr(payment_settings, "notification_critical_errors", 1),
+            "notification_warnings": getattr(payment_settings, "notification_warnings", 1),
             # Error handling settings
-            "enable_retry_mechanism": getattr(settings, "enable_retry_mechanism", 1),
-            "max_retry_attempts": getattr(settings, "max_retry_attempts", 3),
-            "circuit_breaker_enabled": getattr(settings, "circuit_breaker_enabled", 1),
-            "circuit_breaker_threshold": getattr(settings, "circuit_breaker_threshold", 5),
+            "enable_retry_mechanism": getattr(payment_settings, "enable_retry_mechanism", 1),
+            "max_retry_attempts": getattr(payment_settings, "max_retry_attempts", 3),
+            "circuit_breaker_enabled": getattr(payment_settings, "circuit_breaker_enabled", 1),
+            "circuit_breaker_threshold": getattr(payment_settings, "circuit_breaker_threshold", 5),
             # Invoice and coverage settings
-            "invoice_lookback_days": getattr(settings, "invoice_lookback_days", 60),
-            "coverage_verification_enabled": getattr(settings, "coverage_verification_enabled", 1),
-            "mandate_cache_timeout": getattr(settings, "mandate_cache_timeout", 300),  # 5 minutes
+            "invoice_lookback_days": getattr(payment_settings, "invoice_lookback_days", 60),
+            "coverage_verification_enabled": getattr(payment_settings, "coverage_verification_enabled", 1),
+            "mandate_cache_timeout": getattr(payment_settings, "mandate_cache_timeout", 300),  # 5 minutes
             # XML and file settings
-            "sepa_xml_version": getattr(settings, "sepa_xml_version", "pain.008.001.08"),
-            "output_directory": getattr(settings, "sepa_output_directory", ""),
-            "backup_processed_files": getattr(settings, "backup_processed_files", 1),
+            "sepa_xml_version": getattr(payment_settings, "sepa_xml_version", "pain.008.001.08"),
+            "output_directory": getattr(payment_settings, "sepa_output_directory", ""),
+            "backup_processed_files": getattr(payment_settings, "backup_processed_files", 1),
         }
 
         # Cache the configuration
@@ -328,7 +332,7 @@ class SEPAConfigManager:
     def update_setting(self, section: str, key: str, value: Any) -> bool:
         """Update a specific SEPA setting"""
         try:
-            settings = frappe.get_single("Verenigingen Settings")
+            settings = get_payments_settings()
 
             # Map section.key to actual field names
             field_mapping = {

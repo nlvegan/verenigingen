@@ -373,7 +373,7 @@ def _get_member_from_customer(customer_name: str) -> str:
 def _is_strict_mode_enabled() -> bool:
     """Check if strict period duplicate prevention is enabled"""
     # Check system setting or default to True for safety
-    return frappe.db.get_single_value("Verenigingen Settings", "sepa_strict_period_mode") != 0
+    return frappe.db.get_single_value("Verenigingen Payments Settings", "sepa_strict_period_mode") != 0
 
 
 # =============================================================================

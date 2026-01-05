@@ -23,6 +23,7 @@ from frappe.utils import format_datetime, getdate, today
 from verenigingen.utils.error_handling import SEPAError, ValidationError, handle_api_error
 from verenigingen.utils.performance_utils import performance_monitor
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.utils.validation.iban_validator import derive_bic_from_iban, validate_iban
 
 
@@ -712,14 +713,17 @@ class EnhancedSEPAXMLGenerator:
 
 
 def create_sepa_creditor_from_settings() -> SEPACreditor:
-    """Create SEPA creditor from Verenigingen Settings"""
-    settings = frappe.get_single("Verenigingen Settings")
+    """Create SEPA creditor from Verenigingen Payments Settings"""
+    # Get payment settings for SEPA configuration
+    payment_settings = get_payments_settings()
+    # Get general settings for company reference
+    general_settings = frappe.get_single("Verenigingen Settings")
 
     return SEPACreditor(
-        name=settings.company_account_holder or settings.company or "Company Name",
-        iban=settings.company_iban or "",
-        bic=settings.company_bic or derive_bic_from_iban(settings.company_iban or ""),
-        creditor_id=settings.creditor_id or "",
+        name=payment_settings.company_account_holder or getattr(general_settings, "company", "") or "Company Name",
+        iban=payment_settings.company_iban or "",
+        bic=payment_settings.company_bic or derive_bic_from_iban(payment_settings.company_iban or ""),
+        creditor_id=payment_settings.creditor_id or "",
         country="NL",  # Assuming Dutch organization
     )
 

@@ -13,6 +13,7 @@ from frappe import _
 
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import critical_api
+from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.verenigingen_payments.mollie.core.mollie_client import MollieClient
 
 
@@ -52,7 +53,7 @@ def get_member_reconciliation_data() -> OperationResult[Dict[str, Any]]:
     """
     try:
         # Get membership dues keywords from settings
-        settings = frappe.get_single("Verenigingen Payments Settings")
+        settings = get_payments_settings()
         dues_keywords = [k.strip().lower() for k in (settings.dues_keywords or "contributie").split(",")]
 
         frappe.publish_realtime(

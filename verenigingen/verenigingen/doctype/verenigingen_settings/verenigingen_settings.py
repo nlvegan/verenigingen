@@ -9,7 +9,6 @@ from payments.utils import get_payment_gateway_controller
 
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
-    critical_api,
     high_security_api,
     standard_api,
 )
@@ -97,11 +96,12 @@ class VerenigingenSettings(Document):
         - Per-notification-type settings
         - Cooldown tracking per recipient
         - Better recipient management with role-based and fixed policies
+
+        Note: financial_admin_emails moved to Verenigingen Payments Settings.
         """
         deprecated_fields = {
             "send_termination_notifications": "termination_overdue",
             "send_chapter_assignment_notifications": "chapter_assignment",
-            "financial_admin_emails": "Admin category recipients",
             "stuck_schedule_notification_emails": "system_stuck_schedules",
         }
 
@@ -122,34 +122,6 @@ class VerenigingenSettings(Document):
                 title=_("Deprecated Email Settings"),
                 indicator="orange",
             )
-
-    @frappe.whitelist()
-    @critical_api(operation_type=OperationType.ADMIN)
-    def generate_webhook_secret(self, field="membership_webhook_secret"):
-        key = frappe.generate_hash(length=20)
-        self.set(field, key)
-        self.save()
-
-        secret_for = "Membership"
-
-        frappe.msgprint(
-            _("Here is your webhook secret for {0} API, this will be shown to you only once.").format(
-                secret_for
-            )
-            + "<br><br>"
-            + key,
-            _("Webhook Secret"),
-        )
-
-    @frappe.whitelist()
-    @critical_api(operation_type=OperationType.ADMIN)
-    def revoke_key(self, key):
-        self.set(key, None)
-        self.save()
-
-    def get_webhook_secret(self, endpoint="Membership"):
-        fieldname = "membership_webhook_secret"
-        return self.get_password(fieldname=fieldname, raise_exception=False)
 
 
 @frappe.whitelist()

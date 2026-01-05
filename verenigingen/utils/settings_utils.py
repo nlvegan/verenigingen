@@ -16,13 +16,19 @@ Key Features:
 Usage:
     from verenigingen.utils.settings_utils import (
         get_verenigingen_settings,
+        get_payments_settings,
         get_e_boekhouden_settings,
         get_mollie_settings
     )
 
     settings = get_verenigingen_settings()
     if settings:
-        default_company = settings.get("default_company")
+        default_company = settings.get("company")
+
+    # For payment/SEPA/financial settings
+    pay_settings = get_payments_settings()
+    if pay_settings:
+        iban = pay_settings.get("company_iban")
 """
 
 from typing import Any, Dict, Optional
@@ -77,6 +83,55 @@ def get_verenigingen_settings() -> Optional[Dict[str, Any]]:
 
     # Last resort - return None only if everything failed
     frappe.logger().error("CRITICAL: Unable to load or create Verenigingen Settings")
+    return None
+
+
+def get_payments_settings() -> Optional[Dict[str, Any]]:
+    """
+    Get Verenigingen Payments Settings with caching and error handling.
+
+    This DocType contains:
+    - Financial settings (company IBAN, BIC, bank accounts)
+    - SEPA Direct Debit configuration (creditor ID, mandate naming)
+    - Batch processing settings
+    - Invoicing and communications settings
+
+    Returns:
+        Dict with settings if found, None if error occurs
+
+    Error Handling:
+        Creates settings if missing, logs errors but continues.
+        Only returns None in catastrophic database failures.
+
+    Performance:
+        Uses frappe.get_single() for settings retrieval.
+    """
+    try:
+        # Try to get existing settings
+        settings = frappe.get_single("Verenigingen Payments Settings")
+        if settings:
+            return settings
+    except Exception as e:
+        frappe.logger().error(f"Error retrieving Verenigingen Payments Settings: {str(e)}")
+
+    # Settings don't exist - create them with minimal defaults
+    try:
+        frappe.logger().info("Creating default Verenigingen Payments Settings")
+        settings_doc = frappe.get_doc({
+            "doctype": "Verenigingen Payments Settings",
+        })
+        settings_doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        # Clear cache and get fresh copy
+        frappe.cache().delete_key("single:Verenigingen Payments Settings")
+        return frappe.get_doc("Verenigingen Payments Settings").as_dict()
+
+    except Exception as creation_error:
+        frappe.logger().error(f"Failed to create Verenigingen Payments Settings: {str(creation_error)}")
+
+    # Last resort - return None only if everything failed
+    frappe.logger().error("CRITICAL: Unable to load or create Verenigingen Payments Settings")
     return None
 
 
@@ -325,6 +380,7 @@ def clear_settings_cache():
         # Clear specific settings caches
         cache_keys = [
             "Verenigingen Settings",
+            "Verenigingen Payments Settings",
             "E-Boekhouden Settings",
             "System Settings",
             "Domain Settings",
@@ -355,6 +411,7 @@ def refresh_settings_cache():
 
     # Preload commonly used settings
     get_verenigingen_settings()
+    get_payments_settings()
     get_e_boekhouden_settings()
     get_system_settings()
 

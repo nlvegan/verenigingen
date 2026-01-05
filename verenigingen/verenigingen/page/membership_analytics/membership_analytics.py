@@ -19,6 +19,7 @@ from verenigingen.utils.security.api_security_framework import (
     high_security_api,
     standard_api,
 )
+from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
@@ -264,7 +265,7 @@ def get_current_year_revenue(year):
 
         # 2. Get direct dues payments not linked to invoices
         # Get dues keywords and income account from settings
-        payment_settings = frappe.get_single("Verenigingen Payments Settings")
+        payment_settings = get_payments_settings()
         dues_keywords = [
             kw.strip().lower() for kw in (payment_settings.dues_keywords or "contributie").split(",")
         ]

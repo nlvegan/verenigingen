@@ -11,6 +11,8 @@ from typing import Optional
 import frappe
 from frappe.utils import now_datetime
 
+from verenigingen.utils.settings_utils import get_payments_settings
+
 
 class SEPAMandateIdentityService:
     """Service for SEPA mandate identity generation and management"""
@@ -192,7 +194,7 @@ class SEPAMandateIdentityService:
     def _get_settings(self):
         """Get cached settings to avoid repeated DB calls"""
         if self._settings_cache is None:
-            self._settings_cache = frappe.get_single("Verenigingen Settings")
+            self._settings_cache = get_payments_settings()
         return self._settings_cache
 
     def clear_settings_cache(self):

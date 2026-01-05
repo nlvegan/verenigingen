@@ -7,6 +7,8 @@ Security functions for webhook authentication and validation.
 import frappe
 from frappe.utils import now_datetime
 
+from verenigingen.utils.settings_utils import get_payments_settings
+
 
 def authenticate_mollie_webhook():
     """
@@ -18,7 +20,7 @@ def authenticate_mollie_webhook():
     # Get webhook user from Verenigingen Payments Settings
     webhook_user = None
     try:
-        settings = frappe.get_single("Verenigingen Payments Settings")
+        settings = get_payments_settings()
         webhook_user = getattr(settings, "webhook_user", None)
     except Exception as e:
         frappe.log_error(

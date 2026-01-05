@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional
 
 import frappe
 
+from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.verenigingen_payments.utils.sepa_utilities import SEPAUtilities
 
 
@@ -40,8 +41,10 @@ class SEPAConfigurationService:
         Returns:
             Consolidated SEPA settings dictionary
         """
-        # Load from Verenigingen Settings
+        # Load general settings (for company reference)
         verenigingen_settings = frappe.get_single("Verenigingen Settings")
+        # Load payment/SEPA-specific settings
+        payment_settings = get_payments_settings()
 
         # Load company information
         company = frappe.get_cached_doc("Company", verenigingen_settings.company)
@@ -52,19 +55,19 @@ class SEPAConfigurationService:
             "organization_name": company.company_name,
             "organization_address": self._format_company_address(company),
             "country_code": "NL",  # Dutch organizations
-            # SEPA credentials
-            "creditor_id": verenigingen_settings.get(
+            # SEPA credentials (from Payments Settings)
+            "creditor_id": payment_settings.get(
                 "creditor_id"
             ),  # Field name is creditor_id, not sepa_creditor_id
-            "bic": verenigingen_settings.get("company_bic"),
-            "iban": verenigingen_settings.get("company_iban"),
+            "bic": payment_settings.get("company_bic"),
+            "iban": payment_settings.get("company_iban"),
             # Processing settings
-            "batch_size_limit": getattr(verenigingen_settings, "sepa_batch_size_limit", 1000),
-            "grace_period_days": getattr(verenigingen_settings, "grace_period_days", 5),
-            "collection_date_offset": getattr(verenigingen_settings, "collection_date_offset", 5),
+            "batch_size_limit": getattr(payment_settings, "sepa_batch_size_limit", 1000),
+            "grace_period_days": getattr(payment_settings, "grace_period_days", 5),
+            "collection_date_offset": getattr(payment_settings, "collection_date_offset", 5),
             # Validation settings
-            "enable_strict_validation": getattr(verenigingen_settings, "enable_strict_sepa_validation", True),
-            "allow_zero_amounts": getattr(verenigingen_settings, "allow_zero_amount_transactions", False),
+            "enable_strict_validation": getattr(payment_settings, "enable_strict_sepa_validation", True),
+            "allow_zero_amounts": getattr(payment_settings, "allow_zero_amount_transactions", False),
             # Company reference
             "company": verenigingen_settings.company,
         }

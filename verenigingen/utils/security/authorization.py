@@ -140,11 +140,11 @@ class SEPAAuthorizationManager:
     def _get_allowed_ips(self) -> List[str]:
         """Get allowed IP addresses from configuration"""
         try:
-            # Get from site config or Verenigingen Settings
+            # Get from site config or Verenigingen Payments Settings
             allowed_ips = frappe.conf.get("sepa_allowed_ips", [])
 
-            # Also check Verenigingen Settings
-            settings_ips = frappe.db.get_single_value("Verenigingen Settings", "sepa_allowed_ips")
+            # Also check Verenigingen Payments Settings
+            settings_ips = frappe.db.get_single_value("Verenigingen Payments Settings", "sepa_allowed_ips")
             if settings_ips:
                 settings_ips_list = [ip.strip() for ip in settings_ips.split(",") if ip.strip()]
                 allowed_ips.extend(settings_ips_list)

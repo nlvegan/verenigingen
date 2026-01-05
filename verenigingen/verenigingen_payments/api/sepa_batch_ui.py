@@ -320,8 +320,8 @@ def preview_sepa_xml(batch_name):
             "collection_date": str(batch.batch_date),
             "batch_type": batch.batch_type,
             "creditor_name": frappe.db.get_single_value("Verenigingen Settings", "company_name"),
-            "creditor_iban": frappe.db.get_single_value("Verenigingen Settings", "company_iban"),
-            "creditor_id": frappe.db.get_single_value("Verenigingen Settings", "creditor_id"),
+            "creditor_iban": frappe.db.get_single_value("Verenigingen Payments Settings", "company_iban"),
+            "creditor_id": frappe.db.get_single_value("Verenigingen Payments Settings", "creditor_id"),
         },
         "transactions": [],
     }

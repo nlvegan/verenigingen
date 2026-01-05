@@ -22,6 +22,8 @@ sessions/
 codemap-linux-amd64/
 logs/
 test-results/
+sg-rules/
+codemap
 __pycache__/
 .pytest_cache/
 .coverage

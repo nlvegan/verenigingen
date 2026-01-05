@@ -5,6 +5,7 @@ from frappe.utils import today
 
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.settings_utils import get_payments_settings
 
 
 class SEPAMandateMixin:
@@ -501,17 +502,19 @@ Errors:
 def _check_company_sepa_settings():
     """Check if company SEPA settings are configured"""
     try:
-        settings = frappe.get_single("Verenigingen Settings")
+        # SEPA settings are now in Verenigingen Payments Settings
+        payments_settings = get_payments_settings()
+        general_settings = frappe.get_single("Verenigingen Settings")
         missing_settings = []
 
-        # Check required SEPA settings
-        if not getattr(settings, "company_iban", None):
+        # Check required SEPA settings (from Payments Settings)
+        if not getattr(payments_settings, "company_iban", None):
             missing_settings.append("Company IBAN")
-        if not getattr(settings, "company_account_holder", None):
+        if not getattr(payments_settings, "company_account_holder", None):
             missing_settings.append("Bank Account Holder Name")
-        if not getattr(settings, "creditor_id", None):
+        if not getattr(payments_settings, "creditor_id", None):
             missing_settings.append("SEPA Creditor ID (Incassant ID)")
-        if not getattr(settings, "company_name", None):
+        if not getattr(general_settings, "company_name", None):
             missing_settings.append("Company Name")
         # BIC is optional as it can be derived from IBAN
 
@@ -522,7 +525,7 @@ def _check_company_sepa_settings():
 The following settings are required for SEPA processing but are not configured:
 {settings_list}
 
-Please configure these in Verenigingen Settings before processing SEPA mandates.
+Please configure these in Verenigingen Payments Settings before processing SEPA mandates.
 Without these settings, direct debit batches cannot be created.
 Note: BIC/SWIFT is optional as it can be automatically derived from Dutch IBANs.
 """

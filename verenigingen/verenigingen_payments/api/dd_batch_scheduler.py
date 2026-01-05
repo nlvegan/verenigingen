@@ -20,6 +20,7 @@ from verenigingen.utils.security.authorization import (
     SEPAPermissionLevel,
     require_sepa_permission,
 )
+from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.verenigingen_payments.api.dd_batch_optimizer import DEFAULT_CONFIG, create_optimal_batches
 
 
@@ -31,8 +32,8 @@ def daily_batch_optimization():
     """
     try:
         # Check if auto-creation is enabled
-        settings = frappe.get_single("Verenigingen Settings")
-        if not getattr(settings, "enable_auto_batch_creation", False):
+        payments_settings = get_payments_settings()
+        if not getattr(payments_settings, "enable_auto_batch_creation", False):
             frappe.logger().info("Auto batch creation is disabled")
             return
 
@@ -96,8 +97,8 @@ def daily_batch_optimization():
                     validation_summary["blocked"] += 1
 
             # Update last run timestamp
-            settings.last_batch_creation_run = now_datetime()
-            settings.save()
+            payments_settings.last_batch_creation_run = now_datetime()
+            payments_settings.save()
 
             # Send enhanced daily summary
             from verenigingen.verenigingen_payments.api.sepa_batch_notifications import (
@@ -130,8 +131,8 @@ def daily_batch_optimization():
 def is_batch_creation_day():
     """Check if today is a configured batch creation day"""
     try:
-        settings = frappe.get_single("Verenigingen Settings")
-        batch_creation_days = getattr(settings, "batch_creation_days", "1")
+        payments_settings = get_payments_settings()
+        batch_creation_days = getattr(payments_settings, "batch_creation_days", "1")
 
         if not batch_creation_days:
             # Default to 1st of month if not configured
@@ -282,9 +283,9 @@ def get_next_business_day():
 def get_scheduler_config():
     """Get configuration for scheduled batch creation"""
     try:
-        settings = frappe.get_single("Verenigingen Settings")
-        if hasattr(settings, "batch_optimization_config") and settings.batch_optimization_config:
-            config = frappe.parse_json(settings.batch_optimization_config)
+        payments_settings = get_payments_settings()
+        if hasattr(payments_settings, "batch_optimization_config") and payments_settings.batch_optimization_config:
+            config = frappe.parse_json(payments_settings.batch_optimization_config)
         else:
             config = DEFAULT_CONFIG.copy()
 
@@ -432,10 +433,10 @@ def create_system_notification(result):
 @frappe.whitelist()
 def get_batch_creation_schedule():
     """Get the current schedule for automatic batch creation"""
-    settings = frappe.get_single("Verenigingen Settings")
+    payments_settings = get_payments_settings()
 
     # Get configured days
-    batch_creation_days = getattr(settings, "batch_creation_days", "1")
+    batch_creation_days = getattr(payments_settings, "batch_creation_days", "1")
     if not batch_creation_days:
         batch_creation_days = "1"
 
@@ -469,12 +470,12 @@ def get_batch_creation_schedule():
     next_run = get_next_batch_creation_date(configured_days)
 
     return {
-        "enabled": getattr(settings, "enable_auto_batch_creation", False),
+        "enabled": getattr(payments_settings, "enable_auto_batch_creation", False),
         "schedule": schedule_desc,
         "configured_days": configured_days,
         "next_run": next_run,
         "config": get_scheduler_config(),
-        "last_run": getattr(settings, "last_batch_creation_run", None),
+        "last_run": getattr(payments_settings, "last_batch_creation_run", None),
     }
 
 
@@ -497,9 +498,9 @@ def toggle_auto_batch_creation(enabled):
             frappe.throw(_("Parameter 'enabled' must be a boolean value (true/false, 1/0, yes/no)"))
 
         # Get and update settings
-        settings = frappe.get_single("Verenigingen Settings")
-        settings.enable_auto_batch_creation = enabled_bool
-        settings.save()
+        payments_settings = get_payments_settings()
+        payments_settings.enable_auto_batch_creation = enabled_bool
+        payments_settings.save()
 
         action = "enabled" if enabled_bool else "disabled"
         frappe.logger().info(f"Auto batch creation {action} by {frappe.session.user}")
@@ -547,8 +548,8 @@ def run_batch_creation_now():
             return {"success": False, "error": "Batch creation is currently disabled or conditions not met"}
 
         # 5. Validate system state and configuration
-        settings = frappe.get_single("Verenigingen Settings")
-        if not settings:
+        payments_settings = get_payments_settings()
+        if not payments_settings:
             return {"success": False, "error": "System settings not found"}
 
         # 6. Validate we're not in a bank holiday
@@ -575,9 +576,9 @@ def run_batch_creation_now():
 
         if result["success"]:
             # Update last run timestamp
-            settings = frappe.get_single("Verenigingen Settings")
-            settings.last_batch_creation_run = now_datetime()
-            settings.save()
+            payments_settings = get_payments_settings()
+            payments_settings.last_batch_creation_run = now_datetime()
+            payments_settings.save()
 
             # Send notification
             send_batch_creation_notification(result)

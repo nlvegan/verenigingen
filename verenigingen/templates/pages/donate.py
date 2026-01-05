@@ -716,21 +716,22 @@ def process_bank_transfer(donation, form_data):
             "info": _("Please try again or contact support"),
         }
 
-    from verenigingen.utils.settings_utils import get_verenigingen_settings
+    from verenigingen.utils.settings_utils import get_payments_settings, get_verenigingen_settings
 
     settings = get_verenigingen_settings()
     if not settings:
         frappe.throw(_("Unable to load system settings"), frappe.ValidationError)
+    payments_settings = get_payments_settings()
     company = frappe.get_doc("Company", settings.company)
 
     # Generate payment reference
     payment_reference = f"DON-{donation.name}"
 
-    # Get bank details (would typically come from company settings)
+    # Get bank details from payments settings
     bank_details = {
         "account_holder": company.company_name,
-        "iban": getattr(settings, "company_iban", "NL00 BANK 0000 0000 00"),
-        "bic": getattr(settings, "company_bic", "BANKBIC2A"),
+        "iban": getattr(payments_settings, "company_iban", "NL00 BANK 0000 0000 00"),
+        "bic": getattr(payments_settings, "company_bic", "BANKBIC2A"),
         "reference": payment_reference,
         "amount": donation.amount,
     }
