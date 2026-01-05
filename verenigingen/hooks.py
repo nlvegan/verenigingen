@@ -316,6 +316,7 @@ doctype_js = {
     "Membership Termination Request": "public/js/membership_termination_request.js",
     "Expense Claim": "public/js/expense_claim_custom.js",
     "Customer": "public/js/customer_member_link.js",
+    "Sales Invoice": "public/js/sales_invoice_ing_checkout.js",
 }
 
 # doctype_list_js = {

@@ -1,0 +1,246 @@
+{
+ "actions": [],
+ "autoname": "format:ICM-{####}",
+ "creation": "2026-01-05 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "mandate_id",
+  "mandate_type",
+  "status",
+  "column_break_info",
+  "amount",
+  "currency",
+  "description",
+  "section_break_debtor",
+  "debtor_name",
+  "debtor_iban",
+  "column_break_debtor",
+  "debtor_email",
+  "debtor_bic",
+  "section_break_reference",
+  "reference_doctype",
+  "reference_name",
+  "column_break_reference",
+  "member",
+  "sepa_mandate",
+  "section_break_dates",
+  "created_date",
+  "first_collection_date",
+  "column_break_dates",
+  "last_collection_date",
+  "expiry_date",
+  "section_break_urls",
+  "terms_url",
+  "section_break_raw",
+  "raw_response"
+ ],
+ "fields": [
+  {
+   "description": "Pay.nl Mandate ID (IO-xxxx-xxxx-xxxx)",
+   "fieldname": "mandate_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Mandate ID",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "flexible",
+   "fieldname": "mandate_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Mandate Type",
+   "options": "single\nrecurring\nflexible",
+   "reqd": 1
+  },
+  {
+   "default": "Pending",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Pending\nActive\nUsed\nCancelled\nExpired\nFailed",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_info",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount"
+  },
+  {
+   "default": "EUR",
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Data",
+   "label": "Description"
+  },
+  {
+   "fieldname": "section_break_debtor",
+   "fieldtype": "Section Break",
+   "label": "Debtor Information"
+  },
+  {
+   "fieldname": "debtor_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Debtor Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "debtor_iban",
+   "fieldtype": "Data",
+   "label": "Debtor IBAN",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_debtor",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "debtor_email",
+   "fieldtype": "Data",
+   "label": "Debtor Email",
+   "options": "Email"
+  },
+  {
+   "fieldname": "debtor_bic",
+   "fieldtype": "Data",
+   "label": "Debtor BIC"
+  },
+  {
+   "fieldname": "section_break_reference",
+   "fieldtype": "Section Break",
+   "label": "References"
+  },
+  {
+   "fieldname": "reference_doctype",
+   "fieldtype": "Link",
+   "label": "Reference DocType",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "reference_name",
+   "fieldtype": "Dynamic Link",
+   "label": "Reference Name",
+   "options": "reference_doctype"
+  },
+  {
+   "fieldname": "column_break_reference",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "member",
+   "fieldtype": "Link",
+   "label": "Member",
+   "options": "Member"
+  },
+  {
+   "description": "Link to existing SEPA Mandate if applicable",
+   "fieldname": "sepa_mandate",
+   "fieldtype": "Link",
+   "label": "SEPA Mandate",
+   "options": "SEPA Mandate"
+  },
+  {
+   "fieldname": "section_break_dates",
+   "fieldtype": "Section Break",
+   "label": "Dates"
+  },
+  {
+   "fieldname": "created_date",
+   "fieldtype": "Date",
+   "label": "Created Date"
+  },
+  {
+   "fieldname": "first_collection_date",
+   "fieldtype": "Date",
+   "label": "First Collection Date"
+  },
+  {
+   "fieldname": "column_break_dates",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "last_collection_date",
+   "fieldtype": "Date",
+   "label": "Last Collection Date"
+  },
+  {
+   "fieldname": "expiry_date",
+   "fieldtype": "Date",
+   "label": "Expiry Date"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_urls",
+   "fieldtype": "Section Break",
+   "label": "Configuration"
+  },
+  {
+   "fieldname": "terms_url",
+   "fieldtype": "Data",
+   "label": "Terms & Conditions URL"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_raw",
+   "fieldtype": "Section Break",
+   "label": "Raw Data"
+  },
+  {
+   "fieldname": "raw_response",
+   "fieldtype": "JSON",
+   "label": "Raw Response"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [
+  {
+   "link_doctype": "ING Checkout Transaction",
+   "link_fieldname": "reference_name"
+  }
+ ],
+ "modified": "2026-01-05 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen Payments",
+ "name": "ING Checkout Mandate",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User"
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

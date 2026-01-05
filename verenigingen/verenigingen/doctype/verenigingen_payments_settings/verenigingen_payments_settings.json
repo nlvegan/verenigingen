@@ -15,6 +15,7 @@
     "default_cash_account",
     "mollie_bank_account",
     "ponto_bank_account_parent",
+    "ing_checkout_bank_account",
     "batch_processing_section",
     "sepa_mandate_naming_pattern",
     "creditor_id",
@@ -43,6 +44,7 @@
     "enable_sepa_direct_debit",
     "webhook_section",
     "webhook_user",
+    "ing_checkout_webhook_secret",
     "payment_classification_section",
     "dues_keywords",
     "donation_keywords",
@@ -100,6 +102,13 @@
       "fieldname": "ponto_bank_account_parent",
       "fieldtype": "Link",
       "label": "Ponto Bank Account Parent Group",
+      "options": "Account"
+    },
+    {
+      "description": "Bank account for ING Checkout (Pay.nl) payment processing. Required for iDEAL and Direct Debit payments.",
+      "fieldname": "ing_checkout_bank_account",
+      "fieldtype": "Link",
+      "label": "ING Checkout Bank Account",
       "options": "Account"
     },
     {
@@ -280,6 +289,12 @@
       "label": "Webhook User",
       "options": "User",
       "description": "User account for webhook operations. Should have minimal permissions."
+    },
+    {
+      "description": "Webhook secret for ING Checkout (Pay.nl) webhook verification. Configure this in the Pay.nl admin panel.",
+      "fieldname": "ing_checkout_webhook_secret",
+      "fieldtype": "Password",
+      "label": "ING Checkout Webhook Secret"
     },
     {
       "fieldname": "payment_classification_section",

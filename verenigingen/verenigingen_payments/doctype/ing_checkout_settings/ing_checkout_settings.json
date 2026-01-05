@@ -1,0 +1,148 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-01-05 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "enabled",
+  "sandbox_mode",
+  "section_break_credentials",
+  "service_id",
+  "token_code",
+  "api_token",
+  "column_break_credentials",
+  "test_connection_html",
+  "section_break_urls",
+  "default_return_url",
+  "terms_and_conditions_url",
+  "column_break_urls",
+  "webhook_url",
+  "section_break_status",
+  "last_sync",
+  "connection_status"
+ ],
+ "fields": [
+  {
+   "default": "0",
+   "description": "Enable ING Checkout integration",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enabled"
+  },
+  {
+   "default": "1",
+   "description": "Use sandbox/test environment. Disable for production.",
+   "fieldname": "sandbox_mode",
+   "fieldtype": "Check",
+   "label": "Sandbox Mode"
+  },
+  {
+   "fieldname": "section_break_credentials",
+   "fieldtype": "Section Break",
+   "label": "API Credentials"
+  },
+  {
+   "description": "Service ID from Pay.nl (format: SL-xxxx-xxxx). Found in Admin Panel > Settings > Sales Locations.",
+   "fieldname": "service_id",
+   "fieldtype": "Data",
+   "label": "Service ID",
+   "mandatory_depends_on": "eval:doc.enabled"
+  },
+  {
+   "description": "Token Code from Pay.nl (format: AT-xxxx-xxxx). Found in Admin Panel > Merchant > Company Information.",
+   "fieldname": "token_code",
+   "fieldtype": "Data",
+   "label": "Token Code",
+   "mandatory_depends_on": "eval:doc.enabled"
+  },
+  {
+   "description": "API Token (40-character hash). Found in Admin Panel > Merchant > Company Information.",
+   "fieldname": "api_token",
+   "fieldtype": "Password",
+   "label": "API Token",
+   "mandatory_depends_on": "eval:doc.enabled"
+  },
+  {
+   "fieldname": "column_break_credentials",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "test_connection_html",
+   "fieldtype": "HTML",
+   "label": "Test Connection",
+   "options": "<button class=\"btn btn-default btn-sm\" onclick=\"frappe.call({method: 'verenigingen.verenigingen_payments.ing_checkout.api.payment.test_connection', callback: function(r) { if(r.message) { frappe.msgprint(r.message); } }});\">Test Connection</button>"
+  },
+  {
+   "fieldname": "section_break_urls",
+   "fieldtype": "Section Break",
+   "label": "URLs"
+  },
+  {
+   "description": "URL to redirect customers after payment completion",
+   "fieldname": "default_return_url",
+   "fieldtype": "Data",
+   "label": "Default Return URL",
+   "options": "URL"
+  },
+  {
+   "description": "URL to your Terms and Conditions page (required for SEPA Direct Debit)",
+   "fieldname": "terms_and_conditions_url",
+   "fieldtype": "Data",
+   "label": "Terms and Conditions URL",
+   "options": "URL"
+  },
+  {
+   "fieldname": "column_break_urls",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Webhook URL for Pay.nl exchange notifications (auto-generated)",
+   "fieldname": "webhook_url",
+   "fieldtype": "Data",
+   "label": "Webhook URL",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_status",
+   "fieldtype": "Section Break",
+   "label": "Status"
+  },
+  {
+   "fieldname": "last_sync",
+   "fieldtype": "Datetime",
+   "label": "Last Sync",
+   "read_only": 1
+  },
+  {
+   "fieldname": "connection_status",
+   "fieldtype": "Data",
+   "label": "Connection Status",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-01-05 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen Payments",
+ "name": "ING Checkout Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
