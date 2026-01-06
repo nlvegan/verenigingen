@@ -100,7 +100,9 @@ def payment_link_callback():
                 doc.status = "Cancelled"
                 doc.save(ignore_permissions=True)
                 frappe.local.response["type"] = "redirect"
-                frappe.local.response["location"] = get_url(f"/app/ponto-payment-link/{payment_link_name}")
+                frappe.local.response["location"] = get_url(
+                    f"/payment-success?payment_link={payment_link_name}"
+                )
                 return
             else:
                 # Other errors - mark as rejected
@@ -111,7 +113,9 @@ def payment_link_callback():
                     message=f"Error: {error}\nDescription: {error_description}",
                 )
                 frappe.local.response["type"] = "redirect"
-                frappe.local.response["location"] = get_url(f"/app/ponto-payment-link/{payment_link_name}")
+                frappe.local.response["location"] = get_url(
+                    f"/payment-success?payment_link={payment_link_name}"
+                )
                 return
 
         # No error - refresh status from Ponto API
@@ -126,9 +130,9 @@ def payment_link_callback():
             frappe.logger().error(f"Failed to refresh payment link status: {payment_link_name}: {e}")
             # Status will be updated by webhook
 
-        # Redirect to the payment link document view
+        # Redirect to customer-friendly payment status page
         frappe.local.response["type"] = "redirect"
-        frappe.local.response["location"] = get_url(f"/app/ponto-payment-link/{payment_link_name}")
+        frappe.local.response["location"] = get_url(f"/payment-success?payment_link={payment_link_name}")
 
     except Exception as e:
         frappe.logger().error(f"Payment link callback error: {e}")

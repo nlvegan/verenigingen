@@ -92,8 +92,9 @@ def create_ideal_payment(
         client = get_client(settings)
 
         # Build return URL
+        # Pay.nl automatically appends ?orderId=... to the return URL
         if not return_url:
-            return_url = settings.default_return_url or get_url("/payment-complete")
+            return_url = settings.default_return_url or get_url("/payment-success")
 
         # Build webhook URL
         webhook_url = (
