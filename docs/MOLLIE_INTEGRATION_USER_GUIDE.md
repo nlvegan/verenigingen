@@ -24,14 +24,12 @@ The Mollie payment integration provides automated recurring payment processing f
 **Automated Recurring Payments**
 
 - Eliminates manual payment processing for membership dues
-- Reduces administrative overhead by up to 80%
 - Ensures consistent cash flow through automated collections
 - Supports multiple payment methods including iDEAL, SEPA Direct Debit, and credit cards
 
 **Regulatory Compliance**
 
 - Full GDPR compliance for member data handling
-- Meets Dutch/EU payment regulations (PSD2)
 - Maintains audit trails for financial transparency
 - Integrates with existing e-Boekhouden accounting systems
 
@@ -162,14 +160,23 @@ Payment Processing Fees Account: [Account for Mollie fees]
 2. Run connectivity test:
 
 ```python
-from verenigingen.utils.mollie_test_helpers import *
-test_mollie_connectivity()
+from verenigingen.verenigingen_payments.mollie.utils.test_helpers import (
+    create_test_member_with_subscription,
+    test_mollie_subscription_creation,
+    test_mollie_webhook_simulation,
+    get_mollie_subscription_status,
+)
+
+# Test API connectivity
+from verenigingen.verenigingen_payments.mollie.core import MollieClient
+client = MollieClient()
+# If no exception, connection is working
 ```
 
 **Create Test Member with Subscription**
 
 ```python
-# Create test member
+# Create test member (requires development mode)
 result = create_test_member_with_subscription("Test", "User")
 
 # Test subscription creation
@@ -177,6 +184,9 @@ test_mollie_subscription_creation(result['member'], 25.0, "1 month")
 
 # Simulate webhook payment
 test_mollie_webhook_simulation(result['member'], 25.0)
+
+# Check subscription status
+get_mollie_subscription_status(result['member'])
 ```
 
 ### Step 4: Configure Webhooks
@@ -184,8 +194,10 @@ test_mollie_webhook_simulation(result['member'], 25.0)
 **Automatic Webhook Configuration**
 The system automatically configures webhook URLs when you save Mollie Settings:
 
-- **Payment Webhook**: `/api/method/verenigingen.utils.payment_gateways.mollie_webhook`
-- **Subscription Webhook**: `/api/method/verenigingen.utils.payment_gateways.mollie_subscription_webhook`
+- **Payment Webhook**: `/api/method/verenigingen.verenigingen_payments.mollie.api.unified_payment_api.handle_payment_webhook`
+- **Subscription Webhook**: `/api/method/verenigingen.verenigingen_payments.utils.payment_gateways.mollie_subscription_webhook`
+- **Refund Webhook**: `/api/method/verenigingen.verenigingen_payments.mollie.api.unified_payment_api.handle_refund_webhook`
+- **Chargeback Webhook**: `/api/method/verenigingen.verenigingen_payments.mollie.api.unified_payment_api.handle_chargeback_webhook`
 
 **Mollie Dashboard Configuration**
 
@@ -262,13 +274,21 @@ When migrating from SEPA to Mollie:
 **Status Management Actions**
 
 ```python
+from verenigingen.verenigingen_payments.utils.payment_gateways import (
+    get_member_subscription_status,
+    cancel_member_subscription,
+)
+from verenigingen.verenigingen_payments.mollie.utils.test_helpers import (
+    get_mollie_subscription_status,
+)
+
 # Check subscription status
 get_member_subscription_status("MEMBER-NAME")
 
 # Cancel subscription
 cancel_member_subscription("MEMBER-NAME")
 
-# Get subscription details
+# Get detailed subscription info from Mollie API
 get_mollie_subscription_status("MEMBER-NAME")
 ```
 
@@ -416,6 +436,11 @@ Each member record maintains comprehensive payment history:
 **Bulk Operations**
 
 ```python
+from verenigingen.verenigingen_payments.utils.payment_gateways import (
+    create_member_subscription,
+    cancel_member_subscription,
+)
+
 # Create subscriptions for all SEPA members
 members = frappe.get_all("Member",
     filters={"payment_method": "SEPA Direct Debit", "status": "Active"})
@@ -566,6 +591,8 @@ Set up monitoring for critical events:
 - **Manual population**: Update member records with correct IDs
 - **Data validation script**:
   ```python
+  import frappe
+
   # Validate all Mollie members have subscription IDs
   members = frappe.get_all("Member",
       filters={"payment_method": "Mollie"},
@@ -665,12 +692,27 @@ mollie_bank_account: Bank account for settlements
 
 **Webhook Endpoints**
 
-- **Payment Webhook**: `/api/method/verenigingen.utils.payment_gateways.mollie_webhook`
-- **Subscription Webhook**: `/api/method/verenigingen.utils.payment_gateways.mollie_subscription_webhook`
+- **Payment Webhook**: `/api/method/verenigingen.verenigingen_payments.mollie.api.unified_payment_api.handle_payment_webhook`
+- **Subscription Webhook**: `/api/method/verenigingen.verenigingen_payments.utils.payment_gateways.mollie_subscription_webhook`
+- **Refund Webhook**: `/api/method/verenigingen.verenigingen_payments.mollie.api.unified_payment_api.handle_refund_webhook`
+- **Chargeback Webhook**: `/api/method/verenigingen.verenigingen_payments.mollie.api.unified_payment_api.handle_chargeback_webhook`
+
+**Payment Operations**
+
+- **Create Donation Payment**: `/api/method/verenigingen.verenigingen_payments.mollie.api.unified_payment_api.create_donation_payment`
+- **Create Subscription**: `/api/method/verenigingen.verenigingen_payments.mollie.api.unified_payment_api.create_subscription`
+- **Cancel Subscription**: `/api/method/verenigingen.verenigingen_payments.mollie.api.unified_payment_api.cancel_subscription`
+- **Get Payment Status**: `/api/method/verenigingen.verenigingen_payments.mollie.api.unified_payment_api.get_payment_status`
 
 **Management Functions**
 
 ```python
+from verenigingen.verenigingen_payments.utils.payment_gateways import (
+    create_member_subscription,
+    cancel_member_subscription,
+    get_member_subscription_status,
+)
+
 # Create subscription
 create_member_subscription(member_id, amount, interval, description)
 
@@ -679,9 +721,6 @@ cancel_member_subscription(member_id)
 
 # Check status
 get_member_subscription_status(member_id)
-
-# Process manual payment
-manual_payment_confirmation(donation_id, payment_reference, notes)
 ```
 
 ### Configuration Examples
@@ -711,13 +750,25 @@ Bulk Operations: Monthly subscription review and updates
 ### Advanced Configuration
 
 **Custom Webhook Processing**
-For specialized webhook handling, modify:
+For specialized webhook handling, extend the unified payment API:
 
 ```python
-# verenigingen/utils/payment_gateways.py
-@frappe.whitelist(allow_guest=True)
+# verenigingen/verenigingen_payments/mollie/api/unified_payment_api.py
+@frappe.whitelist(allow_guest=True, methods=["POST"])
+@public_api(operation_type=OperationType.PUBLIC)
+def handle_payment_webhook(payment_id: Optional[str] = None):
+    # Webhook processing logic
+    pass
+```
+
+For subscription webhooks:
+
+```python
+# verenigingen/verenigingen_payments/utils/payment_gateways.py
+@frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def mollie_subscription_webhook():
-    # Custom processing logic here
+    # Subscription webhook processing
     pass
 ```
 
@@ -740,6 +791,6 @@ For high-volume associations:
 
 _This guide covers the complete Mollie payment integration for Nederlandse verenigingen. For additional support or advanced customization requirements, consult your system administrator or the development team._
 
-**Document Version**: 1.0
-**Last Updated**: August 2025
+**Document Version**: 1.1
+**Last Updated**: January 2026
 **System Compatibility**: ERPNext v15+, Verenigingen App v2.0+
