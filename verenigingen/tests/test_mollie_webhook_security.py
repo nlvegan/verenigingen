@@ -5,7 +5,7 @@ import sys
 import os
 
 # Add the mollie tests directory to the path
-mollie_tests_path = os.path.join(os.path.dirname(__file__), '..', 'integrations', 'mollie', 'tests')
+mollie_tests_path = os.path.join(os.path.dirname(__file__), '..', 'verenigingen_payments', 'mollie', 'tests')
 if mollie_tests_path not in sys.path:
     sys.path.insert(0, mollie_tests_path)
 

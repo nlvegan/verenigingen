@@ -9,6 +9,7 @@ on:
     paths:
       - 'verenigingen/**/*.py'
       - 'verenigingen/**/*.js'
+      - 'pyproject.toml'
       - '.github/workflows/server-tests.yml'
       - '.github/workflows/_base-server-tests.yml'
       - '.github/actions/setup/**'
@@ -17,6 +18,7 @@ on:
     paths:
       - 'verenigingen/**/*.py'
       - 'verenigingen/**/*.js'
+      - 'pyproject.toml'
       - '.github/workflows/server-tests.yml'
       - '.github/workflows/_base-server-tests.yml'
       - '.github/actions/setup/**'
