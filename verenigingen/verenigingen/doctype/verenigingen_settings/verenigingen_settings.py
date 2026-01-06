@@ -5,7 +5,6 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from payments.utils import get_payment_gateway_controller
 
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
@@ -122,17 +121,6 @@ class VerenigingenSettings(Document):
                 title=_("Deprecated Email Settings"),
                 indicator="orange",
             )
-
-
-@frappe.whitelist()
-@high_security_api(operation_type=OperationType.FINANCIAL)
-def get_plans_for_membership(*args, **kwargs):
-    controller = get_payment_gateway_controller("Razorpay")
-    plans = controller.get_plans()
-    return [plan.get("item") for plan in plans.get("items")]
-
-
-# Add this function to verenigingen/verenigingen/doctype/verenigingen_settings/verenigingen_settings.py
 
 
 @frappe.whitelist()
