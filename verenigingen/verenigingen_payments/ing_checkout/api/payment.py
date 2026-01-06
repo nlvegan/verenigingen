@@ -11,6 +11,7 @@ import frappe
 from frappe import _
 from frappe.utils import get_url
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 from verenigingen.verenigingen_payments.ing_checkout.client import PayNLError, get_client
 
 # Payment Method IDs
@@ -20,6 +21,7 @@ PAYMENT_METHOD_CREDITCARD = 706
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def test_connection() -> dict:
     """
     Test the Pay.nl API connection.
@@ -39,6 +41,7 @@ def test_connection() -> dict:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def create_ideal_payment(
     reference_doctype: str,
     reference_name: str,
@@ -199,6 +202,7 @@ def create_ideal_payment(
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_payment_status(transaction_id: str) -> dict:
     """
     Get the status of a payment.

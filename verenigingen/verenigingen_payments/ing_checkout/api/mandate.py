@@ -13,8 +13,16 @@ Provides whitelisted methods for mandate operations:
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def create_mandate_for_member(
     member_name: str,
     mandate_type: str = "flexible",
@@ -54,6 +62,7 @@ def create_mandate_for_member(
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def execute_debit_for_invoice(
     mandate_name: str,
     sales_invoice: str,
@@ -93,6 +102,7 @@ def execute_debit_for_invoice(
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_mandate_status(mandate_name: str) -> dict:
     """
     Get the current status of a mandate.
@@ -123,6 +133,7 @@ def get_mandate_status(mandate_name: str) -> dict:
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.FINANCIAL)
 def sync_mandate_status(mandate_name: str) -> dict:
     """
     Synchronize mandate status with Pay.nl.
@@ -146,6 +157,7 @@ def sync_mandate_status(mandate_name: str) -> dict:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def cancel_mandate(mandate_name: str) -> dict:
     """
     Cancel a mandate.
@@ -177,6 +189,7 @@ def cancel_mandate(mandate_name: str) -> dict:
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_member_mandates(member_name: str) -> dict:
     """
     Get all mandates for a member.
