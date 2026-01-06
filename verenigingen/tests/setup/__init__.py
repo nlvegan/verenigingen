@@ -50,3 +50,13 @@ def before_tests():
             frappe.db.commit()
     except Exception as e:
         frappe.logger().warning(f"Company test record creation failed: {e}")
+
+    # Ensure Customer test records exist (needed by Item Price and other ERPNext fixtures)
+    try:
+        from frappe.test_runner import make_test_records
+
+        if not frappe.db.exists("Customer", "_Test Customer"):
+            make_test_records("Customer", verbose=False, force=True, commit=True)
+            frappe.db.commit()
+    except Exception as e:
+        frappe.logger().warning(f"Customer test record creation failed: {e}")
