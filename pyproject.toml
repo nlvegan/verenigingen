@@ -33,6 +33,14 @@ dependencies = [
     "mt-940>=4.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "faker>=18.0.0",
+]
+test = [
+    "faker>=18.0.0",
+]
+
 [build-system]
 requires = ["flit_core >=3.4,<4"]
 build-backend = "flit_core.buildapi"
