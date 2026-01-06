@@ -158,7 +158,7 @@ jobs:
         run: |
           cd /home/frappe/frappe-bench
           bench --site ${{ env.FRAPPE_SITE }} run-tests \
-            --module verenigingen.integrations.mollie.tests.test_core_integration
+            --module verenigingen.verenigingen_payments.mollie.tests.test_core_integration
         continue-on-error: true  # Don't fail CI if Mollie API is unavailable
 
       - name: Run Mollie Contract Tests
@@ -167,7 +167,7 @@ jobs:
           # Run only the contract validation tests (no external API calls)
           # Use bench to ensure Frappe environment is properly loaded
           bench --site ${{ env.FRAPPE_SITE }} run-tests \
-            --module verenigingen.integrations.mollie.tests.test_core_integration \
+            --module verenigingen.verenigingen_payments.mollie.tests.test_core_integration \
             --test TestMollieClientContractValidation
 
   # Coverage report (runs after all tests)
