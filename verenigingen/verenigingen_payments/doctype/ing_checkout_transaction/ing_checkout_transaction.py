@@ -261,8 +261,20 @@ class INGCheckoutTransaction(Document):
 
         # Send alert email
         try:
+            recipients = frappe.get_hooks("accounts_managers_email") or []
+            if not recipients:
+                frappe.log_error(
+                    title="No Alert Recipients Configured",
+                    message=(
+                        f"Cannot send overpayment alert for {self.name}: "
+                        "accounts_managers_email hook not configured. "
+                        f"Overpayment of €{overpayment:.2f} requires manual review."
+                    ),
+                )
+                return
+
             frappe.sendmail(
-                recipients=frappe.get_hooks("accounts_managers_email") or [],
+                recipients=recipients,
                 subject=f"ING Checkout Overpayment: {self.name} - €{overpayment:.2f}",
                 message=(
                     f"<p>An overpayment has been detected for ING Checkout transaction.</p>"
@@ -285,8 +297,20 @@ class INGCheckoutTransaction(Document):
             error_message: The error that occurred
         """
         try:
+            recipients = frappe.get_hooks("accounts_managers_email") or []
+            if not recipients:
+                frappe.log_error(
+                    title="No Alert Recipients Configured",
+                    message=(
+                        f"Cannot send Payment Entry failure alert for {self.name}: "
+                        "accounts_managers_email hook not configured. "
+                        f"Error: {error_message}"
+                    ),
+                )
+                return
+
             frappe.sendmail(
-                recipients=frappe.get_hooks("accounts_managers_email") or [],
+                recipients=recipients,
                 subject=f"URGENT: ING Checkout Payment Entry Failed - {self.name}",
                 message=(
                     f"<p><strong>Payment Entry creation failed for ING Checkout transaction.</strong></p>"
