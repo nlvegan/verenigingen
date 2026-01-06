@@ -595,6 +595,9 @@ class EnhancedTestDataFactory:
                 return member
             finally:
                 frappe.set_user(current_user)
+        except BusinessRuleError:
+            # Re-raise BusinessRuleError as-is for tests that expect it
+            raise
         except Exception as e:
             raise Exception(f"Failed to create member: {e}")
     
@@ -732,6 +735,9 @@ class EnhancedTestDataFactory:
             volunteer.insert()
             self.track_document("Volunteer", volunteer.name)
             return volunteer
+        except BusinessRuleError:
+            # Re-raise BusinessRuleError as-is for tests that expect it
+            raise
         except Exception as e:
             # Enhanced debugging for volunteer creation failures
             error_details = []
@@ -740,7 +746,7 @@ class EnhancedTestDataFactory:
             if hasattr(e, '__traceback__'):
                 import traceback
                 error_details.append(f"Full traceback: {traceback.format_exc()}")
-            
+
             full_error = "\n".join(error_details)
             print(f"DEBUG: {full_error}")  # Debug output
             raise Exception(f"Failed to create volunteer: {e}")
