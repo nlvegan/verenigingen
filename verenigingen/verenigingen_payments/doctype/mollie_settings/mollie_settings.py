@@ -309,13 +309,15 @@ class MollieSettings(Document):
                 raise frappe.ValidationError(f"Webhook URL must use HTTP/HTTPS scheme: {url}")
 
             # Domain whitelist validation (production security requirement)
+            # Use hostname only (without port) for domain validation
+            webhook_hostname = parsed.hostname or parsed.netloc
             allowed_domains = self._get_allowed_webhook_domains()
-            if parsed.netloc not in allowed_domains:
+            if webhook_hostname not in allowed_domains:
                 frappe.log_error(
-                    f"Webhook domain not in whitelist: {parsed.netloc}. Allowed: {allowed_domains}",
+                    f"Webhook domain not in whitelist: {webhook_hostname}. Allowed: {allowed_domains}",
                     "Mollie Webhook Security",
                 )
-                raise frappe.ValidationError(f"Webhook domain not authorized: {parsed.netloc}")
+                raise frappe.ValidationError(f"Webhook domain not authorized: {webhook_hostname}")
 
             # Path validation - prevent path traversal
             if ".." in parsed.path or parsed.path.startswith("//"):
