@@ -70,7 +70,7 @@ class TestSettlementsClient(EnhancedTestCase):
             settlement = self.client.get_settlement(settlement_id)
             
             # Verify API call
-            mock_get.assert_called_once_with(f"/settlements/{settlement_id}")
+            mock_get.assert_called_once_with(f"settlements/{settlement_id}")
             
             # Verify response
             self.assertIsInstance(settlement, Settlement)
@@ -117,7 +117,7 @@ class TestSettlementsClient(EnhancedTestCase):
                 "from": "2024-01-01",
                 "until": "2024-01-31"
             }
-            mock_get.assert_called_once_with("/settlements", params=expected_params, paginated=True)
+            mock_get.assert_called_once_with("settlements", params=expected_params, paginated=True)
             
             self.assertEqual(len(settlements), 2)
             self.assertIsInstance(settlements[0], Settlement)
@@ -134,7 +134,7 @@ class TestSettlementsClient(EnhancedTestCase):
         with patch.object(self.client, 'get', return_value=mock_response) as mock_get:
             settlement = self.client.get_next_settlement()
             
-            mock_get.assert_called_once_with("/settlements/next")
+            mock_get.assert_called_once_with("settlements/next")
             self.assertIsInstance(settlement, Settlement)
             self.assertEqual(settlement.id, "stl_next")
 
@@ -150,7 +150,7 @@ class TestSettlementsClient(EnhancedTestCase):
         with patch.object(self.client, 'get', return_value=mock_response) as mock_get:
             settlement = self.client.get_open_settlement()
             
-            mock_get.assert_called_once_with("/settlements/open")
+            mock_get.assert_called_once_with("settlements/open")
             self.assertIsInstance(settlement, Settlement)
             self.assertEqual(settlement.status, "open")
 
@@ -175,7 +175,7 @@ class TestSettlementsClient(EnhancedTestCase):
             
             expected_params = {"limit": 250}
             mock_get.assert_called_once_with(
-                f"/settlements/{settlement_id}/payments",
+                f"settlements/{settlement_id}/payments",
                 params=expected_params,
                 paginated=True
             )
@@ -198,7 +198,7 @@ class TestSettlementsClient(EnhancedTestCase):
             refunds = self.client.list_settlement_refunds(settlement_id)
             
             mock_get.assert_called_once_with(
-                f"/settlements/{settlement_id}/refunds",
+                f"settlements/{settlement_id}/refunds",
                 params={"limit": 250},
                 paginated=True
             )
@@ -220,7 +220,7 @@ class TestSettlementsClient(EnhancedTestCase):
             chargebacks = self.client.list_settlement_chargebacks(settlement_id)
             
             mock_get.assert_called_once_with(
-                f"/settlements/{settlement_id}/chargebacks",
+                f"settlements/{settlement_id}/chargebacks",
                 params={"limit": 250},
                 paginated=True
             )

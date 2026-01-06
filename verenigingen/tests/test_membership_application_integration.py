@@ -36,21 +36,45 @@ class TestMembershipApplicationIntegration(EnhancedTestCase):
             else:
                 # Create simple membership type without template dependency
                 # Template creation is complex business logic tested separately
-                template = frappe.new_doc("Membership Dues Schedule Template")
-                template.template_name = "Test Integration Template"
+                # Create a dues schedule template (is_template=1)
+                template = frappe.new_doc("Membership Dues Schedule")
+                template.schedule_name = "Test Integration Template"
+                template.is_template = 1
                 template.minimum_amount = 25.0
                 template.suggested_amount = 25.0
                 template.billing_frequency = "Monthly"
+                template.currency = "EUR"
+                template.status = "Active"
+                # membership_type will be set after creating the Membership Type
+                template.flags.ignore_validate = True  # Skip validation during creation
+                template.flags.ignore_mandatory = True
                 template.save()
-                self.track_doc("Membership Dues Schedule Template", template.name)
+                self.track_doc("Membership Dues Schedule", template.name)
                 
+                # Ensure role profile exists
+                role_profile_name = "Verenigingen Member"
+                if not frappe.db.exists("Role Profile", role_profile_name):
+                    role_profile = frappe.get_doc({
+                        "doctype": "Role Profile",
+                        "role_profile": role_profile_name
+                    })
+                    role_profile.insert(ignore_permissions=True)
+                    self.track_doc("Role Profile", role_profile.name)
+
                 self.membership_type = frappe.new_doc("Membership Type")
                 self.membership_type.membership_type_name = "Test Integration Type"
                 self.membership_type.minimum_amount = 25.0
                 self.membership_type.dues_schedule_template = template.name
+                self.membership_type.role_profile = role_profile_name
                 self.membership_type.is_active = 1
                 self.membership_type.save()
                 self.track_doc("Membership Type", self.membership_type.name)
+
+                # Now update the template with the membership_type
+                template.membership_type = self.membership_type.name
+                template.flags.ignore_validate = False
+                template.flags.ignore_mandatory = False
+                template.save()
         except Exception as e:
             self.fail(f"Could not create test membership type: {str(e)}")
     

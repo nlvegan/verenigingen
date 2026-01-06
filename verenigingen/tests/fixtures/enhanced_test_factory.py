@@ -1129,7 +1129,7 @@ class EnhancedTestDataFactory:
         template.insert()
 
         # Track for cleanup in tearDown
-        self.track_document("Membership Dues Schedule Template", template.name, priority=3)
+        self.track_document("Membership Dues Schedule", template.name, priority=3)
 
         return template
 
