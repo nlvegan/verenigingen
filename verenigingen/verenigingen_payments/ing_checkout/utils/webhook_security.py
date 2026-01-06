@@ -155,6 +155,15 @@ def get_request_ip() -> Optional[str]:
 
     Handles X-Forwarded-For header for reverse proxy setups.
 
+    SECURITY WARNING: X-Forwarded-For and X-Real-IP headers can be spoofed
+    by attackers. IP-based validation is defense-in-depth only. Always enable
+    signature verification (webhook secret) as the primary security mechanism.
+
+    For proper security in production:
+    1. Configure your reverse proxy to overwrite X-Forwarded-For
+    2. Enable webhook signature verification in Verenigingen Payments Settings
+    3. Use IP validation as secondary defense only
+
     Returns:
         IP address string or None
     """
@@ -214,10 +223,13 @@ def verify_ing_checkout_webhook(
     Verify an ING Checkout webhook request.
 
     Security is applied in layers:
-    1. IP validation (primary - recommended by Pay.nl)
-    2. Signature verification (secondary - if secret configured)
+    1. Signature verification (PRIMARY - cryptographically secure, cannot be spoofed)
+    2. IP validation (SECONDARY - defense-in-depth, can be spoofed via headers)
 
-    In production, at least one security layer should be active.
+    IMPORTANT: Always configure webhook secret in production. IP validation alone
+    is insufficient because X-Forwarded-For headers can be spoofed by attackers.
+
+    In production, signature verification should always be enabled.
     In development mode, logs warnings but allows requests.
 
     Args:
