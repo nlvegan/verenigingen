@@ -159,6 +159,13 @@ runs:
         ref: ${{ inputs.erpnext-branch }}
         path: apps/erpnext
 
+    - name: Checkout Payments
+      uses: actions/checkout@v4
+      with:
+        repository: frappe/payments
+        ref: version-15
+        path: apps/payments
+
     - name: Install Python Dependencies
       shell: bash
       run: |
@@ -215,4 +222,5 @@ runs:
       run: |
         source ${GITHUB_WORKSPACE}/env/bin/activate
         bench --site test_site install-app erpnext
+        bench --site test_site install-app payments
         bench --site test_site install-app ${{ github.event.repository.name }}
