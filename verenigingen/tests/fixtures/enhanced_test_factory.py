@@ -688,9 +688,15 @@ class EnhancedTestDataFactory:
                 if "@" in kwargs["email"]:
                     local_part = kwargs["email"].split("@")[0]
                     purpose = local_part.replace(".", "_").replace("-", "_")
+                # Truncate purpose to keep email length reasonable
+                purpose = purpose[:30] if len(purpose) > 30 else purpose
                 seq = self.get_next_sequence(f'email_{purpose}')
-                deterministic_id = hash(f"{self.test_run_id}_{purpose}_{seq}") % 1000000
-                data["email"] = f"{purpose}_{seq}_{deterministic_id}@example.com"
+                # Add timestamp and PID for uniqueness across parallel test jobs
+                import time
+                import os
+                timestamp = int(time.time() * 1000000) % 100000000
+                pid = os.getpid() % 10000
+                data["email"] = f"{purpose}_{seq}_{pid}_{timestamp}@example.com"
         
         # Remove control parameters before validation
         clean_data = {k: v for k, v in data.items() if not k.startswith('_')}
@@ -3402,11 +3408,16 @@ class EnhancedTestCase(FrappeTestCase):
         """Create a test donor record for ANBI testing"""
         from verenigingen.tests.fixtures.dutch_validation_helpers import get_test_bsn_numbers, generate_valid_rsin
         
+        # Generate unique donor email to prevent collisions in parallel tests
+        import time
+        import os
+        default_donor_email = f"test.donor.{os.getpid() % 10000}_{int(time.time() * 1000) % 100000000}@example.com"
+
         donor_data = {
             "doctype": "Donor",
             "donor_name": kwargs.get("donor_name", "Test Donor"),
             "donor_type": kwargs.get("donor_type", "Individual"),
-            "donor_email": kwargs.get("donor_email", "test.donor@example.com"),  # Mandatory field
+            "donor_email": kwargs.get("donor_email", default_donor_email),  # Mandatory field
             "currency": "EUR"
         }
         
@@ -3441,8 +3452,9 @@ class EnhancedTestCase(FrappeTestCase):
         # Create a donor if not provided
         donor = kwargs.get("donor")
         if not donor:
+            # Let create_test_donor generate unique email if not provided
             donor_doc = self.create_test_donor(
-                donor_email=kwargs.get("donor_email", "test.donor@example.com"),
+                donor_email=kwargs.get("donor_email"),  # None will trigger unique generation
                 donor_name=kwargs.get("donor_name", "Test Donor")
             )
             donor = donor_doc.name
