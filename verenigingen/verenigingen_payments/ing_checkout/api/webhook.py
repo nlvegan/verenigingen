@@ -19,6 +19,7 @@ API Documentation: https://developer.pay.nl/docs/exchanges
 """
 
 import json
+from decimal import Decimal
 from typing import Any, Dict, Optional
 
 import frappe
@@ -398,7 +399,8 @@ def _process_payment_webhook(order_id: str, payload: dict) -> Dict[str, Any]:
     order_object = payload.get("object", {})
     reference = order_object.get("reference", "")
     amount_data = order_object.get("amount", {})
-    amount = amount_data.get("value", 0) / 100  # Convert cents to EUR
+    # Convert cents to EUR using Decimal for precision
+    amount = float(Decimal(amount_data.get("value", 0)) / Decimal(100))
 
     # Parse reference to get doctype and name
     reference_doctype, reference_name = _parse_reference(reference)

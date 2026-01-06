@@ -7,6 +7,8 @@ ING Checkout Payment API Endpoints
 Whitelisted methods for initiating payments and checking status.
 """
 
+from decimal import ROUND_HALF_UP, Decimal
+
 import frappe
 from frappe import _
 from frappe.utils import get_url
@@ -115,8 +117,9 @@ def create_ideal_payment(
         doctype_code = DOCTYPE_CODES.get(reference_doctype, reference_doctype[:4].upper())
         reference = f"{doctype_code}:{reference_name}"
 
-        # Convert amount to cents
-        amount_cents = int(amount * 100)
+        # Convert amount to cents using Decimal to avoid float precision issues
+        # e.g., 19.99 * 100 = 1998.9999... with floats, but 1999 with Decimal
+        amount_cents = int(Decimal(str(amount)) * 100)
 
         # Truncate description to 30 chars (bank statement limit)
         description = description[:30] if description else "Payment"
