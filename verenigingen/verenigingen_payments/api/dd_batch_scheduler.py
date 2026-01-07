@@ -284,7 +284,10 @@ def get_scheduler_config():
     """Get configuration for scheduled batch creation"""
     try:
         payments_settings = get_payments_settings()
-        if hasattr(payments_settings, "batch_optimization_config") and payments_settings.batch_optimization_config:
+        if (
+            hasattr(payments_settings, "batch_optimization_config")
+            and payments_settings.batch_optimization_config
+        ):
             config = frappe.parse_json(payments_settings.batch_optimization_config)
         else:
             config = DEFAULT_CONFIG.copy()

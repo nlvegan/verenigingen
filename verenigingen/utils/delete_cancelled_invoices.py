@@ -88,7 +88,7 @@ def delete_all_draft_invoices():
 
         # Commit each batch
         frappe.db.commit()
-        print(f"Committed batch {i//batch_size + 1}/{(total//batch_size) + 1}")
+        print(f"Committed batch {i // batch_size + 1}/{(total // batch_size) + 1}")
 
     result = {
         "total": total,
@@ -97,12 +97,12 @@ def delete_all_draft_invoices():
         "error_samples": errors[:10] if errors else [],
     }
 
-    print(f"\n{'='*60}")
-    print(f"Draft Invoice Deletion Summary:")
+    print(f"\n{'=' * 60}")
+    print("Draft Invoice Deletion Summary:")
     print(f"  Total found: {total}")
     print(f"  Successfully deleted: {deleted}")
     print(f"  Errors: {len(errors)}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     if errors:
         print("\nFirst 10 errors:")
@@ -155,7 +155,7 @@ def delete_all_cancelled_invoices():
 
         # Commit each batch
         frappe.db.commit()
-        print(f"Committed batch {i//batch_size + 1}/{(total//batch_size) + 1}")
+        print(f"Committed batch {i // batch_size + 1}/{(total // batch_size) + 1}")
 
     result = {
         "total": total,
@@ -164,12 +164,12 @@ def delete_all_cancelled_invoices():
         "error_samples": errors[:10] if errors else [],
     }
 
-    print(f"\n{'='*60}")
-    print(f"Deletion Summary:")
+    print(f"\n{'=' * 60}")
+    print("Deletion Summary:")
     print(f"  Total found: {total}")
     print(f"  Successfully deleted: {deleted}")
     print(f"  Errors: {len(errors)}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     if errors:
         print("\nFirst 10 errors:")

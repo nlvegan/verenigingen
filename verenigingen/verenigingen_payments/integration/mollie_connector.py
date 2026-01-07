@@ -510,8 +510,6 @@ def get_mollie_connector(settings_name: str = None) -> MollieConnector:
     Returns:
         MollieConnector instance
     """
-    global _connector_instances
-
     key = settings_name or "default"
 
     if key not in _connector_instances:

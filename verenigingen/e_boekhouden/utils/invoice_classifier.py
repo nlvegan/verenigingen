@@ -294,7 +294,7 @@ class InvoiceClassifier:
 
         debug_info.append(f"InvoiceClassifier ERROR: {error_msg}")
         frappe.log_error(
-            title=f"Invoice Classification Failed - No Line Items",
+            title="Invoice Classification Failed - No Line Items",
             message=f"{error_msg}\n\nMutation data:\n{frappe.as_json(mutation_detail, indent=2)}",
         )
 

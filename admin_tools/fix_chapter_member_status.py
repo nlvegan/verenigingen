@@ -146,7 +146,7 @@ def fix_all_chapters(dry_run=True):
 
     # Summary
     print(f"\n{'=' * 80}")
-    print(f"MIGRATION COMPLETE")
+    print("MIGRATION COMPLETE")
     print(f"{'=' * 80}")
     print(f"Total records found:    {len(mismatched_records)}")
     print(f"Successfully fixed:     {fixed_count}")
@@ -228,7 +228,7 @@ def fix_specific_chapter(chapter_name, dry_run=True):
     if dry_run:
         print(f"\n{'=' * 80}")
         print("DRY RUN MODE - No changes were made")
-        print(f"Run with dry_run=False to apply fixes")
+        print("Run with dry_run=False to apply fixes")
         print(f"{'=' * 80}\n")
         return {
             "success": True,
@@ -316,7 +316,7 @@ def get_mismatch_summary():
         print("✓ No mismatched records found")
         return {"total": 0, "chapters": []}
 
-    print(f"\nMismatch Summary:")
+    print("\nMismatch Summary:")
     print(f"{'=' * 60}")
     print(f"Total mismatched records: {total}")
     print(f"Affected chapters: {len(mismatched_records)}")

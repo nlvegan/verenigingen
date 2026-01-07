@@ -11,12 +11,12 @@ from frappe.utils import add_days, cstr, flt, getdate, today
 
 from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.verenigingen_payments.utils.batch_performance_optimizer import (
     get_batch_performance_optimizer,
 )
 from verenigingen.verenigingen_payments.utils.sepa_config_manager import get_sepa_config_manager
 from verenigingen.verenigingen_payments.utils.sepa_error_handler import get_sepa_error_handler, sepa_retry
-from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.verenigingen_payments.utils.sepa_mandate_service import get_sepa_mandate_service
 
 

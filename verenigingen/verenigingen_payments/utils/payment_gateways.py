@@ -12,6 +12,7 @@ from frappe.utils import getdate
 from verenigingen.utils.member_utils import validate_member_ownership
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
     convert_frequency_to_mollie_interval,
@@ -24,7 +25,6 @@ from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
     get_members_by_customer,
     log_mollie_error,
 )
-from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
 
 

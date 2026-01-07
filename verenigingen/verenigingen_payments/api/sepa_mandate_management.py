@@ -307,14 +307,14 @@ def periodic_sepa_mandate_child_table_sync():
             )
 
             results["alert_sent"] = True
-            results["message"] = (
-                f"Detected {high_severity_count} high-severity issues. Alert sent to administrators."
-            )
+            results[
+                "message"
+            ] = f"Detected {high_severity_count} high-severity issues. Alert sent to administrators."
         else:
             results["alert_sent"] = False
-            results["message"] = (
-                f"All clear. Checked {summary['total_issues']} total issues, none require immediate attention."
-            )
+            results[
+                "message"
+            ] = f"All clear. Checked {summary['total_issues']} total issues, none require immediate attention."
 
         return {"success": True, "results": results}
 

@@ -33,7 +33,9 @@ def _ensure_item_group_exists(item_group_name):
         frappe.logger().info(f"Created missing Item Group: {item_group_name}")
         return item_group_name
     except Exception as e:
-        frappe.logger().warning(f"Could not create Item Group '{item_group_name}': {str(e)}. Using 'Services' instead.")
+        frappe.logger().warning(
+            f"Could not create Item Group '{item_group_name}': {str(e)}. Using 'Services' instead."
+        )
         # Fall back to "Services" which should always exist
         return "Services"
 
@@ -223,7 +225,9 @@ def get_or_create_item_improved(
             debug_info = []
             try:
                 _fetch_and_create_missing_ledger_mapping(str(account_code), company, debug_info)
-                frappe.logger().info(f"Auto-created ledger mapping for ledger ID {account_code}: {debug_info}")
+                frappe.logger().info(
+                    f"Auto-created ledger mapping for ledger ID {account_code}: {debug_info}"
+                )
             except Exception as map_err:
                 frappe.logger().warning(
                     f"Could not auto-create ledger mapping for {account_code}: {str(map_err)}"

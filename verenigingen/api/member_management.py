@@ -1792,15 +1792,18 @@ def extract_transaction_data_improved(transaction):
         # Add funds code and transaction reference for more context
         if data.get("funds_code"):
             description_parts.append(f"Funds: {data['funds_code']}")
-        if data.get("transaction_reference") and data["transaction_reference"] != transaction_data["reference"]:
+        if (
+            data.get("transaction_reference")
+            and data["transaction_reference"] != transaction_data["reference"]
+        ):
             description_parts.append(f"Ref: {data['transaction_reference']}")
 
         description = " | ".join(filter(None, description_parts)) or "MT940 Transaction"
 
         # Normalize description - remove line breaks and collapse whitespace
         if description:
-            description = re.sub(r'[\r\n]+', '', description)
-            description = re.sub(r'\s+', ' ', description).strip()
+            description = re.sub(r"[\r\n]+", "", description)
+            description = re.sub(r"\s+", " ", description).strip()
 
         transaction_data["description"] = description
 

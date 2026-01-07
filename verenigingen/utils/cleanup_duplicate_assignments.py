@@ -157,14 +157,14 @@ def cleanup_all_duplicates(dry_run=True):
         overall_stats["total_kept"] += stats["kept"]
 
     print(f"\n{'=' * 60}")
-    print(f"Summary:")
+    print("Summary:")
     print(f"  Volunteers processed: {overall_stats['volunteers_processed']}")
     print(f"  Total duplicates removed: {overall_stats['total_removed']}")
     print(f"  Total assignments kept: {overall_stats['total_kept']}")
 
     if dry_run:
-        print(f"\nThis was a DRY RUN. No changes were made.")
-        print(f"Run with dry_run=False to actually remove duplicates.")
+        print("\nThis was a DRY RUN. No changes were made.")
+        print("Run with dry_run=False to actually remove duplicates.")
 
     return overall_stats
 

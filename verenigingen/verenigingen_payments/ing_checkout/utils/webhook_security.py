@@ -83,8 +83,6 @@ def fetch_paynl_ip_addresses() -> List[str]:
     """
     import requests
 
-    global _paynl_ip_cache
-
     # Check cache (refresh every hour)
     if _paynl_ip_cache["last_updated"]:
         age = (now_datetime() - _paynl_ip_cache["last_updated"]).total_seconds()

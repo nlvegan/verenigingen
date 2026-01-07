@@ -234,7 +234,9 @@ def cleanup_orphaned_workspace_links():
 
             frappe.db.commit()
 
-            print(f"🗑️  Removed {len(orphaned_links)} orphaned links from {len(workspace_orphans)} workspaces")
+            print(
+                f"🗑️  Removed {len(orphaned_links)} orphaned links from {len(workspace_orphans)} workspaces"
+            )
             for workspace, links in workspace_orphans.items():
                 print(f"   - {workspace}: {len(links)} orphaned links removed")
         else:

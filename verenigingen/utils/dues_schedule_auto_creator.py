@@ -289,9 +289,15 @@ def _send_enhanced_summary_email(main_result, retry_result):
                         for email in settings.stuck_schedule_notification_emails.split(",")
                         if email.strip()
                     ]
-                elif payments_settings and hasattr(payments_settings, "financial_admin_emails") and payments_settings.financial_admin_emails:
+                elif (
+                    payments_settings
+                    and hasattr(payments_settings, "financial_admin_emails")
+                    and payments_settings.financial_admin_emails
+                ):
                     admins = [
-                        email.strip() for email in payments_settings.financial_admin_emails.split(",") if email.strip()
+                        email.strip()
+                        for email in payments_settings.financial_admin_emails.split(",")
+                        if email.strip()
                     ]
                 elif hasattr(settings, "member_contact_email") and settings.member_contact_email:
                     admins = [settings.member_contact_email]
@@ -431,9 +437,15 @@ def send_summary_email(created_count, error_count, total_found):
                         for email in settings.stuck_schedule_notification_emails.split(",")
                         if email.strip()
                     ]
-                elif payments_settings and hasattr(payments_settings, "financial_admin_emails") and payments_settings.financial_admin_emails:
+                elif (
+                    payments_settings
+                    and hasattr(payments_settings, "financial_admin_emails")
+                    and payments_settings.financial_admin_emails
+                ):
                     admins = [
-                        email.strip() for email in payments_settings.financial_admin_emails.split(",") if email.strip()
+                        email.strip()
+                        for email in payments_settings.financial_admin_emails.split(",")
+                        if email.strip()
                     ]
                 elif hasattr(settings, "member_contact_email") and settings.member_contact_email:
                     admins = [settings.member_contact_email]
@@ -776,9 +788,15 @@ def _send_summary_email(result):
                     for email in settings.stuck_schedule_notification_emails.split(",")
                     if email.strip()
                 ]
-            elif payments_settings and hasattr(payments_settings, "financial_admin_emails") and payments_settings.financial_admin_emails:
+            elif (
+                payments_settings
+                and hasattr(payments_settings, "financial_admin_emails")
+                and payments_settings.financial_admin_emails
+            ):
                 admins = [
-                    email.strip() for email in payments_settings.financial_admin_emails.split(",") if email.strip()
+                    email.strip()
+                    for email in payments_settings.financial_admin_emails.split(",")
+                    if email.strip()
                 ]
             elif hasattr(settings, "member_contact_email") and settings.member_contact_email:
                 admins = [settings.member_contact_email]

@@ -855,7 +855,10 @@ def parse_groups_and_suggest_type_mappings(merge_mode=False):
         pl_text = settings.get("pl_group_mappings", "") or ""
 
         if not balance_sheet_text.strip() and not pl_text.strip():
-            return {"success": False, "error": "No account group mappings found. Please enter Balance Sheet and/or P&L group mappings first."}
+            return {
+                "success": False,
+                "error": "No account group mappings found. Please enter Balance Sheet and/or P&L group mappings first.",
+            }
 
         # Track existing mappings for merge mode and duplicate detection
         existing_mappings = {}
@@ -881,12 +884,14 @@ def parse_groups_and_suggest_type_mappings(merge_mode=False):
 
                 # Check for duplicate in source text
                 if code in seen_codes:
-                    duplicates.append({
-                        "code": code,
-                        "name": name,
-                        "existing_name": seen_codes[code],
-                        "source": "input_text"
-                    })
+                    duplicates.append(
+                        {
+                            "code": code,
+                            "name": name,
+                            "existing_name": seen_codes[code],
+                            "source": "input_text",
+                        }
+                    )
                     return  # Skip duplicates from source text
 
                 seen_codes[code] = name
@@ -954,7 +959,17 @@ def _suggest_account_type_for_group(code, name, is_balance_sheet=True):
     # P&L accounts
     if not is_balance_sheet:
         # Income patterns
-        income_keywords = ["opbrengst", "omzet", "verkoop", "inkomst", "baten", "ontvangst", "revenue", "income", "sales"]
+        income_keywords = [
+            "opbrengst",
+            "omzet",
+            "verkoop",
+            "inkomst",
+            "baten",
+            "ontvangst",
+            "revenue",
+            "income",
+            "sales",
+        ]
         if any(kw in name_lower for kw in income_keywords):
             suggestion["root_type"] = "Income"
             suggestion["account_type"] = "Income Account"
@@ -963,7 +978,17 @@ def _suggest_account_type_for_group(code, name, is_balance_sheet=True):
             return suggestion
 
         # Expense patterns
-        expense_keywords = ["kosten", "uitgaven", "lasten", "onkosten", "afschrijving", "expense", "cost", "personeel", "salaris"]
+        expense_keywords = [
+            "kosten",
+            "uitgaven",
+            "lasten",
+            "onkosten",
+            "afschrijving",
+            "expense",
+            "cost",
+            "personeel",
+            "salaris",
+        ]
         if any(kw in name_lower for kw in expense_keywords):
             suggestion["root_type"] = "Expense"
             suggestion["account_type"] = "Expense Account"
@@ -980,7 +1005,15 @@ def _suggest_account_type_for_group(code, name, is_balance_sheet=True):
 
     # Balance sheet accounts
     # Fixed assets
-    fixed_asset_keywords = ["vaste activa", "materiele activa", "immateriele activa", "fixed asset", "inventaris", "machines", "gebouw"]
+    fixed_asset_keywords = [
+        "vaste activa",
+        "materiele activa",
+        "immateriele activa",
+        "fixed asset",
+        "inventaris",
+        "machines",
+        "gebouw",
+    ]
     if any(kw in name_lower for kw in fixed_asset_keywords):
         suggestion["root_type"] = "Asset"
         suggestion["account_type"] = "Fixed Asset"

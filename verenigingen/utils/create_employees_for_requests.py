@@ -14,7 +14,7 @@ from verenigingen.utils.account_creation_manager import AccountCreationManager
 def create_employees(since_date):
     """Create employee records for requests that need them."""
 
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print(f"CREATING EMPLOYEES FOR COMPLETED REQUESTS (since {since_date})")
     print("=" * 80)
 
@@ -123,7 +123,7 @@ def create_employees(since_date):
                 created_count += 1
                 print(f"       ✅ Created employee: {manager.created_employee}")
             else:
-                print(f"       ⚠️  Employee creation returned None")
+                print("       ⚠️  Employee creation returned None")
                 error_count += 1
 
             # Commit every 20 records
@@ -141,21 +141,21 @@ def create_employees(since_date):
     # Final commit
     frappe.db.commit()
 
-    print(f"\n{'='*80}")
-    print(f"RESULTS")
+    print(f"\n{'=' * 80}")
+    print("RESULTS")
     print("=" * 80)
     print(f"✅ Employees created: {created_count}")
     print(f"🔗 Employees linked (already existed): {already_has_count}")
     print(f"❌ Errors: {error_count}")
-    print(f"\n{'='*80}\n")
+    print(f"\n{'=' * 80}\n")
 
     # Show updated counts
     total_with_employee = frappe.db.count("Member", {"employee": ["!=", ""], "creation": [">", since_date]})
     total_members = frappe.db.count("Member", {"creation": [">", since_date]})
 
-    print(f"Updated Stats:")
+    print("Updated Stats:")
     print(
-        f"  Members with employee records: {total_with_employee}/{total_members} ({total_with_employee/total_members*100:.1f}%)"
+        f"  Members with employee records: {total_with_employee}/{total_members} ({total_with_employee / total_members * 100:.1f}%)"
     )
 
 

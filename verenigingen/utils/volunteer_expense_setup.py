@@ -141,8 +141,7 @@ def create_default_cost_center(company):
 
     except Exception as e:
         frappe.log_error(
-            message=f"Error creating default cost center: {str(e)}",
-            title="Cost Center Creation Error"
+            message=f"Error creating default cost center: {str(e)}", title="Cost Center Creation Error"
         )
         return get_fallback_cost_center()
 

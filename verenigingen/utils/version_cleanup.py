@@ -58,7 +58,7 @@ def clear_all_versions():
     frappe.logger("verenigingen.version_cleanup").warning(
         f"Version table cleared by {frappe.session.user}: "
         f"{total_count:,} versions deleted, "
-        f"{total_size/(1024*1024):.2f} MB freed"
+        f"{total_size / (1024 * 1024):.2f} MB freed"
     )
 
     return {
@@ -180,7 +180,7 @@ def clear_versions_older_than_days(days=90):
     frappe.logger("verenigingen.version_cleanup").info(
         f"Versions older than {days} days cleared by {frappe.session.user}: "
         f"{count:,} versions deleted, "
-        f"{size/(1024*1024):.2f} MB freed"
+        f"{size / (1024 * 1024):.2f} MB freed"
     )
 
     return {
@@ -336,7 +336,7 @@ def nuclear_truncate_version_and_deleted_tables(confirm_nuclear_truncate=False, 
             results["transaction_rolled_back"] = True
             frappe.log_error(
                 f"Nuclear TRUNCATE (Version + Deleted Documents) failed and rolled back: {str(e)}",
-                "Version Cleanup Error"
+                "Version Cleanup Error",
             )
 
     except Exception as e:
@@ -344,7 +344,7 @@ def nuclear_truncate_version_and_deleted_tables(confirm_nuclear_truncate=False, 
         results["errors"].append(str(e))
         frappe.log_error(
             f"Nuclear TRUNCATE (Version + Deleted Documents) unexpected error: {str(e)}",
-            "Version Cleanup Error"
+            "Version Cleanup Error",
         )
 
     return results
@@ -413,7 +413,7 @@ def clear_versions_by_doctype(doctype, older_than_days=None):
     frappe.logger("verenigingen.version_cleanup").info(
         f"Versions for {doctype} cleared by {frappe.session.user}: "
         f"{count:,} versions deleted, "
-        f"{size/(1024*1024):.2f} MB freed"
+        f"{size / (1024 * 1024):.2f} MB freed"
     )
 
     return {

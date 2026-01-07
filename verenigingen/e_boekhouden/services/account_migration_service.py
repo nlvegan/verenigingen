@@ -724,9 +724,7 @@ class AccountMigrationService:
                 return None
 
             if not root_type:
-                frappe.logger().warning(
-                    f"No root_type for group {group_code} - cannot determine hierarchy"
-                )
+                frappe.logger().warning(f"No root_type for group {group_code} - cannot determine hierarchy")
                 return None
 
             # Check if group account already exists

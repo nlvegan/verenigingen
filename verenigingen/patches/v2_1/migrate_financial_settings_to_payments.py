@@ -59,10 +59,13 @@ def execute():
         # (fields may already be removed from source DocType)
         source_values = {}
         for field in fields_to_migrate:
-            result = frappe.db.sql("""
+            result = frappe.db.sql(
+                """
                 SELECT value FROM tabSingles
                 WHERE doctype = 'Verenigingen Settings' AND field = %s
-            """, field)
+            """,
+                field,
+            )
             if result and result[0][0]:
                 source_values[field] = result[0][0]
 
@@ -74,9 +77,11 @@ def execute():
 
         # Ensure target exists
         if not frappe.db.exists("Verenigingen Payments Settings", "Verenigingen Payments Settings"):
-            payments_settings = frappe.get_doc({
-                "doctype": "Verenigingen Payments Settings",
-            })
+            payments_settings = frappe.get_doc(
+                {
+                    "doctype": "Verenigingen Payments Settings",
+                }
+            )
             payments_settings.insert(ignore_permissions=True)
 
         # Migrate using direct SQL (INSERT ON DUPLICATE KEY UPDATE)
@@ -85,17 +90,23 @@ def execute():
         migrated_count = 0
         for field, value in source_values.items():
             # Check if target already has a value
-            existing = frappe.db.sql("""
+            existing = frappe.db.sql(
+                """
                 SELECT value FROM tabSingles
                 WHERE doctype = 'Verenigingen Payments Settings' AND field = %s
-            """, field)
+            """,
+                field,
+            )
 
             if not existing or not existing[0][0]:
-                frappe.db.sql("""
+                frappe.db.sql(
+                    """
                     INSERT INTO tabSingles (doctype, field, value)
                     VALUES ('Verenigingen Payments Settings', %s, %s)
                     ON DUPLICATE KEY UPDATE value = %s
-                """, (field, value, value))
+                """,
+                    (field, value, value),
+                )
                 migrated_count += 1
                 frappe.log(f"  Migrated {field}: {repr(value)[:50]}")
 

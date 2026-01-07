@@ -286,7 +286,7 @@ def find_unsecured_functions(min_priority: str = "medium", limit: int = 20):
     auditor = SmartSecurityAuditor()
     unsecured = auditor.get_unsecured_files(min_priority)
 
-    print(f"\n🔍 Smart Security Audit Results")
+    print("\n🔍 Smart Security Audit Results")
     print(f"{'=' * 60}")
 
     if not unsecured:
@@ -297,7 +297,7 @@ def find_unsecured_functions(min_priority: str = "medium", limit: int = 20):
     for i, file_data in enumerate(unsecured[:limit]):
         unsecured_count = file_data["whitelist_functions"] - file_data["security_decorators"]
 
-        print(f"\n{i+1}. 🚨 {file_data['priority'].upper()} PRIORITY")
+        print(f"\n{i + 1}. 🚨 {file_data['priority'].upper()} PRIORITY")
         print(f"   📁 {file_data['relative_path']}")
         print(f"   🔢 Functions: {file_data['whitelist_functions']} total, {unsecured_count} unsecured")
         print(f"   📊 Coverage: {file_data['security_coverage']:.1f}%")
@@ -326,7 +326,7 @@ def get_security_summary():
     auditor = SmartSecurityAuditor()
     summary = auditor.get_security_summary()
 
-    print(f"\n📊 Security Coverage Summary")
+    print("\n📊 Security Coverage Summary")
     print(f"{'=' * 50}")
     print(
         f"📁 Files: {summary['secured_files']}/{summary['total_files']} secured ({summary['file_coverage']:.1f}%)"
@@ -335,7 +335,7 @@ def get_security_summary():
         f"⚡ Functions: {summary['secured_functions']}/{summary['total_functions']} secured ({summary['function_coverage']:.1f}%)"
     )
 
-    print(f"\n🎯 Priority Breakdown:")
+    print("\n🎯 Priority Breakdown:")
     for priority, stats in summary["priority_breakdown"].items():
         coverage = (stats["secured"] / stats["files"] * 100) if stats["files"] > 0 else 0
         print(f"   {priority.upper()}: {stats['secured']}/{stats['files']} files ({coverage:.1f}%)")
@@ -358,7 +358,7 @@ def get_next_batch(priority: str = "critical", batch_size: int = 5):
 
     for i, file_data in enumerate(batch):
         unsecured_count = file_data["whitelist_functions"] - file_data["security_decorators"]
-        print(f"{i+1}. {file_data['relative_path']} ({unsecured_count} functions)")
+        print(f"{i + 1}. {file_data['relative_path']} ({unsecured_count} functions)")
 
     return {
         "batch": [

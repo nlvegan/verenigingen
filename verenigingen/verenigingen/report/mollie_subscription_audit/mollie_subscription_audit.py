@@ -226,7 +226,7 @@ def get_data(filters=None):
     # Show completion message
     frappe.publish_realtime(
         "msgprint",
-        f"Audit complete! Found {len(data)-1} issues. Detailed report saved to private/files/subscription_audit_report.json",
+        f"Audit complete! Found {len(data) - 1} issues. Detailed report saved to private/files/subscription_audit_report.json",
         user=frappe.session.user,
     )
 

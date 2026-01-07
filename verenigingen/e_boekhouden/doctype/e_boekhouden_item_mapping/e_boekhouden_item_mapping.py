@@ -161,7 +161,9 @@ def create_default_mappings(company):
             mapping.transaction_type = (
                 "Sales"
                 if account.root_type == "Income"
-                else "Purchase" if account.root_type == "Expense" else "Both"
+                else "Purchase"
+                if account.root_type == "Expense"
+                else "Both"
             )
             mapping.is_active = 1
             mapping.insert(ignore_permissions=True)

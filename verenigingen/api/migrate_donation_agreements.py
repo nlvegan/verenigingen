@@ -108,15 +108,15 @@ def migrate_all_donation_agreements(dry_run=True):
 
         if dry_run:
             frappe.db.rollback()  # Don't save anything in dry run
-            results["message"] = (
-                f"DRY RUN: Would migrate {results['stats']['migrated']} of {results['stats']['total']} agreements"
-            )
+            results[
+                "message"
+            ] = f"DRY RUN: Would migrate {results['stats']['migrated']} of {results['stats']['total']} agreements"
         else:
             if results["stats"]["errors"] == 0:
                 frappe.db.commit()  # Commit if no errors
-                results["message"] = (
-                    f"SUCCESS: Migrated {results['stats']['migrated']} of {results['stats']['total']} agreements"
-                )
+                results[
+                    "message"
+                ] = f"SUCCESS: Migrated {results['stats']['migrated']} of {results['stats']['total']} agreements"
             else:
                 frappe.db.rollback()  # Rollback if there were errors
                 results["success"] = False

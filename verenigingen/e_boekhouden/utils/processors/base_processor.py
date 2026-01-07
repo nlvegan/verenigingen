@@ -241,7 +241,7 @@ class BaseTransactionProcessor(ABC):
                 title=f"Amount Mismatch - {mutation_id}",
                 message=f"{error_msg}\n\n"
                 f"Validation type: {comparison_type}\n"
-                f"Rows breakdown:\n{frappe.as_json([{'index': i+1, 'ledger': r.get('ledgerId'), 'amount': r.get('amount')} for i, r in enumerate(rows)], indent=2)}\n\n"
+                f"Rows breakdown:\n{frappe.as_json([{'index': i + 1, 'ledger': r.get('ledgerId'), 'amount': r.get('amount')} for i, r in enumerate(rows)], indent=2)}\n\n"
                 f"Full mutation:\n{frappe.as_json(mutation, indent=2)}",
             )
 

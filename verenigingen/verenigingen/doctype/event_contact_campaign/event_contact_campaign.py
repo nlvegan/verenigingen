@@ -48,18 +48,11 @@ class EventContactCampaign(Document):
             self.contact_progress = 0
 
         # Count responses
-        self.members_attending = sum(
-            1 for m in self.contact_list if m.response == "Will Attend"
-        )
-        self.members_not_attending = sum(
-            1 for m in self.contact_list if m.response == "Cannot Attend"
-        )
-        self.members_maybe = sum(
-            1 for m in self.contact_list if m.response == "Maybe"
-        )
+        self.members_attending = sum(1 for m in self.contact_list if m.response == "Will Attend")
+        self.members_not_attending = sum(1 for m in self.contact_list if m.response == "Cannot Attend")
+        self.members_maybe = sum(1 for m in self.contact_list if m.response == "Maybe")
         self.members_pending = sum(
-            1 for m in self.contact_list
-            if m.response in ("No Response", "Left Message") or not m.response
+            1 for m in self.contact_list if m.response in ("No Response", "Left Message") or not m.response
         )
 
     def get_progress_dashboard_html(self):
@@ -169,9 +162,7 @@ def import_contactable_members(docname: str) -> dict:
         if members:
             return {
                 "status": "info",
-                "message": _("All {0} contactable members are already in the list").format(
-                    len(members)
-                ),
+                "message": _("All {0} contactable members are already in the list").format(len(members)),
                 "added": 0,
             }
         else:
@@ -331,9 +322,7 @@ def distribute_members(docname: str, volunteer_ids: str = None) -> dict:
         volunteer_idx = idx % len(volunteers)
         row.assigned_to = volunteers[volunteer_idx]
         # Fetch volunteer name
-        row.assigned_to_name = frappe.db.get_value(
-            "Volunteer", volunteers[volunteer_idx], "volunteer_name"
-        )
+        row.assigned_to_name = frappe.db.get_value("Volunteer", volunteers[volunteer_idx], "volunteer_name")
 
     doc.save()
 
@@ -463,8 +452,7 @@ def get_permission_query_conditions(user=None):
 
     # Admins and staff see all campaigns
     if any(
-        role in user_roles
-        for role in ["System Manager", "Verenigingen Administrator", "Verenigingen Staff"]
+        role in user_roles for role in ["System Manager", "Verenigingen Administrator", "Verenigingen Staff"]
     ):
         return ""
 
@@ -523,8 +511,7 @@ def has_permission(doc, ptype="read", user=None):
 
     # Admins and staff have full access
     if any(
-        role in user_roles
-        for role in ["System Manager", "Verenigingen Administrator", "Verenigingen Staff"]
+        role in user_roles for role in ["System Manager", "Verenigingen Administrator", "Verenigingen Staff"]
     ):
         return True
 

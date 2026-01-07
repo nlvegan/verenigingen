@@ -318,8 +318,7 @@ def update_member_address(address_data):
 
     except Exception as e:
         frappe.log_error(
-            message=f"Error updating address for member {member_name}: {str(e)}",
-            title="Address Update Error"
+            message=f"Error updating address for member {member_name}: {str(e)}", title="Address Update Error"
         )
         frappe.throw(_("An error occurred while updating your address. Please try again."))
 

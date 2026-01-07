@@ -227,7 +227,7 @@ class ChapterMembershipManager:
 
             return result
 
-        except frappe.DoesNotExistError as e:
+        except frappe.DoesNotExistError:
             # Member was deleted during processing - expected scenario, log as info
             frappe.logger().info(f"Member {member_id} no longer exists, skipping chapter assignment")
             return {"success": False, "error": _("Member {0} not found").format(member_id)}

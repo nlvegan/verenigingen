@@ -289,23 +289,22 @@ class PaymentMixin:
 
             # Note: Membership lookup removed - using is_membership_invoice boolean instead
             # SEPA mandate data is now retrieved from member's default mandate
-            memberships_by_name = {}
 
             # Get mandate names from member's default mandate instead of membership records
-            mandate_names = []
+            # mandate_names = []  # Unused, kept for future reference
 
-            # Batch fetch mandates with chunking
-            all_mandates = []
-            if mandate_names:
-                all_mandates = self._batch_fetch_with_chunking(
-                    doctype="SEPA Mandate",
-                    name_list=mandate_names,
-                    fields=["name", "status", "mandate_id"],
-                    chunk_size=500,
-                )
+            # Batch fetch mandates with chunking (kept for future mandate lookup feature)
+            # all_mandates = []
+            # if mandate_names:
+            #     all_mandates = self._batch_fetch_with_chunking(
+            #         doctype="SEPA Mandate",
+            #         name_list=mandate_names,
+            #         fields=["name", "status", "mandate_id"],
+            #         chunk_size=500,
+            #     )
 
-            # Build lookup: mandate_name → mandate_data
-            mandates_by_name = {m.name: m for m in all_mandates}
+            # Build lookup: mandate_name → mandate_data (kept for future use)
+            # mandates_by_name = {m.name: m for m in all_mandates}
 
             # Track reconciled payments for unreconciled payment detection
             reconciled_payments = []

@@ -215,10 +215,12 @@ class DuplicateError(VerenigingenError):
     def __init__(self, resource_type: str, identifier: str, field: Optional[str] = None, **kwargs: Any):
         message = f"{resource_type} with {field or 'identifier'} '{identifier}' already exists"
         details = kwargs.pop("details", {})
-        details.update({
-            "resource_type": resource_type,
-            "identifier": identifier,
-        })
+        details.update(
+            {
+                "resource_type": resource_type,
+                "identifier": identifier,
+            }
+        )
         if field:
             details["field"] = field
         super().__init__(message, details=details, **kwargs)
@@ -279,7 +281,9 @@ class InsufficientFundsError(BusinessRuleError):
         >>> raise InsufficientFundsError("Cannot process payment", amount=100.00, balance=50.00)
     """
 
-    def __init__(self, message: str, amount: Optional[float] = None, balance: Optional[float] = None, **kwargs: Any):
+    def __init__(
+        self, message: str, amount: Optional[float] = None, balance: Optional[float] = None, **kwargs: Any
+    ):
         details = kwargs.pop("details", {})
         if amount is not None:
             details["amount"] = amount
@@ -299,7 +303,13 @@ class ServiceError(VerenigingenError):
     Deprecated: Use specific exception types (ValidationError, NotFoundError, etc.)
     """
 
-    def __init__(self, message: str, service_name: Optional[str] = None, context: Optional[Dict] = None, original_error: Optional[Exception] = None):
+    def __init__(
+        self,
+        message: str,
+        service_name: Optional[str] = None,
+        context: Optional[Dict] = None,
+        original_error: Optional[Exception] = None,
+    ):
         details = context or {}
         if service_name:
             details["service_name"] = service_name

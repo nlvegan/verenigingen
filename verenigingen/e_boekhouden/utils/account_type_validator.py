@@ -133,7 +133,7 @@ def get_recommended_account_type(account_name, account_number, root_type):
         str or None: Recommended account type, or None for no specific type
     """
     account_name_lower = account_name.lower()
-    account_num_str = str(account_number) if account_number else ""
+    _account_num_str = str(account_number) if account_number else ""  # noqa: F841 reserved for future use
 
     # Bank accounts (10xx-11xx range or keywords)
     if any(keyword in account_name_lower for keyword in ["bank", "rekening courant", "betaalrekening"]):

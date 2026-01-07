@@ -97,9 +97,9 @@ def check_coverage_scheduling_mismatches():
             print(f"   ⚠️ GAP: {m['gap_days']} days")
 
             if m["gap_days"] < 0:
-                print(f"   → Coverage EXTENDS PAST next invoice date!")
+                print("   → Coverage EXTENDS PAST next invoice date!")
             else:
-                print(f"   → Coverage ENDS TOO EARLY before next invoice!")
+                print("   → Coverage ENDS TOO EARLY before next invoice!")
 
         if len(mismatches) > 20:
             print(f"\n... and {len(mismatches) - 20} more mismatches")

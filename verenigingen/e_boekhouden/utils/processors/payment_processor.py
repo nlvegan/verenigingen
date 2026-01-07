@@ -86,7 +86,7 @@ class PaymentProcessor(BaseTransactionProcessor):
                 )
                 if is_negative and not has_invoice_ref:
                     self.debug_info.append(
-                        f"⚠️ Excluding Type 3 negative amount without invoice ref (generic refund) - forwarding to JournalProcessor"
+                        "⚠️ Excluding Type 3 negative amount without invoice ref (generic refund) - forwarding to JournalProcessor"
                     )
                     return False
 
@@ -191,7 +191,9 @@ class PaymentProcessor(BaseTransactionProcessor):
 
         if not bank_account:
             # Get ledger code for better error message
-            ledger_code = frappe.db.get_value("E-Boekhouden Ledger Mapping", {"ledger_id": str(ledger_id)}, "ledger_code")
+            ledger_code = frappe.db.get_value(
+                "E-Boekhouden Ledger Mapping", {"ledger_id": str(ledger_id)}, "ledger_code"
+            )
             raise frappe.ValidationError(
                 f"No ERPNext account mapped for E-Boekhouden ledger {ledger_id} (code: {ledger_code}). "
                 f"Please link the ledger mapping to an ERPNext account before importing."
@@ -378,9 +380,7 @@ class PaymentProcessor(BaseTransactionProcessor):
 
                 # Try to assign party to bank account entry if appropriate
                 if party_info:
-                    party_assignment = party_extractor.resolve_party_for_journal_entry(
-                        party_info, gl_account
-                    )
+                    party_assignment = party_extractor.resolve_party_for_journal_entry(party_info, gl_account)
                     if party_assignment:
                         bank_entry["party_type"] = party_assignment[0]
                         bank_entry["party"] = party_assignment[1]
@@ -430,9 +430,7 @@ class PaymentProcessor(BaseTransactionProcessor):
 
                 # Try to assign party to bank account entry if appropriate
                 if party_info:
-                    party_assignment = party_extractor.resolve_party_for_journal_entry(
-                        party_info, gl_account
-                    )
+                    party_assignment = party_extractor.resolve_party_for_journal_entry(party_info, gl_account)
                     if party_assignment:
                         bank_entry["party_type"] = party_assignment[0]
                         bank_entry["party"] = party_assignment[1]
@@ -482,7 +480,7 @@ class PaymentProcessor(BaseTransactionProcessor):
             if bank_transaction_name:
                 self.debug_info.append(f"✅ Created Bank Transaction: {bank_transaction_name}")
             else:
-                self.debug_info.append(f"⚠️ Bank Transaction creation failed/skipped")
+                self.debug_info.append("⚠️ Bank Transaction creation failed/skipped")
 
             # Submit Journal Entry
             je.submit()
@@ -702,7 +700,7 @@ class PaymentProcessor(BaseTransactionProcessor):
         except Exception as e:
             # Gateway amount adjustment errors are not critical - log and continue with original
             self.debug_info.append(f"⚠️ Gateway payment {mutation_id}: Error adjusting amount: {str(e)}")
-            self.debug_info.append(f"⚠️ Continuing with original mutation amount")
+            self.debug_info.append("⚠️ Continuing with original mutation amount")
 
         # If adjustment failed or not applicable, return original
         return mutation
@@ -878,7 +876,7 @@ class PaymentProcessor(BaseTransactionProcessor):
                         )
                     else:
                         self.debug_info.append(
-                            f"🏦 Bank internal transaction: Could not extract bank name, creating without party"
+                            "🏦 Bank internal transaction: Could not extract bank name, creating without party"
                         )
                 else:
                     self.debug_info.append(f"Party info available: {party_info}")
@@ -903,7 +901,7 @@ class PaymentProcessor(BaseTransactionProcessor):
                         except Exception as e:
                             # Relation ID lookup error - log and continue to try name matching
                             self.debug_info.append(f"⚠️ Relation ID lookup error: {str(e)}")
-                            self.debug_info.append(f"⚠️ Trying party name matching instead")
+                            self.debug_info.append("⚠️ Trying party name matching instead")
 
                     # If relation_id didn't work, try party name (with optional auto-create)
                     if not party_name:

@@ -246,7 +246,7 @@ def generate_allocation_journal_entries(
                             "account": settings.dues_income_account,
                             "debit_in_account_currency": company_grand_total,
                             "credit_in_account_currency": 0,
-                            "user_remark": f"Reverse total dues income",
+                            "user_remark": "Reverse total dues income",
                         },
                         {
                             "account": settings.chapter_dues_income_account,
@@ -258,7 +258,7 @@ def generate_allocation_journal_entries(
                             "account": settings.national_dues_income_account,
                             "debit_in_account_currency": 0,
                             "credit_in_account_currency": company_national_total,
-                            "user_remark": f"Allocate national portion",
+                            "user_remark": "Allocate national portion",
                         },
                     ],
                 }

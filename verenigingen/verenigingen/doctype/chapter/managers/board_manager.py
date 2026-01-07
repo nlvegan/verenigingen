@@ -740,7 +740,6 @@ class BoardManager(BaseManager):
         old_board_members = {bm.name: bm for bm in old_doc.board_members if bm.name}
 
         # Check each current board member for changes
-        members_to_remove = []
         for board_member in self.chapter_doc.board_members or []:
             if not board_member.name:
                 continue

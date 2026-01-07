@@ -536,7 +536,7 @@ def create_donation_record(donor, form_data):
     if not result.success:
         frappe.log_error(
             message="Failed to create donation record: " + "; ".join(result.errors),
-            title="Donation Creation Security"
+            title="Donation Creation Security",
         )
         frappe.throw(_("Unable to process donation: Failed to create donation record"))
 

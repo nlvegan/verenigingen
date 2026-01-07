@@ -87,7 +87,7 @@ def execute():
         sql = f"ALTER TABLE `{table_name}` ADD UNIQUE INDEX `{index_name}` (`reference_number`)"
 
         print(f"Adding unique index {index_name} on {table_name}(reference_number)")
-        print(f"Purpose: Prevent duplicate Bank Transactions across Mollie payment APIs")
+        print("Purpose: Prevent duplicate Bank Transactions across Mollie payment APIs")
 
         frappe.db.sql(sql)
         frappe.db.commit()

@@ -720,7 +720,9 @@ def create_sepa_creditor_from_settings() -> SEPACreditor:
     general_settings = frappe.get_single("Verenigingen Settings")
 
     return SEPACreditor(
-        name=payment_settings.company_account_holder or getattr(general_settings, "company", "") or "Company Name",
+        name=payment_settings.company_account_holder
+        or getattr(general_settings, "company", "")
+        or "Company Name",
         iban=payment_settings.company_iban or "",
         bic=payment_settings.company_bic or derive_bic_from_iban(payment_settings.company_iban or ""),
         creditor_id=payment_settings.creditor_id or "",

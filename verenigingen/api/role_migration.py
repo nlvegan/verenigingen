@@ -163,9 +163,7 @@ def consolidate_chapter_roles():
                     cleaned_profiles += 1
                     print(f"  🗑️  Cleaned Chapter Manager from role profile: {profile_data.name}")
                 else:
-                    print(
-                        f"  ❌ Failed to clean role profile {profile_data.name}: {'; '.join(result.errors)}"
-                    )
+                    print(f"  ❌ Failed to clean role profile {profile_data.name}: {'; '.join(result.errors)}")
 
         except Exception as e:
             print(f"  ❌ Error cleaning role profile {profile_data.name}: {e}")

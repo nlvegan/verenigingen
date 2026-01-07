@@ -291,9 +291,7 @@ def get_supported_notification_types() -> OperationResult[Dict[str, Any]]:
     """
     try:
         notifications = frappe.get_all(
-            "Notification",
-            filters={"enabled": 1},
-            fields=["name", "document_type", "event", "channel"]
+            "Notification", filters={"enabled": 1}, fields=["name", "document_type", "event", "channel"]
         )
 
         # Extract just names for backwards compatibility
@@ -303,7 +301,7 @@ def get_supported_notification_types() -> OperationResult[Dict[str, Any]]:
             {
                 "notifications": notifications,
                 "notification_types": notification_names,  # Backwards compatible
-                "count": len(notifications)
+                "count": len(notifications),
             },
             message=_("Retrieved configured notifications successfully"),
         )

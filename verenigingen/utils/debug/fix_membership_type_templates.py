@@ -168,7 +168,9 @@ def create_missing_templates():
                             else (
                                 "Quarterly"
                                 if mt.billing_period == "Quarterly"
-                                else "Semi-Annual" if mt.billing_period == "Biannual" else "Annual"
+                                else "Semi-Annual"
+                                if mt.billing_period == "Biannual"
+                                else "Annual"
                             )
                         )  # Default for Annual, Lifetime, Custom
                     ),

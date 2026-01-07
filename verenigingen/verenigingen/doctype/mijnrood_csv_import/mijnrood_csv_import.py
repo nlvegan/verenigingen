@@ -1770,9 +1770,7 @@ class MijnroodCSVImport(Document):
         membership_type = determine_membership_type_for_csv_import(row_data)
 
         if not membership_type:
-            frappe.throw(
-                f"Could not determine membership type for member: {row_data.get('member_id')}"
-            )
+            frappe.throw(f"Could not determine membership type for member: {row_data.get('member_id')}")
 
         # Set member fields for unified path
         member_doc.selected_membership_type = membership_type

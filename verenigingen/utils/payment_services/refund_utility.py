@@ -248,7 +248,7 @@ def initiate_refund(
         else:
             return refund_result
 
-    except frappe.DoesNotExistError as e:
+    except frappe.DoesNotExistError:
         # Document not found - user-facing error
         frappe.log_error(f"Payment Entry not found for refund: {payment_entry_name}", LOG_CATEGORY_REFUND)
         return _create_error_response("Payment Entry not found", error_code="PAYMENT_ENTRY_NOT_FOUND")

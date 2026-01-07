@@ -444,10 +444,10 @@ def get_payment_status(member, membership):
 
     try:
         # Import the coverage enhancement function
-        from verenigingen.utils.member_portal_utils import enhance_outstanding_invoices_with_coverage
         from verenigingen.services.member.financial.member_fee_calculation_service import (
             get_member_fee_calculation_service,
         )
+        from verenigingen.utils.member_portal_utils import enhance_outstanding_invoices_with_coverage
 
         # Get current fee information
         current_fee_info = get_member_fee_calculation_service().get_current_membership_fee(member)

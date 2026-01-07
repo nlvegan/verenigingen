@@ -8,11 +8,7 @@ Creates account groups for ANBI-compliant financial reporting:
 import frappe
 from frappe import _
 
-from verenigingen.utils.security.api_security_framework import (
-    OperationType,
-    critical_api,
-    standard_api,
-)
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, standard_api
 
 
 def get_company():
@@ -48,20 +44,22 @@ def get_account_groups():
 
     result = []
     for a in accounts:
-        result.append({
-            "number": a.account_number or "N/A",
-            "name": a.name,
-            "root_type": a.root_type,
-            "parent": a.parent_account,
-            "is_group": a.is_group
-        })
+        result.append(
+            {
+                "number": a.account_number or "N/A",
+                "name": a.name,
+                "root_type": a.root_type,
+                "parent": a.parent_account,
+                "is_group": a.is_group,
+            }
+        )
 
     return {
         "success": True,
         "company": company,
         "total_accounts": total,
         "total_groups": groups,
-        "accounts": result
+        "accounts": result,
     }
 
 
@@ -84,16 +82,12 @@ def create_anbi_account_groups():
 
     # Find Kosten parent account
     kosten_parent = frappe.db.get_value(
-        "Account",
-        {"company": company, "account_number": "6", "is_group": 1},
-        "name"
+        "Account", {"company": company, "account_number": "6", "is_group": 1}, "name"
     )
     if not kosten_parent:
         # Try by name pattern
         kosten_parent = frappe.db.get_value(
-            "Account",
-            {"company": company, "name": ["like", "6 - Kosten%"], "is_group": 1},
-            "name"
+            "Account", {"company": company, "name": ["like", "6 - Kosten%"], "is_group": 1}, "name"
         )
 
     if not kosten_parent:
@@ -122,9 +116,7 @@ def create_anbi_account_groups():
         try:
             # Check if already exists
             existing = frappe.db.get_value(
-                "Account",
-                {"company": company, "account_number": group_config["account_number"]},
-                "name"
+                "Account", {"company": company, "account_number": group_config["account_number"]}, "name"
             )
 
             if existing:
@@ -147,12 +139,14 @@ def create_anbi_account_groups():
         except Exception as e:
             frappe.log_error(
                 message=f"Failed to create ANBI account {group_config['account_name']}: {str(e)}",
-                title="ANBI Account Creation Error"
+                title="ANBI Account Creation Error",
             )
-            results["errors"].append({
-                "account": group_config["account_name"],
-                "error": _("Failed to create account. See error log for details.")
-            })
+            results["errors"].append(
+                {
+                    "account": group_config["account_name"],
+                    "error": _("Failed to create account. See error log for details."),
+                }
+            )
 
     if results["created"] or results["existing"]:
         frappe.db.commit()
@@ -160,7 +154,7 @@ def create_anbi_account_groups():
     results["summary"] = {
         "created": len(results["created"]),
         "already_existed": len(results["existing"]),
-        "errors": len(results["errors"])
+        "errors": len(results["errors"]),
     }
 
     return results

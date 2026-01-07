@@ -1115,8 +1115,9 @@ def _get_or_create_generic_customer(description, debug_info):
     consistent matching and creation logic across the codebase.
     """
     try:
-        from .eboekhouden_payment_naming import get_meaningful_description
         from verenigingen.e_boekhouden.utils.bank_transaction_parser import BankTransactionParser
+
+        from .eboekhouden_payment_naming import get_meaningful_description
 
         # Clean and improve the description
         clean_description = get_meaningful_description(description) if description else ""
@@ -1169,8 +1170,9 @@ def _get_or_create_generic_supplier(description, debug_info):
     consistent matching and creation logic across the codebase.
     """
     try:
-        from .eboekhouden_payment_naming import get_meaningful_description
         from verenigingen.e_boekhouden.utils.bank_transaction_parser import BankTransactionParser
+
+        from .eboekhouden_payment_naming import get_meaningful_description
 
         # Clean and improve the description
         clean_description = get_meaningful_description(description) if description else ""
@@ -1518,6 +1520,7 @@ def _import_opening_balances(company, cost_center, debug_info, dry_run=False):
         # Ensure fiscal year exists for opening balance date
         try:
             from .invoice_helpers import ensure_fiscal_year_exists
+
             fiscal_year = ensure_fiscal_year_exists(opening_date, company, debug_info)
             debug_info.append(f"Fiscal year {fiscal_year} verified/created for opening balance date")
         except Exception as fy_error:
@@ -1834,6 +1837,7 @@ def _import_opening_balances_from_data(mutations_data, company, cost_center, deb
         # Ensure fiscal year exists for opening balance date
         try:
             from .invoice_helpers import ensure_fiscal_year_exists
+
             fiscal_year = ensure_fiscal_year_exists(opening_date, company, debug_info)
             debug_info.append(f"Fiscal year {fiscal_year} verified/created for opening balance date")
         except Exception as fy_error:
@@ -3025,7 +3029,7 @@ def _create_purchase_invoice(mutation_detail, company, cost_center, debug_info):
 
         # Compare old vs new classification
         new_is_credit_note = new_classification.processing_strategy == ProcessingStrategy.CREDIT_NOTE
-        new_requires_consolidation = new_classification.requires_consolidation
+        _new_requires_consolidation = new_classification.requires_consolidation  # noqa: F841
 
         # Detect mismatches
         if is_credit_note != new_is_credit_note:
@@ -3275,7 +3279,9 @@ def _create_zero_amount_payment_entry(mutation, company, cost_center, debug_info
 
         if not bank_account:
             # Get ledger code for better error message
-            ledger_code = frappe.db.get_value("E-Boekhouden Ledger Mapping", {"ledger_id": str(ledger_id)}, "ledger_code")
+            ledger_code = frappe.db.get_value(
+                "E-Boekhouden Ledger Mapping", {"ledger_id": str(ledger_id)}, "ledger_code"
+            )
             raise frappe.ValidationError(
                 f"No ERPNext account mapped for E-Boekhouden ledger {ledger_id} (code: {ledger_code}). "
                 f"Please link the ledger mapping to an ERPNext account before importing."
@@ -3416,7 +3422,9 @@ def _create_money_transfer_payment_entry(mutation, company, cost_center, debug_i
         debug_info.append(f"Mapped main ledger {ledger_id} to bank account: {bank_account}")
     else:
         # Get ledger code for better error message
-        ledger_code = frappe.db.get_value("E-Boekhouden Ledger Mapping", {"ledger_id": str(ledger_id)}, "ledger_code")
+        ledger_code = frappe.db.get_value(
+            "E-Boekhouden Ledger Mapping", {"ledger_id": str(ledger_id)}, "ledger_code"
+        )
         raise frappe.ValidationError(
             f"No ERPNext account mapped for E-Boekhouden ledger {ledger_id} (code: {ledger_code}). "
             f"Please link the ledger mapping to an ERPNext account before importing."
@@ -3682,7 +3690,7 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
             # The balancing entry to main ledger will be added ONCE after all rows
             if is_memorial_booking:
                 # Get proper debit/credit amounts based on account categories
-                row_debit, row_credit, _, _ = _get_memorial_booking_amounts(
+                row_debit, row_credit, _unused1, _unused2 = _get_memorial_booking_amounts(
                     row_ledger_id, ledger_id, row_amount, debug_info
                 )
                 entry_line = {
@@ -4702,7 +4710,7 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
 
                     # If no Payment Entries were created, show a different message
                     if total == 0:
-                        summary_content += f"PAYMENT ENTRY STATUS:\n"
+                        summary_content += "PAYMENT ENTRY STATUS:\n"
                         summary_content += (
                             f"• No Payment Entries created ({len(mutations)} mutations processed)\n"
                         )
@@ -4716,7 +4724,7 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
                     else:
                         # Show detailed breakdown when Payment Entries exist
                         je_count = len(mutations) - total
-                        summary_content += f"BANK TRANSACTION STATUS:\n"
+                        summary_content += "BANK TRANSACTION STATUS:\n"
                         summary_content += (
                             f"• Payment Entries in batch: {total} (of {len(mutations)} mutations processed)\n"
                         )

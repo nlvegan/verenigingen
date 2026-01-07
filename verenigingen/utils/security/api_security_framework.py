@@ -1611,9 +1611,7 @@ def api_security_framework(
         # First, check direct attribute
         if hasattr(func, "__func_is_whitelisted__"):
             wrapper.__func_is_whitelisted__ = func.__func_is_whitelisted__
-            _safe_debug_log(
-                f"Preserved __func_is_whitelisted__ from func: {func.__func_is_whitelisted__}"
-            )
+            _safe_debug_log(f"Preserved __func_is_whitelisted__ from func: {func.__func_is_whitelisted__}")
 
         # Check for allow_guest attribute (legacy pattern)
         elif hasattr(func, "allow_guest") and func.allow_guest:
@@ -1645,15 +1643,11 @@ def api_security_framework(
             method_path = f"{func.__module__}.{func.__name__}"
             if method_path in getattr(frappe, "_whitelisted_methods", set()):
                 wrapper.__func_is_whitelisted__ = True
-                _safe_debug_log(
-                    f"Set __func_is_whitelisted__ from whitelist registry for {method_path}"
-                )
+                _safe_debug_log(f"Set __func_is_whitelisted__ from whitelist registry for {method_path}")
             else:
                 # As a last resort, assume True since our decorator is typically only used on whitelisted functions
                 wrapper.__func_is_whitelisted__ = True
-                _safe_debug_log(
-                    f"Fallback: Set __func_is_whitelisted__ = True for {method_path}"
-                )
+                _safe_debug_log(f"Fallback: Set __func_is_whitelisted__ = True for {method_path}")
 
         # Also preserve other common Frappe attributes
         for attr in ["allow_guest", "_original_func_name"]:
@@ -1680,9 +1674,7 @@ def api_security_framework(
                 elif isinstance(frappe.whitelisted, list):
                     if wrapper not in frappe.whitelisted:
                         frappe.whitelisted.append(wrapper)
-                _safe_debug_log(
-                    f"Added wrapper to frappe.whitelisted for {func.__name__}"
-                )
+                _safe_debug_log(f"Added wrapper to frappe.whitelisted for {func.__name__}")
 
         # CRITICAL FIX 2: Add wrapper to allowed_http_methods_for_whitelisted_func
         # Frappe also has a dict mapping function objects to allowed HTTP methods.

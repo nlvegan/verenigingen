@@ -151,7 +151,9 @@ def create_payment_link(
                 creditor_iban = payments_settings.company_iban
 
         if not creditor_name or not creditor_iban:
-            frappe.throw(_("Creditor name and IBAN are required. Configure them in Verenigingen Payments Settings."))
+            frappe.throw(
+                _("Creditor name and IBAN are required. Configure them in Verenigingen Payments Settings.")
+            )
 
         # Create the payment link document
         doc = frappe.new_doc("Ponto Payment Link")

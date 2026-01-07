@@ -266,7 +266,7 @@ def configure_creation_user_in_settings(user_email):
     try:
         settings_name = "Verenigingen Settings"
         if not frappe.db.exists("Verenigingen Settings", settings_name):
-            print(f"   ⚠️ Verenigingen Settings not found, skipping configuration")
+            print("   ⚠️ Verenigingen Settings not found, skipping configuration")
             return {"success": True, "message": "Settings not found, skipped"}
 
         settings = frappe.get_doc("Verenigingen Settings", settings_name)

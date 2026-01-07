@@ -117,9 +117,11 @@ def get_payments_settings() -> Optional[Dict[str, Any]]:
     # Settings don't exist - create them with minimal defaults
     try:
         frappe.logger().info("Creating default Verenigingen Payments Settings")
-        settings_doc = frappe.get_doc({
-            "doctype": "Verenigingen Payments Settings",
-        })
+        settings_doc = frappe.get_doc(
+            {
+                "doctype": "Verenigingen Payments Settings",
+            }
+        )
         settings_doc.insert(ignore_permissions=True)
         frappe.db.commit()
 

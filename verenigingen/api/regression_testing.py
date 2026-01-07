@@ -70,7 +70,9 @@ def test_volunteer_role_assignment():
                     return {"success": True, "results": results}
                 except Exception as e:
                     if "does not exist" in str(e):
-                        results.append(f"ℹ️ Volunteer role assignment skipped - user does not exist: {str(e)}")
+                        results.append(
+                            f"ℹ️ Volunteer role assignment skipped - user does not exist: {str(e)}"
+                        )
                         return {"success": True, "results": results}
                     else:
                         results.append(f"❌ Volunteer role assignment error: {str(e)}")

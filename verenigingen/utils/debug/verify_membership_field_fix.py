@@ -49,7 +49,9 @@ def verify_membership_field_fix():
                     "status": (
                         "✓ FIXED"
                         if (schedule and membership and schedule.membership == membership.name)
-                        else "✗ ISSUE" if schedule and not schedule.membership else "⚠ NO SCHEDULE"
+                        else "✗ ISSUE"
+                        if schedule and not schedule.membership
+                        else "⚠ NO SCHEDULE"
                     ),
                 }
             )

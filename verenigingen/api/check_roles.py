@@ -890,7 +890,9 @@ def test_payment_history_popup_data():
                         "data_source": (
                             "Schedule"
                             if schedule_coverage[0] or schedule_coverage[1]
-                            else "Invoice Cache" if invoice_coverage[0] or invoice_coverage[1] else "None"
+                            else "Invoice Cache"
+                            if invoice_coverage[0] or invoice_coverage[1]
+                            else "None"
                         ),
                     },
                 }

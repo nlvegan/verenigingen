@@ -62,79 +62,164 @@ GROUP_KEYWORDS = {
         "kantoorinventaris",
     ],
     "Liquide middelen": [
-        "bank", " kas ", "kasgeld", "giro", "spaar", "rekening courant", "deposito",
-        "paypal", "mollie", "ideal", "ing bank", "abn amro", "rabobank", "triodos", "asn bank",
-        "betaalrekening", "spaarrekening",
+        "bank",
+        " kas ",
+        "kasgeld",
+        "giro",
+        "spaar",
+        "rekening courant",
+        "deposito",
+        "paypal",
+        "mollie",
+        "ideal",
+        "ing bank",
+        "abn amro",
+        "rabobank",
+        "triodos",
+        "asn bank",
+        "betaalrekening",
+        "spaarrekening",
     ],
     "Voorraden": ["voorraad", "magazijn", "handelsgoederen"],
     "Vorderingen": [
-        "debiteuren", "vordering", "te ontvangen", "vooruitbetaalde",
+        "debiteuren",
+        "vordering",
+        "te ontvangen",
+        "vooruitbetaalde",
         "nog te factureren",
     ],
-
     # Balance sheet groups - Equity & Liabilities
     "Eigen Vermogen": [
-        "eigen vermogen", "algemene reserve", "bestemmingsreserve", "kapitaal",
-        "resultaat voorgaand", "beginvermogen", "stichtingskapitaal",
+        "eigen vermogen",
+        "algemene reserve",
+        "bestemmingsreserve",
+        "kapitaal",
+        "resultaat voorgaand",
+        "beginvermogen",
+        "stichtingskapitaal",
     ],
     "Schulden": [
-        "crediteuren", "schuld aan", "te betalen kosten", "vooruit ontvangen",
-        "btw af te dragen", "btw te betalen", "loonheffing te betalen",
-        "belasting te betalen", "nog te betalen",
+        "crediteuren",
+        "schuld aan",
+        "te betalen kosten",
+        "vooruit ontvangen",
+        "btw af te dragen",
+        "btw te betalen",
+        "loonheffing te betalen",
+        "belasting te betalen",
+        "nog te betalen",
     ],
-
     # P&L expense groups
     "Personeelskosten": [
-        "lonen en salaris", "salaris", "personeel", "medewerk",
-        "sociale lasten", "vakantiegeld", "pensioen", "vacatiegeld",
-        "reiskosten medewerk", "opleidingskosten", "werving",
+        "lonen en salaris",
+        "salaris",
+        "personeel",
+        "medewerk",
+        "sociale lasten",
+        "vakantiegeld",
+        "pensioen",
+        "vacatiegeld",
+        "reiskosten medewerk",
+        "opleidingskosten",
+        "werving",
     ],
     "Promotiekosten": [
-        "promotie", "marketing", "reclame", "advertentie", "campagne",
-        "pr-kosten", "communicatiekosten", "huisstijl", "branding",
+        "promotie",
+        "marketing",
+        "reclame",
+        "advertentie",
+        "campagne",
+        "pr-kosten",
+        "communicatiekosten",
+        "huisstijl",
+        "branding",
     ],
     "Algemene kosten": [
-        "algemene kosten", "bankkosten", "onvoorziene kosten",
-        "huur locatie", "netwerk", "conferentie",
+        "algemene kosten",
+        "bankkosten",
+        "onvoorziene kosten",
+        "huur locatie",
+        "netwerk",
+        "conferentie",
     ],
     "Verzekeringen": ["verzekering", "wa-verzekering", "aansprakelijkheid"],
     "Kantoorkosten": [
-        "kantoor:", "telefoon", "porto", "drukwerk",
-        "kantoormateriaal", "kantoorbenodigdheden", "postbus", "opslagbox",
+        "kantoor:",
+        "telefoon",
+        "porto",
+        "drukwerk",
+        "kantoormateriaal",
+        "kantoorbenodigdheden",
+        "postbus",
+        "opslagbox",
     ],
     "Ledenadministratie": [
-        "ledenservice", "lidmaatschap", "ledenadmin",
-        "ledenbinding", "ledenwerving",
+        "ledenservice",
+        "lidmaatschap",
+        "ledenadmin",
+        "ledenbinding",
+        "ledenwerving",
     ],
     "Programma's": ["programma "],  # Space after to avoid partial matches
     "Evenementen": [
-        "evenement", "festival", "beurs", "congres", "alv ",
-        "bijeenkomst", "potluck",
+        "evenement",
+        "festival",
+        "beurs",
+        "congres",
+        "alv ",
+        "bijeenkomst",
+        "potluck",
     ],
     "Afschrijvingen": [
         "afschrijving ",  # Space after - matches "Afschrijving Inventaris" etc.
-        "afschrijvingskosten", "amortisatie", "waardevermindering",
+        "afschrijvingskosten",
+        "amortisatie",
+        "waardevermindering",
     ],
     "Administratiekosten": [
-        "administratiekosten", "boekhouding", "accountant", "audit",
-        "jaarrekening", "salarisadministratie", "notaris", "juridisch",
+        "administratiekosten",
+        "boekhouding",
+        "accountant",
+        "audit",
+        "jaarrekening",
+        "salarisadministratie",
+        "notaris",
+        "juridisch",
     ],
     "ICT-Kosten": [
-        "ict-", "ict ", "software", "hosting", "domein", "website",
-        "webserver", "licentie", "cloud", "saas", "hardware",
+        "ict-",
+        "ict ",
+        "software",
+        "hosting",
+        "domein",
+        "website",
+        "webserver",
+        "licentie",
+        "cloud",
+        "saas",
+        "hardware",
     ],
     "Bestuur": [
-        "bestuurskosten", "directiekosten", "raad van toezicht",
-        "vergaderkosten bestuur", "presentjes - bestuur",
+        "bestuurskosten",
+        "directiekosten",
+        "raad van toezicht",
+        "vergaderkosten bestuur",
+        "presentjes - bestuur",
     ],
     "Overige kosten": ["overige bedrijfskosten"],
-
     # P&L income groups
     # NOTE: These keywords should be specific to income accounts
     # Many expense keywords appear in income account names with ": inkomsten" suffix
     "Opbrengsten": [
-        "opbrengst", "omzet", "inkomsten", "verkoop", "donaties:",
-        "subsidie", "sponsoring", "legaat", "erfenis",
+        "opbrengst",
+        "omzet",
+        "inkomsten",
+        "verkoop",
+        "donaties:",
+        "subsidie",
+        "sponsoring",
+        "legaat",
+        "erfenis",
         "contributie leden",  # Income from member contributions
         "advertenties in",  # Revenue from ads in magazine
         "advertenties v",  # Revenue from ads in vegan cookbook/festival
@@ -156,8 +241,16 @@ GROUP_KEYWORDS = {
 #
 # We use income-signaling patterns to exclude accounts from expense groups
 INCOME_SIGNALS = [
-    "inkomsten", "opbrengsten", "ontvangen", "omzet", "verkoop",
-    "donaties", "giften", "subsidie", "sponsoring", "bijdrage",
+    "inkomsten",
+    "opbrengsten",
+    "ontvangen",
+    "omzet",
+    "verkoop",
+    "donaties",
+    "giften",
+    "subsidie",
+    "sponsoring",
+    "bijdrage",
 ]
 
 EXCLUDE_PATTERNS = {
@@ -205,10 +298,26 @@ def _get_keywords_for_group(group_name):
     # Fallback: extract words from group name (excluding common filler words)
     # These words are too generic or appear in many account names unrelated to the group
     FILLER_WORDS = {
-        "programma", "programma's", "kosten", "overige", "algemene",
-        "en", "van", "de", "het", "een", "voor", "met", "naar",
-        "je", "kan", "kun", "zonder", "niet",  # Common Dutch words
-        "interne", "externe",  # Too generic
+        "programma",
+        "programma's",
+        "kosten",
+        "overige",
+        "algemene",
+        "en",
+        "van",
+        "de",
+        "het",
+        "een",
+        "voor",
+        "met",
+        "naar",
+        "je",
+        "kan",
+        "kun",
+        "zonder",
+        "niet",  # Common Dutch words
+        "interne",
+        "externe",  # Too generic
         "vegan",  # Useless for a vegan org - everything is vegan
     }
 
@@ -325,8 +434,7 @@ def get_group_type_mappings_dict(settings=None):
 
 
 def find_or_create_group_account(
-    group_code, group_name, root_type, company, dry_run=False,
-    created_groups=None, groups_created=None
+    group_code, group_name, root_type, company, dry_run=False, created_groups=None, groups_created=None
 ):
     """Find or create a group account for the given group code.
 
@@ -384,37 +492,43 @@ def find_or_create_group_account(
         # In dry run, return a placeholder name
         placeholder_name = f"{group_name} - {company}"
         created_groups[cache_key] = placeholder_name
-        groups_created.append({
-            "group_code": group_code,
-            "group_name": group_name,
-            "root_type": root_type,
-            "parent": root_parent,
-            "status": "would_create",
-        })
+        groups_created.append(
+            {
+                "group_code": group_code,
+                "group_name": group_name,
+                "root_type": root_type,
+                "parent": root_parent,
+                "status": "would_create",
+            }
+        )
         return placeholder_name
 
     # Actually create the group account
     try:
-        group_account = frappe.get_doc({
-            "doctype": "Account",
-            "account_name": group_name,
-            "company": company,
-            "root_type": root_type,
-            "is_group": 1,
-            "parent_account": root_parent,
-            "disabled": 0,
-        })
+        group_account = frappe.get_doc(
+            {
+                "doctype": "Account",
+                "account_name": group_name,
+                "company": company,
+                "root_type": root_type,
+                "is_group": 1,
+                "parent_account": root_parent,
+                "disabled": 0,
+            }
+        )
         group_account.insert(ignore_permissions=True)
 
         created_groups[cache_key] = group_account.name
-        groups_created.append({
-            "group_code": group_code,
-            "group_name": group_name,
-            "root_type": root_type,
-            "parent": root_parent,
-            "account_id": group_account.name,
-            "status": "created",
-        })
+        groups_created.append(
+            {
+                "group_code": group_code,
+                "group_name": group_name,
+                "root_type": root_type,
+                "parent": root_parent,
+                "account_id": group_account.name,
+                "status": "created",
+            }
+        )
 
         return group_account.name
 
@@ -466,7 +580,10 @@ def reorganize_account_hierarchy(dry_run=True):
         group_type_mappings = get_group_type_mappings_dict(settings)
 
         if not group_type_mappings:
-            return {"success": False, "error": "No group type mappings configured. Please configure mappings first using 'Parse & Suggest Types'."}
+            return {
+                "success": False,
+                "error": "No group type mappings configured. Please configure mappings first using 'Parse & Suggest Types'.",
+            }
 
         # Get all non-group accounts (with or without account numbers)
         accounts = frappe.get_all(
@@ -494,13 +611,15 @@ def reorganize_account_hierarchy(dry_run=True):
 
             if not group_code:
                 skipped_count += 1
-                changes.append({
-                    "account": account.account_number or account.name,
-                    "account_name": account.account_name,
-                    "group_code": None,
-                    "status": "skipped",
-                    "reason": "No matching group found for account name",
-                })
+                changes.append(
+                    {
+                        "account": account.account_number or account.name,
+                        "account_name": account.account_name,
+                        "group_code": None,
+                        "status": "skipped",
+                        "reason": "No matching group found for account name",
+                    }
+                )
                 continue
 
             mapping = group_type_mappings[group_code]
@@ -510,13 +629,15 @@ def reorganize_account_hierarchy(dry_run=True):
             # Hierarchy reorganization should only organize within the same root_type
             if account.root_type and account.root_type != group_root_type:
                 skipped_count += 1
-                changes.append({
-                    "account": account.account_number or account.name,
-                    "account_name": account.account_name,
-                    "group_code": group_code,
-                    "status": "skipped",
-                    "reason": f"Would change root_type from {account.root_type} to {group_root_type}",
-                })
+                changes.append(
+                    {
+                        "account": account.account_number or account.name,
+                        "account_name": account.account_name,
+                        "group_code": group_code,
+                        "status": "skipped",
+                        "reason": f"Would change root_type from {account.root_type} to {group_root_type}",
+                    }
+                )
                 continue
 
             # Find or create the group parent account
@@ -532,13 +653,15 @@ def reorganize_account_hierarchy(dry_run=True):
 
             if not group_account_name:
                 skipped_count += 1
-                changes.append({
-                    "account": account.account_number,
-                    "account_name": account.account_name,
-                    "group_code": group_code,
-                    "status": "skipped",
-                    "reason": f"Could not find/create group account for {group_code}",
-                })
+                changes.append(
+                    {
+                        "account": account.account_number,
+                        "account_name": account.account_name,
+                        "group_code": group_code,
+                        "status": "skipped",
+                        "reason": f"Could not find/create group account for {group_code}",
+                    }
+                )
                 continue
 
             # Check if account is already under the correct parent
@@ -582,6 +705,7 @@ def reorganize_account_hierarchy(dry_run=True):
             frappe.db.commit()
             try:
                 from frappe.utils.nestedset import rebuild_tree
+
                 rebuild_tree("Account", "parent_account")
             except Exception as e:
                 frappe.logger().warning(f"Could not rebuild account tree: {e}")
@@ -634,7 +758,10 @@ def reclassify_accounts_by_group_mappings(dry_run=True):
         group_type_mappings = get_group_type_mappings_dict(settings)
 
         if not group_type_mappings:
-            return {"success": False, "error": "No group type mappings configured. Please configure mappings first using 'Parse & Suggest Types'."}
+            return {
+                "success": False,
+                "error": "No group type mappings configured. Please configure mappings first using 'Parse & Suggest Types'.",
+            }
 
         # Get all non-group accounts
         accounts = frappe.get_all(
@@ -658,17 +785,19 @@ def reclassify_accounts_by_group_mappings(dry_run=True):
 
             if not group_code:
                 skipped_count += 1
-                changes.append({
-                    "account": account.account_number or account.name,
-                    "account_name": account.account_name,
-                    "group_code": None,
-                    "old_root_type": account.root_type,
-                    "old_account_type": account.account_type,
-                    "new_root_type": None,
-                    "new_account_type": None,
-                    "status": "skipped",
-                    "reason": "No matching group found for account name",
-                })
+                changes.append(
+                    {
+                        "account": account.account_number or account.name,
+                        "account_name": account.account_name,
+                        "group_code": None,
+                        "old_root_type": account.root_type,
+                        "old_account_type": account.account_type,
+                        "new_root_type": None,
+                        "new_account_type": None,
+                        "status": "skipped",
+                        "reason": "No matching group found for account name",
+                    }
+                )
                 continue
 
             mapping = group_type_mappings[group_code]
@@ -678,15 +807,17 @@ def reclassify_accounts_by_group_mappings(dry_run=True):
             # Skip if this would change the root_type - only reclassify within same root
             if account.root_type and account.root_type != new_root_type:
                 skipped_count += 1
-                changes.append({
-                    "account": account.account_number or account.name,
-                    "account_name": account.account_name,
-                    "group_code": group_code,
-                    "old_root_type": account.root_type,
-                    "new_root_type": new_root_type,
-                    "status": "skipped",
-                    "reason": f"Would change root_type from {account.root_type} to {new_root_type}",
-                })
+                changes.append(
+                    {
+                        "account": account.account_number or account.name,
+                        "account_name": account.account_name,
+                        "group_code": group_code,
+                        "old_root_type": account.root_type,
+                        "new_root_type": new_root_type,
+                        "status": "skipped",
+                        "reason": f"Would change root_type from {account.root_type} to {new_root_type}",
+                    }
+                )
                 continue
 
             # Check if anything would change

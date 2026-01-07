@@ -184,8 +184,8 @@ def _categorize_failure(pe, mutation_type, payment_type, party_type, party):
         if je_exists:
             return (
                 "Type 5/6: Fell back to Journal Entry (no Bank Transaction created)",
-                f"Legacy code created Journal Entry instead of Payment Entry with Bank Transaction. "
-                f"Likely failed party extraction or account mapping.",
+                "Legacy code created Journal Entry instead of Payment Entry with Bank Transaction. "
+                "Likely failed party extraction or account mapping.",
             )
         else:
             return (
@@ -202,13 +202,13 @@ def _categorize_failure(pe, mutation_type, payment_type, party_type, party):
         if not has_invoice_ref:
             return (
                 f"Type {mutation_type}: No invoice references",
-                f"Payment Entry created but has no invoice references. Bank Transaction may have been skipped.",
+                "Payment Entry created but has no invoice references. Bank Transaction may have been skipped.",
             )
         else:
             return (
                 f"Type {mutation_type}: Bank Transaction creation failed despite invoice refs",
-                f"Payment Entry has invoice references but Bank Transaction was not created. "
-                f"This indicates a failure in the Bank Transaction creation step (line ~1185-1263 in payment_entry_handler.py).",
+                "Payment Entry has invoice references but Bank Transaction was not created. "
+                "This indicates a failure in the Bank Transaction creation step (line ~1185-1263 in payment_entry_handler.py).",
             )
 
     # Category 3: Unknown mutation type

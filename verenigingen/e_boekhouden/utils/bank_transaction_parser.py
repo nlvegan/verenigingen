@@ -136,7 +136,13 @@ class BankTransactionParser:
                 - remainder: Remaining text after party name
         """
         if not description:
-            return {"iban": None, "bic": None, "party_name": None, "salutation": None, "remainder": description}
+            return {
+                "iban": None,
+                "bic": None,
+                "party_name": None,
+                "salutation": None,
+                "remainder": description,
+            }
 
         # Try to find IBAN (NL followed by digits/letters)
         iban_match = re.match(r"(NL\d{2}[A-Z]{4}\d{10})\s+", description)
@@ -215,7 +221,7 @@ class BankTransactionParser:
 
                 # Remove "NL" at the end if it's standalone (not part of company name)
                 # "Shurgard NL" -> "Shurgard" (but keep "ODIDO NETHERLANDS B.V.")
-                if party_name.endswith(" NL") and not "NETHERLANDS" in party_name.upper():
+                if party_name.endswith(" NL") and "NETHERLANDS" not in party_name.upper():
                     party_name = party_name[:-3].strip()
 
                 # Limit length
@@ -236,7 +242,13 @@ class BankTransactionParser:
         if party_name:
             salutation, party_name = extract_salutation(party_name)
 
-        return {"iban": iban, "bic": bic, "party_name": party_name, "salutation": salutation, "remainder": remainder}
+        return {
+            "iban": iban,
+            "bic": bic,
+            "party_name": party_name,
+            "salutation": salutation,
+            "remainder": remainder,
+        }
 
     def find_or_create_party(
         self, party_name: str, party_type: str, iban: Optional[str] = None

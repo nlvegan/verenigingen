@@ -59,7 +59,7 @@ def run():
         for mismatch in report["details"]["status_mismatches"]:
             print(f"\nMember: {mismatch.get('member_name', 'N/A')} ({mismatch.get('member_id', 'N/A')})")
             if mismatch.get("issue") == "customer_id_mismatch":
-                print(f"  Issue: Customer ID mismatch")
+                print("  Issue: Customer ID mismatch")
                 print(f"  Mollie: {mismatch['mollie_customer_id']}")
                 print(f"  Member: {mismatch['member_customer_id']}")
             else:

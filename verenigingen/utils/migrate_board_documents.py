@@ -68,10 +68,10 @@ def migrate_chapter_documents(chapter_name: str, dry_run: bool = False):
                     # Update document
                     doc.document_file = new_url
                     print(f"   New path: {new_url}")
-                    print(f"   ✅ Migrated")
+                    print("   ✅ Migrated")
                     migrated += 1
                 else:
-                    print(f"   ⚠️  Migration failed or file not found")
+                    print("   ⚠️  Migration failed or file not found")
                     skipped += 1
             else:
                 # Calculate what new path would be
@@ -133,7 +133,7 @@ def migrate_all_documents(dry_run: bool = False):
     print(f"Total errors: {total_errors}")
 
     if not dry_run:
-        print(f"\n🧹 Cleaning up empty directories...")
+        print("\n🧹 Cleaning up empty directories...")
         try:
             from frappe.utils import get_files_path
 

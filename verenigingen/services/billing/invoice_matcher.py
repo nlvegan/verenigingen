@@ -18,7 +18,6 @@ from typing import Optional, Union
 
 import frappe
 
-
 # Configuration constants (from BulkPaymentChecker)
 INVOICE_MATCH_BUFFER_MONTHS = 3  # Allow matching within 3 months of coverage period
 INVOICE_AMOUNT_TOLERANCE_EUR = 0.01  # 1 cent tolerance for floating-point comparison
@@ -373,7 +372,9 @@ def find_matching_invoice_for_payment(
                 overlap_warning="Payment has no amount",
             )
 
-        payment_amount = float(amount_obj["value"] if isinstance(amount_obj, dict) else amount_obj.get("value"))
+        payment_amount = float(
+            amount_obj["value"] if isinstance(amount_obj, dict) else amount_obj.get("value")
+        )
 
         # Parse payment date - prefer paid_at for accuracy
         paid_at = getattr(sdk_payment, "paid_at", None) or sdk_payment.get("paidAt")

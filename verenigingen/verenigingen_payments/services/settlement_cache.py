@@ -89,7 +89,7 @@ class SettlementCache:
                 return self.get_settlement(settlement_id=settlement_id)
 
         # Not in cache, try to fetch and cache recent settlements
-        frappe.logger().info(f"Settlement cache miss, refreshing cache")
+        frappe.logger().info("Settlement cache miss, refreshing cache")
         self._refresh_cache()
 
         # Try again after refresh
@@ -254,7 +254,5 @@ def clear_settlement_cache():
 
     Useful for testing or when cache becomes inconsistent
     """
-    global _settlement_cache
-
     if _settlement_cache:
         _settlement_cache.clear_cache()

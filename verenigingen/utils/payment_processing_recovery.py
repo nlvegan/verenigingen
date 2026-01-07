@@ -319,18 +319,22 @@ def complete_partial_payments(
     mollie_payment_pattern = re.compile(r"^tr_[a-zA-Z0-9]+$")
 
     # Use the orchestrator for processing (recovery mode with create_missing_invoice=True)
-    from verenigingen.verenigingen_payments.services.mollie_payment_orchestrator import get_payment_orchestrator
+    from verenigingen.verenigingen_payments.services.mollie_payment_orchestrator import (
+        get_payment_orchestrator,
+    )
 
     orchestrator = get_payment_orchestrator()
 
     for payment_id in payment_ids:
         # Validate payment ID format before processing
         if not mollie_payment_pattern.match(payment_id):
-            result["results"].append({
-                "payment_id": payment_id,
-                "status": "skipped",
-                "reason": "Invalid payment ID format (not a Mollie payment ID)",
-            })
+            result["results"].append(
+                {
+                    "payment_id": payment_id,
+                    "status": "skipped",
+                    "reason": "Invalid payment ID format (not a Mollie payment ID)",
+                }
+            )
             result["skipped"] += 1
             frappe.logger().warning(f"Skipping invalid payment ID: {payment_id[:50]}...")
             continue
@@ -338,13 +342,15 @@ def complete_partial_payments(
         if dry_run:
             # Use orchestrator's status check for dry run
             status = orchestrator.get_processing_status(payment_id)
-            result["results"].append({
-                "payment_id": payment_id,
-                "status": "dry_run",
-                "current_status": status.status,
-                "would_create": status.missing_documents,
-                "member": status.member,
-            })
+            result["results"].append(
+                {
+                    "payment_id": payment_id,
+                    "status": "dry_run",
+                    "current_status": status.status,
+                    "would_create": status.missing_documents,
+                    "member": status.member,
+                }
+            )
             continue
 
         # Process using orchestrator with create_missing_invoice=True (recovery mode)
@@ -357,8 +363,10 @@ def complete_partial_payments(
         payment_result = {
             "payment_id": payment_id,
             "status": (
-                "completed" if processing_result.status == "success"
-                else "skipped" if processing_result.status in ["already_processed", "skipped"]
+                "completed"
+                if processing_result.status == "success"
+                else "skipped"
+                if processing_result.status in ["already_processed", "skipped"]
                 else processing_result.status
             ),
             "actions_taken": processing_result.actions_taken,

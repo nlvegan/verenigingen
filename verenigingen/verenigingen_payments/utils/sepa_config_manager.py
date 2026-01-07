@@ -100,7 +100,9 @@ class SEPAConfigManager:
         payment_settings = get_payments_settings()
 
         # Get company information
-        company_name = getattr(general_settings, "company", None) or frappe.defaults.get_global_default("company")
+        company_name = getattr(general_settings, "company", None) or frappe.defaults.get_global_default(
+            "company"
+        )
         company = frappe.get_doc("Company", company_name) if company_name else None
 
         config = {

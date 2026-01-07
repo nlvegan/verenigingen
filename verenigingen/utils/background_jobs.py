@@ -581,8 +581,8 @@ def load_payment_history_batch_optimized(member_doc) -> Dict[str, Any]:
 
     # Note: Membership lookup removed - using is_membership_invoice boolean instead
     # SEPA mandates now retrieved via member's direct mandate link
-    memberships = {}
-    mandates = {}
+    # memberships = {}  # Unused, kept for future reference
+    # mandates = {}  # Unused, kept for future reference
 
     # 6. BATCH QUERY: Get unreconciled payments (only submitted, not cancelled)
     reconciled_payment_names = list(payment_entry_names)

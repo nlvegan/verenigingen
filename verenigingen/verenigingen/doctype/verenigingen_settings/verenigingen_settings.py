@@ -6,11 +6,7 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
-from verenigingen.utils.security.api_security_framework import (
-    OperationType,
-    high_security_api,
-    standard_api,
-)
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 
 
 class VerenigingenSettings(Document):

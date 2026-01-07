@@ -437,7 +437,7 @@ def create_bulk_payments(payments_json: str) -> Dict:
                 # Generate idempotency key to prevent duplicate subscriptions
                 # Based on customer + amount + date - same combination = same key
                 idempotency_data = f"{customer_id}:{amount}:{charge_date}"
-                idempotency_key = hashlib.sha256(idempotency_data.encode()).hexdigest()[:32]
+                _idempotency_key = hashlib.sha256(idempotency_data.encode()).hexdigest()[:32]  # noqa: F841
 
                 # Check for duplicate subscriptions (same customer, amount, start date)
                 # Skip cancelled subscriptions - they didn't actually charge the customer

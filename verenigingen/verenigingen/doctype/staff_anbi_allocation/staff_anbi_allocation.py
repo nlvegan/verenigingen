@@ -13,18 +13,12 @@ class StaffANBIAllocation(Document):
 
     def validate_percentages(self):
         """Ensure percentages sum to 100%."""
-        total = (
-            (self.pct_doelstelling or 0)
-            + (self.pct_werving or 0)
-            + (self.pct_beheer or 0)
-        )
+        total = (self.pct_doelstelling or 0) + (self.pct_werving or 0) + (self.pct_beheer or 0)
 
         # Allow for small floating point differences
         if abs(total - 100) > 0.01:
             frappe.throw(
-                _("Allocation percentages must sum to 100%. Current total: {0}%").format(
-                    round(total, 2)
-                )
+                _("Allocation percentages must sum to 100%. Current total: {0}%").format(round(total, 2))
             )
 
     def calculate_amounts(self):

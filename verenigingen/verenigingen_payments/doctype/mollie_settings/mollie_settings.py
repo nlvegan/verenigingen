@@ -387,9 +387,7 @@ class MollieSettings(Document):
             frappe.log_error(f"Failed to generate {env} webhook URL: {e}", "Mollie Webhook URL Generation")
             # Fallback to prevent system failure - construct URL directly
             site_url = frappe.utils.get_url()
-            fallback_url = (
-                f"{site_url}/api/method/verenigingen.verenigingen_payments.mollie.api.webhooks.mollie_payment_webhook?env={env}"
-            )
+            fallback_url = f"{site_url}/api/method/verenigingen.verenigingen_payments.mollie.api.webhooks.mollie_payment_webhook?env={env}"
             frappe.logger().warning(f"Using fallback webhook URL for {env} environment: {fallback_url}")
             return self._ensure_https_url(fallback_url)
 
