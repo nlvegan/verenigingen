@@ -192,7 +192,7 @@ class DryRunSimulator:
                     result["warnings"].append("Income account {item.income_account} may not exist")
 
         # Check total
-        if doc.grand_total <= 0:
+        if doc.grand_total <= 0:  # ast-skip: doc is Sales Invoice
             result["warnings"].append("Invoice total is zero or negative")
 
         return result
@@ -202,7 +202,9 @@ class DryRunSimulator:
         result = {"valid": True, "errors": [], "warnings": []}
 
         # Check supplier exists
-        if not self._record_exists_or_simulated("Supplier", doc.supplier):
+        if not self._record_exists_or_simulated(
+            "Supplier", doc.supplier
+        ):  # ast-skip: doc is Purchase Invoice
             result["valid"] = False
             result["errors"].append("Supplier {doc.supplier} does not exist")
 
@@ -486,8 +488,8 @@ def run_migration_dry_run(migration_name, sample_size=None):
     # Fetch data (limited sample for dry-run)
     data = fetch_eboekhouden_data(
         migration_doc.company,
-        migration_doc.from_date,
-        migration_doc.to_date,
+        migration_doc.date_from,
+        migration_doc.date_to,
         migration_doc.get("username"),
         migration_doc.get("security_code_1"),
         migration_doc.get("security_code_2"),

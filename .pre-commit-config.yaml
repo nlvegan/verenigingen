@@ -261,7 +261,7 @@ repos:
         pass_filenames: true
         files: \.py$
         stages: [pre-commit]
-        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|scripts/validation/|archived/|archived_.*|one-off-test-utils/|.*setup.*\.py|.*_setup\.py|.*patch.*\.py|.*migration.*\.py|.*utils/debug/.*\.py)'
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|scripts/validation/|archived/|archived_.*|one-off-test-utils/|.*setup.*\.py|.*_setup\.py|.*patch.*\.py|.*migration.*\.py|.*utils/debug/.*\.py|cleanup_backups/)'
         verbose: true
 
       - id: comprehensive-doctype-validator

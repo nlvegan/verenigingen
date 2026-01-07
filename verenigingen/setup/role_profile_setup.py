@@ -146,17 +146,18 @@ def auto_assign_role_profiles():
             recommended_profile = get_recommended_role_profile(user)
 
             if recommended_profile:
-                # Check if user already has any verenigingen role profile
+                # Check if user already has a verenigingen role profile
                 user_doc = frappe.get_doc("User", user)
-                existing_profiles = [rp.role_profile for rp in user_doc.role_profiles]
+                existing_profile = user_doc.role_profile_name or ""
 
-                verenigingen_profiles = [p for p in existing_profiles if p.startswith("Verenigingen")]
+                # Skip if user already has a Verenigingen role profile
+                if existing_profile.startswith("Verenigingen"):
+                    continue
 
-                if not verenigingen_profiles:
-                    # Assign the recommended profile
-                    assign_role_profile_to_user(user, recommended_profile)
-                    users_updated += 1
-                    print(f"✓ Assigned {recommended_profile} to {user} ({member.full_name})")
+                # Assign the recommended profile
+                assign_role_profile_to_user(user, recommended_profile)
+                users_updated += 1
+                print(f"✓ Assigned {recommended_profile} to {user} ({member.full_name})")
 
         except Exception as e:
             error_msg = f"Error processing user {member.user}: {str(e)}"

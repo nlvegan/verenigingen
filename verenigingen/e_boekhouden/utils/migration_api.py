@@ -125,23 +125,16 @@ def run_migration_background(migration_name, setup_only=False):
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
 def get_staging_data_for_review(migration_name):
-    """Get staged data for manual review and configuration"""
-    try:
-        migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
+    """Get staged data for manual review and configuration.
 
-        if not migration_doc.staging_data:
-            return {"success": False, "error": "No staging data found. Please run data staging first."}
-
-        staging_data = json.loads(migration_doc.staging_data)
-
-        return {
-            "success": True,
-            "staging_data": staging_data,
-            "migration_status": migration_doc.migration_status,
-        }
-
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    DEPRECATED: This function references a 'staging_data' field that does not exist
+    on the E-Boekhouden Migration DocType. The staging workflow was never completed.
+    """
+    # Return deprecation notice - staging_data field not implemented
+    return {
+        "success": False,
+        "error": "This function is deprecated. The staging_data field was never added to E-Boekhouden Migration.",
+    }
 
 
 @frappe.whitelist()
@@ -178,55 +171,16 @@ def create_manual_account_mapping(
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
 def preview_mapping_impact(migration_name, account_mappings):
-    """Preview the impact of proposed account mappings"""
-    try:
-        migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
+    """Preview the impact of proposed account mappings.
 
-        if not migration_doc.staging_data:
-            return {"success": False, "error": "No staging data available for impact analysis"}
-
-        staging_data = json.loads(migration_doc.staging_data)
-
-        # Analyze impact of proposed mappings
-        impact_analysis = {
-            "total_transactions_affected": 0,
-            "accounts_mapped": len(account_mappings),
-            "mapping_details": [],
-            "potential_issues": [],
-        }
-
-        # Check each proposed mapping
-        for mapping in account_mappings:
-            eboekhouden_code = mapping.get("eboekhouden_code")
-            erpnext_account = mapping.get("erpnext_account")
-
-            # Count transactions that would be affected
-            affected_count = 0
-            for mutation in staging_data.get("sample_mutations", []):
-                for line in mutation.get("MutatieRegels", []):
-                    if line.get("TegenrekeningCode") == eboekhouden_code:
-                        affected_count += 1
-
-            impact_analysis["mapping_details"].append(
-                {
-                    "eboekhouden_code": eboekhouden_code,
-                    "erpnext_account": erpnext_account,
-                    "transactions_affected": affected_count,
-                }
-            )
-
-            impact_analysis["total_transactions_affected"] += affected_count
-
-            # Check if ERPNext account exists
-            if not frappe.db.exists("Account", erpnext_account):
-                impact_analysis["potential_issues"].append(
-                    f"ERPNext account '{erpnext_account}' does not exist"
-                )
-
-        return {"success": True, "impact_analysis": impact_analysis}
-
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    DEPRECATED: This function references a 'staging_data' field that does not exist
+    on the E-Boekhouden Migration DocType. The staging workflow was never completed.
+    """
+    # Return deprecation notice - staging_data field not implemented
+    return {
+        "success": False,
+        "error": "This function is deprecated. The staging_data field was never added to E-Boekhouden Migration.",
+    }
 
 
 @frappe.whitelist()

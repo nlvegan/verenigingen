@@ -363,6 +363,6 @@ def estimate_migration_chunks(migration_name):
         }
 
     chunker = DateRangeChunker()
-    strategy = chunker.estimate_optimal_strategy(migration_doc.from_date, migration_doc.to_date, sample_fetch)
+    strategy = chunker.estimate_optimal_strategy(migration_doc.date_from, migration_doc.date_to, sample_fetch)
 
     return strategy
