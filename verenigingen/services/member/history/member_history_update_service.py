@@ -351,12 +351,20 @@ class MemberHistoryUpdateService(StatelessService):
         """
         Update volunteer expense history for this member.
 
+        NOTE: The volunteer_expenses child table was removed when the Volunteer Expense
+        feature was archived. This function is kept for backward compatibility but
+        returns 0 immediately.
+
         Args:
             member_doc: Member document object
 
         Returns:
             int: Total number of changes (adds + updates + removals)
         """
+        # Guard: volunteer_expenses child table no longer exists on Member
+        if not hasattr(member_doc, "volunteer_expenses"):
+            return 0
+
         if not (hasattr(member_doc, "employee") and member_doc.employee):
             return 0
 
@@ -382,20 +390,22 @@ class MemberHistoryUpdateService(StatelessService):
             limit=20,
         )
 
-        # Build a lookup of existing expense entries
-        existing_expenses = {row.expense_claim: row for row in (member_doc.volunteer_expenses or [])}
+        # Build a lookup of existing expense entries (guarded by hasattr above)
+        existing_expenses = {
+            row.expense_claim: row for row in (member_doc.volunteer_expenses or [])  # ast-skip: archived
+        }
         current_claim_names = {claim.name for claim in current_claims}
 
         # Remove entries that are no longer in the top 20
         rows_to_remove = [
             idx
-            for idx, row in enumerate(member_doc.volunteer_expenses or [])
+            for idx, row in enumerate(member_doc.volunteer_expenses or [])  # ast-skip: archived
             if row.expense_claim not in current_claim_names
         ]
 
         # Remove in reverse order to maintain indices
         for idx in reversed(rows_to_remove):
-            member_doc.volunteer_expenses.pop(idx)
+            member_doc.volunteer_expenses.pop(idx)  # ast-skip: archived
             removed_count += 1
 
         # Try batched version first (93% query reduction)

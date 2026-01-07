@@ -19,7 +19,7 @@ def validate_expense_claim_chapter_access(doc):
         frappe.PermissionError: If user doesn't have access to the selected chapter
     """
     user = frappe.session.user
-    chapter = doc.custom_chapter
+    chapter = doc.custom_chapter  # ast-skip: Custom Field added to Sales Invoice
 
     if not chapter:
         return
@@ -74,20 +74,20 @@ def validate_journal_entry(doc, method):
 def validate_expense_claim(doc, method):
     """Validate expense claim against account group mappings and chapter access"""
     # Auto-populate department from custom_chapter for ERPNext native filtering
-    if doc.custom_chapter and not doc.department:
+    if doc.custom_chapter and not doc.department:  # ast-skip: Custom Field
         # Try to find a matching department
-        department = frappe.db.get_value("Department", doc.custom_chapter, "name")
+        department = frappe.db.get_value("Department", doc.custom_chapter, "name")  # ast-skip: Custom Field
         if department:
             doc.department = department
         else:
             # Log if department doesn't exist but don't block
             frappe.logger().info(
-                f"No matching Department found for chapter {doc.custom_chapter}. "
+                f"No matching Department found for chapter {doc.custom_chapter}. "  # ast-skip: Custom Field
                 "Consider creating departments matching chapter names for better ERPNext integration."
             )
 
     # Validate chapter access if custom_chapter is set
-    if doc.custom_chapter:
+    if doc.custom_chapter:  # ast-skip: Custom Field
         validate_expense_claim_chapter_access(doc)
 
     # Validate account group mappings

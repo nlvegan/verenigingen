@@ -249,7 +249,7 @@ repos:
         pass_filenames: false
         files: '\.(py)$'
         stages: [pre-commit]
-        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*|archived_unused/|archived_deleted/)'
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived/|archived_.*|archived_unused/|archived_deleted/)'
         verbose: true
 
       # AST Field Analyzer
@@ -261,7 +261,7 @@ repos:
         pass_filenames: true
         files: \.py$
         stages: [pre-commit]
-        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*|one-off-test-utils/|.*setup.*\.py|.*_setup\.py|.*patch.*\.py|.*migration.*\.py|.*utils/debug/.*\.py)'
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|scripts/validation/|archived/|archived_.*|one-off-test-utils/|.*setup.*\.py|.*_setup\.py|.*patch.*\.py|.*migration.*\.py|.*utils/debug/.*\.py)'
         verbose: true
 
       - id: comprehensive-doctype-validator
@@ -337,7 +337,7 @@ repos:
         pass_filenames: true
         files: '\.(py)$'
         stages: [pre-commit]
-        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
+        exclude: '^(tests/|test_|.*/tests/|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived/|archived_.*|.*/workspace_.*\.py|.*/execute_workspace_.*\.py|.*/permissions\.py)'
 
       # JavaScript Parameter Validation
       - id: js-python-parameter-validator

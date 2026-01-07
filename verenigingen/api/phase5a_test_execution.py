@@ -53,7 +53,7 @@ def execute_database_indexes_test():
             {
                 "name": "idx_member_email_status",
                 "table": "tabMember",
-                "columns": ["email_id", "status"],
+                "columns": ["email", "status"],
                 "type": "INDEX",
                 "purpose": "Member lookup optimization",
                 "expected_improvement": "40-60% faster member searches",

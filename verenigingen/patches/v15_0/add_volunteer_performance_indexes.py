@@ -161,15 +161,11 @@ def execute():
         {
             "table": "tabVolunteer Interest Area",
             "index_name": "idx_interest_category",
-            "columns": ["interest_category"],
+            "columns": ["interest_area"],
             "description": "Interest category filtering",
         },
-        {
-            "table": "tabVolunteer Development Goal",
-            "index_name": "idx_goal_category",
-            "columns": ["goal_category"],
-            "description": "Development goal categorization",
-        },
+        # Note: Volunteer Development Goal only has skill, current_level, target_level, notes
+        # No category field exists, so no index needed for categorization
     ]
 
     print("Starting Volunteer performance index migration...")

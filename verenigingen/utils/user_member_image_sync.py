@@ -58,8 +58,8 @@ def sync_member_image_to_user(doc, method=None):
         user_doc.save(ignore_permissions=True)
 
         frappe.logger().info(
-            f"Synced image from Member {doc.name} to User {doc.user}"
-        )  # ast-skip: doc is Member
+            f"Synced image from Member {doc.name} to User {doc.user}"  # ast-skip: doc is Member
+        )
 
     except Exception as e:
         # Log error but don't block the member save

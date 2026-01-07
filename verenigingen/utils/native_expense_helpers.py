@@ -39,7 +39,7 @@ def update_employee_approver(volunteer_doc=None, method=None):
 
         if approver:
             employee = frappe.get_doc("Employee", volunteer.employee_id)
-            old_approver = employee.expense_approver
+            old_approver = employee.expense_approver  # ast-skip: ERPNext HR field
 
             if old_approver != approver:
                 employee.expense_approver = approver

@@ -220,8 +220,10 @@ class CacheInvalidationManager:
                     affected_members.extend([m.name for m in members])
 
             elif doc.doctype == "Payment Entry":
-                if doc.party_type == "Customer" and doc.party:
-                    members = frappe.get_all("Member", filters={"customer": doc.party}, fields=["name"])
+                if doc.party_type == "Customer" and doc.party:  # ast-skip: doc is Payment Entry
+                    members = frappe.get_all(
+                        "Member", filters={"customer": doc.party}, fields=["name"]  # ast-skip: Payment Entry
+                    )
                     affected_members.extend([m.name for m in members])
 
             elif doc.doctype == "SEPA Mandate":

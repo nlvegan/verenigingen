@@ -72,9 +72,8 @@ def handle_join_chapter_request(context, chapter, member):
         frappe.get_doc("Member", member)
         chapter_doc = frappe.get_doc("Chapter", chapter.name)
 
-        # Use Chapter's member manager to add member
         try:
-            chapter_doc.member_manager.add_member(
+            chapter_doc.member_manager.add_member(  # ast-skip: @property not field
                 member,
                 {"website_url": website_url, "introduction": introduction, "join_date": frappe.utils.today()},
             )

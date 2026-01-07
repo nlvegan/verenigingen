@@ -316,7 +316,7 @@ class ValidationOrchestrator:
             '__pycache__', '.git', 'node_modules', '.pyc', 'migrations',
             'test_validation', 'validator.py',  # Skip validation tools themselves
             'tests/', 'test_', '_test.py', 'debug_', '_debug.py',
-            'scripts/testing/', 'scripts/debug/', 'archived_',
+            'scripts/testing/', 'scripts/debug/', 'archived/', 'archived_',
             'archived_unused/', 'archived_deleted/', 'temp_', '.temp'
         ]
 

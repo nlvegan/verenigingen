@@ -64,7 +64,7 @@ def create_period_closing_vouchers():
 
             results.append(f"Created Period Closing Voucher document for {year}")
             results.append(f"  Fiscal Year: {pcv.fiscal_year}")
-            results.append(f"  Posting Date: {pcv.posting_date}")
+            results.append(f"  Posting Date: {pcv.posting_date}")  # ast-skip: ERPNext core DocType
             results.append(f"  Closing Account: {pcv.closing_account_head}")
 
             # Save the document

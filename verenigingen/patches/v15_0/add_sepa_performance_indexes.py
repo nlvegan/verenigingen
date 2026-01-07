@@ -53,7 +53,7 @@ def execute():
         {
             "table": "tabMembership Dues Schedule",
             "index_name": "idx_sepa_active_schedules",
-            "columns": ["status", "auto_generate", "test_mode"],
+            "columns": ["status", "auto_generate", "contribution_mode"],
             "description": "Optimize active SEPA schedule queries",
         },
         {

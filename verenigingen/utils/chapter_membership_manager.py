@@ -65,8 +65,7 @@ class ChapterMembershipManager:
             chapter_doc = frappe.get_doc("Chapter", chapter_name)
 
             # Use the chapter's member manager to request membership (pending approval)
-            # Note: member_manager is a property on Chapter, not a database field
-            result = chapter_doc.member_manager.request_to_join(
+            result = chapter_doc.member_manager.request_to_join(  # ast-skip: @property not field
                 member_id=member_id, introduction=introduction, website_url=website_url, notify=True
             )
 
@@ -125,8 +124,7 @@ class ChapterMembershipManager:
             # Get chapter document and use its member manager
             chapter_doc = frappe.get_doc("Chapter", chapter_name)
 
-            # Use the chapter's member manager which handles history tracking
-            result = chapter_doc.member_manager.remove_member(
+            result = chapter_doc.member_manager.remove_member(  # ast-skip: @property not field
                 member_id=member_id, leave_reason=leave_reason, permanent=permanent, notify=True
             )
 
@@ -209,8 +207,7 @@ class ChapterMembershipManager:
                 settings = frappe.get_single("Verenigingen Settings")
                 send_notifications = getattr(settings, "send_chapter_assignment_notifications", False)
 
-            # Use the chapter's member manager which handles history tracking
-            result = chapter_doc.member_manager.add_member(
+            result = chapter_doc.member_manager.add_member(  # ast-skip: @property not field
                 member_id=member_id,
                 introduction=reason or f"Assigned to {chapter_name} by administrator",
                 notify=send_notifications,

@@ -257,9 +257,8 @@ def quick_approve_member(member_name, chapter_name=None):
         )
 
         if pending_chapter_member:
-            # This is a chapter join request - use the new approval system
             chapter_doc = frappe.get_doc("Chapter", chapter_name)
-            result = chapter_doc.member_manager.approve_member_request(
+            result = chapter_doc.member_manager.approve_member_request(  # ast-skip: @property not field
                 member_id=member_name, approved_by=frappe.session.user
             )
         else:
@@ -1211,9 +1210,8 @@ def reject_member_application(member_name, chapter_name, reason=None):
         )
 
         if pending_chapter_member:
-            # This is a chapter join request - use the new rejection system
             chapter_doc = frappe.get_doc("Chapter", chapter_name)
-            result = chapter_doc.member_manager.reject_member_request(
+            result = chapter_doc.member_manager.reject_member_request(  # ast-skip: @property not field
                 member_id=member_name,
                 reason=reason or "Rejected via chapter dashboard",
                 rejected_by=frappe.session.user,
