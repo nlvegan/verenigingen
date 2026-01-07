@@ -194,7 +194,8 @@ def create_termination_workflow_corrected():
 
         if not result.success:
             frappe.log_error(
-                f"Failed to create workflow {workflow_doc.workflow_name}: {'; '.join(result.errors)}"
+                title="Workflow Creation Failed",
+                message=f"Failed to create workflow {workflow_doc.workflow_name}: {'; '.join(result.errors)}",
             )
             return False
 
@@ -354,7 +355,8 @@ def create_appeals_workflow_corrected():
 
         if not result.success:
             frappe.log_error(
-                f"Failed to create appeals workflow {workflow_doc.workflow_name}: {'; '.join(result.errors)}"
+                title="Appeals Workflow Creation Failed",
+                message=f"Failed to create appeals workflow {workflow_doc.workflow_name}: {'; '.join(result.errors)}",
             )
             return False
 
@@ -391,17 +393,20 @@ def create_workflow_state_masters():
                 result = secure_document_operation(
                     operation="insert",
                     doc=state_doc,
-                    justification=f"Create workflow state {state_doc.state} for business process automation - workflow setup",
+                    justification=f"Create workflow state {state} for business process automation - workflow setup",
                     required_permissions=["Workflow State:create"],
                 )
 
                 if not result.success:
                     frappe.log_error(
-                        f"Failed to create workflow state {state_doc.state}: {'; '.join(result.errors)}"
+                        title="Workflow State Creation Failed",
+                        message=f"Failed to create workflow state {state}: {'; '.join(result.errors)}",
                     )
                     continue  # Continue with other states
                 created_count += 1
                 print(f"      ✓ Created workflow state: {state}")
+            except frappe.exceptions.DuplicateEntryError:
+                print(f"      ✓ State already exists: {state}")
             except Exception as e:
                 print(f"      ⚠️ Could not create state {state}: {str(e)}")
         else:
@@ -430,17 +435,20 @@ def create_workflow_action_masters():
                 result = secure_document_operation(
                     operation="insert",
                     doc=action_doc,
-                    justification=f"Create workflow action {action_doc.action} for business process automation - workflow setup",
+                    justification=f"Create workflow action {action} for business process automation - workflow setup",
                     required_permissions=["Workflow Action:create"],
                 )
 
                 if not result.success:
                     frappe.log_error(
-                        f"Failed to create workflow action {action_doc.action}: {'; '.join(result.errors)}"
+                        title="Workflow Action Creation Failed",
+                        message=f"Failed to create workflow action {action}: {'; '.join(result.errors)}",
                     )
                     continue  # Continue with other actions
                 created_count += 1
                 print(f"      ✓ Created workflow action: {action}")
+            except frappe.exceptions.DuplicateEntryError:
+                print(f"      ✓ Action already exists: {action}")
             except Exception as e:
                 print(f"      ⚠️ Could not create action {action}: {str(e)}")
         else:
