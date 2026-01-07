@@ -9,10 +9,12 @@ import frappe
 
 # Import security framework
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.security_decorators import development_only
 
 
-@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
+@development_only()
+@high_security_api(operation_type=OperationType.ADMIN)
 def reorganize_workspace():
     """Reorganize workspace links into logical categories"""
 

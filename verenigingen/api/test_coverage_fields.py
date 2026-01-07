@@ -11,9 +11,11 @@ from verenigingen.utils.security.api_security_framework import (
     high_security_api,
     standard_api,
 )
+from verenigingen.utils.security_decorators import development_only
 
 
 @frappe.whitelist()
+@development_only()
 @standard_api(operation_type=OperationType.UTILITY)
 def test_coverage_fields():
     """Test if coverage fields exist and have data"""
@@ -110,6 +112,7 @@ def test_coverage_fields():
 
 
 @frappe.whitelist()
+@development_only()
 @standard_api(operation_type=OperationType.UTILITY)
 def populate_sample_coverage_data():
     """Populate some sample coverage data for testing"""

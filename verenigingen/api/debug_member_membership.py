@@ -6,6 +6,7 @@ import frappe
 from frappe.utils import getdate, today
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.security_decorators import development_only
 
 
 def get_member_next_invoice_date(member_name):
@@ -27,6 +28,7 @@ def get_member_next_invoice_date(member_name):
 
 
 @frappe.whitelist()
+@development_only()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 def debug_member_membership_status(member_name):
     """Debug why Create Membership button might not show for a member"""
@@ -82,6 +84,7 @@ def debug_member_membership_status(member_name):
 
 
 @frappe.whitelist()
+@development_only()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 def debug_member_dues_schedule_connection(member_name):
     """Debug member's connection to dues schedules"""

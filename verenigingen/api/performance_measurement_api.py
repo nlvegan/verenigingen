@@ -29,9 +29,11 @@ from verenigingen.utils.security.api_security_framework import (
     high_security_api,
     standard_api,
 )
+from verenigingen.utils.security_decorators import development_only
 
 
 @frappe.whitelist()
+@development_only()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 def measure_member_performance(member_name: str) -> Dict[str, Any]:
     """
@@ -64,6 +66,7 @@ def measure_member_performance(member_name: str) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@development_only()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def measure_payment_history_performance(member_name: str) -> Dict[str, Any]:
     """
@@ -93,6 +96,7 @@ def measure_payment_history_performance(member_name: str) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@development_only()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def measure_sepa_mandate_performance(member_name: str) -> Dict[str, Any]:
     """
@@ -122,6 +126,7 @@ def measure_sepa_mandate_performance(member_name: str) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@development_only()
 @standard_api(operation_type=OperationType.UTILITY)
 def generate_comprehensive_performance_report(sample_size: int = 10) -> Dict[str, Any]:
     """
@@ -151,6 +156,7 @@ def generate_comprehensive_performance_report(sample_size: int = 10) -> Dict[str
 
 
 @frappe.whitelist()
+@development_only()
 @standard_api(operation_type=OperationType.UTILITY)
 def collect_performance_baselines(sample_size: int = 15) -> Dict[str, Any]:
     """
@@ -180,6 +186,7 @@ def collect_performance_baselines(sample_size: int = 15) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@development_only()
 @standard_api(operation_type=OperationType.UTILITY)
 def get_performance_measurement_history(operation_name: str = None, limit: int = 20) -> Dict[str, Any]:
     """
@@ -215,6 +222,7 @@ def get_performance_measurement_history(operation_name: str = None, limit: int =
 
 
 @frappe.whitelist()
+@development_only()
 @standard_api(operation_type=OperationType.UTILITY)
 def create_performance_baseline_snapshot(operation_name: str = "member_payment_operations") -> Dict[str, Any]:
     """
@@ -241,6 +249,7 @@ def create_performance_baseline_snapshot(operation_name: str = "member_payment_o
 
 
 @frappe.whitelist()
+@development_only()
 @standard_api(operation_type=OperationType.UTILITY)
 def get_recent_performance_reports(limit: int = 10) -> Dict[str, Any]:
     """
@@ -272,6 +281,7 @@ def get_recent_performance_reports(limit: int = 10) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@development_only()
 @critical_api(operation_type=OperationType.ADMIN)
 def analyze_system_bottlenecks() -> Dict[str, Any]:
     """
@@ -355,6 +365,7 @@ def analyze_system_bottlenecks() -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@development_only()
 @standard_api(operation_type=OperationType.UTILITY)
 def get_performance_summary() -> Dict[str, Any]:
     """
@@ -449,6 +460,7 @@ def _generate_system_recommendations(
 
 
 @frappe.whitelist()
+@development_only()
 @standard_api(operation_type=OperationType.UTILITY)
 def benchmark_current_performance() -> Dict[str, Any]:
     """
@@ -590,6 +602,7 @@ def _identify_optimization_targets(baseline_report: Dict, bottleneck_analysis: D
 
 
 @frappe.whitelist()
+@development_only()
 @standard_api(operation_type=OperationType.UTILITY)
 def test_measurement_infrastructure() -> Dict[str, Any]:
     """

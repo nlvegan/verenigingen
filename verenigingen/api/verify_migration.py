@@ -5,9 +5,11 @@ Verify Chapter Role Migration
 import frappe
 
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.security_decorators import development_only
 
 
 @frappe.whitelist()
+@development_only()
 @critical_api(operation_type=OperationType.ADMIN)
 def verify_chapter_role_cleanup():
     """Verify the chapter role consolidation worked"""

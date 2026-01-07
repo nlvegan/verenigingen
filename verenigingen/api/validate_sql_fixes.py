@@ -8,10 +8,12 @@ from frappe import _
 
 # Import security framework
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+from verenigingen.utils.security_decorators import development_only
 
 
-@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
+@development_only()
+@standard_api(operation_type=OperationType.UTILITY)
 def test_fixed_queries():
     """Test the SQL queries that were fixed"""
 

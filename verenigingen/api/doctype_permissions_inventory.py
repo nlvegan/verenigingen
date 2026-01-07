@@ -5,9 +5,11 @@ from pathlib import Path
 import frappe
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.security_decorators import development_only
 
 
 @frappe.whitelist()
+@development_only()
 @high_security_api(operation_type=OperationType.ADMIN)
 def create_complete_doctype_inventory():
     """Create comprehensive DocType permissions inventory"""

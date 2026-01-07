@@ -15,9 +15,11 @@ from verenigingen.utils.security.api_security_framework import (
     high_security_api,
     standard_api,
 )
+from verenigingen.utils.security_decorators import development_only
 
 
 @frappe.whitelist()
+@development_only()
 @standard_api(operation_type=OperationType.UTILITY)
 def validate_report():
     """Main validation function for the coverage report"""
@@ -117,6 +119,7 @@ def validate_report():
 
 
 @frappe.whitelist()
+@development_only()
 @standard_api(operation_type=OperationType.UTILITY)
 def test_gap_classification():
     """Test gap classification function"""
@@ -150,6 +153,7 @@ def test_gap_classification():
 
 
 @frappe.whitelist()
+@development_only()
 @standard_api(operation_type=OperationType.UTILITY)
 def test_report_columns():
     """Test report column generation"""
@@ -198,6 +202,7 @@ def test_report_columns():
 
 
 @frappe.whitelist()
+@development_only()
 @standard_api(operation_type=OperationType.UTILITY)
 def check_database_fields():
     """Check if required database fields exist"""

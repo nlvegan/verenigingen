@@ -9,9 +9,11 @@ import frappe
 
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.security_decorators import development_only
 
 
 @frappe.whitelist()
+@development_only()
 @critical_api(operation_type=OperationType.ADMIN)
 def consolidate_chapter_roles():
     """Migrate Chapter Manager users to Chapter Board Member and clean up"""

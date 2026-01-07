@@ -7,6 +7,7 @@ from verenigingen.utils.security_decorators import development_only
 
 
 @frappe.whitelist()
+@development_only()
 @critical_api(operation_type=OperationType.ADMIN)
 def audit_verenigingen_permissions():
     """Audit permissions specifically for Verenigingen app DocTypes and Reports"""
