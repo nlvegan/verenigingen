@@ -43,21 +43,12 @@ class SEPABatchProcessor:
         self.error_handler = get_sepa_error_handler()
         self.performance_optimizer = get_batch_performance_optimizer()
 
-        # Get company from centralized config with permission validation
+        # Get company from centralized config
+        # Note: Permission validation happens at API entry points via @critical_api decorator
+        # Services trust the caller has already been authorized
         company_config = self.config_manager.get_company_sepa_config()
         company_name = company_config.get("company")
-        self.company = None
-
-        if company_name:
-            # Validate user has permission to access company financial data
-            if not frappe.has_permission("Company", "read", company_name):
-                frappe.throw(
-                    _("You do not have permission to access Company {0} for SEPA processing").format(
-                        company_name
-                    ),
-                    frappe.PermissionError,
-                )
-            self.company = frappe.get_doc("Company", company_name)
+        self.company = frappe.get_doc("Company", company_name) if company_name else None
 
     # =========================================================================
     # Batch Creation
