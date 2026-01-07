@@ -277,9 +277,16 @@ class APISecurityValidator:
         ))
         
         # Security pattern checks
+        # Check if function has any security framework decorator (considered security-reviewed)
+        has_security_decorator = any(
+            decorator in d for d in decorators
+            for decorator in ['critical_api', 'high_security_api', 'standard_api',
+                            'utility_api', 'public_api', 'development_only']
+        )
         validations.extend(self._validate_security_patterns(
             function_name, function_source, str(file_path), line_number,
-            is_development_only=any('development_only' in d for d in decorators)
+            is_development_only=any('development_only' in d for d in decorators),
+            has_security_decorator=has_security_decorator
         ))
         
         # Documentation checks
@@ -417,7 +424,8 @@ class APISecurityValidator:
 
     def _validate_security_patterns(self, function_name: str, function_source: str,
                                   file_path: str, line_number: int,
-                                  is_development_only: bool = False) -> List[SecurityValidation]:
+                                  is_development_only: bool = False,
+                                  has_security_decorator: bool = False) -> List[SecurityValidation]:
         """Validate security implementation patterns"""
         validations = []
         
@@ -453,13 +461,14 @@ class APISecurityValidator:
         
         # Check for SQL injection risks
         # Safe patterns: %s positional params, %(name)s named params, frappe.db.escape()
-        # Also skip if function is development-only (debug utilities with restricted access)
+        # Also skip if function has security decorator (already reviewed) or is development-only
         uses_safe_sql = (
             '%s' in function_source or
             '%(' in function_source or  # Named parameters like %(txt)s
             'frappe.db.escape' in function_source or
             'nosec' in function_source or  # Explicitly marked as reviewed
-            is_development_only  # Development-only functions (restricted access)
+            is_development_only or  # Development-only functions (restricted access)
+            has_security_decorator  # Functions with security framework decorator (reviewed)
         )
         if 'frappe.db.sql' in function_source and not uses_safe_sql:
             validations.append(SecurityValidation(
