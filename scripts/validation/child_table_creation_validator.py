@@ -123,13 +123,47 @@ class FrappeCallVisitor(ast.NodeVisitor):
     
     def _analyze_doc_creation_call(self, node: ast.Call):
         """Analyze a frappe doc creation call for child table issues"""
+        # Only flag dict-based calls (creating new records)
+        # Skip string-based calls like frappe.get_doc("ChildTable", name) which fetch existing records
+        if not self._is_dict_based_creation(node):
+            return
+
         doctype = self._extract_doctype_from_call(node)
         if not doctype:
             return
-            
+
+        # Check for validator-skip comment on previous lines
+        if self._has_skip_comment(node.lineno):
+            return
+
         # Check if this DocType is a child table
         if self.metadata.is_child_table(doctype):
             self._report_child_table_creation_issue(node, doctype)
+
+    def _is_dict_based_creation(self, node: ast.Call) -> bool:
+        """Check if this is a dict-based doc creation (not fetching by name)"""
+        if len(node.args) == 0:
+            return False
+
+        first_arg = node.args[0]
+
+        # Dict-based creation: frappe.get_doc({"doctype": "...", ...})
+        if isinstance(first_arg, ast.Dict):
+            return True
+
+        # String-based fetch: frappe.get_doc("DocType", name) - NOT a creation
+        # This is the key fix - we skip these entirely
+        return False
+
+    def _has_skip_comment(self, line_num: int) -> bool:
+        """Check if there's a validator-skip comment near this line"""
+        # Check current line and previous 2 lines for skip comments
+        for i in range(max(0, line_num - 3), line_num):
+            if i < len(self.lines):
+                line = self.lines[i]
+                if 'validator-skip' in line or 'child-table-skip' in line:
+                    return True
+        return False
     
     def _extract_doctype_from_call(self, node: ast.Call) -> Optional[str]:
         """Extract DocType name from frappe.get_doc() call"""
