@@ -375,7 +375,7 @@ import sys
 import os
 
 # Import comprehensive DocType loader
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata
 
 
@@ -568,16 +568,22 @@ class ContextAnalyzer:
                 self.global_assignments = {}
                 self.sql_variables = set()
                 self.property_methods = set()
+                # Phase 2: Track method return types and dict value types
+                self.method_return_types = {}  # method_name -> DocType
+                self.dict_value_types = {}  # dict_name -> DocType
             
             def visit_FunctionDef(self, node):
                 old_function = self.current_function
                 self.current_function = node.name
-                
+
                 # Check for @property decorator
                 for decorator in node.decorator_list:
                     if (isinstance(decorator, ast.Name) and decorator.id == 'property'):
                         self.property_methods.add(node.name)
-                
+
+                # Note: Method return type analysis is done in the pre-pass
+                # (MethodReturnAnalyzer) so it's available before usage
+
                 self.generic_visit(node)
                 self.current_function = old_function
             
@@ -591,48 +597,287 @@ class ContextAnalyzer:
                 """Track variable assignments"""
                 if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
                     var_name = node.targets[0].id
-                    
+
                     # Analyze the value to determine type
                     var_type = self._infer_assignment_type(node.value)
-                    
+
                     # Update contexts for affected lines
                     start_line = node.lineno
                     for line_num in range(start_line, len(lines) + 1):
                         contexts[line_num].variable_assignments[var_name] = var_type
-                        
+
                         # Track SQL result variables
                         if 'sql_result' in var_type:
                             contexts[line_num].sql_variables.add(var_name)
-                        
+
                         # Track Frappe API result variables
                         if 'frappe_api' in var_type:
                             contexts[line_num].frappe_api_calls.add(var_name)
-                
+
+                # Phase 2: Handle dict[key] = value assignments
+                # Pattern: for m in child_table: dict[key] = m
+                elif len(node.targets) == 1 and isinstance(node.targets[0], ast.Subscript):
+                    subscript = node.targets[0]
+                    # Check if it's dict[key] pattern
+                    if isinstance(subscript.value, ast.Name):
+                        dict_name = subscript.value.id
+                        # Check if the value is a known child table item
+                        if isinstance(node.value, ast.Name):
+                            value_var = node.value.id
+                            # Check if this variable is a child table iteration var
+                            current_context = contexts.get(node.lineno)
+                            if current_context and value_var in current_context.child_table_iterations:
+                                child_doctype = current_context.child_table_iterations[value_var]
+                                self.dict_value_types[dict_name] = child_doctype
+
                 self.generic_visit(node)
             
             def visit_For(self, node):
                 """Track for loop iterations, especially child table iterations"""
-                if isinstance(node.target, ast.Name) and isinstance(node.iter, ast.Attribute):
-                    iter_var = node.target.id
-                    
-                    # Check if this is child table iteration
-                    if isinstance(node.iter.value, ast.Name):
-                        parent_var = node.iter.value.id
-                        child_field = node.iter.attr
-                        
-                        # Try to determine if this is a child table
-                        parent_type = self.global_assignments.get(parent_var, 'unknown')
-                        if parent_type in self.analyzer.schema_reader.doctypes:
-                            child_doctype = self.analyzer.schema_reader.get_child_table_doctype(
-                                parent_type, child_field
-                            )
-                            if child_doctype:
-                                # Update contexts within the loop scope
-                                for line_num in range(node.lineno, node.end_lineno or len(lines)):
-                                    contexts[line_num].child_table_iterations[iter_var] = child_doctype
-                
+                # Phase 2: Handle dict.items() iteration with tuple unpacking
+                # Pattern: for key, value in some_dict.items():
+                if isinstance(node.target, ast.Tuple) and len(node.target.elts) == 2:
+                    iter_node = self._unwrap_iter_node(node.iter)
+
+                    # Check for dict.items() or dict.values() call
+                    if isinstance(iter_node, ast.Call):
+                        if isinstance(iter_node.func, ast.Attribute):
+                            method_name = iter_node.func.attr
+                            if method_name in ('items', 'values'):
+                                if isinstance(iter_node.func.value, ast.Name):
+                                    dict_name = iter_node.func.value.id
+                                    if dict_name in self.dict_value_types:
+                                        child_doctype = self.dict_value_types[dict_name]
+                                        # For items(), second element is the value
+                                        # For values(), the single element is the value
+                                        if method_name == 'items':
+                                            value_var = node.target.elts[1]
+                                        else:
+                                            value_var = node.target.elts[0]
+
+                                        if isinstance(value_var, ast.Name):
+                                            end_line = (node.end_lineno + 1) if node.end_lineno else len(lines) + 1
+                                            for line_num in range(node.lineno, end_line):
+                                                contexts[line_num].child_table_iterations[value_var.id] = child_doctype
+
+                    self.generic_visit(node)
+                    return
+
+                if not isinstance(node.target, ast.Name):
+                    self.generic_visit(node)
+                    return
+
+                iter_var = node.target.id
+
+                # Extract the actual attribute being iterated
+                # Handle common patterns: x, x or [], x[:]
+                iter_node = self._unwrap_iter_node(node.iter)
+
+                if isinstance(iter_node, ast.Attribute):
+                    child_field = iter_node.attr
+
+                    # Case 1: Simple variable iteration (e.g., for x in chapter.board_members)
+                    if isinstance(iter_node.value, ast.Name):
+                        parent_var = iter_node.value.id
+
+                        # Special case: self.child_table in a DocType controller
+                        if parent_var == 'self' and self.current_class:
+                            # Try to infer DocType from class name (e.g., Team -> Team)
+                            parent_type = self._infer_doctype_from_class_name(self.current_class)
+                            if parent_type and parent_type in self.analyzer.schema_reader.doctypes:
+                                child_doctype = self.analyzer.schema_reader.get_child_table_doctype(
+                                    parent_type, child_field
+                                )
+                                if child_doctype:
+                                    # Use end_lineno + 1 because range() is exclusive
+                                    end_line = (node.end_lineno + 1) if node.end_lineno else len(lines) + 1
+                                    for line_num in range(node.lineno, end_line):
+                                        contexts[line_num].child_table_iterations[iter_var] = child_doctype
+                        else:
+                            # Try to determine if this is a child table
+                            parent_type = self.global_assignments.get(parent_var, 'unknown')
+                            if parent_type in self.analyzer.schema_reader.doctypes:
+                                child_doctype = self.analyzer.schema_reader.get_child_table_doctype(
+                                    parent_type, child_field
+                                )
+                                if child_doctype:
+                                    # Update contexts within the loop scope
+                                    end_line = (node.end_lineno + 1) if node.end_lineno else len(lines) + 1
+                                    for line_num in range(node.lineno, end_line):
+                                        contexts[line_num].child_table_iterations[iter_var] = child_doctype
+
+                    # Case 2: self.attr iteration (e.g., for x in self.chapter_doc.board_members)
+                    elif isinstance(iter_node.value, ast.Attribute):
+                        attr_node = iter_node.value
+                        # Check for self.something pattern
+                        if isinstance(attr_node.value, ast.Name) and attr_node.value.id == 'self':
+                            attr_name = attr_node.attr  # e.g., "chapter_doc"
+
+                            # Try to infer parent DocType from attribute name
+                            parent_type = self._infer_doctype_from_attr_name(attr_name)
+                            if parent_type and parent_type in self.analyzer.schema_reader.doctypes:
+                                child_doctype = self.analyzer.schema_reader.get_child_table_doctype(
+                                    parent_type, child_field
+                                )
+                                if child_doctype:
+                                    end_line = (node.end_lineno + 1) if node.end_lineno else len(lines) + 1
+                                    for line_num in range(node.lineno, end_line):
+                                        contexts[line_num].child_table_iterations[iter_var] = child_doctype
+
                 self.generic_visit(node)
-            
+
+            def _unwrap_iter_node(self, node):
+                """
+                Unwrap common iteration patterns to get the underlying attribute.
+
+                Handles:
+                - x.items              -> returns Attribute node
+                - x.items or []        -> unwraps BoolOp to get x.items
+                - x.items[:]           -> unwraps Subscript to get x.items
+                - (x.items or [])      -> unwraps BoolOp
+                """
+                # Handle BoolOp: x or [] pattern
+                if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or):
+                    if node.values:
+                        return self._unwrap_iter_node(node.values[0])
+
+                # Handle Subscript: x[:] pattern
+                if isinstance(node, ast.Subscript):
+                    return self._unwrap_iter_node(node.value)
+
+                return node
+
+            def _infer_doctype_from_class_name(self, class_name: str) -> Optional[str]:
+                """
+                Infer DocType from class name in DocType controllers.
+
+                DocType controller classes are typically named after the DocType:
+                - Team (class) -> Team (DocType)
+                - Member (class) -> Member (DocType)
+                - Chapter (class) -> Chapter (DocType)
+                - DirectDebitBatch (class) -> Direct Debit Batch (DocType)
+                """
+                # Direct match
+                if class_name in self.analyzer.schema_reader.doctypes:
+                    return class_name
+
+                # Try converting CamelCase to spaced name
+                # DirectDebitBatch -> Direct Debit Batch
+                import re
+                spaced_name = re.sub(r'([a-z])([A-Z])', r'\1 \2', class_name)
+                if spaced_name in self.analyzer.schema_reader.doctypes:
+                    return spaced_name
+
+                # Common mappings for classes that don't match DocType names exactly
+                class_to_doctype = {
+                    'VerenigingenVolunteer': 'Volunteer',
+                    'MembershipDuesSchedule': 'Membership Dues Schedule',
+                    'SepaMandate': 'SEPA Mandate',
+                    'SalesInvoice': 'Sales Invoice',
+                    'PaymentEntry': 'Payment Entry',
+                }
+                if class_name in class_to_doctype:
+                    return class_to_doctype[class_name]
+
+                return None
+
+            def _infer_doctype_from_attr_name(self, attr_name: str) -> Optional[str]:
+                """
+                Infer DocType from self.attr naming conventions.
+
+                Common patterns:
+                - self.chapter_doc -> Chapter
+                - self.member_doc -> Member
+                - self.team_doc -> Team
+                - self.volunteer_doc -> Volunteer
+                """
+                # Map of attribute name patterns to DocTypes
+                attr_to_doctype = {
+                    'chapter_doc': 'Chapter',
+                    'chapter': 'Chapter',
+                    'member_doc': 'Member',
+                    'team_doc': 'Team',
+                    'team': 'Team',
+                    'volunteer_doc': 'Volunteer',
+                    'invoice_doc': 'Sales Invoice',
+                    'invoice': 'Sales Invoice',
+                    'donation_doc': 'Donation',
+                    'membership_doc': 'Membership',
+                    'schedule_doc': 'Membership Dues Schedule',
+                    'mandate_doc': 'SEPA Mandate',
+                }
+
+                # Direct match
+                if attr_name in attr_to_doctype:
+                    return attr_to_doctype[attr_name]
+
+                # Try suffix stripping (e.g., chapter_doc -> chapter -> Chapter)
+                if attr_name.endswith('_doc'):
+                    base_name = attr_name[:-4]  # Remove _doc suffix
+                    # Title case it to match DocType naming
+                    candidate = base_name.replace('_', ' ').title().replace(' ', '')
+                    if candidate in self.analyzer.schema_reader.doctypes:
+                        return candidate
+
+                return None
+
+            def _analyze_method_return_type(self, func_node) -> Optional[str]:
+                """
+                Analyze a method to determine if it returns child table items.
+
+                Pattern detected:
+                    def _find_active_board_member(self, volunteer):
+                        for board_member in self.chapter_doc.board_members or []:
+                            if ...:
+                                return board_member  # Returns child table item
+                        return None
+                """
+                # Track child table iteration variables in this function
+                child_iter_vars = {}  # var_name -> child_doctype
+
+                # First pass: find child table iterations
+                for node in ast.walk(func_node):
+                    if isinstance(node, ast.For) and isinstance(node.target, ast.Name):
+                        iter_var = node.target.id
+                        iter_node = self._unwrap_iter_node(node.iter)
+
+                        if isinstance(iter_node, ast.Attribute):
+                            child_field = iter_node.attr
+
+                            # Handle self.attr.child_table pattern
+                            if isinstance(iter_node.value, ast.Attribute):
+                                attr_node = iter_node.value
+                                if isinstance(attr_node.value, ast.Name) and attr_node.value.id == 'self':
+                                    attr_name = attr_node.attr
+                                    parent_type = self._infer_doctype_from_attr_name(attr_name)
+                                    if parent_type:
+                                        child_doctype = self.analyzer.schema_reader.get_child_table_doctype(
+                                            parent_type, child_field
+                                        )
+                                        if child_doctype:
+                                            child_iter_vars[iter_var] = child_doctype
+
+                            # Handle self.child_table pattern (controller class)
+                            elif isinstance(iter_node.value, ast.Name) and iter_node.value.id == 'self':
+                                if self.current_class:
+                                    parent_type = self._infer_doctype_from_class_name(self.current_class)
+                                    if parent_type:
+                                        child_doctype = self.analyzer.schema_reader.get_child_table_doctype(
+                                            parent_type, child_field
+                                        )
+                                        if child_doctype:
+                                            child_iter_vars[iter_var] = child_doctype
+
+                # Second pass: check return statements
+                for node in ast.walk(func_node):
+                    if isinstance(node, ast.Return) and node.value:
+                        # Direct return of loop variable
+                        if isinstance(node.value, ast.Name):
+                            if node.value.id in child_iter_vars:
+                                return child_iter_vars[node.value.id]
+
+                return None
+
             def _infer_assignment_type(self, value_node) -> str:
                 """Infer the type of an assignment"""
                 if isinstance(value_node, ast.Call):
@@ -658,22 +903,65 @@ class ContextAnalyzer:
                                     return value_node.args[0].value  # DocType name
                             elif func_name in ['get_all', 'get_list']:
                                 return 'frappe_api_result'
-                    
+
+                        # Phase 2: Check for self.method() calls that return child table types
+                        elif (isinstance(value_node.func.value, ast.Name) and
+                              value_node.func.value.id == 'self'):
+                            method_name = value_node.func.attr
+                            if method_name in self.method_return_types:
+                                return self.method_return_types[method_name]
+
                     # Check for secure_document_operation calls
-                    elif (isinstance(value_node.func, ast.Name) and 
+                    elif (isinstance(value_node.func, ast.Name) and
                           value_node.func.id == 'secure_document_operation'):
                         return 'SecureOperationResult'
-                    
+
                     # Check for date/datetime function calls
-                    elif (isinstance(value_node.func, ast.Name) and 
+                    elif (isinstance(value_node.func, ast.Name) and
                           value_node.func.id in ['getdate', 'datetime', 'today']):
                         return 'date_object'
-                
+
                 return 'unknown'
-        
+
+        # Phase 2: Two-pass approach for method return types
+        # First pass: analyze all method definitions to build method_return_types
+        # This allows us to know return types before they're used
+        class MethodReturnAnalyzer(ast.NodeVisitor):
+            def __init__(self, analyzer, context_visitor):
+                self.analyzer = analyzer
+                self.context_visitor = context_visitor
+                self.current_class = None
+
+            def visit_ClassDef(self, node):
+                old_class = self.current_class
+                self.current_class = node.name
+                self.generic_visit(node)
+                self.current_class = old_class
+
+            def visit_FunctionDef(self, node):
+                # Temporarily set current_class on context_visitor for helper methods
+                old_class = self.context_visitor.current_class
+                self.context_visitor.current_class = self.current_class
+                return_type = self.context_visitor._analyze_method_return_type(node)
+                if return_type:
+                    self.context_visitor.method_return_types[node.name] = return_type
+                self.context_visitor.current_class = old_class
+                self.generic_visit(node)
+
+        # First pass: build method return types
         visitor = ContextVisitor(self)
+        pre_analyzer = MethodReturnAnalyzer(self, visitor)
+        pre_analyzer.visit(tree)
+
+        # Debug: show detected method return types
+        if visitor.method_return_types:
+            import os
+            if os.environ.get('DEBUG_VALIDATOR'):
+                print(f"DEBUG: Detected method return types: {visitor.method_return_types}")
+
+        # Second pass: full context analysis with known method return types
         visitor.visit(tree)
-        
+
         # Propagate property methods to all contexts
         for line_num in contexts:
             contexts[line_num].property_methods = visitor.property_methods
@@ -1020,20 +1308,24 @@ class ValidationEngine:
         if obj_name in line_context.child_table_iterations:
             return line_context.child_table_iterations[obj_name]
         
-        # Try to infer from variable naming conventions
+        # Try to infer from variable naming conventions (exact match only)
+        # Using exact match prevents false positives like "team_member" -> Member
         naming_patterns = {
             'member': 'Member',
-            'chapter': 'Chapter', 
-            'volunteer': 'Verenigingen Volunteer',
-            'contribution': 'Contribution',
-            'payment': 'Payment',
+            'chapter': 'Chapter',
+            'volunteer': 'Volunteer',
+            'donation': 'Donation',
             'invoice': 'Sales Invoice',
+            'doc': None,  # Skip generic 'doc' variable
         }
-        
-        for pattern, doctype in naming_patterns.items():
-            if pattern in obj_name.lower() and doctype in self.schema_reader.doctypes:
-                # Lower confidence for naming-based inference
+
+        obj_lower = obj_name.lower()
+        if obj_lower in naming_patterns:
+            doctype = naming_patterns[obj_lower]
+            if doctype and doctype in self.schema_reader.doctypes:
                 return doctype
+            elif doctype is None:
+                return None  # Explicitly skip this variable
         
         return None
     
