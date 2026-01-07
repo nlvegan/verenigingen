@@ -201,6 +201,7 @@ class TestChapterBoardDocument(EnhancedTestCase):
         self.assertNotIn('.bat', ALLOWED_EXTENSIONS)
         self.assertNotIn('.sh', ALLOWED_EXTENSIONS)
 
+        # child-table-skip: validation testing only - no insert()
         # Test the validation logic directly
         test_doc = frappe.get_doc({
             "doctype": "Chapter Board Document",
@@ -217,6 +218,7 @@ class TestChapterBoardDocument(EnhancedTestCase):
     def test_path_traversal_prevention(self):
         """Test that path traversal attempts in document names are blocked"""
 
+        # child-table-skip: validation testing only - no insert()
         # Test the validation logic directly
         test_doc = frappe.get_doc({
             "doctype": "Chapter Board Document",

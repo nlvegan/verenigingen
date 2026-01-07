@@ -138,6 +138,9 @@ class FrappeCallVisitor(ast.NodeVisitor):
 
         # Check if this DocType is a child table
         if self.metadata.is_child_table(doctype):
+            # Check if parent fields are properly set - if so, this is acceptable
+            if self._check_for_parent_fields(node):
+                return  # Skip - code correctly sets parent/parenttype/parentfield
             self._report_child_table_creation_issue(node, doctype)
 
     def _is_dict_based_creation(self, node: ast.Call) -> bool:
@@ -156,9 +159,13 @@ class FrappeCallVisitor(ast.NodeVisitor):
         return False
 
     def _has_skip_comment(self, line_num: int) -> bool:
-        """Check if there's a validator-skip comment near this line"""
-        # Check current line and previous 2 lines for skip comments
-        for i in range(max(0, line_num - 3), line_num):
+        """Check if there's a validator-skip comment near this line
+
+        Note: line_num is 1-indexed (from AST), self.lines is 0-indexed.
+        """
+        # Convert to 0-indexed and check current line and previous 3 lines
+        line_idx = line_num - 1  # Convert to 0-indexed
+        for i in range(max(0, line_idx - 3), line_idx + 1):
             if i < len(self.lines):
                 line = self.lines[i]
                 if 'validator-skip' in line or 'child-table-skip' in line:
@@ -249,13 +256,15 @@ class FrappeCallVisitor(ast.NodeVisitor):
         return False
     
     def _calculate_confidence(self, node: ast.Call, doctype: str, has_parent_fields: bool) -> str:
-        """Calculate confidence level for this issue"""
-        if has_parent_fields:
-            return "high"  # Clearly trying to create child table with parent info
-        elif self.metadata.get_parent_info(doctype):
-            return "medium"  # Known child table without obvious parent context
+        """Calculate confidence level for this issue
+
+        Note: Cases with parent fields properly set are skipped earlier, so
+        has_parent_fields should always be False here.
+        """
+        if self.metadata.get_parent_info(doctype):
+            return "high"  # Known child table without parent context - definite bug
         else:
-            return "low"  # Child table but unclear context
+            return "medium"  # Child table but unclear parent relationship
     
     def _generate_suggested_fix(self, doctype: str, parent_info: List[Tuple[str, str]]) -> str:
         """Generate a suggested fix for the child table creation issue"""

@@ -566,16 +566,21 @@ class TestMembershipAnalyticsDataSecurity(BaseTestCase):
         user.append("roles", {"role": "Verenigingen Staff"})
         user.save()  # VereningingenTestCase (via BaseTestCase) handles permissions appropriately
         
-        # Link to chapter
-        if not frappe.db.exists("Chapter Member", {"chapter": chapter, "member_email": email}):
-            chapter_member = frappe.get_doc({
-                "doctype": "Chapter Member",
-                "chapter": chapter,
-                "member_email": email,
-                "role": "Manager",
-                "is_active": 1
-            })
-            chapter_member.insert()  # VereningingenTestCase (via BaseTestCase) handles permissions appropriately
+        # Link user to chapter via Member if one exists for this user
+        # Note: Chapter Member requires a Member reference, not User
+        member_name = frappe.db.get_value("Member", {"user": email}, "name")
+        if member_name:
+            chapter_doc = frappe.get_doc("Chapter", chapter)
+            # Check if member already exists in chapter
+            member_exists = any(cm.member == member_name for cm in chapter_doc.members)
+            if not member_exists:
+                chapter_doc.append("members", {
+                    "member": member_name,
+                    "chapter_join_date": frappe.utils.today(),
+                    "enabled": 1,
+                    "status": "Active"
+                })
+                chapter_doc.save()  # VereningingenTestCase (via BaseTestCase) handles permissions appropriately
         
         return email
     

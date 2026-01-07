@@ -111,17 +111,37 @@ class TestChapterAssignmentComprehensive(unittest.TestCase):
             # First ensure member is in the chapter
             self._assign_member_to_chapter_direct(member, chapter)
 
-            board_member = frappe.get_doc(
-                {
-                    "doctype": "Chapter Board Member",
+            # Get or create volunteer for this member
+            volunteer_name = frappe.db.get_value("Volunteer", {"member": member}, "name")
+            if not volunteer_name:
+                volunteer = frappe.get_doc({
+                    "doctype": "Volunteer",
                     "member": member,
-                    "chapter": chapter,
-                    "role": role,
-                    "start_date": today(),
-                    "status": "Active"}
-            )
-            board_member.insert()
-            return board_member.name
+                    "status": "Active"
+                })
+                volunteer.insert()
+                volunteer_name = volunteer.name
+
+            # Get or create chapter role
+            if not frappe.db.exists("Chapter Role", role):
+                chapter_role = frappe.get_doc({
+                    "doctype": "Chapter Role",
+                    "role_name": role
+                })
+                chapter_role.insert()
+
+            # Add board member via proper child table pattern
+            chapter_doc = frappe.get_doc("Chapter", chapter)
+            chapter_doc.append("board_members", {
+                "volunteer": volunteer_name,
+                "chapter_role": role,
+                "from_date": today(),
+                "is_active": 1
+            })
+            chapter_doc.save()
+
+            # Return the name of the last added board member
+            return chapter_doc.board_members[-1].name
         except Exception as e:
             frappe.logger().error(f"Error creating board membership: {str(e)}")
             return None

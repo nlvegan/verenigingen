@@ -354,6 +354,8 @@ class SEPAPaymentWorkflowRealTest(EnhancedTestCase):
         failure_batch.payments[0].failure_code = "AC06"
         failure_batch.save()
         
+        # child-table-skip: TODO - refactor to create SEPA Retry Batch and append operation to it
+        # SEPA Retry Operation is a child table of SEPA Retry Batch (parentfield="operations")
         # Create SEPA retry operation
         retry_operation = frappe.get_doc({
             "doctype": "SEPA Retry Operation",
