@@ -9,8 +9,11 @@ import json
 import frappe
 import requests
 
+from verenigingen.utils.security_decorators import development_only
+
 
 @frappe.whitelist()
+@development_only()
 def test_transaction_webhook(payment_id="tr_RguKBdskXAwRhRYACAfEJ"):
     """Test webhook for specific transaction"""
 

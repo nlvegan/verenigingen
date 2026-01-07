@@ -2845,7 +2845,8 @@ def test_dashboard_access():
         }
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist()
+@development_only()
 def simple_test_count():
     """Simple test to see if we can get basic counts"""
     try:

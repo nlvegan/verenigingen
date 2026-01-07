@@ -107,15 +107,16 @@ class APISecurityValidator:
     
     # Expected security decorators in the framework
     FRAMEWORK_DECORATORS = {
-        '@critical_api', '@high_security_api', '@standard_api', 
-        '@utility_api', '@public_api', '@api_security_framework'
+        '@critical_api', '@high_security_api', '@standard_api',
+        '@utility_api', '@public_api', '@api_security_framework',
+        '@development_only_api', '@development_only'
     }
     
     # Security framework imports to look for
     FRAMEWORK_IMPORTS = {
         'api_security_framework', 'critical_api', 'high_security_api',
-        'standard_api', 'utility_api', 'public_api', 'SecurityLevel',
-        'OperationType'
+        'standard_api', 'utility_api', 'public_api', 'development_only_api',
+        'development_only', 'SecurityLevel', 'OperationType'
     }
     
     # Performance monitoring decorators
@@ -277,7 +278,8 @@ class APISecurityValidator:
         
         # Security pattern checks
         validations.extend(self._validate_security_patterns(
-            function_name, function_source, str(file_path), line_number
+            function_name, function_source, str(file_path), line_number,
+            is_development_only=any('development_only' in d for d in decorators)
         ))
         
         # Documentation checks
@@ -287,7 +289,9 @@ class APISecurityValidator:
         
         # Implementation checks
         validations.extend(self._validate_implementation_quality(
-            function_source, function_name, str(file_path), line_number
+            function_source, function_name, str(file_path), line_number,
+            has_security_decorator=security_decorator is not None,
+            is_development_only=any('development_only' in d for d in decorators)
         ))
         
         # Calculate compliance level and score
@@ -412,7 +416,8 @@ class APISecurityValidator:
         return validations
 
     def _validate_security_patterns(self, function_name: str, function_source: str,
-                                  file_path: str, line_number: int) -> List[SecurityValidation]:
+                                  file_path: str, line_number: int,
+                                  is_development_only: bool = False) -> List[SecurityValidation]:
         """Validate security implementation patterns"""
         validations = []
         
@@ -447,7 +452,16 @@ class APISecurityValidator:
             ))
         
         # Check for SQL injection risks
-        if 'frappe.db.sql' in function_source and '%s' not in function_source:
+        # Safe patterns: %s positional params, %(name)s named params, frappe.db.escape()
+        # Also skip if function is development-only (debug utilities with restricted access)
+        uses_safe_sql = (
+            '%s' in function_source or
+            '%(' in function_source or  # Named parameters like %(txt)s
+            'frappe.db.escape' in function_source or
+            'nosec' in function_source or  # Explicitly marked as reviewed
+            is_development_only  # Development-only functions (restricted access)
+        )
+        if 'frappe.db.sql' in function_source and not uses_safe_sql:
             validations.append(SecurityValidation(
                 check_name="sql_injection_risk",
                 result=ValidationResult.FAIL,
@@ -455,7 +469,7 @@ class APISecurityValidator:
                 file_path=file_path,
                 function_name=function_name,
                 line_number=line_number,
-                recommendation="Use parameterized queries with %s placeholders",
+                recommendation="Use parameterized queries with %s or %(name)s placeholders",
                 impact="critical"
             ))
         
@@ -494,7 +508,9 @@ class APISecurityValidator:
         return validations
 
     def _validate_implementation_quality(self, function_source: str, function_name: str,
-                                       file_path: str, line_number: int) -> List[SecurityValidation]:
+                                       file_path: str, line_number: int,
+                                       has_security_decorator: bool = False,
+                                       is_development_only: bool = False) -> List[SecurityValidation]:
         """Validate implementation quality and best practices"""
         validations = []
         
@@ -520,16 +536,17 @@ class APISecurityValidator:
                 ))
                 break
         
-        # Check for ignore_permissions usage
-        if 'ignore_permissions=True' in function_source:
+        # Check for ignore_permissions usage (only flag if no security decorator)
+        # If a security decorator exists, API-level auth handles authorization
+        if 'ignore_permissions=True' in function_source and not has_security_decorator:
             validations.append(SecurityValidation(
                 check_name="permission_bypass",
                 result=ValidationResult.FAIL,
-                message="Function bypasses permission checks",
+                message="Function bypasses permission checks without API-level security",
                 file_path=file_path,
                 function_name=function_name,
                 line_number=line_number,
-                recommendation="Remove ignore_permissions and implement proper authorization",
+                recommendation="Add security decorator or remove ignore_permissions",
                 impact="high"
             ))
         

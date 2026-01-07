@@ -6,8 +6,11 @@ import json
 
 import frappe
 
+from verenigingen.utils.security_decorators import development_only
+
 
 @frappe.whitelist()
+@development_only()
 def check_opening_balance_mutations():
     """Check what's in the opening balance mutations and their mappings"""
     from verenigingen.e_boekhouden.utils.eboekhouden_api import EBoekhoudenAPI

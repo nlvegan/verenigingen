@@ -4,8 +4,11 @@ Reset donation for webhook testing
 
 import frappe
 
+from verenigingen.utils.security_decorators import development_only
 
-@frappe.whitelist(allow_guest=True)
+
+@frappe.whitelist()
+@development_only()
 def reset_donation_for_testing(donation_name):
     """Reset donation payment status for testing webhook"""
 

@@ -9,8 +9,11 @@ import json
 import frappe
 import requests
 
+from verenigingen.utils.security_decorators import development_only
+
 
 @frappe.whitelist()
+@development_only()
 def test_signed_webhook():
     """Test webhook with proper signature"""
 

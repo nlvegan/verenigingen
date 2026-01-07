@@ -7,6 +7,7 @@ import frappe
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
+    development_only_api,
     high_security_api,
     standard_api,
 )
@@ -17,6 +18,7 @@ from verenigingen.utils.security.rate_limiting import rate_limit
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 @rate_limit("stock_check")  # Correct signature: operation name only
 @require_role(["System Manager", "Accounts Manager", "Verenigingen Administrator"])
 @validate_csrf_token
