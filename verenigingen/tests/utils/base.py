@@ -344,13 +344,19 @@ class VereningingenTestCase(FrappeTestCase):
 
         # Ensure test Membership Type exists
         if not frappe.db.exists("Membership Type", "Test Membership"):
+            # Get a role profile for the membership type (required field)
+            role_profile = frappe.db.get_value("Role Profile", {"name": "Verenigingen Staff"}, "name")
+            if not role_profile:
+                role_profile = frappe.db.get_value("Role Profile", {}, "name")
+
             membership_type = frappe.get_doc(
                 {
                     "doctype": "Membership Type",
                     "membership_type_name": "Test Membership",
                     "payment_interval": "Monthly",
                     "amount": 10.00,
-                    "is_active": 1}
+                    "is_active": 1,
+                    "role_profile": role_profile}
             )
             membership_type.insert(ignore_permissions=True)
 

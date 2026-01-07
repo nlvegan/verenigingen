@@ -1149,10 +1149,17 @@ class EnhancedTestDataFactory:
         """Ensure a membership type exists, create if not"""
         if frappe.db.exists("Membership Type", type_name):
             return frappe.get_doc("Membership Type", type_name)
-        
+
         billing_period = attributes.get("billing_period", "Monthly") if attributes else "Monthly"
         amount = attributes.get("amount", 50.00) if attributes else 50.00
-        
+
+        # Get a role profile for the membership type (required field)
+        role_profile = attributes.get("role_profile") if attributes else None
+        if not role_profile:
+            role_profile = frappe.db.get_value("Role Profile", {"name": "Verenigingen Staff"}, "name")
+        if not role_profile:
+            role_profile = frappe.db.get_value("Role Profile", {}, "name")
+
         # Create membership type - now that dues_schedule_template is optional, no circular dependency
         type_data = {
             "doctype": "Membership Type",
@@ -1160,14 +1167,15 @@ class EnhancedTestDataFactory:
             "minimum_amount": amount,
             "billing_period": billing_period,
             "is_active": attributes.get("is_active", 1) if attributes else 1,
+            "role_profile": role_profile,
         }
-        
+
         if attributes:
             # Don't override the fields we've already set properly
             for key, value in attributes.items():
-                if key not in ['amount', 'billing_period', 'minimum_amount']:
+                if key not in ['amount', 'billing_period', 'minimum_amount', 'role_profile']:
                     type_data[key] = value
-        
+
         membership_type = frappe.get_doc(type_data)
         membership_type.insert()
         self.track_document("Membership Type", membership_type.name, priority=1)

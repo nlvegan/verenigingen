@@ -409,14 +409,22 @@ class StreamlinedTestDataFactory:
                 # Fallback - this shouldn't happen in production data
                 kwargs['dues_schedule_template'] = "Template-Annual"
         
+        # Get a role profile for the membership type (required field)
+        role_profile = kwargs.get("role_profile")
+        if not role_profile:
+            role_profile = frappe.db.get_value("Role Profile", {"name": "Verenigingen Staff"}, "name")
+        if not role_profile:
+            role_profile = frappe.db.get_value("Role Profile", {}, "name")
+
         defaults = {
             "membership_type_name": f"Test Type {self.fake.word().title()} - {self.test_run_id}",
             "minimum_amount": flt(self.fake.random_int(min=25, max=200)),
             "is_active": 1,
-            "billing_period": "Annual"
+            "billing_period": "Annual",
+            "role_profile": role_profile
         }
         defaults.update(kwargs)
-        
+
         membership_type = frappe.get_doc({"doctype": "Membership Type", **defaults})
         membership_type.insert(ignore_permissions=True)
         self.track_doc("Membership Type", membership_type.name)

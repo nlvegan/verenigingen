@@ -18,6 +18,7 @@ class TestPaymentFailureScenarios(EnhancedTestCase):
     @classmethod
     def setUpClass(cls):
         """Set up test data"""
+        super().setUpClass()
         cls.test_records = []
 
         # Create test chapter with proper fields
@@ -33,12 +34,18 @@ class TestPaymentFailureScenarios(EnhancedTestCase):
         cls.test_records.append(cls.chapter)
 
         # Create test membership type with Enhanced Test Factory field names
+        # Get or create a role profile for test membership types
+        role_profile = frappe.db.get_value("Role Profile", {"name": "Verenigingen Staff"}, "name")
+        if not role_profile:
+            role_profile = frappe.db.get_value("Role Profile", {}, "name")
+
         cls.membership_type = frappe.get_doc(
             {
                 "doctype": "Membership Type",
                 "membership_type_name": "Payment Test Type",
                 "description": "Test membership type for payment failures",
-                "minimum_amount": 25.0}
+                "minimum_amount": 25.0,
+                "role_profile": role_profile}
         )
         cls.membership_type.insert()
         cls.test_records.append(cls.membership_type)
@@ -57,14 +64,15 @@ class TestPaymentFailureScenarios(EnhancedTestCase):
         cls.member.insert()
         cls.test_records.append(cls.member)
 
-        # Create SEPA mandate
+        # Create SEPA mandate with all required fields
         cls.mandate = frappe.get_doc(
             {
                 "doctype": "SEPA Mandate",
                 "member": cls.member.name,
                 "iban": "NL91ABNA0417164300",
                 "status": "Active",
-                "mandate_date": today()}
+                "sign_date": today(),
+                "account_holder_name": f"{cls.member.first_name} {cls.member.last_name}"}
         )
         cls.mandate.insert()
         cls.test_records.append(cls.mandate)
