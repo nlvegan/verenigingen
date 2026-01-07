@@ -72,7 +72,10 @@ class SecureCSVParser:
                 _("File encoding error. Please check the encoding setting or try a different encoding.")
             )
         except Exception as e:
-            frappe.log_error("CSV file reading error: %s", str(e))
+            frappe.log_error(
+                message=f"CSV file reading error: {str(e)}",
+                title="CSV Import Error"
+            )
             frappe.throw(_("Error reading CSV file: {0}").format(str(e)))
 
     def _sanitize_filename(self, file_url: str) -> str:
