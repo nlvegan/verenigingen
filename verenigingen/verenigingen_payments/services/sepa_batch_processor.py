@@ -8,10 +8,10 @@ Extracted from direct_debit_batch/sepa_processor.py for better
 separation of concerns and testability.
 """
 
-import xml.etree.ElementTree as ET
 from datetime import datetime
 
 import frappe
+from defusedxml import ElementTree as SafeET  # XXE-safe XML parsing
 from frappe import _
 from frappe.utils import add_days, cstr, flt, getdate, today
 
@@ -43,11 +43,21 @@ class SEPABatchProcessor:
         self.error_handler = get_sepa_error_handler()
         self.performance_optimizer = get_batch_performance_optimizer()
 
-        # Get company from centralized config
+        # Get company from centralized config with permission validation
         company_config = self.config_manager.get_company_sepa_config()
-        self.company = (
-            frappe.get_doc("Company", company_config["company"]) if company_config["company"] else None
-        )
+        company_name = company_config.get("company")
+        self.company = None
+
+        if company_name:
+            # Validate user has permission to access company financial data
+            if not frappe.has_permission("Company", "read", company_name):
+                frappe.throw(
+                    _("You do not have permission to access Company {0} for SEPA processing").format(
+                        company_name
+                    ),
+                    frappe.PermissionError,
+                )
+            self.company = frappe.get_doc("Company", company_name)
 
     # =========================================================================
     # Batch Creation
@@ -495,9 +505,12 @@ class SEPABatchProcessor:
         returns = []
 
         try:
-            ET.parse(file_path)
+            # Use defusedxml to prevent XXE attacks
+            tree = SafeET.parse(file_path)
+            _root = tree.getroot()  # noqa: F841 - Stub implementation, root needed for pain.002 parsing
             # Navigate through the XML structure to find returns
             # This will vary based on your bank's implementation
+            # TODO: Implement pain.002 parsing based on bank's format
 
             return returns
 
@@ -522,15 +535,29 @@ class SEPABatchProcessor:
         return None
 
     def handle_failed_payment(self, invoice_item, return_info):
-        """Handle a failed SEPA payment"""
+        """
+        Handle a failed SEPA payment with transaction safety.
+
+        The schedule update and notification are handled separately to ensure:
+        1. Schedule state change is atomic (savepoint protection)
+        2. Notification failure doesn't affect schedule update
+        3. Both operations are logged for audit trail
+        """
+        schedule = None
+        schedule_updated = False
+
         try:
             # Get the dues schedule
             invoice = frappe.get_doc("Sales Invoice", invoice_item.invoice)
-            if invoice.membership_dues_schedule_display:
-                schedule = frappe.get_doc(
-                    "Membership Dues Schedule", invoice.membership_dues_schedule_display
-                )
+            if not invoice.membership_dues_schedule_display:
+                return
 
+            schedule = frappe.get_doc("Membership Dues Schedule", invoice.membership_dues_schedule_display)
+
+            # Use savepoint for atomic schedule update
+            frappe.db.savepoint("handle_failed_payment")
+
+            try:
                 # Increment failure count
                 schedule.consecutive_failures = (schedule.consecutive_failures or 0) + 1
 
@@ -559,9 +586,13 @@ class SEPABatchProcessor:
                     schedule.grace_period_until = add_days(today(), grace_period_days)
 
                 schedule.save()
+                frappe.db.release_savepoint("handle_failed_payment")
+                schedule_updated = True
 
-                # Notify member
-                self.notify_payment_failure(schedule, return_info)
+            except Exception:
+                # Rollback schedule changes on any error
+                frappe.db.rollback_savepoint("handle_failed_payment")
+                raise
 
         except Exception:
             frappe.log_error(
@@ -575,6 +606,24 @@ class SEPABatchProcessor:
                     f"Return Description: {return_info.get('reason_description', 'N/A')}"
                 ),
             )
+            return
+
+        # Notification is separate from schedule update - failure here won't affect schedule
+        if schedule_updated and schedule:
+            try:
+                self.notify_payment_failure(schedule, return_info)
+            except Exception:
+                # Log notification failure but don't fail the overall operation
+                frappe.log_error(
+                    title="Failed Payment Notification Error (Non-Critical)",
+                    message=(
+                        f"{frappe.get_traceback()}\n\n"
+                        f"Context:\n"
+                        f"User: {frappe.session.user}\n"
+                        f"Schedule: {schedule.name}\n"
+                        f"Note: Schedule was updated successfully, only notification failed"
+                    ),
+                )
 
     def notify_payment_failure(self, schedule, return_info):
         """Send notification about payment failure"""

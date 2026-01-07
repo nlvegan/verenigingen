@@ -17,6 +17,7 @@
     "iban",
     "bic",
     "mandate_reference",
+    "sequence_type",
     "column_break_12",
     "status",
     "result_code",
@@ -98,6 +99,13 @@
       "fieldtype": "Data",
       "label": "Mandate Reference",
       "reqd": 1
+    },
+    {
+      "description": "SEPA sequence type: FRST (First), RCUR (Recurring), OOFF (One-Off), FNAL (Final)",
+      "fieldname": "sequence_type",
+      "fieldtype": "Select",
+      "label": "Sequence Type",
+      "options": "\nFRST\nRCUR\nOOFF\nFNAL"
     },
     {
       "fieldname": "column_break_12",

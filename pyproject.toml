@@ -31,6 +31,8 @@ dependencies = [
     "scikit-learn>=1.0.0",
     # Bank statement parsing
     "mt-940>=4.0",
+    # XML security (XXE prevention)
+    "defusedxml>=0.7.1",
 ]
 
 [project.optional-dependencies]
