@@ -140,7 +140,6 @@ class CustomerHandlingService(StatefulService):
                 customer.email_id = member_doc.email
             if hasattr(member_doc, "contact_number") and member_doc.contact_number:
                 customer.mobile_no = member_doc.contact_number
-                customer.phone = member_doc.contact_number
 
             customer.flags.ignore_mandatory = True
 
