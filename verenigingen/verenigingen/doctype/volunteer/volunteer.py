@@ -252,7 +252,7 @@ class Volunteer(Document):
 
         Returns True if volunteer has assignments in any of:
         - Chapter Board Member
-        - Volunteer Team Member
+        - Team Member
         - Assignment history child table
         """
         # Check assignment_history child table first (in-memory, no DB query)
@@ -263,8 +263,8 @@ class Volunteer(Document):
         if frappe.db.exists("Chapter Board Member", {"volunteer": self.name}):
             return True
 
-        # Check Volunteer Team Member (single indexed query)
-        if frappe.db.exists("Volunteer Team Member", {"volunteer": self.name}):
+        # Check Team Member (single indexed query)
+        if frappe.db.exists("Team Member", {"volunteer": self.name}):
             return True
 
         return False
