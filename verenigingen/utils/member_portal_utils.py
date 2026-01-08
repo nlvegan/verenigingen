@@ -30,7 +30,7 @@ def set_member_home_page(user_email=None, home_page="/member_portal"):
 
         # Update user's home page
         user_doc = frappe.get_doc("User", user_email)
-        user_doc.home_page = home_page
+        user_doc.home_settings = home_page
 
         # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
         result = secure_document_operation(
@@ -140,7 +140,7 @@ def get_member_portal_stats():
             JOIN `tabHas Role` hr ON hr.parent = u.name
             WHERE hr.role = 'Member'
             AND u.enabled = 1
-            AND u.home_page = '/member_portal'
+            AND u.home_settings = '/member_portal'
         """
         )[0][0]
 
@@ -193,7 +193,7 @@ def sync_member_user_home_pages():
             JOIN `tabHas Role` hr ON hr.parent = u.name
             WHERE hr.role = 'Member'
             AND u.enabled = 1
-            AND (u.home_page IS NULL OR u.home_page = '' OR u.home_page = '/app')
+            AND (u.home_settings IS NULL OR u.home_settings = '' OR u.home_settings = '/app')
             AND u.name != 'Guest'
         """,
             as_dict=True,

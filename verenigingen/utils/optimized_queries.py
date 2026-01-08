@@ -611,11 +611,11 @@ class OptimizedVolunteerQueries:
                 'Chapter Board Member' as source_type,
                 'Chapter' as source_doctype,
                 cbm.parent as source_name,
-                c.chapter_name as source_name_display,
-                cbm.position as role,
+                c.name as source_name_display,
+                cbm.chapter_role as role,
                 cbm.from_date as start_date,
-                cbm.end_date,
-                CASE WHEN cbm.end_date IS NULL OR cbm.end_date >= CURDATE() THEN 1 ELSE 0 END as is_active,
+                cbm.to_date as end_date,
+                CASE WHEN cbm.to_date IS NULL OR cbm.to_date >= CURDATE() THEN 1 ELSE 0 END as is_active,
                 0 as editable
             FROM `tabVolunteer` v
             LEFT JOIN `tabChapter Board Member` cbm ON v.name = cbm.volunteer
@@ -629,17 +629,17 @@ class OptimizedVolunteerQueries:
                 'Team' as assignment_type,
                 'Team Member' as source_type,
                 'Team' as source_doctype,
-                tm.team as source_name,
+                tm.parent as source_name,
                 t.team_name as source_name_display,
                 tm.role,
                 tm.from_date as start_date,
-                tm.end_date,
-                CASE WHEN tm.end_date IS NULL OR tm.end_date >= CURDATE() THEN 1 ELSE 0 END as is_active,
+                tm.to_date as end_date,
+                CASE WHEN tm.to_date IS NULL OR tm.to_date >= CURDATE() THEN 1 ELSE 0 END as is_active,
                 0 as editable
             FROM `tabVolunteer` v
             LEFT JOIN `tabMember` m ON v.member = m.name
             LEFT JOIN `tabTeam Member` tm ON v.name = tm.volunteer
-            LEFT JOIN `tabTeam` t ON tm.team = t.name
+            LEFT JOIN `tabTeam` t ON tm.parent = t.name
             WHERE v.name IN ({placeholders_2}) AND tm.name IS NOT NULL
 
             UNION ALL
@@ -844,7 +844,7 @@ class OptimizedChapterQueries:
         SELECT DISTINCT
             postal_code,
             c.name as chapter_name,
-            c.chapter_name as chapter_display_name
+            c.name as chapter_display_name
         FROM (
             SELECT %s as postal_code
         ) pc
@@ -856,7 +856,7 @@ class OptimizedChapterQueries:
             AND c.postal_codes != ''
             AND FIND_IN_SET(pc.postal_code, REPLACE(c.postal_codes, ' ', '')) > 0
         )
-        ORDER BY c.priority DESC, c.name
+        ORDER BY c.name
         """
 
         # Execute query for each postal code (could be optimized further with VALUES clause)

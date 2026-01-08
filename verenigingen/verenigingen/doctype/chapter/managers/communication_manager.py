@@ -605,12 +605,12 @@ class CommunicationManager(BaseManager):
 
         try:
             if filter_type == "all":
-                # All chapter members who haven't opted out
+                # All chapter members who accept optional communications
                 for member in self.chapter_doc.members or []:
                     if member.enabled:
                         member_doc = frappe.get_doc("Member", member.member)
-                        # Check opt-out preference
-                        if member_doc.email and not member_doc.get("opt_out_optional_emails", False):
+                        # Check opt-in preference
+                        if member_doc.email and member_doc.get("accepts_optional_communications", True):
                             recipients.append(member_doc.email)
 
                 # All board members
@@ -625,12 +625,12 @@ class CommunicationManager(BaseManager):
                         recipients.append(board_member.email)
 
             elif filter_type == "members":
-                # Only regular members who haven't opted out
+                # Only regular members who accept optional communications
                 for member in self.chapter_doc.members or []:
                     if member.enabled:
                         member_doc = frappe.get_doc("Member", member.member)
-                        # Check opt-out preference for optional communications
-                        if member_doc.email and not member_doc.get("opt_out_optional_emails", False):
+                        # Check opt-in preference for optional communications
+                        if member_doc.email and member_doc.get("accepts_optional_communications", True):
                             recipients.append(member_doc.email)
 
             # Remove duplicates

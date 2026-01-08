@@ -133,7 +133,7 @@ def populate_email_groups():
     members = frappe.get_all(
         "Member",
         filters={"status": "Active"},
-        fields=["name", "email", "first_name", "last_name"],
+        fields=["name", "email", "first_name", "last_name", "accepts_optional_communications"],
     )
 
     for member in members:
@@ -144,8 +144,8 @@ def populate_email_groups():
         add_to_email_group("All Active Members", member.email, member.first_name)
         stats["all_members"] += 1
 
-        # Add to Newsletter Subscribers (only if not opted out)
-        if not member.opt_out_optional_emails:
+        # Add to Newsletter Subscribers (only if opted in)
+        if member.accepts_optional_communications:
             add_to_email_group("Newsletter Subscribers", member.email, member.first_name)
             stats["newsletter_subscribers"] += 1
 
@@ -359,10 +359,12 @@ def get_newsletter_statistics():
     # Members with email
     stats["members_with_email"] = frappe.db.count("Member", {"status": "Active", "email": ["!=", ""]})
 
-    # Opted out members
-    stats["opted_out_members"] = frappe.db.count("Member", {"status": "Active", "opt_out_optional_emails": 1})
+    # Members who declined optional communications (only count those with email to match denominator)
+    stats["opted_out_members"] = frappe.db.count(
+        "Member", {"status": "Active", "email": ["!=", ""], "accepts_optional_communications": 0}
+    )
 
-    # Newsletter subscribers
+    # Newsletter subscribers (members who accept optional communications)
     stats["newsletter_subscribers"] = stats["members_with_email"] - stats["opted_out_members"]
 
     # Opt-out percentage

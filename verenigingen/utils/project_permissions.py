@@ -305,7 +305,7 @@ def user_has_project_team_access(user, project_name, permission_type):
         # Check indirect team assignment (project name contains team name) - case-insensitive
         user_teams = frappe.db.sql(
             """
-            SELECT tm.parent as team_name, tr.role as team_role
+            SELECT tm.parent as team_name, tr.role_name as team_role
             FROM `tabTeam Member` tm
             LEFT JOIN `tabTeam Role` tr ON tm.team_role = tr.name
             INNER JOIN `tabTeam` t ON tm.parent = t.name
@@ -600,7 +600,7 @@ def get_user_project_teams(user=None):
                 t.description,
                 t.status,
                 tm.team_role,
-                tm.responsibility,
+                tm.notes as responsibility,
                 tr.role_name
             FROM `tabTeam Member` tm
             INNER JOIN `tabTeam` t ON tm.parent = t.name

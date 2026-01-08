@@ -43,11 +43,20 @@ class SQLFieldValidator:
     def __init__(self, app_path: str):
         self.app_path = Path(app_path).resolve()
         self.bench_path = self.app_path.parent.parent
-        
+
+        # HRMS fields that exist in database but not in DocType JSON files
+        # These are added by HRMS app at installation time (must be defined before _convert_doctypes)
+        self.hrms_fields = {
+            'Employee': {
+                'expense_approver', 'leave_approver', 'shift_request_approver',
+                'holiday_list', 'default_shift', 'attendance_device_id'
+            }
+        }
+
         # Use comprehensive DocType loader (like basic SQL validator)
         self.doctype_loader = DocTypeLoader(str(self.bench_path), verbose=False)
         self.doctypes = self._convert_doctypes_for_compatibility()
-        
+
         print(f"🔍 SQL Validator loaded {len(self.doctypes)} DocTypes from comprehensive loader")
         
         # Extended standard Frappe fields (kept for reference but now loaded via DocType loader)
@@ -102,7 +111,7 @@ class SQLFieldValidator:
             r'scripts/testing/',
             r'_disabled'
         ]
-        
+
         # SQL keywords and functions that might appear as table aliases
         self.sql_keywords = {
             'select', 'from', 'where', 'join', 'inner', 'left', 'right', 'outer',
@@ -116,11 +125,18 @@ class SQLFieldValidator:
         """Convert DocType loader format to legacy format for compatibility"""
         legacy_format = {}
         doctype_metas = self.doctype_loader.get_doctypes()
-        
+
         for doctype_name, doctype_meta in doctype_metas.items():
             all_field_names = self.doctype_loader.get_field_names(doctype_name)
             legacy_format[doctype_name] = all_field_names
-            
+
+        # Add HRMS fields that exist in database but not in JSON files
+        for doctype_name, hrms_fields in self.hrms_fields.items():
+            if doctype_name in legacy_format:
+                legacy_format[doctype_name].update(hrms_fields)
+            else:
+                legacy_format[doctype_name] = hrms_fields
+
         return legacy_format
         
     
@@ -443,7 +459,7 @@ class SQLFieldValidator:
         for py_file in search_path.rglob("*.py"):
             # Enhanced file filtering
             file_str = str(py_file)
-            if any(skip in file_str for skip in ['test_', 'debug_', '__pycache__', '.pyc']):
+            if any(skip in file_str for skip in ['test_', 'debug_', '__pycache__', '.pyc', 'one-off-test-debug-folder', 'archived_unused', 'archived_deleted', 'scripts/validation/archived']):
                 continue
                 
             file_violations = self.validate_file(py_file)

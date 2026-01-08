@@ -205,7 +205,7 @@ class MemberPerformanceOptimizer:
                 where_conditions.append(
                     """
                     (m.full_name LIKE %(search)s
-                     OR m.email_address LIKE %(search)s
+                     OR m.email LIKE %(search)s
                      OR c.customer_name LIKE %(search)s)
                 """
                 )
@@ -217,12 +217,12 @@ class MemberPerformanceOptimizer:
         # Optimized query with JOINs to reduce N+1 queries
         query = f"""
             SELECT DISTINCT
-                m.name, m.full_name, m.first_name, m.last_name, m.email_address,
+                m.name, m.full_name, m.first_name, m.last_name, m.email,
                 m.status, m.member_since, m.birth_date, addr.pincode as postal_code, addr.city,
                 c.name as customer_name, c.territory, c.customer_group,
                 ct.name as contact_name, ct.phone, ct.mobile_no,
                 sm.name as current_mandate, sm.iban, sm.status as mandate_status,
-                ch.chapter_name, ch.name as chapter_code,
+                ch.name as chapter_name, ch.name as chapter_code,
                 mds.name as current_dues_schedule, mds.dues_rate, mds.next_invoice_date,
                 COUNT(DISTINCT mph.name) as payment_count,
                 SUM(DISTINCT mph.amount) as total_payments,
@@ -231,7 +231,8 @@ class MemberPerformanceOptimizer:
             LEFT JOIN `tabAddress` addr ON m.primary_address = addr.name
             LEFT JOIN `tabCustomer` c ON m.customer = c.name
             LEFT JOIN `tabContact` ct ON c.customer_primary_contact = ct.name
-            LEFT JOIN `tabSEPA Mandate` sm ON m.current_sepa_mandate = sm.name
+            LEFT JOIN `tabMember SEPA Mandate Link` msml ON msml.parent = m.name AND msml.is_current = 1
+            LEFT JOIN `tabSEPA Mandate` sm ON msml.sepa_mandate = sm.name
             LEFT JOIN `tabChapter Member` cm ON cm.member = m.name AND cm.enabled = 1
             LEFT JOIN `tabChapter` ch ON cm.parent = ch.name
             LEFT JOIN `tabMembership Dues Schedule` mds ON m.current_dues_schedule = mds.name
@@ -265,26 +266,29 @@ class MemberPerformanceOptimizer:
         dashboard_query = """
             SELECT
                 m.name, m.full_name, m.status, m.member_since, m.birth_date,
-                m.email_address, m.phone, m.city, m.postal_code,
+                m.email, m.contact_number as phone, addr.city, addr.pincode as postal_code,
                 c.territory, c.customer_group,
-                sm.iban, sm.status as mandate_status, sm.mandate_reference,
-                mds.dues_rate, mds.frequency as dues_frequency, mds.next_invoice_date,
+                sm.iban, sm.status as mandate_status, sm.mandate_id as mandate_reference,
+                mds.dues_rate, mds.billing_frequency as dues_frequency, mds.next_invoice_date,
                 COUNT(DISTINCT mph.name) as payment_count_12m,
                 COALESCE(SUM(DISTINCT mph.amount), 0) as total_paid_12m,
                 MAX(mph.payment_date) as last_payment_date,
-                COUNT(DISTINCT ve.name) as expense_count_12m,
-                COALESCE(SUM(DISTINCT ve.total_claimed_amount), 0) as total_expenses_12m,
+                COUNT(DISTINCT ec.name) as expense_count_12m,
+                COALESCE(SUM(DISTINCT ec.total_claimed_amount), 0) as total_expenses_12m,
                 COUNT(DISTINCT ch.name) as chapter_count,
-                GROUP_CONCAT(DISTINCT ch.chapter_name SEPARATOR ', ') as chapter_names
+                GROUP_CONCAT(DISTINCT ch.name SEPARATOR ', ') as chapter_names
             FROM `tabMember` m
+            LEFT JOIN `tabAddress` addr ON m.primary_address = addr.name
             LEFT JOIN `tabCustomer` c ON m.customer = c.name
-            LEFT JOIN `tabSEPA Mandate` sm ON m.current_sepa_mandate = sm.name
+            LEFT JOIN `tabMember SEPA Mandate Link` msml ON msml.parent = m.name AND msml.is_current = 1
+            LEFT JOIN `tabSEPA Mandate` sm ON msml.sepa_mandate = sm.name
             LEFT JOIN `tabMembership Dues Schedule` mds ON m.current_dues_schedule = mds.name
             LEFT JOIN `tabMember Payment History` mph ON mph.parent = m.name
                 AND mph.payment_date >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
             LEFT JOIN `tabVolunteer` v ON v.member = m.name
-            LEFT JOIN `tabVolunteer Expense` ve ON ve.volunteer = v.name
-                AND ve.expense_date >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
+            LEFT JOIN `tabExpense Claim` ec ON ec.employee = v.employee_id
+                AND ec.posting_date >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
+                AND ec.docstatus = 1
             LEFT JOIN `tabChapter Member` cm ON cm.member = m.name AND cm.enabled = 1
             LEFT JOIN `tabChapter` ch ON cm.parent = ch.name
             WHERE m.name = %(member_name)s

@@ -158,7 +158,7 @@ class AdvancedSegmentationManager:
             "m.status = 'Active'",
             "m.email IS NOT NULL",
             "m.email != ''",
-            "(m.opt_out_optional_emails IS NULL OR m.opt_out_optional_emails = 0)",
+            "m.accepts_optional_communications = 1",
         ]
 
         values = {}
@@ -552,7 +552,7 @@ class AdvancedSegmentationManager:
                     WHERE cm.parent = %(chapter)s
                         AND cm.enabled = 1
                         AND m.status = 'Active'
-                        AND (m.opt_out_optional_emails IS NULL OR m.opt_out_optional_emails = 0)
+                        AND m.accepts_optional_communications = 1
                 """,
                     {"chapter": chapter_name},
                     as_dict=True,
@@ -568,7 +568,7 @@ class AdvancedSegmentationManager:
                         COUNT(CASE WHEN EXISTS (SELECT 1 FROM `tabDonation` d WHERE d.donor = m.name AND d.docstatus = 1) THEN 1 END) as donors
                     FROM `tabMember` m
                     WHERE m.status = 'Active'
-                        AND (m.opt_out_optional_emails IS NULL OR m.opt_out_optional_emails = 0)
+                        AND m.accepts_optional_communications = 1
                 """,
                     as_dict=True,
                 )[0]

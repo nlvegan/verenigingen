@@ -739,7 +739,7 @@ def debug_workspace_doctype_mapping():
         SELECT
             w.name as workspace,
             wl.link_to,
-            wl.link_name,
+            wl.label as link_name,
             wl.link_type
         FROM `tabWorkspace` w
         JOIN `tabWorkspace Link` wl ON wl.parent = w.name

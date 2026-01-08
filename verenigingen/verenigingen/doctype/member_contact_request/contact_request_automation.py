@@ -233,7 +233,7 @@ def auto_close_resolved_requests():
 
             # Notify member that their request has been closed
             member_doc = frappe.get_doc("Member", request.member)
-            if member_doc.email_address:
+            if member_doc.email:
                 subject = f"Contact Request Closed: {request.subject}"
                 message = f"""
                 <h3>Contact Request Closed</h3>

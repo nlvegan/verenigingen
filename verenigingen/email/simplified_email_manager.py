@@ -178,11 +178,11 @@ class SimplifiedEmailManager(CommunicationManager):
             from verenigingen.utils.validation_utilities import get_active_records_filters
 
             filters = get_active_records_filters(
-                "Member", {"email": ["!=", ""], "opt_out_optional_emails": ["!=", 1]}
+                "Member", {"email": ["!=", ""], "accepts_optional_communications": 1}
             )
         else:
-            # Add opt-out check to custom filters
-            filters["opt_out_optional_emails"] = ["!=", 1]
+            # Add opt-in check to custom filters
+            filters["accepts_optional_communications"] = 1
 
         # Get eligible members
         members = frappe.db.get_all("Member", filters=filters, fields=["email"], limit=10000)  # Safety limit
@@ -249,7 +249,7 @@ class SimplifiedEmailManager(CommunicationManager):
                         AND cm.enabled = 1
                         AND m.status = 'Active'
                         AND m.email IS NOT NULL
-                        AND (m.opt_out_optional_emails IS NULL OR m.opt_out_optional_emails = 0)  -- FIELD FIX: Handle NULL values properly
+                        AND m.accepts_optional_communications = 1
                     LIMIT 5
                 """,
                     chapter_name,
@@ -265,7 +265,7 @@ class SimplifiedEmailManager(CommunicationManager):
                     WHERE cbm.parent = %s
                         AND cbm.is_active = 1
                         AND m.email IS NOT NULL
-                        AND (m.opt_out_optional_emails IS NULL OR m.opt_out_optional_emails = 0)  -- FIELD FIX: Handle NULL values properly
+                        AND m.accepts_optional_communications = 1
                     LIMIT 5
                 """,
                     chapter_name,
@@ -281,7 +281,7 @@ class SimplifiedEmailManager(CommunicationManager):
                     WHERE cm.parent = %s
                         AND v.status = 'Active'
                         AND m.email IS NOT NULL
-                        AND (m.opt_out_optional_emails IS NULL OR m.opt_out_optional_emails = 0)  -- FIELD FIX: Handle NULL values properly
+                        AND m.accepts_optional_communications = 1
                     LIMIT 5
                 """,
                     chapter_name,

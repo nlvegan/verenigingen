@@ -50,7 +50,7 @@ def get_import_summary(import_start_time: Optional[str] = None) -> Dict:
         """
         SELECT COUNT(DISTINCT m.name)
         FROM `tabMember` m
-        INNER JOIN `tabUser` u ON m.email_address = u.name
+        INNER JOIN `tabUser` u ON m.email = u.name
         WHERE m.creation >= %(start_time)s
         """,
         {"start_time": import_start_time},
@@ -134,11 +134,11 @@ def get_members_without_accounts(import_start_time: Optional[str] = None) -> Lis
         SELECT
             m.name,
             m.full_name,
-            m.email_address,
+            m.email,
             m.status as member_status,
             m.creation
         FROM `tabMember` m
-        LEFT JOIN `tabUser` u ON m.email_address = u.name
+        LEFT JOIN `tabUser` u ON m.email = u.name
         WHERE m.creation >= %(start_time)s
         AND u.name IS NULL
         ORDER BY m.creation DESC

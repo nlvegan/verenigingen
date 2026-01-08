@@ -140,7 +140,7 @@ class OptimizedAddressMatcher:
                     m.status,
                     m.member_since,
                     m.birth_date,
-                    COALESCE(m.relationship_guess, 'Unknown') as relationship,
+                    'Unknown' as relationship,
                     CASE
                         WHEN TIMESTAMPDIFF(YEAR, m.birth_date, CURDATE()) < 18 THEN 'Minor'
                         WHEN TIMESTAMPDIFF(YEAR, m.birth_date, CURDATE()) >= 65 THEN 'Senior'
@@ -190,7 +190,7 @@ class OptimizedAddressMatcher:
                     m.status,
                     m.member_since,
                     m.birth_date,
-                    COALESCE(m.relationship_guess, 'Unknown') as relationship,
+                    'Unknown' as relationship,
                     CASE
                         WHEN TIMESTAMPDIFF(YEAR, m.birth_date, CURDATE()) < 18 THEN 'Minor'
                         WHEN TIMESTAMPDIFF(YEAR, m.birth_date, CURDATE()) >= 65 THEN 'Senior'

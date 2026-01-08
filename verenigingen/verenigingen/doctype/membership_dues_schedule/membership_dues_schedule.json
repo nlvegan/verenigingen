@@ -19,6 +19,7 @@
   "custom_frequency_number",
   "custom_frequency_unit",
   "auto_generate",
+  "test_mode",
   "section_schedule",
   "next_invoice_date",
   "last_invoice_date",
@@ -168,6 +169,13 @@
    "fieldname": "auto_generate",
    "fieldtype": "Check",
    "label": "Auto Generate Invoices"
+  },
+  {
+   "default": "0",
+   "description": "When enabled, invoice generation simulates without creating actual invoices. Used for testing.",
+   "fieldname": "test_mode",
+   "fieldtype": "Check",
+   "label": "Test Mode"
   },
   {
    "fieldname": "section_schedule",

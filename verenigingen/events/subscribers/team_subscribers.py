@@ -631,7 +631,7 @@ def _revoke_team_lead_permissions(team_name, old_lead):
             """
             SELECT COUNT(*) as count
             FROM `tabTeam` t
-            WHERE t.team_lead = %s AND t.name != %s AND t.is_active = 1
+            WHERE t.team_lead = %s AND t.name != %s AND t.status = 'Active'
         """,
             (old_lead, team_name),
             as_dict=True,

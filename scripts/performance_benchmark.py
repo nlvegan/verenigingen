@@ -91,7 +91,7 @@ class PerformanceBenchmark:
                     COUNT(va.name) as assignment_count,
                     SUM(ve.amount) as total_expenses
                 FROM `tabVolunteer` v
-                LEFT JOIN `tabVolunteer Assignment` va ON va.volunteer = v.name
+                LEFT JOIN `tabVolunteer Assignment` va ON va.parent = v.name
                 LEFT JOIN `tabVolunteer Expense` ve ON ve.volunteer = v.name
                 GROUP BY v.name
                 LIMIT 100

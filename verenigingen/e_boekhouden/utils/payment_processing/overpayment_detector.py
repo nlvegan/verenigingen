@@ -80,7 +80,7 @@ def find_recent_payments_to_invoice(invoice_num: str, before_date, days_back: in
     """Find recent payments linked to the same invoice"""
     start_date = before_date - timedelta(days=days_back)
 
-    # First check by E-Boekhouden invoice number
+    # First check by E-Boekhouden invoice number on linked Sales Invoice
     payments = frappe.db.sql(
         """
         SELECT
@@ -89,7 +89,10 @@ def find_recent_payments_to_invoice(invoice_num: str, before_date, days_back: in
             pe.posting_date,
             pe.eboekhouden_mutation_nr as mutation_nr
         FROM `tabPayment Entry` pe
-        WHERE pe.eboekhouden_invoice_number = %s
+        INNER JOIN `tabPayment Entry Reference` per ON per.parent = pe.name
+        INNER JOIN `tabSales Invoice` si ON per.reference_name = si.name
+        WHERE si.eboekhouden_invoice_number = %s
+        AND per.reference_doctype = 'Sales Invoice'
         AND pe.posting_date BETWEEN %s AND %s
         AND pe.docstatus = 1
         ORDER BY pe.posting_date DESC

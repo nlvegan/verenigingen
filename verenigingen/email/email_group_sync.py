@@ -126,7 +126,7 @@ def sync_email_groups_manually():
             WHERE status = 'Active'
                 AND email IS NOT NULL
                 AND email != ''
-                AND COALESCE(opt_out_optional_emails, 0) = 0
+                AND accepts_optional_communications = 1
         """
         )
 
@@ -174,7 +174,7 @@ def sync_email_groups_manually():
                         AND m.status = 'Active'
                         AND m.email IS NOT NULL
                         AND m.email != ''
-                        AND COALESCE(m.opt_out_optional_emails, 0) = 0
+                        AND m.accepts_optional_communications = 1
                 """,
                     chapter.name,
                 )
@@ -216,7 +216,7 @@ def sync_email_groups_manually():
             WHERE v.status = 'Active'
                 AND m.email IS NOT NULL
                 AND m.email != ''
-                AND COALESCE(m.opt_out_optional_emails, 0) = 0
+                AND m.accepts_optional_communications = 1
         """
         )
 
@@ -343,7 +343,7 @@ def sync_member_on_change(doc, method=None):
             return {"success": True, "message": "No email address"}
 
         # Check if member should be in active group
-        if member.status == "Active" and not member.get("opt_out_optional_emails"):
+        if member.status == "Active" and member.get("accepts_optional_communications"):
             # Add to active members group
             active_group = frappe.db.get_value("Email Group", {"title": "Active Members"}, "name")
             if active_group:
@@ -366,7 +366,7 @@ def sync_member_on_change(doc, method=None):
             if frappe.db.exists("Email Group", {"title": group_title}):
                 chapter_group = frappe.db.get_value("Email Group", {"title": group_title}, "name")
 
-                if member.status == "Active" and not member.get("opt_out_optional_emails"):
+                if member.status == "Active" and member.get("accepts_optional_communications"):
                     add_to_email_group(member.email, chapter_group)
                 else:
                     remove_from_email_group(member.email, chapter_group)

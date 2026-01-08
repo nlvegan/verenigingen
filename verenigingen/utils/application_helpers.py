@@ -412,7 +412,8 @@ def create_member_from_application(data, application_id, address=None):
             "selected_membership_type": data.get("selected_membership_type"),
             "interested_in_volunteering": data.get("interested_in_volunteering", 0),
             "newsletter_opt_in": data.get("newsletter_opt_in", 1),
-            "opt_out_optional_emails": data.get("opt_out_optional_emails", 0),  # Handle opt-out preference
+            # Convert opt-out preference to opt-in field (inverted logic)
+            "accepts_optional_communications": 0 if data.get("opt_out_optional_emails") else 1,
             "application_source": data.get("application_source", "Website"),
             "notes": data.get("additional_notes", ""),
             "payment_method": map_payment_method(data.get("payment_method", "")),
@@ -623,7 +624,8 @@ def update_member_from_reapplication(member_name, data, application_id, address=
     member.selected_membership_type = data.get("selected_membership_type")
     member.interested_in_volunteering = data.get("interested_in_volunteering", 0)
     member.newsletter_opt_in = data.get("newsletter_opt_in", 1)
-    member.opt_out_optional_emails = data.get("opt_out_optional_emails", 0)
+    # Convert opt-out preference to opt-in field (inverted logic)
+    member.accepts_optional_communications = 0 if data.get("opt_out_optional_emails") else 1
     member.application_source = data.get("application_source", "Website")
     member.payment_method = map_payment_method(data.get("payment_method", ""))
     member.current_chapter_display = data.get("selected_chapter", "")
