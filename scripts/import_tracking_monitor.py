@@ -264,7 +264,7 @@ def get_member_acr_mapping(member_name: str) -> Optional[Dict]:
     )
 
     # Check if user exists
-    user_exists = frappe.db.exists("User", member.email_address) if member.email_address else False
+    user_exists = frappe.db.exists("User", member.email) if member.email else False
 
     return {
         "member": member,
