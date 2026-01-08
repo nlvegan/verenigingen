@@ -278,7 +278,7 @@ def process_sepa_transaction_conservative(bank_transaction_name, sepa_batch_name
         check_batch_processing_status(sepa_batch_name, bank_transaction_name)
 
         # Validate batch mandates before processing
-        sepa_batch = frappe.get_doc("SEPA Direct Debit Batch", sepa_batch_name)
+        sepa_batch = frappe.get_doc("Direct Debit Batch", sepa_batch_name)
         batch_validation = validate_batch_mandates({"invoices": sepa_batch.invoices})
 
         if not batch_validation["valid"]:
@@ -300,7 +300,7 @@ def _process_sepa_transaction_conservative_internal(bank_transaction_name, sepa_
     """Conservative processing: Link transaction to batch but handle reconciliation carefully"""
     try:
         bank_transaction = frappe.get_doc("Bank Transaction", bank_transaction_name)
-        sepa_batch = frappe.get_doc("SEPA Direct Debit Batch", sepa_batch_name)
+        sepa_batch = frappe.get_doc("Direct Debit Batch", sepa_batch_name)
 
         # Link bank transaction to SEPA batch
         bank_transaction.custom_sepa_batch = sepa_batch_name
@@ -441,7 +441,7 @@ Action Required:
         """,
             "priority": "High",
             "status": "Open",
-            "reference_type": "SEPA Direct Debit Batch",
+            "reference_type": "Direct Debit Batch",
             "reference_name": sepa_batch.name,
             "assigned_by": frappe.session.user,
         }
@@ -490,7 +490,7 @@ Action Required: Investigate source of excess payment
         """,
             "priority": "Medium",
             "status": "Open",
-            "reference_type": "SEPA Direct Debit Batch",
+            "reference_type": "Direct Debit Batch",
             "reference_name": sepa_batch.name,
             "assigned_by": frappe.session.user,
         }
@@ -851,7 +851,7 @@ def get_sepa_reconciliation_dashboard():
         pending_reviews = frappe.get_all(
             "ToDo",
             filters={
-                "reference_type": "SEPA Direct Debit Batch",
+                "reference_type": "Direct Debit Batch",
                 "status": "Open",
                 "creation": [">=", add_days(getdate(), -30)],
             },

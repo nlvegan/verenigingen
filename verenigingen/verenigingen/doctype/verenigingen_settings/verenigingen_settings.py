@@ -185,12 +185,7 @@ def validate_donation_configuration():
             "Restricted Donation Account not configured - specific goal earmarking will not create separate GL entries"
         )
 
-    # Check Donation Type doctype exists and has records
-    donation_types = frappe.get_all("Donation Type", limit=1)
-    if not donation_types:
-        validation_results["warnings"].append(
-            "No Donation Types configured - create some donation types for better categorization"
-        )
+    # Note: Donation Type DocType was removed - no longer checking for it
 
     # Check Donor Type exists
     if not getattr(settings, "default_donor_type", None):

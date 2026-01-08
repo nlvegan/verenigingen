@@ -409,11 +409,12 @@ class CustomerHandlingService(StatefulService):
             customer = frappe.get_doc("Customer", customer_name)
             updated = False
 
-            # Link Mollie customer ID
+            # Link Mollie customer ID (custom field on Customer)
             if customer_id and (
-                not hasattr(customer, "mollie_customer_id") or customer.mollie_customer_id != customer_id
+                not hasattr(customer, "custom_mollie_customer_id")
+                or customer.custom_mollie_customer_id != customer_id
             ):
-                customer.mollie_customer_id = customer_id
+                customer.custom_mollie_customer_id = customer_id
                 updated = True
                 self.logger.info(
                     f"🔗 [{self.debug_context}] Linked customer {customer_name} to Mollie customer {customer_id}"
@@ -479,8 +480,8 @@ class CustomerHandlingService(StatefulService):
             if not customer.territory:
                 validation_issues.append("Missing territory")
 
-            # Check Mollie integration fields (if available)
-            if hasattr(customer, "mollie_customer_id") and not customer.mollie_customer_id:
+            # Check Mollie integration fields (custom field on Customer)
+            if hasattr(customer, "custom_mollie_customer_id") and not customer.custom_mollie_customer_id:
                 validation_issues.append("No Mollie customer ID linked")
 
             if validation_issues:

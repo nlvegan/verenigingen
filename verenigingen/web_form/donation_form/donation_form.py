@@ -320,22 +320,6 @@ def send_periodic_agreement_info(donor_name, agreement_name):
 
 
 def _get_validated_donation_type():
-    """Get validated donation type with proper configuration checks"""
-    # Get configured default donation type with validation
-    default_donation_type = frappe.db.get_single_value("Verenigingen Settings", "default_donation_type")
-    if default_donation_type and frappe.db.exists("Donation Type", default_donation_type):
-        return default_donation_type
-
-    # Check if "General" exists as fallback
-    if frappe.db.exists("Donation Type", "General"):
-        return "General"
-
-    # Find any available donation type (ordered by name for consistency)
-    first_type = frappe.db.get_value("Donation Type", {}, "name", order_by="name")
-    if first_type:
-        return first_type
-
-    # No donation types found - this should be configured
-    frappe.throw(
-        _("No Donation Type found. Please create at least one Donation Type before accepting donations.")
-    )
+    """Get validated donation type - DEPRECATED: Donation Type DocType was removed"""
+    # Donation Type DocType was removed - return None for backwards compatibility
+    return None

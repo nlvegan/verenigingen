@@ -101,12 +101,10 @@ def _get_bulk_settings_data():
     # Query 1: Get Verenigingen Settings
     settings = frappe.get_single("Verenigingen Settings")
 
-    # Query 2: Get all donation types
-    donation_types = frappe.get_all(
-        "Donation Type", fields=["name", "donation_type"], order_by="donation_type"
-    )
+    # Note: Donation Type DocType was removed - return empty list for backwards compatibility
+    donation_types = []
 
-    # Query 3: Get chapters if chapter management is enabled
+    # Query 2: Get chapters if chapter management is enabled
     chapters = []
     if settings.enable_chapter_management:
         chapters = frappe.get_all("Chapter", filters={"published": 1}, fields=["name"], order_by="name")
@@ -290,36 +288,8 @@ def get_or_create_donor(form_data):
 def create_donation_record(donor, form_data):
     """Create donation record - maintains exact same logic"""
 
-    # Determine donation type
-    donation_type = form_data.get("donation_type")
-    if not donation_type:
-        # Try to use default or first available donation type
-        donation_type = "General Donation"
-        # Create or get default donation type
-        if not frappe.db.exists("Donation Type", "General Donation"):
-            donation_type_doc = frappe.get_doc(
-                {
-                    "doctype": "Donation Type",
-                    "donation_type": "General Donation",
-                }
-            )
-
-            try:
-                # Use secure document operation for proper permission handling
-                result = secure_document_operation(
-                    operation_type="insert",
-                    doc=donation_type_doc,
-                    user_context={
-                        "user": frappe.session.user,
-                        "operation": "create_default_donation_type",
-                    },
-                )
-                if not result.get("success"):
-                    frappe.log_error(f"Failed to create default donation type: {result.get('error')}")
-                    donation_type = None  # Will cause fallback behavior
-            except Exception as e:
-                frappe.log_error(f"Error creating default donation type: {str(e)}")
-                donation_type = None
+    # Note: Donation Type DocType was removed - donation_type field is no longer used
+    donation_type = form_data.get("donation_type")  # May be None, that's OK
 
     # Create donation record
     donation = frappe.get_doc(
@@ -616,7 +586,7 @@ def get_performance_comparison():
 
         settings = frappe.get_single("Verenigingen Settings")
         frappe.get_value("Company", settings.company, "company_name")
-        frappe.get_all("Donation Type", fields=["name", "donation_type"])
+        # Note: Donation Type query removed - DocType was scrapped
         if settings.enable_chapter_management:
             frappe.get_all("Chapter", filters={"published": 1}, fields=["name"])
 

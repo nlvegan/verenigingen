@@ -887,8 +887,7 @@ def setup_membership_application_system():
         # Create web pages configuration
         setup_application_web_pages()
 
-        # Create default donation types
-        create_default_donation_types()
+        # Note: Donation Type DocType was removed - no longer creating default types
 
         print("✅ Membership application system setup completed")
 
@@ -1342,45 +1341,6 @@ def setup_workspace_manual():
         return {"success": False, "message": str(e)}
 
 
-def create_default_donation_types():
-    """Create default donation types if they don't exist"""
-    print("   💰 Setting up default donation types...")
-
-    default_types = ["General", "Monthly", "One-time", "Campaign", "Emergency Relief", "Membership Support"]
-
-    created_count = 0
-
-    for donation_type in default_types:
-        if not frappe.db.exists("Donation Type", donation_type):
-            try:
-                doc = frappe.get_doc({"doctype": "Donation Type", "donation_type": donation_type})
-                doc.insert(ignore_permissions=True)
-                created_count += 1
-                print(f"   ✓ Created donation type: {donation_type}")
-            except Exception as e:
-                print(f"   ⚠️ Could not create donation type '{donation_type}': {str(e)}")
-        else:
-            print(f"   ✓ Donation type already exists: {donation_type}")
-
-    if created_count > 0:
-        frappe.db.commit()
-        print(f"   💰 Created {created_count} default donation types")
-
-        # Set default donation type in settings if not already set
-        try:
-            from verenigingen.utils.settings_utils import get_verenigingen_settings
-
-            settings = get_verenigingen_settings()
-            if not settings.get("default_donation_type"):
-                settings.default_donation_type = "General"
-                settings.save(ignore_permissions=True)
-                print("   ✓ Set 'General' as default donation type in settings")
-        except Exception as e:
-            print(f"   ⚠️ Could not set default donation type: {str(e)}")
-
-    return created_count
-
-
 def create_default_membership_types():
     """Create default Dutch membership types if they don't exist"""
     print("   👥 Setting up default membership types...")
@@ -1794,7 +1754,7 @@ def create_all_reference_data():
     """
     print("\n📊 Creating reference data...")
 
-    create_default_donation_types()
+    # Note: Donation Type DocType was removed
     create_default_membership_types()
     create_default_team_roles()
     create_default_teams()
@@ -1846,37 +1806,15 @@ def create_background_service_user():
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def create_donation_types_manual():
-    """Manual endpoint to create donation types"""
-    try:
-        count = create_default_donation_types()
-        return {"success": True, "message": f"Created {count} donation types", "count": count}
-    except Exception as e:
-        return {"success": False, "message": str(e)}
+    """DEPRECATED: Donation Type DocType was removed"""
+    return {"success": False, "message": "Donation Type feature has been removed"}
 
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
 def verify_donation_type_setup():
-    """Verify donation types are properly set up"""
-    try:
-        # Check donation types
-        donation_types = frappe.get_all("Donation Type", fields=["name", "donation_type"])
-
-        # Check settings
-        from verenigingen.utils.settings_utils import get_verenigingen_settings
-
-        settings = get_verenigingen_settings()
-        default_type = settings.get("default_donation_type")
-
-        return {
-            "success": True,
-            "donation_types": donation_types,
-            "total_count": len(donation_types),
-            "default_donation_type": default_type,
-            "message": f"Found {len(donation_types)} donation types, default: {default_type}",
-        }
-    except Exception as e:
-        return {"success": False, "message": str(e)}
+    """DEPRECATED: Donation Type DocType was removed"""
+    return {"success": False, "message": "Donation Type feature has been removed"}
 
 
 @frappe.whitelist()
