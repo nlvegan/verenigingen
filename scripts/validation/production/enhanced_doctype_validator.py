@@ -313,19 +313,50 @@ class ConfidenceCalculator:
 
 class EnhancedFieldValidator:
     """Main validator with improved accuracy and architecture"""
-    
+
+    # Suppression comment patterns
+    SUPPRESSION_PATTERNS = [
+        r'#\s*ast-skip',           # # ast-skip: reason
+        r'#\s*noqa',               # # noqa (common Python convention)
+        r'#\s*validator-skip',     # # validator-skip: reason
+        r'#\s*type:\s*ignore',     # # type: ignore (mypy convention)
+    ]
+
     def __init__(self, app_path: str, verbose: bool = False):
         self.app_path = Path(app_path)
         self.bench_path = self.app_path.parent.parent
         self.verbose = verbose
-        
+
         # Initialize components
         self.schemas = DocTypeSchema(self.app_path, self.bench_path)
         self.property_detector = PropertyDetector(self.app_path)
         self.context_analyzer = ContextAnalyzer(self.schemas)
         self.confidence_calculator = ConfidenceCalculator()
-        
+
         print(f"📋 Loaded {len(self.schemas.schemas)} DocType schemas")
+
+    def _has_suppression_comment(self, line: str, preceding_line: str = None) -> bool:
+        """
+        Check if a line or its preceding line has a suppression comment.
+
+        Supports:
+        - # ast-skip: reason
+        - # noqa
+        - # validator-skip: reason
+        - # type: ignore
+
+        Checks both the current line (inline comment) and the preceding line
+        (comment on line above).
+        """
+        lines_to_check = [line]
+        if preceding_line:
+            lines_to_check.append(preceding_line)
+
+        for check_line in lines_to_check:
+            for pattern in self.SUPPRESSION_PATTERNS:
+                if re.search(pattern, check_line, re.IGNORECASE):
+                    return True
+        return False
         
     def _is_valid_doctype_name(self, name: str) -> bool:
         """
@@ -381,6 +412,11 @@ class EnhancedFieldValidator:
         lines = content.splitlines()
 
         for line_num, line in enumerate(lines, 1):
+            # Skip lines with suppression comments (check current line and preceding line)
+            preceding_line = lines[line_num - 2] if line_num > 1 else ""
+            if self._has_suppression_comment(line, preceding_line):
+                continue
+
             for pattern in api_patterns:
                 matches = re.finditer(pattern, line)
                 for match in matches:
@@ -453,11 +489,16 @@ class EnhancedFieldValidator:
                         
                     # Get line context
                     context = source_lines[line_num - 1].strip() if line_num <= len(source_lines) else ""
-                    
+                    preceding_line = source_lines[line_num - 2].strip() if line_num > 1 else ""
+
+                    # Skip lines with suppression comments (check current and preceding line)
+                    if self._has_suppression_comment(context, preceding_line):
+                        continue
+
                     # Skip method calls
                     if f'{field_name}(' in context:
                         continue
-                        
+
                     # Detect DocType
                     doctype_result = self.context_analyzer.detect_doctype(node, source_lines, obj_name)
 
