@@ -37,20 +37,17 @@ def create_test_data_onboarding_step():
             onboarding = frappe.get_doc("Module Onboarding", "Verenigingen")
 
         # Check if test data step exists
-        existing_step = frappe.db.exists(
-            "Onboarding Step", {"title": "Generate Test Data", "reference_document": "Membership Application"}
-        )
+        existing_step = frappe.db.exists("Onboarding Step", {"title": "Generate Test Data"})
 
         if not existing_step:
             # Create onboarding step
             step = frappe.new_doc("Onboarding Step")
             step.title = "Generate Test Data"
             step.description = "Create sample membership applications to explore the review workflow"
-            step.reference_document = "Membership Application"
+            # Note: reference_document not needed for "Go to Page" action
             step.action = "Go to Page"
-            step.action_url = "/generate_test_data"
+            step.path = "/generate_test_data"  # Use 'path' field for Go to Page action
             step.is_single = 0
-            step.is_mandatory = 0
             step.show_full_form = 0
             result = secure_document_operation(
                 operation="insert",

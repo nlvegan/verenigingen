@@ -215,8 +215,7 @@ def add_to_email_group(group_name, email, member_name=None):
         member.email_group = group_name
         member.email = email
         member.unsubscribed = 0
-        if member_name:
-            member.email_group_member_name = member_name
+        # Note: Email Group Member doesn't have a name field - email is the identifier
         # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
         result = secure_document_operation(
             operation="insert",

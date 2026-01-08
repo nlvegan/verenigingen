@@ -155,9 +155,9 @@ def generate_test_members():
         "Ik zoek een gemeenschap van gelijkgestemden en jullie vereniging lijkt perfect.",
     ]
 
-    # Check if we already have test applications
+    # Check if we already have test applications (stored as pending Member documents)
     existing_test_apps = frappe.get_all(
-        "Membership Application", filters={"email": ["like", "%@email.nl"]}, fields=["name", "email"]
+        "Member", filters={"email": ["like", "%@email.nl"]}, fields=["name", "email"]
     )
 
     existing_emails = [app.email for app in existing_test_apps]
@@ -304,35 +304,36 @@ def generate_test_members():
 @critical_api(operation_type=OperationType.ADMIN)
 def cleanup_test_applications():
     """
-    Remove test applications (those with @email.nl addresses)
+    Remove test applications (pending Members with @email.nl addresses)
+
+    Note: Membership applications are stored as Member documents with status='Pending'.
+    There is no separate 'Membership Application' DocType.
     """
+    # Find pending test members (applications)
     test_applications = frappe.get_all(
-        "Membership Application", filters={"email": ["like", "%@email.nl"]}, fields=["name"]
+        "Member",
+        filters={
+            "email": ["like", "%@email.nl"],
+            "status": "Pending",
+        },
+        fields=["name"],
     )
 
     deleted_count = 0
     for app in test_applications:
         try:
-            # Check if application has been processed into a member
-            member_exists = frappe.db.exists(
-                "Member", {"email": frappe.db.get_value("Membership Application", app.name, "email")}
+            # Delete the pending Member (application)
+            result = secure_document_operation(
+                operation="delete",
+                doc=frappe.get_doc("Member", app.name),
+                justification=f"Delete test membership application {app.name} during cleanup - test data maintenance",
+                required_permissions=["Member:delete"],
             )
 
-            if not member_exists:
-                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-                result = secure_document_operation(
-                    operation="delete",
-                    doc=frappe.get_doc("Membership Application", app.name),
-                    justification=f"Delete test membership application {app.name} during cleanup - test data maintenance",
-                    required_permissions=["Membership Application:delete"],
-                )
-
-                if result.success:
-                    deleted_count += 1
-                else:
-                    frappe.log_error(
-                        f"Failed to delete test application {app.name}: {'; '.join(result.errors)}"
-                    )
+            if result.success:
+                deleted_count += 1
+            else:
+                frappe.log_error(f"Failed to delete test application {app.name}: {'; '.join(result.errors)}")
         except Exception as e:
             frappe.log_error(f"Failed to delete test application {app.name}: {str(e)}")
 
@@ -347,10 +348,13 @@ def cleanup_test_applications():
 @critical_api(operation_type=OperationType.ADMIN)
 def get_test_applications_status():
     """
-    Get status of test applications
+    Get status of test applications (pending Members with test emails)
+
+    Note: Membership applications are stored as Member documents with status='Pending'.
+    There is no separate 'Membership Application' DocType.
     """
     test_applications = frappe.get_all(
-        "Membership Application",
+        "Member",
         filters={"email": ["like", "%@email.nl"]},
         fields=["name", "full_name", "email", "status", "workflow_state", "creation"],
     )

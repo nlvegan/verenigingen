@@ -408,16 +408,8 @@ class VereningingenTestCase(FrappeTestCase):
                             customers_to_delete.add(customer)
                 except frappe.DoesNotExistError:
                     pass  # Member already deleted
-            elif doc_info["doctype"] == "Membership Application":
-                try:
-                    if frappe.db.exists("Membership Application", doc_info["name"]):
-                        member = frappe.db.get_value("Membership Application", doc_info["name"], "member")
-                        if member and frappe.db.exists("Member", member):
-                            customer = frappe.db.get_value("Member", member, "customer")
-                            if customer:
-                                customers_to_delete.add(customer)
-                except frappe.DoesNotExistError:
-                    pass  # Application or member already deleted
+            # Note: Membership applications are stored as Member documents with status='Pending'
+            # They are handled by the "Member" branch above, no separate DocType exists
         
         # Method 2: Find customers via new Customer.member field (backup method)
         for doc_info in self._test_docs:
@@ -1217,27 +1209,32 @@ class VereningingenTestCase(FrappeTestCase):
         payments_settings.save()
 
     def create_test_membership_application(self, **kwargs):
-        """Create a test membership application with default values"""
+        """Create a test membership application (as Member with pending status)
+
+        Note: Membership applications are stored as Member documents with application_status='Pending'.
+        There is no separate 'Membership Application' DocType.
+        """
         defaults = {
             "first_name": "Test",
             "last_name": "Applicant",
             "email": f"applicant.{frappe.generate_hash(length=6)}@example.com",
-            "membership_type": "Test Membership",
             "status": "Pending",
-            "address_line1": "123 Test Street",
-            "postal_code": "1234AB",
-            "city": "Test City",
-            "country": "Netherlands",
-            "application_date": frappe.utils.today()
+            "application_status": "Pending",
+            "application_date": frappe.utils.today(),
+            "birth_date": "1990-01-01"
         }
+        # Map membership_type to selected_membership_type if provided
+        if "membership_type" in kwargs:
+            kwargs["selected_membership_type"] = kwargs.pop("membership_type")
         defaults.update(kwargs)
-        
-        application = frappe.new_doc("Membership Application")
+
+        application = frappe.new_doc("Member")
         for key, value in defaults.items():
-            setattr(application, key, value)
-        
+            if hasattr(application, key):
+                setattr(application, key, value)
+
         application.save()
-        self.track_doc("Membership Application", application.name)
+        self.track_doc("Member", application.name)
         return application
 
     def create_test_sales_invoice(self, **kwargs):

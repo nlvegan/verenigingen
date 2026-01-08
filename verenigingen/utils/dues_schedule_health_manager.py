@@ -159,7 +159,7 @@ class DuesScheduleHealthManager:
             membership.membership_type = membership_type
             membership.status = "Active"
             membership.start_date = member_doc.member_since or today()
-            membership.naming_series = "MEMB-.YYYY.-.#####"
+            # Note: Membership uses autoname format, no naming_series needed
 
             # Use secure operation
             operation_result = secure_document_operation(

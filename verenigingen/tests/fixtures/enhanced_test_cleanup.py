@@ -1,5 +1,9 @@
 """
 Enhanced test cleanup that handles customers created by membership applications
+
+Note: Membership applications are stored as Member documents with application_status='Pending'.
+There is no separate 'Membership Application' DocType. The tracked_applications list now
+tracks Member document names that were created via create_test_membership_application().
 """
 
 import frappe
@@ -38,14 +42,17 @@ class EnhancedTestCleanup:
             except Exception as e:
                 errors.append(f"Error checking member {member_name}: {str(e)}")
         
-        # Also check membership applications
+        # Also check membership applications (which are now Member docs with pending status)
         for app_name in self.tracked_applications:
             try:
-                app = frappe.get_doc("Membership Application", app_name)
-                if hasattr(app, "member") and app.member:
-                    member = frappe.get_doc("Member", app.member)
+                # Applications are now stored as Member documents
+                if frappe.db.exists("Member", app_name):
+                    member = frappe.get_doc("Member", app_name)
                     if member.customer:
                         self.tracked_customers.append(member.customer)
+                    # Add to tracked_members so they get cleaned up
+                    if app_name not in self.tracked_members:
+                        self.tracked_members.append(app_name)
             except Exception as e:
                 errors.append(f"Error checking application {app_name}: {str(e)}")
         
@@ -87,12 +94,16 @@ class EnhancedTestCleanup:
             except Exception as e:
                 errors.append(f"Error deleting member {member_name}: {str(e)}")
         
-        # 4. Clean up applications
+        # 4. Clean up applications (now stored as Members, already cleaned up above)
+        # The tracked_applications are now Member documents that were added to tracked_members
+        # in the collection phase above, so they should already be cleaned up
         for app_name in self.tracked_applications:
             try:
-                if frappe.db.exists("Membership Application", app_name):
-                    frappe.delete_doc("Membership Application", app_name, force=True, )
-                    print(f"✅ Deleted application: {app_name}")
+                # Applications are Member documents - verify they were deleted
+                if frappe.db.exists("Member", app_name):
+                    # This shouldn't happen if members cleanup worked, but handle just in case
+                    frappe.delete_doc("Member", app_name, force=True)
+                    print(f"✅ Deleted application (as Member): {app_name}")
             except Exception as e:
                 errors.append(f"Error deleting application {app_name}: {str(e)}")
         

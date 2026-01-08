@@ -110,7 +110,7 @@ def update_membership_termination_request_permissions():
             perm_doc.cancel = 0
             perm_doc.amend = 0
             perm_doc.submit = 0  # Workflow-controlled
-            perm_doc.import_doc = 0
+            perm_doc.set("import", 0)  # 'import' is a reserved keyword in Python
 
             # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
             result = secure_document_operation(

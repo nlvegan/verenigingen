@@ -952,16 +952,12 @@ def suspend_member_safe(
         original_status = member.status
         member.status = "Suspended"
 
-        # Add suspension note
-        suspension_note = f"Member suspended on {suspension_date} - Reason: {suspension_reason}"
+        # Add suspension note (include original status for unsuspension reference)
+        suspension_note = f"Member suspended on {suspension_date} - Reason: {suspension_reason}\n(Pre-suspension status: {original_status})"
         if member.notes:
             member.notes += f"\n\n{suspension_note}"
         else:
             member.notes = suspension_note
-
-        # Store original status for unsuspension
-        if hasattr(member, "pre_suspension_status"):
-            member.pre_suspension_status = original_status
 
         try:
             member.save()
@@ -973,8 +969,6 @@ def suspend_member_safe(
                 member.notes += f"\n\n{suspension_note}"
             else:
                 member.notes = suspension_note
-            if hasattr(member, "pre_suspension_status"):
-                member.pre_suspension_status = original_status
             member.save()
         except frappe.PermissionError as pe:
             results["success"] = False
@@ -1060,7 +1054,14 @@ def unsuspend_member_safe(member_name, unsuspension_reason, restore_teams=True):
             }
 
         # 1. Restore member status
-        restore_status = getattr(member, "pre_suspension_status", "Active")
+        # Try to extract pre-suspension status from notes (stored during suspension)
+        restore_status = "Active"  # Default fallback
+        if member.notes and "(Pre-suspension status:" in member.notes:
+            import re
+
+            match = re.search(r"\(Pre-suspension status: (\w+)\)", member.notes)
+            if match:
+                restore_status = match.group(1)
         member.status = restore_status
 
         # Add unsuspension note
@@ -1069,10 +1070,6 @@ def unsuspend_member_safe(member_name, unsuspension_reason, restore_teams=True):
             member.notes += f"\n\n{unsuspension_note}"
         else:
             member.notes = unsuspension_note
-
-        # Clear pre-suspension status
-        if hasattr(member, "pre_suspension_status"):
-            member.pre_suspension_status = None
 
         try:
             member.save()
@@ -1084,8 +1081,6 @@ def unsuspend_member_safe(member_name, unsuspension_reason, restore_teams=True):
                 member.notes += f"\n\n{unsuspension_note}"
             else:
                 member.notes = unsuspension_note
-            if hasattr(member, "pre_suspension_status"):
-                member.pre_suspension_status = None
             member.save()
         except frappe.PermissionError as pe:
             results["success"] = False
@@ -1153,7 +1148,7 @@ def terminate_volunteer_records_safe(member_name, termination_type, termination_
 
         results = {
             "volunteers_terminated": 0,
-            "volunteer_expenses_cancelled": 0,
+            "expense_claims_flagged": 0,
             "actions_taken": [],
             "errors": [],
         }
@@ -1187,15 +1182,12 @@ def terminate_volunteer_records_safe(member_name, termination_type, termination_
                     inactive_reason = f"Member terminated - {termination_type}"
 
                 # Add termination note to the note field (not notes - that field doesn't exist)
+                # Note: Volunteer DocType only has start_date, not end_date - termination date is recorded in note
                 termination_note = f"Volunteer record updated on {termination_date} - {reason}\nInactive reason: {inactive_reason}"
                 if volunteer_doc.note:
                     volunteer_doc.note += f"\n\n{termination_note}"
                 else:
                     volunteer_doc.note = termination_note
-
-                # Set end date if field exists
-                if hasattr(volunteer_doc, "end_date") and not volunteer_doc.end_date:
-                    volunteer_doc.end_date = termination_date
 
                 try:
                     volunteer_doc.save()
@@ -1208,37 +1200,44 @@ def terminate_volunteer_records_safe(member_name, termination_type, termination_
                 results["volunteers_terminated"] += 1
                 results["actions_taken"].append(f"Updated volunteer record {volunteer_data.volunteer_name}")
 
-                # Cancel any active volunteer expenses
-                active_expenses = frappe.get_all(
-                    "Volunteer Expense",
-                    filters={
-                        "volunteer": volunteer_data.name,
-                        "docstatus": 0,  # Draft status
-                        "status": ["in", ["Pending", "Under Review"]],
-                    },
-                    fields=["name"],
-                )
+                # Handle pending expense claims via HRMS Expense Claim (linked through employee_id)
+                # Note: Volunteer Expense DocType was deprecated in favor of HRMS Expense Claim
+                if volunteer_doc.employee_id:
+                    pending_claims = frappe.get_all(
+                        "Expense Claim",
+                        filters={
+                            "employee": volunteer_doc.employee_id,
+                            "docstatus": 0,  # Draft status
+                            "status": ["in", ["Draft", "Unpaid"]],
+                        },
+                        fields=["name"],
+                    )
 
-                for expense in active_expenses:
-                    try:
-                        expense_doc = frappe.get_doc("Volunteer Expense", expense.name)
-                        expense_doc.approval_status = "Cancelled"
-                        expense_doc.cancellation_reason = f"Volunteer terminated - {reason}"
+                    for claim in pending_claims:
                         try:
-                            expense_doc.save()
-                        except frappe.PermissionError as pe:
-                            results["errors"].append(
-                                f"Permission denied for expense cancellation {expense_doc.name}: {str(pe)}"
+                            claim_doc = frappe.get_doc("Expense Claim", claim.name)
+                            # Add note about volunteer termination - don't auto-reject as this needs HR review
+                            termination_note = (
+                                f"Note: Associated volunteer terminated on {termination_date} - {reason}"
                             )
-                            continue
-
-                        results["volunteer_expenses_cancelled"] += 1
-                        results["actions_taken"].append(f"Cancelled volunteer expense {expense.name}")
-
-                    except Exception as expense_error:
-                        results["errors"].append(
-                            f"Failed to cancel volunteer expense {expense.name}: {str(expense_error)}"
-                        )
+                            if claim_doc.remark:
+                                claim_doc.remark += f"\n\n{termination_note}"
+                            else:
+                                claim_doc.remark = termination_note
+                            try:
+                                claim_doc.save()
+                                results["expense_claims_flagged"] += 1
+                                results["actions_taken"].append(
+                                    f"Flagged expense claim {claim.name} for review"
+                                )
+                            except frappe.PermissionError as pe:
+                                results["errors"].append(
+                                    f"Permission denied for expense claim update {claim.name}: {str(pe)}"
+                                )
+                        except Exception as claim_error:
+                            results["errors"].append(
+                                f"Failed to flag expense claim {claim.name}: {str(claim_error)}"
+                            )
 
             except Exception as volunteer_error:
                 results["errors"].append(
@@ -1254,7 +1253,7 @@ def terminate_volunteer_records_safe(member_name, termination_type, termination_
         frappe.logger().error(f"Failed to terminate volunteer records for {member_name}: {str(e)}")
         return {
             "volunteers_terminated": 0,
-            "volunteer_expenses_cancelled": 0,
+            "expense_claims_flagged": 0,
             "actions_taken": [],
             "errors": [str(e)],
         }
@@ -1400,12 +1399,21 @@ def get_member_suspension_status(member_name):
             if volunteer_name:
                 active_teams = frappe.db.count("Team Member", {"volunteer": volunteer_name, "docstatus": 1})
 
+        # Extract pre-suspension status from notes if available
+        pre_suspension_status = None
+        if is_suspended and member.notes and "(Pre-suspension status:" in member.notes:
+            import re
+
+            match = re.search(r"\(Pre-suspension status: (\w+)\)", member.notes)
+            if match:
+                pre_suspension_status = match.group(1)
+
         return {
             "is_suspended": is_suspended,
             "member_status": member.status,
             "user_suspended": user_suspended,
             "active_teams": active_teams,
-            "pre_suspension_status": getattr(member, "pre_suspension_status", None),
+            "pre_suspension_status": pre_suspension_status,
             "can_unsuspend": is_suspended,
         }
 

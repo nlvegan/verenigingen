@@ -28,10 +28,14 @@ def on_chapter_board_member_after_insert(doc, method):
     """
     Event handler for Chapter Board Member creation
     Automatically assigns Chapter Board Member system role
+
+    Note: doc is a Chapter Board Member (child table row), not a Volunteer.
+    It has fields: volunteer (Link), is_active (Check), etc.
     """
     try:
         frappe.logger().info(f"Chapter Board Member created: {doc.name}")
 
+        # ast-skip: doc is Chapter Board Member, not Volunteer - has volunteer field
         if doc.is_active and doc.volunteer:
             # Get the volunteer's member and user email
             volunteer_doc = frappe.get_doc("Volunteer", doc.volunteer)
@@ -56,10 +60,13 @@ def on_chapter_board_member_on_update(doc, method):
     """
     Event handler for Chapter Board Member updates
     Manages role assignment based on is_active status changes
+
+    Note: doc is a Chapter Board Member (child table row), not a Volunteer.
     """
     try:
         frappe.logger().info(f"Chapter Board Member updated: {doc.name}")
 
+        # ast-skip: doc is Chapter Board Member, not Volunteer - has volunteer and is_active fields
         if doc.volunteer:
             # Get the volunteer's member and user email
             volunteer_doc = frappe.get_doc("Volunteer", doc.volunteer)
@@ -84,10 +91,13 @@ def on_chapter_board_member_on_trash(doc, method):
     """
     Event handler for Chapter Board Member deletion
     Removes Chapter Board Member system role if no other active positions exist
+
+    Note: doc is a Chapter Board Member (child table row), not a Volunteer.
     """
     try:
         frappe.logger().info(f"Chapter Board Member deleted: {doc.name}")
 
+        # ast-skip: doc is Chapter Board Member, not Volunteer - has volunteer field
         if doc.volunteer:
             # Get the volunteer's member and user email
             volunteer_doc = frappe.get_doc("Volunteer", doc.volunteer)

@@ -374,16 +374,16 @@ def create_donation_from_agreement(agreement_name) -> OperationResult[Dict[str, 
         # Create donation
         donation = frappe.new_doc("Donation")
         donation.donor = agreement.donor
-        donation.date = today()
+        donation.donation_date = today()
         donation.amount = agreement.payment_amount
-        donation.payment_method = agreement.payment_method
-        donation.donation_type = (
+        donation.mode_of_payment = agreement.payment_method
+        donation.donation_purpose_type = (
             frappe.db.get_single_value("Verenigingen Settings", "default_periodic_donation_type")
             or "Periodic Donation"
         )
         donation.status = "Recurring"
         donation.periodic_donation_agreement = agreement_name
-        donation.belastingdienst_reportable = 1
+        # Note: belastingdienst_reportable field doesn't exist on Donation - ANBI compliance is tracked via agreement
         donation.anbi_agreement_number = agreement.agreement_number
         donation.anbi_agreement_date = agreement.agreement_date
 

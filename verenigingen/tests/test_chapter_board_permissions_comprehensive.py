@@ -387,33 +387,42 @@ class ChapterBoardTestFactory:
         return expense
     
     def create_test_membership_application(self, member_name=None, chapter_name=None, **kwargs):
-        """Create test membership application"""
+        """Create test membership application (as a Member with pending application status)
+
+        Note: Membership applications are stored as Member documents with application_status='Pending'.
+        There is no separate 'Membership Application' DocType.
+        """
         defaults = {
             "first_name": "Test",
             "last_name": "Applicant",
             "email": f"applicant.{frappe.generate_hash(length=6)}@test.invalid",
             "birth_date": "1990-01-01",
-            "address_line1": "123 Test Street",
-            "city": "Test City",
-            "postal_code": "1234AB",
-            "country": "Netherlands",
-            "application_date": frappe.utils.today(),
-            "status": "Pending"
+            "status": "Pending",
+            "application_status": "Pending",
+            "application_date": frappe.utils.today()
         }
-        
-        if member_name:
-            defaults["member"] = member_name
-        if chapter_name:
-            defaults["preferred_chapter"] = chapter_name
-        
+
         defaults.update(kwargs)
-        
+
+        # Create Member document with pending application status
         application = frappe.get_doc({
-            "doctype": "Membership Application",
+            "doctype": "Member",
             **defaults
         })
         application.insert()
-        self.test_case.track_doc("Membership Application", application.name)
+        self.test_case.track_doc("Member", application.name)
+
+        # If chapter specified, add chapter membership with pending status
+        if chapter_name:
+            chapter = frappe.get_doc("Chapter", chapter_name)
+            chapter.append("members", {
+                "member": application.name,
+                "status": "Pending",
+                "enabled": 0,
+                "chapter_join_date": frappe.utils.today()
+            })
+            chapter.save()
+
         return application
     
     def create_test_membership_termination_request(self, member_name, **kwargs):
@@ -553,15 +562,17 @@ class TestChapterBoardPermissionsComprehensive(VereningingenTestCase):
         )
         
         # Chapter A treasurer should NOT access Chapter B membership applications
+        # Note: Membership applications are Member documents with pending status
         with self.as_user(self.treasurer_a["user"].email):
             try:
                 from verenigingen.permissions import has_membership_application_permission
                 can_view = has_membership_application_permission(application_b, self.treasurer_a["user"].email)
                 self.assertFalse(can_view, "Board member should NOT access membership applications from other chapters")
             except ImportError:
-                # Fallback test
+                # Fallback test - check that cross-chapter member access is restricted
+                # This tests the permission system for pending members in other chapters
                 with self.assertRaises(frappe.PermissionError):
-                    frappe.get_doc("Membership Application", application_b.name)
+                    frappe.get_doc("Member", application_b.name)
     
     def test_scenario_c_role_lifecycle(self):
         """Scenario C: Role assignment and removal lifecycle"""
@@ -628,10 +639,12 @@ class TestChapterBoardPermissionsComprehensive(VereningingenTestCase):
             chapter_name=self.chapter_a.name
         )
         
+        # Note: Membership applications are Member documents with pending status
         with self.as_user(self.secretary_a["user"].email):
             try:
-                retrieved_app = frappe.get_doc("Membership Application", application_a.name)
+                retrieved_app = frappe.get_doc("Member", application_a.name)
                 self.assertEqual(retrieved_app.name, application_a.name, "Secretary should access membership applications")
+                self.assertEqual(retrieved_app.application_status, "Pending", "Application should have pending status")
             except frappe.PermissionError:
                 self.fail("Secretary should have access to membership applications in their chapter")
         

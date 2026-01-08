@@ -513,8 +513,8 @@ def retry_failed_payment(invoice_id) -> OperationResult[Dict[str, Any]]:
         # Allow administrators
         if not frappe.has_permission("Sales Invoice", "write"):
             # Check if user is the member for this invoice
-            membership = frappe.db.get_value("Membership", invoice.membership, "member")
-            if membership != member:
+            invoice_member = invoice.member  # Custom field on Sales Invoice
+            if invoice_member != member:
                 return OperationResult.fail(_("You don't have permission to retry this payment"))
 
         # Check if already being retried

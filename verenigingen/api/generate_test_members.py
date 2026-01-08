@@ -137,15 +137,14 @@ def generate_test_members():
 
     existing_emails = [member.email for member in existing_test_members]
 
-    # Get organization
+    # Get organization from settings
     organization = frappe.db.get_single_value("Verenigingen Settings", "organization")
     if not organization:
-        # Try to get any organization
-        organizations = frappe.get_all("Organization", limit=1)
-        if organizations:
-            organization = organizations[0].name
-        else:
-            return {"success": False, "error": "No organization found. Please create an organization first."}
+        # Organization should be configured in Verenigingen Settings
+        return {
+            "success": False,
+            "error": "No organization configured. Please set organization in Verenigingen Settings.",
+        }
 
     for member_data in test_members:
         try:

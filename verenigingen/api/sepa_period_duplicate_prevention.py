@@ -238,7 +238,7 @@ def prevent_sepa_batch_period_duplicates(batch_name: str) -> Dict:
 
         for item in batch.invoices:
             # Get invoice details
-            invoice = frappe.get_doc("Sales Invoice", item.sales_invoice)
+            invoice = frappe.get_doc("Sales Invoice", item.invoice)
 
             # Determine billing period from invoice (calculate monthly period)
             period_start, period_end = _calculate_monthly_period_from_posting_date(invoice.posting_date)
@@ -253,7 +253,7 @@ def prevent_sepa_batch_period_duplicates(batch_name: str) -> Dict:
             if duplicate_check.get("has_duplicates"):
                 conflicts.append(
                     {
-                        "invoice": item.sales_invoice,
+                        "invoice": item.invoice,
                         "customer": invoice.customer,
                         "period_start": period_start,
                         "period_end": period_end,
@@ -263,7 +263,7 @@ def prevent_sepa_batch_period_duplicates(batch_name: str) -> Dict:
             else:
                 validated_items.append(
                     {
-                        "invoice": item.sales_invoice,
+                        "invoice": item.invoice,
                         "customer": invoice.customer,
                         "period_start": period_start,
                         "period_end": period_end,

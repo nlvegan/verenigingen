@@ -232,11 +232,22 @@ def create_items_from_mappings():
                     item.is_sales_item = mapping["is_sales_item"]
                     item.is_purchase_item = mapping["is_purchase_item"]
 
-                    # Set default accounts
+                    # Set default accounts via item_defaults child table (ERPNext pattern)
+                    # Get or create the item_defaults entry for the company
+                    company = "Ned Ver Vegan"
+                    item_default = None
+                    for default in item.item_defaults:
+                        if default.company == company:
+                            item_default = default
+                            break
+
+                    if not item_default:
+                        item_default = item.append("item_defaults", {"company": company})
+
                     if mapping["is_sales_item"]:
-                        item.income_account = mapping["erpnext_account"]
+                        item_default.income_account = mapping["erpnext_account"]
                     elif mapping["is_purchase_item"]:
-                        item.expense_account = mapping["erpnext_account"]
+                        item_default.expense_account = mapping["erpnext_account"]
 
                     # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
                     result = secure_document_operation(
@@ -262,11 +273,13 @@ def create_items_from_mappings():
                     item.is_sales_item = mapping["is_sales_item"]
                     item.is_purchase_item = mapping["is_purchase_item"]
 
-                    # Set default accounts
+                    # Set default accounts via item_defaults child table (ERPNext pattern)
+                    company = "Ned Ver Vegan"
+                    item_default = item.append("item_defaults", {"company": company})
                     if mapping["is_sales_item"]:
-                        item.income_account = mapping["erpnext_account"]
+                        item_default.income_account = mapping["erpnext_account"]
                     elif mapping["is_purchase_item"]:
-                        item.expense_account = mapping["erpnext_account"]
+                        item_default.expense_account = mapping["erpnext_account"]
 
                     # Add custom field for E-Boekhouden account code
                     item.custom_eboekhouden_account_code = mapping["account_code"]

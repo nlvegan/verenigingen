@@ -1229,10 +1229,10 @@ def fix_specific_member(member_name, chapter_name=None, dry_run=True) -> Operati
 
         # Determine chapter if not provided
         if not chapter_name:
+            # Note: suggested_chapter field was planned but never implemented
+            # Use current_chapter_display which shows current chapter membership
             if hasattr(member, "current_chapter_display") and member.current_chapter_display:
                 chapter_name = member.current_chapter_display
-            elif hasattr(member, "suggested_chapter") and member.suggested_chapter:
-                chapter_name = member.suggested_chapter
             else:
                 # Try postal code lookup
                 try:
