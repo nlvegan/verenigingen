@@ -255,9 +255,21 @@ def reconcile_transaction_with_payment(bank_transaction: Dict, payment_entry: Di
         # Get the actual bank transaction document
         bank_trans_doc = frappe.get_doc("Bank Transaction", bank_transaction["name"])
 
-        # Update bank transaction status
+        # Update bank transaction status and link payment entry
         bank_trans_doc.status = "Reconciled"
-        bank_trans_doc.payment_entry = payment_entry["name"]
+        bank_trans_doc.append(
+            "payment_entries",
+            {
+                "payment_document": "Payment Entry",
+                "payment_entry": payment_entry["name"],
+                "allocated_amount": abs(
+                    bank_trans_doc.unallocated_amount
+                    or bank_trans_doc.deposit
+                    or bank_trans_doc.withdrawal
+                    or 0
+                ),
+            },
+        )
         bank_trans_doc.save()
 
         # Log reconciliation

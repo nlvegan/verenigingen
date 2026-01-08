@@ -151,9 +151,9 @@ def send_anbi_receipt(donation_id):
             {
                 "anbi_number": donation.anbi_agreement_number,
                 "anbi_date": format_date(donation.anbi_agreement_date),
-                "tax_year": donation.date.year,
+                "tax_year": donation.donation_date.year,
                 "is_tax_deductible": True,
-                "receipt_number": "ANBI-{donation.name}-{donation.date.year}",
+                "receipt_number": f"ANBI-{donation.name}-{donation.donation_date.year}",
             }
         )
 
