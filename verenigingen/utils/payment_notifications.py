@@ -44,17 +44,14 @@ def check_and_resolve_payment_retries(payment_entry, member):
                     # Mark retry as resolved
                     retry_doc = frappe.get_doc("SEPA Payment Retry", retry.name)
                     retry_doc.status = "Resolved"
-                    retry_doc.resolution_date = payment_entry.posting_date
-                    retry_doc.resolution_method = "Payment Received"
-                    retry_doc.resolution_reference = payment_entry.name
 
-                    # Add to retry log
+                    # Add resolution details to retry log (resolution fields don't exist on DocType)
                     retry_doc.append(
                         "retry_log",
                         {
                             "attempt_date": frappe.utils.now_datetime(),
                             "reason_code": "SUCCESS",
-                            "reason_message": "Payment received via {payment_entry.mode_of_payment}",
+                            "reason_message": f"Payment received via {payment_entry.mode_of_payment} on {payment_entry.posting_date}",
                             "payment_reference": payment_entry.name,
                         },
                     )

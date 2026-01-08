@@ -191,15 +191,13 @@ class PaymentRetryManager:
         # Send notification to administrators
         self.send_escalation_notification(retry_record)
 
-        # Update membership status if needed
+        # Add comment to membership for audit trail
         membership = frappe.get_doc("Membership", retry_record.membership)
-        if membership.status == "Active":
-            membership.payment_status = "Failed"
-            membership.add_comment(
-                "Comment",
-                f"Payment retry failed after {retry_record.retry_count} attempts. Escalated for manual review.",
-            )
-            membership.save()
+        membership.add_comment(
+            "Comment",
+            f"Payment retry failed after {retry_record.retry_count} attempts. Escalated for manual review.",
+        )
+        membership.save()
 
     def send_escalation_notification(self, retry_record):
         """Send notification about escalated payment failure"""
@@ -275,7 +273,7 @@ def execute_payment_retry(retry_record=None):
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = today()
         batch.batch_type = "RCUR"  # Recurring
-        batch.description = f"Retry payment for {member.full_name} - Attempt {retry_doc.retry_count}"
+        batch.batch_description = f"Retry payment for {member.full_name} - Attempt {retry_doc.retry_count}"
 
         # Add invoice to batch
         batch.append(
