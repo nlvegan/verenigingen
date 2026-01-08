@@ -347,13 +347,8 @@ class PaymentProcessingService(StatelessService):
         if donation.donor:
             try:
                 donor_doc = frappe.get_doc("Donor", donation.donor)
-                # Use full_name if available, otherwise construct from first/last name
-                if hasattr(donor_doc, "full_name") and donor_doc.full_name:
-                    donor_name = donor_doc.full_name
-                elif hasattr(donor_doc, "first_name") and donor_doc.first_name:
-                    last_name = getattr(donor_doc, "last_name", "")
-                    donor_name = f"{donor_doc.first_name} {last_name}".strip()
-                elif hasattr(donor_doc, "donor_name") and donor_doc.donor_name:
+                # Donor DocType uses donor_name field (not full_name or first_name)
+                if donor_doc.donor_name:
                     donor_name = donor_doc.donor_name
             except Exception:
                 donor_name = donation.donor  # Fall back to donor ID

@@ -30,8 +30,12 @@ def cancel_membership_safe(
         membership.cancellation_type = cancellation_type
 
         # Cancel associated dues schedule if exists
-        if hasattr(membership, "dues_schedule") and membership.dues_schedule:
-            cancel_dues_schedule_safe(membership.dues_schedule)
+        # Note: Membership doesn't have a dues_schedule field - query from Membership Dues Schedule
+        dues_schedule = frappe.db.get_value(
+            "Membership Dues Schedule", {"membership": membership_name, "status": ["!=", "Cancelled"]}, "name"
+        )
+        if dues_schedule:
+            cancel_dues_schedule_safe(dues_schedule)
 
         # Save with proper flags
         membership.flags.ignore_validate_update_after_submit = True
@@ -149,7 +153,7 @@ def cancel_sepa_mandate_safe(mandate_id, reason=None, cancellation_date=None):
         mandate.status = "Cancelled"
         mandate.is_active = 0
         mandate.cancelled_date = cancellation_date
-        mandate.cancelled_reason = reason or "Mandate cancelled"
+        mandate.cancellation_reason = reason or "Mandate cancelled"
 
         # Add cancellation note
         cancellation_note = f"Cancelled on {cancellation_date}"
@@ -1170,23 +1174,24 @@ def terminate_volunteer_records_safe(member_name, termination_type, termination_
                 # Update volunteer status based on termination type
                 disciplinary_types = ["Policy Violation", "Disciplinary Action", "Expulsion"]
 
-                if termination_type == "Deceased":
-                    volunteer_doc.status = "Inactive"
-                    volunteer_doc.inactive_reason = "Deceased"
-                elif termination_type in disciplinary_types:
-                    volunteer_doc.status = "Inactive"
-                    volunteer_doc.inactive_reason = f"Member terminated - {termination_type}"
-                else:
-                    volunteer_doc.status = "Inactive"
-                    volunteer_doc.inactive_reason = f"Member terminated - {termination_type}"
+                # Update volunteer status (inactive_reason field doesn't exist,
+                # so we store the reason in the note field instead)
+                volunteer_doc.status = "Inactive"
 
-                # Add termination note
-                termination_note = f"Volunteer record updated on {termination_date} - {reason}"
-                if hasattr(volunteer_doc, "notes"):
-                    if volunteer_doc.notes:
-                        volunteer_doc.notes += f"\n\n{termination_note}"
-                    else:
-                        volunteer_doc.notes = termination_note
+                # Build termination note with reason
+                if termination_type == "Deceased":
+                    inactive_reason = "Deceased"
+                elif termination_type in disciplinary_types:
+                    inactive_reason = f"Member terminated - {termination_type}"
+                else:
+                    inactive_reason = f"Member terminated - {termination_type}"
+
+                # Add termination note to the note field (not notes - that field doesn't exist)
+                termination_note = f"Volunteer record updated on {termination_date} - {reason}\nInactive reason: {inactive_reason}"
+                if volunteer_doc.note:
+                    volunteer_doc.note += f"\n\n{termination_note}"
+                else:
+                    volunteer_doc.note = termination_note
 
                 # Set end date if field exists
                 if hasattr(volunteer_doc, "end_date") and not volunteer_doc.end_date:

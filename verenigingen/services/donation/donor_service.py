@@ -114,7 +114,7 @@ class DonationDonorService(StatelessService):
 
         # Auto-enable ANBI consent for website users (they can opt-out later)
         donor.anbi_consent = 1
-        donor.privacy_consent = 1  # Required for website donations
+        # Note: privacy_consent field doesn't exist on Donor DocType
 
         # Use secure document operation instead of permission bypass
         result = secure_document_operation(
@@ -166,8 +166,8 @@ class DonationDonorService(StatelessService):
 
         # Set defaults for new donors
         donor.anbi_consent = 0  # Require explicit consent
-        donor.privacy_consent = 1  # Assumed for donation process
-        donor.donor_status = "Active"
+        # Note: privacy_consent and donor_status fields don't exist on Donor DocType
+        # Privacy is handled through the donation process itself
 
         donor.insert()
 
