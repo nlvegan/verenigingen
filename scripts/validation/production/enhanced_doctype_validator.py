@@ -462,7 +462,11 @@ class EnhancedFieldValidator:
         
         for py_file in search_path.rglob("*.py"):
             # Skip excluded directories
-            if any(skip in str(py_file) for skip in ['__pycache__', '.git', 'node_modules']):
+            if any(skip in str(py_file) for skip in [
+                '__pycache__', '.git', 'node_modules',
+                'archived/', 'one-off-test-debug-folder/', 'archived_unused/',
+                'archived_deleted/', 'scripts/validation/archived/'
+            ]):
                 continue
                 
             # In pre-commit mode, skip test files
