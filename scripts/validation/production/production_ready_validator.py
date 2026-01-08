@@ -295,29 +295,23 @@ class ProductionFieldValidator:
                         return child_tables[child_table_field]
         
         # Pattern 3: Check if obj_name suggests a child table record
-        child_table_indicators = [
-            'board_member', 'chapter_member', 'board_members', 'member', 'item',
-            'expense_item', 'payment_item', 'schedule_item', 'role_assignment',
-            'assignment', 'allocation', 'detail', 'line', 'entry'
-        ]
-        
+        # Only match when variable name equals or ends with the indicator (with underscore/nothing)
+        # This prevents 'membership_type' from matching 'member'
+        child_doctype_mappings = {
+            'board_member': 'Verenigingen Chapter Board Member',
+            'chapter_member': 'Chapter Member',
+            'expense_item': 'Volunteer Expense Item',
+            'payment_item': 'Payment Entry Item',
+            'schedule_item': 'Membership Dues Schedule',
+            'role_assignment': 'Role Assignment',
+        }
+
         obj_lower = obj_name.lower()
-        for indicator in child_table_indicators:
-            if indicator in obj_lower:
-                # Try to map to common child DocTypes
-                child_doctype_mappings = {
-                    'board_member': 'Verenigingen Chapter Board Member',
-                    'chapter_member': 'Chapter Member',
-                    'member': 'Member',  # Could be various member child tables
-                    'expense_item': 'Volunteer Expense Item',
-                    'payment_item': 'Payment Entry Item',
-                    'schedule_item': 'Membership Dues Schedule',
-                    'role_assignment': 'Role Assignment',
-                }
-                
-                if indicator in child_doctype_mappings:
-                    return child_doctype_mappings[indicator]
-        
+        for indicator, child_doctype in child_doctype_mappings.items():
+            # Match exact name or name ending with indicator (e.g., 'new_board_member')
+            if obj_lower == indicator or obj_lower.endswith('_' + indicator):
+                return child_doctype
+
         return None
     
     def is_excluded_pattern(self, obj_name: str, field_name: str, context: str) -> bool:
