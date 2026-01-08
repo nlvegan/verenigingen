@@ -139,13 +139,131 @@ class PropertyDetector:
         
         return any(field.endswith(pattern) for pattern in manager_patterns)
 
+
+class HooksParser:
+    """Parses hooks.py to map event handler functions to their DocTypes"""
+
+    def __init__(self, app_path: Path):
+        self.app_path = app_path
+        self.handler_to_doctype: Dict[str, str] = {}
+        self._parse_hooks()
+
+    def _parse_hooks(self):
+        """Parse hooks.py to extract doc_events mappings"""
+        hooks_file = self.app_path / "hooks.py"
+        if not hooks_file.exists():
+            return
+
+        try:
+            with open(hooks_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # Parse the hooks.py file as AST
+            tree = ast.parse(content)
+
+            # Find doc_events assignment
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Assign):
+                    for target in node.targets:
+                        if isinstance(target, ast.Name) and target.id == 'doc_events':
+                            self._extract_doc_events(node.value)
+
+        except Exception as e:
+            # Silently ignore parsing errors
+            pass
+
+    def _extract_doc_events(self, node: ast.AST):
+        """Extract handler mappings from doc_events dict"""
+        if not isinstance(node, ast.Dict):
+            return
+
+        for key, value in zip(node.keys, node.values):
+            if not isinstance(key, ast.Constant) or not isinstance(key.value, str):
+                continue
+
+            doctype_name = key.value
+
+            # value is another dict mapping event types to handlers
+            if isinstance(value, ast.Dict):
+                for event_key, event_value in zip(value.keys, value.values):
+                    self._extract_handlers(doctype_name, event_value)
+
+    def _extract_handlers(self, doctype_name: str, node: ast.AST):
+        """Extract handler function paths from event value"""
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            # Single handler: "path.to.function"
+            self._add_handler(node.value, doctype_name)
+        elif isinstance(node, ast.List):
+            # List of handlers: ["path.to.func1", "path.to.func2"]
+            for element in node.elts:
+                if isinstance(element, ast.Constant) and isinstance(element.value, str):
+                    self._add_handler(element.value, doctype_name)
+
+    def _add_handler(self, handler_path: str, doctype_name: str):
+        """Add a handler mapping, converting module path to file path"""
+        # handler_path is like "verenigingen.utils.chapter_role_events.on_chapter_board_member_after_insert"
+        # We want to map this to the file + function name
+        parts = handler_path.split('.')
+        if len(parts) >= 2:
+            function_name = parts[-1]
+            # Store as "relative/file/path.py:function_name" -> doctype
+            module_path = '/'.join(parts[:-1]) + '.py'
+            key = f"{module_path}:{function_name}"
+            self.handler_to_doctype[key] = doctype_name
+
+    def get_doctype_for_handler(self, file_path: str, function_name: str) -> Optional[str]:
+        """
+        Get the DocType that a handler function receives.
+
+        Args:
+            file_path: Relative path to the Python file (e.g., "verenigingen/utils/foo.py")
+            function_name: Name of the function
+
+        Returns:
+            DocType name if this is a registered event handler, None otherwise
+        """
+        # Normalize path separators
+        normalized_path = file_path.replace('\\', '/')
+        key = f"{normalized_path}:{function_name}"
+        return self.handler_to_doctype.get(key)
+
+
 class ContextAnalyzer:
     """Analyzes code context to detect DocType usage patterns"""
-    
-    def __init__(self, schemas: DocTypeSchema):
+
+    def __init__(self, schemas: DocTypeSchema, hooks_parser: Optional[HooksParser] = None):
         self.schemas = schemas
-        
-    def detect_doctype(self, node: ast.AST, source_lines: List[str], obj_name: str) -> Optional[Tuple[str, bool]]:
+        self.hooks_parser = hooks_parser
+        self._current_file_path: Optional[str] = None
+        self._current_function_doctypes: Dict[str, str] = {}  # function_name -> doctype for 'doc' param
+
+    def set_current_file(self, file_path: str, source_lines: List[str]):
+        """
+        Set the current file being analyzed and extract event handler info.
+        Call this before validating a file.
+        """
+        self._current_file_path = file_path
+        self._current_function_doctypes = {}
+
+        if not self.hooks_parser:
+            return
+
+        # Find all function definitions and check if they're event handlers
+        try:
+            content = '\n'.join(source_lines)
+            tree = ast.parse(content)
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef):
+                    doctype = self.hooks_parser.get_doctype_for_handler(file_path, node.name)
+                    if doctype:
+                        # This function is an event handler - 'doc' param is this DocType
+                        self._current_function_doctypes[node.name] = doctype
+        except Exception:
+            pass
+
+    def detect_doctype(self, node: ast.AST, source_lines: List[str], obj_name: str,
+                       current_function: Optional[str] = None) -> Optional[Tuple[str, bool]]:
         """
         Detect the DocType for a variable.
 
@@ -155,6 +273,11 @@ class ContextAnalyzer:
             or heuristic (low confidence). Returns None if no DocType detected.
         """
         line_num = node.lineno
+
+        # Check if we're in an event handler function with known doc type
+        # Event handlers registered in hooks.py receive 'doc' param of the registered DocType
+        if obj_name == 'doc' and current_function and current_function in self._current_function_doctypes:
+            return (self._current_function_doctypes[current_function], True)
 
         # Check child table context FIRST (high confidence)
         child_doctype = self._detect_child_table_context(source_lines, line_num, obj_name)
@@ -333,7 +456,8 @@ class EnhancedFieldValidator:
         # Initialize components
         self.schemas = DocTypeSchema(self.app_path, self.bench_path)
         self.property_detector = PropertyDetector(self.app_path)
-        self.context_analyzer = ContextAnalyzer(self.schemas)
+        self.hooks_parser = HooksParser(self.app_path)
+        self.context_analyzer = ContextAnalyzer(self.schemas, self.hooks_parser)
         self.confidence_calculator = ConfidenceCalculator()
 
         print(f"📋 Loaded {len(self.schemas.schemas)} DocType schemas")
@@ -468,28 +592,40 @@ class EnhancedFieldValidator:
     def validate_file(self, file_path: Path) -> List[ValidationIssue]:
         """Validate a single Python file"""
         issues = []
-        
+
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
-                
+
             # FIRST: Check DocType existence in API calls
             issues.extend(self.validate_doctype_api_calls(content, file_path))
-                
+
             tree = ast.parse(content)
             source_lines = content.splitlines()
-            
+
+            # Get relative file path for hooks.py lookup
+            try:
+                rel_path = str(file_path.relative_to(self.app_path.parent))
+            except ValueError:
+                rel_path = str(file_path)
+
+            # Set current file context (extracts event handler info from hooks.py)
+            self.context_analyzer.set_current_file(rel_path, source_lines)
+
+            # Build a mapping of line numbers to their enclosing function
+            line_to_function = self._build_line_to_function_map(tree)
+
             # Walk through AST to find attribute access
             for node in ast.walk(tree):
                 if isinstance(node, ast.Attribute) and hasattr(node.value, 'id'):
                     obj_name = node.value.id
                     field_name = node.attr
                     line_num = node.lineno
-                    
+
                     # Skip excluded patterns
                     if self._should_skip(obj_name, field_name):
                         continue
-                        
+
                     # Get line context
                     context = source_lines[line_num - 1].strip() if line_num <= len(source_lines) else ""
                     preceding_line = source_lines[line_num - 2].strip() if line_num > 1 else ""
@@ -502,8 +638,13 @@ class EnhancedFieldValidator:
                     if f'{field_name}(' in context:
                         continue
 
+                    # Get current function for this line
+                    current_function = line_to_function.get(line_num)
+
                     # Detect DocType
-                    doctype_result = self.context_analyzer.detect_doctype(node, source_lines, obj_name)
+                    doctype_result = self.context_analyzer.detect_doctype(
+                        node, source_lines, obj_name, current_function
+                    )
 
                     if doctype_result is None:
                         continue  # Could not determine DocType - skip this access
@@ -512,22 +653,22 @@ class EnhancedFieldValidator:
 
                     if doctype and doctype in self.schemas.schemas:
                         fields = self.schemas.get_fields(doctype)
-                        
+
                         if field_name not in fields:
                             # Check if it's a property
                             if self.property_detector.is_property_access(doctype, field_name):
                                 continue
-                                
+
                             # Calculate confidence
                             confidence = self.confidence_calculator.calculate(
-                                node, obj_name, field_name, doctype, context, 
+                                node, obj_name, field_name, doctype, context,
                                 source_lines, str(file_path)
                             )
-                            
+
                             # Find similar fields
                             similar = self._find_similar_fields(field_name, fields)
                             similar_text = f" (similar: {', '.join(similar[:3])})" if similar else ""
-                            
+
                             issues.append(ValidationIssue(
                                 file=str(file_path.relative_to(self.app_path)),
                                 line=line_num,
@@ -540,12 +681,29 @@ class EnhancedFieldValidator:
                                 issue_type="missing_field",
                                 suggested_fix=similar[0] if similar else None
                             ))
-                            
+
         except Exception as e:
             if self.verbose:
                 print(f"Error processing {file_path}: {e}")
-                
+
         return issues
+
+    def _build_line_to_function_map(self, tree: ast.AST) -> Dict[int, str]:
+        """Build a mapping from line numbers to enclosing function names"""
+        line_to_function = {}
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                func_name = node.name
+                # Get the line range of this function
+                start_line = node.lineno
+                end_line = node.end_lineno if hasattr(node, 'end_lineno') and node.end_lineno else start_line + 100
+
+                # Map all lines in this function to its name
+                for line in range(start_line, end_line + 1):
+                    line_to_function[line] = func_name
+
+        return line_to_function
         
     def _should_skip(self, obj_name: str, field_name: str) -> bool:
         """Check if this pattern should be skipped"""
