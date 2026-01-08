@@ -60,7 +60,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pyyaml psutil
+        pip install pytest pyyaml psutil
         pip install frappe-bench || echo "Frappe not available in CI, using mocks"
 
     - name: Create test directories

@@ -192,6 +192,76 @@ from frappe.utils import now_datetime, add_days, add_months, getdate
 from .field_validator import FieldValidator, validate_field
 
 
+class MockRolesContext:
+    """
+    Context manager to temporarily mock user roles for permission testing.
+
+    Usage:
+        with frappe.mock_roles(["System Manager", "Verenigingen Admin"]):
+            # Code here will see the user as having only these roles
+            has_permission = frappe.has_permission("DocType", "read")
+
+    This context manager patches frappe.get_roles() to return the specified
+    roles, enabling isolated permission testing without modifying the database.
+    """
+
+    def __init__(self, roles: list):
+        """
+        Initialize the mock roles context.
+
+        Args:
+            roles: List of role names to mock for the current user
+        """
+        self.roles = roles if roles else []
+        self._original_get_roles = None
+
+    def __enter__(self):
+        """Enter the context and patch frappe.get_roles."""
+        self._original_get_roles = frappe.get_roles
+
+        # Create a mock function that returns the specified roles
+        mock_roles_list = self.roles
+
+        def mock_get_roles(user=None, with_standard=True):
+            """Mock implementation of frappe.get_roles."""
+            # Always include "All" and optionally "Guest" as standard roles
+            result = list(mock_roles_list)
+            if with_standard:
+                if "All" not in result:
+                    result.append("All")
+            return result
+
+        frappe.get_roles = mock_get_roles
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Exit the context and restore the original frappe.get_roles."""
+        if self._original_get_roles is not None:
+            frappe.get_roles = self._original_get_roles
+        return False
+
+
+# Monkey-patch frappe to add mock_roles method for test convenience
+def _mock_roles(roles: list):
+    """
+    Create a context manager to temporarily mock user roles.
+
+    This is added to frappe module for convenient access in tests:
+        with frappe.mock_roles(["Role1", "Role2"]):
+            # test code here
+
+    Args:
+        roles: List of role names to mock
+
+    Returns:
+        MockRolesContext instance
+    """
+    return MockRolesContext(roles)
+
+# Add mock_roles to frappe module for test convenience
+frappe.mock_roles = _mock_roles
+
+
 class BusinessRuleError(Exception):
     """Raised when business rule validation fails"""
     pass
