@@ -164,10 +164,12 @@ class ContextAnalyzer:
         # Look for explicit assignments (high confidence)
         context = '\n'.join(source_lines[max(0, line_num-30):line_num])
 
+        # Use word boundaries (\b) to prevent matching substrings
+        # e.g., prevent 'doc' from matching inside 'company_doc'
         patterns = [
-            rf'{obj_name}\s*=\s*frappe\.get_doc\(["\']([^"\']+)["\']',
-            rf'{obj_name}\s*=\s*frappe\.new_doc\(["\']([^"\']+)["\']',
-            rf'{obj_name}\s*=\s*frappe\.get_cached_doc\(["\']([^"\']+)["\']',
+            rf'\b{obj_name}\s*=\s*frappe\.get_doc\(["\']([^"\']+)["\']',
+            rf'\b{obj_name}\s*=\s*frappe\.new_doc\(["\']([^"\']+)["\']',
+            rf'\b{obj_name}\s*=\s*frappe\.get_cached_doc\(["\']([^"\']+)["\']',
         ]
 
         for pattern in patterns:
@@ -248,16 +250,17 @@ class ContextAnalyzer:
         
     def _find_parent_doctype(self, context: str, obj_name: str) -> Optional[str]:
         """Find the DocType of a parent object"""
+        # Use word boundaries (\b) to prevent matching substrings
         patterns = [
-            rf'{obj_name}\s*=\s*frappe\.get_doc\(["\']([^"\']+)["\']',
-            rf'{obj_name}\s*=\s*frappe\.new_doc\(["\']([^"\']+)["\']',
+            rf'\b{obj_name}\s*=\s*frappe\.get_doc\(["\']([^"\']+)["\']',
+            rf'\b{obj_name}\s*=\s*frappe\.new_doc\(["\']([^"\']+)["\']',
         ]
-        
+
         for pattern in patterns:
             match = re.search(pattern, context)
             if match:
                 return match.group(1)
-                
+
         return None
 
 class ConfidenceCalculator:
