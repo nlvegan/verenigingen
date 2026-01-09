@@ -50,15 +50,15 @@ class TestAccountCreationMockElimination(EnhancedTestCase):
         
         # Create real members for account creation testing
         self.test_member = self.create_test_member(
-            first_name="Account",
+            first_name=f"Account{self.uid}",
             last_name="Creation",
-            email="account.creation@test.example.com"
+            email=f"account.creation.{self.uid}@test.example.com"
         )
-        
+
         # Create real volunteer for volunteer account testing
         self.test_volunteer = self.create_test_volunteer(
             member=self.test_member.name,
-            volunteer_name="Account Creation Volunteer"
+            volunteer_name=f"Account Creation Volunteer {self.uid}"
         )
         
         # Store original user for cleanup

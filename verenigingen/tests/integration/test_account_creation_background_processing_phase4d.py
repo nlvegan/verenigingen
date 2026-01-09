@@ -112,9 +112,9 @@ class TestAccountCreationBackgroundProcessingPhase4D(EnhancedTestCase):
         AFTER: Tests real frappe.enqueue() calls and validates actual job creation
         """
         member = self.create_test_member(
-            first_name="Real",
+            first_name=f"Real{self.uid}",
             last_name="Queue",
-            email="real.queue@test.invalid"
+            email=f"real.queue.{self.uid}@test.invalid"
         )
         
         # PHASE 4D: Test real job queueing without mocks
@@ -159,15 +159,15 @@ class TestAccountCreationBackgroundProcessingPhase4D(EnhancedTestCase):
         """
         # Create multiple members with different priority scenarios
         high_priority_member = self.create_test_member(
-            first_name="High",
+            first_name=f"High{self.uid}",
             last_name="Priority",
-            email="high.priority@test.invalid"
+            email=f"high.priority.{self.uid}@test.invalid"
         )
-        
+
         normal_priority_member = self.create_test_member(
-            first_name="Normal", 
+            first_name=f"Normal{self.uid}",
             last_name="Priority",
-            email="normal.priority@test.invalid"
+            email=f"normal.priority.{self.uid}@test.invalid"
         )
         
         # PHASE 4D: Create real priority-based requests
@@ -222,9 +222,9 @@ class TestAccountCreationBackgroundProcessingPhase4D(EnhancedTestCase):
         AFTER: Tests real retry mechanisms and failure recovery business logic
         """
         member = self.create_test_member(
-            first_name="Retry", 
+            first_name=f"Retry{self.uid}",
             last_name="Logic",
-            email="retry.logic@test.invalid"
+            email=f"retry.logic.{self.uid}@test.invalid"
         )
         
         # Create request with retry scenario
@@ -292,9 +292,9 @@ class TestAccountCreationBackgroundProcessingPhase4D(EnhancedTestCase):
         AFTER: Tests real cleanup procedures and resource management
         """
         member = self.create_test_member(
-            first_name="Cleanup",
+            first_name=f"Cleanup{self.uid}",
             last_name="Test",
-            email="cleanup.test@test.invalid"
+            email=f"cleanup.test.{self.uid}@test.invalid"
         )
         
         request = self.create_test_account_creation_request(
@@ -336,9 +336,9 @@ class TestAccountCreationBackgroundProcessingPhase4D(EnhancedTestCase):
         AFTER: Tests authentic failure recovery mechanisms and error handling
         """
         member = self.create_test_member(
-            first_name="Failure",
-            last_name="Recovery", 
-            email="failure.recovery@test.invalid"
+            first_name=f"Failure{self.uid}",
+            last_name="Recovery",
+            email=f"failure.recovery.{self.uid}@test.invalid"
         )
         
         request = self.create_test_account_creation_request(
@@ -404,9 +404,9 @@ class TestAccountCreationBackgroundProcessingPhase4D(EnhancedTestCase):
         
         for i in range(5):
             member = self.create_test_member(
-                first_name=f"Concurrent",
+                first_name=f"Concurrent{self.uid}",
                 last_name=f"Test{i:02d}",
-                email=f"concurrent.test{i:02d}@test.invalid"
+                email=f"concurrent.test.{self.uid}.{i:02d}@test.invalid"
             )
             members.append(member)
             
@@ -484,9 +484,9 @@ class TestAccountCreationBackgroundProcessingPhase4D(EnhancedTestCase):
         and monitoring capabilities for real account creation workflows.
         """
         member = self.create_test_member(
-            first_name="Monitoring",
+            first_name=f"Monitoring{self.uid}",
             last_name="Test",
-            email="monitoring.test@test.invalid"
+            email=f"monitoring.test.{self.uid}@test.invalid"
         )
         
         request = self.create_test_account_creation_request(
@@ -572,9 +572,9 @@ class TestPhase4DBackgroundJobMockComparison(EnhancedTestCase):
         This shows what NOT to do - mocking frappe.enqueue hides real business logic
         """
         member = self.create_test_member(
-            first_name="Mock",
+            first_name=f"Mock{self.uid}",
             last_name="Example",
-            email="mock.example@test.invalid"
+            email=f"mock.example.{self.uid}@test.invalid"
         )
         
         # INAPPROPRIATE MOCK - hides real business logic
@@ -598,9 +598,9 @@ class TestPhase4DBackgroundJobMockComparison(EnhancedTestCase):
         This shows the correct approach - testing real business logic without mocks
         """
         member = self.create_test_member(
-            first_name="Real",
+            first_name=f"Real{self.uid}2",
             last_name="Testing",
-            email="real.testing@test.invalid"
+            email=f"real.testing.{self.uid}@test.invalid"
         )
         
         # PHASE 4D: No business logic mocks - test real system behavior
@@ -643,9 +643,9 @@ class TestPhase4DBackgroundJobMockComparison(EnhancedTestCase):
         while testing real business logic.
         """
         member = self.create_test_member(
-            first_name="External",
+            first_name=f"External{self.uid}",
             last_name="Mocks",
-            email="external.mocks@test.invalid"
+            email=f"external.mocks.{self.uid}@test.invalid"
         )
         
         request = self.create_test_account_creation_request(
