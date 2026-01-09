@@ -1699,9 +1699,12 @@ class EnhancedTestCase(FrappeTestCase):
         self._ensure_production_ready_setup()
 
         self.factory = EnhancedTestDataFactory(seed=12345, use_faker=True)
-        # Add test run ID for unique test data identification
+
+        # Unique identifier for this test instance (microsecond precision)
+        # Use this to make test data unique and prevent Customer/Member name collisions
         import time
-        self.test_run_id = str(int(time.time()))
+        self.uid = str(int(time.time() * 1000000) % 1000000)
+        self.test_run_id = self.uid  # Backward compatibility alias
 
         # Track created records for cleanup
         self.created_records = []
@@ -2987,6 +2990,31 @@ class EnhancedTestCase(FrappeTestCase):
             # Don't fail tests due to master data creation issues
             pass
         
+    def unique_name(self, base: str) -> str:
+        """Make any test name unique by appending the test's uid.
+
+        Use this when tests need explicit member/customer names to prevent
+        PRIMARY key collisions from hardcoded names like "Audit Trail".
+
+        Args:
+            base: The base name (e.g., "Audit Trail", "SQL Injection")
+
+        Returns:
+            Unique name like "Audit Trail_847291"
+
+        Examples:
+            member = self.create_test_member(
+                first_name=self.unique_name("Timezone"),
+                last_name="Edge"
+            )
+            # Or use f-string shorthand:
+            member = self.create_test_member(
+                first_name=f"Audit{self.uid}",
+                last_name="Trail"
+            )
+        """
+        return f"{base}_{self.uid}"
+
     def create_test_member(self, **kwargs):
         """Convenience method for creating test members"""
         return self.factory.create_member(**kwargs)

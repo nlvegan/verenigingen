@@ -89,7 +89,7 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
         # This is the expected behavior - age validation works at the earliest point
         try:
             young_member = self.create_test_member(
-                first_name="Too",
+                first_name=f"Too{self.uid}",
                 last_name="Young",
                 email=unique_email,
                 birth_date=birth_date_15_years
@@ -98,7 +98,7 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
             with self.assertRaises((BusinessRuleError, frappe.ValidationError)):
                 self.create_test_volunteer(
                     member_name=young_member.name,
-                    volunteer_name="Too Young Volunteer",
+                    volunteer_name=f"Too Young Volunteer {self.uid}",
                     email=unique_email,
                     start_date=getdate()
                 )
@@ -115,7 +115,7 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
         birth_date = add_years(getdate(), -17)  # 17 years old (valid for membership)
 
         future_member = self.create_test_member(
-            first_name="Future",
+            first_name=f"Future{self.uid}",
             last_name="Volunteer",
             email=unique_email,
             birth_date=birth_date
@@ -127,7 +127,7 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
         # Should succeed because member is 17+ (valid adult member)
         volunteer = self.create_test_volunteer(
             member_name=future_member.name,
-            volunteer_name="Future Volunteer",
+            volunteer_name=f"Future Volunteer {self.uid}",
             email=unique_email,
             start_date=future_start_date
         )
@@ -141,7 +141,7 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
         unique_email_young = f"young.member.{self.test_run_id}@test.invalid"
 
         young_member = self.create_test_member(
-            first_name="Young",
+            first_name=f"Young{self.uid}",
             last_name="Member",
             email=unique_email_young,
             birth_date=young_birth_date
@@ -154,7 +154,7 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
         unique_email_old = f"too.old.{self.test_run_id}@test.invalid"
         with self.assertRaises(BusinessRuleError):
             self.create_test_member(
-                first_name="Too",
+                first_name=f"Too{self.uid}",
                 last_name="Old",
                 email=unique_email_old,
                 birth_date=add_years(getdate(), -121)  # 121 years old
@@ -163,9 +163,9 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
     def test_verenigingen_role_hierarchy_validation(self):
         """Test Verenigingen-specific role hierarchy and permissions"""
         member = self.create_test_member(
-            first_name="Role",
+            first_name=f"Role{self.uid}",
             last_name="Hierarchy",
-            email="role.hierarchy@test.invalid"
+            email=f"role.hierarchy.{self.uid}@test.invalid"
         )
         
         # Test standard member role assignment
@@ -192,16 +192,16 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
     def test_volunteer_role_assignment_comprehensive(self):
         """Test comprehensive volunteer role assignment"""
         member = self.create_test_member(
-            first_name="Volunteer",
+            first_name=f"Volunteer{self.uid}",
             last_name="Roles",
-            email="volunteer.roles@test.invalid",
+            email=f"volunteer.roles.{self.uid}@test.invalid",
             birth_date="1990-01-01"
         )
-        
+
         volunteer = self.create_test_volunteer(
             member_name=member.name,
-            volunteer_name="Volunteer Roles Test",
-            email="volunteer.roles@test.invalid"
+            volunteer_name=f"Volunteer Roles Test {self.uid}",
+            email=f"volunteer.roles.{self.uid}@test.invalid"
         )
         
         # Queue volunteer account creation
@@ -237,16 +237,16 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
     def test_employee_creation_for_expense_functionality(self):
         """Test employee record creation for Dutch expense functionality"""
         member = self.create_test_member(
-            first_name="Expense",
+            first_name=f"Expense{self.uid}",
             last_name="Volunteer",
-            email="expense.volunteer@test.invalid",
+            email=f"expense.volunteer.{self.uid}@test.invalid",
             birth_date="1985-06-15"
         )
-        
+
         volunteer = self.create_test_volunteer(
             member_name=member.name,
-            volunteer_name="Expense Volunteer Test",
-            email="expense.volunteer@test.invalid"
+            volunteer_name=f"Expense Volunteer Test {self.uid}",
+            email=f"expense.volunteer.{self.uid}@test.invalid"
         )
         
         # Process volunteer account creation
@@ -278,16 +278,16 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
             ("Anna", "ter Haar"),
             ("Willem", "van de Water")
         ]
-        
-        for first_name, last_name in dutch_names:
+
+        for idx, (first_name, last_name) in enumerate(dutch_names):
             with self.subTest(first_name=first_name, last_name=last_name):
-                full_name = f"{first_name} {last_name}"
-                # Use unique email to avoid duplicate entry errors across test runs
-                unique_suffix = frappe.generate_hash(length=6)
-                email = f"{first_name.lower()}.{last_name.lower().replace(' ', '.')}.{unique_suffix}@test.invalid"
+                # Use uid + index to ensure unique names across subtests
+                unique_first = f"{first_name}{self.uid}{idx}"
+                full_name = f"{unique_first} {last_name}"
+                email = f"{first_name.lower()}.{self.uid}.{idx}@test.invalid"
 
                 member = self.create_test_member(
-                    first_name=first_name,
+                    first_name=unique_first,
                     last_name=last_name,
                     email=email,
                     birth_date="1980-01-01"
@@ -305,7 +305,7 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
                 # Verify name handling in created user
                 request.reload()
                 user = frappe.get_doc("User", request.created_user)
-                self.assertEqual(user.first_name, first_name)
+                self.assertEqual(user.first_name, unique_first)
                 self.assertEqual(user.last_name, last_name)
                 self.assertEqual(user.full_name, full_name)
                 
@@ -319,16 +319,16 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
             self.skipTest("No company exists in test environment for employee assignment")
             
         member = self.create_test_member(
-            first_name="Dutch",
+            first_name=f"Dutch{self.uid}",
             last_name="Company",
-            email="dutch.company@test.invalid",
+            email=f"dutch.company.{self.uid}@test.invalid",
             birth_date="1990-01-01"
         )
-        
+
         volunteer = self.create_test_volunteer(
             member_name=member.name,
-            volunteer_name="Dutch Company Test",
-            email="dutch.company@test.invalid"
+            volunteer_name=f"Dutch Company Test {self.uid}",
+            email=f"dutch.company.{self.uid}@test.invalid"
         )
         
         # Process account creation
@@ -359,16 +359,16 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
         )
         
         member = self.create_test_member(
-            first_name="Chapter",
+            first_name=f"Chapter{self.uid}",
             last_name="Volunteer",
-            email="chapter.volunteer@test.invalid",
+            email=f"chapter.volunteer.{self.uid}@test.invalid",
             birth_date="1988-03-20"
         )
-        
+
         volunteer = self.create_test_volunteer(
             member_name=member.name,
-            volunteer_name="Chapter Volunteer Test",
-            email="chapter.volunteer@test.invalid"
+            volunteer_name=f"Chapter Volunteer Test {self.uid}",
+            email=f"chapter.volunteer.{self.uid}@test.invalid"
         )
         
         # Process account creation
@@ -393,12 +393,12 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
             {"name": "Board Member", "roles": ["Verenigingen Member", "Chapter Board Member"]},
         ]
 
-        for role_combo in role_combinations:
+        for idx, role_combo in enumerate(role_combinations):
             with self.subTest(role_combo=role_combo["name"]):
                 member = self.create_test_member(
-                    first_name="Membership",
+                    first_name=f"Membership{self.uid}{idx}",
                     last_name="Type",
-                    email=f"membership.type.{role_combo['name'].lower().replace(' ', '.')}@test.invalid",
+                    email=f"membership.type.{self.uid}.{idx}@test.invalid",
                     birth_date="1995-01-01"
                 )
 
@@ -421,9 +421,9 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
         birth_date_exactly_16 = add_years(getdate(), -16)
 
         transition_member = self.create_test_member(
-            first_name="Age",
+            first_name=f"Age{self.uid}",
             last_name="Transition",
-            email="age.transition@test.invalid",
+            email=f"age.transition.{self.uid}@test.invalid",
             birth_date=birth_date_exactly_16
         )
 
@@ -432,8 +432,8 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
 
         volunteer = self.create_test_volunteer(
             member_name=transition_member.name,
-            volunteer_name="Age Transition Volunteer",
-            email="age.transition@test.invalid",
+            volunteer_name=f"Age Transition Volunteer {self.uid}",
+            email=f"age.transition.{self.uid}@test.invalid",
             start_date=future_start_date
         )
 
@@ -448,16 +448,16 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
     def test_dutch_regulatory_compliance_fields(self):
         """Test Dutch regulatory compliance field handling"""
         member = self.create_test_member(
-            first_name="Regulatory",
+            first_name=f"Regulatory{self.uid}",
             last_name="Compliance",
-            email="regulatory.compliance@test.invalid",
+            email=f"regulatory.compliance.{self.uid}@test.invalid",
             birth_date="1987-12-10"
         )
-        
+
         volunteer = self.create_test_volunteer(
             member_name=member.name,
-            volunteer_name="Regulatory Compliance Test",
-            email="regulatory.compliance@test.invalid"
+            volunteer_name=f"Regulatory Compliance Test {self.uid}",
+            email=f"regulatory.compliance.{self.uid}@test.invalid"
         )
         
         # Process account creation
@@ -489,20 +489,20 @@ class TestAccountCreationBusinessRuleEdgeCases(EnhancedTestCase):
         leap_year_birth = "2000-02-29"  # Leap year
         
         member = self.create_test_member(
-            first_name="Leap",
+            first_name=f"Leap{self.uid}",
             last_name="Year",
-            email="leap.year@test.invalid",
+            email=f"leap.year.{self.uid}@test.invalid",
             birth_date=leap_year_birth
         )
-        
+
         # Should calculate age correctly
         self.assertIsNotNone(member)
-        
+
         # Test volunteer creation (member should be old enough)
         volunteer = self.create_test_volunteer(
             member_name=member.name,
-            volunteer_name="Leap Year Volunteer",
-            email="leap.year@test.invalid"
+            volunteer_name=f"Leap Year Volunteer {self.uid}",
+            email=f"leap.year.{self.uid}@test.invalid"
         )
         
         self.assertIsNotNone(volunteer)
@@ -514,17 +514,17 @@ class TestAccountCreationBusinessRuleEdgeCases(EnhancedTestCase):
         birth_date_16_years = add_years(getdate(), -16)
 
         member = self.create_test_member(
-            first_name="Exact",
+            first_name=f"Exact{self.uid}",
             last_name="Sixteen",
-            email="exact.sixteen@test.invalid",
+            email=f"exact.sixteen.{self.uid}@test.invalid",
             birth_date=birth_date_16_years
         )
 
         # Should be able to create volunteer starting today (16th birthday)
         volunteer = self.create_test_volunteer(
             member_name=member.name,
-            volunteer_name="Exact Sixteen Volunteer",
-            email="exact.sixteen@test.invalid",
+            volunteer_name=f"Exact Sixteen Volunteer {self.uid}",
+            email=f"exact.sixteen.{self.uid}@test.invalid",
             start_date=getdate()
         )
 
@@ -540,27 +540,27 @@ class TestAccountCreationBusinessRuleEdgeCases(EnhancedTestCase):
             "2008-02-29"   # Leap year (age ~18, valid for membership - must be 16+)
         ]
         
-        for birth_date in edge_case_dates:
+        for idx, birth_date in enumerate(edge_case_dates):
             with self.subTest(birth_date=birth_date):
                 member = self.create_test_member(
-                    first_name="Timezone",
+                    first_name=f"Timezone{self.uid}{idx}",
                     last_name="Edge",
-                    email=f"timezone.edge.{birth_date.replace('-', '.')}@test.invalid",
+                    email=f"timezone.edge.{self.uid}.{idx}@test.invalid",
                     birth_date=birth_date
                 )
-                
+
                 # Age calculation should work correctly
                 self.assertIsNotNone(member)
-                
+
                 # If old enough, should be able to create volunteer
                 birth_date_obj = getdate(birth_date)
                 age_years = (getdate() - birth_date_obj).days / 365.25
-                
+
                 if age_years >= 16:
                     volunteer = self.create_test_volunteer(
                         member_name=member.name,
-                        volunteer_name=f"Timezone Edge {birth_date}",
-                        email=f"volunteer.timezone.edge.{birth_date.replace('-', '.')}@test.invalid"
+                        volunteer_name=f"Timezone Edge {self.uid} {idx}",
+                        email=f"volunteer.timezone.edge.{self.uid}.{idx}@test.invalid"
                     )
                     self.assertIsNotNone(volunteer)
 

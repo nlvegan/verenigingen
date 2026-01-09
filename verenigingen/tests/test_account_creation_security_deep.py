@@ -50,9 +50,9 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
     def test_zero_ignore_permissions_usage(self):
         """Test that no ignore_permissions pattern is used except for status tracking"""
         member = self.create_test_member(
-            first_name="Zero",
+            first_name=f"Zero{self.uid}",
             last_name="Permissions",
-            email="zero.permissions@test.invalid"
+            email=f"zero.permissions.{self.uid}@test.invalid"
         )
         
         request = self.create_test_account_creation_request(
@@ -81,9 +81,9 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
     def test_comprehensive_sql_injection_prevention(self):
         """Test comprehensive SQL injection attack prevention"""
         member = self.create_test_member(
-            first_name="SQL",
+            first_name=f"SQL{self.uid}",
             last_name="Injection",
-            email="sql.injection@test.invalid"
+            email=f"sql.injection.{self.uid}@test.invalid"
         )
         
         # Advanced SQL injection attempts
@@ -147,9 +147,9 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
     def test_comprehensive_xss_prevention(self):
         """Test comprehensive XSS attack prevention"""
         member = self.create_test_member(
-            first_name="XSS",
+            first_name=f"XSS{self.uid}",
             last_name="Prevention",
-            email="xss.prevention@test.invalid"
+            email=f"xss.prevention.{self.uid}@test.invalid"
         )
         
         # Advanced XSS payloads
@@ -200,9 +200,9 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
     def test_authorization_matrix_comprehensive(self):
         """Test comprehensive authorization matrix"""
         member = self.create_test_member(
-            first_name="Authorization",
+            first_name=f"Authorization{self.uid}",
             last_name="Matrix",
-            email="authorization.matrix@test.invalid"
+            email=f"authorization.matrix.{self.uid}@test.invalid"
         )
         
         # Create permission test scenario
@@ -251,14 +251,14 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
     def test_role_escalation_prevention(self):
         """Test prevention of role escalation attacks"""
         member = self.create_test_member(
-            first_name="Role",
+            first_name=f"Role{self.uid}",
             last_name="Escalation",
-            email="role.escalation@test.invalid"
+            email=f"role.escalation.{self.uid}@test.invalid"
         )
-        
+
         # Create user with Verenigingen Administrator role
         admin_user = self.create_test_user_with_roles(
-            email="admin.user@test.invalid",
+            email=f"admin.user.{self.uid}@test.invalid",
             roles=["Verenigingen Administrator"]
         )
         
@@ -281,9 +281,9 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
     def test_audit_trail_tampering_prevention(self):
         """Test that audit trails cannot be tampered with"""
         member = self.create_test_member(
-            first_name="Audit",
+            first_name=f"Audit{self.uid}",
             last_name="Trail",
-            email="audit.trail@test.invalid"
+            email=f"audit.trail.{self.uid}@test.invalid"
         )
         
         request = self.create_test_account_creation_request(
@@ -327,14 +327,14 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
     def test_session_hijacking_prevention(self):
         """Test prevention of session hijacking attacks"""
         member = self.create_test_member(
-            first_name="Session",
+            first_name=f"Session{self.uid}",
             last_name="Hijacking",
-            email="session.hijacking@test.invalid"
+            email=f"session.hijacking.{self.uid}@test.invalid"
         )
-        
+
         # Create legitimate user
         legit_user = self.create_test_user_with_roles(
-            email="legitimate.user@test.invalid",
+            email=f"legitimate.user.{self.uid}@test.invalid",
             roles=["Verenigingen Administrator"]
         )
         
@@ -348,7 +348,7 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
         
         # Simulate session switch (potential hijacking)
         malicious_user = self.create_test_user_with_roles(
-            email="malicious.user@test.invalid",
+            email=f"malicious.user.{self.uid}@test.invalid",
             roles=["Verenigingen Member"]  # Lower privilege
         )
         
@@ -363,9 +363,9 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
     def test_data_exposure_prevention(self):
         """Test prevention of sensitive data exposure"""
         member = self.create_test_member(
-            first_name="Data",
+            first_name=f"Data{self.uid}",
             last_name="Exposure",
-            email="data.exposure@test.invalid"
+            email=f"data.exposure.{self.uid}@test.invalid"
         )
         
         # Create request with sensitive data
@@ -377,7 +377,7 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
         
         # Create low-privilege user
         low_priv_user = self.create_test_user_with_roles(
-            email="low.privilege@test.invalid",
+            email=f"low.privilege.{self.uid}@test.invalid",
             roles=["Verenigingen Member"]
         )
         
@@ -390,9 +390,9 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
     def test_mass_assignment_prevention(self):
         """Test prevention of mass assignment attacks"""
         member = self.create_test_member(
-            first_name="Mass",
+            first_name=f"Mass{self.uid}",
             last_name="Assignment",
-            email="mass.assignment@test.invalid"
+            email=f"mass.assignment.{self.uid}@test.invalid"
         )
         
         # Attempt mass assignment of sensitive fields
@@ -425,9 +425,9 @@ class TestAccountCreationAuditCompliance(EnhancedTestCase):
     def test_complete_audit_trail_creation(self):
         """Test that complete audit trail is created"""
         member = self.create_test_member(
-            first_name="Audit",
+            first_name=f"Audit{self.uid}",
             last_name="Trail",
-            email="audit.trail.complete@test.invalid"
+            email=f"audit.trail.complete.{self.uid}@test.invalid"
         )
         
         request = self.create_test_account_creation_request(
@@ -456,9 +456,9 @@ class TestAccountCreationAuditCompliance(EnhancedTestCase):
     def test_failure_audit_trail_preservation(self):
         """Test that failure audit trails are preserved"""
         member = self.create_test_member(
-            first_name="Failure",
+            first_name=f"Failure{self.uid}",
             last_name="Audit",
-            email="failure.audit@test.invalid"
+            email=f"failure.audit.{self.uid}@test.invalid"
         )
 
         # Create request with invalid role to cause failure
@@ -492,14 +492,14 @@ class TestAccountCreationAuditCompliance(EnhancedTestCase):
     def test_security_event_logging(self):
         """Test that security events are properly logged"""
         member = self.create_test_member(
-            first_name="Security",
+            first_name=f"Security{self.uid}",
             last_name="Logging",
-            email="security.logging@test.invalid"
+            email=f"security.logging.{self.uid}@test.invalid"
         )
-        
+
         # Create unauthorized user
         unauth_user = self.create_test_user_with_roles(
-            email="unauthorized.security@test.invalid",
+            email=f"unauthorized.security.{self.uid}@test.invalid",
             roles=["Verenigingen Member"]
         )
         
