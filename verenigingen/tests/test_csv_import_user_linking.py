@@ -24,6 +24,9 @@ class TestCSVImportUserLinking(EnhancedTestCase):
         """Set up test environment"""
         super().setUp()
         self.temp_files = []
+        # Generate unique suffix for this test run to prevent Customer name collisions
+        import time
+        self.uid = str(int(time.time() * 1000) % 1000000)
 
     def tearDown(self):
         """Clean up temporary CSV files"""
@@ -69,11 +72,11 @@ class TestCSVImportUserLinking(EnhancedTestCase):
 
     def test_csv_import_links_new_users(self):
         """Test that CSV import creates and links new user accounts"""
-        # Create member via CSV-like process
+        # Create member via CSV-like process - use unique ID to avoid Customer name collisions
         member = self.create_test_member(
-            first_name="New",
+            first_name=f"New{self.uid}",
             last_name="User",
-            email="new.user@test.invalid",
+            email=f"new.user.{self.uid}@test.invalid",
             birth_date="1990-01-01"
         )
 
@@ -107,11 +110,11 @@ class TestCSVImportUserLinking(EnhancedTestCase):
 
     def test_csv_import_links_existing_users(self):
         """Test that CSV import links pre-existing user accounts to members"""
-        # Create member via CSV-like process
+        # Create member via CSV-like process - use unique ID to avoid Customer name collisions
         member = self.create_test_member(
-            first_name="Existing",
+            first_name=f"Existing{self.uid}",
             last_name="User",
-            email="existing.user.csv@test.invalid",
+            email=f"existing.user.csv.{self.uid}@test.invalid",
             birth_date="1990-01-01"
         )
 
@@ -167,14 +170,15 @@ class TestCSVImportUserLinking(EnhancedTestCase):
     def test_bulk_csv_import_links_mixed_users(self):
         """Test that bulk CSV import handles both new and existing users correctly"""
         # Simulate bulk import with 3 members: 2 with existing users, 1 new
+        # Use unique ID to avoid Customer name collisions between test runs
         members = []
         existing_users = []
 
         # Member 1: with existing user
         member1 = self.create_test_member(
-            first_name="Bulk1",
+            first_name=f"Bulk1{self.uid}",
             last_name="ExistingUser",
-            email="bulk1.existing@test.invalid",
+            email=f"bulk1.existing.{self.uid}@test.invalid",
             birth_date="1990-01-01"
         )
         existing_user1 = frappe.get_doc({
@@ -191,9 +195,9 @@ class TestCSVImportUserLinking(EnhancedTestCase):
 
         # Member 2: with existing user
         member2 = self.create_test_member(
-            first_name="Bulk2",
+            first_name=f"Bulk2{self.uid}",
             last_name="ExistingUser",
-            email="bulk2.existing@test.invalid",
+            email=f"bulk2.existing.{self.uid}@test.invalid",
             birth_date="1991-01-01"
         )
         existing_user2 = frappe.get_doc({
@@ -210,9 +214,9 @@ class TestCSVImportUserLinking(EnhancedTestCase):
 
         # Member 3: new user
         member3 = self.create_test_member(
-            first_name="Bulk3",
+            first_name=f"Bulk3{self.uid}",
             last_name="NewUser",
-            email="bulk3.new@test.invalid",
+            email=f"bulk3.new.{self.uid}@test.invalid",
             birth_date="1992-01-01"
         )
         members.append(member3)
@@ -274,11 +278,11 @@ class TestCSVImportUserLinking(EnhancedTestCase):
 
     def test_csv_import_preserves_existing_user_data(self):
         """Test that linking existing users preserves their existing data"""
-        # Create member
+        # Create member - use unique ID to avoid Customer name collisions
         member = self.create_test_member(
-            first_name="Preserve",
+            first_name=f"Preserve{self.uid}",
             last_name="UserData",
-            email="preserve.data@test.invalid",
+            email=f"preserve.data.{self.uid}@test.invalid",
             birth_date="1990-01-01"
         )
 
@@ -333,11 +337,11 @@ class TestCSVImportUserLinking(EnhancedTestCase):
 
     def test_csv_import_adds_roles_to_existing_users(self):
         """Test that existing users get new roles added during linking"""
-        # Create member
+        # Create member - use unique ID to avoid Customer name collisions
         member = self.create_test_member(
-            first_name="Add",
+            first_name=f"Add{self.uid}",
             last_name="Roles",
-            email="add.roles@test.invalid",
+            email=f"add.roles.{self.uid}@test.invalid",
             birth_date="1990-01-01"
         )
 
