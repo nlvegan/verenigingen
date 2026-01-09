@@ -224,11 +224,13 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
                         if "Role" in str(errors) or "Employee Self Service" in str(errors):
                             self.skipTest(f"Required role missing in test environment: {errors}")
 
-                    self.assertTrue(result.get("request_name"))
+                    # Handle both nested and flat result structures
+                    request_name = result.get("request_name") or result.get("data", {}).get("request_name")
+                    self.assertTrue(request_name)
 
                     # Clean up for next test
-                    if result.get("request_name"):
-                        frappe.delete_doc("Account Creation Request", result["request_name"])
+                    if request_name:
+                        frappe.delete_doc("Account Creation Request", request_name)
 
                 except frappe.PermissionError:
                     self.fail(f"Authorized user {auth_user.email} was denied access")

@@ -43,7 +43,11 @@ class TestCSVImportUserLinking(EnhancedTestCase):
             if "Role" in error_str or "Employee Self Service" in error_str:
                 self.skipTest(f"Required role missing in test environment: {errors}")
             self.fail(f"{context} failed: {result.get('error', errors)}")
-        return result["request_name"]
+        # Handle both nested and flat result structures
+        request_name = result.get("request_name") or result.get("data", {}).get("request_name")
+        if not request_name:
+            self.fail(f"{context} failed: no request_name in result: {result}")
+        return request_name
 
     def _create_temp_csv(self, data, suffix='.csv'):
         """Create temporary CSV file with test data"""
