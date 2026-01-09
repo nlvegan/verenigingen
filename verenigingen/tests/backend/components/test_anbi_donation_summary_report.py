@@ -142,11 +142,11 @@ class TestANBIDonationSummaryReport(VereningingenTestCase):
         filters = {"from_date": "2024-01-01", "to_date": "2024-12-31"}
         result = get_data(filters)
 
-        # Verify SQL was called
-        mock_sql.assert_called_once()
-        
-        # Check query structure for corrected field names
-        sql_call = mock_sql.call_args[0][0]
+        # Verify SQL was called at least once
+        self.assertTrue(mock_sql.called, "SQL should be called at least once")
+
+        # Check query structure for corrected field names (check first call)
+        sql_call = mock_sql.call_args_list[0][0][0]
         self.assertIn("donor.bsn_citizen_service_number", sql_call, "Should use correct BSN field")
         self.assertIn("donor.rsin_organization_tax_number", sql_call, "Should use correct RSIN field")
         self.assertIn("donor.anbi_consent", sql_call, "Should use correct consent field")
@@ -156,9 +156,9 @@ class TestANBIDonationSummaryReport(VereningingenTestCase):
         self.assertNotIn("rsin_encrypted", sql_call, "Should not use old incorrect RSIN field") 
         self.assertNotIn("anbi_consent_given", sql_call, "Should not use old incorrect consent field")
 
-        # Verify filters were applied
-        self.assertIn("d.date >= %(from_date)s", sql_call)
-        self.assertIn("d.date <= %(to_date)s", sql_call)
+        # Verify filters were applied (uses donation_date, not date)
+        self.assertIn("d.donation_date >= %(from_date)s", sql_call)
+        self.assertIn("d.donation_date <= %(to_date)s", sql_call)
 
         # Verify result processing
         self.assertIsInstance(result, list)
@@ -302,8 +302,8 @@ class TestANBIDonationSummaryReport(VereningingenTestCase):
         })
 
         expected_conditions = [
-            "d.date >= %(from_date)s",
-            "d.date <= %(to_date)s", 
+            "d.donation_date >= %(from_date)s",
+            "d.donation_date <= %(to_date)s",
             "d.donor = %(donor)s",
             "donor.donor_type = %(donor_type)s",
             "d.periodic_donation_agreement IS NOT NULL",

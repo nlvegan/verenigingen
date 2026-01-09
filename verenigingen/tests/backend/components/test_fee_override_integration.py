@@ -170,8 +170,9 @@ class TestFeeOverrideLogic(EnhancedTestCase):
         result = submit_application(**application_data)
 
         self.assertTrue(result.get("success"), "Application submission should succeed")
-        member_name = result.get("member_name")
-        self.assertIsNotNone(member_name, "Should return member name")
+        # member_name is in result["data"]["member_record"]
+        member_name = result.get("data", {}).get("member_record")
+        self.assertIsNotNone(member_name, "Should return member name in data.member_record")
 
         # Get created member
         member = frappe.get_doc("Member", member_name)

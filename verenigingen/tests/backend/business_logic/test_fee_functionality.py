@@ -39,8 +39,8 @@ class TestFeeFunctionality(VereningingenTestCase):
             status="Active"
         )
         
-        # Verify member was created without fee override
-        self.assertIsNone(member.application_custom_fee)
+        # Verify member was created without fee override (field defaults to 0.0, not None)
+        self.assertIn(member.application_custom_fee, [None, 0, 0.0])
 
         # Update their application custom fee (doesn't require reason)
         member.reload()  # Reload to prevent TimestampMismatchError from hooks

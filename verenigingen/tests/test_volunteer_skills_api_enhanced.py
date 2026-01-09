@@ -180,8 +180,8 @@ class TestVolunteerSkillsAPIEnhanced(EnhancedTestCase):
             # Verify all results have Python skill
             for result in results:
                 self.assertEqual(result.matched_skill, "Python")
-                # Our volunteers have TEST prefix in their names from factory
-                self.assertIn("TEST", result.volunteer_name)
+                # Our volunteers have "Test Volunteer Skills API" prefix in their names from factory
+                self.assertIn("Test Volunteer Skills API", result.volunteer_name)
         
         # Search for non-existent skill
         no_results = search_volunteers_by_skill("NonExistentSkill")

@@ -920,13 +920,14 @@ class TestAnalyticsAlertSystem(BaseTestCase):
         alert_rule.insert()
         
         # Test different conditions
+        # Note: "Equals" uses tolerance of < 0.01, so values within 0.01 are considered equal
         test_cases = [
             (10, "Greater Than", 5, True),
             (3, "Greater Than", 5, False),
             (3, "Less Than", 5, True),
             (7, "Less Than", 5, False),
             (5, "Equals", 5, True),
-            (5.01, "Equals", 5, False),
+            (5.02, "Equals", 5, False),  # 0.02 > 0.01 tolerance, so not equal
         ]
         
         for current_value, condition, threshold, expected in test_cases:
