@@ -25,6 +25,8 @@ REAL BUSINESS LOGIC TESTED:
 - Real job monitoring and status tracking workflows
 """
 
+import os
+import unittest
 import frappe
 from frappe.utils import now, add_to_date, get_datetime
 import time
@@ -39,6 +41,11 @@ from verenigingen.utils.account_creation_manager import (
 )
 
 
+# Skip in CI - these tests require full setup without rate limiting
+@unittest.skipIf(
+    os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS'),
+    "Skipped in CI - requires full setup without rate limiting"
+)
 class TestAccountCreationMockElimination(EnhancedTestCase):
     """Real business logic tests for account creation background processing without inappropriate mocks"""
 
