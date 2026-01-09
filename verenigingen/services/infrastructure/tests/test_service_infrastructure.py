@@ -35,6 +35,32 @@ class ServiceInfrastructureEnhancedTests(EnhancedTestCase):
         super().setUp()
         self.test_services = []
 
+    def assert_service_result(self, result, success=True, has_data=None, has_errors=None):
+        """Assert that a service result has the expected structure and status."""
+        self.assertIsInstance(result, dict, "Service result must be a dictionary")
+        self.assertIn("success", result, "Service result must have 'success' field")
+        self.assertEqual(result["success"], success, f"Expected success={success}")
+
+        if has_data is not None:
+            if has_data:
+                self.assertIn("data", result, "Service result should have 'data' field")
+                self.assertIsNotNone(result["data"], "Service result data should not be None")
+            else:
+                self.assertTrue(
+                    "data" not in result or result["data"] is None,
+                    "Service result should not have data"
+                )
+
+        if has_errors is not None:
+            if has_errors:
+                self.assertIn("errors", result, "Service result should have 'errors' field")
+                self.assertTrue(len(result["errors"]) > 0, "Service result should have error messages")
+            else:
+                self.assertTrue(
+                    "errors" not in result or len(result.get("errors", [])) == 0,
+                    "Service result should not have errors"
+                )
+
     def tearDown(self):
         """Clean up test services."""
         for service in self.test_services:

@@ -20,11 +20,6 @@ Update these tests to match the actual DocType schemas.
 
 import unittest
 
-raise unittest.SkipTest(
-    "E-Boekhouden integration tests use outdated/incorrect schema. "
-    "DocType names and field references need to be updated to match actual implementation."
-)
-
 import frappe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from unittest.mock import Mock, patch, MagicMock
@@ -32,7 +27,14 @@ import json
 from datetime import datetime, date
 from decimal import Decimal
 
+# Skip reason for this entire test module
+_SKIP_REASON = (
+    "E-Boekhouden integration tests use outdated/incorrect schema. "
+    "DocType names and field references need to be updated to match actual implementation."
+)
 
+
+@unittest.skip(_SKIP_REASON)
 class TestEBoekhoudenIntegration(EnhancedTestCase):
     """Test e-boekhouden integration functionality"""
     
