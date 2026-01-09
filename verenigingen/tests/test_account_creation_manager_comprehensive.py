@@ -626,7 +626,8 @@ class TestAccountCreationManagerErrorHandling(EnhancedTestCase):
             last_name="Mechanism",
             email="retry.mechanism@test.invalid"
         )
-        
+
+        # Create request normally (status will be forced to "Requested" by security)
         request = frappe.get_doc({
             "doctype": "Account Creation Request",
             "request_type": "Member",
@@ -634,11 +635,12 @@ class TestAccountCreationManagerErrorHandling(EnhancedTestCase):
             "email": member.email,
             "full_name": member.full_name,
             "requested_roles": [{"role": "Verenigingen Member"}],
-            "status": "Failed",
-            "failure_reason": "timeout error"  # Retryable error
         })
         request.insert()
-        
+
+        # Mark as failed using the proper method (simulates a processing failure)
+        request.mark_failed("timeout error", "Test Stage")
+
         # Test retry
         result = request.retry_processing()
         self.assertTrue(result.get("success"))
@@ -655,7 +657,8 @@ class TestAccountCreationManagerErrorHandling(EnhancedTestCase):
             last_name="Limit",
             email="retry.limit@test.invalid"
         )
-        
+
+        # Create request normally (status will be forced to "Requested" by security)
         request = frappe.get_doc({
             "doctype": "Account Creation Request",
             "request_type": "Member",
@@ -663,12 +666,14 @@ class TestAccountCreationManagerErrorHandling(EnhancedTestCase):
             "email": member.email,
             "full_name": member.full_name,
             "requested_roles": [{"role": "Verenigingen Member"}],
-            "status": "Failed",
-            "retry_count": 3  # At max retries
         })
         request.insert()
-        
-        # Should fail to retry
+
+        # Mark as failed and set retry count to max
+        request.mark_failed("Test failure", "Test Stage")
+        frappe.db.set_value("Account Creation Request", request.name, "retry_count", 3)
+
+        # Should fail to retry (max retries exceeded)
         with self.assertRaises(frappe.ValidationError):
             request.retry_processing()
 
@@ -907,26 +912,24 @@ class TestAccountCreationManagerIntegration(EnhancedTestCase):
             email="admin.interface2@test.invalid"
         )
         
-        # Create failed request
+        # Create failed request (create normally, then mark as failed)
         failed_request = frappe.get_doc({
             "doctype": "Account Creation Request",
             "request_type": "Member",
             "source_record": member1.name,
             "email": member1.email,
             "full_name": member1.full_name,
-            "status": "Failed",
-            "failure_reason": "Test failure"
         })
         failed_request.insert()
-        
-        # Create pending request
+        failed_request.mark_failed("Test failure", "Test Stage")
+
+        # Create pending request (status will be "Requested" by default)
         pending_request = frappe.get_doc({
-            "doctype": "Account Creation Request", 
+            "doctype": "Account Creation Request",
             "request_type": "Member",
             "source_record": member2.name,
             "email": member2.email,
             "full_name": member2.full_name,
-            "status": "Requested"
         })
         pending_request.insert()
         

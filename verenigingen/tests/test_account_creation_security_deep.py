@@ -458,7 +458,7 @@ class TestAccountCreationAuditCompliance(EnhancedTestCase):
             last_name="Audit",
             email="failure.audit@test.invalid"
         )
-        
+
         # Create request with invalid role to cause failure
         request_data = {
             "doctype": "Account Creation Request",
@@ -468,9 +468,10 @@ class TestAccountCreationAuditCompliance(EnhancedTestCase):
             "full_name": member.full_name,
             "requested_roles": [{"role": "Nonexistent Role"}]
         }
-        
+
         request = frappe.get_doc(request_data)
         request.append("requested_roles", {"role": "Nonexistent Role"})
+        request.flags.ignore_links = True  # Bypass link validation to test processing failure
         request.insert()
         
         # Attempt processing (should fail)

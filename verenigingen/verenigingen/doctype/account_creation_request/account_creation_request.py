@@ -103,10 +103,15 @@ class AccountCreationRequest(Document):
                     )
 
     def before_insert(self):
-        """Set audit fields before insertion"""
+        """Set audit fields before insertion - prevents mass assignment attacks"""
         self.requested_by = frappe.session.user
-        if not self.status:
-            self.status = "Requested"
+        # Always force status to "Requested" for new documents (security: prevent mass assignment)
+        self.status = "Requested"
+        # Clear fields that should only be set by the system
+        self.created_user = None
+        self.created_employee = None
+        self.completed_at = None
+        self.processed_by = None
 
     def on_update(self):
         """Handle status changes and trigger notifications"""

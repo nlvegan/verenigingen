@@ -384,7 +384,7 @@ class TestAccountCreationBackgroundProcessing(EnhancedTestCase):
             last_name="Recovery",
             email="failure.recovery@test.invalid"
         )
-        
+
         # Create request with invalid configuration to cause failure
         request_data = {
             "doctype": "Account Creation Request",
@@ -394,9 +394,10 @@ class TestAccountCreationBackgroundProcessing(EnhancedTestCase):
             "full_name": member.full_name,
             "requested_roles": [{"role": "Invalid Role Name"}]  # This will cause failure
         }
-        
+
         request = frappe.get_doc(request_data)
         request.append("requested_roles", {"role": "Invalid Role Name"})
+        request.flags.ignore_links = True  # Bypass link validation to test processing failure
         request.insert()
         
         # Permission context handled by Enhanced Test Factory
