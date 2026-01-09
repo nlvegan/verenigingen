@@ -339,13 +339,17 @@ class EnhancedTestDataFactory:
             return f"TEST_{purpose}_{seq:04d}_{timestamp_component}_{deterministic_id}@test.invalid"
             
     def generate_test_name(self, type_name: str = "Person") -> str:
-        """Generate clearly marked test name"""
+        """Generate clearly marked test name with guaranteed uniqueness"""
+        seq = self.get_next_sequence('name')
+        # Use timestamp microseconds for additional uniqueness across test runs
+        import time
+        uid = str(int(time.time() * 1000000) % 1000000)
         if self.use_faker:
             fake_name = self.fake.name()
-            return f"TEST {fake_name} [{type_name}]"
+            # Add sequence and uid to ensure uniqueness even with same Faker seed
+            return f"TEST {fake_name} {seq:03d}{uid}"
         else:
-            seq = self.get_next_sequence('name')
-            return f"TEST {type_name} {seq:04d}"
+            return f"TEST {type_name} {seq:04d}{uid}"
     
     def force_unique_name(self, base_name: str, doctype: str = None, max_length: int = 50) -> str:
         """
@@ -969,12 +973,15 @@ class EnhancedTestDataFactory:
             raise Exception(f"Failed to create volunteer skill: {e}")
             
     def create_application_data(self, with_volunteer_skills: bool = True) -> Dict[str, Any]:
-        """Create deterministic membership application data"""
+        """Create deterministic membership application data with unique names"""
         seq = self.get_next_sequence('application')
-        
+        # Use timestamp microseconds for additional uniqueness across test runs
+        import time
+        uid = str(int(time.time() * 1000000) % 1000000)
+
         base_data = {
-            "first_name": self.fake.first_name() if self.use_faker else f"AppTest{seq:04d}",
-            "last_name": self.fake.last_name() if self.use_faker else f"Member-{self.test_run_id[:8]}",
+            "first_name": f"{self.fake.first_name()}{seq:02d}" if self.use_faker else f"AppTest{seq:04d}",
+            "last_name": f"{self.fake.last_name()}{uid}" if self.use_faker else f"Member-{self.test_run_id[:8]}",
             "email": self.generate_test_email("application"),
             "birth_date": "1990-01-01",
             "address_line1": self.fake.street_address() if self.use_faker else f"{seq} Test Street",
