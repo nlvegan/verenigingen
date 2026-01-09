@@ -167,7 +167,7 @@ def rebuild_workspace(force_enable=False):
         links.append({"label": "Donations", "type": "Card Break"})
         links.append({"label": "Donor", "link_to": "Donor", "link_type": "DocType"})
         links.append({"label": "Donation", "link_to": "Donation", "link_type": "DocType"})
-        links.append({"label": "Donation Type", "link_to": "Donation Type", "link_type": "DocType"})
+        # Note: Donation Type DocType was removed
         links.append(
             {
                 "label": "Periodic Donation Agreement",

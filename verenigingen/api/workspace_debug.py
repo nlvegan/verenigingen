@@ -486,7 +486,7 @@ def restore_full_workspace_structure():
             ("Card Break", "Donations", None, None, 0, 3),
             ("Link", "Donor", "DocType", "Donor", 0, 0),
             ("Link", "Donation", "DocType", "Donation", 0, 0),
-            ("Link", "Donation Type", "DocType", "Donation Type", 0, 0),
+            # Note: Donation Type DocType was removed
             # ANBI section - skip problematic page links for now
             ("Card Break", "ANBI Tax Benefits", None, None, 0, 1),
             ("Link", "ANBI Donation Summary", "Report", "ANBI Donation Summary", 0, 0),

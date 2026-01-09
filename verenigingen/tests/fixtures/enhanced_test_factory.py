@@ -2913,33 +2913,7 @@ class EnhancedTestCase(FrappeTestCase):
                     except Exception as dept_error:
                         frappe.logger().warning(f"Failed to create parent department {parent_dept_name}: {dept_error}")
 
-            # Ensure default donation type exists
-            if not frappe.db.exists("Donation Type", "General"):
-                donation_type = frappe.get_doc({
-                    "doctype": "Donation Type",
-                    "donation_type": "General",
-                    "description": "General donations for test purposes"
-                })
-                
-                # Use secure operations for donation type creation
-                try:
-                    from verenigingen.utils.secure_operations import secure_document_operation
-                    result = secure_document_operation(
-                        operation="insert",
-                        doc=donation_type,
-                        justification="Test environment: creating default donation type for test infrastructure",
-                        allow_system_user=True
-                    )
-                    if not result.success:
-                        # Test infrastructure creation failed - this indicates a setup issue, not a permission issue
-                        error_msg = f"Critical test infrastructure creation failed for donation type: {'; '.join(result.errors)}"
-                        frappe.logger().error(error_msg)
-                        raise Exception(error_msg)
-                except ImportError:
-                    # Secure operations not available - this is a configuration issue that must be resolved
-                    error_msg = "Secure operations framework not available during test setup. Check system configuration."
-                    frappe.logger().error(error_msg)
-                    raise ImportError(error_msg)
+            # Note: Donation Type DocType was removed from the codebase
 
             # NO COMMIT - Test framework manages transactions automatically
 

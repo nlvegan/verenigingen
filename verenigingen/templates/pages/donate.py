@@ -1088,7 +1088,7 @@ def test_doctype_access():
     results = {"tests": [], "summary": ""}
 
     # Test doctypes
-    doctypes_to_test = ["Chapter", "Donor", "Donation Type", "Donation"]
+    doctypes_to_test = ["Chapter", "Donor", "Donation"]
 
     for doctype_name in doctypes_to_test:
         test_result = {"doctype": doctype_name, "tests": []}
@@ -1224,7 +1224,7 @@ def test_awesome_bar_search():
     results = {"tests": [], "search_results": {}}
 
     # Test the actual awesome bar search function
-    doctypes_to_test = ["Chapter", "Donor", "Donation Type", "Donation"]
+    doctypes_to_test = ["Chapter", "Donor", "Donation"]
 
     for doctype_name in doctypes_to_test:
         test_result = {"doctype": doctype_name, "results": []}
@@ -1304,7 +1304,7 @@ def test_list_view_access():
     results = {"tests": [], "summary": ""}
 
     # Test doctypes
-    doctypes_to_test = ["Chapter", "Donor", "Donation Type", "Donation"]
+    doctypes_to_test = ["Chapter", "Donor", "Donation"]
 
     for doctype_name in doctypes_to_test:
         test_result = {"doctype": doctype_name, "results": []}
@@ -1364,7 +1364,7 @@ def test_direct_url_access():
 
     results = {"url_tests": [], "summary": ""}
 
-    doctypes_to_test = ["Chapter", "Donor", "Donation Type", "Donation"]
+    doctypes_to_test = ["Chapter", "Donor", "Donation"]
 
     for doctype_name in doctypes_to_test:
         url_info = {"doctype": doctype_name}
@@ -1403,7 +1403,7 @@ def test_direct_url_access():
     try:
         from frappe.desk.listview import get_list_settings, get_meta_json
 
-        test_doctype = "Donation Type"
+        test_doctype = "Donation"
         meta_json = get_meta_json(test_doctype)
         results["meta_test"] = {
             "doctype": test_doctype,
@@ -1424,7 +1424,7 @@ def debug_doctype_routing():
 
     results = {"debug_info": [], "routing_test": ""}
 
-    doctypes_to_test = ["Chapter", "Donor", "Donation Type", "Donation"]
+    doctypes_to_test = ["Chapter", "Donor", "Donation"]
 
     for doctype_name in doctypes_to_test:
         debug_info = {"doctype": doctype_name, "checks": []}
@@ -1545,7 +1545,7 @@ def force_doctype_sync():
 
     results = {"sync_results": [], "errors": []}
 
-    doctypes_to_sync = ["Chapter", "Donor", "Donation Type", "Donation"]
+    doctypes_to_sync = ["Chapter", "Donor", "Donation"]
 
     try:
         # First, let's try to force sync these doctypes
@@ -1706,7 +1706,7 @@ def debug_frontend_routing():
     results = {"debug_info": {}}
 
     # Check current state after our fixes
-    doctypes_to_check = ["Chapter", "Donor", "Donation Type", "Donation"]
+    doctypes_to_check = ["Chapter", "Donor", "Donation"]
 
     for doctype_name in doctypes_to_check:
         info = {"doctype": doctype_name}

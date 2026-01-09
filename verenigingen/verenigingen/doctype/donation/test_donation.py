@@ -52,18 +52,6 @@ class TestDonation(EnhancedTestCase):
         donor.insert()
         return donor
 
-    def create_test_donation_type(self):
-        """Create test donation type if needed"""
-        donation_type_name = "Test Donation Type"
-        if not frappe.db.exists("Donation Type", donation_type_name):
-            donation_type = frappe.new_doc("Donation Type")
-            donation_type.donation_type = donation_type_name
-            donation_type.description = "Test donation type for unit tests"
-            donation_type.insert()
-            return donation_type
-        else:
-            return frappe.get_doc("Donation Type", donation_type_name)
-
     def test_basic_donation_creation(self):
         """Test basic donation creation with proper field validation"""
         # Mock only external services

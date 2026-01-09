@@ -18,7 +18,8 @@ def test_doctype_access():
     print("=== Testing DocType Accessibility ===")
 
     # Test doctypes
-    doctypes_to_test = ["Chapter", "Donor", "Donation Type", "Donation"]
+    # Note: "Donation Type" DocType was removed from the codebase
+    doctypes_to_test = ["Chapter", "Donor", "Donation"]
 
     for doctype_name in doctypes_to_test:
         print(f"\nTesting {doctype_name}:")

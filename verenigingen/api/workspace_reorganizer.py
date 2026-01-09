@@ -43,7 +43,7 @@ def reorganize_workspace():
         ("Card Break", "Donations & ANBI", None, None, 0, 4),
         ("Link", "Donor", "DocType", "Donor", 0, 0),
         ("Link", "Donation", "DocType", "Donation", 0, 0),
-        ("Link", "Donation Type", "DocType", "Donation Type", 0, 0),
+        # Note: Donation Type DocType was removed
         ("Link", "ANBI Donation Summary", "Report", "ANBI Donation Summary", 0, 0),
         # === VOLUNTEERS ===
         ("Card Break", "Volunteers", None, None, 0, 4),
