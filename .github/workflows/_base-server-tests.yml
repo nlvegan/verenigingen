@@ -126,6 +126,7 @@ jobs:
         if: ${{ inputs.test-modules != '' }}
         run: |
           source ${GITHUB_WORKSPACE}/env/bin/activate
+          exit_code=0
           IFS=',' read -ra MODULES <<< "${{ inputs.test-modules }}"
           for module in "${MODULES[@]}"; do
             echo "========================================"
@@ -133,8 +134,9 @@ jobs:
             echo "========================================"
             bench --site test_site run-tests \
               --module "$module" \
-              ${{ inputs.enable-coverage && '--with-coverage' || '' }} || true
+              ${{ inputs.enable-coverage && '--with-coverage' || '' }} || exit_code=$?
           done
+          exit $exit_code
 
       - name: Run Tests (File Pattern)
         if: ${{ inputs.test-pattern != '' }}
@@ -152,7 +154,7 @@ jobs:
             --tb=short \
             -k "${{ inputs.test-pattern }}" \
             ${{ inputs.enable-coverage && '--cov=verenigingen --cov-report=xml' || '' }} \
-            verenigingen/tests/ || true
+            verenigingen/tests/
 
       - name: Upload Coverage
         if: ${{ inputs.enable-coverage }}
