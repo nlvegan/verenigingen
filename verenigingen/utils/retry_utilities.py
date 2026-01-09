@@ -552,19 +552,19 @@ def execute_with_deadlock_retry(
 
 
 # =============================================================================
-# TODO: Files with inline deadlock retry logic that could use these utilities
+# Files with inline deadlock retry logic - refactoring assessment
 # =============================================================================
-# The following files have similar inline deadlock retry patterns that could
-# be refactored to use is_deadlock_error(), with_deadlock_retry(), or
-# execute_with_deadlock_retry() for consistency:
 #
-# - verenigingen/verenigingen_payments/services/bank_transaction_creator.py:728
-# - verenigingen/utils/account_creation_manager.py:584, 634
-# - verenigingen/utils/optimized_queries.py:411
-# - verenigingen/services/billing/invoice_generator.py:727
+# REFACTORED:
+# - verenigingen/utils/optimized_queries.py - Now uses execute_with_deadlock_retry()
 #
-# Benefits of refactoring:
-# - Consistent backoff timing and jitter across all usages
-# - Single source of truth for deadlock detection
-# - Easier to test and maintain
+# NOT REFACTORED (specialized behavior justifies inline logic):
+# - bank_transaction_creator.py:728 - Shared retry loop handles both deadlock
+#   AND duplicate entry errors (race condition recovery). Interleaved structure
+#   not cleanly extractable.
+# - account_creation_manager.py:584,634 - Does frappe.db.rollback() and recreates
+#   fresh document before each retry. Specialized for User creation conflicts.
+# - invoice_generator.py:727 - Returns OperationResult.fail() on exhaustion
+#   instead of raising. Custom error handling for return type.
+#
 # =============================================================================
