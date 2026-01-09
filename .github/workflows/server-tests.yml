@@ -1,7 +1,7 @@
 name: Server Tests (GitHub Hosted)
 
 # This workflow runs on GitHub-hosted runners using the Frappe CI pattern
-# For self-hosted runner tests, see tests.yml
+# Tests are split by module for clearer logs and easier debugging
 
 on:
   push:
@@ -32,14 +32,26 @@ on:
         description: 'ERPNext branch to test against'
         required: false
         default: 'version-15'
-      parallel_runs:
-        description: 'Number of parallel test containers'
-        required: false
-        default: '2'
       enable_coverage:
         description: 'Enable coverage collection'
         type: boolean
         default: false
+      test_category:
+        description: 'Run specific test category only (leave empty for all)'
+        required: false
+        default: ''
+        type: choice
+        options:
+          - ''
+          - 'critical'
+          - 'backend-components'
+          - 'backend-workflows'
+          - 'sepa-financial'
+          - 'security'
+          - 'account-creation'
+          - 'e-boekhouden'
+          - 'payments'
+          - 'integration'
 
 concurrency:
   group: server-tests-${{ github.ref }}
@@ -61,38 +73,23 @@ jobs:
       - name: Check for Python changes
         id: check
         run: |
-          # Always run on workflow_dispatch or main/develop push
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            echo "should_run=true" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          # Check if significant files changed
           echo "should_run=true" >> $GITHUB_OUTPUT
 
       - name: Python Syntax Validation
         run: |
           python -m py_compile $(find verenigingen -name "*.py" -type f 2>/dev/null | head -100) || true
 
-  # Main test suite
-  tests:
-    name: Server Tests
-    needs: pre-check
-    if: needs.pre-check.outputs.should_run == 'true'
-    uses: ./.github/workflows/_base-server-tests.yml
-    with:
-      python-version: '3.12'
-      node-version: 18
-      frappe-branch: ${{ inputs.frappe_branch || 'version-15' }}
-      erpnext-branch: ${{ inputs.erpnext_branch || 'version-15' }}
-      parallel-runs: ${{ fromJSON(inputs.parallel_runs || '2') }}
-      enable-coverage: ${{ inputs.enable_coverage || false }}
+  # ============================================================================
+  # MODULE-BASED TEST JOBS - Each runs a specific test category
+  # ============================================================================
 
-  # Critical tests (fast, always run)
+  # Critical/Contract tests - Fast, always run first
   critical:
     name: Critical Tests
     needs: pre-check
-    if: needs.pre-check.outputs.should_run == 'true'
+    if: |
+      needs.pre-check.outputs.should_run == 'true' &&
+      (inputs.test_category == '' || inputs.test_category == 'critical')
     uses: ./.github/workflows/_base-server-tests.yml
     with:
       python-version: '3.12'
@@ -102,10 +99,142 @@ jobs:
       parallel-runs: 1
       test-modules: 'verenigingen.tests.contracts'
 
-  # Summary
+  # Backend Component tests
+  backend-components:
+    name: Backend Components
+    needs: pre-check
+    if: |
+      needs.pre-check.outputs.should_run == 'true' &&
+      (inputs.test_category == '' || inputs.test_category == 'backend-components')
+    uses: ./.github/workflows/_base-server-tests.yml
+    with:
+      python-version: '3.12'
+      node-version: 18
+      frappe-branch: ${{ inputs.frappe_branch || 'version-15' }}
+      erpnext-branch: ${{ inputs.erpnext_branch || 'version-15' }}
+      parallel-runs: 1
+      test-modules: 'verenigingen.tests.backend.components,verenigingen.tests.backend.unit'
+
+  # Backend Workflows and Business Logic tests
+  backend-workflows:
+    name: Backend Workflows
+    needs: pre-check
+    if: |
+      needs.pre-check.outputs.should_run == 'true' &&
+      (inputs.test_category == '' || inputs.test_category == 'backend-workflows')
+    uses: ./.github/workflows/_base-server-tests.yml
+    with:
+      python-version: '3.12'
+      node-version: 18
+      frappe-branch: ${{ inputs.frappe_branch || 'version-15' }}
+      erpnext-branch: ${{ inputs.erpnext_branch || 'version-15' }}
+      parallel-runs: 1
+      test-modules: 'verenigingen.tests.backend.workflows,verenigingen.tests.backend.business_logic,verenigingen.tests.backend.validation'
+
+  # SEPA and Financial tests
+  sepa-financial:
+    name: SEPA & Financial
+    needs: pre-check
+    if: |
+      needs.pre-check.outputs.should_run == 'true' &&
+      (inputs.test_category == '' || inputs.test_category == 'sepa-financial')
+    uses: ./.github/workflows/_base-server-tests.yml
+    with:
+      python-version: '3.12'
+      node-version: 18
+      frappe-branch: ${{ inputs.frappe_branch || 'version-15' }}
+      erpnext-branch: ${{ inputs.erpnext_branch || 'version-15' }}
+      parallel-runs: 1
+      test-modules: 'verenigingen.tests.financial'
+
+  # Security tests
+  security:
+    name: Security Tests
+    needs: pre-check
+    if: |
+      needs.pre-check.outputs.should_run == 'true' &&
+      (inputs.test_category == '' || inputs.test_category == 'security')
+    uses: ./.github/workflows/_base-server-tests.yml
+    with:
+      python-version: '3.12'
+      node-version: 18
+      frappe-branch: ${{ inputs.frappe_branch || 'version-15' }}
+      erpnext-branch: ${{ inputs.erpnext_branch || 'version-15' }}
+      parallel-runs: 1
+      test-modules: 'verenigingen.tests.security,verenigingen.tests.backend.security'
+
+  # Account Creation tests
+  account-creation:
+    name: Account Creation
+    needs: pre-check
+    if: |
+      needs.pre-check.outputs.should_run == 'true' &&
+      (inputs.test_category == '' || inputs.test_category == 'account-creation')
+    uses: ./.github/workflows/_base-server-tests.yml
+    with:
+      python-version: '3.12'
+      node-version: 18
+      frappe-branch: ${{ inputs.frappe_branch || 'version-15' }}
+      erpnext-branch: ${{ inputs.erpnext_branch || 'version-15' }}
+      parallel-runs: 1
+      # Run account creation tests using pattern matching
+      test-pattern: 'test_account_creation or test_secure_account_creation or test_csv_import_user_linking'
+
+  # E-Boekhouden tests
+  e-boekhouden:
+    name: E-Boekhouden
+    needs: pre-check
+    if: |
+      needs.pre-check.outputs.should_run == 'true' &&
+      (inputs.test_category == '' || inputs.test_category == 'e-boekhouden')
+    uses: ./.github/workflows/_base-server-tests.yml
+    with:
+      python-version: '3.12'
+      node-version: 18
+      frappe-branch: ${{ inputs.frappe_branch || 'version-15' }}
+      erpnext-branch: ${{ inputs.erpnext_branch || 'version-15' }}
+      parallel-runs: 1
+      test-modules: 'verenigingen.tests.e_boekhouden,verenigingen.e_boekhouden.services.tests'
+
+  # Payment/Mollie tests
+  payments:
+    name: Payments & Mollie
+    needs: pre-check
+    if: |
+      needs.pre-check.outputs.should_run == 'true' &&
+      (inputs.test_category == '' || inputs.test_category == 'payments')
+    uses: ./.github/workflows/_base-server-tests.yml
+    with:
+      python-version: '3.12'
+      node-version: 18
+      frappe-branch: ${{ inputs.frappe_branch || 'version-15' }}
+      erpnext-branch: ${{ inputs.erpnext_branch || 'version-15' }}
+      parallel-runs: 1
+      test-modules: 'verenigingen.verenigingen_payments'
+
+  # Integration tests
+  integration:
+    name: Integration Tests
+    needs: pre-check
+    if: |
+      needs.pre-check.outputs.should_run == 'true' &&
+      (inputs.test_category == '' || inputs.test_category == 'integration')
+    uses: ./.github/workflows/_base-server-tests.yml
+    with:
+      python-version: '3.12'
+      node-version: 18
+      frappe-branch: ${{ inputs.frappe_branch || 'version-15' }}
+      erpnext-branch: ${{ inputs.erpnext_branch || 'version-15' }}
+      parallel-runs: 1
+      test-modules: 'verenigingen.tests.integration,verenigingen.tests.backend.integration'
+
+  # ============================================================================
+  # SUMMARY
+  # ============================================================================
+
   summary:
     name: Test Summary
-    needs: [tests, critical]
+    needs: [critical, backend-components, backend-workflows, sepa-financial, security, account-creation, e-boekhouden, payments, integration]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -113,17 +242,39 @@ jobs:
         run: |
           echo "## Test Results Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Category | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
 
-          if [ "${{ needs.critical.result }}" == "success" ]; then
-            echo "- Critical tests: PASSED" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "- Critical tests: FAILED" >> $GITHUB_STEP_SUMMARY
-          fi
+          # Check each job result
+          declare -A results
+          results["Critical"]="${{ needs.critical.result }}"
+          results["Backend Components"]="${{ needs.backend-components.result }}"
+          results["Backend Workflows"]="${{ needs.backend-workflows.result }}"
+          results["SEPA & Financial"]="${{ needs.sepa-financial.result }}"
+          results["Security"]="${{ needs.security.result }}"
+          results["Account Creation"]="${{ needs.account-creation.result }}"
+          results["E-Boekhouden"]="${{ needs.e-boekhouden.result }}"
+          results["Payments & Mollie"]="${{ needs.payments.result }}"
+          results["Integration"]="${{ needs.integration.result }}"
 
-          if [ "${{ needs.tests.result }}" == "success" ]; then
-            echo "- Server tests: PASSED" >> $GITHUB_STEP_SUMMARY
+          failed=0
+          for category in "Critical" "Backend Components" "Backend Workflows" "SEPA & Financial" "Security" "Account Creation" "E-Boekhouden" "Payments & Mollie" "Integration"; do
+            status="${results[$category]}"
+            if [ "$status" == "success" ]; then
+              echo "| $category | :white_check_mark: PASSED |" >> $GITHUB_STEP_SUMMARY
+            elif [ "$status" == "skipped" ]; then
+              echo "| $category | :fast_forward: SKIPPED |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "| $category | :x: FAILED |" >> $GITHUB_STEP_SUMMARY
+              failed=1
+            fi
+          done
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ $failed -eq 1 ]; then
+            echo ":warning: **Some tests failed. Check individual job logs above.**" >> $GITHUB_STEP_SUMMARY
           else
-            echo "- Server tests: FAILED" >> $GITHUB_STEP_SUMMARY
+            echo ":tada: **All tests passed!**" >> $GITHUB_STEP_SUMMARY
           fi
 
       - name: Fail if Critical Tests Failed

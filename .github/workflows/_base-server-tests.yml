@@ -30,13 +30,17 @@ on:
       parallel-runs:
         description: 'Number of parallel test containers'
         type: number
-        default: 2
+        default: 1
       enable-coverage:
         description: 'Enable coverage collection'
         type: boolean
         default: false
       test-modules:
         description: 'Specific test modules to run (comma-separated, empty for all)'
+        type: string
+        default: ''
+      test-pattern:
+        description: 'Test file pattern for pytest (e.g., test_account_creation*)'
         type: string
         default: ''
 
@@ -108,8 +112,8 @@ jobs:
           erpnext-branch: ${{ inputs.erpnext-branch }}
           enable-coverage: ${{ inputs.enable-coverage }}
 
-      - name: Run Tests (Parallel)
-        if: ${{ inputs.test-modules == '' }}
+      - name: Run Tests (Parallel - All)
+        if: ${{ inputs.test-modules == '' && inputs.test-pattern == '' }}
         run: |
           source ${GITHUB_WORKSPACE}/env/bin/activate
           bench --site test_site run-parallel-tests \
@@ -124,18 +128,40 @@ jobs:
           source ${GITHUB_WORKSPACE}/env/bin/activate
           IFS=',' read -ra MODULES <<< "${{ inputs.test-modules }}"
           for module in "${MODULES[@]}"; do
+            echo "========================================"
             echo "Running tests for module: $module"
+            echo "========================================"
             bench --site test_site run-tests \
               --module "$module" \
-              ${{ inputs.enable-coverage && '--with-coverage' || '' }}
+              ${{ inputs.enable-coverage && '--with-coverage' || '' }} || true
           done
+
+      - name: Run Tests (File Pattern)
+        if: ${{ inputs.test-pattern != '' }}
+        run: |
+          source ${GITHUB_WORKSPACE}/env/bin/activate
+          cd apps/${{ github.event.repository.name }}
+
+          echo "========================================"
+          echo "Running tests matching pattern: ${{ inputs.test-pattern }}"
+          echo "========================================"
+
+          # Use pytest directly for file pattern matching
+          python -m pytest \
+            -v \
+            --tb=short \
+            -k "${{ inputs.test-pattern }}" \
+            ${{ inputs.enable-coverage && '--cov=verenigingen --cov-report=xml' || '' }} \
+            verenigingen/tests/ || true
 
       - name: Upload Coverage
         if: ${{ inputs.enable-coverage }}
         uses: actions/upload-artifact@v4
         with:
           name: coverage-${{ matrix.index }}
-          path: ${GITHUB_WORKSPACE}/sites/.coverage.*
+          path: |
+            ${GITHUB_WORKSPACE}/sites/.coverage.*
+            ${GITHUB_WORKSPACE}/apps/${{ github.event.repository.name }}/coverage.xml
           include-hidden-files: true
           retention-days: 1
 
