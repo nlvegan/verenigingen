@@ -38,11 +38,6 @@ from verenigingen.tests.fixtures.enhanced_test_factory import (
 )
 
 
-# Skip in CI - these tests require full setup without rate limiting
-@unittest.skipIf(
-    os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS'),
-    "Skipped in CI - requires full setup without rate limiting"
-)
 class TestDutchAssociationBusinessLogic(EnhancedTestCase):
     """Dutch association-specific business logic validation"""
 
@@ -485,10 +480,6 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
         self.assertIsNotNone(employee.date_of_birth)
 
 
-@unittest.skipIf(
-    os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS'),
-    "Skipped in CI - requires full setup without rate limiting"
-)
 class TestAccountCreationBusinessRuleEdgeCases(EnhancedTestCase):
     """Edge case testing for business rule validation"""
     

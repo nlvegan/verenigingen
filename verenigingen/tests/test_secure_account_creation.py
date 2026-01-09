@@ -20,11 +20,6 @@ from verenigingen.utils.account_creation_manager import AccountCreationManager, 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-# Skip in CI - these tests require full setup without rate limiting
-@unittest.skipIf(
-    os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS'),
-    "Skipped in CI - requires full setup without rate limiting"
-)
 class TestSecureAccountCreation(EnhancedTestCase):
     """Test secure account creation functionality"""
 

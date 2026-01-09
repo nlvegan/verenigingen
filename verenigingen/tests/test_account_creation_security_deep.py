@@ -34,11 +34,6 @@ from verenigingen.utils.account_creation_manager import (
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-# Skip in CI - these tests require full setup without rate limiting
-@unittest.skipIf(
-    os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS'),
-    "Skipped in CI - requires full setup without rate limiting"
-)
 class TestAccountCreationDeepSecurity(EnhancedTestCase):
     """Deep security validation tests"""
     
@@ -424,10 +419,6 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
         self.assertIsNone(request.processed_by)  # Should not be set
 
 
-@unittest.skipIf(
-    os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS'),
-    "Skipped in CI - requires full setup without rate limiting"
-)
 class TestAccountCreationAuditCompliance(EnhancedTestCase):
     """Audit compliance and logging tests"""
     

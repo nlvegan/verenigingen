@@ -43,15 +43,6 @@ from verenigingen.tests.fixtures.enhanced_test_factory import (
 )
 
 
-# Skip in CI - these tests require full setup without rate limiting
-@unittest.skipIf(
-    os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS'),
-    "Skipped in CI - requires full setup without rate limiting"
-)
-@unittest.skipIf(
-    os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS'),
-    "Skipped in CI - requires full setup without rate limiting"
-)
 class TestAccountCreationManagerSecurity(EnhancedTestCase):
     """Security-focused tests for AccountCreationManager"""
     
@@ -269,10 +260,6 @@ class TestAccountCreationManagerSecurity(EnhancedTestCase):
                     pass
 
 
-@unittest.skipIf(
-    os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS'),
-    "Skipped in CI - requires full setup without rate limiting"
-)
 class TestAccountCreationManagerFunctionality(EnhancedTestCase):
     """Functionality tests for AccountCreationManager"""
 
@@ -535,10 +522,6 @@ class TestAccountCreationManagerFunctionality(EnhancedTestCase):
                         "Member.user field must be linked to existing user after pipeline completion")
 
 
-@unittest.skipIf(
-    os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS'),
-    "Skipped in CI - requires full setup without rate limiting"
-)
 class TestAccountCreationManagerErrorHandling(EnhancedTestCase):
     """Error handling and resilience tests"""
 
@@ -696,10 +679,6 @@ class TestAccountCreationManagerErrorHandling(EnhancedTestCase):
             request.retry_processing()
 
 
-@unittest.skipIf(
-    os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS'),
-    "Skipped in CI - requires full setup without rate limiting"
-)
 class TestAccountCreationManagerBackgroundProcessing(EnhancedTestCase):
     """Background processing and Redis queue tests"""
     
@@ -819,10 +798,6 @@ class TestAccountCreationManagerBackgroundProcessing(EnhancedTestCase):
             frappe.set_user(current_user)
 
 
-@unittest.skipIf(
-    os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS'),
-    "Skipped in CI - requires full setup without rate limiting"
-)
 class TestAccountCreationManagerIntegration(EnhancedTestCase):
     """Integration tests with other system components"""
 
@@ -978,10 +953,6 @@ class TestAccountCreationManagerIntegration(EnhancedTestCase):
         self.assertTrue(retry_result.get("success"))
 
 
-@unittest.skipIf(
-    os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS'),
-    "Skipped in CI - requires full setup without rate limiting"
-)
 class TestAccountCreationManagerDutchBusinessLogic(EnhancedTestCase):
     """Tests for Dutch association-specific business logic"""
 
@@ -1090,10 +1061,6 @@ class TestAccountCreationManagerDutchBusinessLogic(EnhancedTestCase):
         self.assertIsNotNone(employee_doc.company)  # Should have default company
 
 
-@unittest.skipIf(
-    os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS'),
-    "Skipped in CI - requires full setup without rate limiting"
-)
 class TestAccountCreationManagerEnhancedFactory(EnhancedTestCase):
     """Tests for enhanced test factory integration"""
 

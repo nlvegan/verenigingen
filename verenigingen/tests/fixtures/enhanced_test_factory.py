@@ -1685,6 +1685,12 @@ class EnhancedTestCase(FrappeTestCase):
         # Set global test flags for appropriate test behavior
         frappe.flags.skip_volunteer_account_creation = True
 
+        # Bypass User creation throttling in tests
+        # Frappe's throttle_user_creation() checks frappe.flags.in_import to skip throttling
+        # Save original value to restore in tearDown
+        self._original_in_import = getattr(frappe.flags, 'in_import', False)
+        frappe.flags.in_import = True
+
         # Ensure test user has necessary roles instead of bypassing permissions
         self.ensure_test_user_has_role("System Manager")
         self.ensure_test_user_has_role("Verenigingen Administrator")
@@ -1746,6 +1752,13 @@ class EnhancedTestCase(FrappeTestCase):
             self._teardown_rate_limit_mocking()
         except Exception:
             pass  # Continue cleanup even if rate limit patch cleanup fails
+
+        # IMPORT FLAG CLEANUP: Restore original in_import flag value
+        try:
+            if hasattr(self, '_original_in_import'):
+                frappe.flags.in_import = self._original_in_import
+        except Exception:
+            pass  # Continue cleanup even if flag restoration fails
 
         # IMPLEMENT PER-METHOD ROLLBACK (as documented above)
         # This is critical for test isolation - prevents User/Customer duplicate entries
@@ -2437,27 +2450,58 @@ class EnhancedTestCase(FrappeTestCase):
     def _ensure_production_ready_setup(self):
         """
         Ensure production-ready setup using proper installation hooks.
-        
+
         This eliminates the need for workarounds by ensuring that tests
         use the same setup as production installations.
         """
         try:
             # Use the proper installation setup function
             from verenigingen.setup import create_default_verenigingen_settings
-            
+
             # Ensure settings exist (same as production installation)
             create_default_verenigingen_settings()
-            
+
             # ENHANCED FIXTURE LOADING: Load all essential fixtures
             self._load_essential_fixtures()
-            
+
             # Ensure master data exists
             self._ensure_master_data()
-            
+
+            # Ensure required roles exist (some tests need HRMS roles)
+            self._ensure_required_roles()
+
         except Exception as e:
             frappe.logger().error(f"Failed to ensure production-ready setup: {str(e)}")
             # Continue without failing tests
             pass
+
+    def _ensure_required_roles(self):
+        """
+        Ensure required roles exist for account creation tests.
+
+        Some roles like "Employee Self Service" come from HRMS and may not exist
+        in minimal CI test environments. Create them if they don't exist.
+        """
+        required_roles = [
+            "Employee Self Service",  # From HRMS - used for employee expense access
+            "Verenigingen Member",    # Custom app role
+            "Verenigingen Administrator",  # Custom app role
+        ]
+
+        for role_name in required_roles:
+            if not frappe.db.exists("Role", role_name):
+                try:
+                    role = frappe.get_doc({
+                        "doctype": "Role",
+                        "role_name": role_name,
+                        "desk_access": 1 if "Administrator" in role_name else 0,
+                        "is_custom": 1
+                    })
+                    role.insert(ignore_permissions=True)
+                    frappe.db.commit()
+                except Exception as e:
+                    # Role might have been created by another concurrent test
+                    frappe.logger().warning(f"Could not create role {role_name}: {e}")
         
     def ensure_test_user_has_role(self, role_name):
         """
