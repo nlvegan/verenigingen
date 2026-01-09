@@ -8,24 +8,50 @@ Handles processing of Mollie payments for membership dues, including:
 - Proper idempotency to prevent duplicate processing
 """
 
+import re
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
 import frappe
+from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 from frappe import _
 from frappe.utils import flt, getdate
 
+from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_exists
+from verenigingen.e_boekhouden.utils.security_helper import migration_context
 from verenigingen.services.billing.coverage_calculator import (
     calculate_coverage_for_payment_date,
     find_invoice_for_payment,
 )
+from verenigingen.services.billing.coverage_overlap_detector import check_coverage_overlap
 from verenigingen.utils.bank_utils import get_or_create_unknown_bank
+from verenigingen.utils.retry_utilities import execute_with_deadlock_retry, is_deadlock_error
 from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
 from verenigingen.verenigingen_payments.mollie.domain.payment_classification import PaymentClassifier
+from verenigingen.verenigingen_payments.mollie.services.unified_idempotency_manager import (
+    get_unified_idempotency_manager,
+)
+from verenigingen.verenigingen_payments.mollie.utils.validators import validate_iban
+from verenigingen.verenigingen_payments.services.bank_transaction_creator import get_bank_transaction_creator
+from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 from verenigingen.verenigingen_payments.services.payment.payment_entry_creation_service import (
     payment_entry_service,
 )
+from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
+
+# =============================================================================
+# Constants
+# =============================================================================
+
+# Payment validation thresholds
+MAX_PAYMENT_AMOUNT_WARNING = Decimal("10000")  # Log warning for payments above this amount
+
+# Batch processing limits
+BATCH_PAYMENT_LIMIT = 250  # Maximum payments to process in one batch (prevents memory exhaustion)
+
+# Query limits for lookups
+UNPAID_INVOICE_LOOKUP_LIMIT = 3  # Number of recent unpaid invoices to include in result
 
 
 class DuesPaymentProcessor:
@@ -34,13 +60,65 @@ class DuesPaymentProcessor:
     def __init__(self):
         self.mollie_client = MollieClient()
         self.classifier = PaymentClassifier()
-
-        # Use centralized Bank Transaction creator
-        from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
-            get_bank_transaction_creator,
-        )
-
         self.bank_tx_creator = get_bank_transaction_creator()
+
+    def _validate_fiscal_year(self, payment_date: date, company: str, context: str) -> Optional[str]:
+        """
+        Validate that a fiscal year exists for the given date.
+
+        Centralizes the fiscal year validation pattern used before creating
+        invoices or payment entries.
+
+        Args:
+            payment_date: The posting date to validate
+            company: Company name
+            context: Description for error messages (e.g., "invoice", "Payment Entry")
+
+        Returns:
+            Fiscal year name if valid, None if fiscal year doesn't exist
+        """
+        try:
+            fiscal_year = ensure_fiscal_year_exists(payment_date, company)
+            frappe.logger().info(
+                f"Fiscal year {fiscal_year} confirmed for {context} with posting_date={payment_date}"
+            )
+            return fiscal_year
+        except Exception as fy_error:
+            frappe.logger().error(
+                f"Cannot create {context}: Missing fiscal year for {payment_date}: {fy_error}"
+            )
+            return None
+
+    # TODO: Consider moving to member_utils.py as get_member_doc_with_customer()
+    # if this pattern is needed elsewhere in the codebase
+    def _get_member_with_customer(self, member_name: str) -> Tuple[Any, str]:
+        """
+        Get member document and validate customer exists.
+
+        Centralizes the common pattern of loading a member and requiring
+        a linked customer for payment/invoice operations.
+
+        Note:
+            This method throws on validation failure rather than returning None.
+            Callers should wrap in try/except if graceful degradation is needed.
+
+        Args:
+            member_name: Member document name
+
+        Returns:
+            Tuple of (member_doc, customer_name)
+
+        Raises:
+            frappe.DoesNotExistError: If member does not exist
+            frappe.ValidationError: If member has no linked customer
+        """
+        member = frappe.get_doc("Member", member_name)
+        customer = member.customer
+
+        if not customer:
+            frappe.throw(f"Member {member_name} has no linked Customer record")
+
+        return member, customer
 
     def identify_payment_type(self, payment: Any) -> str:
         """
@@ -88,8 +166,6 @@ class DuesPaymentProcessor:
         # Method 3: Parse member ID from description
         if description and isinstance(description, str):
             # Try to extract member ID pattern (e.g., "Assoc-Member-2024-01-0001")
-            import re
-
             member_id_pattern = r"Assoc-Member-\d{4}-\d{2}-\d{4}"
             match = re.search(member_id_pattern, description)
             if match:
@@ -136,8 +212,6 @@ class DuesPaymentProcessor:
                 return
 
             # Validate IBAN format
-            from verenigingen.verenigingen_payments.mollie.utils.validators import validate_iban
-
             is_valid_iban = validate_iban(consumer_account)
             if not is_valid_iban:
                 frappe.logger().debug(
@@ -200,8 +274,6 @@ class DuesPaymentProcessor:
 
             # Create Bank Account linking IBAN to Customer
             # Use migration context for proper permission handling
-            from verenigingen.e_boekhouden.utils.security_helper import migration_context
-
             with migration_context("party_creation"):
                 bank_account = frappe.new_doc("Bank Account")
                 bank_account.account_name = f"{customer} - {iban[-4:]}"
@@ -285,10 +357,10 @@ class DuesPaymentProcessor:
         if payment_amount <= 0:
             raise ValueError(f"Payment amount must be positive, got {payment_amount}")
 
-        if payment_amount > 10000:
+        if payment_amount > MAX_PAYMENT_AMOUNT_WARNING:
             frappe.logger().warning(
                 f"Unusually large payment amount €{payment_amount} for member {member_name}. "
-                "Proceeding but flagging for review."
+                f"Threshold: €{MAX_PAYMENT_AMOUNT_WARNING}. Proceeding but flagging for review."
             )
 
         # Validate payment_date is not in future
@@ -313,8 +385,6 @@ class DuesPaymentProcessor:
 
             # Check for overlapping coverage (not just exact match)
             # This prevents creating invoices that would overlap with existing coverage
-            from verenigingen.services.billing.coverage_overlap_detector import check_coverage_overlap
-
             overlap_result = check_coverage_overlap(
                 customer=member.customer,
                 proposed_start=coverage_start,
@@ -324,12 +394,27 @@ class DuesPaymentProcessor:
 
             if overlap_result.has_overlap:
                 if overlap_result.exact_match:
-                    # Exact match - return the existing invoice
-                    frappe.logger().info(
-                        f"[Mollie] Found existing invoice {overlap_result.exact_match} for coverage period "
-                        f"{coverage_start} to {coverage_end}"
+                    # Exact match found - check if it has outstanding amount
+                    exact_invoice = frappe.db.get_value(
+                        "Sales Invoice",
+                        overlap_result.exact_match,
+                        ["name", "outstanding_amount"],
+                        as_dict=True,
                     )
-                    return overlap_result.exact_match
+                    if exact_invoice and exact_invoice.outstanding_amount > 0:
+                        frappe.logger().info(
+                            f"[Mollie] Found existing invoice {exact_invoice.name} for coverage period "
+                            f"{coverage_start} to {coverage_end} (outstanding: {exact_invoice.outstanding_amount})"
+                        )
+                        return exact_invoice.name
+                    else:
+                        # Invoice exists but is already paid - don't create duplicate
+                        frappe.logger().warning(
+                            f"[Mollie] Invoice {overlap_result.exact_match} exists for coverage "
+                            f"{coverage_start} to {coverage_end} but is already paid. "
+                            f"Payment Entry will be created unallocated for manual reconciliation."
+                        )
+                        return None
                 else:
                     # Overlapping but not exact - cannot safely create invoice
                     overlapping_names = [inv["name"] for inv in overlap_result.overlapping_invoices]
@@ -471,158 +556,83 @@ class DuesPaymentProcessor:
             - Creates and submits Sales Invoice
             - May create new Item if membership dues item doesn't exist
             - Logs to "Invoice Creation Failed" on error
+
+        Note:
+            This method assumes overlap checking has already been done by the caller
+            (e.g., _get_or_create_historical_invoice). It does not re-validate coverage.
         """
-        import time
+        # Setup phase: gather configuration (not retryable - these are config errors)
+        settings = frappe.get_single("Verenigingen Settings")
 
-        from verenigingen.services.billing.coverage_overlap_detector import check_coverage_overlap
+        # Validate fiscal year exists before creating invoice
+        if not self._validate_fiscal_year(payment_date, settings.company, f"invoice for {member_doc.name}"):
+            return None
 
-        # Check for overlapping coverage (not just exact match) - idempotency with proper overlap detection
-        overlap_result = check_coverage_overlap(
-            customer=member_doc.customer,
-            proposed_start=coverage_start,
-            proposed_end=coverage_end,
-            exclude_cancelled=True,
-        )
+        # Get income account
+        income_account = settings.dues_income_account
+        if not income_account:
+            company_doc = frappe.get_cached_doc("Company", settings.company)
+            income_account = company_doc.default_income_account
 
-        if overlap_result.has_overlap:
-            if overlap_result.exact_match:
-                # Exact match found - check if it has outstanding amount
-                exact_invoice = frappe.db.get_value(
-                    "Sales Invoice",
-                    overlap_result.exact_match,
-                    ["name", "outstanding_amount"],
-                    as_dict=True,
-                )
-                if exact_invoice and exact_invoice.outstanding_amount > 0:
-                    frappe.logger().info(
-                        f"[Mollie] Sales Invoice already exists for coverage {coverage_start} to {coverage_end}: "
-                        f"{exact_invoice.name} (outstanding: {exact_invoice.outstanding_amount})"
-                    )
-                    return exact_invoice.name
-                else:
-                    # Invoice exists but is already paid - don't create duplicate
-                    frappe.logger().warning(
-                        f"[Mollie] Invoice {overlap_result.exact_match} exists for coverage "
-                        f"{coverage_start} to {coverage_end} but is already paid. "
-                        f"Payment Entry will be created unallocated for manual reconciliation."
-                    )
-                    return None
-            else:
-                # Overlapping but not exact - cannot safely create invoice
-                overlapping_names = [inv["name"] for inv in overlap_result.overlapping_invoices]
-                frappe.logger().warning(
-                    f"[Mollie] Coverage overlap detected for member {member_doc.name}: "
-                    f"proposed {coverage_start} to {coverage_end} overlaps with "
-                    f"existing invoice(s): {', '.join(overlapping_names)}. "
-                    f"Skipping invoice creation - manual review required."
-                )
-                return None
+        if not income_account:
+            frappe.logger().error("No income account configured")
+            return None
 
-        # Deadlock retry configuration
-        max_retries = 3
-        retry_count = 0
+        # Invoice creation function - wrapped with deadlock retry
+        def create_invoice():
+            invoice = frappe.new_doc("Sales Invoice")
+            invoice.customer = member_doc.customer
+            invoice.company = settings.company
 
-        while retry_count < max_retries:
-            try:
-                settings = frappe.get_single("Verenigingen Settings")
+            # Set posting date explicitly (must be done before insert to prevent auto-setting)
+            invoice.posting_date = payment_date
+            invoice.set_posting_time = 1  # Enable custom posting date
+            invoice.due_date = payment_date
 
-                # Ensure fiscal year exists BEFORE creating invoice (prevents GL entry failures)
-                from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_exists
+            # Set coverage period custom fields
+            invoice.custom_coverage_start_date = coverage_start
+            invoice.custom_coverage_end_date = coverage_end
 
-                try:
-                    fiscal_year = ensure_fiscal_year_exists(payment_date, settings.company)
-                    frappe.logger().info(
-                        f"Fiscal year {fiscal_year} confirmed for invoice with posting_date={payment_date}"
-                    )
-                except Exception as fy_error:
-                    frappe.logger().error(
-                        f"Cannot create invoice for {member_doc.name}: Missing fiscal year for {payment_date}: {fy_error}"
-                    )
-                    return None
+            # Audit logging for historical backdating
+            frappe.logger().warning(
+                f"HISTORICAL INVOICE CREATION: User {frappe.session.user} creating backdated invoice "
+                f"for member {member_doc.name} ({member_doc.full_name}) with posting_date={payment_date} "
+                f"(today={date.today()}), coverage={coverage_start} to {coverage_end}, amount=€{amount}"
+            )
 
-                # Get income account
-                income_account = settings.dues_income_account
-                if not income_account:
-                    company_doc = frappe.get_cached_doc("Company", settings.company)
-                    income_account = company_doc.default_income_account
+            # Add item
+            item_name = f"Membership Dues - {membership_type}"
+            invoice.append(
+                "items",
+                {
+                    "item_code": self._get_or_create_dues_item(item_name, settings.company, income_account),
+                    "qty": 1,
+                    "rate": amount,
+                    "income_account": income_account,
+                    "description": f"Membership dues for {member_doc.full_name} ({membership_type}) - Period: {coverage_start} to {coverage_end}",
+                },
+            )
 
-                if not income_account:
-                    frappe.logger().error("No income account configured")
-                    return None
+            invoice.insert()
+            invoice.submit()
+            return invoice.name
 
-                # Create invoice
-                invoice = frappe.new_doc("Sales Invoice")
-                invoice.customer = member_doc.customer
-                invoice.company = settings.company
-
-                # Set posting date explicitly (must be done before insert to prevent auto-setting)
-                invoice.posting_date = payment_date
-                invoice.set_posting_time = 1  # Enable custom posting date
-                invoice.due_date = payment_date
-
-                # Set coverage period custom fields
-                invoice.custom_coverage_start_date = coverage_start
-                invoice.custom_coverage_end_date = coverage_end
-
-                # Audit logging for historical backdating
-                frappe.logger().warning(
-                    f"HISTORICAL INVOICE CREATION: User {frappe.session.user} creating backdated invoice "
-                    f"for member {member_doc.name} ({member_doc.full_name}) with posting_date={payment_date} "
-                    f"(today={date.today()}), coverage={coverage_start} to {coverage_end}, amount=€{amount}"
-                )
-
-                # Add item
-                item_name = f"Membership Dues - {membership_type}"
-                invoice.append(
-                    "items",
-                    {
-                        "item_code": self._get_or_create_dues_item(
-                            item_name, settings.company, income_account
-                        ),
-                        "qty": 1,
-                        "rate": amount,
-                        "income_account": income_account,
-                        "description": f"Membership dues for {member_doc.full_name} ({membership_type}) - Period: {coverage_start} to {coverage_end}",
-                    },
-                )
-
-                invoice.insert()
-                invoice.submit()
-
-                return invoice.name
-
-            except frappe.QueryDeadlockError as e:
-                # Deadlock detected - retry with exponential backoff
-                retry_count += 1
-                if retry_count < max_retries:
-                    wait_time = 0.1 * (2 ** (retry_count - 1))  # 0.1s, 0.2s, 0.4s
-                    frappe.logger().warning(
-                        f"[Mollie] Deadlock creating Sales Invoice for {member_doc.name}, "
-                        f"retry {retry_count}/{max_retries} after {wait_time}s"
-                    )
-                    time.sleep(wait_time)
-                    continue  # Retry
-                else:
-                    # Max retries exceeded
-                    frappe.logger().error(
-                        f"❌ Failed to create Sales Invoice after {max_retries} retries due to deadlocks: {e}"
-                    )
-                    frappe.log_error(
-                        f"Sales Invoice creation failed after {max_retries} deadlock retries for member {member_doc.name}: {e}",
-                        "Sales Invoice Deadlock Error",
-                    )
-                    return None
-
-            except Exception as e:
+        # Execute with deadlock retry - only retries on MySQL deadlock errors
+        try:
+            return execute_with_deadlock_retry(
+                create_invoice,
+                operation_name=f"create Sales Invoice for {member_doc.name}",
+                log_errors=True,
+            )
+        except Exception as e:
+            # Non-deadlock errors or deadlock retries exhausted
+            if not is_deadlock_error(e):
                 frappe.logger().error(f"Failed to create simple invoice: {str(e)}")
                 frappe.log_error(
                     f"Sales Invoice creation failed for member {member_doc.name}: {e}",
                     "Sales Invoice Creation Error",
                 )
-                return None
-
-        # Should never reach here, but safety fallback
-        return None
+            return None
 
     def _get_or_create_dues_item(self, item_name: str, company: str, income_account: str) -> str:
         """Get or create a membership dues item."""
@@ -700,12 +710,7 @@ class DuesPaymentProcessor:
                 return result
 
             # Check idempotency using centralized service
-            from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
-                get_bank_transaction_creator,
-            )
-
-            creator = get_bank_transaction_creator()
-            idempotency_check = creator.check_already_processed(
+            idempotency_check = self.bank_tx_creator.check_already_processed(
                 payment_id,
                 check_payment_entry=True,  # Dual mode: check both Payment Entry and Bank Transaction
             )
@@ -757,10 +762,6 @@ class DuesPaymentProcessor:
 
             # Determine creation mode: use override if provided, otherwise use centralized configuration
             if creation_mode is None:
-                from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
-                    get_mollie_config,
-                )
-
                 mollie_config = get_mollie_config()
                 creation_mode = mollie_config.get_dues_payment_creation_mode()
 
@@ -875,7 +876,7 @@ class DuesPaymentProcessor:
                             },
                             fields=["name", "posting_date", "grand_total", "outstanding_amount"],
                             order_by="posting_date desc",
-                            limit=3,
+                            limit=UNPAID_INVOICE_LOOKUP_LIMIT,
                         )
 
                         # Add unpaid invoices that aren't already in the linked list
@@ -939,20 +940,13 @@ class DuesPaymentProcessor:
         Returns:
             str: Payment Entry name if created, None otherwise
         """
-        # Get member and customer
-        member = frappe.get_doc("Member", member_name)
-        customer = member.customer
-
-        if not customer:
-            frappe.throw(f"Member {member_name} has no linked Customer record")
+        # Get member and validate customer exists
+        member, customer = self._get_member_with_customer(member_name)
 
         # Get settings
         verenigingen_settings = frappe.get_single("Verenigingen Settings")
 
         # Extract payment data using centralized extractor
-        from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
-        from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
-
         extractor = get_payment_data_extractor()
         payment_id = extractor.extract_payment_id(payment)
         amount = extractor.extract_amount(payment)
@@ -960,10 +954,6 @@ class DuesPaymentProcessor:
         mode_of_payment = getattr(verenigingen_settings, "mode_of_payment", None) or "Mollie"
 
         # Idempotency check: ensure Payment Entry doesn't already exist for this payment
-        from verenigingen.verenigingen_payments.mollie.services.unified_idempotency_manager import (
-            get_unified_idempotency_manager,
-        )
-
         idempotency_manager = get_unified_idempotency_manager()
         existing_pe = idempotency_manager.payment_entry_exists(payment_id)
         if existing_pe:
@@ -983,18 +973,8 @@ class DuesPaymentProcessor:
         # Get currency after company is determined
         currency = extractor.extract_currency(payment, company)
 
-        # Ensure fiscal year exists for the payment date (prevents submission failures)
-        from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_exists
-
-        try:
-            fiscal_year = ensure_fiscal_year_exists(payment_date, company)
-            frappe.logger().info(
-                f"Fiscal year {fiscal_year} confirmed for Payment Entry with posting_date={payment_date}"
-            )
-        except Exception as fy_error:
-            frappe.logger().error(
-                f"Cannot create Payment Entry for {member_name}: Missing fiscal year for {payment_date}: {fy_error}"
-            )
+        # Validate fiscal year exists before creating Payment Entry
+        if not self._validate_fiscal_year(payment_date, company, f"Payment Entry for {member_name}"):
             return None
 
         # Get Mollie clearing account - must belong to same company
@@ -1036,8 +1016,6 @@ class DuesPaymentProcessor:
             invoice_doc = frappe.get_doc("Sales Invoice", invoice_name)
             if invoice_doc.outstanding_amount > 0:
                 # Use ERPNext's standard get_payment_entry which properly handles accounts
-                from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
-
                 payment_entry = get_payment_entry(
                     dt="Sales Invoice",
                     dn=invoice_name,
@@ -1120,12 +1098,8 @@ class DuesPaymentProcessor:
         Returns:
             str: Bank Transaction name if created, None otherwise
         """
-        # Get member and customer
-        member = frappe.get_doc("Member", member_name)
-        customer = member.customer
-
-        if not customer:
-            frappe.throw(f"Member {member_name} has no linked Customer record")
+        # Get member and validate customer exists
+        member, customer = self._get_member_with_customer(member_name)
 
         # Get bank account configuration using centralized helper
         config = self.bank_tx_creator.get_mollie_bank_account_config()
@@ -1147,8 +1121,6 @@ class DuesPaymentProcessor:
             additional_description = f"Mollie dues payment | {payment_id} | Member: {member.full_name}"
 
         # Use centralized PaymentDataExtractor for consistent extraction
-        from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
-
         extractor = get_payment_data_extractor()
         payment_date = extractor.extract_date(payment, field_name="paid_at")
         amount = extractor.extract_amount(payment)
@@ -1187,7 +1159,7 @@ class DuesPaymentProcessor:
     def batch_process_customer_payments(
         self,
         customer_id: str,
-        limit: int = 250,
+        limit: int = BATCH_PAYMENT_LIMIT,
         only_unpaid: bool = False,
         create_payment_entry: bool = False,
     ) -> Dict[str, Any]:
@@ -1214,10 +1186,9 @@ class DuesPaymentProcessor:
             }
         """
         # Enforce maximum limit to prevent memory exhaustion
-        MAX_LIMIT = 250
-        if limit > MAX_LIMIT:
+        if limit > BATCH_PAYMENT_LIMIT:
             raise ValueError(
-                f"Limit cannot exceed {MAX_LIMIT}. "
+                f"Limit cannot exceed {BATCH_PAYMENT_LIMIT}. "
                 f"Requested: {limit}. Please use smaller batches to prevent memory issues."
             )
 
@@ -1238,63 +1209,51 @@ class DuesPaymentProcessor:
             batch_result["total_retrieved"] = len(payments)
 
             for payment in payments:
-                # Process each payment with deadlock retry
-                import time
-
-                max_retries = 3
-                retry_count = 0
+                # Process each payment with deadlock retry using centralized utility
                 result = None
 
-                while retry_count < max_retries:
-                    try:
-                        # Strategy 1: Bank Transaction only (default)
-                        result = self.process_dues_payment(
-                            payment.id, payment, creation_mode="Bank Transaction"
-                        )
+                def process_single_payment():
+                    """Inner function for deadlock retry wrapper."""
+                    nonlocal result
+                    # Strategy 1: Bank Transaction only (default)
+                    result = self.process_dues_payment(payment.id, payment, creation_mode="Bank Transaction")
 
-                        # Strategy 2: If create_payment_entry requested, also create PE and link them
-                        # IMPORTANT: PE creation is INSIDE the retry loop to handle deadlocks
-                        if (
-                            create_payment_entry
-                            and result.get("status") == "success"
-                            and result.get("bank_transaction")
-                        ):
-                            member_name = result.get("member")
-                            if member_name:
-                                pe_name = self._create_payment_entry_for_dues(member_name, payment)
-                                bt_name = result.get("bank_transaction")
-                                bt_doc = frappe.get_doc("Bank Transaction", bt_name)
-                                bt_doc.append(
-                                    "payment_entries",
-                                    {
-                                        "payment_document": "Payment Entry",
-                                        "payment_entry": pe_name,
-                                        "allocated_amount": abs(bt_doc.unallocated_amount),
-                                    },
-                                )
-                                bt_doc.save()
-                                result["payment_entry"] = pe_name
-                                result["pe_creation_mode"] = "linked_to_bank_transaction"
-
-                        break  # Success - exit retry loop
-
-                    except Exception as e:
-                        retry_count += 1
-                        error_str = str(e)
-                        is_deadlock = "1213" in error_str or "Deadlock" in error_str
-
-                        if is_deadlock and retry_count < max_retries:
-                            wait_time = 0.1 * (2 ** (retry_count - 1))  # 0.1s, 0.2s, 0.4s
-                            frappe.logger().warning(
-                                f"Deadlock on {payment.id}, retry {retry_count}/{max_retries} after {wait_time}s"
+                    # Strategy 2: If create_payment_entry requested, also create PE and link them
+                    # IMPORTANT: PE creation is INSIDE the retry loop to handle deadlocks
+                    if (
+                        create_payment_entry
+                        and result.get("status") == "success"
+                        and result.get("bank_transaction")
+                    ):
+                        member_name = result.get("member")
+                        if member_name:
+                            pe_name = self._create_payment_entry_for_dues(member_name, payment)
+                            bt_name = result.get("bank_transaction")
+                            bt_doc = frappe.get_doc("Bank Transaction", bt_name)
+                            bt_doc.append(
+                                "payment_entries",
+                                {
+                                    "payment_document": "Payment Entry",
+                                    "payment_entry": pe_name,
+                                    "allocated_amount": abs(bt_doc.unallocated_amount),
+                                },
                             )
-                            time.sleep(wait_time)
-                            continue
-                        else:
-                            # Not a deadlock or max retries reached
-                            result = {"payment_id": payment.id, "status": "error", "error": error_str}
-                            frappe.log_error(f"Error processing {payment.id}: {e}")
-                            break
+                            bt_doc.save()
+                            result["payment_entry"] = pe_name
+                            result["pe_creation_mode"] = "linked_to_bank_transaction"
+
+                    return result
+
+                try:
+                    execute_with_deadlock_retry(
+                        process_single_payment,
+                        operation_name=f"process payment {payment.id}",
+                        log_errors=False,  # We handle error logging below
+                    )
+                except Exception as e:
+                    # Non-deadlock error or deadlock retries exhausted
+                    result = {"payment_id": payment.id, "status": "error", "error": str(e)}
+                    frappe.log_error(f"Error processing {payment.id}: {e}")
 
                 if result:
                     batch_result["results"].append(result)

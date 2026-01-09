@@ -9,6 +9,7 @@ Features:
 - Error classification (transient vs permanent)
 - Configurable retry strategies
 - Context manager for automatic retry
+- Deadlock-specific retry helpers for database operations
 
 Author: Verenigingen Development Team
 """
@@ -326,3 +327,244 @@ def retry_operation(
 
     if last_exception:
         raise last_exception
+
+
+# =============================================================================
+# Deadlock-Specific Retry Utilities
+# =============================================================================
+# These utilities provide specialized handling for MySQL deadlock errors
+# (error code 1213) which are common in concurrent database operations.
+#
+# MySQL deadlocks are transient by nature - retrying the transaction will
+# typically succeed. These helpers provide consistent deadlock handling
+# across the codebase.
+# =============================================================================
+
+# Constants for deadlock retry configuration
+DEADLOCK_MAX_RETRIES = 3
+DEADLOCK_BASE_DELAY = 0.1  # 100ms base delay
+DEADLOCK_MAX_DELAY = 2.0  # Cap at 2 seconds
+
+
+def is_deadlock_error(exception: Exception) -> bool:
+    """
+    Check if an exception is a MySQL deadlock error.
+
+    Detects deadlocks via:
+    1. frappe.QueryDeadlockError (explicit type)
+    2. MySQL error code 1213 in error message
+    3. "Deadlock" keyword in error message
+
+    Args:
+        exception: The exception to check
+
+    Returns:
+        bool: True if this is a deadlock error
+
+    Example:
+        try:
+            frappe.db.sql("UPDATE ...")
+        except Exception as e:
+            if is_deadlock_error(e):
+                # Safe to retry
+                pass
+    """
+    # Check for explicit Frappe deadlock exception type
+    if hasattr(frappe, "QueryDeadlockError"):
+        if isinstance(exception, frappe.QueryDeadlockError):
+            return True
+
+    # Also check frappe.exceptions path
+    if hasattr(frappe, "exceptions") and hasattr(frappe.exceptions, "QueryDeadlockError"):
+        if isinstance(exception, frappe.exceptions.QueryDeadlockError):
+            return True
+
+    # Fall back to string matching for MySQL error code 1213
+    error_str = str(exception).lower()
+    return "1213" in error_str or "deadlock" in error_str
+
+
+def with_deadlock_retry(
+    max_retries: int = DEADLOCK_MAX_RETRIES,
+    base_delay: float = DEADLOCK_BASE_DELAY,
+    max_delay: float = DEADLOCK_MAX_DELAY,
+    operation_name: Optional[str] = None,
+):
+    """
+    Decorator for automatic retry on MySQL deadlock errors.
+
+    Pre-configured for deadlock handling with sensible defaults:
+    - 3 retries
+    - 100ms base delay with exponential backoff
+    - Jitter to prevent thundering herd
+
+    Args:
+        max_retries: Maximum retry attempts (default: 3)
+        base_delay: Base delay in seconds (default: 0.1)
+        max_delay: Maximum delay cap (default: 2.0)
+        operation_name: Optional name for logging (defaults to function name)
+
+    Example:
+        @with_deadlock_retry()
+        def create_invoice(member_name: str):
+            invoice = frappe.new_doc("Sales Invoice")
+            # ... setup invoice ...
+            invoice.insert()
+            invoice.submit()
+            return invoice.name
+
+        @with_deadlock_retry(max_retries=5, operation_name="batch_update")
+        def update_many_records():
+            # ... bulk operation ...
+            pass
+    """
+
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            func_name = operation_name or func.__name__
+            last_exception = None
+
+            for attempt in range(max_retries + 1):
+                try:
+                    return func(*args, **kwargs)
+
+                except Exception as e:
+                    last_exception = e
+
+                    # Only retry on deadlock errors
+                    if not is_deadlock_error(e):
+                        raise
+
+                    # Last attempt - don't retry
+                    if attempt >= max_retries:
+                        frappe.logger().error(
+                            f"[Deadlock] {func_name} failed after {max_retries + 1} attempts"
+                        )
+                        raise
+
+                    # Calculate backoff delay with jitter
+                    delay = exponential_backoff_with_jitter(attempt, base_delay, max_delay, jitter_factor=0.3)
+
+                    frappe.logger().warning(
+                        f"[Deadlock] {func_name} hit deadlock on attempt {attempt + 1}/{max_retries + 1}, "
+                        f"retrying in {delay:.2f}s"
+                    )
+
+                    time.sleep(delay)
+
+            # Should never reach here
+            if last_exception:
+                raise last_exception
+
+        return wrapper
+
+    return decorator
+
+
+def execute_with_deadlock_retry(
+    operation: Callable,
+    operation_name: str = "database operation",
+    max_retries: int = DEADLOCK_MAX_RETRIES,
+    base_delay: float = DEADLOCK_BASE_DELAY,
+    max_delay: float = DEADLOCK_MAX_DELAY,
+    log_errors: bool = True,
+) -> any:
+    """
+    Execute an operation with deadlock-specific retry logic.
+
+    Use this for inline operations where a decorator isn't practical.
+
+    Args:
+        operation: Callable to execute (no arguments)
+        operation_name: Human-readable name for logging
+        max_retries: Maximum retry attempts (default: 3)
+        base_delay: Base delay in seconds (default: 0.1)
+        max_delay: Maximum delay cap (default: 2.0)
+        log_errors: Whether to log to Frappe error log on final failure
+
+    Returns:
+        Result of successful operation
+
+    Raises:
+        Exception: Last exception if all retries exhausted, or non-deadlock error
+
+    Example:
+        # Inline usage for operations that can't use decorator
+        def create_and_submit():
+            invoice = frappe.new_doc("Sales Invoice")
+            invoice.customer = customer
+            invoice.append("items", {...})
+            invoice.insert()
+            invoice.submit()
+            return invoice.name
+
+        invoice_name = execute_with_deadlock_retry(
+            create_and_submit,
+            operation_name=f"create invoice for {member_name}"
+        )
+    """
+    last_exception = None
+
+    for attempt in range(max_retries + 1):
+        try:
+            result = operation()
+            if attempt > 0:
+                frappe.logger().info(
+                    f"[Deadlock] {operation_name} succeeded on retry {attempt}/{max_retries}"
+                )
+            return result
+
+        except Exception as e:
+            last_exception = e
+
+            # Only retry on deadlock errors
+            if not is_deadlock_error(e):
+                if log_errors:
+                    frappe.log_error(
+                        f"{operation_name} failed with non-deadlock error: {str(e)}",
+                        "Operation Error",
+                    )
+                raise
+
+            # Last attempt - don't retry
+            if attempt >= max_retries:
+                if log_errors:
+                    frappe.log_error(
+                        f"{operation_name} failed after {max_retries + 1} deadlock retries",
+                        "Deadlock Retry Exhausted",
+                    )
+                raise
+
+            # Calculate backoff delay with jitter
+            delay = exponential_backoff_with_jitter(attempt, base_delay, max_delay, jitter_factor=0.3)
+
+            frappe.logger().warning(
+                f"[Deadlock] {operation_name} hit deadlock on attempt {attempt + 1}/{max_retries + 1}, "
+                f"retrying in {delay:.2f}s"
+            )
+
+            time.sleep(delay)
+
+    # Should never reach here
+    if last_exception:
+        raise last_exception
+
+
+# =============================================================================
+# TODO: Files with inline deadlock retry logic that could use these utilities
+# =============================================================================
+# The following files have similar inline deadlock retry patterns that could
+# be refactored to use is_deadlock_error(), with_deadlock_retry(), or
+# execute_with_deadlock_retry() for consistency:
+#
+# - verenigingen/verenigingen_payments/services/bank_transaction_creator.py:728
+# - verenigingen/utils/account_creation_manager.py:584, 634
+# - verenigingen/utils/optimized_queries.py:411
+# - verenigingen/services/billing/invoice_generator.py:727
+#
+# Benefits of refactoring:
+# - Consistent backoff timing and jitter across all usages
+# - Single source of truth for deadlock detection
+# - Easier to test and maintain
+# =============================================================================
