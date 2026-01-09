@@ -2913,6 +2913,20 @@ class EnhancedTestCase(FrappeTestCase):
                     except Exception as dept_error:
                         frappe.logger().warning(f"Failed to create parent department {parent_dept_name}: {dept_error}")
 
+            # Ensure Netherlands territory exists (used by Customer/Supplier tests)
+            if not frappe.db.exists("Territory", "Netherlands"):
+                try:
+                    territory = frappe.get_doc({
+                        "doctype": "Territory",
+                        "territory_name": "Netherlands",
+                        "parent_territory": "All Territories"
+                    })
+                    territory.insert(ignore_permissions=True)
+                    self.factory.track_document("Territory", territory.name, priority=1)
+                    frappe.logger().info("Created Netherlands territory for tests")
+                except Exception as terr_error:
+                    frappe.logger().warning(f"Failed to create Netherlands territory: {terr_error}")
+
             # Note: Donation Type DocType was removed from the codebase
 
             # NO COMMIT - Test framework manages transactions automatically
