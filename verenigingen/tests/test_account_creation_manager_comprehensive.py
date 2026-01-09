@@ -54,9 +54,9 @@ class TestAccountCreationManagerSecurity(EnhancedTestCase):
         """Test that unauthorized users cannot create account creation requests"""
         # Create a test member
         member = self.create_test_member(
-            first_name="Security",
+            first_name=f"Security{self.uid}",
             last_name="Test",
-            email="security.test@test.invalid"
+            email=f"security.test.{self.uid}@test.invalid"
         )
         
         # Test permission validation through API 
@@ -74,11 +74,11 @@ class TestAccountCreationManagerSecurity(EnhancedTestCase):
         """Test AccountCreationManager validates permissions properly"""
         # Create test member and request
         member = self.create_test_member(
-            first_name="Permission",
+            first_name=f"Permission{self.uid}",
             last_name="Validation",
-            email="permission.validation@test.invalid"
+            email=f"permission.validation.{self.uid}@test.invalid"
         )
-        
+
         request = frappe.get_doc({
             "doctype": "Account Creation Request",
             "request_type": "Member",
@@ -88,12 +88,12 @@ class TestAccountCreationManagerSecurity(EnhancedTestCase):
             "requested_roles": [{"role": "Verenigingen Member"}]
         })
         request.insert()
-        
+
         # Switch to unauthorized user
         test_user = frappe.get_doc({
             "doctype": "User",
-            "email": "unauthorized.user@test.invalid",
-            "first_name": "Unauthorized",
+            "email": f"unauthorized.user.{self.uid}@test.invalid",
+            "first_name": f"Unauthorized{self.uid}",
             "last_name": "User",
             "roles": [{"role": "Verenigingen Member"}]
         })
@@ -115,16 +115,16 @@ class TestAccountCreationManagerSecurity(EnhancedTestCase):
     def test_role_assignment_permission_validation(self):
         """Test that role assignment validates permissions properly"""
         member = self.create_test_member(
-            first_name="Role",
+            first_name=f"Role{self.uid}",
             last_name="Assignment",
-            email="role.assignment@test.invalid"
+            email=f"role.assignment.{self.uid}@test.invalid"
         )
 
         # Create a non-admin user without Role write permission
         test_user = frappe.get_doc({
             "doctype": "User",
-            "email": "non.admin@test.invalid",
-            "first_name": "Non",
+            "email": f"non.admin.{self.uid}@test.invalid",
+            "first_name": f"Non{self.uid}",
             "last_name": "Admin",
             "roles": [{"role": "Verenigingen Member"}]
         })
@@ -154,9 +154,9 @@ class TestAccountCreationManagerSecurity(EnhancedTestCase):
     def test_no_ignore_permissions_bypass_in_user_creation(self):
         """Test that user creation does not use ignore_permissions bypass"""
         member = self.create_test_member(
-            first_name="No",
+            first_name=f"No{self.uid}",
             last_name="Bypass",
-            email="no.bypass@test.invalid"
+            email=f"no.bypass.{self.uid}@test.invalid"
         )
         
         request = frappe.get_doc({
@@ -198,9 +198,9 @@ class TestAccountCreationManagerSecurity(EnhancedTestCase):
     def test_sql_injection_prevention(self):
         """Test that malformed inputs cannot cause SQL injection"""
         member = self.create_test_member(
-            first_name="SQL",
+            first_name=f"SQL{self.uid}",
             last_name="Injection",
-            email="sql.injection@test.invalid"
+            email=f"sql.injection.{self.uid}@test.invalid"
         )
         
         # Attempt SQL injection in various fields
@@ -227,9 +227,9 @@ class TestAccountCreationManagerSecurity(EnhancedTestCase):
     def test_xss_prevention_in_names(self):
         """Test that XSS attempts in user names are sanitized"""
         member = self.create_test_member(
-            first_name="XSS",
+            first_name=f"XSS{self.uid}",
             last_name="Prevention",
-            email="xss.prevention@test.invalid"
+            email=f"xss.prevention.{self.uid}@test.invalid"
         )
         
         xss_attempts = [
@@ -280,9 +280,9 @@ class TestAccountCreationManagerFunctionality(EnhancedTestCase):
     def test_complete_member_account_creation_pipeline(self):
         """Test complete account creation pipeline for member"""
         member = self.create_test_member(
-            first_name="Complete",
+            first_name=f"Complete{self.uid}",
             last_name="Pipeline",
-            email="complete.pipeline@test.invalid",
+            email=f"complete.pipeline.{self.uid}@test.invalid",
             birth_date="1990-01-01"
         )
         
@@ -324,17 +324,17 @@ class TestAccountCreationManagerFunctionality(EnhancedTestCase):
         """Test volunteer account creation includes employee record"""
         # Create member first (volunteers need associated member)
         member = self.create_test_member(
-            first_name="Volunteer",
+            first_name=f"Volunteer{self.uid}",
             last_name="Employee",
-            email="volunteer.employee@test.invalid",
+            email=f"volunteer.employee.{self.uid}@test.invalid",
             birth_date="1990-01-01"
         )
-        
+
         # Create volunteer
         volunteer = self.create_test_volunteer(
             member_name=member.name,
-            volunteer_name="Volunteer Employee Test",
-            email="volunteer.employee@test.invalid"
+            volunteer_name=f"Volunteer Employee Test {self.uid}",
+            email=f"volunteer.employee.{self.uid}@test.invalid"
         )
         
         # Create account creation request for volunteer
@@ -376,9 +376,9 @@ class TestAccountCreationManagerFunctionality(EnhancedTestCase):
     def test_role_profile_assignment(self):
         """Test that role profiles or roles are assigned correctly"""
         member = self.create_test_member(
-            first_name="Role",
+            first_name=f"Role{self.uid}",
             last_name="Profile",
-            email="role.profile@test.invalid"
+            email=f"role.profile.{self.uid}@test.invalid"
         )
 
         # Ensure test role profile exists
@@ -425,7 +425,7 @@ class TestAccountCreationManagerFunctionality(EnhancedTestCase):
         # Use unique email to avoid conflicts
         unique_email = f"existing.user.{self.test_run_id}@test.invalid"
         member = self.create_test_member(
-            first_name="Existing",
+            first_name=f"Existing{self.uid}",
             last_name="User",
             email=unique_email
         )
@@ -476,7 +476,7 @@ class TestAccountCreationManagerFunctionality(EnhancedTestCase):
         unique_email = f"queue.linking.{self.test_run_id}@test.invalid"
         # Create member without user link
         member = self.create_test_member(
-            first_name="Queue",
+            first_name=f"Queue{self.uid}",
             last_name="Linking",
             email=unique_email
         )
@@ -532,9 +532,9 @@ class TestAccountCreationManagerErrorHandling(EnhancedTestCase):
         nonexistent_role = f"NonexistentRole{int(time.time() * 1000000)}"
 
         member = self.create_test_member(
-            first_name="Failure",
+            first_name=f"Failure{self.uid}",
             last_name="Handling",
-            email="failure.handling@test.invalid"
+            email=f"failure.handling.{self.uid}@test.invalid"
         )
 
         # Verify role doesn't exist before test
@@ -585,9 +585,9 @@ class TestAccountCreationManagerErrorHandling(EnhancedTestCase):
         invalid_role = f"InvalidRole{int(time.time() * 1000000)}"
 
         member = self.create_test_member(
-            first_name="Audit",
+            first_name=f"Audit{self.uid}",
             last_name="Trail",
-            email="audit.trail@test.invalid"
+            email=f"audit.trail.{self.uid}@test.invalid"
         )
 
         # Verify role doesn't exist before test
@@ -623,9 +623,9 @@ class TestAccountCreationManagerErrorHandling(EnhancedTestCase):
     def test_retry_mechanism(self):
         """Test retry mechanism for failed requests"""
         member = self.create_test_member(
-            first_name="Retry",
+            first_name=f"Retry{self.uid}",
             last_name="Mechanism",
-            email="retry.mechanism@test.invalid"
+            email=f"retry.mechanism.{self.uid}@test.invalid"
         )
 
         # Create request normally (status will be forced to "Requested" by security)
@@ -654,9 +654,9 @@ class TestAccountCreationManagerErrorHandling(EnhancedTestCase):
     def test_retry_limit_enforcement(self):
         """Test that retry limits are enforced"""
         member = self.create_test_member(
-            first_name="Retry",
+            first_name=f"Retry{self.uid}2",
             last_name="Limit",
-            email="retry.limit@test.invalid"
+            email=f"retry.limit.{self.uid}@test.invalid"
         )
 
         # Create request normally (status will be forced to "Requested" by security)
@@ -688,7 +688,7 @@ class TestAccountCreationManagerBackgroundProcessing(EnhancedTestCase):
         import time
         unique_suffix = str(int(time.time() * 1000000) % 1000000)  # Microseconds for uniqueness
         member = self.create_test_member(
-            first_name="Background",
+            first_name=f"Background{self.uid}",
             last_name=f"Job{unique_suffix}",
             email=f"background.job.{unique_suffix}@test.invalid"
         )
@@ -719,9 +719,9 @@ class TestAccountCreationManagerBackgroundProcessing(EnhancedTestCase):
     def test_background_job_entry_point(self):
         """Test the background job entry point function"""
         member = self.create_test_member(
-            first_name="Job",
+            first_name=f"Job{self.uid}",
             last_name="Entry",
-            email="job.entry@test.invalid"
+            email=f"job.entry.{self.uid}@test.invalid"
         )
         
         request = frappe.get_doc({
@@ -756,7 +756,7 @@ class TestAccountCreationManagerBackgroundProcessing(EnhancedTestCase):
         invalid_role = f"InvalidRole{int(time.time() * 1000000)}"
 
         member = self.create_test_member(
-            first_name="Retry",
+            first_name=f"Retry{self.uid}3",
             last_name=f"Scheduling{unique_suffix}",
             email=f"retry.scheduling.{unique_suffix}@test.invalid"
         )
@@ -818,9 +818,9 @@ class TestAccountCreationManagerIntegration(EnhancedTestCase):
     def test_member_integration(self):
         """Test integration with Member DocType"""
         member = self.create_test_member(
-            first_name="Member",
+            first_name=f"Member{self.uid}",
             last_name="Integration",
-            email="member.integration@test.invalid"
+            email=f"member.integration.{self.uid}@test.invalid"
         )
         
         # Queue account creation for member
@@ -839,16 +839,16 @@ class TestAccountCreationManagerIntegration(EnhancedTestCase):
         """Test integration with Volunteer DocType"""
         # Create member first
         member = self.create_test_member(
-            first_name="Volunteer",
+            first_name=f"Volunteer{self.uid}2",
             last_name="Integration",
-            email="volunteer.integration@test.invalid",
+            email=f"volunteer.integration.{self.uid}@test.invalid",
             birth_date="1990-01-01"
         )
-        
+
         volunteer = self.create_test_volunteer(
             member_name=member.name,
-            volunteer_name="Volunteer Integration Test",
-            email="volunteer.integration@test.invalid"
+            volunteer_name=f"Volunteer Integration Test {self.uid}",
+            email=f"volunteer.integration.{self.uid}@test.invalid"
         )
         
         # Queue account creation for volunteer
@@ -868,9 +868,9 @@ class TestAccountCreationManagerIntegration(EnhancedTestCase):
     def test_duplicate_request_prevention(self):
         """Test that duplicate requests are prevented or handled appropriately"""
         member = self.create_test_member(
-            first_name="Duplicate",
+            first_name=f"Duplicate{self.uid}",
             last_name="Prevention",
-            email="duplicate.prevention@test.invalid"
+            email=f"duplicate.prevention.{self.uid}@test.invalid"
         )
 
         # Create first request
@@ -902,15 +902,15 @@ class TestAccountCreationManagerIntegration(EnhancedTestCase):
         """Test admin interface functions"""
         # Create some test requests
         member1 = self.create_test_member(
-            first_name="Admin",
+            first_name=f"Admin{self.uid}",
             last_name="Interface1",
-            email="admin.interface1@test.invalid"
+            email=f"admin.interface1.{self.uid}@test.invalid"
         )
-        
+
         member2 = self.create_test_member(
-            first_name="Admin",
-            last_name="Interface2",  
-            email="admin.interface2@test.invalid"
+            first_name=f"Admin{self.uid}2",
+            last_name="Interface2",
+            email=f"admin.interface2.{self.uid}@test.invalid"
         )
         
         # Create failed request (create normally, then mark as failed)
@@ -980,7 +980,7 @@ class TestAccountCreationManagerDutchBusinessLogic(EnhancedTestCase):
         # If factory rejects, that's the expected behavior - age validation works
         try:
             young_member = self.create_test_member(
-                first_name="Too",
+                first_name=f"Too{self.uid}",
                 last_name="Young",
                 email=unique_email,
                 birth_date=add_days(getdate(), -365 * 15)  # 15 years old
@@ -989,7 +989,7 @@ class TestAccountCreationManagerDutchBusinessLogic(EnhancedTestCase):
             with self.assertRaises((BusinessRuleError, frappe.ValidationError)):
                 self.create_test_volunteer(
                     member_name=young_member.name,
-                    volunteer_name="Too Young Volunteer",
+                    volunteer_name=f"Too Young Volunteer {self.uid}",
                     email=unique_email
                 )
         except (BusinessRuleError, frappe.ValidationError) as e:
@@ -1000,9 +1000,9 @@ class TestAccountCreationManagerDutchBusinessLogic(EnhancedTestCase):
     def test_verenigingen_role_assignments(self):
         """Test proper Verenigingen role assignments"""
         member = self.create_test_member(
-            first_name="Role",
+            first_name=f"Role{self.uid}3",
             last_name="Assignment",
-            email="role.assignment@test.invalid"
+            email=f"role.assignment.{self.uid}@test.invalid"
         )
         
         # Test member role assignment
@@ -1029,16 +1029,16 @@ class TestAccountCreationManagerDutchBusinessLogic(EnhancedTestCase):
     def test_employee_creation_for_expense_functionality(self):
         """Test employee creation for Dutch association expense functionality"""
         member = self.create_test_member(
-            first_name="Expense",
+            first_name=f"Expense{self.uid}",
             last_name="Functionality",
-            email="expense.functionality@test.invalid",
+            email=f"expense.functionality.{self.uid}@test.invalid",
             birth_date="1990-01-01"
         )
-        
+
         volunteer = self.create_test_volunteer(
             member_name=member.name,
-            volunteer_name="Expense Functionality Test",
-            email="expense.functionality@test.invalid"
+            volunteer_name=f"Expense Functionality Test {self.uid}",
+            email=f"expense.functionality.{self.uid}@test.invalid"
         )
         
         # Queue volunteer account creation
@@ -1082,9 +1082,9 @@ class TestAccountCreationManagerEnhancedFactory(EnhancedTestCase):
         """Test enhanced factory support for account creation requests"""
         # Test data generation
         member = self.create_test_member(
-            first_name="Factory",
+            first_name=f"Factory{self.uid}",
             last_name="Test",
-            email="factory.test@test.invalid"
+            email=f"factory.test.{self.uid}@test.invalid"
         )
         
         # Create request using enhanced patterns
