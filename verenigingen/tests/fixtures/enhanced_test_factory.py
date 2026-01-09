@@ -2996,7 +2996,14 @@ class EnhancedTestCase(FrappeTestCase):
         return self.factory.create_chapter(**kwargs)
         
     def create_test_volunteer(self, member_name=None, **kwargs):
-        """Convenience method for creating test volunteers"""
+        """Convenience method for creating test volunteers
+
+        Accepts both 'member_name' (positional or kwarg) and 'member' (kwarg)
+        for backward compatibility with tests using 'member=' syntax.
+        """
+        # Support both 'member' and 'member_name' for backward compatibility
+        if member_name is None and 'member' in kwargs:
+            member_name = kwargs.pop('member')
         return self.factory.create_volunteer(member_name, **kwargs)
         
     def create_test_application_data(self, with_skills=True):

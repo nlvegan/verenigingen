@@ -63,8 +63,9 @@ class TestAccountCreationRealIntegration(EnhancedTestCase):
         )
 
         # Create test volunteer for employee creation testing
+        # Note: first positional arg is member_name, not kwarg
         self.volunteer = self.create_test_volunteer(
-            member=self.member.name,
+            self.member.name,
             volunteer_name=f"{self.member.first_name} {self.member.last_name}",
             email=self.member.email,
             status="Active"
@@ -97,7 +98,7 @@ class TestAccountCreationRealIntegration(EnhancedTestCase):
         })
         
         request_doc.insert()
-        self.track_document("Account Creation Request", request_doc.name)
+        self.factory.track_document("Account Creation Request", request_doc.name)
         
         # Validate initial state
         self.assertEqual(request_doc.status, "Queued")
@@ -165,7 +166,7 @@ class TestAccountCreationRealIntegration(EnhancedTestCase):
             })
         
         request_doc.insert()
-        self.track_document("Account Creation Request", request_doc.name)
+        self.factory.track_document("Account Creation Request", request_doc.name)
         
         # Process with AccountCreationManager
         manager = AccountCreationManager(request_doc.name)
@@ -213,7 +214,7 @@ class TestAccountCreationRealIntegration(EnhancedTestCase):
         })
         
         request_doc.insert()
-        self.track_document("Account Creation Request", request_doc.name)
+        self.factory.track_document("Account Creation Request", request_doc.name)
         
         # Create user without account creation permissions
         limited_user = self.create_test_user(
@@ -254,7 +255,7 @@ class TestAccountCreationRealIntegration(EnhancedTestCase):
         })
         
         request_doc.insert()
-        self.track_document("Account Creation Request", request_doc.name)
+        self.factory.track_document("Account Creation Request", request_doc.name)
         
         # Create user with limited role assignment permissions
         role_limited_user = self.create_test_user(
@@ -289,7 +290,7 @@ class TestAccountCreationRealIntegration(EnhancedTestCase):
         })
         
         request1.insert()
-        self.track_document("Account Creation Request", request1.name)
+        self.factory.track_document("Account Creation Request", request1.name)
         
         # Process first request successfully
         manager1 = AccountCreationManager(request1.name)
@@ -317,7 +318,7 @@ class TestAccountCreationRealIntegration(EnhancedTestCase):
         })
         
         request2.insert()
-        self.track_document("Account Creation Request", request2.name)
+        self.factory.track_document("Account Creation Request", request2.name)
         
         # Process second request - should handle existing user gracefully
         manager2 = AccountCreationManager(request2.name)
@@ -349,7 +350,7 @@ class TestAccountCreationRealIntegration(EnhancedTestCase):
         })
         
         request_doc.insert()
-        self.track_document("Account Creation Request", request_doc.name)
+        self.factory.track_document("Account Creation Request", request_doc.name)
         
         # Process should fail due to invalid email
         manager = AccountCreationManager(request_doc.name)
@@ -399,7 +400,7 @@ class TestAccountCreationRealIntegration(EnhancedTestCase):
         })
         
         request_doc.insert()
-        self.track_document("Account Creation Request", request_doc.name)
+        self.factory.track_document("Account Creation Request", request_doc.name)
         
         # Process account creation
         manager = AccountCreationManager(request_doc.name)
@@ -443,7 +444,7 @@ class TestAccountCreationRealIntegration(EnhancedTestCase):
         })
         
         request_doc.insert()
-        self.track_document("Account Creation Request", request_doc.name)
+        self.factory.track_document("Account Creation Request", request_doc.name)
         
         # Test that request can be processed via background job pattern
         manager = AccountCreationManager(request_doc.name)
