@@ -99,6 +99,8 @@ class AuditEventType(Enum):
     CONFIGURATION_CHANGE = "configuration_change"
     SYSTEM_ERROR = "system_error"
     PERFORMANCE_ALERT = "performance_alert"
+    AUDIT_SYSTEM_INITIALIZED = "audit_system_initialized"
+    SECURITY_SYSTEM_INITIALIZED = "security_system_initialized"
 
     # Parameter Security Events
     PARAMETER_TAMPERING = "parameter_tampering"

@@ -366,7 +366,7 @@ def setup_verenigingen_security_policies():
 
             # Test audit logging by creating a test log entry
             log_security_event(
-                "audit_system_test",
+                "audit_system_initialized",
                 details={"test": True, "validation_run": frappe.utils.now()},
                 severity="info",
             )
@@ -381,7 +381,7 @@ def setup_verenigingen_security_policies():
             from verenigingen.utils.security.audit_logging import log_security_event
 
             log_security_event(
-                "security_framework_validated",
+                "security_system_initialized",
                 details={
                     "validations_passed": results["validations_passed"],
                     "configurations_enabled": results["configurations_enabled"],
