@@ -177,8 +177,8 @@ jobs:
       frappe-branch: ${{ inputs.frappe_branch || 'version-15' }}
       erpnext-branch: ${{ inputs.erpnext_branch || 'version-15' }}
       parallel-runs: 1
-      # Run account creation tests using pattern matching
-      test-pattern: 'test_account_creation or test_secure_account_creation or test_csv_import_user_linking'
+      # Run account creation tests using glob patterns for find command
+      test-pattern: 'test_account_creation* test_secure_account_creation test_csv_import_user_linking'
 
   # E-Boekhouden tests
   e-boekhouden:
