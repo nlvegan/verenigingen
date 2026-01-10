@@ -1667,6 +1667,10 @@ class EnhancedTestCase(FrappeTestCase):
     def setUp(self):
         super().setUp()
 
+        # CRITICAL: Ensure Administrator context for all tests
+        # This prevents permission errors and test contamination from other tests
+        frappe.set_user("Administrator")
+
         # CLEANUP: Remove stale test data from previous test runs
         # Only run once per test class (not per method) to avoid timeout
         if not hasattr(self.__class__, '_cleanup_done'):
