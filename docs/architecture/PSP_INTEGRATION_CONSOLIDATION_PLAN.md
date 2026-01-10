@@ -491,12 +491,12 @@ class WebhookTestHelper(ABC):
 
 ---
 
-### SEC-3: Audit All ignore_permissions=True Usage - 🔄 IN PROGRESS
+### SEC-3: Audit All ignore_permissions=True Usage - ✅ COMPLETED
 
 **Priority**: MEDIUM
 **Effort**: 1 day
 **Impact**: Security documentation
-**Status**: 🔄 IN PROGRESS (2026-01-10)
+**Status**: ✅ COMPLETED (2026-01-10)
 
 **Phase 1 COMPLETED - Added Webhook User Permissions**:
 The "Verenigingen Webhook User" role was missing permissions for several DocTypes used during webhook processing. Added permissions to:
@@ -511,28 +511,23 @@ The "Verenigingen Webhook User" role was missing permissions for several DocType
 | Ponto Sync Log | create, write (already had read) |
 | SEPA Audit Log | create, read |
 
-**Files Modified**:
-- `vereinigingen_payments/doctype/webhook_processing_log/webhook_processing_log.json`
-- `vereinigingen_payments/doctype/ing_checkout_transaction/ing_checkout_transaction.json`
-- `vereinigingen_payments/doctype/ing_checkout_mandate/ing_checkout_mandate.json`
-- `vereinigingen_payments/doctype/ponto_payment_link/ponto_payment_link.json`
-- `vereinigingen_payments/doctype/ponto_payment_request/ponto_payment_request.json`
-- `vereinigingen_payments/doctype/ponto_sync_log/ponto_sync_log.json`
-- `vereinigingen_payments/doctype/sepa_audit_log/sepa_audit_log.json`
+**Phase 2 COMPLETED - Removed ignore_permissions calls**:
+With webhook user permissions in place, removed `ignore_permissions=True` from webhook API layer:
 
-**Phase 2 PENDING - Remove ignore_permissions calls**:
-With webhook user permissions in place, the following `ignore_permissions=True` usages can be removed:
+| File | Changes |
+|------|---------|
+| `ing_checkout/api/webhook.py` | Removed from mandate save |
+| `ing_checkout/utils/webhook_security.py` | Removed from log insert |
+| `ponto/api/webhook.py` | Removed 5 ignore_permissions calls |
+| `ponto/api/betaalverzoek_callback.py` | Added webhook user context + removed 2 calls |
+| `ponto/api/payment_callback.py` | Added webhook user context + removed 2 calls |
 
-**Can Now Remove** (webhook user has permissions):
-- `ing_checkout/api/webhook.py` - mandate/transaction saves
-- `ing_checkout/utils/webhook_security.py` - log_webhook() insert
-- `ponto/api/webhook.py` - payment link and sync log saves
-- `ponto/api/betaalverzoek_callback.py` - doc saves
-- `ponto/api/payment_callback.py` - doc saves
+Guest callback endpoints (`allow_guest=True`) now use `get_service_user()` to set webhook user context before database operations.
 
-**Must Keep** (legitimate system operations):
+**Remaining ignore_permissions** (legitimate system operations):
 - Ponto Settings OAuth token saves (credential management)
 - OAuth2 service token saves (no user context during OAuth flow)
+- DocType internal methods (called within webhook user context)
 - Test fixtures (need to create data without user context)
 
 ---
@@ -703,10 +698,10 @@ These have no dependencies and can be tackled simultaneously:
 
 ## Implementation Phases
 
-### Phase 1: Critical Security
-- [ ] CRITICAL-1: Implement Mollie webhook signature validation
-- [ ] CRITICAL-2: Integrate rate limiter into all webhook endpoints
-- [ ] SEC-3: Audit and document all `ignore_permissions=True` usage
+### Phase 1: Critical Security ✅ COMPLETED
+- [x] CRITICAL-1: Implement Mollie webhook signature validation
+- [x] CRITICAL-2: Integrate rate limiter into all webhook endpoints
+- [x] SEC-3: Audit and document all `ignore_permissions=True` usage
 
 ### Phase 2: Infrastructure Consolidation
 - [ ] HIGH-1: Move resilience utilities to `core/resilience/`
