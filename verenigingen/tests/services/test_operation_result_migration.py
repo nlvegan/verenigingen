@@ -30,9 +30,9 @@ class TestMemberLifecycleServiceMigration(EnhancedTestCase):
         """Test successful application approval returns OperationResult."""
         # Create application member
         member = self.create_test_member(
-            first_name="Test",
+            first_name=f"Test{self.uid}",
             last_name="Applicant",
-            email="test.applicant@test.com",
+            email=f"test.applicant.{self.uid}@test.invalid",
             status="Pending"
         )
 
@@ -58,9 +58,9 @@ class TestMemberLifecycleServiceMigration(EnhancedTestCase):
         """Test approve_application fails for non-application member."""
         # Create regular member (not from application)
         member = self.create_test_member(
-            first_name="Regular",
+            first_name=f"Regular{self.uid}",
             last_name="Member",
-            email="regular@test.com",
+            email=f"regular.{self.uid}@test.invalid",
             status="Active"
         )
 
@@ -77,9 +77,9 @@ class TestMemberLifecycleServiceMigration(EnhancedTestCase):
         """Test approve_application fails if already approved."""
         # Create approved application member
         member = self.create_test_member(
-            first_name="Approved",
+            first_name=f"Approved{self.uid}",
             last_name="Member",
-            email="approved@test.com",
+            email=f"approved.{self.uid}@test.invalid",
             status="Active"
         )
         member.application_id = "APP-002"
@@ -99,9 +99,9 @@ class TestMemberLifecycleServiceMigration(EnhancedTestCase):
         """Test successful application rejection returns OperationResult."""
         # Create application member
         member = self.create_test_member(
-            first_name="Test",
+            first_name=f"Test{self.uid}",
             last_name="Reject",
-            email="test.reject@test.com",
+            email=f"test.reject.{self.uid}@test.invalid",
             status="Pending"
         )
         member.application_id = "APP-003"
@@ -128,9 +128,9 @@ class TestMemberLifecycleServiceMigration(EnhancedTestCase):
         """Test reject_application fails for non-application member."""
         # Create regular member
         member = self.create_test_member(
-            first_name="Regular",
+            first_name=f"Regular{self.uid}2",
             last_name="Member",
-            email="regular2@test.com",
+            email=f"regular2.{self.uid}@test.invalid",
             status="Active"
         )
 
@@ -151,9 +151,9 @@ class TestMemberStatusServiceMigration(EnhancedTestCase):
         """Test setting defaults for new application member."""
         # Create unsaved member (simulating new application)
         member = frappe.new_doc("Member")
-        member.first_name = "New"
+        member.first_name = f"New{self.uid}"
         member.last_name = "Application"
-        member.email = "new.application@test.com"
+        member.email = f"new.application.{self.uid}@test.invalid"
 
         # Set defaults
         result = set_member_application_status_defaults(member)
@@ -167,9 +167,9 @@ class TestMemberStatusServiceMigration(EnhancedTestCase):
         """Test setting defaults for existing member without status."""
         # Create and save member
         member = self.create_test_member(
-            first_name="Existing",
+            first_name=f"Existing{self.uid}",
             last_name="Member",
-            email="existing@test.com"
+            email=f"existing.{self.uid}@test.invalid"
         )
 
         # Clear application_status
@@ -190,9 +190,9 @@ class TestMemberStatusServiceMigration(EnhancedTestCase):
         # Create a member doc that will cause validation to fail
         # (This is a bit contrived but tests the chaining mechanism)
         member = self.create_test_member(
-            first_name="Test",
+            first_name=f"Test{self.uid}",
             last_name="Chain",
-            email="test.chain@test.com"
+            email=f"test.chain.{self.uid}@test.invalid"
         )
 
         # Sync status fields (should succeed)
@@ -213,9 +213,9 @@ class TestMemberIdServiceMigration(EnhancedTestCase):
         """Test ensure_member_has_id assigns ID to qualifying member."""
         # Create member and force clear ID without triggering hooks
         member = self.create_test_member(
-            first_name="NoID",
+            first_name=f"NoID{self.uid}",
             last_name="Member",
-            email="noid@test.com",
+            email=f"noid.{self.uid}@test.invalid",
             status="Active"
         )
         # Directly update database to clear member_id without triggering save hooks
@@ -238,9 +238,9 @@ class TestMemberIdServiceMigration(EnhancedTestCase):
         """Test ensure_member_has_id fails when member already has ID."""
         # Create member with ID
         member = self.create_test_member(
-            first_name="HasID",
+            first_name=f"HasID{self.uid}",
             last_name="Member",
-            email="hasid@test.com",
+            email=f"hasid.{self.uid}@test.invalid",
             status="Active"
         )
         # Member should have ID from creation
@@ -258,9 +258,9 @@ class TestMemberIdServiceMigration(EnhancedTestCase):
 
         # Create member and force clear ID without triggering hooks
         member = self.create_test_member(
-            first_name="Force",
+            first_name=f"Force{self.uid}",
             last_name="Assign",
-            email="force@test.com",
+            email=f"force.{self.uid}@test.invalid",
             status="Active"
         )
         # Directly update database to clear member_id without triggering save hooks
@@ -287,9 +287,9 @@ class TestOperationResultChainingInServices(EnhancedTestCase):
         """Test that chaining preserves error context through multiple service layers."""
         # Create member that will fail validation
         member = self.create_test_member(
-            first_name="Chain",
+            first_name=f"Chain{self.uid}",
             last_name="Test",
-            email="chain@test.com",
+            email=f"chain.{self.uid}@test.invalid",
             status="Active"
         )
         # Not an application member
