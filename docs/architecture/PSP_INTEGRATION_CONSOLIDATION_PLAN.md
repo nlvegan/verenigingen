@@ -678,7 +678,17 @@ These have no dependencies and can be tackled simultaneously:
 - Ready for MED-1 (WebhookErrorHandler adoption) in Phase 4
 
 ### Phase 3: Code Cleanup
-- [ ] HIGH-4: Split Ponto webhook.py
+- [x] HIGH-4: Split Ponto webhook.py
+
+**HIGH-4 Implementation Summary** (2026-01-10):
+- Split 1271-line monolithic webhook.py into three focused modules:
+  - `webhook.py` (458 lines): Entry point, routing, PontoEventTypes class
+  - `webhook_handlers.py` (774 lines): 14 event handlers with payment processing
+  - `webhook_utils.py` (181 lines): 6 extraction/parsing utilities
+- Used dependency injection for `_update_account_sync_status` callback
+- Maintained backwards compatibility via re-exports
+- All syntax validated
+
 - [ ] LOW-1: Remove deprecated mollie_client.py
 - [ ] LOW-4: Make debug logging conditional
 - [ ] LOW-5: Document/consolidate webhook security files
