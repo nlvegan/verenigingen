@@ -1,7 +1,7 @@
 # PSP Integration Consolidation Plan
 
 **Created**: 2026-01-10
-**Updated**: 2026-01-10
+**Updated**: 2026-01-11
 **Status**: In Progress (Phase 1 Critical Security - COMPLETED)
 **Review Date**: Architecture review by 5 parallel agents
 **Scope**: Mollie, Ponto, ING Checkout payment integrations
@@ -265,20 +265,37 @@ class PSPWebhookError(PSPIntegrationError): pass
 
 ---
 
-### MED-4: Add Models to ING Checkout
+### MED-4: Add Models to ING Checkout - ✅ COMPLETED
 
 **Priority**: MEDIUM
 **Effort**: 2 days
 **Impact**: Type safety, consistency with Mollie/Ponto
+**Status**: ✅ COMPLETED (2026-01-11)
 
-**Current State**:
-- ING Checkout uses raw dicts throughout
-- Mollie has `BaseModel` class hierarchy
-- Ponto has dataclasses with `from_api_response()`
+**Implementation Summary**:
+Created `ing_checkout/models.py` with comprehensive dataclass models following the Ponto pattern:
 
-**Required Fix**:
-- Create `ing_checkout/models.py` with dataclasses
-- Models needed: `Transaction`, `Mandate`, `PaymentStatus`
+**Enums**:
+- `TransactionStatus` - Pay.nl transaction states with `from_api_status()` mapper
+- `MandateStatus` - SEPA mandate states with `from_api_status()` mapper
+- `MandateType` - Single/recurring/flexible mandate types
+- `DirectDebitStatus` - Direct debit collection states
+
+**Dataclasses**:
+- `INGTransaction` - Pay.nl order representation with:
+  - `from_api_response()` factory for API response parsing
+  - `to_doctype_dict()` for DocType conversion
+  - Status helpers: `is_paid`, `is_pending`, `is_failed`
+- `INGMandate` - SEPA mandate representation with:
+  - `from_api_response()` factory with date parsing
+  - `to_doctype_dict()` for DocType conversion
+  - Status helpers: `is_active`, `is_usable`, `is_recurring`
+- `INGDirectDebit` - Direct debit execution representation with:
+  - `from_api_response()` factory
+  - Status helpers: `is_completed`, `is_pending`, `is_failed`
+
+**Files Created**:
+- `verenigingen/verenigingen_payments/ing_checkout/models.py` - Complete models implementation
 
 ---
 
@@ -727,7 +744,7 @@ These have no dependencies and can be tackled simultaneously:
 - Provides cleaner interface: `check_duplicate()` returns structured result with original log details
 - Mollie's `UnifiedIdempotencyManager` remains separate for advanced features (Payment Entry tracking, refund/chargeback state)
 
-- [ ] MED-4: Add models to ING Checkout
+- [x] MED-4: Add models to ING Checkout ✅
 - [ ] MED-5: Standardize error response formats
 
 ### Phase 5: Advanced Consolidation
