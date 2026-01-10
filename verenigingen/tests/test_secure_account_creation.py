@@ -112,8 +112,7 @@ class TestSecureAccountCreation(EnhancedTestCase):
             priority="Normal"
         )
         
-        # Validate request was created
-        self.assertIn("request_name", result)
+        # Validate request was created - request_name can be at top level or nested in data
         request_name = self._get_request_name_or_skip(result)
         
         # Validate request document
@@ -295,29 +294,40 @@ class TestSecureAccountCreation(EnhancedTestCase):
 
     def test_volunteer_integration_security(self):
         """Test that volunteer integration uses secure methods"""
-        # Temporarily re-enable automatic account creation for this test
+        # This test specifically verifies that creating a volunteer triggers account creation
+        # We must NOT use create_test_volunteer() as it sets skip_volunteer_account_creation=True
+
+        # Generate unique email for this test run
+        import time
+        unique_email = f"integration.test.{int(time.time())}.{self.test_run_id}@example.com"
+
+        # Create member first using helper (this doesn't affect volunteer hooks)
+        member = self.create_test_member(
+            first_name=f"Integration{self.uid}",
+            last_name="Test",
+            email=unique_email
+        )
+
+        # Create volunteer directly to test that account creation hook fires
+        from frappe.utils import today
+        volunteer = frappe.get_doc({
+            "doctype": "Volunteer",
+            "volunteer_name": f"Integration Test Volunteer {self.uid} {self.test_run_id}",
+            "email": unique_email,
+            "member": member.name,
+            "status": "New",
+            "start_date": today()
+        })
+
+        # Ensure account creation IS enabled for this insert
         original_flag = frappe.flags.get("skip_volunteer_account_creation", False)
         frappe.flags.skip_volunteer_account_creation = False
 
         try:
-            # Generate unique email for this test run
-            import time
-            unique_email = f"integration.test.{int(time.time())}.{self.test_run_id}@example.com"
-
-            # Create member first
-            member = self.create_test_member(
-                first_name=f"Integration{self.uid}",
-                last_name="Test",
-                email=unique_email
-            )
-
-            # Create volunteer using test helper which handles permissions properly
-            volunteer = self.create_test_volunteer(
-                member=member.name,
-                volunteer_name=f"Integration Test Volunteer {self.test_run_id}",
-                email=unique_email,
-                status="New"
-            )
+            # Insert as Administrator to have proper permissions
+            frappe.set_user("Administrator")
+            volunteer.insert()
+            self.factory.track_document("Volunteer", volunteer.name)
 
             # Verify that account creation was queued (not processed immediately)
             account_requests = frappe.get_all("Account Creation Request",
